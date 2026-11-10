@@ -24,7 +24,7 @@ fn init() -> Replier {
     // function pointers with mock implementations that record replies
     // without ever dereferencing the `RedisModuleCtx` pointer, so a
     // dangling non-null address is safe here.
-    unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) }
+    unsafe { Replier::new(std::ptr::NonNull::<RedisModuleCtx>::dangling()) }
 }
 
 /// Capture a single reply from a closure.
@@ -90,6 +90,24 @@ fn id_list_sorted() {
     let iter = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
+}
+
+/// A C-wrapped Rust iterator prints exactly as the iterator it wraps: printing
+/// dispatches through the header's `PrintProfile` callback, which reads the
+/// wrapper's `inner` through the pointer [`CRQEIterator`] hands it.
+///
+/// [`CRQEIterator`]: rqe_iterators::c2rust::CRQEIterator
+#[test]
+fn c_wrapped_rust_iterator() {
+    let mut replier = init();
+    let direct = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
+    let wrapped = rqe_iterators::c2rust::CRQEIterator::from_rust_leaf(
+        rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]),
+    );
+    assert_eq!(
+        print(&mut replier, &wrapped, false),
+        print(&mut replier, &direct, false)
+    );
 }
 
 #[test]

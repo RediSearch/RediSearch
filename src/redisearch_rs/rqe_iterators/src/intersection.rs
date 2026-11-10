@@ -25,6 +25,7 @@ use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -125,6 +126,15 @@ fn result_is_borrowed_intersection<Rf: Ref>(result: &RawIndexResult<'_, Rf>) -> 
         && result
             .as_aggregate()
             .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
+}
+
+/// Whether an intersection with these proximity constraints filters documents
+/// by term position, and so needs its children's term offsets.
+///
+/// Only `max_slop: None` with `in_order: false` imposes no constraint: every
+/// document matching all children is trivially within range.
+pub const fn filters_by_position(max_slop: Option<u32>, in_order: bool) -> bool {
+    max_slop.is_some() || in_order
 }
 
 /// Result of attempting to get all children to agree on a target document ID.
@@ -273,12 +283,10 @@ where
         self.children.iter_mut()
     }
 
-    /// Returns `true` if the current result needs a proximity check after consensus.
-    ///
-    /// The check is skipped only when `max_slop` is `None` and `in_order` is `false` — the
-    /// only case where every document matching all children is trivially within range.
+    /// Returns `true` if the current result needs a proximity check after consensus; see
+    /// [`filters_by_position`].
     const fn needs_relevancy_check(&self) -> bool {
-        self.max_slop.is_some() || self.in_order
+        filters_by_position(self.max_slop, self.in_order)
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
@@ -723,7 +731,7 @@ where
         };
         for i in 0..len {
             // SAFETY: `i` is in bounds of the children buffer.
-            let slot = unsafe { base.add(i) };
+            let slot = NonNull::new(unsafe { base.add(i) }).expect("child slot is non-null");
             // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it in
             // a valid `I::Suspended` state.
             unsafe { suspend_child_slot_in_place(slot) };
@@ -906,7 +914,7 @@ where
             // consumed the child, and the guard must not drop it.
             let i = shell.vacate_next();
             // SAFETY: `i` is in bounds of the children buffer.
-            let elem = unsafe { base.add(i) };
+            let elem = NonNull::new(unsafe { base.add(i) }).expect("child slot is non-null");
             // SAFETY: `elem` holds a valid, owned `S`; the helper rewrites it as
             // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it
             // on `Aborted`/`Err`, which return through `shell`'s drop.
@@ -918,7 +926,7 @@ where
                     //
                     // SAFETY: the helper just rewrote the slot as a valid
                     // `S::Resumed<'a>`.
-                    let resumed = unsafe { &*elem.cast::<S::Resumed<'a>>().cast_const() };
+                    let resumed = unsafe { elem.cast::<S::Resumed<'a>>().as_ref() };
                     walk = walk.and_moved(resumed.at_eof());
                 }
                 ResumeSlotOutcome::Aborted => return Ok(ResumeOutcome::Aborted),

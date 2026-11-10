@@ -21,6 +21,7 @@ use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 /// A lazily-populated metric iterator sorted by document id.
 pub type MetricLazySortedById<'index> = MetricLazy<'index, true>;
@@ -100,9 +101,17 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     ///
     /// # Safety
     ///
-    /// Same contract as [`Metric::set_handle`].
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
-        // SAFETY: contract forwarded to the caller of this function.
+    /// 1. `key_handle` is [`None`], or points to an initialized [`RLookupKeyHandle`]
+    ///    that remains alive until this iterator is dropped or the handle is
+    ///    replaced.
+    /// 2. The `is_valid` field of the previously attached handle, if it differs
+    ///    from `key_handle`, must be writable exclusively during this call.
+    /// 3. The `is_valid` field of `key_handle` must be writable exclusively whenever
+    ///    this iterator invalidates it: when the iterator is dropped or the handle
+    ///    is replaced.
+    pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
+        // SAFETY: (1), (2) and (3) are [`Metric::set_handle`]'s (1), (2) and (3): the
+        // inner iterator is dropped with this one.
         unsafe { self.inner.set_handle(key_handle) };
     }
 
@@ -213,7 +222,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
     type Suspended = SuspendedMetricLazy<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = Box::into_raw(self);
+        let active = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // Suspend the wrapped metric's base id list `result` field in place, leaving the
         // outer allocation (and the `Rf`-independent `producer`) untouched.
@@ -221,7 +230,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `active`'s provenance over the whole allocation for the outer
         // cast below.
-        let inner_slot = unsafe { &raw mut (*active).inner };
+        let inner_slot = unsafe { &raw mut (*active.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `active`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). Suspending is a safe widening conversion.
         let _ = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(inner_slot) };
@@ -230,7 +242,13 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
         // field layout: `inner` is now the suspended metric, `producer` is `Producer<'static>` in
         // both variants, and `produced`/`num_estimated_hint` carry no lifetime. `Box::from_raw`
         // reuses the same heap allocation as `Box::into_raw`, so the address is unchanged.
-        unsafe { Box::from_raw(active.cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()) }
+        unsafe {
+            Box::from_raw(
+                active
+                    .cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()
+                    .as_ptr(),
+            )
+        }
     }
 }
 
@@ -249,7 +267,7 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended = Box::into_raw(self);
+        let suspended = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // Promote the wrapped metric's base id list `result` field in place, leaving the
         // outer allocation (and the `Rf`-independent `producer`) untouched.
@@ -257,7 +275,10 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `suspended`'s provenance over the whole allocation for the
         // outer cast below.
-        let inner_slot = unsafe { &raw mut (*suspended).inner };
+        let inner_slot = unsafe { &raw mut (*suspended.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `suspended`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `resume_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). We reclaim the outer allocation via `suspended`
         // in either branch, so the inner pointer it returns is not needed.
@@ -269,8 +290,13 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
                 // at the active type for `'index`; the remaining fields carry no `Rf`.
                 // `Box::from_raw` reuses the same heap allocation as `suspend`'s `Box::into_raw`,
                 // so the address is unchanged.
-                let active =
-                    unsafe { Box::from_raw(suspended.cast::<MetricLazy<'index, SORTED_BY_ID>>()) };
+                let active = unsafe {
+                    Box::from_raw(
+                        suspended
+                            .cast::<MetricLazy<'index, SORTED_BY_ID>>()
+                            .as_ptr(),
+                    )
+                };
                 Ok(ResumeOutcome::Ok(active))
             }
             Err(_) => {
@@ -279,7 +305,7 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
                 // `SuspendedMetricLazy`.
                 // SAFETY: `suspended` came from `Box::into_raw` above and was not mutated; reclaim
                 // ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended) });
+                drop(unsafe { Box::from_raw(suspended.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }

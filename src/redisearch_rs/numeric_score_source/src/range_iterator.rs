@@ -16,7 +16,7 @@
 //! Each chunk is materialized into a doc-id-ordered [`NumericScoreBatch`], so a
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, marker::PhantomData, ptr::NonNull};
 
 use index_result::RSIndexResult;
 use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
@@ -26,12 +26,62 @@ use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
 
 use crate::score_batch::NumericScoreBatch;
 
+/// A tree borrowed for a query, including while its spec lock is released.
+///
+/// Immutable Rust trees convert through [`From`]; mutable C-owned trees enter
+/// through [`from_raw`](Self::from_raw), which specifies the lifetime and revalidation
+/// contract used by the numeric source's safe constructors.
+pub struct NumericTreeRef<'index> {
+    ptr: NonNull<NumericRangeTree>,
+    _lifetime: PhantomData<&'index NumericRangeTree>,
+}
+
+impl<'index> NumericTreeRef<'index> {
+    /// Borrow a tree that may change while the query is suspended.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tree` points to an initialized [`NumericRangeTree`] that remains
+    ///    [valid] at a stable address for `'index`.
+    /// 2. If the tree may be mutated during `'index`, `tree` must retain the
+    ///    owner's raw-pointer provenance, not come from a reference to the tree
+    ///    that a later mutable borrow would invalidate.
+    /// 3. Mutation or mutable borrowing is allowed only while all consuming
+    ///    iterators are idle across a lock release. Revalidate each iterator
+    ///    before using it again, and discard it if revalidation aborts.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn from_raw(tree: NonNull<NumericRangeTree>) -> Self {
+        Self {
+            ptr: tree,
+            _lifetime: PhantomData,
+        }
+    }
+
+    fn get(&self) -> &'index NumericRangeTree {
+        // SAFETY: the shared borrow or `from_raw` (1, 2) keeps this pointer valid;
+        // (3) excludes mutation during iterator operations.
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<'index> From<&'index NumericRangeTree> for NumericTreeRef<'index> {
+    fn from(tree: &'index NumericRangeTree) -> Self {
+        Self {
+            ptr: NonNull::from(tree),
+            _lifetime: PhantomData,
+        }
+    }
+}
+
 /// Streams a numeric tree's ranges in value order, restricted to a
 /// [`RangeWindow`] and chunked by [`next_n`](Self::next_n).
 pub struct NumericRangeIterator<'index> {
-    tree: &'index NumericRangeTree,
-    /// Ranges matching the current filter window, best-score-first.
-    ranges: Vec<&'index NumericRange>,
+    tree: NumericTreeRef<'index>,
+    /// Ranges matching `window`, best-score-first, or `None` until they are
+    /// next resolved from the tree.
+    ranges: Option<Vec<&'index NumericRange>>,
+    window: RangeWindow,
     /// Index of the next range to hand out.
     pos: usize,
     /// Value predicate applied to each record as a batch is materialized.
@@ -47,23 +97,54 @@ pub struct NumericRangeIterator<'index> {
     /// field occupies one range per doc and needs no such tracking, so it skips
     /// the per-record set lookup entirely.
     emitted: Option<HashSet<DocId>>,
+    /// Construction-time snapshot of [`NumericRangeTree::revision_id`], never
+    /// refreshed: a changed tree revision invalidates this cursor.
+    revision_id: u32,
 }
 
 impl<'index> NumericRangeIterator<'index> {
     /// Resolve `filter` against `tree` over `window` and prepare to stream the
     /// matching ranges best-score-first.
     pub fn new(
-        tree: &'index NumericRangeTree,
+        tree: impl Into<NumericTreeRef<'index>>,
         filter: &NumericFilter,
         window: RangeWindow,
     ) -> Self {
+        let tree = tree.into();
+        let revision_id = tree.get().revision_id();
         Self {
             tree,
-            ranges: tree.find_windowed(filter, window),
+            ranges: None,
+            window,
             pos: 0,
             filter: *filter,
-            emitted: tree.has_multivalued_docs().then(HashSet::new),
+            emitted: None,
+            revision_id,
         }
+    }
+
+    fn ranges(&mut self) -> &[&'index NumericRange] {
+        self.ranges.get_or_insert_with(|| {
+            let tree = self.tree.get();
+            if self.emitted.is_none() && tree.has_multivalued_docs() {
+                self.emitted = Some(HashSet::new());
+            }
+            tree.find_windowed(&self.filter, self.window)
+        })
+    }
+
+    /// Discard cached ranges without accessing their contents.
+    ///
+    /// Suspension calls this before unlocking; legacy revalidation calls it
+    /// after relocking, before any range can be read again.
+    pub fn release_index_handles(&mut self) {
+        self.ranges = None;
+    }
+
+    /// Whether the tree still has the structure this cursor was built against.
+    /// Call only with the spec lock held.
+    pub fn can_collect_after_lock_release(&self) -> bool {
+        self.tree.get().revision_id() == self.revision_id
     }
 
     /// Re-resolve onto `window`, usually the next one, and restart from its
@@ -73,10 +154,18 @@ impl<'index> NumericRangeIterator<'index> {
     /// disjoint value window, so a doc already scored on a better value must
     /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
     /// when restarting the whole query.
-    pub fn refind(&mut self, filter: &NumericFilter, window: RangeWindow) {
-        self.ranges = self.tree.find_windowed(filter, window);
+    pub fn refind(&mut self, window: RangeWindow) {
+        self.ranges = None;
+        self.window = window;
         self.pos = 0;
-        self.filter = *filter;
+    }
+
+    pub(crate) fn window(&self) -> RangeWindow {
+        self.window
+    }
+
+    pub(crate) fn ascending(&self) -> bool {
+        self.filter.ascending
     }
 
     /// Drop the record of already-emitted doc ids, so a full rewind can score
@@ -92,13 +181,13 @@ impl<'index> NumericRangeIterator<'index> {
     /// Used as the per-window document estimate, both for the source's
     /// `num_estimated` and to advance the window's `offset` past a consumed
     /// window on retry.
-    pub fn total_docs_estimate(&self) -> usize {
-        self.ranges.iter().map(|r| r.num_docs() as usize).sum()
+    pub fn total_docs_estimate(&mut self) -> usize {
+        self.ranges().iter().map(|r| r.num_docs() as usize).sum()
     }
 
     /// Whether every range of the current window has been handed out.
-    pub fn is_exhausted(&self) -> bool {
-        self.pos >= self.ranges.len()
+    pub fn is_exhausted(&mut self) -> bool {
+        self.pos >= self.ranges().len()
     }
 
     /// Materialize the next `n` value-ordered ranges into one doc-id-ordered
@@ -112,12 +201,14 @@ impl<'index> NumericRangeIterator<'index> {
         n: usize,
         timeout: &mut impl TimeoutContext,
     ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
-        if self.pos >= self.ranges.len() {
+        let len = self.ranges().len();
+        if self.pos >= len {
             return Ok(None);
         }
-        let end = (self.pos + n.max(1)).min(self.ranges.len());
+        let end = (self.pos + n.max(1)).min(len);
+        let ranges = self.ranges.as_deref().unwrap_or_default();
         let batch = merge_ranges(
-            &self.ranges[self.pos..end],
+            &ranges[self.pos..end],
             self.filter,
             self.emitted.as_mut(),
             timeout,

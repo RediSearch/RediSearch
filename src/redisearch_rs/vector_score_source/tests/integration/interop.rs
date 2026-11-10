@@ -31,10 +31,8 @@ use vector_score_source::{
 struct OwnedHeader(Option<NonNull<QueryIterator>>);
 
 impl OwnedHeader {
-    fn new(raw: *mut QueryIterator) -> Self {
-        Self(Some(
-            NonNull::new(raw).expect("boxed_new returns an owning pointer"),
-        ))
+    fn new(header: NonNull<QueryIterator>) -> Self {
+        Self(Some(header))
     }
 
     fn as_non_null(&self) -> NonNull<QueryIterator> {
@@ -128,7 +126,7 @@ fn freeing_the_iterator_invalidates_the_handle_it_was_given() {
 
     // SAFETY: `it` is a live vector top-k iterator held exclusively, and
     // `handle` outlives it — the iterator is freed just below.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut handle) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut handle)) };
     assert!(handle.is_valid, "wiring a handle must not clear it");
 
     // Released here rather than left to drop: the invalidation is only
@@ -138,6 +136,39 @@ fn freeing_the_iterator_invalidates_the_handle_it_was_given() {
         !handle.is_valid,
         "freeing the iterator must invalidate its handle"
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn replacing_and_detaching_handles_invalidates_previous_handles() {
+    let index = TestIndex::flat(3, 1);
+    let ctx = MockContext::new(3, 3);
+    let mut it = header(&index, &ctx);
+    let mut first = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+    let mut second = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+
+    // SAFETY: `it` is a live vector top-k iterator held exclusively, and both
+    // handles outlive it and remain writable until they are detached below.
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut first)) };
+    // SAFETY: the same handle remains attached and exclusively writable.
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut first)) };
+    assert!(first.is_valid, "reattaching the same handle preserves it");
+
+    // SAFETY: both handles remain alive and exclusively writable.
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut second)) };
+    assert!(!first.is_valid, "replacement invalidates the old handle");
+    assert!(second.is_valid, "replacement preserves the new handle");
+
+    // SAFETY: the attached handle remains alive and exclusively writable.
+    unsafe { interop::set_key_handle(it.as_non_null(), None) };
+    assert!(!second.is_valid, "detachment invalidates the handle");
+    it.free();
 }
 
 #[test]
