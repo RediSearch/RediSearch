@@ -56,7 +56,7 @@ struct timespec;
 
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
-static GilGate clusterGilGate;
+static GilGate clusterGilGate = GIL_GATE_INIT;
 
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
