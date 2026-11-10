@@ -66,7 +66,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                                   RedisModuleKey *key, ScanProcCtx *scanCtx);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
-static GilGate reindexGilGate;
+static GilGate reindexGilGate = GIL_GATE_INIT;
 
 // The reindex jobs take the GIL through a gate so ReindexPool_ThreadPoolDestroy can join them.
 void ReindexPool_LockGIL(RedisModuleCtx *ctx) {
@@ -539,6 +539,17 @@ void ReindexPool_ThreadPoolDestroy() {
     GilGate_BeginJoin(&reindexGilGate);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
+  }
+}
+
+// Unlike ReindexPool_ThreadPoolDestroy, called from a command: Lock's bookkeeping is in place, so
+// the GIL can be dropped for real and running scans finish on it instead of borrowing.
+void ReindexPool_ThreadPoolDrain() {
+  if (reindexPool != NULL) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    redisearch_thpool_destroy(reindexPool);
+    reindexPool = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 

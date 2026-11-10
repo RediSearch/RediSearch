@@ -21,10 +21,12 @@ class GilGateTest : public ::testing::Test {
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
+    pthread_mutex_init(&gate.borrowers, nullptr);
     GilGate_Reset(&gate);
   }
 
   void TearDown() override {
+    pthread_mutex_destroy(&gate.borrowers);
     RedisModule_FreeThreadSafeContext(ctx);
   }
 };
@@ -62,5 +64,31 @@ TEST_F(GilGateTest, JoiningLetsWorkerBorrowTheGil) {
 
   // Still held by this thread: a worker's Unlock was a no-op.
   std::thread([&] { EXPECT_NE(RedisModule_ThreadSafeContextTryLock(ctx), REDISMODULE_OK); }).join();
+  RedisModule_ThreadSafeContextUnlock(ctx);
+}
+
+TEST_F(GilGateTest, BorrowersTakeTurns) {
+  RedisModule_ThreadSafeContextLock(ctx);
+  GilGate_BeginJoin(&gate);
+
+  std::atomic<int> inside{0};
+  std::atomic<int> maxInside{0};
+  auto borrow = [&] {
+    for (int i = 0; i < 100; ++i) {
+      ASSERT_FALSE(GilGate_Lock(&gate, ctx));
+      int now = ++inside;
+      int seen = maxInside.load();
+      while (now > seen && !maxInside.compare_exchange_weak(seen, now)) {
+      }
+      std::this_thread::yield();
+      --inside;
+      GilGate_Unlock(&gate, ctx);
+    }
+  };
+  std::thread a(borrow), b(borrow);
+  a.join();
+  b.join();
+  EXPECT_EQ(maxInside, 1);
+
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
