@@ -26,6 +26,7 @@
 #include "debug_commands.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
+GilGate gcGilGate_g;
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
 // consistency window is already open starts paused; live ones are paused and resumed by
 // walking IndexSpec->gc. Guarded by the GIL.
@@ -359,6 +360,7 @@ void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
+    GilGate_Reset(&gcGilGate_g);
     gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
   }
 }
@@ -369,10 +371,9 @@ void GC_ThreadPoolDestroy() {
       gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
       redisearch_thpool_resume_threads(gcThreadpool_g);
     }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    GilGate_BeginJoin(&gcGilGate_g);
     redisearch_thpool_destroy(gcThreadpool_g);
     gcThreadpool_g = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
