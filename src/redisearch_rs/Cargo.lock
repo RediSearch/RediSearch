@@ -2290,6 +2290,7 @@ dependencies = [
 name = "reducers_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "query_error",
  "reducers",

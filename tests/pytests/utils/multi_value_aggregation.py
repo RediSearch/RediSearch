@@ -48,5 +48,8 @@ def _canonical(reply_rows):
 
 
 def _canonical_dicts(rows):
-    # GROUPBY returns its groups in no defined order.
+    # Neither the groups nor the lists a reducer returns have a defined order, so no
+    # order is checked.
+    rows = [{k: sorted(v, key=repr) if isinstance(v, list) else v for k, v in row.items()}
+            for row in rows]
     return sorted(rows, key=lambda row: repr(sorted(row.items(), key=repr)))

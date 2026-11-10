@@ -31,7 +31,8 @@ pub struct FirstValue<'a> {
 
 /// The sort key and direction of a [`FirstValue`] reducer.
 ///
-/// A null sort value never wins over a non-null one. Ties keep the earlier row.
+/// A null sort value never wins over a non-null one. Ties keep the earlier row. A
+/// row with several sort [values][RLookupRow::values_of] competes with the best of them.
 pub struct SortBy<'a> {
     pub sort_key: &'a RLookupKey<'a>,
     pub direction: Direction,
@@ -50,6 +51,17 @@ impl Direction {
         match self {
             Self::Ascending => Ordering::Less,
             Self::Descending => Ordering::Greater,
+        }
+    }
+}
+
+impl SortBy<'_> {
+    /// Whichever of `current` and `candidate` wins in this direction; `current` on a tie.
+    fn best<'v>(&self, current: &'v SharedValue, candidate: &'v SharedValue) -> &'v SharedValue {
+        if compare_with_query_error(candidate, current, None) == self.direction.winning() {
+            candidate
+        } else {
+            current
         }
     }
 }
@@ -88,7 +100,10 @@ impl FirstValue<'_> {
 
     fn add_sorted(&self, state: &mut FirstValueState, row: &RLookupRow<'_>, sort_by: &SortBy<'_>) {
         // Borrowed: most rows do not win, so only a winning sort value is cloned.
-        let row_sort_value = row.get(sort_by.sort_key).filter(|value| !is_null(value));
+        let row_sort_value = row
+            .values_of(sort_by.sort_key)
+            .filter(|value| !is_null(value))
+            .reduce(|best, value| sort_by.best(best, value));
 
         match (&mut state.0, row_sort_value) {
             // The first row is kept, whatever its sort value.

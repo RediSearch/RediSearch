@@ -67,14 +67,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
-    srckeys[ii] = NULL;
-    if (loadKeys) {
-      bool isNew = false;
-      srckeys[ii] = RLookup_GetKey_AllValues(srclookup, fldname, fldname_len, &isNew);
-      if (isNew) {
-        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
-      }
-    }
+    srckeys[ii] = Aggregate_GetAllValuesKey(srclookup, fldname, loadKeys);
     if (!srckeys[ii]) {
       srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     }

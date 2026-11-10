@@ -22,25 +22,24 @@ typedef struct {
 } FuncEntry;
 
 // Static registry of all builtin reducers - no runtime registration needed
-static const FuncEntry globalRegistry[] = {
-  {"COUNT", RDCRCount_New},
-  {"SUM", RDCRSum_New},
-  {"TOLIST", RDCRToList_New},
-  {"MIN", RDCRMin_New},
-  {"MAX", RDCRMax_New},
-  {"AVG", RDCRAvg_New},
-  {"COUNT_DISTINCT", RDCRCountDistinct_New},
-  {"COUNT_DISTINCTISH", RDCRCountDistinctish_New},
-  {"QUANTILE", RDCRQuantile_New},
-  {"STDDEV", RDCRStdDev_New},
-  {"FIRST_VALUE", RDCRFirstValue_New},
-  {"RANDOM_SAMPLE", RDCRRandomSample_New},
-  {"HLL", RDCRHLL_New},
-  {"HLL_SUM", RDCRHLLSum_New},
-  {"COLLECT", RDCRCollect_New}
-};
+static const FuncEntry globalRegistry[] = {{"COUNT", RDCRCount_New},
+                                           {"SUM", RDCRSum_New},
+                                           {"TOLIST", RDCRToList_New},
+                                           {"MIN", RDCRMin_New},
+                                           {"MAX", RDCRMax_New},
+                                           {"AVG", RDCRAvg_New},
+                                           {"COUNT_DISTINCT", RDCRCountDistinct_New},
+                                           {"COUNT_DISTINCTISH", RDCRCountDistinctish_New},
+                                           {"QUANTILE", RDCRQuantile_New},
+                                           {"STDDEV", RDCRStdDev_New},
+                                           {"FIRST_VALUE", RDCRFirstValue_New},
+                                           {"RANDOM_SAMPLE", RDCRRandomSample_New},
+                                           {"HLL", RDCRHLL_New},
+                                           {"HLL_SUM", RDCRHLLSum_New},
+                                           {"COLLECT", RDCRCollect_New},
+                                           {"__COUNT_NUMBERS", RDCRCountNumbers_New}};
 
-#define REGISTRY_SIZE 15
+#define REGISTRY_SIZE 16
 static_assert(sizeof(globalRegistry) == sizeof(FuncEntry) * REGISTRY_SIZE);
 
 ReducerFactory RDCR_GetFactory(const char *name) {
@@ -83,7 +82,7 @@ bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
   return true;
 }
 
-int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
+static int getKey(const ReducerOptions *options, bool allValues, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
   size_t len;
@@ -96,7 +95,36 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (!keyName) {
     return 0;
   }
+  if (allValues) {
+    const RLookupKey *key =
+        Aggregate_GetAllValuesKey(options->srclookup, keyName, options->loadKeys);
+    if (key) {
+      *out = key;
+      return 1;
+    }
+  }
   return ReducerOpts_ResolveKey(options, keyName, out) ? 1 : 0;
+}
+
+const RLookupKey *Aggregate_GetAllValuesKey(RLookup *lookup, const char *name,
+                                            const RLookupKey ***loadKeys) {
+  if (!loadKeys) {
+    return NULL;
+  }
+  bool isNew = false;
+  const RLookupKey *key = RLookup_GetKey_AllValues(lookup, name, strlen(name), &isNew);
+  if (isNew) {
+    *loadKeys = array_ensure_append_1(*loadKeys, key);
+  }
+  return key;
+}
+
+int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
+  return getKey(options, false, out);
+}
+
+int ReducerOpts_GetValuesKey(const ReducerOptions *options, const RLookupKey **out) {
+  return getKey(options, true, out);
 }
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {

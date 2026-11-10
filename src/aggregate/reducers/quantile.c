@@ -69,7 +69,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   QTLReducer *r = rm_calloc(1, sizeof(*r));
   r->resolution = 500;  // Fixed, i guess?
 
-  if (!ReducerOptions_GetKey(options, &r->base.srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &r->base.srckey)) {
     goto error;
   }
   int rv;
