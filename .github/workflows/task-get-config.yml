@@ -106,23 +106,6 @@ jobs:
 
           # Platform configurations
           platform_configs = {
-              "macos-14": {
-                  "x86_64": {
-                      'env': 'macos-14-large',
-                      'name': 'macOS 14 x86_64',
-                      'enable_lto': '0' # Currently not possible on macOS.
-                  },
-                  "aarch64": {
-                      'env': 'macos-14',
-                      # Apple's ld (through Xcode 16.2) has an ARM64 linker bug that misaligns
-                      # symbols, causing "not 8-byte aligned" LDR/STR errors. The project's
-                      # llvm@21 (installed by install_llvm.sh) doesn't include lld, so we
-                      # install llvm@17 separately for its ld64.lld (used via RUSTFLAGS in build.sh).
-                      'setup_script': 'brew install llvm@17',
-                      'name': 'macOS 14 ARM64',
-                      'enable_lto': '0' # Currently not possible on macOS.
-                  }
-              },
               "macos-15": {
                   "x86_64": {
                       'env': 'macos-15-intel',

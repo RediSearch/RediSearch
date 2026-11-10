@@ -342,7 +342,7 @@ uv run redisbench-admin run-local \
 
 ## Supported Platforms
 
-The following operating systems are supported and tested in CI on both `x86_64` and `aarch64` (with the exception of macOS 14, which is ARM64-only):
+The following operating systems are supported and tested in CI on both `x86_64` and `aarch64`:
 
 * Ubuntu 20.04 (Focal)
 * Ubuntu 22.04 (Jammy)
@@ -356,7 +356,6 @@ The following operating systems are supported and tested in CI on both `x86_64` 
 * Amazon Linux 2023
 * Azure Linux 3
 * Alpine Linux 3.23
-* macOS 14 (ARM64)
 * macOS 15
 * macOS 26
 
