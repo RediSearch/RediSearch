@@ -174,7 +174,8 @@ unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
 ///
 /// # Safety
 ///
-/// - `c` must be a [valid] pointer to at least `len` bytes.
+/// - If `len > 0`, `c` must be a [valid] pointer to at least `len` bytes.
+///   When `len == 0`, `c` is unused and may be anything (including NULL).
 /// - `lon` and `lat` must be [valid], non-null pointers to writable `f64` values,
 ///   properly aligned for [`f64`].
 /// - `status` must be a [valid], non-null pointer to an [`OpaqueQueryError`]
@@ -189,8 +190,12 @@ pub unsafe extern "C" fn parseGeo(
     lat: *mut f64,
     status: *mut OpaqueQueryError,
 ) -> c_int {
-    // SAFETY: caller guarantees `c` points to at least `len` bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(c, len) };
+    let bytes: &[u8] = if len > 0 {
+        // SAFETY: caller guarantees `c` points to at least `len` bytes.
+        unsafe { std::slice::from_raw_parts(c, len) }
+    } else {
+        &[]
+    };
     let s = match std::str::from_utf8(bytes) {
         Ok(s) => s,
         Err(_) => {

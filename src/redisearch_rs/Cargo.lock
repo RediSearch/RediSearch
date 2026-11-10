@@ -836,6 +836,8 @@ dependencies = [
  "geo",
  "query_error",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "tracing",
  "tracing_log_error",
  "workspace_hack",

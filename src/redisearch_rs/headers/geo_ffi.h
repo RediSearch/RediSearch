@@ -109,7 +109,8 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
  *
  * # Safety
  *
- * - `c` must be a [valid] pointer to at least `len` bytes.
+ * - If `len > 0`, `c` must be a [valid] pointer to at least `len` bytes.
+ *   When `len == 0`, `c` is unused and may be anything (including NULL).
  * - `lon` and `lat` must be [valid], non-null pointers to writable `f64` values,
  *   properly aligned for [`f64`].
  * - `status` must be a [valid], non-null pointer to an [`OpaqueQueryError`]
