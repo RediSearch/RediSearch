@@ -171,7 +171,7 @@ jobs:
       needs.get-config.result == 'success' &&
       (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
       (inputs.standalone || inputs.coordinator || inputs.unit-tests)
-    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || (inputs.coverage && endsWith(needs.get-config.outputs.env, '-u-x64-medium') && fromJSON(format('["{0}","ghr-ec2-instance-type:m6i.xlarge"]', needs.get-config.outputs.env))) || needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-24.04' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
@@ -206,63 +206,14 @@ jobs:
         run: |
           CONTAINER="${{ needs.get-config.outputs.container }}"
           [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-      - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2; do
-            if [[ "$CONTAINER" == "$platform" ]]; then
-              echo "supported=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "supported=true" >> $GITHUB_OUTPUT
       - name: Check disk space
         run: |
           echo "Disk space available:"
           df -h
-      - name: Full checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
+      - name: Full checkout
         uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Full checkout (node20 not supported)
-        env:
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_REPO: ${{ github.repository }}
-        if: steps.node20.outputs.supported == 'false'
-        run: |
-          # Execute the logic based on the detected platform
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
-            amazonlinux:2)
-
-              # Configure the safe directory
-              git config --global --add safe.directory "/__w/$GITHUB_REPO"
-
-              # Checkout
-              REPO_URL="https://github.com/$GITHUB_REPO.git"
-
-              # Initialize a Git repository
-              git init
-              git remote add origin "$REPO_URL"
-
-              # Fetch and checkout ref
-              git fetch origin "$GITHUB_REF" || {
-                echo "Failed to fetch ref: '$GITHUB_REF'";
-                exit 1;
-              }
-              git checkout FETCH_HEAD  # Check out the fetched ref
-
-              # Update submodules
-              git submodule update --init --recursive
-              ;;
-            *)
-              echo "Unsupported platform: '$CONTAINER'"
-              exit 1
-              ;;
-          esac
 
       - name: Free up disk space
         uses: ./.github/actions/github-hosted-runner-cleanup
@@ -344,26 +295,12 @@ jobs:
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-      - name: Get Redis (node20)
-        if: ${{ steps.node20.outputs.supported == 'true' }}
+      - name: Get Redis
         uses: actions/checkout@v4
         with:
           repository: redis/redis
           ref: ${{ inputs.redis-ref }}
           path: redis
-      - name: Get Redis (node20 not supported)
-        if: ${{ steps.node20.outputs.supported == 'false' }}
-        run: |
-          REPO_URL="https://github.com/redis/redis.git"
-          DEST_DIR="redis"  # Directory to clone into
-
-          # Clone the repository (shallow clone without tags)
-          git clone $REPO_URL $DEST_DIR
-          cd $DEST_DIR
-
-          # Checkout the REF
-          git fetch origin ${{ inputs.redis-ref }}
-          git checkout ${{ inputs.redis-ref }}
 
       - name: Build Redis
         working-directory: redis
@@ -394,6 +331,20 @@ jobs:
           df -h
           echo "Total Repo Size:"
           du -sh . 2>/dev/null || echo "Failed to get repo size"
+      - name: Require an Intel CPU
+        # Coverage is the lane that exercises the BUILD_INTEL_SVS_OPT code paths (LVQ,
+        # LeanVec), which run only on Intel CPUs; elsewhere test_vecsim_svs quietly
+        # tests the generic fallback. Its runner is pinned to an Intel instance type,
+        # so fail rather than lose that coverage if the pin stops holding.
+        if: inputs.coverage && runner.os == 'Linux' && runner.arch == 'X64' && env.BUILD_INTEL_SVS_OPT == 'yes' && vars.RUNS_ON_X64_MEDIUM != ''
+        shell: sh
+        run: |
+          vendor=$(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo)
+          echo "CPU vendor: $vendor"
+          if [ "$vendor" != "GenuineIntel" ]; then
+            echo "::error::Expected an Intel CPU on this x86_64 runner, got '$vendor'"
+            exit 1
+          fi
       - name: "C/C++ tests"
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: c_unit_tests
@@ -516,11 +467,9 @@ jobs:
             echo "Decode script not found or not executable"
           fi
 
-      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts (node20)
-        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+      - name: Upload Artifacts
+        # Upload artifacts only if tests failed (including sanitizer failures)
         if: >
-          steps.node20.outputs.supported == 'true' &&
           (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v7
         with:
@@ -531,13 +480,6 @@ jobs:
             bin/**/redisearch.so.debug
 
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
-      # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
-        if: >
-          steps.node20.outputs.supported == 'false' &&
-          (failure() || steps.rust_unit_tests.outcome == 'failure' || steps.c_unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         # due to continue-on-error, we need to check failure() explicitly for step to run

@@ -42,7 +42,6 @@ on:
           - debian:bookworm
           - alpine:3.22
           - macos
-          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:

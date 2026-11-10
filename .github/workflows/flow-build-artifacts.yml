@@ -78,7 +78,7 @@ jobs:
   generate-matrix:
     uses: ./.github/workflows/generate-matrix.yml
     with:
-      platform: ${{ inputs.platform }},!intel
+      platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
   build-unified:
