@@ -55,8 +55,9 @@ jobs:
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture
-          # Use GitHub variables if available, otherwise use fallback values
-          runs_on = "${{ vars.RUNS_ON || 'ubuntu-24.04' }}"
+          # x86_64 stays on Ubuntu 24.04: the repo's RUNS_ON (ubuntu-latest)
+          # moved to an image 2.10's CI dependencies don't support.
+          runs_on = "ubuntu-24.04"
           runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
 
           default_env = {
