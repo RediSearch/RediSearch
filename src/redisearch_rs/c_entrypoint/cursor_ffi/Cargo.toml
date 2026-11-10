@@ -1,0 +1,35 @@
+[package]
+name = "cursor_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[features]
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+cheadergen.workspace = true
+cursor.workspace = true
+ffi.workspace = true
+global_config.workspace = true
+libc.workspace = true
+query_error.workspace = true
+redis-module.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+cursor_ffi = { path = ".", features = ["unittest"] }
+proptest = { workspace = true, features = ["std"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }

@@ -18,8 +18,6 @@
 #include <stdexcept>
 #include <algorithm>
 
-#define is_Idle(cur) ((cur)->pos != -1)
-
 class CursorsTest : public ::testing::Test {};
 
 bool IdInArray(uint64_t id, const uint64_t *arr, int size) {
@@ -32,8 +30,7 @@ TEST_F(CursorsTest, BasicAPI) {
   StrongRef dummy = {0};
   Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
-  ASSERT_FALSE(cur->delete_mark);
-  ASSERT_FALSE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
   auto id = cur->id;
   ASSERT_NE(id, 0);
   ASSERT_EQ(id % 2, 0);
@@ -47,12 +44,11 @@ TEST_F(CursorsTest, BasicAPI) {
 
   Cursor_Pause(cur);
   ASSERT_TRUE((cur));
-  ASSERT_TRUE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 1);
 
   Cursor *cur2 = Cursors_TakeForExecution(&g_CursorsList, id);
   ASSERT_TRUE(cur2 != NULL);
-  ASSERT_FALSE(is_Idle(cur2));
-  ASSERT_FALSE(cur2->delete_mark);
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
   ASSERT_EQ(cur, cur2);
   ASSERT_EQ(cur->id, cur2->id);
 
@@ -66,13 +62,11 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Case 1: Cursors_Purge marks non-idle cursor for deletion
   Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
-  ASSERT_FALSE(cur->delete_mark);
-  ASSERT_FALSE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
 
   auto id = cur->id;
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
-  ASSERT_TRUE(cur->delete_mark);
 
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pausing the cursor Should actually free it.";
@@ -81,14 +75,12 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Case 2: Cursors_Purge with explicit cursor free
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
-  ASSERT_FALSE(cur->delete_mark);
-  ASSERT_FALSE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
   id = cur->id;
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
 
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_OK) << "Should be able to mark for deletion";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
-  ASSERT_TRUE(cur->delete_mark);
 
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Cursor should be deleted";
@@ -97,8 +89,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Case 3: CursorList_Empty marks non-idle cursor for deletion
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
-  ASSERT_FALSE(cur->delete_mark);
-  ASSERT_FALSE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
   id = cur->id;
 
   // Call CursorList_Empty while cursor is not idle (active)
@@ -107,7 +98,6 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Cursor should be marked for deletion, not immediately freed
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should still be alive";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
-  ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
 
   // When cursor is paused, it should actually be freed due to delete_mark
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
@@ -117,15 +107,13 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Case 4: CursorList_Empty with explicit cursor free
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
-  ASSERT_FALSE(cur->delete_mark);
-  ASSERT_FALSE(is_Idle(cur));
+  ASSERT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
   id = cur->id;
 
   // Call CursorList_Empty while cursor is not idle (active)
   CursorList_Empty(&g_CursorsList);
 
   // Cursor should be marked for deletion, not immediately freed
-  ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should still be alive";
 
   // When cursor is explicitly freed, it should be deleted
@@ -137,15 +125,17 @@ TEST_F(CursorsTest, OwnershipAPI) {
   constexpr int numCursors = 5;
   constexpr int numIdle = numCursors / 2 + numCursors % 2;
   std::vector<uint64_t> ids;
+  std::vector<Cursor *> executing;
 
   for (int i = 0; i < numCursors; ++i) {
     cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
     ASSERT_TRUE(cur != NULL);
-    ASSERT_FALSE(cur->delete_mark);
-    ASSERT_FALSE(is_Idle(cur));
+    ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, cur->id), nullptr);
     if (i % 2 == 0) {
-      ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
       ids.push_back(cur->id);
+      ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
+    } else {
+      executing.push_back(cur);
     }
   }
 
@@ -160,14 +150,10 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors - numIdle) << "Half of the cursors should be alive";
 
   // Verify the Ids of the cursors alive
-  for (khiter_t ii = 0; ii != kh_end(g_CursorsList.lookup); ++ii) {
-    if (!kh_exist(g_CursorsList.lookup, ii)) {
-      continue;
-    }
-    Cursor *cur = kh_val(g_CursorsList.lookup, ii);
-    // Assert mark delete
-
-    ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
+  for (auto id : ids) {
+    ASSERT_EQ(Cursors_Purge(&g_CursorsList, id), REDISMODULE_ERR);
+  }
+  for (Cursor *cur : executing) {
     ASSERT_FALSE(IdInArray(cur->id, ids.data(), ids.size())) << "Cursor should not be in the deleted array";
     // Pause the cursor
     ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
@@ -199,7 +185,6 @@ TEST_F(CursorsTest, CarriedRequestOwnership) {
   ASSERT_TRUE(cur != NULL);
   cur->query = &r->base;
   ASSERT_EQ(Cursors_Purge(&g_CursorsList, cur->id), REDISMODULE_OK);
-  ASSERT_TRUE(cur->delete_mark);
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pause must convert to free";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
 }
@@ -221,7 +206,6 @@ TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
   r->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
   auto id = cur->id;
   QueryRequest_EndCycle(&r->base);
-  ASSERT_TRUE(is_Idle(cur));
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base + 1);
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cur);
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Owner free: cursor + request";

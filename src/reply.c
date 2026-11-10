@@ -20,6 +20,11 @@
 #include "rmalloc.h"
 #include "hiredis/sds.h"
 
+int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val) {
+  RedisModule_Reply_SimpleString(reply, key);
+  return RedisModule_Reply_LongLong(reply, val);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef ENABLE_ASSERT

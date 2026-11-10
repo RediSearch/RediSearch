@@ -99,13 +99,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
-        fns: &[],
+        fns: &["AREQ_New"],
         types: &[
             // Disk async loader checks QEXEC_S_HAS_LOAD to decide whether to
             // set the LOAD flag on a new pipeline.
             "QEStateFlags",
+            "AREQ",
         ],
-        vars: &["QEXEC_S_HAS_LOAD"],
+        vars: &["QEXEC_S_HAS_LOAD", "QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT"],
     },
     HeaderAllowlist {
         path: "src/aggregate/reducer.h",
@@ -126,18 +127,20 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
-        path: "src/cursor.h",
+        path: "src/info/info_redis/threads/main_thread.h",
+        fns: &["MainThread_GetBlockedQueries"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/reply.h",
         fns: &[
-            "CursorList_Init",
-            "Cursors_Reserve",
-            "Cursors_TakeForExecution",
-            "Cursor_Pause",
-            "Cursor_Free",
-            "Cursors_Purge",
-            "Cursors_CollectIdle",
+            "RedisModule_ReplyKV_Map",
+            "RedisModule_ReplyKV_LongLong",
+            "RedisModule_Reply_MapEnd",
         ],
-        types: &["Cursor"],
-        vars: &["g_CursorsList"],
+        types: &[],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
@@ -515,7 +518,15 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/references.h",
-        fns: &["StrongRef_Get"],
+        fns: &[
+            "StrongRef_New",
+            "StrongRef_Invalidate",
+            "StrongRef_Get",
+            "StrongRef_Demote",
+            "WeakRef_Promote",
+            "WeakRef_Release",
+            "StrongRef_Release",
+        ],
         types: &[],
         vars: &[],
     },
@@ -554,7 +565,10 @@ const HEADERS: &[HeaderAllowlist] = &[
     // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
     HeaderAllowlist {
         path: "src/query_request.h",
-        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        fns: &[
+            "QueryRequestLimits_IsBlockedClientTimedOut",
+            "QueryRequest_Free",
+        ],
         types: &[],
         vars: &[],
     },

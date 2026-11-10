@@ -8,21 +8,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[lib]
-bench = false
-
 [[bench]]
 name = "cursor"
 harness = false
 
-[build-dependencies]
-build_utils.workspace = true
-
 [dependencies]
 criterion.workspace = true
 cursor.workspace = true
-ffi.workspace = true
+cursor_ffi = { path = "../c_entrypoint/cursor_ffi" }
 libc.workspace = true
-redis_mock.workspace = true
-redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 workspace_hack.workspace = true

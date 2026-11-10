@@ -34,6 +34,26 @@ header_name = "ttl_table_rs"
 [package.ttl_table_ffi]
 header_name = "ttl_table"
 
+[package.cursor_ffi]
+header_name = "cursor"
+
+[header.cursor]
+documentation_style = "c99"
+includes = ["aggregate/aggregate.h", "reply.h"]
+trailer = """
+#define CURSOR_IS_COORD(cid) ((cid) % 2 == 1)
+#define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+static inline const CursorList *GetGlobalCursor(uint64_t cid) {
+  return getCursorList(CURSOR_IS_COORD(cid));
+}
+static inline bool cursor_HasSpecWeakRef(const Cursor *cursor) {
+  return cursor->spec_ref.rm != NULL;
+}
+static inline AREQ *Cursor_AREQ(const Cursor *cursor) {
+  return cursor->query ? QueryRequest_GetAREQ(cursor->query) : NULL;
+}
+"""
+
 [c]
 cpp_compat = true
 

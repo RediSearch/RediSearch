@@ -18,6 +18,7 @@ extern "C" {
 #include <future>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 class SpecLockTest : public ::testing::Test {
  protected:
@@ -166,25 +167,25 @@ TEST_F(SpecLockTest, CursorReservationReclaimsIdleRequestsWithoutReleasingActive
     AREQ *request = AREQ_New(nullptr, 0);
     request->sctx = static_cast<RedisSearchCtx *>(rm_malloc(sizeof(RedisSearchCtx)));
     *request->sctx = SEARCH_CTX_STATIC(nullptr, idleSpec);
-    Cursor *idle = Cursors_Reserve(&g_CursorsList, dummy, 1000, nullptr);
+    Cursor *idle = Cursors_Reserve(&g_CursorsList, dummy, 0, nullptr);
     ASSERT_NE(idle, nullptr);
     idle->query = &request->base;
-    ASSERT_EQ(Cursor_Pause(idle), REDISMODULE_OK);
     const auto idleId = idle->id;
-    // Force the real reservation sweep without a clock-dependent sleep.
-    idle->nextTimeoutNs = 0;
-    g_CursorsList.nextIdleTimeoutNs = 0;
-    g_CursorsList.lastCollect = 0;
-    g_CursorsList.counter +=
-        RSCURSORS_SWEEP_INTERVAL - g_CursorsList.counter % RSCURSORS_SWEEP_INTERVAL - 1;
+    ASSERT_EQ(Cursor_Pause(idle), REDISMODULE_OK);
 
     IndexSpec_LockRead(&spec);
-    Cursor *active = Cursors_Reserve(&g_CursorsList, dummy, 1000, nullptr);
-    EXPECT_NE(active, nullptr);
+    std::vector<Cursor *> active;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    do {
+      active.push_back(Cursors_Reserve(&g_CursorsList, dummy, 1000, nullptr));
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (Cursors_GetInfoStats().total_idle_user != 0 &&
+             std::chrono::steady_clock::now() < deadline);
+    EXPECT_EQ(Cursors_GetInfoStats().total_idle_user, 0);
     EXPECT_TRUE(IndexSpec_IsReadLocked(&spec));
     EXPECT_EQ(spec.keysDict->pauserehash, 1);
     EXPECT_EQ(Cursors_TakeForExecution(&g_CursorsList, idleId), nullptr);
     IndexSpec_Unlock(&spec);
-    if (active) Cursor_Free(active);
+    for (Cursor *cursor : active) Cursor_Free(cursor);
   }
 }

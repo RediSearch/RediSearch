@@ -530,11 +530,27 @@ dependencies = [
 name = "cursor_bencher"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "criterion",
  "cursor",
- "ffi",
+ "cursor_ffi",
  "libc",
+ "workspace_hack",
+]
+
+[[package]]
+name = "cursor_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "cursor",
+ "cursor_ffi",
+ "ffi",
+ "global_config",
+ "libc",
+ "proptest",
+ "query_error",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "workspace_hack",
@@ -2251,6 +2267,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "cursor_ffi",
  "doc_key_map_ffi",
  "fnv_ffi",
  "geo_ffi",
