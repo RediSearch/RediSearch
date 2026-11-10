@@ -255,11 +255,10 @@ jobs:
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
           # Save cache even when the job fails, so subsequent runs can reuse
           # compiled artifacts. Without this, cache is never populated on
-          # platforms with high failure rates (e.g. macOS x86_64).
+          # platforms with high failure rates.
           cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        # compilations on macOS Intel runners.
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
@@ -322,7 +321,7 @@ jobs:
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |
