@@ -14,19 +14,12 @@ If you would like to build it on your machine without a docker, proceed to the n
 ### Build dependencies
 To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
 
-* Ubuntu 18.04
-* Ubuntu 20.04
 * Ubuntu 22.04
 * Ubuntu 24.04
-* Debian linux 11
 * Debian linux 12
 * Rocky linux 8
 * Rocky linux 9
-* Amazon linux 2
-* Amazon linux 2023
-* Mariner 2.0
-* Azure linux 3
-* MacOS
+* macOS (ARM64)
 * Alpine linux 3
 
 For installing the prerequisites you can take the following approaches:
