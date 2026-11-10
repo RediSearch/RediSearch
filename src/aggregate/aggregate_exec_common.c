@@ -49,7 +49,10 @@
 
 int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryError *err,
                  int rc) {
-  if (rc != RS_RESULT_STOPPED || !QueryRequestLimits_IsMemoryStopped(limits)) {
+  // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
+  if (rc != RS_RESULT_STOPPED ||
+      !QueryRequestLimits_IsMemoryStopped(limits) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
@@ -108,6 +111,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
+static bool oomStopKeepsBufferedRows(const AREQ *areq) {
+  const QueryRequestLimits *timeout = &areq->base.limits;
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
+         areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+         !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
+}
+
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
@@ -125,8 +135,18 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a memory stop or a main-thread timeout flag at the row
      // boundary: buffering stages (safe loader, sorter yield) can keep emitting
      // from internal buffers without re-touching upstream's per-row timeout check.
-     if (areq && (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
-                  QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits))) {
+     // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
+     // over the rows they already hold (see RP_StopPolicy), and read nothing new.
+     if (areq &&
+         (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+          QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) &&
+         !oomStopKeepsBufferedRows(areq)) {
+       *rc = RS_RESULT_STOPPED;
+       break;
+     }
+     // Rows handed over after an OOM stop read nothing upstream, so no per-row check there sees
+     // a clock deadline: this one ends the drain on it.
+     if (areq && oomStopKeepsBufferedRows(areq) && QueryRequestLimits_IsTimedOut(&areq->base.limits)) {
        *rc = RS_RESULT_STOPPED;
        break;
      }
