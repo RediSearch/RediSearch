@@ -573,7 +573,7 @@ def testInfoStatsAndSearchAsSingle(env):
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
         env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testConsecutiveValues(env):
     """ Test with many consecutive values which should cause range tree to do rebalancing (also for code coverage) """
     if env.env == 'existing-env':

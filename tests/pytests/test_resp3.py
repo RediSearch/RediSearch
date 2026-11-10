@@ -15,7 +15,7 @@ def order_dict(d):
             result[k] = v
     return result
 
-@skip(redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_search():
     env = Env(protocol=3)
     with env.getClusterConnectionIfNeeded() as r:
@@ -243,7 +243,7 @@ def test_search_timeout():
       'FT.SEARCH', 'myIdx', '*', 'LIMIT', '0', str(num_range_2), 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
 
-@skip(cluster=True, redis_less_than="7.0.0")
+@skip(cluster=True, redis_less_than="7.0.0", enterprise=True)
 def test_profile(env):
     env = Env(protocol=3)
 
@@ -431,7 +431,7 @@ def test_cursor():
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
 
-@skip(redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_list():
     env = Env(protocol=3)
 
@@ -516,7 +516,7 @@ def test_info():
     res.pop('total_indexing_time', None)
     env.assertEqual(order_dict(res), order_dict(exp))
 
-@skip(redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_config():
     env = Env(protocol=3)
 
@@ -544,7 +544,7 @@ def test_config():
     res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
-@skip(redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_dictdump():
     env = Env(protocol=3)
 
@@ -611,7 +611,7 @@ def test_syndump():
       'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
     env.expect('ft.syndump', 'idx').equal(exp)
 
-@skip(redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_tagvals():
     env = Env(protocol=3)
 
@@ -674,6 +674,7 @@ def test_clusterinfo():
     res['slots'].sort(key=lambda x: x['start'])
     env.assertEqual(order_dict(res), order_dict(exp))
 
+@skip(enterprise=True)
 def test_profile_crash_mod5323():
     env = Env(protocol=3)
     env.cmd("FT.CREATE", "idx", "SCHEMA", "t", "TEXT")
@@ -730,6 +731,7 @@ def test_profile_crash_mod5323():
     if not env.isCluster():  # on cluster, lack of crash is enough
         env.assertEqual(res, exp)
 
+@skip(enterprise=True)
 def test_profile_child_itrerators_array():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -1305,6 +1307,7 @@ def testExpandJsonVector():
   res = env.cmd(*cmd, 'FORMAT', 'EXPAND')
   env.assertEqual(res, exp_expand)
 
+@skip(enterprise=True)
 def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
@@ -1523,7 +1526,7 @@ def test_error_propagation_from_shards_resp3():
     env = Env(protocol=3)
     test_error_propagation_from_shards(env)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testTimedOutWarning_resp3():
   env = Env(protocol=3)
   TimedoutTest_resp3(env)
@@ -1652,7 +1655,7 @@ def test_warning_maxprefixexpansions():
     env.assertEqual(n_warnings, 1)
 
 # TODO: `total_results` is currently not accurate on cluster - to be fixed in MOD-9094
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_totalResults_aggregate():
   """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
   using the RESP3 protocol"""

@@ -755,6 +755,10 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if no_json and not has_json_api_v2(Env()):
                 raise SkipTest()
+            # The enterprise build answers FT.SEARCH, FT.AGGREGATE, FT.PROFILE and
+            # FT.CURSOR through its coordinator even standalone, so tests of a
+            # shard's own replies (result order, profile shape, RESP3 types,
+            # cursor and error accounting) take enterprise=True.
             if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:

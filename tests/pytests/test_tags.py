@@ -333,7 +333,7 @@ def testTagGCClearEmpty(env):
     env.expect('FT.SEARCH', 'idx', '@t:{foo}')  \
         .equal([2, 'doc4', ['t', 'foo'], 'doc5', ['t', 'foo']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
@@ -360,7 +360,7 @@ def testTagGCClearEmptyWithCursor(env):
     env.assertEqual(res, [0])
     env.assertEqual(cursor, 0)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)

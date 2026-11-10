@@ -729,9 +729,11 @@ def _test_profile(protocol):
                             message=message)
 
 
+@skip(enterprise=True)
 def test_profile_resp2():
     _test_profile(2)
 
+@skip(enterprise=True)
 def test_profile_resp3():
     _test_profile(3)
 

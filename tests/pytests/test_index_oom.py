@@ -69,7 +69,7 @@ def test_stop_background_indexing_on_low_mem(env):
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_stop_indexing_low_mem_verbosity():
   # Change to resp3
   env = Env(protocol=3)

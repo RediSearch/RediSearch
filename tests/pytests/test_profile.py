@@ -7,7 +7,7 @@ from common import *
 from time import sleep
 from RLTest import Env
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -119,7 +119,7 @@ def testProfileSearch(env):
                       ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1]]]
   env.assertEqual(actual_res[1][5], expected_res if dialect == 1 else expected_res_d2)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileSearchLimited(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -136,7 +136,7 @@ def testProfileSearchLimited(env):
                   ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Number of reading operations', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
   env.assertEqual(actual_res[1][5], expected_res)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileAggregate(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -201,7 +201,7 @@ def testProfileErrors(env):
   if not env.isCluster():
     env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileNumeric(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -222,7 +222,7 @@ def testProfileNumeric(env):
 
   env.assertEqual(actual_res[1][5], expected_res)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileNegativeNumeric():
   env = Env(protocol=3)
   conn = getConnectionByEnv(env)
@@ -272,7 +272,7 @@ def testProfileNegativeNumeric():
     env.assertEqual(max_val, range_last, message=f"{title}: The max value of the last child should equal the max val of the tree")
     env.cmd('flushall')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileTag(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -286,7 +286,7 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][5], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2]])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileMissingFieldQuery(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -304,7 +304,7 @@ def testProfileMissingFieldQuery(env):
   env.assertEqual(actual_res[1][5], ['Iterators profile', ['Type', 'NOT', 'Number of reading operations', 1, 'Child iterator',
                                             ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1]]])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileVector(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -427,7 +427,7 @@ def testProfileVector(env):
   env.assertEqual(actual_res[1][5], expected_iterators_res)
   env.assertEqual(to_dict(env.cmd("FT.DEBUG", "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testResultProcessorCounter(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -443,7 +443,7 @@ def testResultProcessorCounter(env):
             ['Type', 'Counter', 'Results processed', 1]]
   env.assertEqual(actual_res[1][6], res)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testProfileMaxPrefixExpansion(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
@@ -459,7 +459,7 @@ def testProfileMaxPrefixExpansion(env):
 
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 200)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testNotIterator(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', 'MAXPREFIXEXPANSIONS', 2)
@@ -546,11 +546,11 @@ def TimeoutWarningInProfile(env):
     'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
   ).equal(expected_res_aggregate)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testFailOnTimeout_nonStrict(env):
   TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT RETURN"))
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testFailOnTimeout_strict():
   # The profile output is the same for strict timeout policy, i.e., the timeout
   # error becomes a warning for the `FT.PROFILE` command.
@@ -1055,6 +1055,7 @@ def testProfileBM25NormMax(env):
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
 
+@skip(enterprise=True)
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
   env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)  # Use RESP3 for easier dict access
@@ -1189,6 +1190,7 @@ def testProfileGILTimeSentinelNoWorkersResp2():
   ProfileGILTimeSentinel(protocol=2, workers=0)
 
 
+@skip(enterprise=True)
 def testProfileGILTimeSentinelNoWorkersResp3():
   ProfileGILTimeSentinel(protocol=3, workers=0)
 
