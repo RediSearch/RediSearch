@@ -35,6 +35,13 @@ TEST_F(CursorsTest, BasicAPI) {
   ASSERT_FALSE(cur->delete_mark);
   ASSERT_FALSE(is_Idle(cur));
   auto id = cur->id;
+  ASSERT_NE(id, 0);
+  ASSERT_EQ(id % 2, 0);
+
+  Cursor *coord = Cursors_Reserve(&g_CursorsListCoord, dummy, 1000, NULL);
+  ASSERT_NE(coord, nullptr);
+  ASSERT_EQ(coord->id % 2, 1);
+  Cursor_Free(coord);
 
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
 
@@ -212,9 +219,11 @@ TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
   r->base.blockedClientCycleActive = true;
   r->base.cursorInfo.cursor = cur;
   r->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
+  auto id = cur->id;
   QueryRequest_EndCycle(&r->base);
   ASSERT_TRUE(is_Idle(cur));
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base + 1);
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cur);
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Owner free: cursor + request";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
 

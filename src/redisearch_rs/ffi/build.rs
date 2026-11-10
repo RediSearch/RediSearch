@@ -126,6 +126,20 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
+        path: "src/cursor.h",
+        fns: &[
+            "CursorList_Init",
+            "Cursors_Reserve",
+            "Cursors_TakeForExecution",
+            "Cursor_Pause",
+            "Cursor_Free",
+            "Cursors_Purge",
+            "Cursors_CollectIdle",
+        ],
+        types: &["Cursor"],
+        vars: &["g_CursorsList"],
+    },
+    HeaderAllowlist {
         path: "src/doc_id_meta.h",
         fns: &["DocIdMeta_Get"],
         types: &[],
