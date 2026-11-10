@@ -110,7 +110,7 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
-static GilGate cleanPoolGilGate;
+static GilGate cleanPoolGilGate = GIL_GATE_INIT;
 
 extern DebugCTX globalDebugCtx;
 
