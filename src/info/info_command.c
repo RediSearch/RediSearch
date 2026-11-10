@@ -328,7 +328,18 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
   REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
-  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  if (isDisk) {
+    TextResourceMetrics text = SearchDisk_ReadCachedTextResources(sp->diskSpec);
+    REPLY_KVMAP("column_families");
+    REPLY_KVMAP("text");
+    REPLY_KVINT("ram_metadata_bytes", text_overhead);
+    REPLY_KVINT("memtable_bytes", text.memtable_bytes);
+    REPLY_KVINT("storage_bytes", text.storage_bytes);
+    REPLY_MAP_END;
+    REPLY_MAP_END;
+  } else {
+    REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  }
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",

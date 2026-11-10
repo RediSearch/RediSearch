@@ -1061,6 +1061,11 @@ typedef struct CachedIndexMetrics {
   uint64_t blocks;
 } CachedIndexMetrics;
 
+typedef struct TextResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} TextResourceMetrics;
+
 typedef struct MetricsDiskAPI {
   /* Stop and join collection before index teardown; idempotent, main thread only. */
   void (*stopMetrics)(RedisSearchDisk *disk);
@@ -1209,6 +1214,8 @@ typedef struct MetricsDiskAPI {
    */
   char *(*debugDiskStats)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
                           bool withStatistics, AllocateKeyCallback allocate);
+  /* Reads published TEXT resource measurements without collecting native properties. */
+  TextResourceMetrics (*readCachedTextResources)(const RedisSearchDiskIndexSpec *index);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {

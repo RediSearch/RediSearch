@@ -1057,6 +1057,9 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+/* Published TEXT memtable RAM and SST storage; zero before collection or CF creation. */
+TextResourceMetrics SearchDisk_ReadCachedTextResources(const RedisSearchDiskIndexSpec *index);
+
 #ifdef __cplusplus
 }
 #endif
