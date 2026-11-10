@@ -373,10 +373,9 @@ bool GC_ThreadPoolDestroy() {
     gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
     redisearch_thpool_resume_threads(gcThreadpool_g);
   }
-  if (!FullCleanup_WaitForPool(gcThreadpool_g, "GC pool")) {
+  if (!FullCleanup_DestroyPool(gcThreadpool_g, "GC pool")) {
     return false;
   }
-  redisearch_thpool_destroy(gcThreadpool_g);
   gcThreadpool_g = NULL;
   return true;
 }

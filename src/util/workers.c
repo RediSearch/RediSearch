@@ -246,7 +246,7 @@ bool workersThreadPool_Destroy(void) {
   if (!_workers_thpool) {
     return true;
   }
-  if (!FullCleanup_WaitForPool(_workers_thpool, "workers pool")) {
+  if (FullCleanup_HoldsGIL() && !FullCleanup_WaitForPool(_workers_thpool, "workers pool")) {
     return false;
   }
   redisearch_thpool_destroy(_workers_thpool);

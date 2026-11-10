@@ -27,7 +27,7 @@ bool ConcurrentSearch_ThreadPoolDestroy(void) {
   if (!coordinatorPool) {
     return true;
   }
-  if (FullCleanup_InProgress() && !FullCleanup_WaitForPool(coordinatorPool, "coordinator pool")) {
+  if (FullCleanup_HoldsGIL() && !FullCleanup_WaitForPool(coordinatorPool, "coordinator pool")) {
     return false;
   }
   redisearch_thpool_destroy(coordinatorPool);

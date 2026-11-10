@@ -8,6 +8,8 @@
 */
 #include "full_cleanup.h"
 
+#include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -19,13 +21,44 @@
 #define FULL_CLEANUP_IDLE_POLL_MS 100
 
 static bool fullCleanupInProgress_g = false;
+static bool fullCleanupHoldsGIL_g = false;
+// Set from the moment a SHUTDOWN command is filtered until the event loop runs again.
+static bool inShutdownCommand_g = false;
+
+static void shutdownCommandReturned(void *unused) {
+  inShutdownCommand_g = false;
+}
+
+static void shutdownCommandFilter(RedisModuleCommandFilterCtx *fctx) {
+  size_t len;
+  const char *cmd = RedisModule_StringPtrLen(RedisModule_CommandFilterArgGet(fctx, 0), &len);
+  if (len != strlen("shutdown") || strncasecmp(cmd, "shutdown", len)) {
+    return;
+  }
+  inShutdownCommand_g = true;
+  // Runs only once the command has returned: it failed, or it waits for replicas and the
+  // shutdown event comes from the cron, where releasing the GIL is allowed.
+  if (RedisModule_EventLoopAddOneShot) {
+    RedisModule_EventLoopAddOneShot(shutdownCommandReturned, NULL);
+  }
+}
+
+void FullCleanup_WatchShutdownCommand(RedisModuleCtx *ctx) {
+  RedisModule_RegisterCommandFilter(ctx, shutdownCommandFilter, 0);
+}
 
 void FullCleanup_Begin(void) {
   fullCleanupInProgress_g = true;
+  // Latched: a pool drain processes events, which may run shutdownCommandReturned.
+  fullCleanupHoldsGIL_g = inShutdownCommand_g;
 }
 
 bool FullCleanup_InProgress(void) {
   return fullCleanupInProgress_g;
+}
+
+bool FullCleanup_HoldsGIL(void) {
+  return fullCleanupHoldsGIL_g;
 }
 
 bool FullCleanup_WaitUntilIdle(bool (*idle)(void *arg), void *arg, const char *what) {
@@ -58,4 +91,18 @@ static bool poolIdle(void *arg) {
 
 bool FullCleanup_WaitForPool(redisearch_thpool_t *pool, const char *what) {
   return FullCleanup_WaitUntilIdle(poolIdle, pool, what);
+}
+
+bool FullCleanup_DestroyPool(redisearch_thpool_t *pool, const char *what) {
+  if (FullCleanup_HoldsGIL()) {
+    if (!FullCleanup_WaitForPool(pool, what)) {
+      return false;
+    }
+    redisearch_thpool_destroy(pool);
+    return true;
+  }
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  redisearch_thpool_destroy(pool);
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  return true;
 }

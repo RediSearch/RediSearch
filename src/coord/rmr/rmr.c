@@ -1109,13 +1109,21 @@ static bool clusterIOStopped(void *cluster) {
 bool MR_FreeCluster() {
   RS_ASSERT(FullCleanup_InProgress());
   if (!cluster_g) return true;
-  MRCluster_FireShutdown(cluster_g);
-  if (!FullCleanup_WaitUntilIdle(clusterIOStopped, cluster_g, "coordinator IO threads")) {
-    return false;
+  if (FullCleanup_HoldsGIL()) {
+    MRCluster_FireShutdown(cluster_g);
+    if (!FullCleanup_WaitUntilIdle(clusterIOStopped, cluster_g, "coordinator IO threads")) {
+      return false;
+    }
+    MRCluster_FreeAfterShutdown(cluster_g);
+    cluster_g = NULL;
+    MR_FreeLocalNodeId();
+    return true;
   }
-  MRCluster_FreeAfterShutdown(cluster_g);
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  MRCluster_Free(cluster_g);
   cluster_g = NULL;
   MR_FreeLocalNodeId();
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
   return true;
 }
 

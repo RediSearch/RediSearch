@@ -1134,15 +1134,24 @@ def testForcedGCReportsWhenItCannotFork():
                        message=f'expected an error, got {forced}')
 
 
-@skip(cluster=True)
+# The pool left running keeps the indexes, which LeakSanitizer reports.
+@skip(cluster=True, asan=True)
 def testShutdownCommandLeavesBusyGCPoolRunning():
     """Full cleanup (RS_GLOBAL_DTORS) runs from the shutdown event, and SHUTDOWN fires that event
     from inside the command, where Redis does not let the main thread release the GIL for a pool
     join. A GC cycle that needs the GIL then can never finish, so cleanup must leave the pool
     running and let the server exit, instead of asserting or hanging on the join."""
-    if not os.getenv('RS_GLOBAL_DTORS'):
-        raise SkipTest('the shutdown event runs full cleanup only under RS_GLOBAL_DTORS')
-    env = Env(freshEnv=True)
+    prev = os.environ.get('RS_GLOBAL_DTORS')
+    os.environ['RS_GLOBAL_DTORS'] = '1'
+    try:
+        env = Env(freshEnv=True)
+    finally:
+        if prev is None:
+            os.environ.pop('RS_GLOBAL_DTORS')
+        else:
+            os.environ['RS_GLOBAL_DTORS'] = prev
+    # An existing server neither inherits RS_GLOBAL_DTORS nor exposes its log.
+    skipOnExistingEnv(env)
     skipIfNoEnableAssert(env)
     indexWithCollectableDocs(env)
     log_path = os.path.join(env.cmd('CONFIG', 'GET', 'dir')[1],
@@ -1165,7 +1174,7 @@ def testShutdownCommandLeavesBusyGCPoolRunning():
     env.assertNotContains('ASSERTION FAILED', log)
     env.assertContains('Full cleanup: GC pool still busy', log)
     env.assertContains('End releasing RediSearch resources', log)
-    env.assertGreaterEqual(returncode, 0, message='the server was killed by a signal')
+    env.assertEqual(returncode, 0)
 
     # RLTest's teardown counts a server it did not stop as a dirty exit.
     env.stop()

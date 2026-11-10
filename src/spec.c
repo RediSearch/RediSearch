@@ -2080,10 +2080,9 @@ bool CleanPool_ThreadPoolDestroy() {
   if (!cleanPool) {
     return true;
   }
-  if (!FullCleanup_WaitForPool(cleanPool, "clean pool")) {
+  if (!FullCleanup_DestroyPool(cleanPool, "clean pool")) {
     return false;
   }
-  redisearch_thpool_destroy(cleanPool);
   cleanPool = NULL;
   return true;
 }

@@ -43,6 +43,7 @@
 #include "slots_tracker_ffi.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
+#include "util/full_cleanup.h"
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -1260,6 +1261,7 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
     // used only with sanitizer or valgrind
     RedisModule_Log(ctx, "notice", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+    FullCleanup_WatchShutdownCommand(ctx);
     shutdownEventHandled = true;
   }
 

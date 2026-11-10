@@ -1943,6 +1943,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // a reference to the spec bat this time).
   // A paused pool (a debug state) would never drain, and destroying it waits for its jobs.
   if (workerThreadPool_isPaused()) workersThreadPool_resume();
+  // Draining yields, which inside SHUTDOWN keeps the GIL, so a job waiting for it never finishes.
+  if (!FullCleanup_HoldsGIL()) workersThreadPool_Drain(RSDummyContext, 0);
   // Every pool is attempted even after one is left running, so none is still working while the
   // process exits; what is left running may reach any global freed past the check below.
   bool poolsJoined = workersThreadPool_Destroy();

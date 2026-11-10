@@ -527,16 +527,8 @@ bool ReindexPool_ThreadPoolDestroy() {
   // A shutdown regression test pins the final spec reference until this drain.
   SyncPoint_Signal("KeyMapBuildComplete");
 #endif
-  if (FullCleanup_InProgress()) {
-    if (!FullCleanup_WaitForPool(reindexPool, "reindex pool")) {
-      return false;
-    }
-    redisearch_thpool_destroy(reindexPool);
-  } else {
-    // Lets a scan blocked on the GIL finish, so the join can return.
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    redisearch_thpool_destroy(reindexPool);
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  if (!FullCleanup_DestroyPool(reindexPool, "reindex pool")) {
+    return false;
   }
   reindexPool = NULL;
   return true;
