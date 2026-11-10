@@ -46,7 +46,6 @@ on:
           - alpine:3.22
           - macos-15
           - macos-26
-          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
