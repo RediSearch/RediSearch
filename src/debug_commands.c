@@ -1432,6 +1432,14 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   return REDISMODULE_OK;
 }
 
+// GC_THREADS_ALIVE: how many GC pool threads are running.
+DEBUG_COMMAND(GCThreadsAlive) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)GC_ThreadPoolThreadsAlive());
+}
+
 // GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(GCCleanNumeric) {
   FieldSpec *fs;
@@ -4124,6 +4132,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_STOP_SCHEDULE", GCStopFutureRuns},
                                {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},
                                {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
+                               {"GC_THREADS_ALIVE", GCThreadsAlive},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"TTL_PAUSE", ttlPause},

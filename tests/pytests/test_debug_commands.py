@@ -103,6 +103,7 @@ class TestDebugCommands(object):
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
             "GC_WAIT_FOR_JOBS",
+            "GC_THREADS_ALIVE",
             "GIT_SHA",
             "TTL",
             "TTL_PAUSE",
@@ -157,7 +158,7 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'GC_THREADS_ALIVE', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
                         'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_SNAPSHOTS',

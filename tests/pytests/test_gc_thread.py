@@ -358,6 +358,39 @@ def testThreadGCCleansSeveralIndexesConcurrently():
 
 
 @skip(cluster=True)
+def testThreadGCPoolShrinksWhileItsThreadsAreBusy():
+    """Lowering search-gc-threads while every GC thread is mid-cycle queues one reduction per
+    thread to remove, which the busy threads take as they finish: every cycle still completes,
+    and the pool ends at the new size."""
+    env = thread_gc_env()
+    skipIfNoEnableAssert(env)
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    create_indexes_with_garbage(env)
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', f'idx{n}').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
+    waitForRdbSaveToFinish(env)
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}').ok()
+    hits = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', SYNC_POINT_GC_TASK_START)
+    wait_for_condition(lambda: (hits() >= GC_THREADS, {'parked': hits()}),
+                       'not every GC thread took a cycle')
+    env.assertEqual(env.cmd(debug_cmd(), 'GC_THREADS_ALIVE'), GC_THREADS)
+
+    env.expect('CONFIG', 'SET', 'search-gc-threads', 1).ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    assert_all_indexes_collected(env)
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'GC_THREADS_ALIVE') == 1,
+                 {'alive': env.cmd(debug_cmd(), 'GC_THREADS_ALIVE')}),
+        'the GC pool never shrank to one thread')
+
+
+@skip(cluster=True)
 def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
     """Forced runs from many clients and the index's own schedule all target one index while
     several GC threads are free. Deltas address blocks by position, so an overlap would apply

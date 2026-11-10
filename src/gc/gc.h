@@ -204,6 +204,8 @@ size_t GC_ThreadPoolJobsInProgress(void);
 void GC_ThreadPoolResume(void);
 // The GC pool's threads, a requested reduction counted as done; 0 before the pool exists.
 size_t GC_ThreadPoolNumThreads(void);
+// The GC pool's threads still running, which a reduction lowers only once its threads exit.
+size_t GC_ThreadPoolThreadsAlive(void);
 // Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
 // progress across a drain, which no ordinary entry point can do -- a real cycle returns
 // long before GC_ThreadPoolWaitForPause could observe it.
