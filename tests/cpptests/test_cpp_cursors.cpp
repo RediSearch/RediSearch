@@ -219,9 +219,11 @@ TEST_F(CursorsTest, EndCycleExecutesRecordedDisposition) {
   r->base.blockedClientCycleActive = true;
   r->base.cursorInfo.cursor = cur;
   r->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
+  auto id = cur->id;
   QueryRequest_EndCycle(&r->base);
   ASSERT_TRUE(is_Idle(cur));
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base + 1);
+  ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cur);
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Owner free: cursor + request";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, base);
 

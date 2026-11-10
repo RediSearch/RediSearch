@@ -178,6 +178,32 @@ mod properties {
 
     proptest! {
         #[test]
+        fn periodic_sweeps_obey_elapsed_time(
+            batches in prop::collection::vec((0usize..1501,
+                prop_oneof![0u32..2001, Just(999), Just(1000), Just(1001)]), 1..8)
+        ) {
+            let mut list = Registry::new(Kind::User);
+            let (mut total, mut now, mut last_sweep) = (0, 1, 0);
+            for (operations, elapsed) in batches {
+                if list.is_empty() {
+                    let id = reserve(&mut list, (), 0, 0);
+                    list.pause(id, now);
+                }
+                now += u64::from(elapsed) * 1_000_000;
+                let expected_reads = (total + operations) / 500 - total / 500;
+                let collected = expected_reads > 0 && now - last_sweep >= 1_000_000_000;
+                let mut reads = 0;
+                for _ in 0..operations {
+                    list.tick(|| { reads += 1; now });
+                }
+                prop_assert_eq!(reads, expected_reads);
+                prop_assert_eq!(list.is_empty(), collected);
+                if collected { last_sweep = now; }
+                total += operations;
+            }
+        }
+
+        #[test]
         fn ids_follow_random_draws(draw in any::<u32>()) {
             for (kind, expected, parity) in [
                 (Kind::User, u64::from((draw & 0x7fff_ffff) | 1) + 1, 0),
