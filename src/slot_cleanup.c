@@ -8,6 +8,8 @@
  */
 #include "slot_cleanup.h"
 
+#include "doc_id_meta.h"
+
 #include "indexes.h"
 #include "rmalloc.h"
 #include "search_disk.h"
@@ -62,7 +64,8 @@ void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
   for (size_t i = 0; i < array_len(docIds); ++i) {
-    deleted += IndexSpec_DeleteDocById_Unsafe(spec, docIds[i]);
+    // Only the ids are collected here, so the disk path reads each length from its row.
+    deleted += IndexSpec_DeleteDocById_Unsafe(spec, docIds[i], DOCID_META_DOCLEN_UNKNOWN);
   }
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);

@@ -36,16 +36,19 @@
 // back to the name-based variants, which open and close the key themselves.
 // Centralizing the openKey check here keeps every DocIdMeta access on the
 // indexing path consistent.
-static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId) {
+static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId,
+                            uint32_t *docLen) {
   return aCtx->disk.openKey
-             ? DocIdMeta_GetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
-             : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+             ? DocIdMeta_GetEntryWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId, docLen)
+             : DocIdMeta_GetEntry(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId,
+                                  docLen);
 }
 
-static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId,
+                            uint32_t docLen) {
   return aCtx->disk.openKey
-             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
-             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId, docLen)
+             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId, docLen);
 }
 
 void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
@@ -60,12 +63,14 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     aCtx->docFlags |= Document_HasExpiration;
   }
 
-  // Get old docId from key metadata (if document already exists). Stashed
-  // on `aCtx` so `applyDocTable` can drop the old VecSim / geometry entries
-  // once the batch has committed.
+  // Get the old docId and length from key metadata (if document already exists). The
+  // docId is stashed on `aCtx` so `applyDocTable` can drop the old VecSim / geometry
+  // entries once the batch has committed. The length spares the doc table a main-thread
+  // read; it is unknown only for entries written before it was tracked.
   // TODO: Consider calling this from SearchDisk_PutDocument
   uint64_t oldDocId = 0;
-  actxDocIdMetaGet(aCtx, ctx, &oldDocId);
+  uint32_t oldDocLen = DOCID_META_DOCLEN_UNKNOWN;
+  actxDocIdMetaGet(aCtx, ctx, &oldDocId, &oldDocLen);
   aCtx->oldDocId = oldDocId;
 
   // Open a per-document write batch that doc-table / inverted-index / tag-index writes
@@ -78,7 +83,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   t_docId docId = aCtx->disk.batch
     ? SearchDisk_PutDocument(spec->diskSpec, aCtx->disk.batch, key, len,
         aCtx->doc->score, aCtx->docFlags, aCtx->fwIdx->maxTermFreq,
-        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, oldDocId)
+        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, oldDocId, oldDocLen)
     : 0;
 
   // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
@@ -204,7 +209,8 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  */
 static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId);
+  // The length recorded with the docId must be the one staged into the doc-table row.
+  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId, aCtx->fwIdx->totalFreq);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
