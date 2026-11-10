@@ -412,6 +412,18 @@ TEST_F(DiskSchemaOpenLoadTest, RdbLoadFailsWhenOpeningFieldsFails) {
   EXPECT_EQ(closeOnMainThreadCalls, 0);
 }
 
+TEST_F(DiskSchemaOpenLoadTest, RdbLoadReportsTheDiskLayersReason) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_rdb_reason", {"title", "TEXT"}));
+
+  openError = "index name contains a NUL byte";
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  std::string message = QueryError_GetUserError(&err);
+  EXPECT_NE(message.find(openError), std::string::npos) << message;
+  QueryError_ClearError(&err);
+}
+
 // Loads through the non-SST path and plants the pending state, so vector fields, which SST load
 // creates up front, are left out.
 
