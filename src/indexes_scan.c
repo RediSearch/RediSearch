@@ -66,20 +66,15 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                                   RedisModuleKey *key, ScanProcCtx *scanCtx);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
-GilGate reindexGilGate_g;
+static GilGate reindexGilGate;
 
 // The reindex jobs take the GIL through a gate so ReindexPool_ThreadPoolDestroy can join them.
-bool ReindexPool_LockGIL(RedisModuleCtx *ctx) {
-  return GilGate_Lock(&reindexGilGate_g, ctx);
+void ReindexPool_LockGIL(RedisModuleCtx *ctx) {
+  GilGate_Lock(&reindexGilGate, ctx);
 }
 
 void ReindexPool_UnlockGIL(RedisModuleCtx *ctx) {
-  GilGate_Unlock(&reindexGilGate_g, ctx);
-}
-
-// The debug pause must not outlive the pool: a job parked on it would block the join.
-static bool bgIndexingPaused(void) {
-  return globalDebugCtx.bgIndexing.pause && !GilGate_IsJoining(&reindexGilGate_g);
+  GilGate_Unlock(&reindexGilGate, ctx);
 }
 
 // This function should be called after the first background scan OOM error
@@ -100,7 +95,7 @@ static redisearch_thpool_t *reindexPool = NULL;
 
 static void verifyReindexPoolInit(void) {
   if (!reindexPool) {
-    GilGate_Reset(&reindexGilGate_g);
+    GilGate_Reset(&reindexGilGate);
     reindexPool =
         redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
@@ -215,7 +210,7 @@ static bool DebugIndexScanner_ShouldStopBeforePendingScanKey(RedisModuleCtx *ctx
 
   if (globalDebugCtx.bgIndexing.pause) {
     ReindexPool_UnlockGIL(ctx);
-    while (bgIndexingPaused()) {  // volatile variable
+    while (globalDebugCtx.bgIndexing.pause) {  // volatile variable
       dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
       usleep(1000);
     }
@@ -368,9 +363,6 @@ static ScanStep IndexScanner_HandleScanState(RedisModuleCtx *ctx, IndexesScanner
       IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx);
       // Call the wait function
       threadSleepByConfigTime(ctx, scanner);
-      if (IndexesScanner_IsCancelled(scanner)) {
-        return ScanStep_Stop;
-      }
       if (!isBgIndexingMemoryOverLimit(ctx)) {
         // We can continue the scan
         RedisModule_Log(
@@ -386,11 +378,6 @@ static ScanStep IndexScanner_HandleScanState(RedisModuleCtx *ctx, IndexesScanner
     // or the config is set to not wait for memory allocation after OOM
     scanStopAfterOOM(ctx, scanner);
     IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
-  }
-
-  // A global scan is never cancelled otherwise, so it must be stopped explicitly at shutdown.
-  if (GilGate_IsJoining(&reindexGilGate_g)) {
-    return ScanStep_Stop;
   }
 
   if (IndexesScanner_IsCancelled(scanner)) {
@@ -420,7 +407,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  // Joining counts as cancelled, so a failed lock takes the check below.
   ReindexPool_LockGIL(ctx);
 
   if (IndexesScanner_IsCancelled(scanner)) {
@@ -438,12 +424,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     // If background indexing paused, wait until it is resumed
     // Allow the redis server to acquire the GIL while we release it
     ReindexPool_UnlockGIL(ctx);
-    while (bgIndexingPaused()) {  // volatile variable
+    while (globalDebugCtx.bgIndexing.pause) { // volatile variable
       usleep(1000);
     }
-    if (!ReindexPool_LockGIL(ctx)) {
-      goto end;
-    }
+    ReindexPool_LockGIL(ctx);
   }
 
   while (hasMore) {
@@ -480,9 +464,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     } else {
       sched_yield();
     }
-    if (!ReindexPool_LockGIL(ctx)) {
-      goto end;
-    }
+    ReindexPool_LockGIL(ctx);
   }
 
   if (scanner->isDebug) {
@@ -548,34 +530,16 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
   redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
-// `cancel` is shutdown: the main thread has no client to Unlock with, so the jobs are cancelled
-// through the gate. Otherwise a command runs this, drops the GIL for real and lets the scans
-// finish.
-static void reindexPoolDestroy(bool cancel) {
+void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
 #ifdef ENABLE_ASSERT
     // A shutdown regression test pins the final spec reference until this drain.
     SyncPoint_Signal("KeyMapBuildComplete");
 #endif
-    if (cancel) {
-      GilGate_BeginJoin(&reindexGilGate_g);
-    } else {
-      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    }
+    GilGate_BeginJoin(&reindexGilGate);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
-    if (!cancel) {
-      RedisModule_ThreadSafeContextLock(RSDummyContext);
-    }
   }
-}
-
-void ReindexPool_ThreadPoolDestroy() {
-  reindexPoolDestroy(true);
-}
-
-void ReindexPool_ThreadPoolDrain() {
-  reindexPoolDestroy(false);
 }
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
@@ -719,7 +683,7 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   }
   globalDebugCtx.bgIndexing.pause = true;
   ReindexPool_UnlockGIL(ctx);
-  while (bgIndexingPaused()) {  // volatile variable
+  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
     dScanner->status = code;
     usleep(1000);
   }

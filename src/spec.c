@@ -2213,17 +2213,16 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
     return;
   }
 
-  // At shutdown the deletes would never be persisted, so skip them and only free the keys.
-  bool canWrite = !lockGil || GilGate_Lock(&cleanPoolGilGate, ctx);
-  if (canWrite) {
-    for (size_t i = 0; i < len; ++i) {
-      RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
-      DocIdMeta_Delete(ctx, keyName, specId);
-      RedisModule_FreeString(ctx, keyName);
-    }
-    if (lockGil) {
-      GilGate_Unlock(&cleanPoolGilGate, ctx);
-    }
+  if (lockGil) {
+    GilGate_Lock(&cleanPoolGilGate, ctx);
+  }
+  for (size_t i = 0; i < len; ++i) {
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
+    DocIdMeta_Delete(ctx, keyName, specId);
+    RedisModule_FreeString(ctx, keyName);
+  }
+  if (lockGil) {
+    GilGate_Unlock(&cleanPoolGilGate, ctx);
   }
 
   for (size_t i = 0; i < len; ++i) {

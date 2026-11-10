@@ -503,9 +503,7 @@ static int MRConn_SendAuth(MRConn *conn) {
 
   if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
-    if (!MR_LockGIL(RSDummyContext)) {
-      return REDIS_ERR;
-    }
+    MR_LockGIL(RSDummyContext);
     size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     if (!internal_secret) {
@@ -597,10 +595,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
                     RedisModuleString **ca_cert, RedisModuleString **key_pass) {
   int ret = REDIS_OK;
   RedisModuleCtx *ctx = RSDummyContext;
-  *client_key = *client_cert = *ca_cert = *key_pass = NULL;
-  if (!MR_LockGIL(ctx)) {
-    return REDIS_ERR;
-  }
+  MR_LockGIL(ctx);
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
   *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
@@ -636,28 +631,19 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
  * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
  * nothing about the cluster ports; a new path that must read the config live should check only
  * `tls-cluster`, and preferably take the port type from the topology instead. */
-static int legacyEnterpriseConfigUsesTLS(bool *tls) {
+static bool legacyEnterpriseConfigUsesTLS(void) {
   RedisModuleCtx *ctx = RSDummyContext;
-  if (!MR_LockGIL(ctx)) {
-    return REDIS_ERR;
-  }
-  *tls = getRedisConfigBool(ctx, "tls-cluster", false) ||
-         getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
+  MR_LockGIL(ctx);
+  bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
   MR_UnlockGIL(ctx);
-  return REDIS_OK;
+  return tls;
 }
 
-// REDIS_ERR when the answer needs the config and the cluster is being freed.
-static int MRConn_UsesTLS(const MRConn *conn, bool *uses) {
+static bool MRConn_UsesTLS(const MRConn *conn) {
   switch (conn->ep.tls) {
-    case MREndpointTLS_Off:
-      *uses = false;
-      return REDIS_OK;
-    case MREndpointTLS_On:
-      *uses = true;
-      return REDIS_OK;
-    case MREndpointTLS_LegacyFromLocalConfig:
-      return legacyEnterpriseConfigUsesTLS(uses);
+    case MREndpointTLS_Off: return false;
+    case MREndpointTLS_On: return true;
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
   }
   RS_ABORT("Unknown MREndpointTLS");
 }
@@ -667,11 +653,7 @@ static int MRConn_UsesTLS(const MRConn *conn, bool *uses) {
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  bool usesTLS = false;
-  if (MRConn_UsesTLS(conn, &usesTLS) == REDIS_ERR) {
-    return REDIS_ERR;
-  }
-  if (!usesTLS) {
+  if (!MRConn_UsesTLS(conn)) {
     return REDIS_OK;
   }
 

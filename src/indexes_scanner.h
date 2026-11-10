@@ -94,13 +94,9 @@ typedef struct IndexesScanner {
   RedisModuleString *OOMkey;
 } IndexesScanner;
 
-// Gate of the reindex pool. A pool being joined cancels every scan it runs.
-extern GilGate reindexGilGate_g;
-
 // Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
 static inline bool IndexesScanner_IsCancelled(const IndexesScanner *scanner) {
-  return __atomic_load_n(&scanner->cancelled, __ATOMIC_RELAXED) ||
-         GilGate_IsJoining(&reindexGilGate_g);
+  return __atomic_load_n(&scanner->cancelled, __ATOMIC_RELAXED);
 }
 
 typedef struct DebugIndexesScanner {
@@ -173,9 +169,8 @@ typedef enum {
 BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx);
 
 // GIL for reindex jobs, so ReindexPool_ThreadPoolDestroy can join them while holding it. Use
-// instead of RedisModule_ThreadSafeContextLock/Unlock on the reindex pool's threads. False means
-// the pool is being joined: the GIL is not held, and the job must make no Redis call and wind down.
-bool ReindexPool_LockGIL(RedisModuleCtx *ctx);
+// instead of RedisModule_ThreadSafeContextLock/Unlock on the reindex pool's threads.
+void ReindexPool_LockGIL(RedisModuleCtx *ctx);
 void ReindexPool_UnlockGIL(RedisModuleCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

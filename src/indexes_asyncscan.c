@@ -222,9 +222,7 @@ static void Indexes_AsyncScanFreeFilter(AsyncScanFilterCtx *ctx) {
 // several terminal result codes.
 static void Indexes_AsyncScanRecordFailure(RedisModuleCtx *ctx, IndexesScanner *scanner,
                                                  const char *msg, bool oom) {
-  if (!ReindexPool_LockGIL(ctx)) {
-    return;
-  }
+  ReindexPool_LockGIL(ctx);
   IndexesScanner_RecordBackgroundFailure(ctx, scanner, msg, oom);
   ReindexPool_UnlockGIL(ctx);
 }
@@ -246,10 +244,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanStartWithRetry(
   rs_wall_clock busy_since;
   rs_wall_clock_init(&busy_since);
   for (;;) {
-    if (!ReindexPool_LockGIL(ctx)) {
-      *out_terminal = true;
-      goto out;
-    }
+    ReindexPool_LockGIL(ctx);
     // Check cancellation / a dropped spec before Start, under the same GIL hold, so nothing
     // interleaves before the bind. FT.DROPINDEX / FLUSHDB invalidate the weak ref without setting
     // cancelled, so promote it to notice a drop. Checking here stops the BUSY retries from binding
@@ -435,11 +430,7 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
                     (backoffIters * (size_t)ASYNC_SCAN_BUSY_BACKOFF_US) / 1000);
   }
 
-  if (!ReindexPool_LockGIL(ctx)) {
-    // The cursor is left bound with no batch in flight: aborting it needs the GIL.
-    *out_terminal = true;
-    return REDISMODULE_ASYNCSCAN_ABORTED;
-  }
+  ReindexPool_LockGIL(ctx);
 
   // Re-check for a spec dropped between batches: with a selective filter no key_cb may run to
   // observe an FT.DROPINDEX / FLUSHDB, so without this the worker keeps requesting batches for a
@@ -571,9 +562,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                       "AsyncScan: index %s throttled (max-inflight); backing off (rc=BUSY)",
                       scanner->spec_name_for_logs);
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
-      if (!ReindexPool_LockGIL(ctx)) {
-        goto done;
-      }
+      ReindexPool_LockGIL(ctx);
       rc = RedisModule_AsyncScanNextBatch(ctx, cursor, ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT);
       ReindexPool_UnlockGIL(ctx);
       break;
@@ -689,10 +678,6 @@ done:
 
   pthread_cond_destroy(&driver.cond);
   pthread_mutex_destroy(&driver.mutex);
-  // A join-time stop can leave a bound cursor that only an abort under the GIL releases; leak it
-  // rather than destroy it live, the process is exiting.
-  if (start_terminal || !GilGate_IsJoining(&reindexGilGate_g)) {
-    RedisModule_ScanCursorDestroy(cursor);
-  }
+  RedisModule_ScanCursorDestroy(cursor);
   RedisModule_FreeThreadSafeContext(ctx);
 }

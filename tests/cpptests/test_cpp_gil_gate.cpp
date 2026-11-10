@@ -41,7 +41,7 @@ TEST_F(GilGateTest, UncontendedLockReallyLocks) {
   }).join();
 }
 
-TEST_F(GilGateTest, JoiningStopsWaitingWorker) {
+TEST_F(GilGateTest, JoiningLetsWorkerBorrowTheGil) {
   // The main thread holds the GIL, as it does at shutdown.
   RedisModule_ThreadSafeContextLock(ctx);
 
@@ -49,8 +49,8 @@ TEST_F(GilGateTest, JoiningStopsWaitingWorker) {
   std::atomic<int> result{-1};
   std::thread worker([&] {
     started = true;
-    result = GilGate_Lock(&gate, ctx) ? 1 : 0;
-    GilGate_Unlock(&gate, ctx);  // must not release the main thread's GIL
+    result = GilGate_Lock(&gate, ctx) ? 1 : 0;  // 0: borrowed, not really taken
+    GilGate_Unlock(&gate, ctx);                 // must not release the main thread's GIL
   });
   while (!started) std::this_thread::yield();
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -63,12 +63,4 @@ TEST_F(GilGateTest, JoiningStopsWaitingWorker) {
   // Still held by this thread: a worker's Unlock was a no-op.
   std::thread([&] { EXPECT_NE(RedisModule_ThreadSafeContextTryLock(ctx), REDISMODULE_OK); }).join();
   RedisModule_ThreadSafeContextUnlock(ctx);
-}
-
-TEST_F(GilGateTest, NeverLocksOnceJoining) {
-  GilGate_BeginJoin(&gate);
-  EXPECT_FALSE(GilGate_Lock(&gate, ctx));
-  GilGate_Reset(&gate);
-  EXPECT_TRUE(GilGate_Lock(&gate, ctx));
-  GilGate_Unlock(&gate, ctx);
 }

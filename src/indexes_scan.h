@@ -44,10 +44,8 @@ void Indexes_UpgradeLegacyIndexes();
 // Called with the GIL and no spec lock; schedules at most one lazy map build.
 void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 
-// Shutdown: joins the pool holding the GIL, cancelling its scans.
+// Expose reindexpool for debug
 void ReindexPool_ThreadPoolDestroy();
-// From a command (debug): joins the pool with the GIL dropped, letting running scans finish.
-void ReindexPool_ThreadPoolDrain();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

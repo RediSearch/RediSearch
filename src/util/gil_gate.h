@@ -17,15 +17,19 @@
 extern "C" {
 #endif
 
-// Lets the jobs of a thread pool stop cleanly when the main thread joins the pool at shutdown.
+// Lets the jobs of a thread pool keep taking the GIL while the main thread joins the pool at
+// shutdown.
 //
-// The main thread holds the GIL then, and cannot drop it: an Unlock needs a Lock on the same
-// thread to set up the client Redis expects, and shutdown has none. A job blocking on the GIL
-// would never return, so a job takes the GIL through the gate instead. Once the join begins the
-// gate stops waiting and GilGate_Lock returns false: the job does not hold the GIL, and must make
-// no Redis keyspace or server-state call from then on. It only frees memory the module owns and
-// exits. Nothing is lost: Redis fires the shutdown event after the AOF flush and RDB save, so work
-// done during the join would never be persisted or replicated. Use one gate per pool.
+// The main thread holds the GIL then and cannot drop it: an Unlock needs a Lock on the same thread
+// to set up the client Redis expects, and shutdown has none. A job blocking on the GIL would never
+// return, so jobs take it through a gate. Once the join begins the gate stops waiting and the job
+// borrows the main thread's GIL. That keeps mutual exclusion because the main thread sits in the
+// join and touches nothing, each pool has one thread, and pools are joined one at a time. Use one
+// gate per pool.
+//
+// Accepted limitation: a borrowing job calls Redis without the bookkeeping Lock sets up (current
+// client, execution nesting). This path only runs with RS_GLOBAL_DTORS, i.e. tests and sanitizer
+// runs, never in production.
 typedef struct GilGate {
   bool joining;  // accessed only through the __atomic builtins
 } GilGate;
@@ -44,22 +48,21 @@ static inline bool GilGate_IsJoining(GilGate *gate) {
   return __atomic_load_n(&gate->joining, __ATOMIC_ACQUIRE);
 }
 
-// Takes the GIL. Returns false, without it, once the join began (and never takes it after): the
-// caller must stop its Redis work. Polls rather than blocks, since a blocked job could not notice
-// the join.
+// Takes the GIL, or borrows the main thread's once the join began. Returns whether it was really
+// taken. Polls rather than blocks, since a blocked job could not notice the join.
 static inline bool GilGate_Lock(GilGate *gate, RedisModuleCtx *ctx) {
   const struct timespec backoff = {.tv_sec = 0, .tv_nsec = 100000};
-  while (!GilGate_IsJoining(gate)) {
-    if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
-      return true;
+  while (RedisModule_ThreadSafeContextTryLock(ctx) != REDISMODULE_OK) {
+    if (GilGate_IsJoining(gate)) {
+      return false;
     }
     nanosleep(&backoff, NULL);
   }
-  return false;
+  return true;
 }
 
 // Pairs with GilGate_Lock. The join cannot begin while a job holds the GIL, so a job that took it
-// for real always releases it for real, and one that did not never does.
+// for real always releases it for real, and a borrowing one never does.
 static inline void GilGate_Unlock(GilGate *gate, RedisModuleCtx *ctx) {
   if (!GilGate_IsJoining(gate)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
