@@ -26,7 +26,6 @@ from unittest import SkipTest
 import inspect
 import math
 import tempfile
-import re
 import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
@@ -473,30 +472,7 @@ def is_enterprise_server(env):
     return 'rlec_version' in env.cmd('INFO', 'SERVER')
 
 
-_RENAMED_MODULE = RS_TEST_MODULE_NAME != 'search'
-_RENAMED_MODULE_PREFIX = re.compile(rf'(?m)^(# )?{re.escape(RS_TEST_MODULE_NAME)}_')
-
-def _info_args_for_module(args):
-    """Ask INFO for the module's own section name in place of `search`,
-    keeping a space-joined command string joined (it decides redis-py's reply
-    parsing)."""
-    head = str(args[0]).split(' ')
-    head = [RS_TEST_MODULE_NAME if a.lower() == 'search' else a for a in head]
-    rest = [RS_TEST_MODULE_NAME if isinstance(a, str) and a.lower() == 'search' else a for a in args[1:]]
-    return (' '.join(head),) + tuple(rest)
-
-def _info_as_search(res):
-    """Rename the module's INFO sections and fields to the `search_` prefix
-    the suite expects, in both the parsed (dict) and raw (str) replies."""
-    if isinstance(res, dict):
-        return {_RENAMED_MODULE_PREFIX.sub(r'\1search_', k) if isinstance(k, str) else k: _info_as_search(v)
-                for k, v in res.items()}
-    if isinstance(res, str):
-        return _RENAMED_MODULE_PREFIX.sub(r'\1search_', res)
-    return res
-
-
-if RS_TEST_ENTERPRISE or _RENAMED_MODULE:
+if RS_TEST_ENTERPRISE:
     _orig_execute_command = redis.client.Redis.execute_command
 
     # NOTE: command routing stays on this process-global patch
@@ -510,14 +486,11 @@ if RS_TEST_ENTERPRISE or _RENAMED_MODULE:
         """Intercept command rewrites for enterprise/OSS compat:
         - FT.CONFIG / FT.DEBUG -> _FT.CONFIG / _FT.DEBUG: the enterprise build
           registers both with its `_FT` read prefix only (src/commands.h)
-        - INFO: map RS_TEST_MODULE_NAME's sections and fields to `search`
         """
         # redis-py splits a command name holding spaces ('ft.config get *').
         name = str(args[0]).split(' ', 1)[0].upper() if args else ''
-        if RS_TEST_ENTERPRISE and name in ('FT.CONFIG', 'FT.DEBUG'):
+        if name in ('FT.CONFIG', 'FT.DEBUG'):
             args = ('_' + str(args[0]),) + tuple(args[1:])
-        if _RENAMED_MODULE and name == 'INFO':
-            return _info_as_search(_orig_execute_command(self, *_info_args_for_module(args), **kwargs))
         # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
         # Enterprise servers background-save on their own, whatever the
         # build; OSS tests that call SAVE directly would race and get
@@ -755,10 +728,10 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None, light=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards or no_json or (enterprise is not None) or (light is not None)):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards or no_json or (enterprise is not None)):
                 raise SkipTest()
             if cluster == COORD:
                 raise SkipTest()
@@ -783,8 +756,6 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
             if no_json and not has_json_api_v2(Env()):
                 raise SkipTest()
             if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
-                raise SkipTest()
-            if light is not None and light == _RENAMED_MODULE:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()

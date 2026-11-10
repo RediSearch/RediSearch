@@ -15,7 +15,7 @@ else:
 
 
 # RSE builds don't ship the example extension.
-@skip(enterprise=True, light=True)
+@skip(enterprise=True)
 def testExt(env):
     if env.env == 'existing-env' or NO_LIBEXT:
         env.skip()
