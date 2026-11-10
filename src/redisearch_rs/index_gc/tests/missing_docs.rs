@@ -16,7 +16,8 @@ use hidden_string::OwnedHiddenString;
 use index_gc::{
     DocExistence, GcError,
     scanners::missing_docs::{
-        MissingDocsEntry, apply_missing_docs, collect_missing_docs, receive_missing_docs,
+        MissingDocsEntry, apply_missing_docs, collect_missing_docs, missing_field_names,
+        receive_missing_docs, scan_missing_field,
     },
 };
 use index_result::RSIndexResult;
@@ -41,6 +42,10 @@ fn index(count: u64) -> Box<OpaqueInvertedIndex> {
 }
 
 /// Builds an `IndexSpec` with a `missing.indexes` with the provided entries.
+///
+/// The spec's document table is empty, so every doc id in those entries counts
+/// as deleted and a scan collects it, unless a test reports it live with
+/// [`all_live`].
 fn make_spec(
     entries: impl IntoIterator<Item = (&'static [u8], Box<OpaqueInvertedIndex>)>,
 ) -> (ffi::IndexSpec, OwnedDict<MissingFieldDictType>) {
@@ -288,6 +293,40 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     );
     assert!(stats.bytes_collected > 0);
     assert_eq!(stats.records_removed, 0);
+}
+
+/// `missing_field_names` lists every field in the dict, including those with
+/// nothing to collect, so a thread cycle sees the same fields the child does.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn missing_field_names_lists_every_field() {
+    let (spec, _dict) = make_spec([(&b"field_a"[..], index(1)), (&b"field_b"[..], index(0))]);
+    // SAFETY: `spec` and its dict are live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut names = missing_field_names(&guard);
+    names.sort();
+    assert_eq!(names, [c"field_a".to_owned(), c"field_b".to_owned()]);
+}
+
+/// `scan_missing_field` finds the same delta `collect_missing_docs` sends, and
+/// nothing for an unknown or empty field.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn scan_missing_field_matches_the_collected_entry() {
+    let (spec, _dict) = make_spec([(&b"age"[..], index(2)), (&b"empty"[..], index(0))]);
+    // SAFETY: `spec` and its dict are live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut buf = Vec::new();
+    collect_missing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    let collected = deserialize::<Option<MissingDocsEntry>>(&mut Cursor::new(&buf), "test message")
+        .unwrap()
+        .expect("the field has docs to collect");
+
+    assert_eq!(scan_missing_field(&guard, c"age"), Some(collected.delta));
+    assert_eq!(scan_missing_field(&guard, c"empty"), None);
+    assert_eq!(scan_missing_field(&guard, c"unknown"), None);
 }
 
 /// Reports every doc id the fixtures use as present, whatever the spec's

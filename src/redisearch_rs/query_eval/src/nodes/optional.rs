@@ -9,14 +9,14 @@
 
 //! Evaluation of `QN_OPTIONAL` query nodes.
 
-use std::ptr::NonNull;
-
 use rqe_iterators::{
     interop::RQEIteratorWrapper,
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
 };
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterator};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+};
 
 /// `QN_OPTIONAL` — an optional match that boosts the score when its single
 /// child matches but does not exclude documents that don't.
@@ -24,6 +24,7 @@ pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Evaluated<'index> {
     debug_assert_eq!(
         node.num_children(),
@@ -34,7 +35,7 @@ pub(crate) fn eval<'index>(
     // Evaluate the child. A `None` child becomes an `Empty` iterator, which
     // `new_optional_iterator` reduces to a wildcard fallback — an empty optional
     // matches every document as a virtual hit.
-    let child = eval_child_iterator(ctx, node.child_mut(0), config);
+    let child = eval_child_iterator(ctx, node.child_mut(0), config, offsets);
 
     // SAFETY: the preconditions of `new_optional_iterator` map to
     // `QueryEvalContext::new` invariants:
@@ -67,13 +68,11 @@ pub(crate) fn eval<'index>(
         }
         // Genuine compound iterators: lower via `boxed_new_compound` so the
         // profiler keeps the `ProfileChildren` callback into the child.
-        NewOptionalIterator::Optional(opt) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
-                .expect("optional iterator must not be null"),
-        ),
-        NewOptionalIterator::OptionalOptimized(opt) => Evaluated::RustCompound(
-            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
-                .expect("optional iterator must not be null"),
-        ),
+        NewOptionalIterator::Optional(opt) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(opt))
+        }
+        NewOptionalIterator::OptionalOptimized(opt) => {
+            Evaluated::RustCompound(RQEIteratorWrapper::boxed_new_compound(opt))
+        }
     }
 }

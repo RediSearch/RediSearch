@@ -25,4 +25,4 @@ pub use suffix::{SuffixMode, SuffixTrie, SuffixWalk};
 pub use terms::{
     FuzzyWalk, InvalidFuzzyDistance, TermsTrie, TermsTrieAllIterator, TermsTrieDecrResult,
 };
-pub use util::{LoweredPattern, TrieTerm};
+pub use util::{LoweredPattern, TrieTerm, TrieTermRef};

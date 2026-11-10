@@ -152,9 +152,9 @@ enum Child {
     /// A plain `@tag:{value}` term.
     Token(&'static [u8]),
     /// A `@tag:{pat*}` expansion. `prefix`/`suffix` are the anchoring flags the
-    /// parser sets from where the `*`s sit: `suffix` off is `TAG_PREFIX_MODE`
-    /// (`pat*`), `suffix` alone is `TAG_SUFFIX_MODE` (`*pat`), and both is
-    /// `TAG_CONTAINS_MODE` (`*pat*`) -- both off is not a state the parser can
+    /// parser sets from where the `*`s sit: `suffix` off is `TM_PREFIX_MODE`
+    /// (`pat*`), `suffix` alone is `TM_SUFFIX_MODE` (`*pat`), and both is
+    /// `TM_CONTAINS_MODE` (`*pat*`) -- both off is not a state the parser can
     /// produce. On a [`TagField::IndexedWithSuffixTrie`] field the two
     /// `suffix`-anchored modes take the suffix-trie walk instead.
     Prefix {

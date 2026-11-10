@@ -14,6 +14,7 @@ use rqe_iterators::{
     maybe_empty::MaybeEmpty,
 };
 use rqe_iterators_test_utils::ContractChecker;
+use std::ptr::NonNull;
 
 #[derive(Default)]
 #[repr(C)]
@@ -61,6 +62,9 @@ impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
         // initialised, uniquely owned). `&raw mut` forms a field pointer to the
         // `result` slot without creating a reference.
         let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `raw`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
         // and is unaliased; `into_suspended_in_place` is a safe widening
         // conversion with no further precondition.
@@ -92,6 +96,9 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
         // SAFETY: `raw` came from `Box::into_raw`; `&raw mut` forms a field
         // pointer to the `result` slot without creating a reference.
         let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `raw`, so it is
+        // non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialised
         // `SuspendedIndexResult<'query>` and is unaliased. `into_active`'s
         // preconditions hold: this mock only ever stores a virtual result over

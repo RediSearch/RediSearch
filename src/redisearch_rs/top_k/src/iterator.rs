@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize};
+use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -174,7 +174,7 @@ enum Phase {
 ///    re-narrows. `carries_no_index_borrow` states the property in code;
 ///    because neither that trait contract nor the `&mut` handout from
 ///    [`current`](RQEIterator::current) can be enforced statically, it is
-///    *checked* — not assumed — by `survives_lock_release`, at both boundaries
+///    *checked* — not assumed — by `buffers_carry_no_index_borrows`, at both boundaries
 ///    that hand the records back after a lock release
 ///    ([`resume`](RQESuspendedIterator::resume) and the legacy
 ///    [`revalidate`](RQEIterator::revalidate)), which abort on violation.
@@ -864,18 +864,22 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Same decisions as `resume`; see `survives_lock_release`.
-        if !self.survives_lock_release() {
+        if !self.buffers_carry_no_index_borrows() {
             return Ok(RQEValidateStatus::Aborted);
         }
-        // Otherwise only a child abort aborts us. Results come from our own
-        // score-ordered buffer, so a moved child does not move our cursor:
-        // collapse it to Ok.
+        // Results come from our own score-ordered buffer, so a moved child does
+        // not move our cursor. Child aborts and errors still propagate.
         if let Some(child) = self.child.as_mut() {
             match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
             }
+        }
+        // Legacy callers have no suspend hook. Discard cached handles before
+        // the source is consulted again, but preserve child errors over a source abort.
+        self.source.release_index_handles();
+        if !self.can_resume_collection() {
+            return Ok(RQEValidateStatus::Aborted);
         }
         self.source_stale = true;
         Ok(RQEValidateStatus::Ok)
@@ -981,7 +985,7 @@ impl<'index, S: ScoreSource + 'index, I: RQEIteratorBoxed<'index>, O: ScoreOrder
             //
             // SAFETY: `child` is a valid, exclusively-owned `I`; the helper
             // leaves the slot holding a valid `I::Suspended`.
-            unsafe { suspend_child_slot_in_place(child as *mut I) };
+            unsafe { suspend_child_slot_in_place(NonNull::from(child)) };
         }
         // SAFETY: the child slot (if occupied) now holds `I::Suspended` and
         // `TopKChild::Absent` is `I`-free, so the allocation is a valid
@@ -1033,7 +1037,7 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
         // not `Err`, since `RQEIteratorError` is for genuine `TimedOut`/`IoError`
         // failures. Checked on `&self`, before `Box::into_raw`, so a violation
         // simply drops the box.
-        if !self.survives_lock_release() {
+        if !self.buffers_carry_no_index_borrows() {
             return Ok(ResumeOutcome::Aborted);
         }
 
@@ -1054,7 +1058,7 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
                 // child. On Unchanged/Moved the helper rewrites the slot as a
                 // valid `IS::Resumed<'index>`; on Aborted/Err it consumes the
                 // child, leaving the slot uninitialised (handled below).
-                match unsafe { resume_child_slot_in_place(child as *mut IS, guard) } {
+                match unsafe { resume_child_slot_in_place(NonNull::from(child), guard) } {
                     // A moved child does not move *our* cursor — see the outcome
                     // note below — so `Unchanged` and `Moved` are the same to us.
                     Ok(ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved) => {
@@ -1109,6 +1113,11 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
             Box::from_raw(raw.cast::<RawTopK<'index, Active<'index>, S, IS::Resumed<'index>, O>>())
         };
 
+        // A child timeout must not be hidden by a source that cannot resume collection.
+        if !active.can_resume_collection() {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
         // Always `Ok`, never `Moved`: our position is `yield_pos` into our own
         // score-ordered buffer, which the suspension left untouched, so the
         // document `current()` reports is still the one the caller last read.
@@ -1150,16 +1159,9 @@ impl<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering> RawTopK<'query, Rf, S
                 .all(carries_no_index_borrow)
     }
 
-    /// Whether the state carried across a lock release can be handed back:
-    /// invariants 2 and 4 hold.
-    ///
-    /// The shared decision point for both [`resume`](RQESuspendedIterator::resume)
-    /// and the legacy [`revalidate`](RQEIterator::revalidate), so the two paths
-    /// cannot drift. The cost is `O(k)` plus each record's subtree, paid only
-    /// when the lock was released.
-    fn survives_lock_release(&self) -> bool {
-        (self.phase != Phase::NotStarted || self.source.can_collect_after_lock_release())
-            && self.buffers_carry_no_index_borrows()
+    /// Collection needs a resumable source; buffered output does not read it.
+    fn can_resume_collection(&self) -> bool {
+        self.phase != Phase::NotStarted || self.source.can_collect_after_lock_release()
     }
 }
 

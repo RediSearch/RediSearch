@@ -701,6 +701,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "libc",
  "query_term",
  "query_types",
  "redis-module",
@@ -1159,6 +1160,7 @@ dependencies = [
  "field_spec",
  "hidden_string",
  "inverted_index",
+ "libc",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -1609,19 +1611,10 @@ dependencies = [
 name = "numeric_range_tree_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
- "generational_slab",
- "hyperloglog",
- "index_result",
- "inverted_index",
- "inverted_index_ffi",
  "numeric_range_tree",
  "redis-module",
  "redis_mock",
- "rmp-serde",
  "rqe_core",
- "serde",
- "tracing",
  "workspace_hack",
 ]
 
@@ -1641,6 +1634,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "workspace_hack",
 ]
@@ -2280,7 +2274,6 @@ dependencies = [
  "libc",
  "min-max-heap",
  "priority-queue",
- "query_error",
  "redis_mock",
  "redisearch_rs",
  "reducers",

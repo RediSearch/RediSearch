@@ -341,6 +341,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AllocateKeyCallback",
             "AsyncPollResult",
             "AsyncReadResult",
+            "AsyncReadFailure",
+            "DiskReadFailureReason",
             "BasicDiskAPI",
             // RETURN_STRICT GIL handshake context.
             "QueryRequest",
@@ -373,8 +375,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
+            "IndexSpec_LockRead",
             "IndexSpec_ParseC",
             "IndexSpec_ReleaseWriteLock",
+            "IndexSpec_Unlock",
             "IndexSpecCache_Decref",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
@@ -453,6 +457,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_IterateContains",
             "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
+            "Trie_VisitAfter",
             "TrieType_Free",
         ],
         types: &[],
@@ -461,7 +466,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
-        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
+        types: &[
+            "TrieIterator",
+            "TrieRangeCallback",
+            "TrieSuffixCallback",
+            "TrieVisitCallback",
+        ],
         vars: &[],
     },
     HeaderAllowlist {
@@ -640,6 +650,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
     "IteratorType",
+    "pthread_rwlock_t", // defined directly in `ffi/src/lib.rs`
     "QueryNodeType",
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
