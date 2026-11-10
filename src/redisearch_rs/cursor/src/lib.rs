@@ -195,6 +195,9 @@ impl<T> Registry<T> {
         for (id, _) in self.idle.drain(..) {
             self.entries.remove(&id);
         }
+        // Process-lifetime registries have no destructor at shutdown.
+        self.entries.shrink_to_fit();
+        self.idle.shrink_to_fit();
         self.next_timeout = None;
         for entry in self.entries.values_mut() {
             entry.state = State::DeleteOnPause;
