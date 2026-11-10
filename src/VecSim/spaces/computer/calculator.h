@@ -125,21 +125,21 @@ public:
 };
 
 /**
- * Distance calculator for mean-normalized SQ8 indices.
+ * Distance calculator for mean-normalized quantized indices.
  *
- * Stored vectors are SQ8-quantized from x' = x - mean. IP queries remain unshifted and use
+ * Stored vectors are quantized from x' = x - mean. IP queries remain unshifted and use
  * analytical correction terms derived from the per-vector x_mean_ip / y_mean_ip metadata.
  * L2 queries are centered once during preprocessing, allowing the base kernel to compute the
  * original distance directly without cancellation-prone correction terms.
  *
  * Correction formulas (expressed in terms of distance semantics):
  *
- * Asymmetric (stored vector x as SQ8 of x'):
+ * Asymmetric (stored vector x as quantization of x'):
  *   IP distance:  dist(x,y) = asym_func(x_blob, y_blob) - y_mean_ip
  *   L2 distance:  dist(x,y) = asym_func(x_blob, centered_y_blob)
  *                              where centered_y = y - mean
  *
- * Symmetric (both x and y as SQ8 blobs):
+ * Symmetric (both x and y as quantized blobs):
  *   IP distance:  dist(x,y) = sym_func(x_blob, y_blob) - x_mean_ip - y_mean_ip
  *                              + mean_sum_squares
  *   L2 distance:  dist(x,y) = sym_func(x_blob, y_blob)   (mean terms cancel exactly)
@@ -150,14 +150,13 @@ public:
  * DataType is float or float16
  * DistType is float
  */
-template <typename DataType, typename DistType, VecSimMetric Metric>
+template <typename DataType, typename DistType, VecSimMetric Metric,
+          typename StorageType = vecsim_types::sq8>
 class DistanceCalculatorWithNorm : public IndexCalculatorInterface<DistType> {
     static_assert(Metric == VecSimMetric_L2 || Metric == VecSimMetric_IP,
                   "DistanceCalculatorWithNorm only supports L2 and IP metrics");
 
 private:
-    using sq8 = vecsim_types::sq8;
-
     struct WithNormDistanceContext {
         spaces::dist_func_t<DistType> stored_func;
         spaces::dist_func_t<DistType> query_func;
@@ -175,12 +174,12 @@ private:
             // base = 1 - IP(x', y'). We want 1 - IP(x, y).
             // IP(x, y) = IP(x', y') + x_mean_ip + y_mean_ip - mean_sum_squares
             // => 1 - IP(x, y) = base - x_mean_ip - y_mean_ip + mean_sum_squares
-            float x_mean_ip =
-                load_unaligned<float>(static_cast<const uint8_t *>(v1) + dim +
-                                      sq8::template mean_ip_index<Metric>() * sizeof(float));
-            float y_mean_ip =
-                load_unaligned<float>(static_cast<const uint8_t *>(v2) + dim +
-                                      sq8::template mean_ip_index<Metric>() * sizeof(float));
+            float x_mean_ip = load_unaligned<float>(
+                static_cast<const uint8_t *>(v1) + StorageType::data_bytes_count(dim) +
+                StorageType::template mean_ip_index<Metric>() * sizeof(float));
+            float y_mean_ip = load_unaligned<float>(
+                static_cast<const uint8_t *>(v2) + StorageType::data_bytes_count(dim) +
+                StorageType::template mean_ip_index<Metric>() * sizeof(float));
             return base - x_mean_ip - y_mean_ip + context->mean_sum_squares;
         } else { // L2: ||x - y||² = ||x' - y'||² (mean terms cancel exactly)
             return base;
@@ -192,9 +191,9 @@ private:
         const auto *context = static_cast<const WithNormDistanceContext *>(opaque_context);
         DistType base = context->query_func(candidate, query, dim);
         if constexpr (Metric == VecSimMetric_IP) {
-            float y_mean_ip =
-                load_unaligned<float>(static_cast<const uint8_t *>(query) + dim * sizeof(DataType) +
-                                      sq8::template query_mean_ip_index<Metric>() * sizeof(float));
+            float y_mean_ip = load_unaligned<float>(
+                static_cast<const uint8_t *>(query) + dim * sizeof(DataType) +
+                StorageType::template query_mean_ip_index<Metric>() * sizeof(float));
             // base = 1 - IP(x', y). We want 1 - IP(x, y).
             // IP(x, y) = IP(x', y) + y_mean_ip
             // => 1 - IP(x, y) = base - y_mean_ip
@@ -226,13 +225,13 @@ public:
         }
     }
 
-    // Symmetric: both v1 and v2 are stored SQ8-of-x' blobs.
+    // Symmetric: both v1 and v2 are stored quantized-x' blobs.
     DistType calcDistance(const void *v1, const void *v2, size_t dim) const override {
         return calcStoredWithContext(&context_, v1, v2, dim);
     }
 
     // Asymmetric: IP queries are raw; L2 queries are centered during preprocessing. The candidate
-    // is a stored SQ8-of-x' blob.
+    // is a stored quantized-x' blob.
     // Note: query_dist_func expects (storage, query) argument order.
     DistType calcDistanceForQuery(const void *candidate, const void *query,
                                   size_t dim) const override {

@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "IP.h"
+#include "VecSim/spaces/quantized_kernels.h"
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
@@ -32,40 +33,7 @@ using sq8 = vecsim_types::sq8;
  * SQ8_FP32_L2Sqr.
  */
 float SQ8_FP32_InnerProduct_Impl(const void *pVect1v, const void *pVect2v, size_t dimension) {
-    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
-    const auto *pVect2 = static_cast<const float *>(pVect2v);
-
-    // Use 4 accumulators for instruction-level parallelism
-    float sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0;
-
-    // Main loop: process 4 elements per iteration
-    size_t i = 0;
-    size_t dim4 = dimension & ~size_t(3); // dim4 is a multiple of 4
-    for (; i < dim4; i += 4) {
-        sum0 += static_cast<float>(pVect1[i + 0]) * pVect2[i + 0];
-        sum1 += static_cast<float>(pVect1[i + 1]) * pVect2[i + 1];
-        sum2 += static_cast<float>(pVect1[i + 2]) * pVect2[i + 2];
-        sum3 += static_cast<float>(pVect1[i + 3]) * pVect2[i + 3];
-    }
-
-    // Handle remainder (0-3 elements)
-    for (; i < dimension; i++) {
-        sum0 += static_cast<float>(pVect1[i]) * pVect2[i];
-    }
-
-    // Combine accumulators
-    float quantized_dot = (sum0 + sum1) + (sum2 + sum3);
-
-    // Storage metadata follows a byte payload and is not necessarily float-aligned.
-    const auto *params = pVect1 + dimension;
-    const float min_val = load_unaligned<float>(params + sq8::MIN_VAL * sizeof(float));
-    const float delta = load_unaligned<float>(params + sq8::DELTA * sizeof(float));
-
-    // Get precomputed y_sum from query blob (pVect2 is FP32, stored after the dim floats)
-    const float y_sum = pVect2[dimension + sq8::SUM_QUERY];
-
-    // Apply formula: IP = min * y_sum + delta * Σ(q_i * y_i)
-    return min_val * y_sum + delta * quantized_dot;
+    return spaces::quantized::FP32_InnerProduct_Impl<sq8>(pVect1v, pVect2v, dimension);
 }
 
 float SQ8_FP32_InnerProduct(const void *pVect1v, const void *pVect2v, size_t dimension) {
@@ -143,31 +111,7 @@ float SQ8_FP16_Cosine(const void *pVect1v, const void *pVect2v, size_t dimension
 // (not distance). Used by both SQ8_SQ8_InnerProduct, SQ8_SQ8_Cosine, and SQ8_SQ8_L2Sqr.
 // Vector layout: [uint8_t values (dim)] [min_val (float)] [delta (float)] [sum (float)]
 float SQ8_SQ8_InnerProduct_Impl(const void *pVect1v, const void *pVect2v, size_t dimension) {
-    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
-    const auto *pVect2 = static_cast<const uint8_t *>(pVect2v);
-
-    // Compute inner product of quantized values: Σ(q1[i]*q2[i])
-    float product = 0;
-    for (size_t i = 0; i < dimension; i++) {
-        product += pVect1[i] * pVect2[i];
-    }
-
-    // Metadata follows byte payloads and is not necessarily float-aligned.
-    const auto *params1 = pVect1 + dimension;
-    const float min_val1 = load_unaligned<float>(params1 + sq8::MIN_VAL * sizeof(float));
-    const float delta1 = load_unaligned<float>(params1 + sq8::DELTA * sizeof(float));
-    const float sum1 = load_unaligned<float>(params1 + sq8::SUM * sizeof(float));
-
-    // Get quantization parameters from pVect2
-    const auto *params2 = pVect2 + dimension;
-    const float min_val2 = load_unaligned<float>(params2 + sq8::MIN_VAL * sizeof(float));
-    const float delta2 = load_unaligned<float>(params2 + sq8::DELTA * sizeof(float));
-    const float sum2 = load_unaligned<float>(params2 + sq8::SUM * sizeof(float));
-
-    // Apply the algebraic formula using precomputed sums:
-    // IP = min1*sum2 + min2*sum1 + delta1*delta2*Σ(q1[i]*q2[i]) - dim*min1*min2
-    return min_val1 * sum2 + min_val2 * sum1 - static_cast<float>(dimension) * min_val1 * min_val2 +
-           delta1 * delta2 * product;
+    return spaces::quantized::Stored_InnerProduct_Impl<sq8>(pVect1v, pVect2v, dimension);
 }
 
 // SQ8-to-SQ8: Both vectors are uint8 quantized with precomputed sum

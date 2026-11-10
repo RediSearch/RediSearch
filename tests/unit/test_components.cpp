@@ -10,12 +10,16 @@
 #include <sstream>
 #include <limits>
 #include <cmath>
+#include <cstring>
+#include <memory>
+#include <vector>
 #include "gtest/gtest.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/quantization/sq8_training_state.h"
 #include "VecSim/spaces/computer/preprocessor_container.h"
 #include "VecSim/spaces/computer/preprocessors.h"
 #include "VecSim/spaces/computer/calculator.h"
+#include "VecSim/index_factories/components/components_factory.h"
 #include "VecSim/spaces/IP_space.h"
 #include "VecSim/spaces/L2_space.h"
 #include "unit_test_utils.h"
@@ -1441,6 +1445,121 @@ TEST(PreprocessorsTest, QuantizationTestAllEntriesEqual) {
     allocator->free_allocation(storage_blob);
     allocator->free_allocation(query_blob);
     delete quant_preprocessor;
+}
+
+namespace {
+
+template <typename DataType>
+DataType fromFloat(float value) {
+    if constexpr (std::is_same_v<DataType, vecsim_types::float16>) {
+        return vecsim_types::FP32_to_FP16(value);
+    } else {
+        return value;
+    }
+}
+
+// SQ8 byte-identity guard. Every input lies on a 0.25 grid spanning exactly 255 steps, so delta
+// is exactly 0.25, every code is an exact integer and every metadata value is exactly
+// representable. The expected blob is therefore derived below with exact arithmetic, without
+// calling QuantPreprocessor, and any change to the SQ8 encoding shows up as a byte mismatch.
+template <typename DataType, VecSimMetric Metric, bool WithMean>
+void checkSQ8Bytes(size_t dim) {
+    constexpr bool kFP16 = std::is_same_v<DataType, vecsim_types::float16>;
+    SCOPED_TRACE(::testing::Message() << "fp16=" << kFP16 << " metric=" << Metric
+                                      << " mean=" << WithMean << " dim=" << dim);
+    constexpr double kMin = -8.0, kStep = 0.25;
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    std::vector<uint8_t> codes(dim);
+    std::vector<float> mean(dim, 0.0f), input_fp32(dim);
+    std::vector<DataType> input(dim);
+    for (size_t i = 0; i < dim; ++i) {
+        // Codes 0 and 255 pin the range; the rest exercise every byte position.
+        codes[i] = i == 0 ? 0 : i == 1 ? 255 : uint8_t((i * 37 + 11) % 256);
+        if constexpr (WithMean) {
+            mean[i] = 0.5f * (int(i % 5) - 2);
+        }
+        input_fp32[i] = float(kMin + kStep * codes[i] + mean[i]);
+        input[i] = fromFloat<DataType>(input_fp32[i]);
+    }
+
+    double sum = 0, sum_squares = 0, mean_ip = 0;
+    for (size_t i = 0; i < dim; ++i) {
+        const double reconstructed = kMin + kStep * codes[i];
+        sum += reconstructed;
+        sum_squares += reconstructed * reconstructed;
+        mean_ip += double(input_fp32[i]) * mean[i];
+    }
+    std::vector<float> expected_metadata = {float(kMin), float(kStep), float(sum)};
+    if constexpr (Metric == VecSimMetric_L2) {
+        expected_metadata.push_back(float(sum_squares));
+    }
+    if constexpr (WithMean && Metric == VecSimMetric_IP) {
+        expected_metadata.push_back(float(mean_ip));
+    }
+    std::vector<uint8_t> expected(codes);
+    expected.resize(dim + expected_metadata.size() * sizeof(float));
+    std::memcpy(expected.data() + dim, expected_metadata.data(),
+                expected_metadata.size() * sizeof(float));
+    ASSERT_EQ(expected.size(), (sq8::storage_bytes_count<Metric, WithMean>(dim)));
+
+    auto encode = [&](const QuantPreprocessor<DataType, Metric, WithMean> &preprocessor) {
+        void *storage = nullptr;
+        size_t size = dim * sizeof(DataType);
+        preprocessor.preprocessForStorage(input.data(), storage, size, 0);
+        const auto *bytes = static_cast<const uint8_t *>(storage);
+        std::vector<uint8_t> result(bytes, bytes + size);
+        allocator->free_allocation(storage);
+        return result;
+    };
+    if constexpr (WithMean) {
+        vecsim_stl::vector<float> mean_vec(allocator);
+        mean_vec.assign(mean.begin(), mean.end());
+        EXPECT_EQ(encode(QuantPreprocessor<DataType, Metric, WithMean>(allocator, dim, mean_vec)),
+                  expected);
+    } else {
+        EXPECT_EQ(encode(QuantPreprocessor<DataType, Metric, WithMean>(allocator, dim)), expected);
+    }
+
+    // The SQ8 factory wrapper must produce the same bytes and keep naming the SQ8 component
+    // types that applySQ8Mean dynamic_casts to.
+    if constexpr (std::is_same_v<DataType, float> && Metric != VecSimMetric_Cosine) {
+        auto components = CreateSQ8IndexComponents<float, Metric>(allocator, dim,
+                                                                  WithMean ? mean.data() : nullptr);
+        std::unique_ptr<IndexCalculatorInterface<float>> calculator(components.indexCalculator);
+        std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
+        auto *container =
+            dynamic_cast<MultiPreprocessorsContainer<float, 1> *>(preprocessors.get());
+        ASSERT_NE(container, nullptr);
+        EXPECT_NE((dynamic_cast<QuantPreprocessor<float, Metric, WithMean> *>(
+                      container->getPreprocessors()[0])),
+                  nullptr);
+        if constexpr (WithMean) {
+            EXPECT_NE((dynamic_cast<DistanceCalculatorWithNorm<float, float, Metric> *>(
+                          calculator.get())),
+                      nullptr);
+        }
+        auto blob = preprocessors->preprocessForStorage(input.data(), dim * sizeof(float));
+        const auto *factory_bytes = static_cast<const uint8_t *>(blob.get());
+        EXPECT_EQ(std::vector<uint8_t>(factory_bytes, factory_bytes + expected.size()), expected);
+    }
+}
+
+template <typename DataType>
+void checkSQ8BytesAllModes() {
+    for (size_t dim : {2u, 5u, 37u, 128u}) {
+        checkSQ8Bytes<DataType, VecSimMetric_L2, false>(dim);
+        checkSQ8Bytes<DataType, VecSimMetric_IP, false>(dim);
+        checkSQ8Bytes<DataType, VecSimMetric_Cosine, false>(dim);
+        checkSQ8Bytes<DataType, VecSimMetric_L2, true>(dim);
+        checkSQ8Bytes<DataType, VecSimMetric_IP, true>(dim);
+    }
+}
+
+} // namespace
+
+TEST(PreprocessorsTest, QuantizedStorageSQ8BytesUnchanged) {
+    checkSQ8BytesAllModes<float>();
+    checkSQ8BytesAllModes<vecsim_types::float16>();
 }
 
 // Parameterized test class for QuantPreprocessor with different metrics

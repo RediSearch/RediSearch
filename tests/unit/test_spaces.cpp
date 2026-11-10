@@ -27,6 +27,7 @@
 #include "VecSim/spaces/L2_space.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
+#include "VecSim/spaces/quantized_kernels.h"
 #include "VecSim/spaces/functions/AVX512F.h"
 #include "VecSim/spaces/functions/AVX.h"
 #include "VecSim/spaces/functions/SSE.h"
@@ -408,6 +409,171 @@ TEST_F(SpacesTest, SQ8_FP32_odd_dim_unaligned_metadata_test) {
         EXPECT_NEAR(L2_SQ8_FP32_GetDistFunc(dim, nullptr)(storage, query.data(), dim), expected_l2,
                     0.01)
             << "dispatched L2 with dim " << dim;
+    }
+}
+
+/* ============ Generic scalar quantized kernels: SQ8 bit-identity ============
+ * Verbatim copies of the four scalar SQ8 kernel bodies as they were on origin/main before they
+ * became wrappers over spaces::quantized. Only the function names differ. They pin the original
+ * results so the test does not compare the wrappers against the templates they call.
+ */
+namespace {
+
+float OriginalSQ8_FP32_InnerProduct_Impl(const void *pVect1v, const void *pVect2v,
+                                         size_t dimension) {
+    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
+    const auto *pVect2 = static_cast<const float *>(pVect2v);
+
+    // Use 4 accumulators for instruction-level parallelism
+    float sum0 = 0, sum1 = 0, sum2 = 0, sum3 = 0;
+
+    // Main loop: process 4 elements per iteration
+    size_t i = 0;
+    size_t dim4 = dimension & ~size_t(3); // dim4 is a multiple of 4
+    for (; i < dim4; i += 4) {
+        sum0 += static_cast<float>(pVect1[i + 0]) * pVect2[i + 0];
+        sum1 += static_cast<float>(pVect1[i + 1]) * pVect2[i + 1];
+        sum2 += static_cast<float>(pVect1[i + 2]) * pVect2[i + 2];
+        sum3 += static_cast<float>(pVect1[i + 3]) * pVect2[i + 3];
+    }
+
+    // Handle remainder (0-3 elements)
+    for (; i < dimension; i++) {
+        sum0 += static_cast<float>(pVect1[i]) * pVect2[i];
+    }
+
+    // Combine accumulators
+    float quantized_dot = (sum0 + sum1) + (sum2 + sum3);
+
+    // Storage metadata follows a byte payload and is not necessarily float-aligned.
+    const auto *params = pVect1 + dimension;
+    const float min_val = load_unaligned<float>(params + sq8::MIN_VAL * sizeof(float));
+    const float delta = load_unaligned<float>(params + sq8::DELTA * sizeof(float));
+
+    // Get precomputed y_sum from query blob (pVect2 is FP32, stored after the dim floats)
+    const float y_sum = pVect2[dimension + sq8::SUM_QUERY];
+
+    // Apply formula: IP = min * y_sum + delta * Σ(q_i * y_i)
+    return min_val * y_sum + delta * quantized_dot;
+}
+
+float OriginalSQ8_SQ8_InnerProduct_Impl(const void *pVect1v, const void *pVect2v,
+                                        size_t dimension) {
+    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
+    const auto *pVect2 = static_cast<const uint8_t *>(pVect2v);
+
+    // Compute inner product of quantized values: Σ(q1[i]*q2[i])
+    float product = 0;
+    for (size_t i = 0; i < dimension; i++) {
+        product += pVect1[i] * pVect2[i];
+    }
+
+    // Metadata follows byte payloads and is not necessarily float-aligned.
+    const auto *params1 = pVect1 + dimension;
+    const float min_val1 = load_unaligned<float>(params1 + sq8::MIN_VAL * sizeof(float));
+    const float delta1 = load_unaligned<float>(params1 + sq8::DELTA * sizeof(float));
+    const float sum1 = load_unaligned<float>(params1 + sq8::SUM * sizeof(float));
+
+    // Get quantization parameters from pVect2
+    const auto *params2 = pVect2 + dimension;
+    const float min_val2 = load_unaligned<float>(params2 + sq8::MIN_VAL * sizeof(float));
+    const float delta2 = load_unaligned<float>(params2 + sq8::DELTA * sizeof(float));
+    const float sum2 = load_unaligned<float>(params2 + sq8::SUM * sizeof(float));
+
+    // Apply the algebraic formula using precomputed sums:
+    // IP = min1*sum2 + min2*sum1 + delta1*delta2*Σ(q1[i]*q2[i]) - dim*min1*min2
+    return min_val1 * sum2 + min_val2 * sum1 - static_cast<float>(dimension) * min_val1 * min_val2 +
+           delta1 * delta2 * product;
+}
+
+float OriginalSQ8_FP32_L2Sqr(const void *pVect1v, const void *pVect2v, size_t dimension) {
+    // Storage metadata follows a byte payload and is not necessarily float-aligned.
+    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
+    const auto *pVect2 = static_cast<const float *>(pVect2v);
+
+    const auto *params1 = pVect1 + dimension;
+    const float min_val = load_unaligned<float>(params1 + sq8::MIN_VAL * sizeof(float));
+    const float delta = load_unaligned<float>(params1 + sq8::DELTA * sizeof(float));
+
+    float res = 0;
+    for (size_t i = 0; i < dimension; i++) {
+        // Order matters. When the stored range sits far from zero, min_val and y_i are within a
+        // factor of two of each other, so min_val - y_i is exact (Sterbenz) and rounding happens
+        // only at the scale of the residual. Forming (min_val + delta*q_i) first would round at
+        // the scale of min_val and wipe out small residuals. When min_val and y_i are not close,
+        // the residual is large and either order is fine.
+        float diff = delta * static_cast<float>(pVect1[i]) + (min_val - pVect2[i]);
+        res += diff * diff;
+    }
+    return res;
+}
+
+float OriginalSQ8_SQ8_L2Sqr(const void *pVect1v, const void *pVect2v, size_t dimension) {
+    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
+    const auto *pVect2 = static_cast<const uint8_t *>(pVect2v);
+
+    // Get precomputed sum of squares from both vectors
+    // Layout: [uint8_t values (dim)] [min_val] [delta] [sum] [sum_of_squares]
+    const float sum_sq_1 =
+        load_unaligned<float>(pVect1 + dimension + sq8::SUM_SQUARES * sizeof(float));
+    const float sum_sq_2 =
+        load_unaligned<float>(pVect2 + dimension + sq8::SUM_SQUARES * sizeof(float));
+
+    // Use the common inner product implementation
+    const float ip = OriginalSQ8_SQ8_InnerProduct_Impl(pVect1v, pVect2v, dimension);
+
+    // L2² = ||x||² + ||y||² - 2*IP(x, y)
+    return sum_sq_1 + sum_sq_2 - 2.0f * ip;
+}
+
+void ExpectBitIdentical(float expected, float actual, const char *what, size_t dim,
+                        bool normalized) {
+    EXPECT_EQ(std::memcmp(&expected, &actual, sizeof(float)), 0)
+        << what << " differs at dim " << dim << " normalized " << normalized << ": expected "
+        << expected << " actual " << actual;
+}
+
+} // namespace
+
+TEST_F(SpacesTest, SQ8GenericScalarKernelsBitIdentical) {
+    for (size_t dim : {1, 2, 3, 4, 5, 16, 17, 63, 64, 65, 66, 767, 768}) {
+        for (bool normalized : {false, true}) {
+            const size_t storage_size = sq8::storage_bytes_count<VecSimMetric_L2>(dim);
+            std::vector<uint8_t> storage1(storage_size);
+            std::vector<uint8_t> storage2(storage_size);
+            std::vector<float> query(dim + sq8::query_metadata_count<VecSimMetric_L2>());
+            test_utils::populate_float_vec_to_sq8_with_metadata(storage1.data(), dim, normalized,
+                                                                1234);
+            test_utils::populate_float_vec_to_sq8_with_metadata(storage2.data(), dim, normalized,
+                                                                5678);
+            test_utils::populate_sq8_fp32_query(query.data(), dim, normalized, 4321);
+            const uint8_t *x = storage1.data();
+            const uint8_t *y = storage2.data();
+            const float *q = query.data();
+
+            const float fp32_ip = 1.0f - OriginalSQ8_FP32_InnerProduct_Impl(x, q, dim);
+            ExpectBitIdentical(fp32_ip, SQ8_FP32_InnerProduct(x, q, dim), "SQ8_FP32_InnerProduct",
+                               dim, normalized);
+            ExpectBitIdentical(fp32_ip, 1.0f - quantized::FP32_InnerProduct_Impl<sq8>(x, q, dim),
+                               "quantized::FP32_InnerProduct_Impl<sq8>", dim, normalized);
+
+            const float fp32_l2 = OriginalSQ8_FP32_L2Sqr(x, q, dim);
+            ExpectBitIdentical(fp32_l2, SQ8_FP32_L2Sqr(x, q, dim), "SQ8_FP32_L2Sqr", dim,
+                               normalized);
+            ExpectBitIdentical(fp32_l2, quantized::FP32_L2Sqr<sq8>(x, q, dim),
+                               "quantized::FP32_L2Sqr<sq8>", dim, normalized);
+
+            const float sq8_ip = 1.0f - OriginalSQ8_SQ8_InnerProduct_Impl(x, y, dim);
+            ExpectBitIdentical(sq8_ip, SQ8_SQ8_InnerProduct(x, y, dim), "SQ8_SQ8_InnerProduct", dim,
+                               normalized);
+            ExpectBitIdentical(sq8_ip, 1.0f - quantized::Stored_InnerProduct_Impl<sq8>(x, y, dim),
+                               "quantized::Stored_InnerProduct_Impl<sq8>", dim, normalized);
+
+            const float sq8_l2 = OriginalSQ8_SQ8_L2Sqr(x, y, dim);
+            ExpectBitIdentical(sq8_l2, SQ8_SQ8_L2Sqr(x, y, dim), "SQ8_SQ8_L2Sqr", dim, normalized);
+            ExpectBitIdentical(sq8_l2, quantized::Stored_L2Sqr<sq8>(x, y, dim),
+                               "quantized::Stored_L2Sqr<sq8>", dim, normalized);
+        }
     }
 }
 

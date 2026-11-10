@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "L2.h"
+#include "VecSim/spaces/quantized_kernels.h"
 #include "VecSim/spaces/IP/IP.h"
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
@@ -34,25 +35,7 @@ using sq8 = vecsim_types::sq8;
  * pVect2 is query (FP32): [float values (dim)] [y_sum] [y_sum_squares]
  */
 float SQ8_FP32_L2Sqr(const void *pVect1v, const void *pVect2v, size_t dimension) {
-    // Storage metadata follows a byte payload and is not necessarily float-aligned.
-    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
-    const auto *pVect2 = static_cast<const float *>(pVect2v);
-
-    const auto *params1 = pVect1 + dimension;
-    const float min_val = load_unaligned<float>(params1 + sq8::MIN_VAL * sizeof(float));
-    const float delta = load_unaligned<float>(params1 + sq8::DELTA * sizeof(float));
-
-    float res = 0;
-    for (size_t i = 0; i < dimension; i++) {
-        // Order matters. When the stored range sits far from zero, min_val and y_i are within a
-        // factor of two of each other, so min_val - y_i is exact (Sterbenz) and rounding happens
-        // only at the scale of the residual. Forming (min_val + delta*q_i) first would round at
-        // the scale of min_val and wipe out small residuals. When min_val and y_i are not close,
-        // the residual is large and either order is fine.
-        float diff = delta * static_cast<float>(pVect1[i]) + (min_val - pVect2[i]);
-        res += diff * diff;
-    }
-    return res;
+    return spaces::quantized::FP32_L2Sqr<sq8>(pVect1v, pVect2v, dimension);
 }
 
 /*
@@ -194,19 +177,5 @@ float UINT8_L2Sqr(const void *pVect1v, const void *pVect2v, size_t dimension) {
 //     - IP(x, y) is computed using SQ8_SQ8_InnerProduct_Impl
 
 float SQ8_SQ8_L2Sqr(const void *pVect1v, const void *pVect2v, size_t dimension) {
-    const auto *pVect1 = static_cast<const uint8_t *>(pVect1v);
-    const auto *pVect2 = static_cast<const uint8_t *>(pVect2v);
-
-    // Get precomputed sum of squares from both vectors
-    // Layout: [uint8_t values (dim)] [min_val] [delta] [sum] [sum_of_squares]
-    const float sum_sq_1 =
-        load_unaligned<float>(pVect1 + dimension + sq8::SUM_SQUARES * sizeof(float));
-    const float sum_sq_2 =
-        load_unaligned<float>(pVect2 + dimension + sq8::SUM_SQUARES * sizeof(float));
-
-    // Use the common inner product implementation
-    const float ip = SQ8_SQ8_InnerProduct_Impl(pVect1v, pVect2v, dimension);
-
-    // L2² = ||x||² + ||y||² - 2*IP(x, y)
-    return sum_sq_1 + sum_sq_2 - 2.0f * ip;
+    return spaces::quantized::Stored_L2Sqr<sq8>(pVect1v, pVect2v, dimension);
 }
