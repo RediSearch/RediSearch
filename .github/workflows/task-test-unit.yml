@@ -91,7 +91,7 @@ env:
 jobs:
   common-flow:
     name: Unit tests on ${{ inputs.name }}
-    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.coverage && endsWith(inputs.env, '-u-x64-medium') && fromJSON(format('["{0}","ghr-ec2-instance-type:m6i.xlarge"]', inputs.env))) || inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
