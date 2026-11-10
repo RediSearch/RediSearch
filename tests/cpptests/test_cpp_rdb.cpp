@@ -362,7 +362,7 @@ TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
       const size_t flagsEnd = io->buffer.size();
       // A later, distinct validation failure keeps the control safe on unfixed code and proves
       // valid storage flags reach the schema, while numeric storage must stop before it.
-      RMCK_SaveUnsigned(io.get(), SPEC_MAX_FIELDS + 1);
+      RMCK_SaveUnsigned(io.get(), SPEC_MAX_FIELDS_RAM + 1);
 
       EXPECT_EQ(IndexSpec_LegacyRdbLoad(io.get(), encver), nullptr);
       EXPECT_EQ(io->read_pos, numericStorage ? flagsEnd : io->buffer.size());
@@ -376,6 +376,80 @@ TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
   legacySpecDict = originalSpecs;
   g_isLoading = originalLoading;
   RedisModule_GetKeyNameFromIO = originalGetKeyName;
+}
+
+// A schema one field over the mode's limit is rejected; the limit differs between RAM and Flex.
+TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadFieldLimitPerMode) {
+  const auto originalGetKeyName = RedisModule_GetKeyNameFromIO;
+  const bool originalLoading = g_isLoading;
+  const bool originalFlex = RSGlobalConfig.simulateInFlex;
+  dict *originalRules = legacySpecRules;
+  dict *originalSpecs = legacySpecDict;
+  RedisModule_GetKeyNameFromIO = [](RedisModuleIO *) -> const RedisModuleString * {
+    return nullptr;
+  };
+  g_isLoading = true;
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+  legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+
+  for (bool flex : {false, true}) {
+    RSGlobalConfig.simulateInFlex = flex;
+    const size_t limit = flex ? SPEC_MAX_FIELDS_DISK : SPEC_MAX_FIELDS_RAM;
+    EXPECT_EQ(IndexSpec_MaxFields(), limit);
+    for (uint64_t numFields : {limit + 1, (uint64_t)SPEC_MAX_FIELDS_DISK + 1}) {
+      std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                   RMCK_FreeRdbIO);
+      RMCK_SaveStringBuffer(io.get(), "legacy_limit", sizeof("legacy_limit"));
+      RMCK_SaveUnsigned(io.get(), INDEX_DEFAULT_FLAGS);
+      RMCK_SaveUnsigned(io.get(), numFields);
+      EXPECT_EQ(IndexSpec_LegacyRdbLoad(io.get(), LEGACY_INDEX_MAX_VERSION), nullptr)
+          << "flex=" << flex << " numFields=" << numFields;
+      // Rejected at the field count, before anything else is read.
+      EXPECT_EQ(io->read_pos, io->buffer.size());
+    }
+  }
+
+  dictRelease(legacySpecRules);
+  dictRelease(legacySpecDict);
+  legacySpecRules = originalRules;
+  legacySpecDict = originalSpecs;
+  g_isLoading = originalLoading;
+  RSGlobalConfig.simulateInFlex = originalFlex;
+  RedisModule_GetKeyNameFromIO = originalGetKeyName;
+}
+
+// A spec created wide under Flex must not grow in RAM mode, even if its size is already past the
+// RAM limit.
+TEST_F(RdbMockTest, testAlterRejectedPastRamLimitAfterLeavingFlex) {
+  const bool originalFlex = RSGlobalConfig.simulateInFlex;
+  RSGlobalConfig.simulateInFlex = true;
+  const size_t n = SPEC_MAX_FIELDS_RAM + 4;
+  std::vector<std::string> names;
+  std::vector<const char *> args = {"SKIPINITIALSCAN", "SCHEMA"};
+  for (size_t i = 0; i < n; i++) names.push_back("f" + std::to_string(i));
+  for (const auto &name : names) {
+    args.push_back(name.c_str());
+    args.push_back("NUMERIC");
+  }
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(nullptr, "wide_alter", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+  ASSERT_EQ(spec->numFields, n);
+
+  RSGlobalConfig.simulateInFlex = false;
+  const char *add[] = {"extra", "NUMERIC"};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, add, 2);
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  EXPECT_NE(IndexSpec_AddFields(ref, spec, ctx, &ac, &err), 1);
+  EXPECT_TRUE(QueryError_HasError(&err));
+  EXPECT_EQ(spec->numFields, n);
+  QueryError_ClearError(&err);
+  RedisModule_FreeThreadSafeContext(ctx);
+
+  RSGlobalConfig.simulateInFlex = originalFlex;
+  StrongRef_Release(ref);
 }
 
 // Parses `args` into a spec, saves it and loads it back with `encver`, then

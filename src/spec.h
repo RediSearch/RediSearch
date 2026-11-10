@@ -119,11 +119,19 @@ struct IndexesScanner;
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
-// Total schema fields. The sorting-vector ceiling `RS_SORTABLES_MAX` (sorting_vector crate) must
-// stay >= this value, and 4096 must stay within the uint16_t / int16_t field and sort indexes.
-#define SPEC_MAX_FIELDS 4096
-static_assert(SPEC_MAX_FIELDS < UINT16_MAX && SPEC_MAX_FIELDS <= INT16_MAX,
-              "SPEC_MAX_FIELDS must fit FieldIndex (uint16_t) and FieldSpec.sortIdx (int16_t)");
+// Total schema fields per mode; use IndexSpec_MaxFields() to pick one. Only RAM indexes can be
+// SORTABLE, so the sorting-vector ceiling `RS_SORTABLES_MAX` (sorting_vector crate) must stay >=
+// SPEC_MAX_FIELDS_RAM and the RAM limit must fit `FieldSpec.sortIdx` (int16_t). Field indexes
+// (uint16_t) must stay below RS_INVALID_FIELD_INDEX in both modes.
+#define SPEC_MAX_FIELDS_RAM 4096
+#define SPEC_MAX_FIELDS_DISK 32767
+static_assert(SPEC_MAX_FIELDS_RAM <= INT16_MAX,
+              "SPEC_MAX_FIELDS_RAM must fit FieldSpec.sortIdx (int16_t)");
+static_assert(SPEC_MAX_FIELDS_DISK < UINT16_MAX && SPEC_MAX_FIELDS_DISK >= SPEC_MAX_FIELDS_RAM,
+              "SPEC_MAX_FIELDS_DISK must fit FieldIndex (uint16_t) and not be below the RAM limit");
+
+/** The schema field limit of the current mode (Flex, or simulated Flex, vs. RAM). */
+size_t IndexSpec_MaxFields(void);
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
@@ -247,17 +255,25 @@ void FieldNameTable_Free(FieldNameTable *table);
 
 /**
  * Per-document set of field indexes already seen, used to reject a document that
- * names the same schema field twice. A bitset of SPEC_MAX_FIELDS bits is cheap to
- * zero on the stack for every document.
+ * names the same schema field twice. A bitset of one bit per schema field, kept on the
+ * stack: FieldSpecDedupeSet_Init clears only the words that cover the schema's fields, so
+ * a RAM schema does not pay for the larger Flex limit.
  */
 typedef struct {
-  uint64_t words[SPEC_MAX_FIELDS / 64];
+  uint16_t numFields;
+  uint64_t words[(SPEC_MAX_FIELDS_DISK + 63) / 64];
 } FieldSpecDedupeSet;
-static_assert(SPEC_MAX_FIELDS % 64 == 0, "FieldSpecDedupeSet packs 64 fields per word");
+
+/** Empties `set` for a schema of `numFields` fields; its indexes must be below that. */
+static inline void FieldSpecDedupeSet_Init(FieldSpecDedupeSet *set, size_t numFields) {
+  RS_ASSERT(numFields <= SPEC_MAX_FIELDS_DISK);
+  set->numFields = (uint16_t)numFields;
+  memset(set->words, 0, ((numFields + 63) / 64) * sizeof(set->words[0]));
+}
 
 /** Marks `index` as seen and returns whether it already was. */
 static inline bool FieldSpecDedupeSet_TestAndSet(FieldSpecDedupeSet *set, uint16_t index) {
-  RS_ASSERT(index < SPEC_MAX_FIELDS);
+  RS_ASSERT(index < set->numFields);
   uint64_t *word = &set->words[index / 64];
   const uint64_t bit = UINT64_C(1) << (index % 64);
   const bool seen = (*word & bit) != 0;
@@ -376,6 +392,9 @@ typedef struct IndexSpec {
   // By-name index over `fields`. Kept in sync by IndexSpec_CreateField and
   // IndexSpec_RebuildFieldNameTable.
   FieldNameTable fieldNames;
+  // Document path -> fields, built on first use by IndexSpec_GetFieldPathTable and dropped
+  // whenever `fields` changes. Only used under the GIL, as `fields` is only mutated there.
+  struct FieldPathTable *fieldPaths;
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -710,6 +729,12 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
  * change to the set of fields that bypasses IndexSpec_CreateField (RDB load, schema rollback).
  */
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp);
+
+/**
+ * The spec's path table for loading a document by its own fields, or NULL if the schema is
+ * too small for it to pay off or not a Hash index. Callers must hold the GIL.
+ */
+const struct FieldPathTable *IndexSpec_GetFieldPathTable(IndexSpec *sp);
 
 // Delete a document from the index by its key name.
 // In disk mode, looks up the docId via the key's metadata, removes the

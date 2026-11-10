@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "field_path_table.h"
 
 #include <math.h>
 #include <limits.h>
@@ -223,6 +224,22 @@ const FieldSpec *FieldNameTable_Find(const FieldNameTable *table, const FieldSpe
 
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp) {
   FieldNameTable_Rebuild(&sp->fieldNames, sp->fields, sp->numFields);
+  FieldPathTable_Free(sp->fieldPaths);
+  sp->fieldPaths = NULL;
+}
+
+// Below this many fields, probing every schema field is cheaper than scanning the document.
+#define FIELD_PATH_TABLE_MIN_FIELDS 64
+
+const FieldPathTable *IndexSpec_GetFieldPathTable(IndexSpec *sp) {
+  if (!RSGlobalConfig.loadByDocumentFields || sp->numFields <= FIELD_PATH_TABLE_MIN_FIELDS ||
+      sp->rule->type != DocumentType_Hash) {
+    return NULL;
+  }
+  if (!sp->fieldPaths) {
+    sp->fieldPaths = FieldPathTable_New(sp->fields, sp->numFields);
+  }
+  return sp->fieldPaths;
 }
 
 /*
@@ -1621,9 +1638,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   const t_fieldMask prevSuffixMask = sp->suffixMask;
 
   while (!AC_IsAtEnd(ac)) {
-    if (sp->numFields == SPEC_MAX_FIELDS) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d fields",
-                             SPEC_MAX_FIELDS);
+    if (sp->numFields >= IndexSpec_MaxFields()) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %zu fields",
+                             IndexSpec_MaxFields());
       goto reset;
     }
 
@@ -1734,7 +1751,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fs->sortIdx = sp->numSortableFields++;
       if (fs->sortIdx == -1) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d Sortable fields",
-                               SPEC_MAX_FIELDS);
+                               SPEC_MAX_FIELDS_RAM);
         goto reset;
       }
     } else {
@@ -1819,6 +1836,11 @@ inline static bool isSpecOnDisk(const IndexSpec *sp) {
 
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
+}
+
+// Not derived from sp->diskSpec: it is still NULL while FT.CREATE parses the schema.
+size_t IndexSpec_MaxFields(void) {
+  return SearchDisk_IsEnabledForValidation() ? SPEC_MAX_FIELDS_DISK : SPEC_MAX_FIELDS_RAM;
 }
 
 static bool containsArgument(const char *arg, const ACArgSpec *argopts) {
@@ -2174,6 +2196,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   FieldNameTable_Free(&spec->fieldNames);
+  FieldPathTable_Free(spec->fieldPaths);
 
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
@@ -2571,6 +2594,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->numFields = numFields;
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->fieldNames = (FieldNameTable){0};
+  sp->fieldPaths = NULL;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
@@ -2651,6 +2675,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       break;
   }
   FieldNameTable_Add(&sp->fieldNames, sp->fields, fs->index);
+  FieldPathTable_Free(sp->fieldPaths);
+  sp->fieldPaths = NULL;
   return fs;
 }
 
@@ -3453,10 +3479,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
   numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup_name);
 
-  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+  if (unlikely(numFields_u64 > IndexSpec_MaxFields())) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-                           "RDB Load: Schema is limited to %d fields",
-                           SPEC_MAX_FIELDS);
+                           "RDB Load: Schema is limited to %zu fields",
+                           IndexSpec_MaxFields());
     goto cleanup_name;
   }
 
@@ -3685,10 +3711,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 
-  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+  if (unlikely(numFields_u64 > IndexSpec_MaxFields())) {
     RedisModule_LogIOError(
-        rdb, "warning", "RDB Load: Schema is limited to %d fields",
-        SPEC_MAX_FIELDS);
+        rdb, "warning", "RDB Load: Schema is limited to %zu fields",
+        IndexSpec_MaxFields());
     StrongRef_Release(spec_ref);
     return NULL;
   }

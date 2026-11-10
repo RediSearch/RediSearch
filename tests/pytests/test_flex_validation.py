@@ -1177,3 +1177,43 @@ def test_flex_blocks_synonym_commands(env):
     # FT.SYNADD is deprecated and blocked (returns different error but should be blocked)
     env.expect('FT.SYNADD', 'idx', 'hello', 'hi') \
         .error().contains('FT.SYNADD is not supported in Redis Flex')
+
+
+def _numeric_schema(n):
+    return [x for i in range(n) for x in (f'n{i}', 'NUMERIC')]
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_field_limit(env):
+    """Flex allows 32767 fields and rejects the next one."""
+    limit = 32767
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               *_numeric_schema(limit)).ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               *_numeric_schema(limit + 1)).error().contains(f'Schema is limited to {limit} fields')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_wide_index_survives_reload(env):
+    """An index wider than the RAM limit loads back from RDB in Flex mode."""
+    n = 32767
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               *_numeric_schema(n)).ok()
+    env.expect('FT.INFO', 'idx').noError()
+    env.dumpAndReload()
+    attributes = dict(zip(*[iter(env.cmd('FT.INFO', 'idx'))] * 2))['attributes']
+    env.assertEqual(len(attributes), n)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(False)
+def test_ram_field_limit_unchanged(env):
+    """Outside Flex the limit stays 4096."""
+    limit = 4096
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *_numeric_schema(limit)).ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *_numeric_schema(limit + 1)) \
+        .error().contains(f'Schema is limited to {limit} fields')
