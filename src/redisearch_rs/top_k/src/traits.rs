@@ -299,6 +299,26 @@ pub trait ScoreSource {
     /// it has been reached.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
 
+    /// Amortized stop checkpoint, polled once per document of the adhoc-BF
+    /// scan next to [`check_timeout`](Self::check_timeout).
+    ///
+    /// Kept apart from the timeout poll so the cheap deadline check keeps its
+    /// own cadence while the costlier memory read is amortized by the source.
+    /// Returns [`RQEIteratorError::Stopped`] when the query should stop; a
+    /// memory stop is told from a timeout by the request's memory stop, which
+    /// is sticky. The default never stops.
+    fn check_stop(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    /// Unamortized [`check_stop`](Self::check_stop), called once when the
+    /// adhoc-BF scan ends, because rerank and finalization copy the heap and
+    /// a scan shorter than the amortization interval would otherwise never
+    /// read memory. The default never stops.
+    fn check_stop_now(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
     /// [`TopKIterator`]: crate::TopKIterator

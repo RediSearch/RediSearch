@@ -195,7 +195,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/iterators/vector_top_k.h",
-        fns: &["RS_VecSimCheckMemory", "RS_VecSimCheckTimeout"],
+        fns: &[
+            "RS_VecSimCheckMemory",
+            "RS_VecSimCheckMemoryEvery",
+            "RS_VecSimCheckTimeout",
+        ],
         types: &[],
         vars: &[],
     },
