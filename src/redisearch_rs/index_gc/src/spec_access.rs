@@ -30,8 +30,9 @@ impl SpecWriteAccess for IndexSpecWeakRef {
         &mut self,
         apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, GcError>,
     ) -> Result<T, GcError> {
-        let mut spec_ref = self.promote().ok_or(GcError::SpecDeleted)?;
-        let mut guard = spec_ref.write();
+        let spec_ref = self.promote().ok_or(GcError::SpecDeleted)?;
+        let mut lock = spec_ref.write();
+        let mut guard = lock.guard();
         apply(&mut guard)
     }
 }

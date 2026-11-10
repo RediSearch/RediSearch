@@ -5,6 +5,10 @@ name: Get Single Configuration
 
 on:
   workflow_call:
+    secrets:
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
     inputs:
       platform:
         description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26, sanitizer, coverage)'
@@ -65,6 +69,14 @@ jobs:
       install_mode: ${{ steps.get-config.outputs.install_mode }}
       enable_lto: ${{ steps.get-config.outputs.enable_lto }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Get configuration for platform and architecture
         id: get-config
         shell: python

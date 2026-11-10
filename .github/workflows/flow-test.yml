@@ -126,6 +126,8 @@ jobs:
   generate-matrix:
     permissions: {} # generate-matrix.yml only computes a matrix
     uses: ./.github/workflows/generate-matrix.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}

@@ -14,15 +14,16 @@ use std::ptr::NonNull;
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use index_gc::scanners::numeric::{
-    NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with,
+    NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with, numeric_tree_keys,
+    scan_numeric_node,
 };
 use index_gc::spec_access::SpecWriteAccess;
 use index_gc::{DocExistence, GcApplyStats, GcError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{
     SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
 };
+use numeric_range_tree::{NodeIndex, NumericRangeTree};
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -678,6 +679,7 @@ mod round_trip {
                     registers_without_last_block,
                     bounds_with_last_block: ValueBounds { min: bounds[0], max: bounds[1] },
                     bounds_without_last_block: ValueBounds { min: bounds[2], max: bounds[3] },
+                    scanned_leaf: true,
                 },
             };
 
@@ -763,6 +765,82 @@ fn repaired_numeric_nodes_use_bulk_io() {
     }
 }
 
+/// `numeric_tree_keys` lists every node of every initialised NUMERIC or GEO
+/// tree, children before parents, and scanning those nodes yields the node
+/// deltas `collect_numeric` sends, in the same order.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
+    let test = TestSpec::create(vec![
+        (
+            c"price",
+            FieldSpecType::Numeric.into(),
+            Some(build_two_leaf_tree_with_gc_work()),
+        ),
+        (c"no_tree", FieldSpecType::Numeric.into(), None),
+        (c"other", FieldSpecType::Tag.into(), None),
+    ]);
+    let guard = test.read_guard();
+
+    let keys = numeric_tree_keys(&guard);
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].id.field_index, 0);
+    assert_eq!(keys[0].id.unique_id, u32::from(test.trees[0].unique_id()));
+    let expected_nodes: Vec<_> = test.trees[0]
+        .indexed_post_order_iter()
+        .map(|(node_idx, _)| node_idx)
+        .collect();
+    assert_eq!(keys[0].nodes, expected_nodes);
+
+    let scanned: Vec<_> = keys[0]
+        .nodes
+        .iter()
+        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0].id, node_idx))
+        .collect();
+
+    let mut buf = Vec::new();
+    collect_numeric(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    let fields = decode_fields(&buf);
+    assert_eq!(scanned, fields[0].entries);
+}
+
+/// A key taken before the field's tree was replaced scans to nothing.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scan_numeric_node_returns_none_for_a_replaced_tree() {
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(2)),
+    )]);
+    let guard = test.read_guard();
+
+    let mut key = numeric_tree_keys(&guard).remove(0);
+    key.id.unique_id = key.id.unique_id.wrapping_add(1);
+    let node_idx = key.nodes[0];
+    assert!(scan_numeric_node(&guard, &key.id, node_idx).is_none());
+}
+
+/// A node index whose generation no longer matches (the node was removed and
+/// its slot reused) scans to nothing instead of panicking.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scan_numeric_node_returns_none_for_a_removed_node() {
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(2)),
+    )]);
+    let guard = test.read_guard();
+
+    let key = numeric_tree_keys(&guard).remove(0);
+    let live = key.nodes[0];
+    let stale = NodeIndex::from_raw_parts(live.position(), live.generation().wrapping_add(1));
+    assert!(test.trees[0].try_node(stale).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, stale).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, live).is_some());
+}
+
 /// Reports every doc id the fixtures use as present, whatever the spec's
 /// document table says, as a snapshot taken before those docs were deleted.
 fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
@@ -772,6 +850,67 @@ fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
         vec![u64::MAX; WORDS].into_boxed_slice(),
         (WORDS * 64 - 1) as u64,
     )
+}
+
+/// Sum of the inverted index sizes of every range in `tree`, read from the ranges
+/// themselves rather than from the tree's memoized counter.
+fn actual_inverted_size(tree: &NumericRangeTree) -> usize {
+    tree.iter()
+        .filter_map(|node| node.range())
+        .map(|range| range.memory_usage())
+        .sum()
+}
+
+/// [`GcApplyStats::apply`] moves the spec's `invertedSize` by
+/// `bytes_allocated - bytes_collected`, so that difference must equal how much
+/// the tree's inverted indexes actually changed. Half the docs survive, so
+/// blocks are rewritten and `bytes_allocated` takes part.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn applied_byte_stats_match_the_tree_size_change() {
+    const NUM_DOCS: u64 = SPLIT_TRIGGER * 4;
+    let mut test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_tree(NUM_DOCS, false, 0)),
+    )]);
+    let size_before = actual_inverted_size(&test.trees[0]);
+    let entries_before = test.trees[0].num_entries();
+
+    let mut buf = Vec::new();
+    {
+        let guard = test.read_guard();
+        // Even doc ids survive, odd ones are deleted.
+        let words = NUM_DOCS as usize / 64 + 1;
+        let even_docs_live = DocExistence::with_bitmap(
+            &guard,
+            vec![0x5555_5555_5555_5555; words].into_boxed_slice(),
+            (words * 64 - 1) as u64,
+        );
+        collect_numeric(&mut buf, &guard, &even_docs_live).unwrap();
+    }
+
+    let mut cursor = Cursor::new(&buf);
+    let mut stats = GcApplyStats::default();
+    let outcome = handle_numeric_with(&mut cursor, &mut test, &mut stats, true).unwrap();
+    assert_eq!(outcome, HandleOutcome::Collected);
+
+    let size_after = actual_inverted_size(&test.trees[0]);
+    assert!(
+        stats.bytes_allocated > 0,
+        "rewritten blocks should allocate, or this test cannot tell bytes_allocated apart"
+    );
+    assert_eq!(
+        size_before + stats.bytes_allocated,
+        size_after + stats.bytes_collected,
+        "reported bytes must match the change in the ranges' inverted index sizes \
+         (before {size_before}, after {size_after}, {stats:?})"
+    );
+    assert_eq!(
+        stats.records_removed,
+        entries_before - test.trees[0].num_entries(),
+        "records_removed must match the change in the tree's entries"
+    );
 }
 
 /// The scanner must answer existence from `docs`: the fixture's document table
