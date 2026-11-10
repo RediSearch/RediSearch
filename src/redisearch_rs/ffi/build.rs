@@ -375,8 +375,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
+            "IndexSpec_LockRead",
             "IndexSpec_ParseC",
             "IndexSpec_ReleaseWriteLock",
+            "IndexSpec_Unlock",
             "IndexSpecCache_Decref",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
@@ -648,6 +650,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
     "IteratorType",
+    "pthread_rwlock_t", // defined directly in `ffi/src/lib.rs`
     "QueryNodeType",
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
