@@ -59,8 +59,7 @@ bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
 
 /**
  * The memory checkpoint between the build stages of a query, before it reads
- * its first row. Unless a stop is already requested, reads memory on this call,
- * whatever the read interval. Under
+ * its first row, through QueryMemory_CheckpointExact. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
  * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
  * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
@@ -96,12 +95,12 @@ void QueryMemory_SetForcedRatio(float ratio);
 float QueryMemory_GetForcedRatio(void);
 
 /**
- * Makes the `n`-th QueryMemory_Checkpoint call from now (1-based, counted
- * across all checkpoints and queries, skipping calls that return on an
- * already requested memory stop)
- * report memory pressure, regardless of the ratio and the read interval.
- * Every other call behaves normally. `n` must be at least 1; the call count
- * restarts from 0. QueryMemory_ResetFakePressure disarms it.
+ * Makes the `n`-th checkpoint call (QueryMemory_Checkpoint or
+ * QueryMemory_CheckpointExact) from now (1-based, counted across all checkpoints
+ * and queries, skipping calls that return on an already requested memory stop)
+ * report memory pressure, regardless of the ratio and the read interval. Every
+ * other call behaves normally. `n` must be at least 1; the call count restarts from 0.
+ * QueryMemory_ResetFakePressure disarms it.
  */
 void QueryMemory_SetPressureAtCall(uint64_t n);
 uint64_t QueryMemory_GetPressureAtCall(void);
