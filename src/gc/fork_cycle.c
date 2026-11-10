@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "gc.h"
 #include "index_gc_ffi.h"
 #include "time_sample.h"
 #include "module.h"
@@ -131,7 +132,7 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
     struct timespec delay = {.tv_sec = delay_ms / 1000,
                              .tv_nsec = (delay_ms % 1000) * 1000000};
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
 
     // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
 #ifdef ENABLE_ASSERT
@@ -139,7 +140,7 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
 #endif
 
     nanosleep(&delay, NULL);
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&gcGilGate_g, ctx);
   }
 }
 
@@ -172,7 +173,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
 #endif
 
   // We need to acquire the GIL to use the fork api
-  RedisModule_ThreadSafeContextLock(ctx);
+  GilGate_Lock(&gcGilGate_g, ctx);
 
   cpid = forkGCChild(ctx, forced);
 
@@ -180,7 +181,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
 
     close(gc->pipe_read_fd);
     close(gc->pipe_write_fd);
@@ -195,7 +196,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  GilGate_Unlock(&gcGilGate_g, ctx);
 
 
   if (cpid == 0) {
@@ -230,9 +231,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&gcGilGate_g, ctx);
     int kill_rv = RedisModule_KillForkChild(cpid);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
     if (kill_rv != REDISMODULE_OK) {
       reap_child_blocking(ctx, cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
     }

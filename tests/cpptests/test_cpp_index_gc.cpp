@@ -16,8 +16,6 @@
 #include "rules.h"
 #include "query_error_ffi.h"
 #include "inverted_index.h"
-#include "numeric_range_tree.h"
-#include "numeric_range_tree_ffi.h"
 #include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
@@ -26,6 +24,7 @@ extern "C" {
 #include "util/dict.h"
 }
 
+#include <iterator>
 #include <set>
 #include <random>
 #include <unordered_set>
@@ -127,9 +126,10 @@ protected:
 
 
 /**
- * This test purpose is to validate inverted indexes size statistics are updated correctly by the gc.
- * Since The numeric tree inverted index size directly affect the spec statistics updates,
- * this test ensure they are aligned.
+ * Runs the fork GC over a numeric index with deleted documents and checks that it reports
+ * collected bytes. Whether the reported bytes match what the tree actually freed is checked by
+ * `applied_byte_stats_match_the_tree_size_change` in `index_gc/tests/numeric.rs`: the spec's
+ * inverted size is updated from the same reported numbers, so it cannot tell here.
  */
 TEST_F(IndexGCTestNumeric, testNumeric) {
 
@@ -145,10 +145,7 @@ TEST_F(IndexGCTestNumeric, testNumeric) {
     total_mem += this->addDocumentWrapper(numToDocStr(i).c_str(), numeric_field_name, val.c_str());
   }
 
-  NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
   spec_inv_index_mem_stats = (get_spec(ism))->stats.invertedSize;
-  size_t numeric_tree_mem = NumericRangeTree_GetInvertedIndexesSize(rt);
-  ASSERT_EQ(total_mem, numeric_tree_mem);
   ASSERT_EQ(total_mem, spec_inv_index_mem_stats);
 
   size_t deleted_docs = num_docs / 4;
@@ -166,13 +163,7 @@ TEST_F(IndexGCTestNumeric, testNumeric) {
   }
   runGC();
 
-  size_t spec_inv_index_mem_stats_after_delete = (get_spec(ism))->stats.invertedSize;
-  size_t numeric_tree_mem_after_delete = NumericRangeTree_GetInvertedIndexesSize(rt);
-  ASSERT_EQ(spec_inv_index_mem_stats_after_delete, numeric_tree_mem_after_delete);
-
-  size_t collected_bytes = numeric_tree_mem - numeric_tree_mem_after_delete;
-  // gc stats
-  ASSERT_EQ(collected_bytes, fgc->stats.totalCollected);
+  ASSERT_GT(fgc->stats.totalCollected, 0);
 }
 
 /** Mark one of the entries in the last block as deleted while the child is running.
@@ -667,11 +658,18 @@ TEST_F(IndexGCTestTag, testPipeErrorDuringApply) {
   closer.join();
 }
 
+// Checks the spec's block accounting when the parent writes while the fork GC child runs. The
+// root range's cardinality is covered by the Rust tests in
+// `numeric_range_tree/tests/integration/gc.rs`.
 TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
+  // The expected block counts assume every document lands in the root range, so the distinct
+  // values must stay below the root's split cardinality
+  // (`NumericRangeTree::MINIMUM_RANGE_CARDINALITY`).
+  constexpr double values[] = {3.1416, 1.4142, 2.718, 1.618};
+  constexpr size_t root_split_cardinality = 16;
+  static_assert(std::size(values) < root_split_cardinality, "the root range must not split");
   const auto startValue = totalSpecBlocks();
   constexpr size_t docs_per_block = 100;
-  constexpr size_t first_split_card = 16; // from `numeric_index.c`
-  size_t cur_cardinality = 0;
   size_t cur_id = 1;
   size_t expected_total_blocks = 0;
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
@@ -681,35 +679,21 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
    */
 
   // Add a block worth of documents with the same value
-  ASSERT_LT(++cur_cardinality, first_split_card);
   expected_total_blocks++;
   for (size_t i = 0; i < docs_per_block; i++) {
-    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(3.1416).c_str());
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[0]).c_str());
   }
-  NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
-  const NumericRangeNode *root = NumericRangeTree_GetRoot(rt);
-  const NumericRange *rootRange = NumericRangeNode_GetRange(root);
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-  ASSERT_TRUE(rootRange);
-  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
   for (size_t i = expected_total_blocks; i < cur_id; i += 10)
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(i).c_str())) << "Failed to delete doc " << i;
   runGC([&]() {
-    ASSERT_LT(++cur_cardinality, first_split_card);
     expected_total_blocks++;
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[1]).c_str());
   });
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-  // Refresh root/range references as tree may have changed
-  root = NumericRangeTree_GetRoot(rt);
-  rootRange = NumericRangeNode_GetRange(root);
-  ASSERT_TRUE(rootRange);
-  // The fork is not aware of the new value added after the fork, but the parent should update the
-  // cardinality after applying the fork's changes.
-  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
 
   /*
    * Scenario 2: Not taking the child last block, and need to address the parent's changes (ignored + last block).
@@ -718,22 +702,16 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
   for (size_t i = expected_total_blocks; i < cur_id; i += 10)
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(i).c_str())) << "Failed to delete doc " << i;
   runGC([&]() {
-    ASSERT_LT(++cur_cardinality, first_split_card);
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[2]).c_str());
     EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks) << "Number of blocks should not change";
-    ASSERT_LT(++cur_cardinality, first_split_card);
     expected_total_blocks++;
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[3]).c_str());
     EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
   });
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-  root = NumericRangeTree_GetRoot(rt);
-  rootRange = NumericRangeNode_GetRange(root);
-  ASSERT_TRUE(rootRange);
-  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
 
   /*
    * Scenario 3: Taking the child last block, without any parent changes.
@@ -746,13 +724,6 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
 
   expected_total_blocks--;
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
-  // Refresh root/range references as tree may have changed
-  root = NumericRangeTree_GetRoot(rt);
-  rootRange = NumericRangeNode_GetRange(root);
-  ASSERT_TRUE(rootRange);
-  // We had 2 values in the second block and in it only. We expect the cardinality to decrease by 2.
-  cur_cardinality -= 2;
-  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
 }
 
 /**

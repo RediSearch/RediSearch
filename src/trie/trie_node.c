@@ -933,6 +933,98 @@ next:
   return __STEP_CONT;
 }
 
+typedef struct {
+  rune *buf;
+  size_t cap;
+  const rune *after;
+  size_t afterLen;
+  TrieVisitCallback visit;
+  void *ctx;
+  // `buf` starts on `stackBuf` and moves to the heap only for a path longer than it: not every
+  // insert path caps a key's length. Last, so the fields every visit reads share a cache line
+  // with the start of the path.
+  rune stackBuf[TRIE_INITIAL_STRING_LEN + 1];
+} visitAfterCtx;
+
+// The first child of a lex-sorted `n` whose first rune is not below `key`.
+static t_len lexLowerBound(const TrieNode *n, rune key) {
+  t_len lo = 0, hi = n->numChildren;
+  while (lo < hi) {
+    t_len mid = lo + (hi - lo) / 2;
+    if (__trieNode_LoadChildKey(n, mid) < key) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+// `bounded` means the path to `n` equals the first `depth` runes of `after`, so `n`'s subtree may
+// still hold keys that do not sort after it.
+static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterCtx *v) {
+  bool include_self = true;
+  if (bounded) {
+    for (t_len i = 0; i < n->len; ++i) {
+      size_t at = depth + i;
+      if (at >= v->afterLen || n->str[i] > v->after[at]) {
+        bounded = false;  // the path already sorts after `after`
+        break;
+      }
+      if (n->str[i] < v->after[at]) {
+        return 0;  // the whole subtree sorts before `after`
+      }
+    }
+    if (bounded) {
+      // The path is a prefix of `after` (or equal to it): its own key is not after `after`, and
+      // once it is equal every child extends it and sorts after.
+      include_self = false;
+      bounded = depth + n->len < v->afterLen;
+    }
+  }
+
+  size_t len = depth + n->len;
+  if (len > v->cap) {
+    size_t cap = MAX(len, 2 * v->cap);
+    if (v->buf == v->stackBuf) {
+      v->buf = rm_malloc(cap * sizeof(rune));
+      memcpy(v->buf, v->stackBuf, depth * sizeof(rune));
+    } else {
+      v->buf = rm_realloc(v->buf, cap * sizeof(rune));
+    }
+    v->cap = cap;
+  }
+  memcpy(v->buf + depth, n->str, n->len * sizeof(rune));
+  if (include_self && len > 0 && TrieNode_IsTerminal(n) && !__trieNode_isDeleted(n)) {
+    if (v->visit(v->buf, len, v->ctx)) {
+      return 1;
+    }
+  }
+
+  // While bounded, children whose first rune is below `after`'s next one sort before it whole; a
+  // resumed walk skips them by search rather than entering each.
+  t_len i = bounded ? lexLowerBound(n, v->after[len]) : 0;
+  for (; i < n->numChildren; ++i) {
+    if (visitAfter(TrieNode_Children(n)[i], len, bounded, v)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
+                        TrieVisitCallback visit, void *ctx) {
+  RS_ASSERT(n->sortMode == Trie_Sort_Lex);
+  visitAfterCtx v = {.after = after, .afterLen = afterLen, .visit = visit, .ctx = ctx};
+  v.buf = v.stackBuf;
+  v.cap = sizeof(v.stackBuf) / sizeof(rune);
+  int rc = visitAfter(n, 0, afterLen > 0, &v);
+  if (v.buf != v.stackBuf) {
+    rm_free(v.buf);
+  }
+  return rc;
+}
+
 TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;

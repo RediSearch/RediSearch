@@ -145,7 +145,7 @@ static atomic_bool diskJobsStopped = false;
 static IndexSpecSlotTrimJob *diskJobs;
 
 void SlotCleanup_StartDiskJobs(void) {
-  CleanPool_Resume();
+  SlotCleanup_ResumeDiskJobs();
   atomic_store(&diskJobsStopped, false);
 }
 

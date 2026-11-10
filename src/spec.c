@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "util/gil_gate.h"
 
 #include <math.h>
 #include <limits.h>
@@ -109,6 +110,7 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
+static GilGate cleanPoolGilGate = GIL_GATE_INIT;
 
 extern DebugCTX globalDebugCtx;
 
@@ -1138,19 +1140,19 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
   return parseVectorField_validate_svs(params, status);
 }
 
-// Parse the arguments of a TEXT field
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TEXT-specific options, stopping at the first argument that is not one
+static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
-  fs->types |= INDEXFLD_T_FULLTEXT;
-
-  // this is a text field
-  // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
       fs->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_WEIGHT_STR " requires an argument");
+        return 0;
+      }
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
@@ -1197,11 +1199,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-// Parse the arguments of a TAG field
-static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TAG-specific options, stopping at the first argument that is not one
+static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
-    fs->types |= INDEXFLD_T_TAG;
-
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
@@ -1234,6 +1234,39 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     }
 
   return rc;
+}
+
+// Parse the options specific to the field's type, stopping at the first argument that is not one
+static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    return parseTextFieldOptions(fs, ac, status);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    return parseTagFieldOptions(fs, ac, status);
+  }
+  // NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is not an option of the field
+  if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+    fs->options |= FieldSpec_IndexMissing;
+  }
+  return 1;
+}
+
+// Whether the current argument would start a valid field definition (`name [AS alias] type`),
+// judged by the argument after it.
+static bool startsFieldDefinition(const ArgsCursor *ac) {
+  if (AC_NumRemaining(ac) < 2) {
+    return false;
+  }
+  const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
+  static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR};
+  for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
+    if (!strcasecmp(next, starts[i])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Field creation already parsed the path; validation only checks its result.
@@ -1380,10 +1413,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
 
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
-
   return 1;
 }
 
@@ -1396,15 +1425,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    if (!parseTextField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_FULLTEXT;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!parseTagField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_TAG;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
@@ -1414,34 +1437,41 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
+  if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+  // Type-specific options may also come between or after SORTABLE and NOINDEX. An argument that
+  // can start a field definition (followed by AS or a field type) ends this field instead, so a
+  // field may be named after an option keyword.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
         fs->options |= FieldSpec_UNF;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
-      continue;
-    } else {
+    } else if (startsFieldDefinition(ac)) {
       break;
+    } else {
+      size_t offset = ac->offset;
+      if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+      if (ac->offset == offset) break;
     }
+  }
+  // Numeric fields and case-sensitive tags are never normalized, so sorting them is implicitly
+  // UNF. Decided after all options are parsed, since CASESENSITIVE may follow SORTABLE.
+  if (FieldSpec_IsSortable(fs) &&
+      (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || TAG_FIELD_IS(fs, TagField_CaseSensitive))) {
+    fs->options |= FieldSpec_UNF;
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG) && !FieldSpec_IndexesEmpty(fs)) {
+    sp->flags |= Index_HasNonEmpty;
   }
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
@@ -1472,17 +1502,25 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
- * Validate that a disk-backed JSON field uses a single-value JSONPath.
- * Returns `true` when the validation does not apply or the field path is valid.
+ * Validate the JSONPath of a disk-backed JSON field: it must parse, and it must
+ * be single-value unless `SearchDisk_SupportsMultiValue` accepts the field's type.
+ * Call after `parseFieldSpec`, which sets the type, and only for a disk index.
+ * Returns `true` when the index is not JSON or the field path is valid.
  * On failure, sets `status` with the validation error and returns `false`.
  */
-static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
-  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  RS_ASSERT(fs->types);
+  RS_ASSERT(isSpecOnDiskForValidation(sp));
+  if (!isSpecJson(sp)) {
     return true;
   }
 
   if (!validateJsonFieldPath(sp, fs, status)) {
     return false;
+  }
+
+  if (SearchDisk_SupportsMultiValue(fs->types)) {
+    return true;
   }
 
   bool isSingle = japi->pathIsSingle(fs->compiledPath);
@@ -1589,15 +1627,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
                              sp->numFields);
       goto reset;
     }
-    if (!validateDiskJsonSinglePath(sp, fs, status)) {
-      goto reset;
-    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
     if (isSpecOnDiskForValidation(sp))
     {
+      if (!validateDiskJsonPath(sp, fs, status)) {
+        goto reset;
+      }
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC/GEO fields");
         goto reset;
@@ -1896,10 +1934,12 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       goto failure;
     }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
-                                          spec->rule->type, true, spec);
+                                          spec->rule->type, true, spec, status);
     if (!spec->diskSpec) {
       SearchDisk_ReleaseCreateFailure();
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       goto failure;
     }
   }
@@ -2042,16 +2082,16 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
+    GilGate_Reset(&cleanPoolGilGate);
     cleanPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "cleanPool");
   }
 }
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    GilGate_BeginJoin(&cleanPoolGilGate);
     redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
@@ -2198,7 +2238,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
   }
 
   if (lockGil) {
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&cleanPoolGilGate, ctx);
   }
   for (size_t i = 0; i < len; ++i) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
@@ -2206,7 +2246,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
     RedisModule_FreeString(ctx, keyName);
   }
   if (lockGil) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&cleanPoolGilGate, ctx);
   }
 
   for (size_t i = 0; i < len; ++i) {
@@ -3536,10 +3576,12 @@ cleanup_no_index:
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
   if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data. (Enforce no populated data, restart may come with dirty disk data)
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type,
-                                        true, sp);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, true,
+                                        sp, status);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       return REDISMODULE_ERR;
     }
     IndexSpec_BindFieldsStorage(sp);

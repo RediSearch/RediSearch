@@ -25,6 +25,7 @@
 #include "hiredis/sds.h"
 #include "rmalloc.h"
 #include "rmr/command.h"
+#include "rmr/rmr.h"
 #include "rmr/endpoint.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
@@ -502,11 +503,11 @@ static int MRConn_SendAuth(MRConn *conn) {
 
   if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    MR_LockGIL(RSDummyContext);
     size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     if (!internal_secret) {
-      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      MR_UnlockGIL(RSDummyContext);
       // Redis has no internal secret outside cluster mode, which cannot change at runtime, so
       // warn once rather than on every reconnect attempt.
       static atomic_flag warned = ATOMIC_FLAG_INIT;
@@ -520,7 +521,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    MR_UnlockGIL(RSDummyContext);
     return status;
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
@@ -594,7 +595,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
                     RedisModuleString **ca_cert, RedisModuleString **key_pass) {
   int ret = REDIS_OK;
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModule_ThreadSafeContextLock(ctx);
+  MR_LockGIL(ctx);
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
   *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
@@ -621,7 +622,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
     }
   }
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  MR_UnlockGIL(ctx);
   return ret;
 }
 
@@ -632,9 +633,9 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
  * `tls-cluster`, and preferably take the port type from the topology instead. */
 static bool legacyEnterpriseConfigUsesTLS(void) {
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModule_ThreadSafeContextLock(ctx);
+  MR_LockGIL(ctx);
   bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  MR_UnlockGIL(ctx);
   return tls;
 }
 
