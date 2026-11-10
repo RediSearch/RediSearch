@@ -26,7 +26,7 @@
 #include "debug_commands.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
-GilGate gcGilGate_g;
+GilGate gcGilGate_g = GIL_GATE_INIT;
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
 // consistency window is already open starts paused; live ones are paused and resumed by
 // walking IndexSpec->gc. Guarded by the GIL.
