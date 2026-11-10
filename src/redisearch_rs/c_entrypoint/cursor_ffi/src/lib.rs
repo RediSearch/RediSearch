@@ -78,8 +78,8 @@ impl Drop for OwnedCursor {
             // SAFETY: promotion returned a strong reference or the supported null handle.
             let spec = unsafe { ffi::StrongRef_Get(strong) }.cast::<ffi::IndexSpec>();
             if !spec.is_null() {
-                let count = counter(spec, self.1);
-                // SAFETY: count is the live field protected by the held list lock.
+                let count = assert_non_null_counter(spec, self.1);
+                // SAFETY: the live counter field is protected by the held list lock.
                 *unsafe { count.as_mut() }.expect("live index counter") -= 1;
                 // SAFETY: successful promotion acquired this strong reference.
                 unsafe { ffi::StrongRef_Release(strong) };
@@ -116,15 +116,16 @@ fn lock(cl: &CursorList) -> MutexGuard<'_, List> {
 }
 
 fn global(id: u64) -> &'static CursorList {
-    if id % 2 == 1 {
-        &g_CursorsListCoord
-    } else {
-        &g_CursorsList
+    match id % 2 {
+        0 => &g_CursorsList,
+        _ => &g_CursorsListCoord,
     }
 }
 
 // Field projection must not borrow the entire spec: the other list owns its other counter.
-const fn counter(spec: *const ffi::IndexSpec, kind: Kind) -> *mut usize {
+#[track_caller]
+const fn assert_non_null_counter(spec: *const ffi::IndexSpec, kind: Kind) -> *mut usize {
+    debug_assert!(!spec.is_null());
     let offset = match kind {
         Kind::Coordinator => std::mem::offset_of!(ffi::IndexSpec, activeCoordCursors),
         Kind::User => std::mem::offset_of!(ffi::IndexSpec, activeCursors),
@@ -140,6 +141,11 @@ fn now() -> u64 {
     // SAFETY: ts is writable and the monotonic clock is supported on all targets.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut ts) };
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
+/// Smallest whole-millisecond timer delay covering the remaining nanoseconds.
+pub const fn timer_delay_ms(remaining_ns: u64) -> u64 {
+    remaining_ns.div_ceil(1_000_000)
 }
 
 /// Rearms a list's timer on Redis's event-loop thread.
@@ -163,7 +169,7 @@ unsafe fn reschedule(cl: &'static CursorList, list: &mut List) {
         list.timer = 0;
     }
     if let Some(deadline) = list.registry.next_deadline() {
-        let period = deadline.saturating_sub(now()).div_ceil(1_000_000);
+        let period = timer_delay_ms(deadline.saturating_sub(now()));
         let data = ptr::from_ref(cl).cast_mut().cast();
         // SAFETY: 1, 2. cl is process-lifetime; callback and timer operations run on the main thread.
         list.timer = unsafe { create(ctx, period as i64, Some(sweep), data) };
@@ -189,9 +195,8 @@ unsafe extern "C" fn sweep(_: *mut raw::RedisModuleCtx, data: *mut c_void) {
 unsafe extern "C" fn reschedule_once(data: *mut c_void) {
     // SAFETY: 1. One-shots retain the initialized global even across Empty.
     let cl = unsafe { data.cast::<CursorList>().as_ref() }.expect("one-shot's global list");
-    let mut guard = lock(cl);
     // SAFETY: 1. The global's list is locked. 2. Redis invokes one-shots on its main thread.
-    unsafe { reschedule(cl, &mut guard) };
+    unsafe { reschedule(cl, &mut lock(cl)) };
 }
 
 /// Initializes a process-lifetime list before requests can use it.
@@ -235,19 +240,17 @@ pub unsafe extern "C" fn Cursors_Reserve(
             rm: ptr::null_mut(),
         }
     } else {
-        let count = counter(spec, list.kind);
+        let count = assert_non_null_counter(spec, list.kind);
         // SAFETY: 2. count belongs to this locked list and the live spec.
         if unsafe { count.read() } >= limit as usize {
             list.registry.collect(now(), Collection::Throttled);
             // SAFETY: 2. Reclamation may update count, but spec_ref still keeps it alive.
             if unsafe { count.read() } >= limit as usize {
+                let message =
+                    format!("INDEX_CURSOR_LIMIT of {limit} has been reached for an index");
                 // SAFETY: 3. Caller supplies an exclusively writable error slot on failure.
-                unsafe { status.as_mut() }
-                    .expect("capacity error output")
-                    .set_error(
-                        QueryErrorCode::Limit,
-                        &format!("INDEX_CURSOR_LIMIT of {limit} has been reached for an index"),
-                    );
+                let status = unsafe { status.as_mut() }.expect("capacity error output");
+                status.set_error(QueryErrorCode::Limit, &message);
                 return ptr::null_mut();
             }
         }
@@ -261,7 +264,7 @@ pub unsafe extern "C" fn Cursors_Reserve(
         query: ptr::null_mut(),
         id: 0,
         query_timeout_ms: 0,
-        query_timeout_policy: 0,
+        query_timeout_policy: ffi::RSTimeoutPolicy_TimeoutPolicy_Return,
     }));
     let _rng = RANDOM.lock().expect("random mutex is not poisoned");
     let owned = OwnedCursor(cur, list.kind);
@@ -298,14 +301,12 @@ pub unsafe extern "C" fn Cursor_Pause(cur: *mut Cursor) -> c_int {
     let mut list = lock(cl);
     list.registry.tick(now);
     // SAFETY: Redis API pointers are fixed before requests start.
-    let timer_api = unsafe { raw::RedisModule_CreateTimer };
-    if list.registry.pause(id, now()) && timer_api.is_some() {
+    if list.registry.pause(id, now()) && unsafe { raw::RedisModule_CreateTimer }.is_some() {
         // SAFETY: the API table is initialized and immutable during cursor operations.
         let post =
             unsafe { raw::RedisModule_EventLoopAddOneShot }.expect("event loop API initialized");
-        let data = ptr::from_ref(cl).cast_mut().cast();
         // SAFETY: posting is thread-safe and the global outlives pending callbacks.
-        unsafe { post(Some(reschedule_once), data) };
+        unsafe { post(Some(reschedule_once), ptr::from_ref(cl).cast_mut().cast()) };
     }
     0
 }
@@ -370,8 +371,7 @@ pub unsafe extern "C" fn CursorList_Empty(cl: &'static CursorList) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CursorList_MarkASMInaccuracy() {
     for cl in [global(1), global(0)] {
-        let guard = lock(cl);
-        for cur in guard.registry.idle_values() {
+        for cur in lock(cl).registry.idle_values() {
             // SAFETY: the list lock excludes execution owners from idle requests.
             let request = unsafe { cur.0.as_ref() }.expect("parked cursor").query;
             // SAFETY: 1. Parked requests are aggregates, exclusively accessed under this lock.
@@ -415,9 +415,9 @@ unsafe fn stats(user: &List, coord: &List, spec: *const IndexSpec) -> [(&'static
     let idle = (user.registry.idle_len() + coord.registry.idle_len()) as i64;
     let total = (user.registry.len() + coord.registry.len()) as i64;
     // SAFETY: 1. Caller holds the user list mutex and keeps spec alive.
-    let index_total = unsafe { counter(spec, Kind::User).read() } as i64;
+    let index_total = unsafe { assert_non_null_counter(spec, Kind::User).read() } as i64;
     // SAFETY: 1. Caller holds the coordinator list mutex and keeps spec alive.
-    let index_internal = unsafe { counter(spec, Kind::Coordinator).read() } as i64;
+    let index_internal = unsafe { assert_non_null_counter(spec, Kind::Coordinator).read() } as i64;
     [
         (c"global_idle", idle),
         (c"global_total", total),
@@ -444,8 +444,7 @@ pub unsafe extern "C" fn Cursors_RenderStats(
     // SAFETY: 2. Caller owns the reply builder with an open enclosing map.
     unsafe { ffi::RedisModule_ReplyKV_Map(reply, c"cursor_stats".as_ptr()) };
     // SAFETY: 1, 2. Both list locks protect the live spec's counters, in user/coordinator order.
-    let values = unsafe { stats(&user, &coord, spec) };
-    for (key, value) in values {
+    for (key, value) in unsafe { stats(&user, &coord, spec) } {
         // SAFETY: 2. The nested map is open and key is a terminated static string.
         unsafe { ffi::RedisModule_ReplyKV_LongLong(reply, key.as_ptr(), value) };
     }
@@ -472,8 +471,7 @@ pub unsafe extern "C" fn Cursors_RenderStatsForInfo(
     match (user, coord) {
         (Ok(user), Ok(coord)) => {
             // SAFETY: 1, 2. Both list guards protect the live spec's counters, in user/coordinator order.
-            let values = unsafe { stats(&user, &coord, spec) };
-            for (key, value) in values {
+            for (key, value) in unsafe { stats(&user, &coord, spec) } {
                 raw::add_info_field_long_long(ctx, key.to_str().expect("ASCII field name"), value);
             }
         }
