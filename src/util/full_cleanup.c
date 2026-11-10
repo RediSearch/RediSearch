@@ -8,6 +8,7 @@
 */
 #include "full_cleanup.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -17,7 +18,7 @@
 #include "redismodule.h"
 
 // How long a pool may take to go idle, and how often it is checked.
-#define FULL_CLEANUP_IDLE_WAIT_MS 5000
+#define FULL_CLEANUP_IDLE_WAIT_MS 30000
 #define FULL_CLEANUP_IDLE_POLL_MS 100
 
 static bool fullCleanupInProgress_g = false;
@@ -50,7 +51,8 @@ void FullCleanup_WatchShutdownCommand(RedisModuleCtx *ctx) {
 void FullCleanup_Begin(void) {
   fullCleanupInProgress_g = true;
   // Latched: a pool drain processes events, which may run shutdownCommandReturned.
-  fullCleanupHoldsGIL_g = inShutdownCommand_g;
+  (void)inShutdownCommand_g;
+  fullCleanupHoldsGIL_g = true;  // EXPERIMENT: never release the GIL during full cleanup
 }
 
 bool FullCleanup_InProgress(void) {
@@ -72,7 +74,9 @@ bool FullCleanup_WaitUntilIdle(bool (*idle)(void *arg), void *arg, const char *w
       RedisModule_Log(RSDummyContext, "warning",
                       "Full cleanup: %s still busy after %d ms; leaving it running", what,
                       FULL_CLEANUP_IDLE_WAIT_MS);
-      return false;
+      // EXPERIMENT: surface the test as a crash instead of leaving the pool running.
+      RedisModule_Log(RSDummyContext, "warning", "FULL_CLEANUP_DEADLOCK_RISK: %s", what);
+      abort();
     }
     usleep(FULL_CLEANUP_IDLE_POLL_MS * 1000);
   }
