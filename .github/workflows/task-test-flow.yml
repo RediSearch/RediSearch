@@ -129,7 +129,7 @@ env:
 jobs:
   common-flow:
     name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
-    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.coverage && endsWith(inputs.env, '-u-x64-medium') && fromJSON(format('["{0}","ghr-ec2-instance-type:m6i.xlarge"]', inputs.env))) || inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
@@ -319,6 +319,20 @@ jobs:
             exit 1
           }
 
+      - name: Require an Intel CPU
+        # Coverage is the lane that exercises the BUILD_INTEL_SVS_OPT code paths (LVQ,
+        # LeanVec), which run only on Intel CPUs; elsewhere test_vecsim_svs quietly
+        # tests the generic fallback. Its runner is pinned to an Intel instance type,
+        # so fail rather than lose that coverage if the pin stops holding.
+        if: inputs.coverage && runner.os == 'Linux' && runner.arch == 'X64' && env.BUILD_INTEL_SVS_OPT == 'yes' && vars.RUNS_ON_X64_MEDIUM != ''
+        shell: sh
+        run: |
+          vendor=$(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo)
+          echo "CPU vendor: $vendor"
+          if [ "$vendor" != "GenuineIntel" ]; then
+            echo "::error::Expected an Intel CPU on this x86_64 runner, got '$vendor'"
+            exit 1
+          fi
       # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
       # spec per line). Needed to shard and as the input to flaky filtering.
       # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a

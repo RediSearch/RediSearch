@@ -132,16 +132,6 @@ jobs:
                       'enable_lto': '0' # Currently not possible on macOS.
                   }
               },
-              "intel": {
-                  "x86_64": {
-                      'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
-                      'name': 'Intel x86_64',
-                      'env': '',
-                      'ec2_image_id': 'ami-09fabd03bb09b3704',
-                      'ec2_instance_type': 'c7i.xlarge',
-                      'enable_lto': '0' # Platform is not used to produce artifacts.
-                  }
-              },
               "ubuntu:latest": {
                   "x86_64": {
                       'container': 'ubuntu:latest',
