@@ -210,6 +210,10 @@ typedef struct BasicDiskAPI {
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
    *                     IndexSpec for its lifetime.
+   * @param status Receives the reason when the open fails and the disk layer can state it
+   *               without exposing server internals (e.g. an index name it cannot use);
+   *               left clear otherwise, so the caller supplies a generic message. May be
+   *               NULL.
    * @return Pointer to the index spec, or NULL on error
    *
    * @note This both opens the database and registers it with Redis BigModule APIs.
@@ -221,7 +225,7 @@ typedef struct BasicDiskAPI {
                                              DocumentType type, bool deleteBeforeOpen,
                                              const SearchDiskField *fields, size_t numFields,
                                              const SearchDiskCompactionCallbacks *callbacks,
-                                             void *private_data);
+                                             void *private_data, QueryError *status);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
