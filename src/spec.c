@@ -1896,10 +1896,12 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       goto failure;
     }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
-                                          spec->rule->type, true, spec);
+                                          spec->rule->type, true, spec, status);
     if (!spec->diskSpec) {
       SearchDisk_ReleaseCreateFailure();
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       goto failure;
     }
   }
@@ -3522,10 +3524,12 @@ cleanup_no_index:
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
   if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data. (Enforce no populated data, restart may come with dirty disk data)
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type,
-                                        true, sp);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, true,
+                                        sp, status);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       return REDISMODULE_ERR;
     }
     IndexSpec_BindFieldsStorage(sp);

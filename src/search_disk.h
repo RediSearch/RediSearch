@@ -101,11 +101,14 @@ void SearchDisk_ReleaseCreateFailure(void);
  *        without SST persistence to ensure stale data is cleared)
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
+ * @param status Receives the disk layer's reason when the open fails and it has one; left
+ *        clear otherwise. May be NULL.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
-    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
-    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
