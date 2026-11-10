@@ -145,7 +145,7 @@ TEST_F(SlotCleanupTest, DeleteDocByIdUnsafeUpdatesIndexState) {
   ASSERT_EQ(vectorCount(), 2);
 
   IndexSpec_LockWrite(spec);
-  IndexSpec_DeleteDocById_Unsafe(spec, id);
+  IndexSpec_DeleteDocById_Unsafe(spec, id, DOCID_META_DOCLEN_UNKNOWN);
   IndexSpec_Unlock(spec);
 
   EXPECT_FALSE(present(id));
@@ -156,8 +156,8 @@ TEST_F(SlotCleanupTest, DeleteDocByIdUnsafeUpdatesIndexState) {
 
   // A docId that is already gone, or was never assigned, leaves the index untouched.
   IndexSpec_LockWrite(spec);
-  IndexSpec_DeleteDocById_Unsafe(spec, id);
-  IndexSpec_DeleteDocById_Unsafe(spec, id + 100);
+  IndexSpec_DeleteDocById_Unsafe(spec, id, DOCID_META_DOCLEN_UNKNOWN);
+  IndexSpec_DeleteDocById_Unsafe(spec, id + 100, DOCID_META_DOCLEN_UNKNOWN);
   IndexSpec_Unlock(spec);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
   EXPECT_EQ(vectorCount(), 1);
@@ -199,7 +199,7 @@ TEST_F(SlotCleanupTest, DocChangedBetweenPhasesIsNotDeletedTwice) {
   // Re-indexing a key gives it a fresh docId and drops the old one; a plain delete drops it too.
   t_docId rewrittenNow = index("{a}1", "changed");
   ASSERT_NE(rewrittenNow, rewritten);
-  IndexSpec_DeleteDocById(spec, deleted);
+  IndexSpec_DeleteDocById(spec, deleted, DOCID_META_DOCLEN_UNKNOWN);
   ASSERT_EQ(spec->stats.scoring.numDocuments, 2);
 
   SlotCleanup_ApplyDeletes(spec, docIds);

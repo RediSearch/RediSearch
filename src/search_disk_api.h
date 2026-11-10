@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "doc_id_meta.h"
 #include "field_spec.h"
 #include "VecSim/vec_sim_common.h"
 
@@ -543,10 +544,13 @@ typedef struct IndexDiskAPI {
    *
    * @param handle Handle to the document table
    * @param docId Document ID to delete
-   * @param oldLen Optional pointer to receive the old document length (can be NULL)
-   * @return true if the document was found and deleted, false if not found
+   * @param knownDocLen The document's length as recorded in DocIdMeta, or
+   *        DOCID_META_DOCLEN_UNKNOWN. When known, the doc-table row is not read.
+   * @param oldLen Optional pointer to receive the document length: `knownDocLen` when known,
+   *        otherwise the row's value (0 when the row does not exist). Can be NULL.
+   * @return true if the delete was staged, false on a storage error
    */
-  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *oldLen);
+  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t knownDocLen, uint32_t *oldLen);
 
    /**
    * @brief Creates a new iterator for the inverted index
@@ -783,12 +787,15 @@ typedef struct DocTableDiskAPI {
    * @param flags Document flags
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
-   * @param oldLen Pointer to an integer to store the length of the deleted document
+   * @param oldLen Pointer to an integer to store the length of the replaced document:
+   *        `knownOldLen` when known, otherwise the old row's value (0 for a new document)
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
    * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @param knownOldLen The old document's length as recorded in DocIdMeta, or
+   *        DOCID_META_DOCLEN_UNKNOWN. When known, the old doc-table row is not read.
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId, uint32_t knownOldLen);
 
   /**
    * @brief Returns whether the docId is in the deleted set

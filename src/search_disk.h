@@ -345,13 +345,9 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
  *
  * Used by the metadata unlink callback where the docId is already known.
- *
- * @param handle Handle to the document table
- * @param docId Document ID to delete
- * @param oldLen Optional pointer to receive the old document length (can be NULL)
- * @return true if the document was found and deleted, false if not found
+ * Parameters are those of `IndexDiskAPI.deleteDocumentById`.
  */
-bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t knownDocLen, uint32_t *oldLen);
 
 /**
  * @brief Run a GC compaction cycle on the disk index
@@ -458,12 +454,14 @@ size_t SearchDisk_GetLiveSnapshotCount(void);
  * @param flags Document flags
  * @param maxTermFreq Maximum frequency of any single term in the document
  * @param totalFreq Total frequency of the document
- * @param oldLen Pointer to an integer to store the length of the deleted document
+ * @param oldLen Pointer to an integer to store the length of the replaced document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
  * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @param knownOldLen The old document's length from DocIdMeta, or DOCID_META_DOCLEN_UNKNOWN;
+ *        see `DocTableDiskAPI.putDocument`
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId, uint32_t knownOldLen);
 
 /**
  * @brief Get document metadata by document ID

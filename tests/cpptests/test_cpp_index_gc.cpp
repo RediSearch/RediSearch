@@ -8,6 +8,7 @@
 */
 
 #include "gtest/gtest.h"
+#include "doc_id_meta.h"
 #include "spec.h"
 #include "common.h"
 #include "llapi_test_helpers.h"
@@ -561,8 +562,8 @@ TEST_F(IndexGCTestTag, testDeferredDeletesAreTakenByTheNextRun) {
   IndexSpec *spec = get_spec(ism);
   // Delete off the GC's books, the way slot cleanup does, then hand the count over.
   IndexSpec_LockWrite(spec);
-  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 1));
-  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 1, DOCID_META_DOCLEN_UNKNOWN));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2, DOCID_META_DOCLEN_UNKNOWN));
   IndexSpec_Unlock(spec);
   IndexSpec_DeferGCDeletes(spec, 2);
   ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);

@@ -4099,9 +4099,10 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
 // (`actxDocIdMetaGet` / `actxDocIdMetaSet`) so both paths treat the same key
 // consistently.
 static int lookupDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
-                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId) {
-  return openKey ? DocIdMeta_GetWithOpenKey(openKey, specId, docId)
-                 : DocIdMeta_Get(ctx, key, specId, docId);
+                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId,
+                           uint32_t *docLen) {
+  return openKey ? DocIdMeta_GetEntryWithOpenKey(openKey, specId, docId, docLen)
+                 : DocIdMeta_GetEntry(ctx, key, specId, docId, docLen);
 }
 
 static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -4136,17 +4137,18 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
-  // Look up docId from the key metadata.
+  // Look up the docId and length from the key metadata.
   uint64_t docId = 0;
-  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+  uint32_t docLen = DOCID_META_DOCLEN_UNKNOWN;
+  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId, &docLen) != REDISMODULE_OK ||
+      docId == 0) {
     // Nothing to delete
     return;
   }
 
-  uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen, &docLen)) {
       // Failed to delete
       return;
     }
@@ -4183,12 +4185,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
-  uint32_t docLen = 0;
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen, &docLen)) {
       // Document not found on disk
       return false;
     }
@@ -4208,10 +4208,10 @@ bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
 
 // The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
 // (both modes).
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
-  if (IndexSpec_DeleteDocById_Unsafe(spec, docId) && spec->gc) {
+  if (IndexSpec_DeleteDocById_Unsafe(spec, docId, docLen) && spec->gc) {
     GCContext_OnDelete(spec->gc);
   }
   IndexSpec_DecrActiveWrites(spec);
