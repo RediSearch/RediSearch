@@ -20,12 +20,24 @@ on:
         required: true
       GH_PR_APP_PRIVATE_KEY:
         required: true
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
 
 jobs:
   stop-runner:
     name: Stop self-hosted EC2 runner
     runs-on: ubuntu-slim
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:

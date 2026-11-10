@@ -345,7 +345,8 @@ static void SearchDisk_CheckOpenResult(RedisModuleCtx *ctx, RedisSearchDiskIndex
 
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
                                                const char *obfuscatedName, DocumentType type,
-                                               bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status) {
   RS_ASSERT(disk_db && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
     SearchDisk_CheckOpenResult(ctx, NULL);
@@ -355,7 +356,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-      fields, c_index_spec->numFields, &callbacks, c_index_spec);
+      fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
@@ -660,6 +661,10 @@ bool SearchDisk_IsEnabled() {
 
 bool SearchDisk_IsEnabledForValidation() {
   return isFlex || RSGlobalConfig.simulateInFlex;
+}
+
+bool SearchDisk_SupportsMultiValue(FieldType types) {
+  return types == INDEXFLD_T_FULLTEXT;
 }
 
 // Vector API wrappers

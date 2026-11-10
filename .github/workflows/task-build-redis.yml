@@ -18,6 +18,10 @@ name: Common Flow for Building Redis
 
 on:
   workflow_call:
+    secrets:
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
     inputs:
       redis-ref:
         description: 'Redis git ref to build (e.g. "7.2.3", "unstable", or a commit sha)'
@@ -144,6 +148,11 @@ jobs:
         # Shallow, submodule-free: this job only needs the install scripts and
         # the two local actions below. Redis itself is cloned by build-redis.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env

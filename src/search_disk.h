@@ -101,11 +101,14 @@ void SearchDisk_ReleaseCreateFailure(void);
  *        without SST persistence to ensure stale data is cleared)
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
+ * @param status Receives the disk layer's reason when the open fails and it has one; left
+ *        clear otherwise. May be NULL.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
-    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
-    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -658,6 +661,18 @@ bool SearchDisk_IsEnabled();
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabledForValidation();
+
+/**
+ * @brief Check if a disk JSON index supports multi-value fields of the given type:
+ * dynamic JSONPaths and JSON arrays at a single path.
+ *
+ * VECTOR must stay false here: an array at a single path is a vector's blob,
+ * and multi-value vectors need their own disk support.
+ *
+ * @param types The field's type
+ * @return true if multi-value is supported for the type, false otherwise
+ */
+bool SearchDisk_SupportsMultiValue(FieldType types);
 
 /**
  * @brief Report whether disk vector indexes are currently throttling writers.

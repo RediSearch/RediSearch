@@ -141,7 +141,7 @@ struct IndexSpecSlotTrimJob {
 static atomic_bool diskJobsStopped = false;
 
 void SlotCleanup_StartDiskJobs(void) {
-  CleanPool_Resume();
+  SlotCleanup_ResumeDiskJobs();
   atomic_store(&diskJobsStopped, false);
 }
 

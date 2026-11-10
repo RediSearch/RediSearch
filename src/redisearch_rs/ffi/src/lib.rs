@@ -49,6 +49,13 @@ use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;
 
+/// A C `pthread_rwlock_t`, behind an [`UnsafeCell`]: other threads take and release
+/// the lock through C while Rust holds shared references to the struct embedding it,
+/// such as an [`IndexSpec`] under its read lock.
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct pthread_rwlock_t(pub UnsafeCell<libc::pthread_rwlock_t>);
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {

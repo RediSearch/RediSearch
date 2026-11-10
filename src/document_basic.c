@@ -313,10 +313,16 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
     size_t oix = doc->numFields++;
     doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
+    // Set before loading, not left to preprocessing: if the load fails after storing a
+    // multi-value array, `ClearOwnedField` only frees it when `indexAs` is set.
+    doc->fields[oix].indexAs = field->types;
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
+    bool rejectMultiValue =
+        SearchDisk_IsEnabledForValidation() && !SearchDisk_SupportsMultiValue(field->types);
+    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, rejectMultiValue,
+                               status) != REDISMODULE_OK) {
       FieldSpec_AddError(field, QueryError_GetDisplayableError(status, true), QueryError_GetDisplayableError(status, false), doc->docKey);
       char* path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", path);

@@ -25,6 +25,8 @@ jobs:
       packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       container: ubuntu:noble
       runner-env: ${{ vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -71,6 +73,12 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+
       - name: Get Installation Mode
         id: mode
         run: |

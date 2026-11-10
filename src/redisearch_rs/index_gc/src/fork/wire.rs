@@ -41,8 +41,9 @@ pub(crate) fn handle_one<M>(
         return Ok(HandleOutcome::Done);
     };
 
-    let mut spec_ref = fgc.index_spec().promote().ok_or(GcError::SpecDeleted)?;
-    let mut guard = spec_ref.write();
+    let spec_ref = fgc.index_spec().promote().ok_or(GcError::SpecDeleted)?;
+    let mut lock = spec_ref.write();
+    let mut guard = lock.guard();
 
     let stats = apply(message, &mut guard)?;
     stats.apply(fgc, &mut guard);

@@ -27,6 +27,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+#include "query_memory.h"
 
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
