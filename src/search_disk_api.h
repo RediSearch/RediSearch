@@ -1072,8 +1072,9 @@ typedef struct MetricsDiskAPI {
   void (*stopMetrics)(RedisSearchDisk *disk);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
-  /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
-  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /* Stages the disk snapshot and live C-owned TEXT metadata for INFO output. */
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
+                                                uint64_t textRamMetadataBytes);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *

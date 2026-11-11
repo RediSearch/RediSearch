@@ -735,9 +735,10 @@ bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
-CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index,
+                                                     uint64_t textRamMetadataBytes) {
   RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.readCachedIndexMetrics(disk_db, index);
+  return disk->metrics.readCachedIndexMetrics(disk_db, index, textRamMetadataBytes);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {
