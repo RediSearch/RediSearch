@@ -54,6 +54,7 @@ mod optional_optimized;
 mod optional_reducer;
 mod profilable;
 mod profile;
+mod score_bound;
 #[cfg(not(miri))]
 mod profile_print;
 mod timeout_context;

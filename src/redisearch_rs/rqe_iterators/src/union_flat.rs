@@ -971,6 +971,23 @@ where
             1.0
         }
     }
+
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        if self.is_eof {
+            return f64::INFINITY;
+        }
+        // A superset of the children in the aggregate result: a quick-exit union keeps only the
+        // first one, and the bound only loosens.
+        let doc_id = self.last_doc_id();
+        crate::composite::summed_max_score(
+            self.children
+                .iter()
+                .map(|child| &child.inner)
+                .filter(|child| child.last_doc_id() == doc_id),
+            self.result.weight,
+            ctx,
+        )
+    }
 }
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>

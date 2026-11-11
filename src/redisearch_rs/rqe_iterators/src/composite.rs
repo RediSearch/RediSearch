@@ -18,7 +18,28 @@ use index_result::{RSIndexResult, RawBorrowedAggregateResult};
 use ref_mode::Suspended;
 use rqe_core::{DocId, FieldMask};
 
-use crate::RQEIterator;
+use crate::{RQEIterator, ScoreBoundCtx};
+
+/// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
+/// the scores of `children`.
+///
+/// Scaling by `max(weight, 1)` rather than `weight` keeps the bound valid for scorers that ignore
+/// the query tree (`DOCSCORE`), for which every child's bound is already a bound on the whole
+/// score.
+pub(crate) fn summed_max_score<'index, 'c, I>(
+    children: impl IntoIterator<Item = &'c I>,
+    weight: f64,
+    ctx: &ScoreBoundCtx,
+) -> f64
+where
+    I: RQEIterator<'index> + 'c,
+{
+    let sum: f64 = children
+        .into_iter()
+        .map(|child| child.current_max_score(ctx))
+        .sum();
+    sum * weight.max(1.0)
+}
 
 /// RAII guard owning a suspended composite's shell while its children buffer
 /// is part-resumed and part-suspended.

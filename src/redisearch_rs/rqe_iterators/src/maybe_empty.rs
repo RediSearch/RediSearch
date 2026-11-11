@@ -208,6 +208,27 @@ where
             MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
     }
+
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.current_max_score(ctx),
+            MaybeEmptyOption::Some(it) => it.current_max_score(ctx),
+        }
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.current_block_last_doc_id(),
+            MaybeEmptyOption::Some(it) => it.current_block_last_doc_id(),
+        }
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        match &mut self.0 {
+            MaybeEmptyOption::None(empty) => empty.set_score_threshold(min_competitive_score),
+            MaybeEmptyOption::Some(it) => it.set_score_threshold(min_competitive_score),
+        }
+    }
 }
 
 impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>

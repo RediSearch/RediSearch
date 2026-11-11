@@ -28,6 +28,7 @@ use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
 use ::inverted_index::{FieldMask, NumericFilter};
+pub use ffi::ScoreBoundCtx;
 use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
@@ -329,6 +330,45 @@ pub trait RQEIterator<'index> {
     /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
     /// - Everything else: `1.0` — neutral, no influence.
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
+
+    /**************** score bounds ****************/
+
+    /// Upper bound on the final score of the document the iterator is positioned on, under the
+    /// query's scorer.
+    ///
+    /// Computed only from data the iterator already holds: it must not cost I/O. Root callers drop
+    /// a candidate whose bound is below the threshold pushed through
+    /// [`set_score_threshold`](Self::set_score_threshold), without reading its document, so an
+    /// implementation must never return less than the score the scorer would compute.
+    /// [`f64::INFINITY`] means "unknown" and is always correct.
+    ///
+    /// Only meaningful while the iterator is positioned on a result.
+    ///
+    /// Composites build theirs from their children's: [`Intersection`] sums all of them,
+    /// [`Union`] sums those positioned on the current document, both scaled by
+    /// `max(weight, 1)`. A filter leaf (numeric, tag, geo) that reports a bound returns
+    /// [`ScoreBoundCtx::filterLeafBound`]. In-memory leaves report none.
+    fn current_max_score(&self, _ctx: &ScoreBoundCtx) -> f64 {
+        f64::INFINITY
+    }
+
+    /// Last document id of the storage block that holds the current result, or `None` when the
+    /// iterator has no block boundary to report.
+    ///
+    /// Every document between the current one and this id that the iterator can yield lies in the
+    /// same block, so [`current_max_score`](Self::current_max_score) bounds them all.
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        None
+    }
+
+    /// Tell the iterator that no document whose
+    /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` can reach
+    /// the results, so it may skip such documents without yielding them.
+    ///
+    /// Only pushed to the root of a query tree, whose score is the document's final score: a
+    /// composite must not forward it unchanged to its children. Raised monotonically while a query
+    /// runs, and reset to [`f64::NEG_INFINITY`] to withdraw it. Ignoring it is always correct.
+    fn set_score_threshold(&mut self, _min_competitive_score: f64) {}
 }
 
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
@@ -384,6 +424,18 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         (**self).intersection_sort_weight(prioritize_union_children)
+    }
+
+    fn current_max_score(&self, ctx: &ScoreBoundCtx) -> f64 {
+        (**self).current_max_score(ctx)
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        (**self).current_block_last_doc_id()
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        (**self).set_score_threshold(min_competitive_score)
     }
 }
 

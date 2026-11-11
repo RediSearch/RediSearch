@@ -707,6 +707,13 @@ where
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
     }
+
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        if self.is_eof {
+            return f64::INFINITY;
+        }
+        crate::composite::summed_max_score(&self.children, self.result.weight, ctx)
+    }
 }
 
 impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>

@@ -56,6 +56,7 @@
 #include "rqe_core.h"
 #include "score_explain.h"
 #include "search_disk_api.h"
+#include "score_bound.h"
 #include "search_result_rs.h"
 #include "shard_window_ratio.h"
 #include "slot_ranges.h"
@@ -112,6 +113,14 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+
+  // Score-bound candidate filtering, set up by `RPQueryIterator_EnableScoreBounds`.
+  struct {
+    bool enabled;
+    ScoreBoundCtx ctx;
+    // The threshold last pushed to `iterator`; `-INFINITY` while none is in force.
+    double minCompetitiveScore;
+  } scoreBound;
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -121,6 +130,8 @@ typedef struct {
   RPQueryIterator base;
   uint64_t deletedCandidatesDiscarded;
   uint64_t candidatesNotDiscarded;
+  uint64_t scoreBoundCandidatesDropped;
+  uint64_t scoreBoundDocTableReadsAvoided;
 } RPQueryIteratorProfiled;
 
 // Next wrappers pass a constant isProfiled. Forced inlining lets optimized
@@ -135,6 +146,58 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
       profiled->candidatesNotDiscarded++;
     }
   }
+}
+
+/**
+ * Push the heap threshold the sorter has reached to the root iterator, or withdraw it when the
+ * query-side switch has been turned off. Called once per `Next`: the sorter only raises its
+ * threshold between calls.
+ */
+static inline void refreshScoreThreshold(RPQueryIterator *self) {
+  if (!self->scoreBound.enabled) {
+    return;
+  }
+  // `minScore` is the score of the sorter's heap minimum once the heap is full, and 0 before:
+  // `RPQueryIterator_EnableScoreBounds` is only called for pipelines where that holds.
+  const double minCompetitiveScore = RSGlobalConfig.diskScoreSkippingQuery
+                                         ? ScoreBound_MinCompetitive(self->base.parent->minScore)
+                                         : -INFINITY;
+  if (minCompetitiveScore != self->scoreBound.minCompetitiveScore) {
+    self->scoreBound.minCompetitiveScore = minCompetitiveScore;
+    QueryIterator_SetScoreThreshold(self->iterator, minCompetitiveScore);
+  }
+}
+
+/**
+ * Whether the candidate `it` is positioned on cannot reach the results, judged before its
+ * document metadata is read.
+ *
+ * A dropped candidate still matches the query, so it is counted in `totalResults`: the reported
+ * total then stays what it would be without the filter, except for dropped documents that turn
+ * out to be expired or outside the query's slots, which are counted although a metadata read
+ * would have rejected them.
+ */
+static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterator *self,
+                                                                   const QueryIterator *it,
+                                                                   bool isProfiled) {
+  if (self->scoreBound.minCompetitiveScore == -INFINITY) {
+    return false;
+  }
+  const double bound = QueryIterator_CurrentMaxScore(it, &self->scoreBound.ctx);
+  if (!ScoreBound_CanDrop(bound, self->scoreBound.minCompetitiveScore)) {
+    // TODO(MOD-21193): once the metadata of this survivor is read, compare its exact bound with
+    // the threshold to count reads caused by bound quantization.
+    return false;
+  }
+  // TODO(MOD-21193): under the drop-verification debug config, still read and score the dropped
+  // candidate and assert it could not have entered the results.
+  self->base.parent->totalResults++;
+  if (isProfiled) {
+    RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
+    profiled->scoreBoundCandidatesDropped++;
+    profiled->scoreBoundDocTableReadsAvoided++;
+  }
+  return true;
 }
 
 /****
@@ -163,6 +226,10 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
+    if (!deleted && dropByScoreBound(self, it, isProfiled)) {
+      DMD_Return(diskDmd);
+      return false;
+    }
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
                                                    diskDmd, &sctx->currentTime);
@@ -234,7 +301,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
     t_docId docId = it->current->docId;
     const bool deleted = SearchDisk_DocIdDeleted(sctx->spec->diskSpec, docId);
     recordCandidate(self, deleted, isProfiled);
-    if (deleted) {
+    if (deleted || dropByScoreBound(self, it, isProfiled)) {
       continue;
     }
 
@@ -393,6 +460,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+  refreshScoreThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
@@ -461,6 +529,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+  refreshScoreThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // See rpQueryItNext: same interruptible park for the async-disk variant.
@@ -581,6 +650,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
+  ret->scoreBound.minCompetitiveScore = -INFINITY;
 #ifdef ENABLE_ASSERT
   ret->firstRead = true;
 #endif
@@ -624,6 +694,27 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
   const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
   *discarded = self->deletedCandidatesDiscarded;
   *notDiscarded = self->candidatesNotDiscarded;
+}
+
+void RPQueryIterator_EnableScoreBounds(ResultProcessor *rp, double filterLeafBound) {
+  RS_ASSERT(rp->type == RP_INDEX);
+  RPQueryIterator *self = (RPQueryIterator *)rp;
+  // In-memory indexes keep their behaviour: their leaves report no bounds, so the check would
+  // only cost time.
+  if (!self->sctx->spec->diskSpec) {
+    return;
+  }
+  self->scoreBound.enabled = true;
+  self->scoreBound.ctx.filterLeafBound = filterLeafBound;
+}
+
+bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
+                                         uint64_t *readsAvoided) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
+  const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
+  *dropped = self->scoreBoundCandidatesDropped;
+  *readsAvoided = self->scoreBoundDocTableReadsAvoided;
+  return self->base.scoreBound.enabled;
 }
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
@@ -1007,6 +1098,10 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
   return &ret->base;
+}
+
+bool RPSorter_IsByScore(const ResultProcessor *rp) {
+  return rp->type == RP_SORTER && ((const RPSorter *)rp)->cmp == cmpByScore;
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey) {

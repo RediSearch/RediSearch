@@ -195,6 +195,24 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
                                         uint64_t *notDiscarded);
 
+/**
+ * Drop candidates whose `CurrentMaxScore` is below the sorter's heap threshold before their
+ * document metadata is read, and push that threshold to the root iterator. A no-op for in-memory
+ * indexes.
+ *
+ * The threshold is read from `QueryProcessingCtx.minScore`, so the caller must make sure it is
+ * maintained by a score sorter fed one scored result per candidate (see
+ * `Pipeline_EnableScoreBounds`).
+ */
+void RPQueryIterator_EnableScoreBounds(ResultProcessor *rp, double filterLeafBound);
+
+/**
+ * Read score-bound counters from a profiled Index processor.
+ * @return whether score-bound filtering is enabled for the query.
+ */
+bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
+                                         uint64_t *readsAvoided);
+
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);
@@ -221,6 +239,9 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
  */
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+
+/** Whether `rp` is a sorter created by `RPSorter_NewByScore`. */
+bool RPSorter_IsByScore(const ResultProcessor *rp);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

@@ -708,4 +708,16 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         self.inner
             .intersection_sort_weight(prioritize_union_children)
     }
+
+    fn current_max_score(&self, ctx: &rqe_iterators::ScoreBoundCtx) -> f64 {
+        self.inner.current_max_score(ctx)
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        self.inner.current_block_last_doc_id()
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        self.inner.set_score_threshold(min_competitive_score)
+    }
 }

@@ -227,6 +227,18 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child
             .intersection_sort_weight(prioritize_union_children)
     }
+
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        self.child.current_max_score(ctx)
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        self.child.current_block_last_doc_id()
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        self.child.set_score_threshold(min_competitive_score)
+    }
 }
 
 use crate::profile_print::{ProfilePrint, ProfilePrintCtx};

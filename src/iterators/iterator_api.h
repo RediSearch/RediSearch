@@ -10,6 +10,7 @@
 #ifndef __ITERATOR_API_H__
 #define __ITERATOR_API_H__
 
+#include <math.h>
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h" // IWYU pragma: keep
@@ -39,6 +40,14 @@ typedef enum ValidateStatus {
                     // what the caller reports: a timeout leaves the result set INCOMPLETE, so the
                     // caller must surface it (`RS_RESULT_STOPPED`) rather than end-of-results.
 } ValidateStatus;
+
+// Query-wide inputs to `CurrentMaxScore`, fixed when the query pipeline is built.
+typedef struct ScoreBoundCtx {
+  // Upper bound on what one numeric, tag or geo leaf adds to a document's score under the query's
+  // scorer. Such leaves carry no term statistics, so whether they contribute depends on the scorer
+  // alone (see `ScoreBound_FilterLeafBound`).
+  double filterLeafBound;
+} ScoreBoundCtx;
 
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -148,7 +157,38 @@ typedef struct QueryIterator {
    * Set by Rust iterators at construction time. C iterators set this to a
    * Rust-exported function. */
   void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
+
+  /* Upper bound on the final score of the document the iterator is positioned on, computed only
+   * from data the iterator already holds. `+INFINITY` means "unknown" and is always correct.
+   * Only valid while positioned on a result. NULL means `+INFINITY`; use
+   * `QueryIterator_CurrentMaxScore`. */
+  double (*CurrentMaxScore)(const struct QueryIterator *self, const ScoreBoundCtx *ctx);
+
+  /* Last doc id of the storage block holding the current result, or 0 when the iterator has no
+   * block boundary to report. NULL means 0; use `QueryIterator_CurrentBlockLastDocId`. */
+  t_docId (*CurrentBlockLastDocId)(const struct QueryIterator *self);
+
+  /* Tell the iterator that no document whose `CurrentMaxScore` is below `minCompetitiveScore` can
+   * reach the results, so it may skip such documents without yielding them. Only ever raised
+   * while a query runs, except back to `-INFINITY`, which withdraws the threshold. NULL means the
+   * iterator ignores it; use `QueryIterator_SetScoreThreshold`. */
+  void (*SetScoreThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
+
+static inline double QueryIterator_CurrentMaxScore(const QueryIterator *it,
+                                                   const ScoreBoundCtx *ctx) {
+  return it->CurrentMaxScore ? it->CurrentMaxScore(it, ctx) : INFINITY;
+}
+
+static inline t_docId QueryIterator_CurrentBlockLastDocId(const QueryIterator *it) {
+  return it->CurrentBlockLastDocId ? it->CurrentBlockLastDocId(it) : 0;
+}
+
+static inline void QueryIterator_SetScoreThreshold(QueryIterator *it, double minCompetitiveScore) {
+  if (it->SetScoreThreshold) {
+    it->SetScoreThreshold(it, minCompetitiveScore);
+  }
+}
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.

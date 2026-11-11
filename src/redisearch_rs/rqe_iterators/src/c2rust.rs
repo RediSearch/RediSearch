@@ -433,6 +433,32 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Max => 1.0,
         }
     }
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        match self.CurrentMaxScore {
+            // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
+            // types that implement its C iterator API; this one only reads.
+            Some(callback) => unsafe { callback(self.header.as_ptr(), ctx) },
+            None => f64::INFINITY,
+        }
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<DocId> {
+        // SAFETY: As in `current_max_score`.
+        let last = self
+            .CurrentBlockLastDocId
+            .map_or(0, |callback| unsafe { callback(self.header.as_ptr()) });
+        // The C API reports "no block" as 0, which no document id takes.
+        (last != 0).then_some(last)
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        if let Some(callback) = self.SetScoreThreshold {
+            // SAFETY: We have a unique handle over this iterator, and the C code must guarantee,
+            // by constructor, that callbacks can be called on types that implement its C
+            // iterator API.
+            unsafe { callback(self.header.as_ptr(), min_competitive_score) }
+        }
+    }
 }
 
 impl CRQEIterator {

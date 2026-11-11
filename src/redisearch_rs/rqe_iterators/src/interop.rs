@@ -62,6 +62,9 @@ where
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
                 PrintProfile: Some(print_profile::<I>),
+                CurrentMaxScore: Some(current_max_score::<I>),
+                CurrentBlockLastDocId: Some(current_block_last_doc_id::<I>),
+                SetScoreThreshold: Some(set_score_threshold::<I>),
             },
             inner,
         });
@@ -389,6 +392,42 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
     wrapper.inner.num_estimated()
+}
+
+extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    ctx: *const ffi::ScoreBoundCtx,
+) -> f64 {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    debug_assert!(!ctx.is_null());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    // SAFETY: The C caller passes a valid context that outlives the call.
+    let ctx = unsafe { &*ctx };
+    wrapper.inner.current_max_score(ctx)
+}
+
+extern "C" fn current_block_last_doc_id<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+) -> DocId {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    // The C API reports "no block" as 0, which no document id takes.
+    wrapper.inner.current_block_last_doc_id().unwrap_or(0)
+}
+
+extern "C" fn set_score_threshold<'index, I: RQEIterator<'index> + 'index>(
+    base: *mut QueryIterator,
+    min_competitive_score: f64,
+) {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    wrapper.inner.set_score_threshold(min_competitive_score);
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in

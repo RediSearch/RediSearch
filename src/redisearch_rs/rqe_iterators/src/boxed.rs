@@ -635,6 +635,18 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
     }
+
+    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+        self.0.current_max_score(ctx)
+    }
+
+    fn current_block_last_doc_id(&self) -> Option<t_docId> {
+        self.0.current_block_last_doc_id()
+    }
+
+    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+        self.0.set_score_threshold(min_competitive_score)
+    }
 }
 
 /// Forwarding [`RQEIteratorBoxed`] impl so [`TypeErasedRQEIterator`] also
