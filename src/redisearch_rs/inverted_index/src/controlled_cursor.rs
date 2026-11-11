@@ -58,7 +58,7 @@ unsafe fn vec_write_all_unchecked(pos: usize, vec: &mut Vec<u8>, buf: &[u8]) -> 
     pos + buf.len()
 }
 
-/// Resizing `write_all` implementation for [`Cursor`].
+/// Resizing `write_all` implementation for [`ControlledCursor`].
 ///
 /// Cursor is allowed to have a pre-allocated and initialised
 /// vector body, but with a position of 0. This means the [`Write`]
@@ -92,7 +92,7 @@ fn vec_write_all(pos_mut: &mut u64, vec: &mut Vec<u8>, buf: &[u8]) -> std::io::R
     Ok(buf_len)
 }
 
-/// Resizing `write_all_vectored` implementation for [`Cursor`].
+/// Resizing `write_all_vectored` implementation for [`ControlledCursor`].
 ///
 /// Cursor is allowed to have a pre-allocated and initialised
 /// vector body, but with a position of 0. This means the [`Write`]
