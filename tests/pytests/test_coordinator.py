@@ -163,6 +163,28 @@ def testFirstValueAcrossShards():
         row.pop('group')
         env.assertEqual(row, expected[group], message=f'{group}: {res}')
 
+def testFirstValueCaseDistinctFields(env):
+    """Field names are case-sensitive, so `@Price BY @price` on an index with both fields is one
+    FIRST_VALUE over two different properties. In cluster it becomes two per-shard reducers whose
+    output names must not collide (`firstValueRemoteAlias` in `src/coord/dist_plan.cpp`), or the
+    shard rejects the duplicate field instead of answering."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG',
+               'Price', 'NUMERIC', 'price', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 'Price', 1, 'price', 2)
+    conn.execute_command('HSET', 'doc2', 'g', 'a', 'Price', 3, 'price', 1)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@Price', 'BY', '@price', 'ASC',
+                  'AS', 'Price_of_min_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@Price', 'ASC',
+                  'AS', 'price_of_min_Price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@Price', 'BY', '@Price', 'DESC', 'AS', 'max_Price')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'g': 'a', 'Price_of_min_price': '3',
+                                      'price_of_min_Price': '2', 'max_Price': '3'}, message=res)
+
 def testFirstValueRequiresLoadedProperty(env):
     """A FIRST_VALUE over a property that is neither in the schema nor LOADed is rejected the
     same way in standalone and in cluster, where the reducer now runs on the shards and follows
