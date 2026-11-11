@@ -1076,7 +1076,7 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ctx, "GC_NO_FORK no child process could be created within TIMEOUT");
   }
   if (outcome && *outcome == GC_DISK_FORCED_RUN_RETRY_REQUIRED) {
-    return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
+    return RedisModule_ReplyWithError(ctx, "GC_DISK_RETRY disk cleanup requires retry");
   }
   if (outcome && *outcome == GC_FORCED_RUN_FAILED) {
     return RedisModule_ReplyWithError(ctx, "GC_FAILED the cycle stopped on an error, see the log");
@@ -1205,7 +1205,7 @@ DEBUG_COMMAND(GCForceInvoke) {
     DiskGCRunStats stats = {0};
     const DiskGCRunResult result = SearchDisk_RunGC(sp->diskSpec, &stats);
     if (result == DISK_GC_RUN_RETRY_REQUIRED) {
-      return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
+      return RedisModule_ReplyWithError(ctx, "GC_DISK_RETRY disk cleanup requires retry");
     }
     return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
