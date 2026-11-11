@@ -12,6 +12,7 @@
 #include "indexer_internal.h"
 
 #include "forward_index.h"
+#include "filter_summary.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
@@ -567,6 +568,7 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
   bulkIndexFields(aCtx, ctx);
   writeExistingDocs(aCtx, ctx);
   writeMissingFieldDocs(aCtx, ctx, fes);
+  FilterSummary_IndexDocument(aCtx);
 }
 
 /**

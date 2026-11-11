@@ -136,6 +136,7 @@ typedef struct RSDocumentMetadata_s {
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;
+  struct FilterSummary *filterSummary;  // Runtime-only POC summaries; not serialized.
 
   /* Optional user payload. Must remain last for DocTable_Put's lean alloc. */
   RSPayload *payload;

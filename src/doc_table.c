@@ -8,6 +8,7 @@
 */
 #include "doc_table.h"
 #include "doc_key_map_ffi.h"
+#include "filter_summary.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -472,6 +473,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->byteOffsets = NULL;
     md->flags &= ~Document_HasOffsetVector;
   }
+  FilterSummary_Free(md->filterSummary);
   sdsfree(md->keyPtr);
   rm_free(md);
 }
@@ -528,6 +530,7 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   // all the next operations don't need to be atomic
   md->flags |= Document_Deleted;
 
+  t->memsize -= FilterSummary_MemoryUsage(md->filterSummary);
   t->memsize -= sdsAllocSize(md->keyPtr);
   t->memsize -= (md->flags & Document_HasPayloadSlot)
                     ? sizeof(RSDocumentMetadata)

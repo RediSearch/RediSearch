@@ -1,10 +1,9 @@
 # Filter quick-check API (draft)
 
 This internal API supplies a conservative, random-access predicate check for a future
-VecSim consumer. It does not add a command option, change VecSim, install a query callback,
-or maintain summaries in the live index. There is consequently no query acceleration in
-this PR. The deliverable is the term and numeric summaries, bounded predicate evaluator,
-callback/batch interfaces, and tests of their correctness contract.
+VecSim consumer. The RAM POC now builds summaries for every indexed TAG, TEXT and NUMERIC
+field automatically, without a per-field flag. It still does not change query execution
+or install a VecSim consumer.
 
 ## Motivation and model
 
@@ -136,16 +135,16 @@ FilterQuickCheckContext context = {
 
 ## Ownership, updates, and ROF
 
-The future provider owns signature storage and its memory accounting. It must publish
+The provider owns signature storage and its memory accounting. It must publish
 only complete summaries, pin the schema/document generation observed by the query, and
 make any concurrent lookup safe. An obsolete signature missing a newly added term can
 create a false negative, so it must be invalidated before the new document is visible.
 Do not clear individual bits for deletion; rebuild a complete replacement signature.
 Rebuild numeric min/max on removal or replacement of values too. Numeric publication,
-invalidation and reload coverage remain the future provider's responsibility.
+invalidation and reload coverage remain the provider's responsibility.
 
-There is no stored matching-ID set, persistence change, or mandatory per-document
-allocation here. For ROF, the provider may use resident summaries and return unavailable
+There is no stored matching-ID set or persistence change. The RAM POC allocates
+per-document summaries during indexing. For ROF, the provider may use resident summaries and return unavailable
 on a cache miss. A future implementation must not make the quick callback perform
 blocking document reads. A reload without rebuilt summaries must also return unavailable.
 
@@ -154,13 +153,12 @@ The term representation consumes 32 bytes per covered document before storage ov
 cache layout, selectivity, and maintenance cost need workload measurements before
 choosing a production representation. No speedup or false-positive-rate claim is made.
 Each covered numeric field additionally needs two doubles and a state (typically 24 bytes
-for the API summary on a 64-bit platform), plus provider storage overhead. This PR neither
-chooses how many fields to cover nor changes persisted formats or existing query behavior.
+for the API summary on a 64-bit platform), plus provider storage overhead. The RAM POC
+covers all indexed fields; persisted formats and query execution remain unchanged.
 
 ## Follow-up integration requirements
 
-- Add a generation-safe summary provider with ingest/update/delete/reload coverage,
-  memory accounting and an explicit enablement policy.
+- Add production field selection, reload rebuilding, and a disk summary provider.
 - Lower resolved query predicates to necessary conditions using the same indexed
   normalization. Unsupported branches must remain UNKNOWN.
 - Define callback lifetime and synchronization across VecSim query execution, including
@@ -175,3 +173,19 @@ chooses how many fields to cover nor changes persisted formats or existing query
 - Hellerstein, Naughton and Pfeffer, [Generalized Search Trees (1995)](https://www.vldb.org/conf/1995/P562.PDF).
 - PostgreSQL's [document signatures](https://www.postgresql.org/docs/current/textsearch-indexes.html)
   and [GiST consistent/recheck interface](https://www.postgresql.org/docs/current/gist.html).
+
+## RAM summary provider (POC)
+
+`filter_summary.h` connects the API to document indexing. Each new document version owns
+one term signature and numeric bounds for all indexed numeric fields, built from the
+forward index and preprocessed field values. Replacement rebuilds them; deletion frees
+them. Their allocation is included in document-table memory accounting. This POC enables
+collection unconditionally; a field-selection flag and production memory layout come later.
+
+`FilterSummary_CreateContext(spec, check)` supplies both lookup callbacks. The caller
+keeps the spec alive and holds its read lock while evaluating. The context retains no
+document pointer; lookups copy values from the current indexed version. Missing summaries,
+failed indexing, and schema-field-count mismatches return MAYBE. RDB-loaded metadata starts
+without summaries until reindexing; the persistence format is unchanged. Disk providers,
+query lowering, and NaviX integration are separate follow-ups. Exact filtering remains
+mandatory after candidate generation.
