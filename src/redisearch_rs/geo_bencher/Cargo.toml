@@ -1,0 +1,27 @@
+[package]
+name = "geo_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "filter"
+harness = false
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+ffi.workspace = true
+geo.workspace = true
+query_error.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+
+[dependencies]
+workspace_hack.workspace = true

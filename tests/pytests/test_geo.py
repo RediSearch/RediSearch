@@ -241,3 +241,30 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+def testGeoFilterContract(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn.execute_command('HSET', 'near', 'g', '2,48')
+  conn.execute_command('HSET', 'far', 'g', '2.1,48')
+  for unit, radius in [('m', 1000), ('KM', 1), ('ft', 3280), ('MI', 0.62)]:
+    for dialect in [1, 2]:
+      env.expect('FT.SEARCH', 'idx', f'@g:[2 48 {radius} {unit}]',
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+      env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 2, 48,
+                 radius, unit, 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+  for args, message in [
+      (['g', 2, 48, 1], 'GEOFILTER requires 5 arguments'),
+      (['g', 'bad', 48, 1, 'km'], 'Bad arguments for <lon>: Could not convert argument to expected type'),
+      (['g', 2, 'bad', 1, 'km'], 'Bad arguments for <lat>: Could not convert argument to expected type'),
+      (['g', 2, 48, 'bad', 'km'], 'Bad arguments for <radius>: Could not convert argument to expected type'),
+      (['g', 2, 48, 1, 'yards'], 'Unknown distance unit yards'),
+      (['g', 181, 48, 0, 'km'], 'Invalid GeoFilter lat/lon'),
+      (['g', 2, 91, 1, 'km'], 'Invalid GeoFilter lat/lon'),
+      (['g', 2, 48, 0, 'km'], 'Invalid GeoFilter radius'),
+  ]:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', *args).error().contains(message)
+  for lon, lat in [(180, 90), (-180, -90)]:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', lon, lat, 1, 'km').equal([0])
+  env.expect('FT.SEARCH', 'idx', '@g:[$lon $lat $r $u]', 'NOCONTENT',
+             'PARAMS', 8, 'lon', 2, 'lat', 48, 'r', 1, 'u', 'kM', 'DIALECT', 2).equal([1, 'near'])
