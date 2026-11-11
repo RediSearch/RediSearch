@@ -397,17 +397,22 @@ fn expansion_needs_offsets(
     config: Config,
     offsets: OffsetRequirement,
 ) -> bool {
-    // The query's own scorer wins; a query that sets none falls back to the
-    // configured default, while a custom (non built-in) scorer conservatively
-    // needs offsets since we can't resolve what it does.
-    let scorer = match ctx.scorer() {
+    // A custom (non built-in) scorer conservatively needs offsets since we
+    // can't resolve what it does.
+    offsets == OffsetRequirement::Required
+        || slop_forces_offsets(opts.max_slop, opts.in_order)
+        || effective_scorer(ctx, config).is_none_or(BuiltInScorer::needs_offsets)
+}
+
+/// The built-in scorer ranking the query's results, or [`None`] for a custom
+/// one: the query's own scorer wins, and a query that sets none falls back to
+/// the configured [`default_scorer`](Config::default_scorer).
+fn effective_scorer(ctx: &QueryEvalContext, config: Config) -> Option<BuiltInScorer> {
+    match ctx.scorer() {
         RequestedScorer::Unset => config.default_scorer,
         RequestedScorer::Custom(_) => None,
         RequestedScorer::BuiltIn(scorer) => Some(scorer),
-    };
-    offsets == OffsetRequirement::Required
-        || slop_forces_offsets(opts.max_slop, opts.in_order)
-        || scorer.is_none_or(BuiltInScorer::needs_offsets)
+    }
 }
 
 #[cfg(test)]

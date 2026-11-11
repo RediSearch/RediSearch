@@ -20,7 +20,7 @@ use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
 
 use crate::{
-    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, disk,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, disk, effective_scorer,
     expansion_needs_offsets,
 };
 
@@ -154,8 +154,16 @@ fn eval_disk<'index>(
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config, offsets);
 
-    let iter =
-        disk::new_term_iterator(ctx, disk, term, effective_field_mask, weight, needs_offsets)?;
+    let scorer = effective_scorer(ctx, config);
+    let iter = disk::new_term_iterator(
+        ctx,
+        disk,
+        term,
+        effective_field_mask,
+        weight,
+        needs_offsets,
+        scorer,
+    )?;
 
     Some(Evaluated::RustLeaf(iter))
 }

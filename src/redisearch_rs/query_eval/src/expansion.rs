@@ -23,7 +23,7 @@ use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use search_disk::SearchDiskHandle;
 
-use crate::{QueryEvalContext, disk};
+use crate::{QueryEvalContext, disk, scorers::BuiltInScorer};
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
 /// enterprise disk iterator as a [`CRQEIterator`].
@@ -32,6 +32,7 @@ use crate::{QueryEvalContext, disk};
 /// `needs_offsets` selects the offset-carrying iterator variant. Returns `None`
 /// — after [`disk::new_term_iterator`] records the failure on the query status —
 /// when the iterator cannot be built.
+#[expect(clippy::too_many_arguments)]
 fn open_expanded_term_reader_disk(
     ctx: &mut QueryEvalContext,
     disk: SearchDiskHandle,
@@ -40,13 +41,14 @@ fn open_expanded_term_reader_disk(
     field_mask: FieldMask,
     weight: f64,
     needs_offsets: bool,
+    scorer: Option<BuiltInScorer>,
 ) -> Option<CRQEIterator> {
     let num_documents = ctx.spec().stats.scoring.numDocuments;
     let token_id = ctx.next_token_id() as i32;
     let mut term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
     term.set_idfs(num_documents, num_docs);
 
-    let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, needs_offsets)?;
+    let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, needs_offsets, scorer)?;
     let ptr = RQEIteratorWrapper::boxed_new(it);
     let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
     // SAFETY: `nn` is a valid, owning C `QueryIterator`.
@@ -111,6 +113,7 @@ fn open_expanded_term_reader(
     num_docs: usize,
     field_mask: FieldMask,
     needs_offsets: bool,
+    scorer: Option<BuiltInScorer>,
 ) -> Option<CRQEIterator> {
     // See the doc comment: expansion children always carry unit weight.
     const CHILD_WEIGHT: f64 = 1.0;
@@ -127,6 +130,7 @@ fn open_expanded_term_reader(
             field_mask,
             CHILD_WEIGHT,
             needs_offsets,
+            scorer,
         );
     }
 
@@ -200,6 +204,9 @@ pub(super) struct Expansion<'a> {
     pub(super) is_disk: bool,
     /// Whether expanded disk readers must carry term offsets (disk path only).
     pub(super) needs_offsets: bool,
+    /// The query's built-in scorer, handed to expanded disk readers (disk path
+    /// only).
+    pub(super) scorer: Option<BuiltInScorer>,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
 }
@@ -236,6 +243,7 @@ impl Expansion<'_> {
             num_docs,
             self.field_mask,
             self.needs_offsets,
+            self.scorer,
         ) {
             self.children.push(it);
         }

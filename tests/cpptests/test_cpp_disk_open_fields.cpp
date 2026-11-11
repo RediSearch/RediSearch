@@ -112,7 +112,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
     // The mock uses the C spec as an opaque disk handle.
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
-                                 const char *, size_t, DocumentType, bool,
+                                 const char *, size_t, DocumentType, bool, bool,
                                  const SearchDiskField *fields, size_t n,
                                  const SearchDiskCompactionCallbacks *, void *privateData) {
       events.emplace_back("openIndex");

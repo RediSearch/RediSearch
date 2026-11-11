@@ -102,6 +102,9 @@ void SearchDisk_ReleaseCreateFailure(void);
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
  * @return Pointer to the index, or NULL if it does not exist
+ *
+ * The index starts empty, so it takes its score-skipping mode from the current
+ * `search-_disk-score-skipping` config and keeps it for its lifetime.
  */
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
     RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
@@ -241,13 +244,22 @@ void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *reques
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @param freq Frequency of the term in the document
+ * @param docStats Statistics of the document being indexed
  * @param offsets Pointer to varint-encoded term offset data (can be NULL)
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
                           const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
-                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+                          uint32_t freq, SearchDiskDocStats docStats, const uint8_t *offsets,
+                          size_t offsetsLen);
+
+/**
+ * @brief Whether the index keeps per-block score bounds.
+ *
+ * @param index Pointer to the index
+ */
+bool SearchDisk_IsScoreSkippingEnabled(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Index multiple tag values for a document
