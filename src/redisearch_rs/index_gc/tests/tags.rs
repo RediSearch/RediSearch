@@ -25,13 +25,16 @@ use std::os::fd::AsRawFd;
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use index_gc::fork::wire::{deserialize, serialize};
-use index_gc::scanners::tags::{TagEntry, apply_tag_entry, collect_tags, handle_tags};
+use index_gc::scanners::tags::{
+    TagEntry, TagsCursor, apply_tag_entry, collect_tags, handle_tags, scan_tags_after,
+};
 use index_gc::{DocExistence, ForkPipe, GcError, HandleOutcome};
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::reader::IndexReader;
 use inverted_index::{DocId, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
+use rqe_core::FieldIndex;
 use trie_rs::TrieMapOpaque;
 
 // Link both Rust-provided and C-provided symbols
@@ -351,6 +354,14 @@ impl TestSpec {
     /// Simulate the field dropping its in-memory C tag index before apply.
     fn remove_tag_index(&mut self, field: usize) {
         self.field_specs[field].__bindgen_anon_1.tagOpts.tagIndex = std::ptr::null_mut();
+    }
+
+    /// Give `field` a new in-memory tag index holding `tags`, as recreating the
+    /// field would. The old index stays owned by the fixture.
+    fn replace_tag_index(&mut self, field: usize, tags: &[&[u8]]) {
+        self.remove_tag_index(field);
+        let tag_index = TestTagIndex::memory(&mut self.field_specs[field], tags, 3, false);
+        self.tag_indexes.push(tag_index);
     }
 }
 
@@ -868,6 +879,147 @@ fn failed_writes_are_propagated() {
             .is_err()
         );
     }
+}
+
+/// What identifies an entry, for comparing two scans.
+fn entry_key(entry: &TagEntry) -> (FieldIndex, u32, Vec<u8>, u32) {
+    (
+        entry.field_index,
+        entry.tag_index_unique_id,
+        entry.tag.to_vec(),
+        entry.inverted_index_unique_id,
+    )
+}
+
+fn mixed_fields() -> Vec<Field> {
+    vec![
+        Field::other(c"n", FieldSpecType::Numeric.into()),
+        Field::tag(c"colours", &[b"red", b"blue"], 3, false),
+        Field::disk_tag(c"disk"),
+        Field::tag_without_index(c"never"),
+        Field::tag(c"sizes", &[b"", b"xl"], 3, false),
+    ]
+}
+
+/// One uninterrupted resumable scan finds exactly what the collector sends, in
+/// the same order, skipping the same fields.
+#[test]
+fn an_uninterrupted_tag_scan_matches_the_collected_entries() {
+    let test = TestSpec::create(mixed_fields());
+    let collected = receive_all(&collect_tags_from(&test));
+
+    let mut found = Vec::new();
+    let stopped = scan_tags_after(
+        &test.read_guard(),
+        &mut TagsCursor::default(),
+        || false,
+        &mut found,
+    );
+
+    assert!(!stopped);
+    assert_eq!(
+        found.iter().map(entry_key).collect::<Vec<_>>(),
+        collected.iter().map(entry_key).collect::<Vec<_>>()
+    );
+    for (found, collected) in found.iter().zip(&collected) {
+        assert_eq!(found.delta, collected.delta);
+    }
+}
+
+/// Stopping after every value and resuming walks every value exactly once, and
+/// reports values left until the last one.
+#[test]
+fn a_tag_scan_resumes_after_the_last_value_visited() {
+    let test = TestSpec::create(mixed_fields());
+    let collected = receive_all(&collect_tags_from(&test));
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    let mut calls = 0;
+    while scan_tags_after(&test.read_guard(), &mut cursor, || true, &mut found) {
+        calls += 1;
+        assert!(calls <= collected.len(), "the scan must make progress");
+    }
+
+    assert_eq!(
+        found.iter().map(entry_key).collect::<Vec<_>>(),
+        collected.iter().map(entry_key).collect::<Vec<_>>()
+    );
+}
+
+/// A field that lost its tag index between two chunks is skipped.
+#[test]
+fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"blue", b"red"], 3, false),
+        Field::tag(c"sizes", &[b"xl"], 3, false),
+    ]);
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+    assert_eq!(&*found[0].tag, b"blue");
+
+    test.remove_tag_index(0);
+    assert!(!scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || false,
+        &mut found
+    ));
+    assert_eq!(
+        found.iter().map(|e| e.tag.to_vec()).collect::<Vec<_>>(),
+        [b"blue".to_vec(), b"xl".to_vec()]
+    );
+}
+
+/// A field whose tag index was replaced between two chunks resumes in the new
+/// index after the last value visited, and its entries name the new index.
+#[test]
+fn a_tag_scan_resumes_in_a_tag_index_replaced_between_chunks() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"blue", b"red"], 3, false),
+        Field::tag(c"sizes", &[b"xl"], 3, false),
+    ]);
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+    assert_eq!(&*found[0].tag, b"blue");
+    let old_unique_id = found[0].tag_index_unique_id;
+
+    test.replace_tag_index(0, &[b"azure", b"blue", b"cyan", b"red"]);
+    let new_unique_id = test.tag_indexes.last().unwrap().as_ref().uniqueId;
+    assert_ne!(new_unique_id, old_unique_id);
+    assert!(!scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || false,
+        &mut found
+    ));
+
+    assert_eq!(
+        found
+            .iter()
+            .map(|e| (e.tag.to_vec(), e.tag_index_unique_id))
+            .collect::<Vec<_>>(),
+        [
+            (b"blue".to_vec(), old_unique_id),
+            (b"cyan".to_vec(), new_unique_id),
+            (b"red".to_vec(), new_unique_id),
+            (b"xl".to_vec(), test.tag_index(1).uniqueId),
+        ]
+    );
 }
 
 /// Reports every doc id the fixtures use as present, whatever the spec's

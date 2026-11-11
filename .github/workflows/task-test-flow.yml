@@ -196,6 +196,11 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
 
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:

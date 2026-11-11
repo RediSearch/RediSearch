@@ -30,7 +30,7 @@ protected:
 
     // Manually allocate arrays for testing (normally done by SetupAsyncPool)
     state.readyResults = array_new(AsyncReadResult, TEST_ASYNC_POOL_SIZE);
-    state.failedUserData = array_new(uint64_t, TEST_ASYNC_POOL_SIZE);
+    state.failedReads = array_new(AsyncReadFailure, TEST_ASYNC_POOL_SIZE);
   }
 
   void TearDown() override {
@@ -101,7 +101,7 @@ TEST_F(AsyncStateTest, testInitialState) {
   ASSERT_TRUE(DLLIST_IS_EMPTY(&state.iteratorResults));
   ASSERT_TRUE(DLLIST_IS_EMPTY(&state.pendingResults));
   ASSERT_EQ(array_len(state.readyResults), 0);
-  ASSERT_EQ(array_len(state.failedUserData), 0);
+  ASSERT_EQ(array_len(state.failedReads), 0);
   ASSERT_EQ(state.readyResultsIndex, 0);
   ASSERT_EQ(state.lastReturnedIndexResult, nullptr);
   assertStateConsistent();
@@ -399,7 +399,7 @@ TEST_F(AsyncStateTest, testFailedReads) {
 
   // Simulate poll with 3 successes and 2 failures
   array_set_len(state.readyResults, 3);
-  array_set_len(state.failedUserData, 2);
+  array_set_len(state.failedReads, 2);
 
   // First 3 succeed
   t_docId docId = 1;
@@ -421,18 +421,18 @@ TEST_F(AsyncStateTest, testFailedReads) {
       result->user_data = (uint64_t)node;
     } else {
       // Failure
-      state.failedUserData[failedIdx++] = (uint64_t)node;
+      state.failedReads[failedIdx++] = {(uint64_t)node, DISK_READ_ERROR};
     }
     docId++;
   }
 
   // Verify results
   ASSERT_EQ(array_len(state.readyResults), 3);
-  ASSERT_EQ(array_len(state.failedUserData), 2);
+  ASSERT_EQ(array_len(state.failedReads), 2);
 
   // Clean up failed reads (simulating cleanupFailedReads)
-  for (uint16_t i = 0; i < array_len(state.failedUserData); i++) {
-    IndexResultNode *node = (IndexResultNode *)state.failedUserData[i];
+  for (uint16_t i = 0; i < array_len(state.failedReads); i++) {
+    IndexResultNode *node = (IndexResultNode *)state.failedReads[i].user_data;
     dllist_delete(&node->node);
     IndexResult_Free(node->result);
     rm_free(node);

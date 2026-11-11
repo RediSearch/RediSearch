@@ -20,7 +20,10 @@ use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_gc::{
     DocExistence, GcError,
-    scanners::terms::{TermEntry, apply_terms, collect_terms, receive_terms},
+    scanners::terms::{
+        TermEntry, TermsCursor, apply_terms, collect_terms, receive_terms, scan_term,
+        scan_terms_after,
+    },
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -69,20 +72,31 @@ impl TestSpec {
             _keys_dict: keys_dict,
         };
         for (term, doc_count) in terms {
-            test_spec.insert_trie_term(term, doc_count);
-
-            let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-            for doc_id in 1..=doc_count {
-                ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
-                    .unwrap();
-            }
-            test_spec
-                ._keys_dict
-                .try_insert(term, Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)))
-                .unwrap_or_else(|_| panic!("term already present in keysDict"));
+            test_spec.add_term(term, doc_count);
         }
 
         test_spec
+    }
+
+    fn add_term(&mut self, term: &[u8], doc_count: u64) {
+        self.insert_trie_term(term, doc_count);
+
+        let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+        for doc_id in 1..=doc_count {
+            ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+                .unwrap();
+        }
+        self._keys_dict
+            .try_insert(term, Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)))
+            .unwrap_or_else(|_| panic!("term already present in keysDict"));
+    }
+
+    fn delete_trie_term(&mut self, term: &[u8]) {
+        // SAFETY: `self.spec.terms` is live and `term` points to `term.len()` valid bytes.
+        let deleted = unsafe {
+            ffi::Trie_Delete(self.spec.terms, term.as_ptr().cast::<c_char>(), term.len())
+        };
+        assert_eq!(deleted, 1, "the term was in the trie");
     }
 
     fn insert_trie_term(&mut self, term: &[u8], doc_count: u64) {
@@ -476,4 +490,105 @@ fn docs_live_in_the_snapshot_are_kept() {
     let mut buf = Vec::new();
     collect_terms(&mut buf, &guard, &all_live(&guard)).unwrap();
     assert_only_terminator(&buf);
+}
+
+/// `scan_term` finds the same delta `collect_terms` sends for that term.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_matches_the_collected_entry() {
+    let spec = TestSpec::create([(&b"apple"[..], 3)]);
+    let buf = spec.collect();
+    let collected = deserialize::<Option<TermEntry>>(&mut Cursor::new(&buf), "test message")
+        .unwrap()
+        .expect("the term has docs to collect");
+
+    let guard = spec.read_guard();
+    assert_eq!(
+        scan_term(&guard, &trie_term(b"apple")),
+        Some(collected.delta)
+    );
+}
+
+/// A term with no inverted index has nothing to scan.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_returns_none_without_an_inverted_index() {
+    let mut spec = TestSpec::create([]);
+    spec.insert_trie_term(b"orphan", 1);
+    let guard = spec.read_guard();
+    assert_eq!(scan_term(&guard, &trie_term(b"orphan")), None);
+}
+
+/// An empty inverted index has nothing to collect.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_returns_none_for_an_empty_inverted_index() {
+    let spec = TestSpec::create([(&b"empty"[..], 0)]);
+    let guard = spec.read_guard();
+    assert_eq!(scan_term(&guard, &trie_term(b"empty")), None);
+}
+
+/// A resumable terms scan that stops after every term finds what the collector
+/// sends, one term per call, and reports terms left until the last one.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn a_terms_scan_resumes_after_the_last_term_visited() {
+    let spec = TestSpec::create([(&b"grape"[..], 1), (&b"apple"[..], 2), (&b"empty"[..], 0)]);
+    let buf = spec.collect();
+    let mut cursor_in = Cursor::new(&buf);
+    let mut collected = Vec::new();
+    while let Some(entry) =
+        deserialize::<Option<TermEntry>>(&mut cursor_in, "test message").unwrap()
+    {
+        collected.push((entry.term.into_vec(), entry.delta));
+    }
+
+    let guard = spec.read_guard();
+    let mut cursor = TermsCursor::default();
+    let mut found = Vec::new();
+    let mut calls = 0;
+    while scan_terms_after(&guard, &mut cursor, || true, &mut found) {
+        calls += 1;
+        assert!(calls <= 3, "the scan must make progress");
+    }
+
+    let found: Vec<_> = found
+        .into_iter()
+        .map(|(term, delta)| (term.into_bytes().into_vec(), delta))
+        .collect();
+    assert_eq!(found, collected);
+}
+
+/// A trie that changed between two chunks: the scan resumes strictly after the
+/// last term visited, so that term is not visited again even if it was
+/// deleted and reinserted, a term added before it waits for the next cycle,
+/// and every term after it, old or new, is visited once.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn a_terms_scan_resumes_after_its_cursor_in_a_changed_trie() {
+    let mut spec = TestSpec::create([(&b"bee"[..], 1), (&b"dog"[..], 1), (&b"fox"[..], 1)]);
+    let mut cursor = TermsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_terms_after(
+        &spec.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+
+    spec.delete_trie_term(b"bee");
+    spec.insert_trie_term(b"bee", 1);
+    spec.add_term(b"ant", 1);
+    spec.add_term(b"cat", 1);
+    spec.add_term(b"eel", 1);
+    while scan_terms_after(&spec.read_guard(), &mut cursor, || false, &mut found) {}
+
+    let found: Vec<_> = found
+        .into_iter()
+        .map(|(term, _)| term.into_bytes().into_vec())
+        .collect();
+    assert_eq!(
+        found,
+        [&b"bee"[..], b"cat", b"dog", b"eel", b"fox"].map(<[u8]>::to_vec)
+    );
 }

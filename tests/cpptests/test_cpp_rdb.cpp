@@ -547,7 +547,7 @@ struct ScopedMockDisk {
         api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
                                      const char *, size_t, DocumentType, bool, IndexFlags,
                                      const SearchDiskField *, size_t,
-                                     const SearchDiskCompactionCallbacks *, void *) {
+                                     const SearchDiskCompactionCallbacks *, void *, QueryError *) {
           return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
         };
         disk = &api;

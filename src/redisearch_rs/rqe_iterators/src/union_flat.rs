@@ -12,6 +12,7 @@
 use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 use crate::composite::FreeSuspendedShell;
 use crate::union::{
@@ -1009,7 +1010,8 @@ where
             let elem = unsafe { base.add(i) };
             // SAFETY: `elem` addresses a valid `IndexedChild`; `&raw mut` forms
             // a pointer to its `inner` slot without going through a reference.
-            let inner = unsafe { &raw mut (*elem).inner };
+            let inner =
+                NonNull::new(unsafe { &raw mut (*elem).inner }).expect("child slot is non-null");
             // SAFETY: `inner` holds a valid, owned `I`; the helper leaves the
             // slot holding a valid `I::Suspended`.
             unsafe { crate::boxed::suspend_child_slot_in_place(inner) };
@@ -1115,7 +1117,8 @@ where
             let elem = unsafe { base.add(i) };
             // SAFETY: `elem` holds a valid `IndexedChild`; `&raw mut` forms a
             // pointer to its `inner` slot.
-            let inner = unsafe { &raw mut (*elem).inner };
+            let inner =
+                NonNull::new(unsafe { &raw mut (*elem).inner }).expect("child slot is non-null");
             // SAFETY: `inner` holds a valid, owned `S`; the helper rewrites it as
             // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it on
             // `Aborted`/`Err`.

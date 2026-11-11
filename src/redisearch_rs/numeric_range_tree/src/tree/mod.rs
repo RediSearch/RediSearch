@@ -26,7 +26,7 @@ mod util;
 
 pub(crate) use util::CheckedCount;
 
-pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
+pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult, scan_range_index_gc};
 
 use rqe_core::DocId;
 
@@ -233,6 +233,15 @@ impl NumericRangeTree {
     /// Resolve a [`NodeIndex`] to a shared reference to the node.
     pub fn node(&self, idx: NodeIndex) -> &NumericRangeNode {
         &self.nodes[idx]
+    }
+
+    /// Resolve a [`NodeIndex`] that may be stale to a shared reference to the node.
+    ///
+    /// Returns `None` when the node was removed since `idx` was taken, so a
+    /// caller holding an index across a lock release can tell instead of
+    /// panicking like [`Self::node`].
+    pub fn try_node(&self, idx: NodeIndex) -> Option<&NumericRangeNode> {
+        self.nodes.get(idx)
     }
 
     /// Resolve a [`NodeIndex`] to a mutable reference to the node.

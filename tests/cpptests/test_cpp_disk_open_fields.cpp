@@ -60,6 +60,8 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline std::vector<size_t> numFieldsAtOpen;
   static inline std::vector<IndexFlags> flagsAtOpen;
   static inline bool openResult = true;
+  // When set, the mock refuses the open and reports this reason through `status`.
+  static inline const char *openError = nullptr;
   static inline bool initMissingResult = true;
   static inline int closeOnMainThreadCalls = 0;
   static inline int closeIndexSpecCalls = 0;
@@ -107,6 +109,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     numFieldsAtOpen.clear();
     flagsAtOpen.clear();
     openResult = true;
+    openError = nullptr;
     initMissingResult = true;
     closeOnMainThreadCalls = closeIndexSpecCalls = 0;
 
@@ -117,8 +120,13 @@ class DiskSchemaOpenTest : public ::testing::Test {
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
                                  const char *, size_t, DocumentType, bool, IndexFlags flags,
                                  const SearchDiskField *fields, size_t n,
-                                 const SearchDiskCompactionCallbacks *, void *privateData) {
+                                 const SearchDiskCompactionCallbacks *, void *privateData,
+                                 QueryError *status) {
       events.emplace_back("openIndex");
+      if (openError) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, openError);
+        return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
+      }
       return recordSchema(ctx, privateData, flags, fields, n)
                  ? reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData)
                  : nullptr;
@@ -296,6 +304,26 @@ TEST_F(DiskSchemaOpenTest, FailedCreateRegistersNothing) {
   EXPECT_EQ(closeIndexSpecCalls, 0);
 }
 
+TEST_F(DiskSchemaOpenTest, FailedCreateReportsTheDiskLayersReason) {
+  openError = "index name contains a NUL byte";
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("open_fields_create_reason", {"title", "TEXT"}, &err), nullptr);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  std::string message = QueryError_GetUserError(&err);
+  EXPECT_NE(message.find(openError), std::string::npos) << message;
+  QueryError_ClearError(&err);
+  EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("open_fields_create_reason")), nullptr);
+}
+
+TEST_F(DiskSchemaOpenTest, FailedCreateWithoutReasonReportsGenericError) {
+  openResult = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("open_fields_create_generic", {"title", "TEXT"}, &err), nullptr);
+  std::string message = QueryError_GetUserError(&err);
+  EXPECT_NE(message.find("Could not open disk index"), std::string::npos) << message;
+  QueryError_ClearError(&err);
+}
+
 TEST_F(DiskSchemaOpenTest, ReplicatedCreateStorageFailureAborts) {
   Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
   RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_REPLICATED; };
@@ -412,6 +440,18 @@ TEST_F(DiskSchemaOpenLoadTest, RdbLoadForwardsIndexFlags) {
 
   EXPECT_EQ(flagsAtOpen, std::vector<IndexFlags>{loaded->flags});
   EXPECT_FALSE(loaded->flags & Index_StoreTermOffsets);
+}
+
+TEST_F(DiskSchemaOpenLoadTest, RdbLoadReportsTheDiskLayersReason) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_rdb_reason", {"title", "TEXT"}));
+
+  openError = "index name contains a NUL byte";
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  std::string message = QueryError_GetUserError(&err);
+  EXPECT_NE(message.find(openError), std::string::npos) << message;
+  QueryError_ClearError(&err);
 }
 
 // Loads through the non-SST path and plants the pending state, so vector fields, which SST load
