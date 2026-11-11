@@ -241,3 +241,52 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+def testGeoFilterUnits(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  for key, point in [('center', '12,34'), ('near', '12.01,34'), ('far', '13,34')]:
+    conn.execute_command('HSET', key, 'g', point)
+  waitForIndex(env, 'idx')
+  for unit, radius in [('m', 1000), ('KM', 1), ('fT', 3280.84), ('Mi', 0.621372)]:
+    for dialect in [1, 2]:
+      result = env.cmd('FT.SEARCH', 'idx', f'@g:[12 34 {radius} {unit}]',
+                       'NOCONTENT', 'DIALECT', dialect)
+      env.assertEqual(result[0], 2)
+      env.assertEqual(set(result[1:]), {'center', 'near'})
+      result = env.cmd('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12, 34,
+                       radius, unit, 'NOCONTENT', 'DIALECT', dialect)
+      env.assertEqual(result[0], 2)
+      env.assertEqual(set(result[1:]), {'center', 'near'})
+  for unit in [b'km\0suffix', b'KM\0' + b'x' * 20]:
+    result = env.cmd('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12, 34,
+                     1, unit, 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(set(result[1:]), {'center', 'near'})
+
+def testGeoFilterValidation(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  for lon, lat, radius, unit, error in [
+    (181, 91, -1, 'bad', 'unit'),
+    (181, 91, -1, 'km', 'lat/lon'),
+    (-181, 0, 1, 'km', 'lat/lon'),
+    (0, -91, 1, 'km', 'lat/lon'),
+    (0, 91, 1, 'km', 'lat/lon'),
+    (12, 34, 0, 'km', 'radius'),
+    (12, 34, -1, 'km', 'radius'),
+  ]:
+    env.expect('FT.SEARCH', 'idx', f'@g:[{lon} {lat} {radius} {unit}]',
+               'DIALECT', 2).error().contains(f'Invalid GeoFilter {error}')
+  for lon, lat in [(180, 90), (-180, -90), (12, 86)]:
+    env.expect('FT.SEARCH', 'idx', f'@g:[{lon} {lat} 1 km]', 'DIALECT', 2).equal([0])
+
+def testGeoFilterLegacyErrors(env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  cases = [
+    (['g', 12, 34, 1], 'GEOFILTER requires 5 arguments'),
+    (['g', 'bad', 34, 1, 'km'], "Bad arguments for <lon>: Could not convert argument to expected type"),
+    (['g', 12, 'bad', 1, 'km'], "Bad arguments for <lat>: Could not convert argument to expected type"),
+    (['g', 12, 34, 'bad', 'km'], "Bad arguments for <radius>: Could not convert argument to expected type"),
+    (['g', 12, 34, 1, 'bad'], 'Unknown distance unit bad'),
+  ]
+  for args, error in cases:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', *args).error().contains(error)
