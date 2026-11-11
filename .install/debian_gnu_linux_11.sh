@@ -15,7 +15,6 @@ apt_retry() {
 }
 
 # Cached images install dependencies before the workflow bootstrap can configure APT.
-# Keep these sources in sync with bullseye_setup in task-get-config.yml.
 $MODE tee /etc/apt/sources.list > /dev/null <<'EOF'
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main

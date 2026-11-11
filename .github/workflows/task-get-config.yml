@@ -83,38 +83,12 @@ jobs:
               'ec2_instance_type': ''
           }
 
-          # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
-          # Only snapshot expiry checks are disabled; APT still verifies signatures.
-          # snapshot.debian.org intermittently fails downloads with 503/504, which APT does not retry.
-          bullseye_setup = (
-              "printf '%s\\n'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
-              " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
-              " > /etc/apt/sources.list"
-              " && n=0; until apt update && apt install -y git; do n=$((n+1)); [ $n -lt 5 ] || exit 1; sleep $((n*15)); done"
-          )
-
           # Platform configurations
           platform_configs = {
               "macos": {
-                  "x86_64": {
-                      'env': 'macos-15-intel',
-                      'name': 'macOS x86_64'
-                  },
                   "aarch64": {
                       'env': 'macos-latest',
                       'name': 'macOS ARM64'
-                  }
-              },
-              "intel": {
-                  "x86_64": {
-                      'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
-                      'name': 'Intel x86_64',
-                      'env': '',
-                      'container': '',
-                      'ec2_image_id': 'ami-09fabd03bb09b3704',
-                      'ec2_instance_type': 'c7i.xlarge'
                   }
               },
               "ubuntu:latest": {
@@ -153,18 +127,6 @@ jobs:
                       'name': 'Ubuntu Jammy ARM64'
                   }
               },
-              "ubuntu:focal": {
-                  "x86_64": {
-                      'container': 'ubuntu:focal',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'ubuntu:focal',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal ARM64'
-                  }
-              },
               "rockylinux:8": {
                   "x86_64": {
                       'container': 'rockylinux:8',
@@ -189,18 +151,6 @@ jobs:
                       'name': 'Rocky Linux 9 ARM64'
                   }
               },
-              "amazonlinux:2": {
-                  "x86_64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 ARM64'
-                  }
-              },
               "alpine:3.22": {
                 # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
                 # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
@@ -217,18 +167,6 @@ jobs:
                       'name': 'Alpine 3 ARM64'
                   }
               },
-              "debian:bullseye": {
-                  "x86_64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': bullseye_setup,
-                      'name': 'Debian Bullseye x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': bullseye_setup,
-                      'name': 'Debian Bullseye ARM64'
-                  }
-              },
               "debian:bookworm": {
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
@@ -241,42 +179,6 @@ jobs:
                       'name': 'Debian Bookworm ARM64'
                   }
               },
-              "amazonlinux:2023": {
-                  "x86_64": {
-                      'container': 'amazonlinux:2023',
-                      'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'amazonlinux:2023',
-                      'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 ARM64'
-                  }
-              },
-              "mariner:2": {
-                  "x86_64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64'
-                  }
-              },
-              "azurelinux:3": {
-                  "x86_64": {
-                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 ARM64'
-                  }
-              }
           }
 
           if platform in platform_configs:

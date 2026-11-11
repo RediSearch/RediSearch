@@ -14,19 +14,12 @@ If you would like to build it on your machine without a docker, proceed to the n
 ### Build dependencies
 To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
 
-* Ubuntu 18.04
-* Ubuntu 20.04
 * Ubuntu 22.04
 * Ubuntu 24.04
-* Debian linux 11
 * Debian linux 12
 * Rocky linux 8
 * Rocky linux 9
-* Amazon linux 2
-* Amazon linux 2023
-* Mariner 2.0
-* Azure linux 3
-* MacOS
+* macOS (ARM64)
 * Alpine linux 3
 
 For installing the prerequisites you can take the following approaches:
@@ -38,18 +31,11 @@ For installing the prerequisites you can take the following approaches:
    - `python3` and `python3-pip` (for running tests)
    - `openssl-devel` / `libssl-dev` (for secure connections)
 
-   - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
    - Ubuntu 22.04: GCC 12 (not default, PPA not required)
    - Ubuntu 24.04: Default GCC is sufficient
-   - Debian 11: Default GCC is sufficient
    - Debian 12: Default GCC is sufficient
    - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
    - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-   - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
-   - Amazon Linux 2023: Default GCC is sufficient
-   - Mariner 2.0: Default GCC is sufficient
-    - Azure Linux 3: Default GCC is sufficient
    - MacOS: Install clang-18 via brew
    - Alpine Linux 3: Default GCC is sufficient
 
