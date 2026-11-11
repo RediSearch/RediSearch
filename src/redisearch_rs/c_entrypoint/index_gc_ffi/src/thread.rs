@@ -43,8 +43,8 @@ pub enum ThreadGCResult {
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGCResult {
-    debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
+pub unsafe extern "C" fn ThreadGC_RunScanners(gc: *mut ffi::IndexGC) -> ThreadGCResult {
+    debug_assert!(!gc.is_null(), "ThreadGC_RunScanners needs a GC");
     // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
     // to the struct.
     let index = unsafe { (*gc).index };

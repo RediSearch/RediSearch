@@ -193,7 +193,7 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *    counter and read its stats meanwhile, so this call borrows no part of it.
  * 2. The calling thread must not hold any spec lock.
  */
-enum ThreadGCResult ThreadGC_runScanners(IndexGC *gc);
+enum ThreadGCResult ThreadGC_RunScanners(IndexGC *gc);
 
 /**
  * Receive a field header (field name + unique id).
