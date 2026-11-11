@@ -147,29 +147,99 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 }
 
+// Hashes only up to the first NUL so that it agrees with HiddenString_CompareC, which uses strncmp.
+static inline uint64_t fieldNameHash(const char *name, size_t len) {
+  return RS_dictGenHashFunction(name, strnlen(name, len));
+}
+
+static void fieldNameTableInsert(FieldNameTable *table, const FieldSpec *fields, t_fieldIndex index) {
+  const HiddenString *name = fields[index].fieldName;
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(name, &len);
+  const uint32_t mask = table->cap - 1;
+  for (uint32_t pos = (uint32_t)fieldNameHash(str, len) & mask;; pos = (pos + 1) & mask) {
+    t_fieldIndex slot = table->slots[pos];
+    if (slot == 0) {
+      table->slots[pos] = index + 1;
+      return;
+    }
+    // A duplicate name keeps the earliest field, as the linear scan it replaces did.
+    if (!HiddenString_Compare(fields[slot - 1].fieldName, name)) {
+      return;
+    }
+  }
+}
+
+void FieldNameTable_Rebuild(FieldNameTable *table, const FieldSpec *fields, size_t n) {
+  uint32_t cap = 0;
+  if (n > FIELD_NAME_LINEAR_MAX) {
+    // Keep the load factor at or below one half.
+    cap = 64;
+    while (cap < 2u * n) cap <<= 1;
+  }
+  if (cap != table->cap) {
+    rm_free(table->slots);
+    table->slots = cap ? rm_malloc(cap * sizeof(*table->slots)) : NULL;
+    table->cap = cap;
+  }
+  if (!cap) return;
+  memset(table->slots, 0, cap * sizeof(*table->slots));
+  for (size_t i = 0; i < n; i++) {
+    fieldNameTableInsert(table, fields, i);
+  }
+}
+
+void FieldNameTable_Add(FieldNameTable *table, const FieldSpec *fields, size_t index) {
+  RS_ASSERT(index < UINT16_MAX && fields[index].fieldName);
+  if (table->cap && 2u * (index + 1) <= table->cap) {
+    fieldNameTableInsert(table, fields, index);
+  } else {
+    FieldNameTable_Rebuild(table, fields, index + 1);
+  }
+}
+
+void FieldNameTable_Free(FieldNameTable *table) {
+  rm_free(table->slots);
+  table->slots = NULL;
+  table->cap = 0;
+}
+
+const FieldSpec *FieldNameTable_Find(const FieldNameTable *table, const FieldSpec *fields, size_t n,
+                                     const char *name, size_t len) {
+  if (table->cap == 0) {
+    for (size_t i = 0; i < n; i++) {
+      if (!HiddenString_CompareC(fields[i].fieldName, name, len)) {
+        return fields + i;
+      }
+    }
+    return NULL;
+  }
+  const uint32_t mask = table->cap - 1;
+  for (uint32_t pos = (uint32_t)fieldNameHash(name, len) & mask;; pos = (pos + 1) & mask) {
+    t_fieldIndex slot = table->slots[pos];
+    if (slot == 0) return NULL;
+    const FieldSpec *fs = fields + (slot - 1);
+    if (!HiddenString_CompareC(fs->fieldName, name, len)) return fs;
+  }
+}
+
+void IndexSpec_RebuildFieldNameTable(IndexSpec *sp) {
+  FieldNameTable_Rebuild(&sp->fieldNames, sp->fields, sp->numFields);
+}
+
 /*
  * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
 const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len) {
-  for (size_t i = 0; i < spec->numFields; i++) {
-    const FieldSpec *fs = spec->fields + i;
-    if (!HiddenString_CompareC(fs->fieldName, name, len)) {
-      return fs;
-    }
-  }
-  return NULL;
+  return FieldNameTable_Find(&spec->fieldNames, spec->fields, spec->numFields, name, len);
 }
 
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name) {
-  for (size_t i = 0; i < spec->numFields; i++) {
-    const FieldSpec *fs = spec->fields + i;
-    if (!HiddenString_Compare(fs->fieldName, name)) {
-      return fs;
-    }
-  }
-  return NULL;
+  size_t len;
+  const char *str = HiddenString_GetUnsafe(name, &len);
+  return IndexSpec_GetFieldWithLength(spec, str, len);
 }
 
 // Assuming the spec is properly locked before calling this function.
@@ -1735,6 +1805,7 @@ reset:
   }
 
   sp->numFields = prevNumFields;
+  IndexSpec_RebuildFieldNameTable(sp);
   sp->numSortableFields = prevSortLen;
   array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
   if (sp->suffix && sp->suffix != prevSuffix) {
@@ -2013,6 +2084,7 @@ static void IndexSpecCache_Free(IndexSpecCache *c) {
     HiddenString_Free(c->fields[ii].fieldPath, true);
   }
   rm_free(c->fields);
+  FieldNameTable_Free(&c->fieldNames);
   rm_free(c->lang_field);
   rm_free(c->score_field);
   rm_free(c->payload_field);
@@ -2064,7 +2136,12 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
       field->fieldPath = field->fieldName;
     }
   }
+  FieldNameTable_Rebuild(&ret->fieldNames, ret->fields, ret->nfields);
   return ret;
+}
+
+const FieldSpec *IndexSpecCache_FindField(const IndexSpecCache *cache, const char *name, size_t len) {
+  return FieldNameTable_Find(&cache->fieldNames, cache->fields, cache->nfields, name, len);
 }
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
@@ -2151,6 +2228,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  FieldNameTable_Free(&spec->fieldNames);
 
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
@@ -2547,6 +2625,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->flags = flags;
   sp->numFields = numFields;
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
+  sp->fieldNames = (FieldNameTable){0};
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
@@ -2626,6 +2705,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       RS_ABORT("shouldn't get here");
       break;
   }
+  FieldNameTable_Add(&sp->fieldNames, sp->fields, fs->index);
   return fs;
 }
 
@@ -3460,6 +3540,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
+  IndexSpec_RebuildFieldNameTable(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
@@ -3684,6 +3765,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
     IndexSpec_TrackIndexMissingField(sp, fs);
   }
+  IndexSpec_RebuildFieldNameTable(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 

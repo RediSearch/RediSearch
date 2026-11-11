@@ -101,6 +101,10 @@ impl IndexSpecCache {
             ptr.write(ffi::IndexSpecCache {
                 nfields,
                 fields,
+                fieldNames: ffi::FieldNameTable {
+                    slots: ptr::null_mut(),
+                    cap: 0,
+                },
                 refcount: 1,
                 lang_field: rm_strdup(lang),
                 score_field: rm_strdup(score),
@@ -144,6 +148,9 @@ impl IndexSpecCache {
     /// 4. Each of its special document-field names (`lang_field`,
     ///    `score_field`, `payload_field`) MUST be null or point to a valid,
     ///    NUL-terminated string.
+    /// 5. Its `fieldNames` table MUST be empty (null `slots`, zero `cap`) or
+    ///    built over exactly the `fields` array, as `IndexSpec_BuildSpecCache`
+    ///    does: [`IndexSpecCache::find_field`] trusts it.
     pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {
         debug_assert!(ptr.is_aligned());
 
@@ -165,6 +172,20 @@ impl IndexSpecCache {
     }
 
     pub fn find_field(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        let me = unsafe { self.0.as_ref() };
+
+        if me.fieldNames.cap != 0 {
+            // SAFETY: the cache and its name table are valid and immutable per the construction
+            // contract, and `name` is a valid C string of `count_bytes` bytes.
+            let found = unsafe {
+                ffi::IndexSpecCache_FindField(self.0.as_ptr(), name.as_ptr(), name.count_bytes())
+            };
+            // SAFETY: a non-null result points into this cache's `fields`, which outlives `&self`.
+            return unsafe { found.as_ref() };
+        }
+
+        // Small schemas, and caches built in Rust, carry no table: scan.
         self.fields().iter().find(|field| {
             debug_assert!(!field.fieldName.is_null());
             // SAFETY: we have to trust that the `fieldName` pointer is valid

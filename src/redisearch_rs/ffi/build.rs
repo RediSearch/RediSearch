@@ -383,6 +383,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpec_ReleaseWriteLock",
             "IndexSpec_Unlock",
             "IndexSpecCache_Decref",
+            "IndexSpecCache_FindField",
             "IndexSpecRef_Promote",
             "IndexSpecRef_Release",
         ],

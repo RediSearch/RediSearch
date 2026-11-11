@@ -11,7 +11,7 @@ from common import *
 # Limits exercised here, mirrored from C constants so a future bump fails loudly:
 #   COLLECT FIELDS count : SPEC_MAX_FIELDS + 1  (src/aggregate/reducers/collect.c)
 #   COLLECT SORTBY keys  : SORTASCMAP_MAXFIELDS (src/result_processor.h)
-SPEC_MAX_FIELDS = 1024
+SPEC_MAX_FIELDS = 4096
 COLLECT_MAX_FIELD_ARGS = SPEC_MAX_FIELDS + 1
 COLLECT_MAX_SORT_KEYS = 8
 
@@ -65,7 +65,7 @@ def _create_sortby_index(env):
 # COLLECT FIELDS count limit
 # ---------------------------------------------------------------------------
 def test_collect_fields_at_spec_max_fields():
-    """COLLECT FIELDS listing all SPEC_MAX_FIELDS (1024) schema fields runs
+    """COLLECT FIELDS listing all SPEC_MAX_FIELDS (4096) schema fields runs
     end-to-end."""
     env = Env(protocol=3)
     _create_wide_index(env, SPEC_MAX_FIELDS)
