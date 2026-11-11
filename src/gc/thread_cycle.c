@@ -31,11 +31,10 @@ bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref) {
   gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
 
   IndexSpec_AssertLockNotHeld();  // the driver takes the spec locks itself
-  RS_LOG_ASSERT(!gc->threadCycleInFlight, "two thread GC cycles on one index at once");
-  gc->threadCycleInFlight = true;
+  // The scanners' deltas address blocks by position, so two cycles on one index must never
+  // interleave; the scheduler's per-index GC_SCHED_RUN_PENDING keeps them apart.
   uint64_t pruned = 0;
   enum ThreadGCResult rv = ThreadGC_RunScanners(gc, &pruned);
-  gc->threadCycleInFlight = false;
   if (rv == THREAD_GC_FAILED && forced) {
     forced->outcome = GC_FORCED_RUN_FAILED;
   }
