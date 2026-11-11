@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+#include "navix_query.h"
 
 #include "info/global_stats.h"
 
@@ -205,7 +206,31 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
-QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
+static bool isNavixParam(const VecSimRawParam *param) {
+  return param->nameLen == strlen("HYBRID_POLICY") &&
+         !strncasecmp(param->name, "HYBRID_POLICY", param->nameLen) &&
+         ((param->valLen == strlen("NAVIX") &&
+           !strncasecmp(param->value, "NAVIX", param->valLen)) ||
+          (param->valLen == strlen("NAVIX_BLIND") &&
+           !strncasecmp(param->value, "NAVIX_BLIND", param->valLen)));
+}
+
+int VectorQuery_ValidateUnstable(QueryEvalCtx *q, const VectorQuery *vq) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    for (size_t i = 0; i < array_len(vq->params.params); ++i) {
+      if (isNavixParam(&vq->params.params[i])) {
+        QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
+                            "NAVIX requires CONFIG SET search-enable-unstable-features yes");
+        return REDISMODULE_ERR;
+      }
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
+                                 const QueryNode *filter_node) {
+  if (VectorQuery_ValidateUnstable(q, vq) != REDISMODULE_OK) return NULL;
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
   RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
@@ -243,9 +268,46 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
-      if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
-                                    &qParams, queryType, q->status) != VecSim_OK)  {
-        return NULL;
+      bool navix = false, blind = false;
+      size_t nparams = array_len(vq->params.params);
+      for (size_t i = 0; i < nparams; ++i) {
+        const VecSimRawParam *param = &vq->params.params[i];
+        if (isNavixParam(param)) {
+          navix = true;
+          blind = !strcasecmp(param->value, "NAVIX_BLIND");
+        }
+      }
+      VecSimRawParam *resolved = vq->params.params;
+      if (navix) {
+        const VecSimParams *createParams = &fieldSpec->vectorOpts.vecSimParams;
+        if (createParams->algo == VecSimAlgo_TIERED)
+          createParams = createParams->algoParams.tieredParams.primaryIndexParams;
+        if (!child_it || !filter_node || info.isDisk || info.isMulti ||
+            info.algo != VecSimAlgo_HNSWLIB || type != VecSimType_FLOAT32 ||
+            createParams->algoParams.hnswParams.quantType != VecSimQuant_NONE) {
+          QueryError_SetError(
+              q->status, QUERY_ERROR_CODE_INVAL,
+              "NAVIX POC requires filtered, unquantized, single-value FLOAT32 RAM HNSW");
+          return NULL;
+        }
+        resolved = rm_malloc(nparams * sizeof(*resolved));
+        memcpy(resolved, vq->params.params, nparams * sizeof(*resolved));
+        for (size_t i = 0; i < nparams; ++i) {
+          if (isNavixParam(&resolved[i])) {
+            resolved[i].value = "BATCHES";
+            resolved[i].valLen = strlen("BATCHES");
+          }
+        }
+      }
+      VecSimResolveCode resolveCode =
+          VecSim_ResolveQueryParams(vecsim, resolved, nparams, &qParams, queryType, q->status);
+      if (navix) rm_free(resolved);
+      if (resolveCode != VecSim_OK) return NULL;
+      if (navix) {
+        vq->navixQuery =
+            NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, blind);
+        // MAYBE output has a different acceptance rate from the global filter population.
+        if (!qParams.batchSize) qParams.batchSize = vq->knn.k ? vq->knn.k : 1;
       }
       // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
       // it, fall back to the index's create-time RERANK default
@@ -347,6 +409,7 @@ void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, si
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
+  NavixQuery_Free(vq->navixQuery);
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
     case VECSIM_QT_KNN: // no need to free the vector as we points to the query dictionary

@@ -50,6 +50,10 @@ use vector_score_source::{NewVectorTopK, new_vector_top_k};
 /// 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
 ///    `spec`, both outliving the returned iterator.
 /// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+/// 8. Optional NaviX callback state in `query_params` is AST-owned and outlives the
+///    returned iterator. Collection holds the spec read lock; calls and profile reads
+///    are serialized with callback writes. The callback and statistics must also
+///    satisfy the complete callback contract of [`new_vector_top_k`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
@@ -95,7 +99,8 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // check uses `FieldMaskOrIndex::Index`, not the mask path.
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
-    // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
+    // SAFETY: index, query vector, timeout, and the complete callback contract
+    // are guaranteed by requirements 1, 2, 7, and 8 respectively.
     let reduced = unsafe {
         new_vector_top_k(
             index,

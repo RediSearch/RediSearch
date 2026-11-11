@@ -309,7 +309,7 @@ TEST_F(QueryTest, testVectorIteratorRejectsUnsafeDimension) {
       query.range.vecLen = sizeof(vector);
     }
 
-    EXPECT_EQ(NewVectorIterator(&queryCtx, &query, nullptr), nullptr);
+    EXPECT_EQ(NewVectorIterator(&queryCtx, &query, nullptr, nullptr), nullptr);
     EXPECT_STREQ("SEARCH_QUERY_BAD Invalid vector DIM: vector size is too large",
                  QueryError_GetUserError(&queryErr));
     QueryError_ClearError(&queryErr);
