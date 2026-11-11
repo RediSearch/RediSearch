@@ -26,9 +26,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      # macOS Intel (x86_64) test runners are excluded while the macOS runner
-      # problem is mitigated; macOS ARM still runs.
-      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
+      platform: all
       architecture: all
       # Track unstable so nightly catches upstream Redis breakage; PR/merge
       # CI uses the latest release.
