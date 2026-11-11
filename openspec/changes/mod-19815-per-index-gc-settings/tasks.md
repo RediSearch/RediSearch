@@ -26,14 +26,15 @@ disk); 7 needs 2 and 3, and its Flex path needs 6.
       threshold clears it
 - [ ] 1.2 Compute the next delay on the main thread when arming; remove
       `pendingInterval`
-- [ ] 1.3 Keep today's jitter range, drawn on each arm; cap delays and saturate
-      conversions; record in `GCContext` the interval each run-interval timer was armed
+- [ ] 1.3 Keep today's jitter range, drawn on each arm; saturate delays and
+      conversions; arm a delay past `INT_MAX` ms in steps toward its deadline; record in `GCContext` the interval each run-interval timer was armed
       with
 - [ ] 1.4 Add `GCContext_OnIntervalChanged`: when a run-interval timer is waiting and the
       effective interval differs from its armed interval, disarm it and arm it again
       from now; never queue a run; no-op otherwise. If MOD-20523 has landed, keep
       `GC_SCHED_WAIT_FOR_WORK` and update any deadline it stores at arm
-- [ ] 1.5 C++ unit tests: saturation and the cap, restart when the effective interval
+- [ ] 1.5 C++ unit tests: saturation, a stepped timer reaching its deadline and a
+      restart between steps, restart when the effective interval
       differs from the armed one and no restart when it doesn't, the restart as a no-op
       in each no-timer state and on a retry timer, forced runs leaving the scheduling
       state alone, a threshold-skipped cycle after a failed fork arming with the run
@@ -175,8 +176,7 @@ disk); 7 needs 2 and 3, and its Flex path needs 6.
 
 ## 8. Docs (DOC ticket, created after sign-off)
 
-- [ ] 8.1 Syntax, inheritance, aliases, when changes apply, jitter, the 24.86-day delay
-      cap, FT.INFO and per-node
+- [ ] 8.1 Syntax, inheritance, aliases, when changes apply, jitter, FT.INFO and per-node
       `effective` values, upgrades, the fork-slot warning for threshold 0 with short
       intervals, `deny-oom` and partial apply in a cluster, the coordinator's FT.INFO
       showing the first shard, how the percentage combines with `CLEAN_THRESHOLD`

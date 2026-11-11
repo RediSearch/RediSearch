@@ -137,18 +137,19 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   and removes `pendingInterval`.
 - `getNextPeriod` keeps today's jitter range, from the interval to almost twice the
   interval, drawn on each arm.
-- Delays saturate instead of overflowing, and are capped at `INT_MAX` ms (about 24.86
-  days). Redis serves every module timer from one event, `moduleTimerHandler`, which
-  returns the time to the earliest module timer as an `int`; a longer delay truncates
-  and makes the timer loop spin or stop
-  ([MOD-21060](https://redislabs.atlassian.net/browse/MOD-21060)). The cap also stays
-  clear of the microsecond overflow in `RedisModule_CreateTimer`. An interval of 24.86
-  days or more therefore runs about every 24.86 days, with no jitter. This fixes
-  defect 2.
+- Delays saturate instead of overflowing, at `LLONG_MAX` ms. One Redis module timer
+  can wait at most `INT_MAX` ms (about 24.86 days): Redis serves every module timer
+  from one event, `moduleTimerHandler`, which returns the time to the earliest module
+  timer as an `int`, and a longer value makes the timer loop spin or stop
+  ([MOD-21060](https://redislabs.atlassian.net/browse/MOD-21060)). A longer delay is
+  armed in steps of at most `RS_MAX_TIMER_DELAY_MS` toward its deadline; each step's
+  callback arms the next step instead of queuing a run, so long intervals keep their
+  full value and jitter. This fixes defect 2.
 - `GCContext` records the interval each run-interval timer was armed with, before
-  jitter. It keeps no arm time and no jitter.
+  jitter. For a stepped timer it also keeps the deadline (`stepDeadlineMs`,
+  monotonic), and nothing else about when the timer was armed.
 - A main-thread entry point, `GCContext_OnIntervalChanged`, acts only on a waiting
-  run-interval timer, and only when the effective interval differs from the one that
+  run-interval timer, including one waiting between steps, and only when the effective interval differs from the one that
   timer was armed with: `GCContext_DisarmTimer`, then `GCContext_ArmTimer`, so the timer
   restarts from the command with the new interval and new jitter. It never queues a
   run. It does nothing when there is no waiting run-interval timer: a run queued or
@@ -359,7 +360,8 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 
 Existing behavior that per-index settings do not depend on, left as it is:
 
-- A dropped index keeps its `GCContext` until its timer fires.
+- A dropped index keeps its `GCContext` until its timer fires. With a stepped timer
+  that is the real deadline, not the first step, as on master today.
 - `reap_child_blocking` truncates its timeout to `int`. Its call keeps passing the global
   run interval, not the per-index helper: it is a timeout for reaping a child, not a
   scheduling read, and changing it would change kill-failure handling, which this
