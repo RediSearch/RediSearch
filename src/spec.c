@@ -2083,6 +2083,7 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
     GilGate_Reset(&cleanPoolGilGate);
+    // Single-threaded: DiskSlotCleanup_Run relies on it. More threads need a per-index guard there.
     cleanPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "cleanPool");
   }
 }
