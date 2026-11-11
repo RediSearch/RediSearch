@@ -37,17 +37,11 @@ on:
           - all
           - ubuntu:noble
           - ubuntu:jammy
-          - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
           - debian:bookworm
-          - amazonlinux:2
-          - amazonlinux:2023
-          - mariner:2
-          - azurelinux:3
           - alpine:3.22
           - macos
-          - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
