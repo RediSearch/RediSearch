@@ -142,6 +142,41 @@ pub struct LockReport {
     pub max_write_hold: std::time::Duration,
 }
 
+impl LockReport {
+    /// Run `scan` under one read hold of `spec`, and count the hold.
+    fn read<T>(
+        &mut self,
+        spec: &mut impl SpecLockAccess,
+        scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T,
+    ) -> Result<T, GcError> {
+        let (value, held) = spec.with_read(|guard| {
+            let start = Instant::now();
+            let value = scan(guard);
+            (value, start.elapsed())
+        })?;
+        self.read_locks += 1;
+        self.max_read_hold = self.max_read_hold.max(held);
+        Ok(value)
+    }
+
+    /// Run `apply` under one write hold of `spec`, and count the hold, whatever
+    /// `apply` returns.
+    fn write<T>(
+        &mut self,
+        spec: &mut impl SpecWriteAccess,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T,
+    ) -> Result<T, GcError> {
+        let (value, held) = spec.with_write(|guard| {
+            let start = Instant::now();
+            let value = apply(guard);
+            Ok((value, start.elapsed()))
+        })?;
+        self.write_locks += 1;
+        self.max_write_hold = self.max_write_hold.max(held);
+        Ok(value)
+    }
+}
+
 /// The doc IDs a scanned index's last block spanned when it was copied: what a
 /// denied delta leaves uncollected.
 type Tail = Option<RangeInclusive<DocId>>;
@@ -207,15 +242,7 @@ fn keyed<'k, K, F>(
 
 impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
     fn read<T>(&mut self, scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T) -> Result<T, GcError> {
-        let result = self.spec.with_read(|guard| {
-            let start = Instant::now();
-            let value = scan(guard);
-            (value, start.elapsed())
-        });
-        let (value, held) = result?;
-        self.report.read_locks += 1;
-        self.report.max_read_hold = self.report.max_read_hold.max(held);
-        Ok(value)
+        self.report.read(self.spec, scan)
     }
 
     fn write(
@@ -223,18 +250,14 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>, &mut GcApplyStats) -> Result<(), GcError>,
     ) -> Result<(), GcError> {
         let sink = &mut *self.sink;
-        let (result, held) = self.spec.with_write(|guard| {
-            let start = Instant::now();
+        self.report.write(self.spec, |guard| {
             let mut stats = GcApplyStats::default();
             let result = apply(guard, &mut stats);
             stats.apply_to_spec(guard);
             // Under the lock, as `FT.INFO` reads the counters under it.
             sink.record(&stats);
-            Ok((result, start.elapsed()))
-        })?;
-        self.report.write_locks += 1;
-        self.report.max_write_hold = self.report.max_write_hold.max(held);
-        result
+            result
+        })?
     }
 
     /// Run one scanner to completion: `snapshot_chunk` copies the indexes of the
@@ -502,17 +525,11 @@ pub fn run_cycle(
     clean_numeric_empty_nodes: bool,
 ) -> Result<LockReport, (&'static str, GcError)> {
     let mut report = LockReport::default();
-    let (dead, held) = spec
-        .with_read(|guard| {
-            let start = Instant::now();
-            (
-                guard.deleted_docs().map(DeletedDocs::snapshot),
-                start.elapsed(),
-            )
+    let dead = report
+        .read(spec, |guard| {
+            guard.deleted_docs().map(DeletedDocs::snapshot)
         })
         .map_err(|e| ("deleted docs", e))?;
-    report.read_locks += 1;
-    report.max_read_hold = held;
 
     let dead = match dead {
         // A table that does not track deletions gives this GC nothing to find garbage with;
@@ -553,16 +570,12 @@ pub fn run_cycle(
     } = driver;
     let mut collected = gone.into_set();
     collected -= retained;
-    let held = spec
-        .with_write(|guard| {
-            let start = Instant::now();
+    report
+        .write(spec, |guard| {
             if let Some(set) = guard.deleted_docs_mut() {
                 set.prune(&collected);
             }
-            Ok(start.elapsed())
         })
         .map_err(|e| ("deleted docs", e))?;
-    report.write_locks += 1;
-    report.max_write_hold = report.max_write_hold.max(held);
     Ok(report)
 }

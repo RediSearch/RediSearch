@@ -91,10 +91,7 @@ pub trait GcStatsSink {
 
 impl GcStatsSink for ForkPipe {
     fn record(&mut self, stats: &GcApplyStats) {
-        // SAFETY: 1. the pipe's stats are valid for as long as it is borrowed here.
-        // 2. the fork parent records each delta's stats under the write lock it
-        //    applied the delta under.
-        unsafe { GcCounters::new(self.stats_ptr()) }.record(stats);
+        add_to_counters(self.stats_mut(), stats);
     }
 }
 
@@ -117,16 +114,21 @@ impl GcCounters {
 }
 
 impl GcStatsSink for GcCounters {
-    /// `numeric_nodes_missed` is a count rather than a single increment because the
-    /// numeric scanner tallies misses across a whole node stream and flushes them
-    /// together with the rest of the field's counters.
     fn record(&mut self, stats: &GcApplyStats) {
         // SAFETY: (`new`) the counters are valid, and the spec's write lock keeps
         // `FT.INFO` from reading them meanwhile.
-        let counters = unsafe { self.0.as_mut() };
-        counters.totalCollected += stats.bytes_collected as isize;
-        counters.totalCollected -= stats.bytes_allocated as isize;
-        counters.gcBlocksDenied += stats.blocks_denied;
-        counters.gcNumericNodesMissed += stats.numeric_nodes_missed;
+        add_to_counters(unsafe { self.0.as_mut() }, stats);
     }
+}
+
+/// Fold `stats` into a GC context's `counters`.
+///
+/// `numeric_nodes_missed` is a count rather than a single increment because the
+/// numeric scanner tallies misses across a whole node stream and flushes them
+/// together with the rest of the field's counters.
+const fn add_to_counters(counters: &mut ffi::IndexGCStats, stats: &GcApplyStats) {
+    counters.totalCollected += stats.bytes_collected as isize;
+    counters.totalCollected -= stats.bytes_allocated as isize;
+    counters.gcBlocksDenied += stats.blocks_denied;
+    counters.gcNumericNodesMissed += stats.numeric_nodes_missed;
 }
