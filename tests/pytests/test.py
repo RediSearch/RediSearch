@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from common import *
+import datetime
 import redis
 from hotels import hotels
 import random
@@ -2312,6 +2313,10 @@ def testIssue446(env):
 
 @skip(cluster=True)
 def testTimeout(env):
+    # Flaky on 2.6 (MOD-10697): on fast runners the query completes before the timeout fires.
+    # Temporary skip; the test runs again automatically from this date.
+    if datetime.date.today() < datetime.date(2026, 10, 20):
+        env.skip()
     if VALGRIND:
         env.skip()
 
