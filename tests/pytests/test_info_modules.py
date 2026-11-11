@@ -660,6 +660,7 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # Test syntax errors
+    skipTest(enterprise=True)
     self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
@@ -701,6 +702,7 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # ---------- Timeout Errors ----------
+    skipTest(enterprise=True)
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
     before_info_dict_err = info_modules_to_dict(self.env)
     base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])

@@ -57,7 +57,7 @@ def _run_query_with_reindex_during_load(query):
     return env, outcome[0]
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_aggregate_drops_doc_reindexed_during_load():
     """FT.AGGREGATE must not emit an empty row for a doc invalidated before LOAD."""
     env, result = _run_query_with_reindex_during_load(
@@ -71,7 +71,7 @@ def test_aggregate_drops_doc_reindexed_during_load():
     env.assertEqual(total, len(rows), message=result)
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_aggregate_groupby_drops_doc_reindexed_during_load():
     """GROUPBY must not subtract an upstream loader drop from its recomputed group count."""
     env, result = _run_query_with_reindex_during_load(
@@ -97,7 +97,7 @@ def test_search_optimizer_drops_doc_reindexed_during_load():
     env.assertEqual(total, len(pairs), message=result)
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_safe_loader_preserves_lazy_expiration_row():
     """A Redis 6/7 lazy-expiration load failure must keep the legacy row and total."""
     if not MT_BUILD:

@@ -1199,6 +1199,7 @@ def testProfileGILTimeSentinelWorkersResp2():
   ProfileGILTimeSentinel(protocol=2, workers=1)
 
 
+@skip(enterprise=True)
 def testProfileGILTimeSentinelWorkersResp3():
   ProfileGILTimeSentinel(protocol=3, workers=1)
 

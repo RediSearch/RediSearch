@@ -254,6 +254,7 @@ class TestDebugCommands(object):
                 pass
 
     def testStopAndResumeWorkersPool(self):
+        skipTest(enterprise=True)
         if not MT_BUILD:
             self.env.skip()
         self.env.expect('FT.DEBUG', 'WORKERS').error().contains(

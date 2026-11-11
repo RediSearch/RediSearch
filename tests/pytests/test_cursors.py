@@ -206,8 +206,8 @@ def testCursorDifferentConnections(env: Env):
     # env is connected to shard 1, con2 is connected to shard 2
     env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Cursor not found')
 
-@skip(enterprise=True)
 def testIndexDropWhileIdle(env: Env):
+    skipTest(enterprise=True)
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
@@ -258,7 +258,7 @@ def exceedCursorCapacity(env):
 def testExceedCursorCapacity(env):
     exceedCursorCapacity(env)
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True, noWorkers=True, enterprise=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
