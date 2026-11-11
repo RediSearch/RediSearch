@@ -292,7 +292,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
         // arrived with names the saving process's documents. Clearing it here, rather
         // than dropping it in docIdMetaRDBLoad, keeps that callback faithful for Flex,
         // which reuses it to read keys back from flash during the load.
-        if (SearchDisk_IsEnabledForValidation()) {
+        if (SearchDisk_IsEnabled()) {
           DocIdMeta_Clear(ctx, key);
         }
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields); //TODO: avoid getDocTypeFromString ?
