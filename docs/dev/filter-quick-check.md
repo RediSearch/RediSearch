@@ -178,7 +178,8 @@ covers all indexed fields; persisted formats and query execution remain unchange
 
 `filter_summary.h` connects the API to document indexing. Each new document version owns
 one term signature and numeric bounds for all indexed numeric fields, built from the
-forward index and preprocessed field values. Replacement rebuilds them; deletion frees
+forward index and preprocessed field values. Numeric bounds include both the original and
+float-rounded values to cover legacy numeric compression conservatively. Replacement rebuilds them; deletion frees
 them. Their allocation is included in document-table memory accounting. This POC enables
 collection unconditionally; a field-selection flag and production memory layout come later.
 

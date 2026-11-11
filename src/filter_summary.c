@@ -14,6 +14,7 @@
 #include "rmalloc.h"
 #include "spec.h"
 
+#include <float.h>
 #include <string.h>
 
 typedef struct {
@@ -34,6 +35,14 @@ size_t FilterSummary_MemoryUsage(const FilterSummary* summary) {
 
 void FilterSummary_Free(FilterSummary* summary) {
   rm_free(summary);
+}
+
+static void addNumericValue(FilterQuickCheckNumericSummary* bounds, double value) {
+  FilterQuickCheckNumericSummary_Add(bounds, value);
+  /* A numeric tree may retain float compression after the global setting changes. */
+  if (value >= -FLT_MAX && value <= FLT_MAX) {
+    FilterQuickCheckNumericSummary_Add(bounds, (double)(float)value);
+  }
 }
 
 static FilterSummary* buildSummary(const RSAddDocumentCtx* aCtx) {
@@ -63,7 +72,8 @@ static FilterSummary* buildSummary(const RSAddDocumentCtx* aCtx) {
          entry = ForwardIndexIterator_Next(&it)) {
       for (size_t i = 0; i < spec->numFields; ++i) {
         const FieldSpec* fs = &spec->fields[i];
-        if (FieldSpec_IsIndexableText(fs) && (entry->fieldMask & FIELD_BIT(fs))) {
+        if (FieldSpec_IsIndexableText(fs) &&
+            (!(spec->flags & Index_StoreFieldFlags) || (entry->fieldMask & FIELD_BIT(fs)))) {
           FilterQuickCheckTerm term = {FilterQuickCheck_TEXT, fs->index, entry->term, entry->len};
           FilterQuickCheckSignature_Add(&summary->terms, &term);
         }
@@ -90,10 +100,10 @@ static FilterSummary* buildSummary(const RSAddDocumentCtx* aCtx) {
         FilterQuickCheckNumericSummary* bounds = &summary->numeric[j].bounds;
         if (data->isMulti) {
           for (size_t k = 0; k < array_len(data->arrNumeric); ++k) {
-            FilterQuickCheckNumericSummary_Add(bounds, data->arrNumeric[k]);
+            addNumericValue(bounds, data->arrNumeric[k]);
           }
         } else {
-          FilterQuickCheckNumericSummary_Add(bounds, data->numeric);
+          addNumericValue(bounds, data->numeric);
         }
         break;
       }

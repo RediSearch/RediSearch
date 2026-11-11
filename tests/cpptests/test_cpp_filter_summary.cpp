@@ -115,3 +115,37 @@ TEST_F(FilterSummaryTest, ReplacementDeletionAndSchemaChangeCannotLeaveStaleNega
   added->types = INDEXFLD_T_TAG;
   EXPECT_TRUE(mayMatch(secondId, FilterQuickCheck_TAG, 0, "absent"));
 }
+
+TEST_F(FilterSummaryTest, NumericBoundsCoverCompressedValuesAfterConfigChange) {
+  const bool previousCompression = RSGlobalConfig.numericCompress;
+  const char* values[] = {"1.01", "1.02", "-1.01", "-1.02", "1e-50"};
+  for (size_t i = 0; i < sizeof(values) / sizeof(*values); ++i) {
+    RSGlobalConfig.numericCompress = (i == 0);
+    RMCK::hset(ctx, "doc:1", "price", values[i]);
+    index("doc:1");
+    RSGlobalConfig.numericCompress = previousCompression;
+
+    const double original = strtod(values[i], nullptr);
+    const double stored = (double)(float)original;
+    FilterQuickCheckPredicate predicate = {};
+    predicate.type = FilterQuickCheck_NUMERIC;
+    predicate.numeric = {1, stored, stored, true, true};
+    FilterQuickCheck* check = FilterQuickCheck_Compile(&predicate);
+    auto context = FilterSummary_CreateContext(spec, check);
+    EXPECT_TRUE(FilterQuickCheck_MayMatch(&context, docIdOf("doc:1"))) << values[i];
+    FilterQuickCheck_Free(check);
+  }
+}
+
+TEST_F(FilterSummaryTest, NoFieldsTextSummaryMatchesAcrossFields) {
+  spec->flags = static_cast<IndexFlags>(spec->flags & ~Index_StoreFieldFlags);
+  RMCK::hset(ctx, "doc:1", "title", "Hello");
+  RMCK::hset(ctx, "doc:1", "other", "World");
+  RMCK::hset(ctx, "doc:1", "category", "books");
+  index("doc:1");
+  const t_docId id = docIdOf("doc:1");
+  EXPECT_TRUE(mayMatch(id, FilterQuickCheck_TEXT, 2, "world"));
+  EXPECT_TRUE(mayMatch(id, FilterQuickCheck_TEXT, 3, "hello"));
+  EXPECT_FALSE(mayMatch(id, FilterQuickCheck_TEXT, 2, "absent"));
+  EXPECT_FALSE(mayMatch(id, FilterQuickCheck_TAG, 0, "world"));
+}
