@@ -312,6 +312,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             // - The returned iterator's `'params` is unified with `'index`. The constructor
             //   contract guarantees that the request-owned timeout referenced by `timeoutCtx`
             //   outlives the iterator despite the widened `'index`.
+            // - Constructor requirement 4 keeps callback state valid for the same lifetime
+            //   and guarantees the stable view, serialization, and callback restrictions.
             self.batch_iter = unsafe {
                 self.index
                     .batch_iterator_unchecked(&self.query_vector, params)

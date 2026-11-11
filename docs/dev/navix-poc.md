@@ -13,7 +13,9 @@ FT.SEARCH idx '(@category:{books} @price:[0 100])=>[KNN 10 @v $q HYBRID_POLICY N
 expansion for comparison. Both are explicit modes; AUTO and ordinary BATCHES are unchanged.
 Without BATCH_SIZE, NaviX requests k candidates per batch rather than applying the old
 global-selectivity estimate. The route requires a filter child and unquantized,
-single-value FLOAT32 RAM HNSW. Pure `*=>[KNN ...]` and other index types are rejected.
+single-value FLOAT32 RAM HNSW. Pure `*=>[KNN ...]` and other index types are rejected when an iterator is built.
+An empty filter can short-circuit to zero results before the index-shape check; the
+feature gate is still validated before that shortcut.
 
 RediSearch lowers normalized exact TAG tokens, NUMERIC ranges, AND, and OR into the
 existing quick-check predicates. TEXT, NOT, expansions, multiword tags, and unsupported
