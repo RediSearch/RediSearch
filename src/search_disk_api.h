@@ -154,12 +154,18 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
-// Stats reported by a single GC compaction cycle.
+typedef enum {
+  DISK_GC_RUN_OK = 0,
+  // Pending changes remain eligible for retry.
+  DISK_GC_RUN_RETRY_REQUIRED,
+} DiskGCRunResult;
+
+// Stats reported by a single GC attempt, including a retry outcome.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
 // and the callee fills the fields it knows about.
 typedef struct DiskGCRunStats {
-  // Number of deleted document IDs removed in this cycle.
+  // Number of deleted-ID markers retired; zero when the attempt requires retry.
   size_t num_cleaned_docs;
   // Bytes freed by the compaction (storage layer's view). Signed because
   // future compaction strategies (e.g. block splitting) may transiently
@@ -634,15 +640,15 @@ typedef struct IndexDiskAPI {
    * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
    * openIndexSpec time.
    *
-   * On return, `stats` is populated with per-cycle counters
+   * On every normal return, `stats` is populated with per-attempt counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call.
+   * call. See `DiskGCRunResult` for recoverable failure handling.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter
    *              (MUST NOT be NULL)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+  DiskGCRunResult (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.
