@@ -29,10 +29,21 @@ extern "C" {
 // Main thread only: it walks the global spec registry.
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
 
-// Enable registration at module startup.
+// Module startup, before disk jobs can be scheduled; requires previously stopped workers drained.
 void SlotCleanup_StartDiskJobs(void);
-// Reject new registrations before closing disk handles.
+// Main-thread cron retries jobs retained after queue rejection or storage failure.
+void SlotCleanup_RetryDiskJobs(void);
+// Capture boundary: pause dispatch and finish the current worker turn, including its scan.
+// Only scheduling bookkeeping may remain in main-thread completion callbacks.
+void SlotCleanup_PauseDiskJobs(void);
+void SlotCleanup_ResumeDiskJobs(void);
+// Shutdown: prevent new backend access and drain in-flight batches before closing disk handles.
 void SlotCleanup_StopDiskJobs(void);
+
+#ifdef ENABLE_ASSERT
+// Test-only: reject the next disk-cleanup submissions through the queue failure path.
+void SlotCleanup_FailNextDiskEnqueues(size_t count);
+#endif
 
 // Phases of a cleanup task run, exposed for tests. Neither keeps DocTable pointers across lock
 // releases, so concurrent writes between passes are safe.

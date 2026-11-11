@@ -141,7 +141,16 @@ struct IndexSpecSlotTrimJob {
 static atomic_bool diskJobsStopped = false;
 
 void SlotCleanup_StartDiskJobs(void) {
+  SlotCleanup_ResumeDiskJobs();
   atomic_store(&diskJobsStopped, false);
+}
+
+void SlotCleanup_PauseDiskJobs(void) {
+  CleanPool_Pause();
+}
+
+void SlotCleanup_ResumeDiskJobs(void) {
+  CleanPool_Resume();
 }
 
 static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, const SearchDiskSlotRange *ranges,
@@ -168,10 +177,52 @@ IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
   return newDiskJob(specRef, ranges, numRanges, maxDocId);
 }
 
-typedef struct {
-  IndexSpec *spec;
-  IndexSpecSlotTrimJob *job;
-} DiskSlotTrimContext;
+static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
+                              SearchDiskWriteBatchHandle *batch, bool exhausted) {
+  IndexSpec *spec = ctx;
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  bool applied = SearchDisk_CommitWriteBatch(batch);
+  if (applied) {
+    RS_LOG_ASSERT_ALWAYS(spec->stats.scoring.numDocuments >= numIds,
+                         "slot cleanup exceeds the document count");
+    RS_LOG_ASSERT_ALWAYS(spec->stats.scoring.totalDocsLen >= totalDocLen,
+                         "slot cleanup exceeds the total document length");
+    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+    spec->stats.scoring.numDocuments -= numIds;
+    spec->stats.scoring.totalDocsLen -= totalDocLen;
+    IndexSpec_DeferGCDeletes(spec, numIds);
+  }
+  IndexSpec_Unlock(spec);
+  IndexSpec_DecrActiveWrites(spec);
+  return applied;
+}
+
+IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job) {
+  if (atomic_load(&diskJobsStopped)) {
+    return INDEX_DISK_TRIM_CANCELLED;
+  }
+  StrongRef running = WeakRef_Promote(job->specRef);
+  IndexSpec *spec = StrongRef_Get(running);
+  IndexSpecDiskSlotTrimResult result = INDEX_DISK_TRIM_CANCELLED;
+  if (spec && spec->diskSpec) {
+    SearchDiskWriteBatchHandle *batch = SearchDisk_CreateWriteBatch(spec->diskSpec);
+    if (batch) {
+      SearchDiskSlotTrimResult status =
+          SearchDisk_RunSlotTrimBatch(spec->diskSpec, batch, job->ranges, job->numRanges,
+                                      job->maxDocId, SLOT_CLEANUP_CHUNK_DOC_LIMIT,
+                                      trimMemoryIndexes, spec);
+      result = status == SEARCH_DISK_TRIM_FINISHED ? INDEX_DISK_TRIM_FINISHED
+               : status == SEARCH_DISK_TRIM_MORE   ? INDEX_DISK_TRIM_MORE
+                                                   : INDEX_DISK_TRIM_RETRY;
+      SearchDisk_FreeWriteBatch(batch);
+    } else {
+      result = INDEX_DISK_TRIM_RETRY;
+    }
+  }
+  if (running.rm) StrongRef_Release(running);
+  return result;
+}
 
 void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
   if (!job) return;
@@ -182,6 +233,8 @@ void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
 
 void SlotCleanup_StopDiskJobs(void) {
   atomic_store(&diskJobsStopped, true);
+  CleanPool_Resume();
+  CleanPool_Wait();
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
