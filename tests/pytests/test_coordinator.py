@@ -81,6 +81,43 @@ def testCountDistinctishAcrossShards():
     approx_count = int(to_dict(res[1])['approx'])
     env.assertAlmostEqual(exact_count, approx_count, delta=exact_count * 0.20)
 
+@skip(cluster=False)
+def testFirstValueAcrossShards():
+    """FIRST_VALUE is distributed (`distributeFirstValue` in `src/coord/dist_plan.cpp`): each
+    shard ships one pick per group together with the sort value it won with, and the
+    coordinator picks among the shards' picks by that value. The data is spread over the
+    shards and chosen so that each way of getting that merge wrong shows up:
+      - numeric sort keys whose numeric and lexicographic orders disagree,
+      - docs without the sort key, which must never win in either direction,
+      - a textual sort key, which is ranked bytewise.
+    """
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'name', 'TAG', 'price', 'NUMERIC').ok()
+
+    prices = [9, 10, 99, 100, 999, 1000, 9999, 10000]
+    for i, price in enumerate(prices):
+        conn.execute_command('HSET', f'doc:{i}', 'group', 'all',
+                             'name', f'n{price}', 'price', price)
+    # Members of the group with neither sort key.
+    for i in range(len(prices), 2 * len(prices)):
+        conn.execute_command('HSET', f'doc:{i}', 'group', 'all')
+
+    def first_value(*reducer_args):
+        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@group',
+                      'REDUCE', 'FIRST_VALUE', len(reducer_args), *reducer_args, 'AS', 'fv')
+        env.assertEqual(res[0], 1)
+        return to_dict(res[1])['fv']
+
+    env.assertEqual(first_value('@name', 'BY', '@price', 'DESC'), 'n10000')
+    env.assertEqual(first_value('@price', 'BY', '@price', 'DESC'), '10000')
+    env.assertEqual(first_value('@name', 'BY', '@price', 'ASC'), 'n9')
+    env.assertEqual(first_value('@name', 'BY', '@price'), 'n9')  # ASC is the default
+    env.assertEqual(first_value('@price', 'BY', '@name', 'DESC'), '9999')
+    env.assertEqual(first_value('@price', 'BY', '@name', 'ASC'), '10')
+    # Without BY any row of the group may be picked, including one without a name.
+    env.assertIn(first_value('@name'), {f'n{p}' for p in prices} | {None})
+
 @skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol

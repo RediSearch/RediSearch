@@ -496,6 +496,75 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+// `@ret [BY @sort [ASC|DESC]]`; any other shape returns false. `*sort` is null without
+// BY. `*dir` is spelled out even when omitted so that case and omitted-direction variants
+// of one request dedup to a single remote reducer.
+static bool parseFirstValueArgs(const ReducerDistCtx *rdctx, const char **sort,
+                                const char **dir) {
+  const ArgsCursor *args = &rdctx->srcReducer->args;
+  *sort = nullptr;
+  *dir = "ASC";
+  if (args->argc == 1) {
+    return true;
+  }
+  if ((args->argc != 3 && args->argc != 4) ||
+      strcasecmp(AC_StringArg(args, 1, NULL), "BY") != 0) {
+    return false;
+  }
+  *sort = rdctx->srcarg(2);
+  if (args->argc == 4) {
+    const char *d = AC_StringArg(args, 3, NULL);
+    if (!strcasecmp(d, "DESC")) {
+      *dir = "DESC";
+    } else if (strcasecmp(d, "ASC") != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* Distribute FIRST_VALUE.
+ *
+ * Each shard reduces its rows to one pick per group and the local FIRST_VALUE picks among
+ * the shards' picks. With BY, ranking the picks needs the sort value each one won with, so
+ * the remote side also emits `FIRST_VALUE @sort BY @sort <dir>` and the local reducer sorts
+ * by that alias. Both remote reducers see the same rows with the same tie-break, so the two
+ * values come from the same row. A shard whose group has no non-null sort value ships a null
+ * one and loses to any shard that has one, as a null-sort-key row does within a group.
+ * Without BY, "first" is first-seen on both sides, which is all the non-distributed plan
+ * promises too: shard replies arrive in no particular order.
+ */
+static int distributeFirstValue(ReducerDistCtx *rdctx, QueryError *status) {
+  PLN_Reducer *src = rdctx->srcReducer;
+  const char *sort, *dir;
+  if (!parseFirstValueArgs(rdctx, &sort, &dir)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "Invalid arguments for reducer %s", src->name);
+    return REDISMODULE_ERR;
+  }
+  const char *ret = rdctx->srcarg(0);
+  const char *retAlias;
+  if (!sort) {
+    if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "1", ret)) {
+      return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal("FIRST_VALUE", status, "1", retAlias, "AS", src->alias)) {
+      return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+  }
+  const char *sortAlias;
+  if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "4", ret, "BY", sort, dir) ||
+      !rdctx->addRemote("FIRST_VALUE", &sortAlias, status, "4", sort, "BY", sort, dir)) {
+    return REDISMODULE_ERR;
+  }
+  if (!rdctx->addLocal("FIRST_VALUE", status, "4", retAlias, "BY", sortAlias, dir, "AS",
+                       src->alias)) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -511,6 +580,7 @@ static struct {
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
     {"COLLECT", distributeCollect},
+    {"FIRST_VALUE", distributeFirstValue},
 
     {NULL, NULL}  // sentinel value
 
