@@ -907,13 +907,19 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
 
 PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
   long long nvars;
-  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK || nvars < 0) {
+    return NULL;
+  }
+  // A reducer is identified by its name and counted arguments; a trailing `AS alias` names
+  // its output and must not prevent a match.
+  ArgsCursor args;
+  if (AC_GetSlice(ac, &args, (size_t)nvars) != AC_OK) {
     return NULL;
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
     PLN_Reducer *gr = gstp->reducers + ii;
-    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(ac, &gr->args)) {
+    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(&args, &gr->args)) {
       return gr;
     }
   }

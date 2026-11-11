@@ -85,38 +85,103 @@ def testCountDistinctishAcrossShards():
 def testFirstValueAcrossShards():
     """FIRST_VALUE is distributed (`distributeFirstValue` in `src/coord/dist_plan.cpp`): each
     shard ships one pick per group together with the sort value it won with, and the
-    coordinator picks among the shards' picks by that value. The data is spread over the
-    shards and chosen so that each way of getting that merge wrong shows up:
-      - numeric sort keys whose numeric and lexicographic orders disagree,
-      - docs without the sort key, which must never win in either direction,
-      - a textual sort key, which is ranked bytewise.
+    coordinator picks among the shards' picks by that value. Keys are hash-tagged onto two
+    known shards, and the groups are built so that each way of getting that merge wrong
+    changes an answer:
+      - `prices`: the shards' best prices disagree between numeric and bytewise order in both
+        directions (999 vs 1000 going down, 9 vs 10 going up);
+      - `sparse`: one shard holds only rows without the sort key, which must lose to the other
+        shard's row whichever shard replies first;
+      - `nameless`: the row with the best price has no return value, so the answer is null;
+      - `single`: a group that exists on one shard only.
     """
     env = Env(shardsCount=2)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'name', 'TAG', 'price', 'NUMERIC').ok()
 
-    prices = [9, 10, 99, 100, 999, 1000, 9999, 10000]
-    for i, price in enumerate(prices):
-        conn.execute_command('HSET', f'doc:{i}', 'group', 'all',
-                             'name', f'n{price}', 'price', price)
-    # Members of the group with neither sort key.
-    for i in range(len(prices), 2 * len(prices)):
-        conn.execute_command('HSET', f'doc:{i}', 'group', 'all')
+    # (hash tag, group, name, price); a None field is left off the hash.
+    docs = [
+        ('lo', 'prices', 'n9', 9), ('lo', 'prices', 'n50', 50),
+        ('lo', 'prices', 'n999', 999),
+        ('hi', 'prices', 'n10', 10), ('hi', 'prices', 'n100', 100),
+        ('hi', 'prices', 'n1000', 1000),
+        ('lo', 'sparse', 's_lo_1', None), ('lo', 'sparse', 's_lo_2', None),
+        ('hi', 'sparse', 's_hi', 7),
+        ('lo', 'nameless', 'nm_lo', 5), ('hi', 'nameless', None, 8),
+        ('hi', 'single', 'only', 3),
+    ]
+    for i, (tag, group, name, price) in enumerate(docs):
+        fields = ['group', group]
+        fields += ['name', name] if name is not None else []
+        fields += ['price', price] if price is not None else []
+        conn.execute_command('HSET', f'doc:{i}:{{{tag}}}', *fields)
+    # The scenarios only hold if the two tags land on different shards.
+    shards_holding = {tag: [shard for shard in range(1, env.shardsCount + 1)
+                            if env.getConnection(shard).keys(f'*{{{tag}}}')]
+                      for tag in ('lo', 'hi')}
+    env.assertEqual([len(s) for s in shards_holding.values()], [1, 1], message=shards_holding)
+    env.assertNotEqual(shards_holding['lo'], shards_holding['hi'], message=shards_holding)
 
-    def first_value(*reducer_args):
-        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@group',
-                      'REDUCE', 'FIRST_VALUE', len(reducer_args), *reducer_args, 'AS', 'fv')
-        env.assertEqual(res[0], 1)
-        return to_dict(res[1])['fv']
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@group',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'DESC', 'AS', 'top_name',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@price', 'DESC', 'AS', 'top_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'ASC', 'AS', 'bottom_name',
+                  'REDUCE', 'FIRST_VALUE', '3', '@name', 'BY', '@price', 'AS', 'default_dir_name',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@name', 'DESC',
+                  'AS', 'last_name_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@name', 'ASC',
+                  'AS', 'first_name_price',
+                  'REDUCE', 'FIRST_VALUE', '1', '@name', 'AS', 'any_name',
+                  'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res[0], 4, message=res)
+    groups = {row['group']: row for row in map(to_dict, res[1:])}
 
-    env.assertEqual(first_value('@name', 'BY', '@price', 'DESC'), 'n10000')
-    env.assertEqual(first_value('@price', 'BY', '@price', 'DESC'), '10000')
-    env.assertEqual(first_value('@name', 'BY', '@price', 'ASC'), 'n9')
-    env.assertEqual(first_value('@name', 'BY', '@price'), 'n9')  # ASC is the default
-    env.assertEqual(first_value('@price', 'BY', '@name', 'DESC'), '9999')
-    env.assertEqual(first_value('@price', 'BY', '@name', 'ASC'), '10')
     # Without BY any row of the group may be picked, including one without a name.
-    env.assertIn(first_value('@name'), {f'n{p}' for p in prices} | {None})
+    expected_any_name = {
+        'prices': {'n9', 'n50', 'n999', 'n10', 'n100', 'n1000'},
+        'sparse': {'s_lo_1', 's_lo_2', 's_hi'},
+        'nameless': {'nm_lo', None},
+        'single': {'only'},
+    }
+    expected = {
+        'prices': {'top_name': 'n1000', 'top_price': '1000',
+                   'bottom_name': 'n9', 'default_dir_name': 'n9',
+                   'last_name_price': '999', 'first_name_price': '10', 'cnt': '6'},
+        'sparse': {'top_name': 's_hi', 'top_price': '7',
+                   'bottom_name': 's_hi', 'default_dir_name': 's_hi',
+                   'last_name_price': None, 'first_name_price': '7', 'cnt': '3'},
+        'nameless': {'top_name': None, 'top_price': '8',
+                     'bottom_name': 'nm_lo', 'default_dir_name': 'nm_lo',
+                     'last_name_price': '5', 'first_name_price': '5', 'cnt': '2'},
+        'single': {'top_name': 'only', 'top_price': '3',
+                   'bottom_name': 'only', 'default_dir_name': 'only',
+                   'last_name_price': '3', 'first_name_price': '3', 'cnt': '1'},
+    }
+    env.assertEqual(set(groups), set(expected), message=res)
+    for group, row in groups.items():
+        env.assertIn(row.pop('any_name'), expected_any_name[group], message=res)
+        row.pop('group')
+        env.assertEqual(row, expected[group], message=f'{group}: {res}')
+
+def testFirstValueRequiresLoadedProperty(env):
+    """A FIRST_VALUE over a property that is neither in the schema nor LOADed is rejected the
+    same way in standalone and in cluster, where the reducer now runs on the shards and follows
+    their rule, as SUM and MAX always have."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 'name', 'x')
+
+    for reducer in (['FIRST_VALUE', '1', '@name'],
+                    ['FIRST_VALUE', '3', '@name', 'BY', '@g'],
+                    ['FIRST_VALUE', '3', '@g', 'BY', '@name']):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                   'REDUCE', *reducer, 'AS', 'fv') \
+           .error().contains('Property not loaded nor in pipeline')
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name', 'GROUPBY', '1', '@g',
+               'REDUCE', 'FIRST_VALUE', '3', '@name', 'BY', '@g', 'AS', 'fv') \
+       .equal([1, ['g', 'a', 'fv', 'x']])
 
 @skip(cluster=True)
 def test_required_fields(env):

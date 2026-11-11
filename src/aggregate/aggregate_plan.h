@@ -202,8 +202,8 @@ typedef struct PLN_Reducer PLN_Reducer;
  * Find a reducer by name and args in the group step
  * @param gstp the group step
  * @param name the name of the reducer
- * @param ac arguments to the reducer; if an alias is used, it is provided
- *  here as well. The reducer borrows the `AS` alias, so its string must outlive the plan.
+ * @param ac the reducer's `<nargs> <args...>`, optionally followed by `AS <alias>`; the
+ *  alias is not part of the match, since it names the output rather than the reducer.
  */
 PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac);
 

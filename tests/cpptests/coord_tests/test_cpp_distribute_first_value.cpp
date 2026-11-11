@@ -153,6 +153,8 @@ TEST_F(DistributeFirstValueTest, WithBy_ShipsSortValueAndDefaultsToAsc) {
   EXPECT_EQ(argsOf(remote[0]), (Argv{"title", "BY", "price", "ASC"}));
   EXPECT_EQ(argsOf(remote[1]), (Argv{"price", "BY", "price", "ASC"}));
   EXPECT_EQ(argsOf(local[0]), (Argv{remote[0]->alias, "BY", remote[1]->alias, "ASC"}));
+  EXPECT_STREQ(remote[0]->alias, "__first_value(title,price,ASC)");
+  EXPECT_STREQ(remote[1]->alias, "__first_value(price,price,ASC)");
   EXPECT_STREQ(local[0]->alias, "fv");
 
   AREQ_Free(r);
@@ -196,6 +198,53 @@ TEST_F(DistributeFirstValueTest, SortKeyIsReturnKey_SingleRemoteReducer) {
 
   EXPECT_EQ(argsOf(remote[0]), (Argv{"price", "BY", "price", "DESC"}));
   EXPECT_EQ(argsOf(local[0]), (Argv{remote[0]->alias, "BY", remote[0]->alias, "DESC"}));
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, CaseDistinctFields_GetDistinctRemoteAliases) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distribute({"@Price", "BY", "@price", "ASC"}, {}, &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // Field names are case-sensitive, so these are two different reducers and must not
+  // share an output name on the shard.
+  Groups g = locateGroups(plan);
+  auto remote = reducersNamed(g.remote, "FIRST_VALUE");
+  ASSERT_EQ(remote.size(), 2u);
+  EXPECT_EQ(argsOf(remote[0]), (Argv{"Price", "BY", "price", "ASC"}));
+  EXPECT_EQ(argsOf(remote[1]), (Argv{"price", "BY", "price", "ASC"}));
+  EXPECT_STRNE(remote[0]->alias, remote[1]->alias);
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, SharedSortKey_DedupsAcrossReducers) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distribute({"@a", "BY", "@p", "DESC"},
+                       {"REDUCE", "FIRST_VALUE", "4", "@b", "BY", "@p", "DESC", "AS", "fv2"},
+                       &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // Two user reducers over the same sort key share one remote sort-value reducer.
+  Groups g = locateGroups(plan);
+  auto remote = reducersNamed(g.remote, "FIRST_VALUE");
+  auto local = reducersNamed(g.local, "FIRST_VALUE");
+  ASSERT_EQ(remote.size(), 3u);
+  ASSERT_EQ(local.size(), 2u);
+  const PLN_Reducer *sortReducer = nullptr;
+  for (const PLN_Reducer *rr : remote) {
+    if (argsOf(rr) == (Argv{"p", "BY", "p", "DESC"})) sortReducer = rr;
+  }
+  ASSERT_NE(sortReducer, nullptr);
+  EXPECT_EQ(argsOf(local[0])[2], std::string(sortReducer->alias));
+  EXPECT_EQ(argsOf(local[1])[2], std::string(sortReducer->alias));
 
   AREQ_Free(r);
 }
