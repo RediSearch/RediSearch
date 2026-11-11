@@ -1249,6 +1249,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   }
 }
 
+// Jobs can stall after startup on enqueue/storage failure or a checkpoint pause.
+// Retry them periodically and reap completed jobs; disk work stays on CleanPool.
 static void RetryDiskSlotCleanup(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (SearchDisk_IsInitialized() && !g_isLoading) {
