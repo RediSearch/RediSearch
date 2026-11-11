@@ -12,6 +12,7 @@
 #include "common.h"
 #include "llapi_test_helpers.h"
 #include "gc/index_gc.h"
+#include "gc/gc.h"
 #include "tag_index.h"
 #include "rules.h"
 #include "query_error_ffi.h"
@@ -31,6 +32,7 @@ extern "C" {
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <climits>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -830,4 +832,15 @@ TEST_F(IndexGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
   job.hold = false;
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
+}
+
+TEST(GCInterval, SecondsToMsClampsSoJitterCannotOverflow) {
+  EXPECT_EQ(GC_IntervalSecToMs(0), 0);
+  EXPECT_EQ(GC_IntervalSecToMs(1), 1000);
+  EXPECT_EQ(GC_IntervalSecToMs(30), 30000);
+  for (size_t sec : {(size_t)LLONG_MAX / 1000, (size_t)LLONG_MAX, SIZE_MAX}) {
+    long long ms = GC_IntervalSecToMs(sec);
+    EXPECT_GT(ms, 0);
+    EXPECT_LE(ms, LLONG_MAX / 2);  // the jitter may add up to ms - 1
+  }
 }

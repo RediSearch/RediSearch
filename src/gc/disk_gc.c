@@ -238,7 +238,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 
 static long long getIntervalMsCb(void *ctx) {
   const DiskGC *gc = ctx;
-  return gc->intervalSec * 1000LL;
+  return GC_IntervalSecToMs(gc->intervalSec);
 }
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {

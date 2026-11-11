@@ -126,7 +126,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryIntervalMs = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec * 1000LL;
+  forkGc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);

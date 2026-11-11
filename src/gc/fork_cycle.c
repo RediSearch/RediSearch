@@ -178,7 +178,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
-    gc->retryIntervalMs = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval * 1000LL;
+    gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval);
     IndexSpecRef_Release(early_check);
 
     GilGate_Unlock(&gcGilGate_g, ctx);
@@ -194,7 +194,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   size_t num_docs_to_clean = gc->deletedOrUpdatedDocsFromLastRun;
   gc->deletedOrUpdatedDocsFromLastRun = 0;
 
-  gc->retryIntervalMs = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec * 1000LL;
+  gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
 
   GilGate_Unlock(&gcGilGate_g, ctx);
 
