@@ -368,6 +368,9 @@ typedef struct RSAddDocumentCtx {
   struct {
     SearchDiskWriteBatchHandle *batch;
     uint32_t oldDocLen;
+    // Length staged into the new doc-table row; `applyDocTable` records the same value in
+    // DocIdMeta and the scoring stats.
+    uint32_t docLen;
     // Optional already-open key handle for the document, supplied by the caller
     // (e.g. the async scan key callback, where the engine hands us an open,
     // pinned key). When non-NULL, applyDocTable updates the DocIdMeta mapping
