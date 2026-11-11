@@ -138,7 +138,7 @@ def testRangeParentsConfig(env):
     env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
 @skip(cluster=True)
-def testForkGCPartialCleanKeepsSpecInvertedSizeInStepWithTree(env):
+def testForkGCPartialCleanKeepsSpecInvertedSizeInStepWithTree():
     """A fork GC that deletes only some entries rewrites the blocks it touches,
     so it reports both collected and allocated bytes. Checks, through a real
     fork, that the spec's `inverted_sz_mb` moves by exactly as much as the
@@ -146,82 +146,67 @@ def testForkGCPartialCleanKeepsSpecInvertedSizeInStepWithTree(env):
     either number being dropped on its way to the spec. That the counter
     matches the ranges' real size is checked in `index_gc/tests/numeric.rs`
     (`applied_byte_stats_match_the_tree_size_change`)."""
-    restore = {name: env.cmd(config_cmd(), 'GET', name)[0][1]
-               for name in ('FORK_GC_RUN_INTERVAL', 'FORK_GC_CLEAN_THRESHOLD')}
-    try:
-        # Only the forced run below may collect, so the "before" sizes are pre-GC.
-        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).ok()
-        env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    # Only the forced run below may collect, so the "before" sizes are pre-GC.
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 3600 FORK_GC_CLEAN_THRESHOLD 0')
 
-        conn = getConnectionByEnv(env)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-        num_docs = 2000
-        for i in range(num_docs):
-            conn.execute_command('HSET', f'doc{i}', 'n', i)
-        # Deleting every other doc leaves survivors in every block and every leaf.
-        for i in range(1, num_docs, 2):
-            conn.execute_command('DEL', f'doc{i}')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    num_docs = 2000
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+    # Deleting every other doc leaves survivors in every block and every leaf.
+    for i in range(1, num_docs, 2):
+        conn.execute_command('DEL', f'doc{i}')
 
-        def sizes():
-            spec_bytes = round(float(index_info(env, 'idx')['inverted_sz_mb']) * 1024 * 1024)
-            return spec_bytes, numeric_tree_summary(env, 'idx', 'n')
+    def sizes():
+        spec_bytes = round(float(index_info(env, 'idx')['inverted_sz_mb']) * 1024 * 1024)
+        return spec_bytes, numeric_tree_summary(env, 'idx', 'n')
 
-        spec_before, tree_before = sizes()
-        forceInvokeGC(env, 'idx')
-        spec_after, tree_after = sizes()
+    spec_before, tree_before = sizes()
+    forceInvokeGC(env, 'idx')
+    spec_after, tree_after = sizes()
 
-        env.assertEqual(tree_after['numEntries'], num_docs // 2, message=tree_after)
-        # `MemoryUsage` also counts tree nodes; they only change if a leaf empties
-        # and gets trimmed, so the tree's delta is purely its inverted indexes.
-        env.assertEqual(tree_after['emptyLeaves'], 0, message=tree_after)
-        env.assertEqual(tree_after['numRanges'], tree_before['numRanges'], message=tree_after)
-        tree_shrink = tree_before['MemoryUsage'] - tree_after['MemoryUsage']
-        env.assertGreater(tree_shrink, 0, message=(tree_before, tree_after))
-        env.assertEqual(spec_before - spec_after, tree_shrink,
-                        message=(spec_before, spec_after, tree_before, tree_after))
-    finally:
-        for name, value in restore.items():
-            env.expect(config_cmd(), 'SET', name, value).ok()
+    env.assertEqual(tree_after['numEntries'], num_docs // 2, message=tree_after)
+    # `MemoryUsage` also counts tree nodes; they only change if a leaf empties
+    # and gets trimmed, so the tree's delta is purely its inverted indexes.
+    env.assertEqual(tree_after['emptyLeaves'], 0, message=tree_after)
+    env.assertEqual(tree_after['numRanges'], tree_before['numRanges'], message=tree_after)
+    tree_shrink = tree_before['MemoryUsage'] - tree_after['MemoryUsage']
+    env.assertGreater(tree_shrink, 0, message=(tree_before, tree_after))
+    env.assertEqual(spec_before - spec_after, tree_shrink,
+                    message=(spec_before, spec_after, tree_before, tree_after))
 
 
 @skip(cluster=True)
-def testGCCleanNumericTrimsEmptyLeaves(env):
+def testGCCleanNumericTrimsEmptyLeaves():
     """`FT.DEBUG GC_CLEAN_NUMERIC` trims the leaves a fork GC left empty. The GC's
     own trimming is turned off, so the empty leaves are still there when the
     debug command runs."""
-    restore = {name: env.cmd(config_cmd(), 'GET', name)[0][1]
-               for name in ('FORK_GC_RUN_INTERVAL', 'FORK_GC_CLEAN_THRESHOLD',
-                            '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')}
-    try:
-        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).ok()
-        env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-        env.expect(config_cmd(), 'SET', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false').ok()
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 3600 FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect(config_cmd(), 'SET', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false').ok()
 
-        conn = getConnectionByEnv(env)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-        num_docs = 2000
-        for i in range(num_docs):
-            conn.execute_command('HSET', f'doc{i}', 'n', i)
-        # Distinct values split the tree into many leaves by value, so deleting
-        # the lower half of the values empties the leaves that hold them.
-        for i in range(num_docs // 2):
-            conn.execute_command('DEL', f'doc{i}')
-        forceInvokeGC(env, 'idx')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    num_docs = 2000
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+    # Distinct values split the tree into many leaves by value, so deleting
+    # the lower half of the values empties the leaves that hold them.
+    for i in range(num_docs // 2):
+        conn.execute_command('DEL', f'doc{i}')
+    forceInvokeGC(env, 'idx')
 
-        before = numeric_tree_summary(env, 'idx', 'n')
-        env.assertGreater(before['emptyLeaves'], 0, message=before)
+    before = numeric_tree_summary(env, 'idx', 'n')
+    env.assertGreater(before['emptyLeaves'], 0, message=before)
 
-        env.expect(debug_cmd(), 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
+    env.expect(debug_cmd(), 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
 
-        after = numeric_tree_summary(env, 'idx', 'n')
-        env.assertEqual(after['emptyLeaves'], 0, message=after)
-        env.assertLess(after['numRanges'], before['numRanges'], message=(before, after))
-        env.assertEqual(after['numEntries'], num_docs // 2, message=after)
-        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT', 'LIMIT', 0, 0)
-        env.assertEqual(res, [num_docs // 2])
-    finally:
-        for name, value in restore.items():
-            env.expect(config_cmd(), 'SET', name, value).ok()
+    after = numeric_tree_summary(env, 'idx', 'n')
+    env.assertEqual(after['emptyLeaves'], 0, message=after)
+    env.assertLess(after['numRanges'], before['numRanges'], message=(before, after))
+    env.assertEqual(after['numEntries'], num_docs // 2, message=after)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT', 'LIMIT', 0, 0)
+    env.assertEqual(res, [num_docs // 2])
 
 
 @skip(cluster=True)

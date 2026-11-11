@@ -82,7 +82,7 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(const GCContext* gc, struct timespec interval) {
+long long GCContext_NextPeriodMs(const GCContext* gc, struct timespec interval) {
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
 
   // Spread forks and disk compactions of indexes and shards that would otherwise start together.
@@ -99,7 +99,7 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(gc, interval), timerCallback, gc);
+  return RedisModule_CreateTimer(RSDummyContext, GCContext_NextPeriodMs(gc, interval), timerCallback, gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
