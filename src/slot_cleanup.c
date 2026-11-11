@@ -331,10 +331,8 @@ void SlotCleanup_RetryDiskJobs(void) {
 void SlotCleanup_StopDiskJobs(void) {
   atomic_store(&diskJobsStopped, true);
   // Queued jobs cancel without storage access; active batches finish before close.
-  if (SearchDisk_IsEnabled()) {
-    CleanPool_Resume();
-    CleanPool_Wait();
-  }
+  CleanPool_Resume();
+  CleanPool_Wait();
   while (diskJobs) {
     IndexSpecSlotTrimJob *job = diskJobs;
     diskJobs = job->next;

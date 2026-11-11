@@ -1930,7 +1930,9 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
-  SlotCleanup_StopDiskJobs();
+  if (SearchDisk_IsEnabled()) {
+    SlotCleanup_StopDiskJobs();
+  }
   SearchDisk_StopMetrics();
 
   // First free all indexes

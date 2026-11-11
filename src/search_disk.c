@@ -241,7 +241,9 @@ void SearchDisk_StopMetrics(void) {
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
-    SlotCleanup_StopDiskJobs();
+    if (SearchDisk_IsEnabled()) {
+      SlotCleanup_StopDiskJobs();
+    }
     SearchDisk_StopMetrics();
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;

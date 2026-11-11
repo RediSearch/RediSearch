@@ -1765,7 +1765,9 @@ TEST_F(DiskSlotTrimTest, DiskShutdownDoesNotWaitOnRamCleanupJobs) {
             0);
   ASSERT_EQ(started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
   isFlex = false;
-  auto stop = std::async(std::launch::async, [] { SlotCleanup_StopDiskJobs(); });
+  api.metrics.stopMetrics = [](RedisSearchDisk *) {};
+  api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {};
+  auto stop = std::async(std::launch::async, [] { SearchDisk_Close(RSDummyContext); });
   EXPECT_EQ(stop.wait_for(std::chrono::seconds(1)), std::future_status::ready);
   release.set_value();
   stop.get();
