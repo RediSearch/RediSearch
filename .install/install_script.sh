@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eo pipefail
 
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
@@ -11,6 +12,9 @@ else
     VERSION=${VERSION#"VERSION_ID="}
     OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
     OS_NAME=${OS_NAME#"NAME="}
+    # AlmaLinux and RHEL are compatible with Rocky Linux install scripts.
+    [[ $OS_NAME == 'AlmaLinux' ]] && OS_NAME='Rocky Linux'
+    [[ $OS_NAME == 'Red Hat Enterprise Linux' ]] && OS_NAME='Rocky Linux'
     [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
     [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
     OS=${OS_NAME,,}_${VERSION}
@@ -21,16 +25,13 @@ echo $OS
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
 
-# run in a subshell to let this script continue if install_boost.sh calls exit 0
-(source ./install_boost.sh)
-BOOST_EXIT_CODE=$?
-
-# propagate the exit code
-if [[ $BOOST_EXIT_CODE -ne 0 ]]; then
-    echo "Boost installation failed with exit code $BOOST_EXIT_CODE, stopping the script."
-    exit $BOOST_EXIT_CODE
+# Boost is only useful when the build runs from the same checkout this script
+# populates. The CI image builds from /project but jobs build from a fresh
+# workspace checkout, so a baked boost is never used (CMake FetchContent
+# re-fetches it). Allow the image build to skip it via SKIP_BOOST=1.
+if [[ "${SKIP_BOOST:-0}" != 1 ]]; then
+    source ./install_boost.sh
 fi
-
 # Install Rust and Python here since they're needed on all platforms and
 # the installer doesn't rely on any platform-specific tools (e.g. the package manager)
 source install_rust.sh
