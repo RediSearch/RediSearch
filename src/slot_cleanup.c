@@ -233,10 +233,8 @@ void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
 
 void SlotCleanup_StopDiskJobs(void) {
   atomic_store(&diskJobsStopped, true);
-  if (SearchDisk_IsEnabled()) {
-    CleanPool_Resume();
-    CleanPool_Wait();
-  }
+  CleanPool_Resume();
+  CleanPool_Wait();
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
