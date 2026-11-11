@@ -80,10 +80,11 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   // Stage the doc-table write and obtain the new doc-id. The doc-id is
   // assigned synchronously even though the batch has not yet committed.
+  aCtx->disk.docLen = aCtx->fwIdx->totalFreq;
   t_docId docId = aCtx->disk.batch
     ? SearchDisk_PutDocument(spec->diskSpec, aCtx->disk.batch, key, len,
         aCtx->doc->score, aCtx->docFlags, aCtx->fwIdx->maxTermFreq,
-        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, oldDocId, oldDocLen)
+        aCtx->disk.docLen, &oldLen, aCtx->doc->docExpirationTime, oldDocId, oldDocLen)
     : 0;
 
   // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
@@ -209,8 +210,7 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  */
 static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  // The length recorded with the docId must be the one staged into the doc-table row.
-  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId, aCtx->fwIdx->totalFreq);
+  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId, aCtx->disk.docLen);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
@@ -229,7 +229,7 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     Indexer_HandleReplacedDocVectorAndGeometry(spec, aCtx->oldDocId, aCtx);
     Indexer_RemoveOldDocStats(spec, aCtx->disk.oldDocLen);
   }
-  Indexer_AddNewDocStats(spec, aCtx->fwIdx->totalFreq);
+  Indexer_AddNewDocStats(spec, aCtx->disk.docLen);
 
   handle_gc(spec, replaced);
 }

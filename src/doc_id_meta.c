@@ -422,7 +422,7 @@ static const DocIdMetaEntry *docIdMetaFindWithOpenKey(RedisModuleKey *key, uint6
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
     return NULL;
   }
-  dictEntry *de = dictFind((dict *)meta, SPECID_TO_KEY(specId));
+  const dictEntry *de = dictFind((dict *)meta, SPECID_TO_KEY(specId));
   if (!de) {
     return NULL;
   }

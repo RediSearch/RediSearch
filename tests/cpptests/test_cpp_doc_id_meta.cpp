@@ -163,9 +163,9 @@ class DocIdMetaTest : public ::testing::Test {
   // Helper: write a version-1 payload, (specId, docId) pairs with no length, into rdbIO.
   void writeVersion1Payload(const std::vector<std::pair<uint64_t, uint64_t>> &entries) {
     RedisModule_SaveUnsigned(rdbIO, entries.size());
-    for (const auto &entry : entries) {
-      RedisModule_SaveUnsigned(rdbIO, entry.first);
-      RedisModule_SaveUnsigned(rdbIO, entry.second);
+    for (const auto &[specId, docId] : entries) {
+      RedisModule_SaveUnsigned(rdbIO, specId);
+      RedisModule_SaveUnsigned(rdbIO, docId);
     }
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
   }
