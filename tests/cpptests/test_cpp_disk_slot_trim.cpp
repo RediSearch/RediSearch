@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <future>
@@ -1612,6 +1613,12 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
   EXPECT_NE(invoke(false, true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
+  // A forced run that finds its index dropped terminates and frees the context, as a scheduled
+  // run does, so it needs one from the heap rather than the fixture's.
+  auto *owned = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
+  memcpy(owned, &gc, sizeof(GCContext));
+  gc.gcCtx = nullptr;
+  spec->gc = owned;
   EXPECT_NE(invoke(true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
