@@ -11,6 +11,7 @@
 #include "spec.h"
 #include "common.h"
 #include "llapi_test_helpers.h"
+#include "gc/gc.h"
 #include "gc/index_gc.h"
 #include "gc/gc.h"
 #include "index_gc_ffi.h"
@@ -29,6 +30,7 @@ extern "C" {
 #include "util/dict.h"
 }
 
+#include <climits>
 #include <iterator>
 #include <set>
 #include <random>
@@ -963,4 +965,38 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   WeakRef_Release(dropped);
   ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
   ASSERT_EQ(0, pruned);
+}
+
+// In-memory THREAD cycles fork nothing, so their timers fire on the interval; FORK and disk
+// contexts keep the spread that stops indexes and shards from starting together.
+TEST(GCTimerPeriod, OnlyInMemoryThreadContextsArmWithoutJitter) {
+  const GCPolicy savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
+  const struct timespec interval = {.tv_sec = 5, .tv_nsec = 0};
+  const long long intervalMs = 5000;
+  GCContext inMemory{}, disk{};
+  disk.diskGC = true;
+  auto range = [&](const GCContext &gc) {
+    long long lo = LLONG_MAX, hi = LLONG_MIN;
+    for (int i = 0; i < 1000; ++i) {
+      const long long ms = GCContext_NextPeriodMs(&gc, interval);
+      lo = std::min(lo, ms);
+      hi = std::max(hi, ms);
+    }
+    return std::make_pair(lo, hi);
+  };
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
+  EXPECT_EQ(range(inMemory), std::make_pair(intervalMs, intervalMs));
+  auto [diskLo, diskHi] = range(disk);
+  EXPECT_GE(diskLo, intervalMs);
+  EXPECT_LT(diskHi, 2 * intervalMs);
+  EXPECT_GT(diskHi, diskLo);  // 1000 draws over 5 seconds all landing on one is no spread
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  auto [forkLo, forkHi] = range(inMemory);
+  EXPECT_GE(forkLo, intervalMs);
+  EXPECT_LT(forkHi, 2 * intervalMs);
+  EXPECT_GT(forkHi, forkLo);
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
 }
