@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude a platform on every architecture, and "!platform~arch" to exclude a single platform/architecture combination (e.g., "all,!intel,!macos-26~x86_64")'
+        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude a platform on every architecture, and "!platform~arch" to exclude a single platform/architecture combination (e.g., "all,!rockylinux:8,!ubuntu:jammy~aarch64")'
         type: string
         default: all
       architecture:
@@ -55,25 +55,16 @@ jobs:
               ('ubuntu:noble', 'aarch64'),
               ('ubuntu:jammy', 'x86_64'),
               ('ubuntu:jammy', 'aarch64'),
-              ('ubuntu:focal', 'x86_64'),
-              ('ubuntu:focal', 'aarch64'),
               ('rockylinux:8', 'x86_64'),
               ('rockylinux:8', 'aarch64'),
               ('rockylinux:9', 'x86_64'),
               ('rockylinux:9', 'aarch64'),
-              ('amazonlinux:2', 'x86_64'),
-              ('amazonlinux:2023', 'x86_64'),
-              ('amazonlinux:2023', 'aarch64'),
               ('debian:bookworm', 'x86_64'),
               ('debian:bookworm', 'aarch64'),
-              ('mariner:2', 'x86_64'),
-              ('azurelinux:3', 'x86_64'),
-              ('azurelinux:3', 'aarch64'),
               ('alpine:3.22', 'x86_64'),
               ('alpine:3.22', 'aarch64'),
               ('macos-15', 'aarch64'),
               ('macos-26', 'aarch64'),
-              ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
           platform_filter = "${{ inputs.platform }}"
