@@ -55,6 +55,9 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
   }
 
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+    // Nothing is left to retry: without this, a threshold raised after a failed fork would
+    // keep the index on the retry interval until enough changes accumulate.
+    gc->schedState = INDEX_GC_SCHED_OK;
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -115,19 +118,33 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
-static struct timespec getIntervalCb(void *ctx) {
-  IndexGC *gc = ctx;
-  return gc->retryInterval;
+static GCTimerPlan nextTimerCb(void *ctx) {
+  const IndexGC *gc = ctx;
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  if (gc->schedState == INDEX_GC_SCHED_FORK_FAILED) {
+    return (GCTimerPlan){.kind = GC_TIMER_RETRY, .intervalSec = settings->forkGcRetryInterval};
+  }
+  return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL,
+                       .intervalSec = settings->forkGcRunIntervalSec};
+}
+
+static bool indexExistsCb(void *ctx) {
+  const IndexGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  if (!StrongRef_Get(ref)) {
+    return false;
+  }
+  StrongRef_Release(ref);
+  return true;
 }
 
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   IndexGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (IndexGC){
       .index = StrongRef_Demote(spec_ref),
+      .schedState = INDEX_GC_SCHED_OK,
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
-  forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -136,7 +153,8 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getInterval = getIntervalCb;
+  callbacks->nextTimer = nextTimerCb;
+  callbacks->indexExists = indexExistsCb;
   callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;

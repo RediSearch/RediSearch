@@ -24,6 +24,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "rs_wall_clock.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
@@ -81,46 +82,55 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
 }
 
 long long GC_TimerDelayMs(size_t intervalSec, unsigned long draw) {
-  const size_t maxSec = RS_MAX_TIMER_DELAY_MS / 1000;
+  const size_t maxSec = LLONG_MAX / 1000;
   if (intervalSec >= maxSec) {
-    return RS_MAX_TIMER_DELAY_MS;
+    return LLONG_MAX;
   }
-  // Randomness avoids congestion by GCs from different shards. Below the cap, both terms are
-  // under maxSec, so neither the sum nor the conversion can overflow.
+  // Randomness avoids congestion by GCs from different shards. Below maxSec, both terms are
+  // under it, so neither the sum nor the conversion can overflow.
   const size_t jitterSec = intervalSec ? draw % intervalSec : 0;
   const size_t totalSec = intervalSec + jitterSec;
-  return totalSec >= maxSec ? RS_MAX_TIMER_DELAY_MS : (long long)totalSec * 1000;
+  return totalSec >= maxSec ? LLONG_MAX : (long long)totalSec * 1000;
 }
 
-// Every interval callback reports whole seconds, so tv_nsec is not read.
-static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval) {
-  if (RS_IsMock) return 0;
+static uint64_t GC_ClockNowMs(void) {
+  return rs_wall_clock_convert_ns_to_ms(rs_wall_clock_now_ns());
+}
+uint64_t (*GC_NowMs)(void) = GC_ClockNowMs;
 
-  IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext,
-                                 GC_TimerDelayMs((size_t)interval.tv_sec, (unsigned long)rand()),
-                                 timerCallback, gc);
+// Arms the timer for the next step toward `deadlineMs`, keeping the deadline for the step's
+// callback while it lies further than one module timer can wait.
+static void GCContext_ArmStep(GCContext* gc, uint64_t deadlineMs, uint64_t nowMs) {
+  const bool shortOfDeadline =
+      deadlineMs > nowMs && deadlineMs - nowMs > (uint64_t)RS_MAX_TIMER_DELAY_MS;
+  gc->stepDeadlineMs = shortOfDeadline ? deadlineMs : 0;
+  gc->timerID = RedisModule_CreateTimer(
+      RSDummyContext, RS_TimerDelayToDeadlineMs(deadlineMs, nowMs), timerCallback, gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
 // the no-timer-while-a-run-is-pending invariant comes from QueueRun declining and timerCallback
 // zeroing timerID, not from the RunPending check here. A spec paused for a consistency window
 // arms nothing; the window's resume re-arms it.
-static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
+static bool GCContext_ArmTimer(GCContext* gc) {
   if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
       GCContext_IsSchedulingPaused(gc)) {
     return false;
   }
-  gc->timerID = scheduleNextIn(gc, interval);
+  if (RS_IsMock) {
+    return false;  // the unit-test harness has no timers
+  }
+  const GCTimerPlan plan = gc->callbacks.nextTimer(gc->gcCtx);
+  IncrementGCTimerArm();
+  const uint64_t now = GC_NowMs();
+  const uint64_t delay = (uint64_t)GC_TimerDelayMs(plan.intervalSec, (unsigned long)rand());
+  GCContext_ArmStep(gc, delay > UINT64_MAX - now ? UINT64_MAX : now + delay, now);
   if (gc->timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
     return false;
   }
+  gc->armedPlan = plan;
   return true;
-}
-
-static void GCContext_ArmTimer(GCContext* gc) {
-  GCContext_ArmTimerIn(gc, gc->callbacks.getInterval(gc->gcCtx));
 }
 
 static void GCContext_DisarmTimer(GCContext* gc) {
@@ -146,11 +156,13 @@ static void GCContext_QueueRun(GCContext* gc) {
 }
 
 // Posted from the GC thread, run on the main thread. The pass keeps RUN_PENDING until here,
-// so nothing could arm a timer or queue a run while the post was in flight.
+// so nothing could arm a timer or queue a run while the post was in flight. The interval is
+// read here rather than by the pass, so a change that lands while the post is in flight is
+// not missed.
 static void rearmOneShotCb(void* data) {
   GCContext* gc = data;
   RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
-  if (GCContext_ArmTimerIn(gc, gc->pendingInterval)) {
+  if (GCContext_ArmTimer(gc)) {
     IncrementGCTimerArmFromOneShot();
   }
 }
@@ -173,7 +185,6 @@ static void taskCallback(void* data) {
       RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
       return;
     }
-    gc->pendingInterval = gc->callbacks.getInterval(gc->gcCtx);
 
     // Test hook (ENABLE_ASSERT): park with the pass over but the re-arm not yet posted -- the
     // window a drop can overtake, where RUN_PENDING is held by a run that no longer exists.
@@ -217,6 +228,15 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 
   if (!gc->enabled || GCContext_IsSchedulingPaused(gc)) {
     return;  // the resume path re-arms
+  }
+  // A step short of the deadline, not a new arm: the plan and the deadline carry over. A dropped
+  // index skips the rest, so the run that frees this context comes now.
+  if (gc->stepDeadlineMs && gc->callbacks.indexExists(gc->gcCtx)) {
+    GCContext_ArmStep(gc, gc->stepDeadlineMs, GC_NowMs());
+    if (gc->timerID == 0) {
+      RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
+    }
+    return;
   }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allowed it means that there is a state machine running
@@ -282,6 +302,25 @@ void GCContext_StopFutureRuns(GCContext* gc) {
 
 bool GCContext_IsEnabled(const GCContext* gc) {
   return gc->enabled;
+}
+
+void GCContext_OnIntervalChanged(GCContext* gc) {
+  if (!gc) {
+    return;
+  }
+  // A live timer means no run holds RUN_PENDING, GC is enabled and scheduling is not paused --
+  // every path that leaves those states disarms -- so the re-arm below cannot decline.
+  if (!gc->timerID || gc->armedPlan.kind != GC_TIMER_RUN_INTERVAL) {
+    return;
+  }
+  // Compared with what the timer was armed with, not with the interval before the change: a
+  // repeated change must not postpone GC, and a CONFIG SET since the arm still counts.
+  const GCTimerPlan next = gc->callbacks.nextTimer(gc->gcCtx);
+  if (next.kind == gc->armedPlan.kind && next.intervalSec == gc->armedPlan.intervalSec) {
+    return;
+  }
+  GCContext_DisarmTimer(gc);
+  GCContext_ArmTimer(gc);
 }
 
 void GCContext_PauseScheduling(GCContext* gc) {
