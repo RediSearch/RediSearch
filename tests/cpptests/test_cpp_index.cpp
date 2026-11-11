@@ -1158,9 +1158,12 @@ TEST_F(IndexTest, testDocTable) {
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
+  size_t expectedMemory = doc_table_size;
   for (int i = 0; i < N; i++) {
     size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
+    expectedMemory += sizeof(RSDocumentMetadata) + sdsAllocSize(dmd->keyPtr) +
+                      sizeof(RSPayload) + nkey;
     t_docId nd = dmd->id;
     DMD_Return(dmd);
     ASSERT_EQ(did + 1, nd);
@@ -1169,9 +1172,7 @@ TEST_F(IndexTest, testDocTable) {
 
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
-#ifdef __x86_64__
-  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
-#endif
+  ASSERT_EQ(expectedMemory, dt.memsize);
   for (int i = 0; i < N; i++) {
     snprintf(buf, sizeof(buf), "doc_%d", i);
     const sds key = DocTable_GetKey(&dt, i + 1, NULL);
@@ -1204,7 +1205,9 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
+  expectedMemory = doc_table_size + sizeof(RSDocumentMetadata) - sizeof(RSPayload *) +
+                   sdsAllocSize(dmd->keyPtr);
+  ASSERT_EQ(expectedMemory, dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1212,7 +1215,8 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
+  expectedMemory += sizeof(RSDocumentMetadata) - sizeof(RSPayload *) + sdsAllocSize(dmd->keyPtr);
+  ASSERT_EQ(expectedMemory, dt.memsize);
   // A fresh Put always assigns a new incremental docId (no key-based dedup).
   ASSERT_NE(dmd->id, strDocId);
   DMD_Return(dmd);
