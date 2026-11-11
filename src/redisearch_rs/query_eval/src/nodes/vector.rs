@@ -46,6 +46,13 @@ pub(crate) fn eval<'index>(
     // because `node` is held exclusively.
     let vq = unsafe { &mut *vq };
 
+    // SAFETY: the evaluation context and AST-owned vector query are valid for this call.
+    if unsafe { ffi::VectorQuery_ValidateUnstable(ctx.as_non_null().as_ptr(), vq) }
+        != redis_module::REDISMODULE_OK as i32
+    {
+        return None;
+    }
+
     resolve_score_field(ctx, &mut node, vq).ok()?;
 
     // Reserved before the child is evaluated, so that a nested vector node

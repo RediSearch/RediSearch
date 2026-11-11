@@ -45,9 +45,11 @@ def test_navix_exact_filter_and_batch_refill(env):
     try:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'no')
         env.expect('FT.SEARCH', 'idx', *args('@t:{A}')).error().contains('requires CONFIG SET')
+        env.expect('FT.SEARCH', 'idx', *args('@t:{missing}')).error().contains('requires CONFIG SET')
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
         cases = [('@t:{A}', [2, 'd:0', 'd:2']),
                  ('@n:[13 27]', [2, 'd:13', 'd:14']),
+                 ('@n:[(13 (27]', [2, 'd:14', 'd:15']),
                  ('@t:{A} @n:[13 27]', [2, 'd:14', 'd:16']),
                  ('@n:[0 +inf] @body:keep', [2, 'd:30', 'd:31']),
                  ('@t:{missing}|@body:keep', [2, 'd:30', 'd:31'])]
@@ -55,6 +57,14 @@ def test_navix_exact_filter_and_batch_refill(env):
             for policy in ['NAVIX', 'NAVIX_BLIND', 'BATCHES']:
                 result = env.cmd('FT.SEARCH', 'idx', *args(predicate, policy))
                 env.assertEqual(result, expected, message=f'{predicate}, {policy}: {result}')
+        oversized = '|'.join([f'@t:{{missing{i}}}' for i in range(260)] + ['@t:{A}'])
+        env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args(oversized)), [2, 'd:0', 'd:2'])
+        default_args = args('~@body:missing')
+        default_args[0] = default_args[0].replace(' BATCH_SIZE 1', '')
+        default_profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *default_args)
+        env.assertEqual(default_profile[0], [2, 'd:0', 'd:1'])
+        env.assertEqual(_profile_value(default_profile[1], 'Vector search mode'), 'NAVIX_QC')
+        env.assertEqual(_profile_value(default_profile[1], 'Largest batch size'), 2)
         env.expect('FT.SEARCH', 'idx', *args('*')).error().contains('requires filtered')
         profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args('@n:[0 +inf] @body:keep'))
         env.assertEqual(profiled[0], [2, 'd:30', 'd:31'])

@@ -519,7 +519,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/vector_index.h",
-        fns: &["NewVectorIterator", "VecSimSearchMode_ToString"],
+        fns: &[
+            "NewVectorIterator",
+            "VecSimSearchMode_ToString",
+            "VectorQuery_ValidateUnstable",
+        ],
         types: &[],
         vars: &[],
     },

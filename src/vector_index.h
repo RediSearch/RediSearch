@@ -182,6 +182,8 @@ typedef VecSimIndexBasicInfo (*VectorIndex_BasicInfoFn)(VecSimIndex *index);
 void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn);
 #endif
 
+int VectorQuery_ValidateUnstable(QueryEvalCtx *q, const VectorQuery *vq);
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
                                  const QueryNode *filter_node);
 

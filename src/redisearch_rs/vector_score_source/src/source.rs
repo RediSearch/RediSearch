@@ -163,6 +163,8 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 4. Any callback context and statistics referenced by `query_params.navix` must
     ///    outlive this source. Its caller pins the filter view while collecting batches;
     ///    source operations and profile reads are serialized with callback writes.
+    ///    Callbacks must not throw, perform I/O, mutate the index, or acquire graph
+    ///    locks, and must support serialized calls from whichever thread owns this source.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,

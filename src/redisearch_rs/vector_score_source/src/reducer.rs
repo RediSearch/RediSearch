@@ -41,6 +41,8 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 ///    invariant for `index`.
 /// 3. `timeout` must be non-null, remain valid for the returned iterator's lifetime, and satisfy
 ///    the [`VectorScoreSource`] source-transition and serialization contract.
+/// 4. Callback context and statistics in `query_params.navix` must satisfy
+///    [`VectorScoreSource::new`]'s callback contract for the returned iterator's lifetime.
 #[expect(clippy::too_many_arguments)]
 pub unsafe fn new_vector_top_k<'index, E>(
     index: NonNull<VecSimIndex>,
@@ -78,7 +80,7 @@ where
                 searchMode: VecSearchMode_STANDARD_KNN,
                 ..query_params
             };
-            // SAFETY: guaranteed by invariants 1 and 2 of this function's contract.
+            // SAFETY: all four constructor requirements are this function's caller obligations.
             let source = unsafe {
                 VectorScoreSource::new(
                     index,
@@ -95,7 +97,7 @@ where
         }
         ChildReduction::Filtered(child) => {
             let child_est = child.num_estimated();
-            // SAFETY: guaranteed by invariants 1 and 2 of this function's contract.
+            // SAFETY: all four constructor requirements are this function's caller obligations.
             let source = unsafe {
                 VectorScoreSource::new(
                     index,

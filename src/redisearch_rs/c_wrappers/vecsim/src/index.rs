@@ -261,6 +261,11 @@ impl<'index> IndexRef<'index> {
     /// - The `timeoutCtx` referenced by `*params` must remain valid for the
     ///   whole of `'params`, since the iterator copies it and reads it on every
     ///   [`BatchIterator::next`] call.
+    /// - Any callback context and writable statistics referenced by `params.navix`
+    ///   must remain valid for all of `'params`, including resets. Pin a stable
+    ///   index/label/filter view and serialize access to statistics. The callback
+    ///   must support the iterator's calling thread, must not throw, perform I/O,
+    ///   mutate the index, or acquire graph locks.
     pub unsafe fn batch_iterator_unchecked<'params>(
         &self,
         query_vector: &QueryVector<'index>,
@@ -270,7 +275,8 @@ impl<'index> IndexRef<'index> {
         // 1. `self.inner` upholds its invariant.
         // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
         //    invariant, so the pointer is valid for the bytes VecSim reads.
-        // 3. `params` is a valid pointer for this call per the caller's obligation.
+        // 3. The caller keeps params valid for construction and its borrowed timeout,
+        //    callback context and statistics valid and synchronized for the iterator.
         let raw = unsafe {
             ffi::VecSimBatchIterator_New(
                 self.inner.as_ptr(),

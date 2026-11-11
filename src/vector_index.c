@@ -206,8 +206,31 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
+static bool isNavixParam(const VecSimRawParam *param) {
+  return param->nameLen == strlen("HYBRID_POLICY") &&
+         !strncasecmp(param->name, "HYBRID_POLICY", param->nameLen) &&
+         ((param->valLen == strlen("NAVIX") &&
+           !strncasecmp(param->value, "NAVIX", param->valLen)) ||
+          (param->valLen == strlen("NAVIX_BLIND") &&
+           !strncasecmp(param->value, "NAVIX_BLIND", param->valLen)));
+}
+
+int VectorQuery_ValidateUnstable(QueryEvalCtx *q, const VectorQuery *vq) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    for (size_t i = 0; i < array_len(vq->params.params); ++i) {
+      if (isNavixParam(&vq->params.params[i])) {
+        QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
+                            "NAVIX requires CONFIG SET search-enable-unstable-features yes");
+        return REDISMODULE_ERR;
+      }
+    }
+  }
+  return REDISMODULE_OK;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
                                  const QueryNode *filter_node) {
+  if (VectorQuery_ValidateUnstable(q, vq) != REDISMODULE_OK) return NULL;
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
   RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
@@ -249,19 +272,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       size_t nparams = array_len(vq->params.params);
       for (size_t i = 0; i < nparams; ++i) {
         const VecSimRawParam *param = &vq->params.params[i];
-        if (!strcasecmp(param->name, "HYBRID_POLICY") &&
-            (!strcasecmp(param->value, "NAVIX") || !strcasecmp(param->value, "NAVIX_BLIND"))) {
+        if (isNavixParam(param)) {
           navix = true;
           blind = !strcasecmp(param->value, "NAVIX_BLIND");
         }
       }
       VecSimRawParam *resolved = vq->params.params;
       if (navix) {
-        if (!RSGlobalConfig.enableUnstableFeatures) {
-          QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
-                              "NAVIX requires CONFIG SET search-enable-unstable-features yes");
-          return NULL;
-        }
         const VecSimParams *createParams = &fieldSpec->vectorOpts.vecSimParams;
         if (createParams->algo == VecSimAlgo_TIERED)
           createParams = createParams->algoParams.tieredParams.primaryIndexParams;
@@ -276,9 +293,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         resolved = rm_malloc(nparams * sizeof(*resolved));
         memcpy(resolved, vq->params.params, nparams * sizeof(*resolved));
         for (size_t i = 0; i < nparams; ++i) {
-          if (!strcasecmp(resolved[i].name, "HYBRID_POLICY") &&
-              (!strcasecmp(resolved[i].value, "NAVIX") ||
-               !strcasecmp(resolved[i].value, "NAVIX_BLIND"))) {
+          if (isNavixParam(&resolved[i])) {
             resolved[i].value = "BATCHES";
             resolved[i].valLen = strlen("BATCHES");
           }
