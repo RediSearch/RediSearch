@@ -12,6 +12,13 @@
 //! This crate bridges the pure Rust [`geo`] crate (including its [`geo::hash`]
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
+#[expect(
+    non_snake_case,
+    reason = "prepared C API names, not exported until the C swap"
+)]
+mod filter;
+pub use filter::*;
+
 use std::ffi::c_int;
 
 use decorum::R64;
