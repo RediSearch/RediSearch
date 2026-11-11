@@ -264,6 +264,12 @@
             "optional": true
           },
           {
+            "name": "indexnull",
+            "type": "pure-token",
+            "token": "INDEXNULL",
+            "optional": true
+          },
+          {
             "name": "sortable",
             "type": "block",
             "optional": true,

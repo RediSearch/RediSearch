@@ -63,7 +63,7 @@ fn make_fork_gc() -> (Box<ForkPipe>, io::PipeReader, io::PipeWriter) {
 /// Encode the empty stream produced by each scanner in protocol order.
 fn empty_scanner_streams() -> Vec<u8> {
     let mut bytes = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..6 {
         // One chunk, flagged last, holding MessagePack `nil`: the scanner's `None`.
         bytes.extend_from_slice(&(1usize | 1 << (usize::BITS - 1)).to_ne_bytes());
         bytes.push(0xc0);
@@ -81,12 +81,14 @@ struct EmptySpec {
     spec: ffi::IndexSpec,
     _keys_dict: OwnedDict<KeysDictType>,
     _missing_field_dict: OwnedDict<MissingFieldDictType>,
+    _null_field_dict: OwnedDict<MissingFieldDictType>,
 }
 
 impl EmptySpec {
     fn new() -> Self {
         let keys_dict = OwnedDict::create();
         let missing_field_dict = OwnedDict::create();
+        let null_field_dict = OwnedDict::create();
         // SAFETY: the initialized fields below are the complete subset used by
         // an empty child-side scan; no scanner accesses the remaining fields.
         let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
@@ -98,11 +100,13 @@ impl EmptySpec {
         spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
         spec.keysDict = keys_dict.as_mut_ptr();
         spec.missing.indexes = missing_field_dict.as_mut_ptr();
+        spec.nulls.indexes = null_field_dict.as_mut_ptr();
 
         Self {
             spec,
             _keys_dict: keys_dict,
             _missing_field_dict: missing_field_dict,
+            _null_field_dict: null_field_dict,
         }
     }
 

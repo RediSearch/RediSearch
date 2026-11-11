@@ -27,6 +27,7 @@
 #define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
+#define QN_ISNULL          QueryNodeType_IsNull
 #define QN_MAX             QueryNodeType_Max
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
@@ -190,7 +191,8 @@ enum QueryNodeType
   QueryNodeType_WildcardQuery = 16,
   QueryNodeType_Null = 17,
   QueryNodeType_Missing = 18,
-  QueryNodeType_Max = 19,
+  QueryNodeType_IsNull = 19,
+  QueryNodeType_Max = 20,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeType;

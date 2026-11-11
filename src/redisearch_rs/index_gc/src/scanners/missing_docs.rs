@@ -7,18 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! GC collection and application for the `missing.indexes` inverted indexes.
+//! GC collection and application for the `missing.indexes` inverted indexes,
+//! and their `nulls.indexes` counterparts, which have the same shape.
 
 use std::io::{self, Read, Write};
 
 use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
-use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
+use index_spec::{FieldDocsKind, IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::InvertedIndex};
 use serde::{Deserialize, Serialize};
 
 use crate::fork::wire::{deserialize, serialize};
 use rqe_core::FieldIndex;
-/// One missing-field inverted index's GC work, as it travels the pipe.
+/// One missing-field (or null-field) inverted index's GC work, as it travels the pipe.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissingDocsEntry {
     /// Position of the field, in the spec's field list, whose missing-docs
@@ -51,8 +52,18 @@ pub fn collect_missing_docs(
     spec: &IndexSpecReadGuard,
     live: impl DocLiveness + Copy,
 ) -> io::Result<()> {
-    for field_index in missing_field_indexes(spec) {
-        let Some(ii) = missing_index(spec, field_index) else {
+    collect_field_docs(FieldDocsKind::Missing, writer, spec, live)
+}
+
+/// [`collect_missing_docs`] for the spec's per-field doc-ids dict of the given `kind`.
+pub fn collect_field_docs(
+    kind: FieldDocsKind,
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    live: impl DocLiveness + Copy,
+) -> io::Result<()> {
+    for field_index in field_docs_indexes(kind, spec) {
+        let Some(ii) = field_docs_index(kind, spec, field_index) else {
             continue;
         };
         let Ok(Some(delta)) = ii.scan_gc(live) else {
@@ -72,17 +83,23 @@ pub fn collect_missing_docs(
     serialize(writer, None::<MissingDocsEntry>)
 }
 
-fn missing_index<'a>(
+fn field_docs_index<'a>(
+    kind: FieldDocsKind,
     spec: &'a IndexSpecReadGuard<'_>,
     field_index: FieldIndex,
 ) -> Option<&'a InvertedIndex> {
     let fs = spec.field_specs().get(usize::from(field_index))?;
-    spec.missing_field_dict().fetch(fs.field_name())
+    spec.field_docs_dict(kind).fetch(fs.field_name())
 }
 
 /// Position of every field that has a missing-docs inverted index, in field order.
 pub fn missing_field_indexes(spec: &IndexSpecReadGuard) -> Vec<FieldIndex> {
-    let dict = spec.missing_field_dict();
+    field_docs_indexes(FieldDocsKind::Missing, spec)
+}
+
+/// [`missing_field_indexes`] for the spec's per-field doc-ids dict of the given `kind`.
+pub fn field_docs_indexes(kind: FieldDocsKind, spec: &IndexSpecReadGuard) -> Vec<FieldIndex> {
+    let dict = spec.field_docs_dict(kind);
     spec.field_specs()
         .iter()
         .enumerate()
@@ -103,7 +120,7 @@ pub fn scan_missing_field(
     field_index: FieldIndex,
     live: impl DocLiveness + Copy,
 ) -> Option<(u32, GcScanDelta)> {
-    let ii = missing_index(spec, field_index)?;
+    let ii = field_docs_index(FieldDocsKind::Missing, spec, field_index)?;
     Some((u32::from(ii.unique_id()), ii.scan_gc(live).ok().flatten()?))
 }
 
@@ -114,7 +131,17 @@ pub fn snapshot_missing_field(
     field_index: FieldIndex,
     live: &impl DocLiveness,
 ) -> Option<InvertedIndex> {
-    missing_index(spec, field_index)?.gc_snapshot(live, GcSnapshotScope::DirtyBlocks)
+    snapshot_field_docs(FieldDocsKind::Missing, spec, field_index, live)
+}
+
+/// [`snapshot_missing_field`] for the spec's per-field doc-ids dict of the given `kind`.
+pub fn snapshot_field_docs(
+    kind: FieldDocsKind,
+    spec: &IndexSpecReadGuard,
+    field_index: FieldIndex,
+    live: &impl DocLiveness,
+) -> Option<InvertedIndex> {
+    field_docs_index(kind, spec, field_index)?.gc_snapshot(live, GcSnapshotScope::DirtyBlocks)
 }
 
 /// Decode one missing-docs message from `reader`.
@@ -152,7 +179,26 @@ pub fn apply_missing_docs_with(
     live: Option<&dyn DocLiveness>,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, GcError> {
-    let (field_specs, dict) = guard.field_specs_and_missing_field_dict_mut();
+    apply_field_docs_with(
+        FieldDocsKind::Missing,
+        field_index,
+        unique_id,
+        delta,
+        live,
+        guard,
+    )
+}
+
+/// [`apply_missing_docs_with`] for the spec's per-field doc-ids dict of the given `kind`.
+pub fn apply_field_docs_with(
+    kind: FieldDocsKind,
+    field_index: FieldIndex,
+    unique_id: u32,
+    delta: GcScanDelta,
+    live: Option<&dyn DocLiveness>,
+    guard: &mut IndexSpecWriteGuard<'_>,
+) -> Result<GcApplyStats, GcError> {
+    let (field_specs, dict) = guard.field_specs_and_field_docs_dict_mut(kind);
     let Some(name) = field_specs
         .get(usize::from(field_index))
         .map(|fs| fs.field_name())
@@ -163,14 +209,22 @@ pub fn apply_missing_docs_with(
     };
 
     let Some(ii) = dict.fetch_mut(name) else {
-        return Err(GcError::ApplyError(
-            "the field was removed from missing.indexes before the delta could be applied",
-        ));
+        return Err(GcError::ApplyError(match kind {
+            FieldDocsKind::Missing => {
+                "the field was removed from missing.indexes before the delta could be applied"
+            }
+            FieldDocsKind::Null => {
+                "the field was removed from nulls.indexes before the delta could be applied"
+            }
+        }));
     };
     if u32::from(ii.unique_id()) != unique_id {
-        return Err(GcError::ApplyError(
-            "the field's missing-docs inverted index is not the one scanned",
-        ));
+        return Err(GcError::ApplyError(match kind {
+            FieldDocsKind::Missing => {
+                "the field's missing-docs inverted index is not the one scanned"
+            }
+            FieldDocsKind::Null => "the field's null-docs inverted index is not the one scanned",
+        }));
     }
 
     let gc_info = ii.apply_gc_with(delta, live);
@@ -189,7 +243,7 @@ pub fn apply_missing_docs_with(
     };
 
     Ok(GcApplyStats {
-        // `records_removed` is 0: missing.indexes entries are not counted
+        // `records_removed` is 0: missing.indexes (and nulls.indexes) entries are not counted
         // on insertion (they are internal bookkeeping), so we do not count
         // them on removal either.
         records_removed: 0,
@@ -213,5 +267,26 @@ pub fn handle_missing_docs(fgc: &mut ForkPipe) -> Result<HandleOutcome, GcError>
         fgc,
         |reader| receive_missing_docs(reader),
         |entry, guard| apply_missing_docs(entry.field_index, entry.unique_id, entry.delta, guard),
+    )
+}
+
+/// [`handle_missing_docs`] for the spec's per-field doc-ids dict of the given `kind`.
+pub fn handle_field_docs(
+    kind: FieldDocsKind,
+    fgc: &mut ForkPipe,
+) -> Result<HandleOutcome, GcError> {
+    crate::fork::wire::handle_one(
+        fgc,
+        |reader| receive_missing_docs(reader),
+        |entry, guard| {
+            apply_field_docs_with(
+                kind,
+                entry.field_index,
+                entry.unique_id,
+                entry.delta,
+                None,
+                guard,
+            )
+        },
     )
 }

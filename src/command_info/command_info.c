@@ -275,6 +275,12 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
             .flags = REDISMODULE_CMD_ARG_OPTIONAL,
           },
           {
+            .name = "indexnull",
+            .token = "INDEXNULL",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+          },
+          {
             .name = "sortable",
             .type = REDISMODULE_ARG_TYPE_BLOCK,
             .flags = REDISMODULE_CMD_ARG_OPTIONAL,

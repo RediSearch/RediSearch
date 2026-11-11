@@ -223,6 +223,7 @@ struct TestSpec {
     // An empty terms trie and dicts, so a full GC cycle can run over the spec.
     _keys_dict: OwnedDict<KeysDictType>,
     _missing_dict: OwnedDict<MissingFieldDictType>,
+    _null_dict: OwnedDict<MissingFieldDictType>,
 }
 
 impl TestSpec {
@@ -251,8 +252,10 @@ impl TestSpec {
 
         let keys_dict = OwnedDict::<KeysDictType>::create();
         let missing_dict = OwnedDict::<MissingFieldDictType>::create();
+        let null_dict = OwnedDict::<MissingFieldDictType>::create();
         spec.keysDict = keys_dict.as_mut_ptr();
         spec.missing.indexes = missing_dict.as_mut_ptr();
+        spec.nulls.indexes = null_dict.as_mut_ptr();
         // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie with no payloads.
         spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
         // Every doc this fixture indexes is deleted: the whole ID range is in the set the
@@ -267,6 +270,7 @@ impl TestSpec {
             buckets: Vec::new(),
             _keys_dict: keys_dict,
             _missing_dict: missing_dict,
+            _null_dict: null_dict,
         }
     }
 

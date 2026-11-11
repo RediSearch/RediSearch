@@ -34,6 +34,7 @@ pub enum FieldSpecOption {
     UndefinedOrder = 0x80,
     IndexEmpty = 0x100,   // Index empty values (i.e., empty strings)
     IndexMissing = 0x200, // Index missing values (non-existing field)
+    IndexNull = 0x400,    // Index null values (JSON `null`)
 }
 pub type FieldSpecOptions = BitFlags<FieldSpecOption>;
 

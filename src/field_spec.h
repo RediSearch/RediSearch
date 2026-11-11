@@ -74,6 +74,7 @@ typedef enum {
   FieldSpec_UndefinedOrder = 0x80,
   FieldSpec_IndexEmpty = 0x100,       // Index empty values (i.e., empty strings)
   FieldSpec_IndexMissing = 0x200,     // Index missing values (non-existing field)
+  FieldSpec_IndexNull = 0x400,        // Index null values (JSON `null`)
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -165,6 +166,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
 #define FieldSpec_IndexesMissing(fs) ((fs)->options & FieldSpec_IndexMissing)
+#define FieldSpec_IndexesNull(fs) ((fs)->options & FieldSpec_IndexNull)
 #define FieldSpec_IsUnf(fs) ((fs)->options & FieldSpec_UNF)
 
 void FieldSpec_SetSortable(FieldSpec* fs);

@@ -25,6 +25,7 @@ criterion.workspace = true
 ffi.workspace = true
 field.workspace = true
 index_result.workspace = true
+index_spec.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }

@@ -415,6 +415,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::InvIdxTerm => 1.0,
             IteratorType::InvIdxWildcard => 1.0,
             IteratorType::InvIdxMissing => 1.0,
+            IteratorType::InvIdxNull => 1.0,
             IteratorType::InvIdxTag => 1.0,
             IteratorType::Hybrid => 1.0,
             IteratorType::Union => 1.0,

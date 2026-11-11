@@ -481,6 +481,34 @@ dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *do
   return df_fields_dict;
 }
 
+// Adds the document to the doc-ids-only inverted index that `fieldDocs` (`IndexSpec.missing.indexes`
+// or `IndexSpec.nulls.indexes`) holds for `fs`, creating the inverted index on first use.
+static void writeFieldDoc(RSAddDocumentCtx *aCtx, dict *fieldDocs, const FieldSpec *fs) {
+  InvertedIndex *iiFieldDocs = dictFetchValue(fieldDocs, fs->fieldName);
+  if (iiFieldDocs == NULL) {
+    size_t index_size;
+    iiFieldDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
+    aCtx->spec->stats.invertedSize += index_size;
+    dictAdd(fieldDocs, (void*)fs->fieldName, iiFieldDocs);
+    // Complete any rehashing this insert started, else later reads on different
+    // threads could end up mutating the dict simultaneously, corrupting it.
+    //
+    // Cheap because this dict contains just the IndexSpec's INDEXMISSING or INDEXNULL fields.
+    //
+    // dictRehash migrates a bounded number of buckets per call and returns
+    // non-zero while more remain, so loop until it reports done.
+    while (dictRehash(fieldDocs, 100)) {
+    }
+  }
+  // Add docId to inverted index
+  t_docId docId = aCtx->doc->docId;
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .metrics = MetricsVec_New()};
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiFieldDocs, &rec);
+  aCtx->spec->stats.invertedSize += r.mem_growth;
+  IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
+}
+
 // Adds missing and present-but-expiring fields to the RAM missing-docs indexes.
 static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                                   struct FieldExpirationSlice sortedFieldWithExpiration) {
@@ -501,33 +529,23 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   // go over all the potentially missing fields and index the document in the matching inverted index
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
-    const FieldSpec *fs = dictGetVal(entry);
-    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missing.indexes, fs->fieldName);
-    if (iiMissingDocs == NULL) {
-      size_t index_size;
-      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
-      aCtx->spec->stats.invertedSize += index_size;
-      dictAdd(spec->missing.indexes, (void*)fs->fieldName, iiMissingDocs);
-      // Complete any rehashing this insert started, else later reads on different
-      // threads could end up mutating the dict simultaneously, corrupting it.
-      //
-      // Cheap because this dict contains just IndexSpec's INDEXMISSING fields.
-      //
-      // dictRehash migrates a bounded number of buckets per call and returns
-      // non-zero while more remain, so loop until it reports done.
-      while (dictRehash(spec->missing.indexes, 100)) {
-      }
-    }
-    // Add docId to inverted index
-    t_docId docId = aCtx->doc->docId;
-    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                         .metrics = MetricsVec_New()};
-    AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
-    aCtx->spec->stats.invertedSize += r.mem_growth;
-    IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
+    writeFieldDoc(aCtx, spec->missing.indexes, dictGetVal(entry));
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
+}
+
+// Adds the document's INDEXNULL fields whose value is a JSON `null` to the RAM null-docs indexes.
+// Only a field whose JSONPath yields a single `null` is null: multi-value results drop their
+// `null`s when loaded, as INDEXEMPTY's handling of them does.
+static void writeNullFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (FieldSpec_IndexesNull(fs) && doc->fields[ii].unionType == FLD_VAR_T_NULL) {
+      writeFieldDoc(aCtx, sctx->spec->nulls.indexes, fs);
+    }
+  }
 }
 
 // Index the doc in the existing docs inverted index
@@ -567,6 +585,7 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
   bulkIndexFields(aCtx, ctx);
   writeExistingDocs(aCtx, ctx);
   writeMissingFieldDocs(aCtx, ctx, fes);
+  writeNullFieldDocs(aCtx, ctx);
 }
 
 /**

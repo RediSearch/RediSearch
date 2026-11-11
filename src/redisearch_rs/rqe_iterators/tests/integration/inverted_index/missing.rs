@@ -46,7 +46,15 @@ impl MissingBaseTest {
         let reader = self.test.ii.reader();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
         // that outlives the returned iterator. field_index is 0 (unused with NoOpChecker).
-        unsafe { Missing::new(reader, self.test.mock_ctx.sctx(), 0, NoOpChecker) }
+        unsafe {
+            Missing::new(
+                reader,
+                self.test.mock_ctx.sctx(),
+                0,
+                index_spec::FieldDocsKind::Missing,
+                NoOpChecker,
+            )
+        }
     }
 }
 
@@ -79,8 +87,15 @@ fn missing_empty_index() {
     let reader = ii.reader();
     // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
     // that outlives the iterator.
-    let mut it =
-        ContractChecker::new(unsafe { Missing::new(reader, mock_ctx.sctx(), 0, NoOpChecker) });
+    let mut it = ContractChecker::new(unsafe {
+        Missing::new(
+            reader,
+            mock_ctx.sctx(),
+            0,
+            index_spec::FieldDocsKind::Missing,
+            NoOpChecker,
+        )
+    });
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
@@ -128,6 +143,7 @@ mod not_miri {
                     ii.reader(),
                     self.test.context.sctx,
                     field_index,
+                    index_spec::FieldDocsKind::Missing,
                     NoOpChecker,
                 )
             }

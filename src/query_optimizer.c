@@ -164,6 +164,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:
     case QN_MISSING:
+    case QN_ISNULL:
       break;
   }
   return ret;

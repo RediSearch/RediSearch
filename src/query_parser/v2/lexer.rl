@@ -228,6 +228,7 @@ as = 'as'i;
 verbatim = ((quote . ((any - quote - escape) | escape.any)+ . quote) | (squote . ((any - squote - escape) | escape.any)+ . squote)) $4;
 wildcard = 'w' . verbatim $4;
 ismissing = 'ismissing'i $1;
+isnull = 'isnull'i $1;
 
 main := |*
 
@@ -482,6 +483,15 @@ main := |*
     tok.len = te - ts;
     tok.s = ts;
     RSQuery_Parse_v2(pParser, ISMISSING, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+  isnull => {
+    tok.pos = ts-q->raw;
+    tok.len = te - ts;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, ISNULL, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

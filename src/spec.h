@@ -76,6 +76,7 @@ struct IndexesScanner;
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 #define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
+#define SPEC_INDEXNULL_STR "INDEXNULL"
 #define SPEC_INDEXALL_STR "INDEXALL"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
@@ -325,6 +326,14 @@ typedef struct {
   arrayof(t_fieldIndex) fields;
 } IndexSpecMissing;
 
+// State backing INDEXNULL fields.
+typedef struct {
+  // Field name -> Index_DocIdsOnly inverted index of the documents whose value
+  // for that field is a JSON `null`. Created with `missingFieldDictType`, as
+  // its keys and values have the same shape as `IndexSpecMissing.indexes`.
+  dict *indexes;
+} IndexSpecNull;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -400,6 +409,7 @@ typedef struct IndexSpec {
   StrongRef own_ref;
 
   IndexSpecMissing missing;
+  IndexSpecNull nulls;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
@@ -754,7 +764,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 /* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
 extern dictType invIdxDictType;
 
-/* The dictType used for IndexSpec.missing.indexes: HiddenString keys, InvertedIndex* values. */
+/* The dictType used for IndexSpec.missing.indexes and IndexSpec.nulls.indexes: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 
 /**

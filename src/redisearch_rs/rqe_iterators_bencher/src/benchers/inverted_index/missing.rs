@@ -72,6 +72,7 @@ impl MissingBencher {
                         ii.reader(),
                         context.sctx,
                         field_index,
+                        index_spec::FieldDocsKind::Missing,
                         rqe_iterators::NoOpChecker,
                     )
                 };
@@ -98,6 +99,7 @@ impl MissingBencher {
                         ii.reader(),
                         context.sctx,
                         field_index,
+                        index_spec::FieldDocsKind::Missing,
                         rqe_iterators::NoOpChecker,
                     )
                 };

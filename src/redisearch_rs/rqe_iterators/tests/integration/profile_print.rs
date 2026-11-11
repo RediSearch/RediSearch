@@ -522,6 +522,7 @@ fn missing_without_field() {
             reader,
             mock_ctx.sctx(),
             0,
+            index_spec::FieldDocsKind::Missing,
             rqe_iterators::NoOpChecker,
         )
     };
@@ -547,6 +548,7 @@ fn missing_with_field() {
             ii.reader(),
             ctx.sctx,
             field_index,
+            index_spec::FieldDocsKind::Missing,
             rqe_iterators::NoOpChecker,
         )
     };
