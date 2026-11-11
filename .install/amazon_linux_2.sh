@@ -6,7 +6,9 @@ export DEBIAN_FRONTEND=noninteractive
 $MODE yum update -y
 
 # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-11
-$MODE yum install -y https://vault.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
+# yum exits 1 ("Nothing to do") for an RPM URL that is already installed, so
+# skip it when present to keep this script re-runnable.
+rpm -q centos-release-scl-rh >/dev/null 2>&1 || $MODE yum install -y https://vault.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
 
 # http://mirror.centos.org/centos/7/ is deprecated, so we changed the above link to `https://vault.centos.org`,
 # and we have to change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
@@ -20,4 +22,4 @@ source /opt/rh/devtoolset-11/enable
 cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 
 $MODE yum install -y openssl11 openssl11-devel
-$MODE ln -s "$(which openssl11)" /usr/bin/openssl
+$MODE ln -sf "$(which openssl11)" /usr/bin/openssl

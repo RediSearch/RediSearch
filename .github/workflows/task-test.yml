@@ -136,12 +136,14 @@ jobs:
           echo "Runner Architecture: ${{ runner.arch }}"
           echo "========================"
       - name: Setup
-        working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh ${{ steps.mode.outputs.mode }}
+          working_directory: .install
       - name: Setup tests dependencies
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: .install
