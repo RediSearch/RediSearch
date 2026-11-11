@@ -329,7 +329,10 @@ fn a_cycle_on_a_table_that_does_not_track_deletions_fails_and_collects_nothing()
 
     let error = run_cycle(&mut spec, &mut recorder, true).unwrap_err();
 
-    assert!(matches!(error, ("deleted docs", GcError::ApplyError(_))));
+    assert!(matches!(
+        error,
+        ("deleted docs", GcError::DeletionsUntracked)
+    ));
     assert!(spec.has_term(b"apple"));
     assert_eq!(recorder.total(), GcApplyStats::default());
 }
