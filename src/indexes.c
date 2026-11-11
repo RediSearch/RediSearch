@@ -1238,8 +1238,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // Not indexed by the new key: delete it. After RENAME the metadata lives
       // on to_key, so look up the docId there, delete by id, and drop the mapping.
       uint64_t docId;
-      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-        IndexSpec_DeleteDocById(spec, (t_docId)docId);
+      uint32_t docLen;
+      if (DocIdMeta_GetEntry(ctx, to_key, spec->specId, &docId, &docLen) == REDISMODULE_OK) {
+        IndexSpec_DeleteDocById(spec, (t_docId)docId, docLen);
         DocIdMeta_Delete(ctx, to_key, spec->specId);
       }
     }

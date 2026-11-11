@@ -330,6 +330,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // RSE: the disk API passes DocIdMeta's "length unknown" marker through to the Rust side.
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &[],
+        types: &[],
+        vars: &["DOCID_META_DOCLEN_UNKNOWN"],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.

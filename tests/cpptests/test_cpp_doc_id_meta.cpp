@@ -138,16 +138,36 @@ class DocIdMetaTest : public ::testing::Test {
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
   }
 
-  // Helper: RDB load from the current rdbIO buffer. Returns the loaded metadata.
-  uint64_t rdbLoad() {
+  int currentVersion() {
+    return RMCK_GetKeyMetaClassVersion(getDocIdMetaClassId());
+  }
+
+  // Helper: RDB load from the current rdbIO buffer as a payload of `encver`. Returns the loaded
+  // metadata.
+  uint64_t rdbLoadVersion(int encver) {
     rdbIO->read_pos = 0;
     uint64_t loadedMeta = 0;
-    int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
+    int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, encver);
     // RedisModuleKeyMetaLoadFunc returns 1 to attach the loaded meta to the key.
     EXPECT_EQ(result, 1);
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
     EXPECT_NE(loadedMeta, 0);
     return loadedMeta;
+  }
+
+  // Helper: RDB load of a payload this build saved.
+  uint64_t rdbLoad() {
+    return rdbLoadVersion(currentVersion());
+  }
+
+  // Helper: write a version-1 payload, (specId, docId) pairs with no length, into rdbIO.
+  void writeVersion1Payload(const std::vector<std::pair<uint64_t, uint64_t>> &entries) {
+    RedisModule_SaveUnsigned(rdbIO, entries.size());
+    for (const auto &[specId, docId] : entries) {
+      RedisModule_SaveUnsigned(rdbIO, specId);
+      RedisModule_SaveUnsigned(rdbIO, docId);
+    }
+    EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
   }
 
   // Helper: RDB save, reset, load. Returns the loaded metadata.
@@ -176,6 +196,16 @@ class DocIdMetaTest : public ::testing::Test {
   void verifyDocIdMissing(RedisModuleString *keyName, uint64_t specId) {
     uint64_t retrieved;
     EXPECT_EQ(DocIdMeta_Get(ctx, keyName, specId, &retrieved), REDISMODULE_ERR);
+  }
+
+  // Helper: verify the docId and document length recorded for a spec on a key.
+  void verifyEntry(RedisModuleString *keyName, uint64_t specId, uint64_t expectedDocId,
+                   uint32_t expectedDocLen) {
+    uint64_t docId;
+    uint32_t docLen;
+    EXPECT_EQ(DocIdMeta_GetEntry(ctx, keyName, specId, &docId, &docLen), REDISMODULE_OK);
+    EXPECT_EQ(docId, expectedDocId);
+    EXPECT_EQ(docLen, expectedDocLen);
   }
 
   // Helper: read the raw metadata uint64 for a key, allowing the KeyMeta
@@ -209,6 +239,7 @@ class DocIdMetaTest : public ::testing::Test {
   bool prevSimulateInFlex = false;
 
   // Helper constants for spec IDs and names
+  static constexpr uint32_t DOC_LEN = 7;
   static constexpr uint64_t SPEC1_ID = 1;
   static constexpr uint64_t SPEC2_ID = 2;
   static constexpr uint64_t SPEC3_ID = 3;
@@ -234,7 +265,7 @@ TEST(DocIdMetaInitTest, GlobalTestEnvironmentRegistersKeyMetaClass) {
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
 
-  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId);
+  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, DOC_LEN);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   uint64_t retrievedDocId;
@@ -255,9 +286,9 @@ TEST_F(DocIdMetaTest, TestSetMultipleDocIds) {
   uint64_t docId2 = 222;
   uint64_t docId3 = 333;
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3, DOC_LEN), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -278,14 +309,14 @@ TEST_F(DocIdMetaTest, TestOverwriteDocId) {
   uint64_t newDocId = 222;
 
   // Set original value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, originalDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, originalDocId, DOC_LEN), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, originalDocId);
 
   // Overwrite with new value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, newDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, newDocId, DOC_LEN), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, newDocId);
 }
@@ -294,7 +325,7 @@ TEST_F(DocIdMetaTest, TestDeleteDocId) {
   uint64_t docId = 555;
 
   // Set a value first
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, DOC_LEN), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -314,8 +345,8 @@ TEST_F(DocIdMetaTest, TestDeleteNonExistentDocId) {
 }
 
 TEST_F(DocIdMetaTest, TestDeleteOnlyRemovesRequestedSpec) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   verifyDocIdMissing(testKeyName, SPEC1_ID);
@@ -323,9 +354,9 @@ TEST_F(DocIdMetaTest, TestDeleteOnlyRemovesRequestedSpec) {
 }
 
 TEST_F(DocIdMetaTest, TestSetAfterDeleteRecreatesEntry) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003, DOC_LEN), REDISMODULE_OK);
 
   verifyDocId(testKeyName, SPEC1_ID, 3003);
 }
@@ -336,8 +367,8 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   RedisModuleString *keyName2 = createHashKey("testkey2");
 
   // Set different values for the same spec on different keys
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, 111), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, 222), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, 111, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, 222, DOC_LEN), REDISMODULE_OK);
 
   // Verify they're independent
   verifyDocId(keyName1, SPEC1_ID, 111);
@@ -350,7 +381,7 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
 TEST_F(DocIdMetaTest, TestEdgeCases) {
   // Test with docId = 1 (minimum valid docId since 0 is DOCID_META_INVALID)
   uint64_t minValidDocId = 1;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, minValidDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, minValidDocId, DOC_LEN), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -358,7 +389,7 @@ TEST_F(DocIdMetaTest, TestEdgeCases) {
 
   // Test with maximum uint64_t value
   uint64_t maxDocId = UINT64_MAX;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, maxDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, maxDocId, DOC_LEN), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, maxDocId);
 }
@@ -370,7 +401,7 @@ TEST_F(DocIdMetaTest, TestDeleteAndReget) {
 
   // Set a valid docId and then delete it to test missing-entry behavior
   uint64_t validDocId = 42;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId, DOC_LEN), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, validDocId);
 
@@ -384,8 +415,8 @@ TEST_F(DocIdMetaTest, TestRenameCallbackIsNotRegistered) {
 
 TEST_F(DocIdMetaTest, TestPruneDeletedSpecsKeepsLiveEntries) {
   addTestSpec("idx_live", SPEC1_ID);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
 
@@ -395,7 +426,7 @@ TEST_F(DocIdMetaTest, TestPruneDeletedSpecsKeepsLiveEntries) {
 }
 
 TEST_F(DocIdMetaTest, TestPruneDeletedSpecsResetsMetaWhenAllEntriesAreStale) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
 
   EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
@@ -406,7 +437,7 @@ TEST_F(DocIdMetaTest, TestPruneDeletedSpecsResetsMetaWhenAllEntriesAreStale) {
 }
 
 TEST_F(DocIdMetaTest, TestRenameToPrunesDeletedSpecEntries) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
 
   RedisModuleString *fromKey = createHashKey("oldkey");
@@ -423,7 +454,7 @@ TEST_F(DocIdMetaTest, TestRenameToPrunesDeletedSpecEntries) {
 // reset_value(0), so freeing without resetting would leave a dangling pointer
 // for the free callback to double-free at key deletion.
 TEST_F(DocIdMetaTest, TestDeleteLastEntryResetsMetaValue) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_TRUE(keyMetaSlotExists(testKeyName));
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
 
@@ -437,8 +468,8 @@ TEST_F(DocIdMetaTest, TestDeleteLastEntryResetsMetaValue) {
 // Deleting a non-last entry must keep the dict attached (other specs still use
 // it), so the remaining entry is still resolvable.
 TEST_F(DocIdMetaTest, TestDeleteNonLastEntryKeepsMeta) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   // Dict still holds SPEC2, so it stays attached.
@@ -455,12 +486,12 @@ TEST_F(DocIdMetaTest, TestDeleteNonLastEntryKeepsMeta) {
 // After the metadata value is reset, a subsequent Set must transparently
 // recreate the per-key dict.
 TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesDict) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_TRUE(keyMetaSlotExists(testKeyName));
   EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003, DOC_LEN), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
   verifyDocId(testKeyName, SPEC1_ID, 3003);
 }
@@ -468,25 +499,25 @@ TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesDict) {
 // The per-key dict is edited in place once attached. Every such edit must still be reported
 // through SetKeyMeta, or a server that persists key metadata keeps the old doc ids.
 TEST_F(DocIdMetaTest, TestOverwriteOfAttachedDictMarksMetaChanged) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1002, DOC_LEN), REDISMODULE_OK);
   EXPECT_TRUE(keyMetaIsDirty(testKeyName));
   verifyDocId(testKeyName, SPEC1_ID, 1002);
 }
 
 TEST_F(DocIdMetaTest, TestAddingSpecToAttachedDictMarksMetaChanged) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
   EXPECT_TRUE(keyMetaIsDirty(testKeyName));
 }
 
 TEST_F(DocIdMetaTest, TestDeleteNonLastEntryMarksMetaChanged) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
@@ -495,7 +526,7 @@ TEST_F(DocIdMetaTest, TestDeleteNonLastEntryMarksMetaChanged) {
 }
 
 TEST_F(DocIdMetaTest, TestDeleteOfMissingSpecLeavesMetaClean) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_ERR);
@@ -504,8 +535,8 @@ TEST_F(DocIdMetaTest, TestDeleteOfMissingSpecLeavesMetaClean) {
 
 TEST_F(DocIdMetaTest, TestPruneKeepingLiveEntriesMarksMetaChanged) {
   addTestSpec("idx_live", SPEC1_ID);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
   EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
@@ -515,7 +546,7 @@ TEST_F(DocIdMetaTest, TestPruneKeepingLiveEntriesMarksMetaChanged) {
 
 TEST_F(DocIdMetaTest, TestPruneWithNothingStaleLeavesMetaClean) {
   addTestSpec("idx_live", SPEC1_ID);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   clearKeyMetaDirty(testKeyName);
 
   EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
@@ -523,7 +554,7 @@ TEST_F(DocIdMetaTest, TestPruneWithNothingStaleLeavesMetaClean) {
 }
 
 TEST_F(DocIdMetaTest, TestClearKeyMetaStoragePreservesClassRegistration) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
 
   RMCK_ClearKeyMetaStorage();
@@ -531,12 +562,12 @@ TEST_F(DocIdMetaTest, TestClearKeyMetaStoragePreservesClassRegistration) {
   EXPECT_FALSE(keyMetaSlotExists(testKeyName));
   EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
   EXPECT_EQ(RMCK_GetKeyMetaClassByName(DOC_ID_META_CLASS_NAME), getDocIdMetaClassId());
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 2002, DOC_LEN), REDISMODULE_OK);
   verifyDocId(testKeyName, SPEC1_ID, 2002);
 }
 
 TEST_F(DocIdMetaTest, TestFlushDbClearsKeyMeta) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
 
   RMCK::flushdb(ctx);
@@ -563,7 +594,7 @@ TEST_F(DocIdMetaTest, TestDropIndexKeepDocsPrunesMetaWhenFreeingSynchronously) {
   ASSERT_NE(spec, nullptr) << QueryError_GetDisplayableError(&status, true);
 
   RedisModuleString *keyName = createHashKey("doc_sync_drop");
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1, DOC_LEN), REDISMODULE_OK);
   RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, "doc_sync_drop", 13, 1.0,
                                          Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
   ASSERT_NE(dmd, nullptr);
@@ -596,7 +627,7 @@ TEST_F(DocIdMetaTest, TestDropIndexKeepDocsPrunesMetaWhenFreeingAsynchronously) 
   ASSERT_NE(spec, nullptr) << QueryError_GetDisplayableError(&status, true);
 
   RedisModuleString *keyName = createHashKey("doc_async_drop");
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1, DOC_LEN), REDISMODULE_OK);
   RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, "doc_async_drop", 14, 1.0,
                                          Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
   ASSERT_NE(dmd, nullptr);
@@ -626,9 +657,9 @@ TEST_F(DocIdMetaTest, TestBasicRdbSaveLoad) {
   addTestSpec("spec3", SPEC3_ID);
 
   // Set up some docId metadata
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 12345), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 67890), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 11111), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 12345, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 67890, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 11111, DOC_LEN), REDISMODULE_OK);
 
   // RDB round-trip
   uint64_t meta = getKeyMeta(testKeyName);
@@ -678,7 +709,7 @@ TEST_F(DocIdMetaTest, TestMultipleSpecsRdbSaveLoad) {
   };
 
   for (const auto &spec : specs) {
-    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId), REDISMODULE_OK);
+    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId, DOC_LEN), REDISMODULE_OK);
   }
 
   // RDB round-trip
@@ -698,8 +729,8 @@ TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, UINT64_MAX), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, UINT64_MAX, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 1, DOC_LEN), REDISMODULE_OK);
 
   // RDB round-trip
   uint64_t meta = getKeyMeta(testKeyName);
@@ -715,7 +746,7 @@ TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
 TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
   addTestSpec("spec1", SPEC1_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 99999), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 99999, DOC_LEN), REDISMODULE_OK);
 
   // RDB round-trip
   uint64_t meta = getKeyMeta(testKeyName);
@@ -738,9 +769,9 @@ TEST_F(DocIdMetaTest, TestRdbLoadSkipsRemovedSpecEntries) {
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, DOC_LEN), REDISMODULE_OK);
 
   // Save to RDB while all 3 specs are live
   rdbSave(getKeyMeta(testKeyName));
@@ -765,9 +796,9 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsRemovedSpecEntries) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, DOC_LEN), REDISMODULE_OK);
 
   // RDB round-trip — should skip SPEC2_ID (not in specIdDict_g)
   uint64_t loadedMeta = rdbSaveAndLoad(getKeyMeta(testKeyName));
@@ -782,7 +813,7 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsRemovedSpecEntries) {
 
 TEST_F(DocIdMetaTest, TestRdbSaveAllRemoved_SavesNothing) {
   // No specs in specIdDict_g — all entries are considered stale
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
 
   // Save to RDB — all entries are stale, should save nothing
   rdbSave(getKeyMeta(testKeyName));
@@ -794,9 +825,9 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsDeletedEntries) {
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, DOC_LEN), REDISMODULE_OK);
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
   verifyDocIdMissing(testKeyName, SPEC2_ID);
@@ -820,8 +851,8 @@ TEST_F(DocIdMetaTest, TestRdbLoadDuringPersistenceConsumesBytesAndSkips) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   // Save while persistence is NOT in progress, so bytes are actually written.
   rdbSave(getKeyMeta(testKeyName));
@@ -833,7 +864,7 @@ TEST_F(DocIdMetaTest, TestRdbLoadDuringPersistenceConsumesBytesAndSkips) {
 
   rdbIO->read_pos = 0;
   uint64_t loadedMeta = 0xDEADBEEF;  // sentinel; load must overwrite to 0
-  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
+  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, currentVersion());
 
   DocIdMeta_SetForgetDocIdMetadata(false);
 
@@ -844,6 +875,111 @@ TEST_F(DocIdMetaTest, TestRdbLoadDuringPersistenceConsumesBytesAndSkips) {
   // No I/O error occurred and exactly all the saved bytes were consumed.
   EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
   EXPECT_EQ(rdbIO->read_pos, bytesWritten);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Document length: stored with the docId, persisted from version 2 on
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST_F(DocIdMetaTest, TestGetEntryReturnsDocLen) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, 42), REDISMODULE_OK);
+  verifyEntry(testKeyName, SPEC1_ID, 1001, 42);
+  verifyDocId(testKeyName, SPEC1_ID, 1001);
+}
+
+TEST_F(DocIdMetaTest, TestOverwriteReplacesDocLen) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, 3), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1002, 9), REDISMODULE_OK);
+  verifyEntry(testKeyName, SPEC1_ID, 1002, 9);
+}
+
+TEST_F(DocIdMetaTest, TestGetEntryWithOpenKeyReturnsDocLen) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, 42), REDISMODULE_OK);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t docId;
+  uint32_t docLen;
+  EXPECT_EQ(DocIdMeta_GetEntryWithOpenKey(key, SPEC1_ID, &docId, &docLen), REDISMODULE_OK);
+  EXPECT_EQ(docId, 1001u);
+  EXPECT_EQ(docLen, 42u);
+  EXPECT_EQ(DocIdMeta_GetEntryWithOpenKey(key, SPEC2_ID, &docId, &docLen), REDISMODULE_ERR);
+  RedisModule_CloseKey(key);
+}
+
+TEST_F(DocIdMetaTest, TestRdbRoundTripPreservesDocLen) {
+  addTestSpec("spec1", SPEC1_ID);
+  addTestSpec("spec2", SPEC2_ID);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, 3), REDISMODULE_OK);
+  // An entry loaded from a version-1 payload stays unknown through later saves.
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOCID_META_DOCLEN_UNKNOWN),
+            REDISMODULE_OK);
+
+  uint64_t loadedMeta = rdbSaveAndLoad(getKeyMeta(testKeyName));
+  RedisModuleString *newKeyName = createKeyWithMeta("lenkey", loadedMeta);
+
+  verifyEntry(newKeyName, SPEC1_ID, 1001, 3);
+  verifyEntry(newKeyName, SPEC2_ID, 2002, DOCID_META_DOCLEN_UNKNOWN);
+
+  RedisModule_FreeString(ctx, newKeyName);
+}
+
+TEST_F(DocIdMetaTest, TestRdbLoadVersion1PayloadLeavesDocLenUnknown) {
+  addTestSpec("spec1", SPEC1_ID);
+  addTestSpec("spec2", SPEC2_ID);
+  writeVersion1Payload({{SPEC1_ID, 1001}, {SPEC2_ID, 2002}});
+
+  uint64_t loadedMeta = rdbLoadVersion(1);
+  EXPECT_EQ(rdbIO->read_pos, rdbIO->buffer.size());
+  RedisModuleString *newKeyName = createKeyWithMeta("v1key", loadedMeta);
+
+  verifyEntry(newKeyName, SPEC1_ID, 1001, DOCID_META_DOCLEN_UNKNOWN);
+  verifyEntry(newKeyName, SPEC2_ID, 2002, DOCID_META_DOCLEN_UNKNOWN);
+
+  RedisModule_FreeString(ctx, newKeyName);
+}
+
+TEST_F(DocIdMetaTest, TestRdbLoadVersion1DuringPersistenceConsumesAllBytes) {
+  addTestSpec("spec1", SPEC1_ID);
+  writeVersion1Payload({{SPEC1_ID, 1001}});
+  const size_t bytesWritten = rdbIO->buffer.size();
+
+  DocIdMeta_SetForgetDocIdMetadata(true);
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0xDEADBEEF;
+  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
+  DocIdMeta_SetForgetDocIdMetadata(false);
+
+  EXPECT_EQ(result, 0);
+  EXPECT_EQ(loadedMeta, 0u);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+  EXPECT_EQ(rdbIO->read_pos, bytesWritten);
+}
+
+TEST_F(DocIdMetaTest, TestRdbLoadRejectsNewerVersion) {
+  addTestSpec("spec1", SPEC1_ID);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, 3), REDISMODULE_OK);
+  rdbSave(getKeyMeta(testKeyName));
+
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0xDEADBEEF;
+  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, currentVersion() + 1);
+
+  EXPECT_EQ(result, -1);
+  EXPECT_EQ(loadedMeta, 0u);
+}
+
+TEST_F(DocIdMetaTest, TestRdbLoadRejectsDocLenAbove32Bits) {
+  addTestSpec("spec1", SPEC1_ID);
+  RedisModule_SaveUnsigned(rdbIO, 1);
+  RedisModule_SaveUnsigned(rdbIO, SPEC1_ID);
+  RedisModule_SaveUnsigned(rdbIO, 1001);
+  RedisModule_SaveUnsigned(rdbIO, (uint64_t)UINT32_MAX + 1);
+
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0xDEADBEEF;
+  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, currentVersion());
+
+  EXPECT_EQ(result, -1);
+  EXPECT_EQ(loadedMeta, 0u);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -866,8 +1002,8 @@ TEST_F(DocIdMetaTest, TestUnlinkWithEmptyMeta) {
 TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
   // Don't add specs to specIdDict_g - this tests entry invalidation without triggering
   // IndexSpec_DeleteDocById (which requires disk-based indexes)
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   verifyDocId(testKeyName, SPEC1_ID, 1001);
   verifyDocId(testKeyName, SPEC2_ID, 2002);
@@ -883,8 +1019,8 @@ TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
 
 TEST_F(DocIdMetaTest, TestUnlinkSkipsDeletedEntries) {
   // Don't add specs to specIdDict_g
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, DOC_LEN), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, DOC_LEN), REDISMODULE_OK);
 
   // Delete SPEC1's entry
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);

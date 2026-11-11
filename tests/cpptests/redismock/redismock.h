@@ -34,6 +34,8 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage();
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name);
+// The encver the class was registered with; what a save of this build is tagged with.
+int RMCK_GetKeyMetaClassVersion(RedisModuleKeyMetaClassId classId);
 bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId);
 // Dirty flag set by every SetKeyMeta on (key, class); tests clear it to simulate a key loaded
 // clean from storage and then check that a change was reported through SetKeyMeta.

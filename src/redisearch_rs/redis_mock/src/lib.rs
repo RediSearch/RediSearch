@@ -376,6 +376,8 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_PruneDeletedSpecs,
             DocIdMeta_SetForgetDocIdMetadata,
             DocIdMeta_GetWithOpenKey,
+            DocIdMeta_GetEntry,
+            DocIdMeta_GetEntryWithOpenKey,
             DocIdMeta_SetWithOpenKey,
             DocIdMeta_DeleteWithOpenKey,
             DocIdMeta_Clear,
