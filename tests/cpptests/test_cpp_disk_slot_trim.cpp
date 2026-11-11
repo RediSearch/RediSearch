@@ -1522,11 +1522,14 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
         RedisModule_GetBlockedClientPrivateData;
     decltype(RedisModule_ReplyWithSimpleString) simple = RedisModule_ReplyWithSimpleString;
     decltype(RedisModule_ReplyWithError) error = RedisModule_ReplyWithError;
+    // The pool is global: hand later tests back the one they would have found.
+    bool hadPool = GC_ThreadPoolNumThreads() > 0;
     RestoreHooks() {
       RedisModule_ThreadSafeContextLock(RSDummyContext);
     }
     ~RestoreHooks() {
       GC_ThreadPoolDestroy();
+      if (hadPool) GC_ThreadPoolStart();
       RedisModule_ThreadSafeContextUnlock(RSDummyContext);
       if (replyData) GCForcedRunOutcomeFree(RSDummyContext, replyData);
       RedisModule_CreateSubcommand = create;
