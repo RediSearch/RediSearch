@@ -115,9 +115,9 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
-static struct timespec getIntervalCb(void *ctx) {
+static long long getIntervalMsCb(void *ctx) {
   IndexGC *gc = ctx;
-  return gc->retryInterval;
+  return gc->retryIntervalMs;
 }
 
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -126,8 +126,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
-  forkGc->retryInterval.tv_nsec = 0;
+  forkGc->retryIntervalMs = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec * 1000LL;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -136,7 +135,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getInterval = getIntervalCb;
+  callbacks->getIntervalMs = getIntervalMsCb;
   callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;

@@ -64,7 +64,7 @@ typedef struct IndexGC {
   // as it reads, NULL otherwise.
   void *readBuffer;
 
-  struct timespec retryInterval;
+  long long retryIntervalMs;
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes

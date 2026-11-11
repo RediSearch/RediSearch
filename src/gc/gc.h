@@ -111,7 +111,7 @@ typedef struct GCCallbacks {
   void (*onWrite)(void* ctx);
   void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
-  struct timespec (*getInterval)(void* ctx);
+  long long (*getIntervalMs)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
@@ -120,8 +120,8 @@ typedef struct GCContext {
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
   bool enabled;                // periodic collection wanted. Guarded by the GIL
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
-  // GC's retryInterval before the one-shot drains, so it is not re-read there.
-  struct timespec pendingInterval;
+  // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
+  long long pendingIntervalMs;
   // Main thread only in the real path; the atomic covers the RS_IsMock fallback, where the GC
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
