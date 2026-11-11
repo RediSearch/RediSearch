@@ -18,11 +18,11 @@
 
 pub mod fork;
 pub mod handle;
+pub mod liveness;
 pub mod scanners;
 pub mod spec_access;
 pub mod stats;
 
-pub use fork::doc_existence::DocExistence;
 pub use fork::frame::Frame;
 pub use fork::pipe::ForkPipe;
 pub use handle::{GcError, HandleOutcome};

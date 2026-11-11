@@ -9,31 +9,28 @@
 
 //! GC collection for numeric and geo inverted indexes.
 
-use std::io::{self, Read, Write};
+use std::{
+    io::{self, Read, Write},
+    ops::RangeInclusive,
+};
 
 use field_spec::FieldSpecType;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
+use inverted_index::{DocId, DocLiveness};
 use serde::{Deserialize, Serialize};
 
 use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeTree};
 
 use crate::fork::wire::{deserialize, serialize};
 use crate::spec_access::SpecWriteAccess;
-use crate::{DocExistence, ForkPipe, GcApplyStats, GcError, HandleOutcome};
+use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
+use rqe_core::FieldIndex;
 
 /// A numeric or geo field scanned by the child process.
-///
-/// The child uses borrowed field-name bytes to avoid copies; the parent
-/// deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "T: serde_bytes::Serialize",
-    deserialize = "T: serde_bytes::Deserialize<'de>"
-))]
-pub struct NumericField<T = Box<[u8]>> {
-    /// Field name at scan time.
-    #[serde(with = "serde_bytes")]
-    pub field_name: T,
+pub struct NumericField {
+    /// Position of the field in the spec's field list.
+    pub field_index: FieldIndex,
     /// [`NumericRangeTree::unique_id`] at scan time.
     pub unique_id: u32,
 }
@@ -44,6 +41,21 @@ pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
     pub delta: NodeGcDelta,
+}
+
+/// A node delta scanned from a snapshot, with the doc IDs the snapshot spanned,
+/// so the consumer can tell which deleted IDs a dropped or denied delta leaves
+/// in the index.
+pub struct ScannedNumericNode {
+    /// The delta to apply, as the fork child would send it.
+    pub node: NumericNodeDelta,
+    /// What the whole scanned index spanned; `None` for an index without blocks.
+    pub doc_id_range: Option<RangeInclusive<DocId>>,
+    /// What its last block spanned. A numeric apply has no liveness source to
+    /// rescan a grown last block with (the cardinality repair needs the whole
+    /// range), so [`apply_numeric_node`] denies it, and the consumer keeps these
+    /// IDs for its next cycle.
+    pub last_block_doc_id_range: Option<RangeInclusive<DocId>>,
 }
 
 /// One NUMERIC or GEO field's tree, named so it can be found again across spec
@@ -62,23 +74,22 @@ pub struct NumericTreeId {
 }
 
 impl NumericTreeId {
-    /// Find the field named `field_name` and name its tree, after checking that
-    /// it is the one the child scanned.
+    /// Name the tree of the field at `field_index`, after checking that it is
+    /// the one the child scanned.
     ///
     /// Returns an apply error when no field matches, the field has no tree, or
     /// the tree's unique id differs from `unique_id`.
     fn resolve(
         guard: &mut IndexSpecWriteGuard<'_>,
-        field_name: &[u8],
+        field_index: FieldIndex,
         unique_id: u32,
     ) -> Result<Self, GcError> {
-        let (field_index, fs) = guard
+        let field_index = usize::from(field_index);
+        let fs = guard
             .field_specs_mut()
-            .iter_mut()
-            .enumerate()
-            .find(|(_, fs)| fs.field_name().secret_value().to_bytes() == field_name)
+            .get_mut(field_index)
             .ok_or(GcError::ApplyError(
-                "no field in the spec matches the scanned field name",
+                "no field in the spec is at the scanned field index",
             ))?;
 
         let tree = fs
@@ -162,6 +173,71 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
         .collect()
 }
 
+/// A numeric node's range index copied under the lock, for a scan without it.
+pub struct NumericNodeSnapshot {
+    position: u32,
+    generation: u32,
+    /// Whether the node was a leaf when copied; see
+    /// [`NodeGcDelta::scanned_leaf`](numeric_range_tree::NodeGcDelta::scanned_leaf).
+    leaf: bool,
+    index: numeric_range_tree::NumericIndex,
+}
+
+impl NumericNodeSnapshot {
+    /// The doc IDs the copied range spans; see
+    /// [`NumericIndex::doc_id_range`](numeric_range_tree::NumericIndex::doc_id_range).
+    pub fn doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        self.index.doc_id_range()
+    }
+
+    /// The doc IDs the copied range's last block spans; see
+    /// [`NumericIndex::last_block_doc_id_range`](numeric_range_tree::NumericIndex::last_block_doc_id_range).
+    pub fn last_block_doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        self.index.last_block_doc_id_range()
+    }
+
+    /// Run the GC scan on the copy, with the liveness source the copy was taken with;
+    /// `Ok(None)` when no document was deleted from the range, the error when the
+    /// copy would not decode, so the caller can keep the IDs [`Self::doc_id_range`]
+    /// reports for another try.
+    pub fn scan(self, live: impl DocLiveness) -> std::io::Result<Option<ScannedNumericNode>> {
+        let Some(delta) = numeric_range_tree::scan_range_index_gc(&self.index, live, self.leaf)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(ScannedNumericNode {
+            node: NumericNodeDelta {
+                position: self.position,
+                generation: self.generation,
+                delta,
+            },
+            doc_id_range: self.index.doc_id_range(),
+            last_block_doc_id_range: self.index.last_block_doc_id_range(),
+        }))
+    }
+}
+
+/// Copy the range index of node `node_idx` of the tree `id` names, every block of it: the
+/// scan's cardinality repair has to see every surviving entry.
+///
+/// Returns `None` when the field's tree was replaced, the node was removed, has
+/// no range, or `live` finds no gone document in the range's span.
+pub fn snapshot_numeric_node(
+    spec: &IndexSpecReadGuard,
+    id: &NumericTreeId,
+    node_idx: NodeIndex,
+    live: &impl DocLiveness,
+) -> Option<NumericNodeSnapshot> {
+    let node = id.tree(spec)?.try_node(node_idx)?;
+    let index = node.range()?.entries().gc_snapshot(live)?;
+    Some(NumericNodeSnapshot {
+        position: node_idx.position(),
+        generation: node_idx.generation(),
+        leaf: node.is_leaf(),
+        index,
+    })
+}
+
 /// Run the GC scan of node `node_idx` of the tree `id` names.
 ///
 /// Returns `None` when the field's tree was replaced, the node was removed,
@@ -170,11 +246,9 @@ pub fn scan_numeric_node(
     spec: &IndexSpecReadGuard,
     id: &NumericTreeId,
     node_idx: NodeIndex,
+    live: impl DocLiveness + Copy,
 ) -> Option<NumericNodeDelta> {
-    let delta = id
-        .tree(spec)?
-        .try_node(node_idx)?
-        .scan_gc(|doc| spec.doc_exists(doc))?;
+    let delta = id.tree(spec)?.try_node(node_idx)?.scan_gc(live)?;
     Some(NumericNodeDelta {
         position: node_idx.position(),
         generation: node_idx.generation(),
@@ -192,26 +266,28 @@ pub fn scan_numeric_node(
 ///
 /// Write errors are surfaced so the caller can terminate the child process.
 ///
-/// `docs` says which documents still exist.
+/// `live` says which documents still exist; see [`DocLiveness`].
 pub fn collect_numeric(
     writer: &mut impl Write,
     spec: &IndexSpecReadGuard,
-    docs: &DocExistence,
+    live: impl DocLiveness + Copy,
 ) -> io::Result<()> {
-    for (fs, tree) in spec
+    for (field_index, tree) in spec
         .field_specs()
         .iter()
-        .filter(|fs| {
+        .enumerate()
+        .filter(|(_, fs)| {
             fs.types()
                 .intersects(FieldSpecType::Numeric | FieldSpecType::Geo)
         })
-        .filter_map(|fs| fs.tree().map(|tree| (fs, tree)))
+        .filter_map(|(i, fs)| fs.tree().map(|tree| (i, tree)))
     {
-        let field_name = fs.field_name().secret_value().to_bytes();
+        let field_index = FieldIndex::try_from(field_index)
+            .expect("a spec has fewer fields than a field index can count");
         serialize(
             writer,
             Some(NumericField {
-                field_name,
+                field_index,
                 unique_id: u32::from(tree.unique_id()),
             }),
         )?;
@@ -219,12 +295,11 @@ pub fn collect_numeric(
         for node_delta in tree
             .indexed_post_order_iter()
             .filter_map(|(node_idx, node)| {
-                node.scan_gc(|id| docs.contains(id))
-                    .map(|delta| NumericNodeDelta {
-                        position: node_idx.position(),
-                        generation: node_idx.generation(),
-                        delta,
-                    })
+                node.scan_gc(live).map(|delta| NumericNodeDelta {
+                    position: node_idx.position(),
+                    generation: node_idx.generation(),
+                    delta,
+                })
             })
         {
             serialize(writer, Some(node_delta))?;
@@ -233,7 +308,7 @@ pub fn collect_numeric(
         serialize(writer, None::<NumericNodeDelta>)?;
     }
 
-    serialize(writer, None::<NumericField<&[u8]>>)
+    serialize(writer, None::<NumericField>)
 }
 
 /// Apply one node's delta to `tree`.
@@ -265,7 +340,7 @@ pub(crate) fn apply_numeric_node(
 fn apply_node_stream(
     reader: &mut impl Read,
     spec: &mut impl SpecWriteAccess,
-    field_name: &[u8],
+    field_index: FieldIndex,
     unique_id: u32,
     stats: &mut GcApplyStats,
 ) -> Result<Option<NumericTreeId>, GcError> {
@@ -276,7 +351,7 @@ fn apply_node_stream(
             let resolved_tree = match resolved_tree {
                 Some(resolved_tree) => resolved_tree,
                 None => {
-                    let tree = NumericTreeId::resolve(guard, field_name, unique_id)?;
+                    let tree = NumericTreeId::resolve(guard, field_index, unique_id)?;
                     resolved_tree = Some(tree);
                     tree
                 }
@@ -301,15 +376,24 @@ pub(crate) fn trim_empty_nodes(
     stats: &mut GcApplyStats,
 ) -> Result<(), GcError> {
     spec.with_write(|guard| {
-        let result = resolved_tree.tree_mut(guard)?.compact_if_sparse();
-
-        stats.record(GcApplyStats {
-            bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
-            block_count_delta: result.block_count_delta.into(),
-            ..GcApplyStats::default()
-        });
-
+        stats.record(compact_tree(guard, resolved_tree)?);
         Ok(())
+    })
+}
+
+/// Compact the resolved tree if GC left it sparse, under the caller's write lock.
+///
+/// Returns what the compaction freed.
+pub(crate) fn compact_tree(
+    guard: &mut IndexSpecWriteGuard<'_>,
+    resolved_tree: NumericTreeId,
+) -> Result<GcApplyStats, GcError> {
+    let result = resolved_tree.tree_mut(guard)?.compact_if_sparse();
+
+    Ok(GcApplyStats {
+        bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
+        block_count_delta: result.block_count_delta.into(),
+        ..GcApplyStats::default()
     })
 }
 
@@ -323,14 +407,14 @@ pub fn handle_numeric_with(
     clean_numeric_empty_nodes: bool,
 ) -> Result<HandleOutcome, GcError> {
     let Some(NumericField {
-        field_name,
+        field_index,
         unique_id,
     }) = deserialize::<Option<NumericField>>(reader, "decoding numeric field")?
     else {
         return Ok(HandleOutcome::Done);
     };
 
-    let resolved_tree = apply_node_stream(reader, spec, &field_name, unique_id, stats)?;
+    let resolved_tree = apply_node_stream(reader, spec, field_index, unique_id, stats)?;
 
     if clean_numeric_empty_nodes && let Some(resolved_tree) = resolved_tree {
         trim_empty_nodes(spec, resolved_tree, stats)?;

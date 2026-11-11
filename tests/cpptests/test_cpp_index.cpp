@@ -1236,52 +1236,6 @@ struct ScopedDocTable {
 };
 }  // namespace
 
-TEST_F(IndexTest, testDocTableLiveBitmap) {
-  // A max size below N chains documents in shared buckets.
-  ScopedDocTable dt(10, 10);
-  const size_t N = 100;
-  dt.put(N);
-  for (t_docId id = 3; id <= N; id += 3) {
-    DMD_Return(DocTable_DeleteById(&dt.t, id));
-  }
-
-  const size_t words = DocTable_LiveBitmapWords(&dt.t);
-  ASSERT_EQ(N / 64 + 1, words);
-  std::vector<uint64_t> live(words);
-  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
-  for (t_docId id = 0; id < words * 64; id++) {
-    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
-        << "docId " << id;
-  }
-
-  // A shorter buffer is filled only up to its own length.
-  std::vector<uint64_t> shorter(words, 0);
-  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
-  ASSERT_EQ(live[0], shorter[0]);
-  ASSERT_EQ(0, shorter[1]);
-}
-
-TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
-  ScopedDocTable dt(10, 10);
-  const size_t N = 1000;
-  dt.put(N);
-  for (t_docId id = 2; id < N; id++) {
-    DMD_Return(DocTable_DeleteById(&dt.t, id));
-  }
-  // Two live docs still get a bitmap of every docId: only its total size is bounded.
-  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
-}
-
-TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
-  // Only maxDocId is read, so a table this large needs no documents.
-  DocTable t = {};
-  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
-  t.maxDocId = capDocIds - 1;
-  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
-  t.maxDocId = capDocIds;
-  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
-}
-
 static void collectLiveId(void *ctx, t_docId docId) {
   static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
 }
