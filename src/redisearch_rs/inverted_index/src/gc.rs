@@ -231,7 +231,6 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
 ) -> std::io::Result<Option<RepairType>> {
     let mut unique_read = 0;
     let mut unique_write = 0;
-    let mut removed_entries = 0usize;
     let mut last_read_doc_id: Option<DocId> = None;
     // Created at the first dead entry, or at the second block, seeded with the first
     // block's entries before it.
@@ -281,7 +280,6 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
                     unique_write += 1;
                 }
             } else {
-                removed_entries += 1;
                 if survivors.is_none() {
                     survivors =
                         Some(block.survivors_up_to::<E>(bits, entry_start, ordinal, last_in_block));
@@ -305,7 +303,7 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
         }));
     }
     debug_assert!(
-        removed_entries > 0 || survivors.blocks.len() < blocks.len(),
+        unique_read > unique_write || survivors.blocks.len() < blocks.len(),
         "a run is formed only of blocks whose entries fit one"
     );
     // The replacement blocks grew by doubling; they are long-lived, so give the slack back
