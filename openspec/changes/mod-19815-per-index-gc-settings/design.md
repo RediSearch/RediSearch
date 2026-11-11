@@ -190,7 +190,8 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   milliseconds.
 - Forced runs skip the check, as today.
 - The comparison is unchanged (skip while the count is below the threshold), so 0 keeps
-  its meaning. After T5 the copy holds the combined threshold below.
+  its meaning. After T5 the copy also holds the effective percentage, and the check
+  computes the combined threshold from it (see Percentage threshold).
 
 ## Percentage threshold (T5)
 
@@ -242,10 +243,23 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   every interval, because the minimum is then 0.
 - The math saturates instead of overflowing: `p × base` is computed in 128 bits, or
   `base` is divided first when it is large.
-- The combined threshold is computed on the main thread as part of the queue-time copy.
-  The live-document count is `sp->stats.scoring.numDocuments` at that moment, read under
-  the spec read lock, as FT.INFO reads it. The GIL alone is not enough: slot cleanup
-  deletes documents on a background thread under the spec write lock, without the GIL.
+- The queue-time copy samples the live count on the main thread, raises the peak, and
+  copies the effective `N` and `p`. The live-document count is
+  `sp->stats.scoring.numDocuments` at that moment, read under the spec read lock, as
+  FT.INFO reads it. The GIL alone is not enough: slot cleanup deletes documents on a
+  background thread under the spec write lock, without the GIL.
+- The run computes the combined threshold when it checks, from the copied `N` and `p`
+  and the peak at that moment, not at queue time. Forced runs don't claim
+  `GC_SCHED_RUN_PENDING`, so a timer can queue a scheduled run while a forced run waits
+  or runs. A threshold computed at queue time would keep the old window after the
+  forced run resets it: a peak of 1,000 and 60% give 600, though the window restarted at
+  100 documents, so 60 updates would skip and the fork would come an interval late.
+  Computed at the check, it uses the new window, and a setting change still waits for
+  the next queued run.
+- The check reads the peak on the GC thread without a lock. Only the queue-time copy
+  and the resetting run write it. The copy runs only while no run holds
+  `GC_SCHED_RUN_PENDING`, and the GC pool has one worker (`GC_THREAD_POOL_SIZE`), so no
+  other run resets it during the check.
 
 ## Command (T3)
 
@@ -411,7 +425,8 @@ The spec delta describes the recommended answer to each.
   out-of-range value (`RUN_INTERVAL` 0, a value above 2^63−1) failing the load.
 - C++ unit tests for T5: the combined threshold for updates, deletes, growth, growth
   then deletes across samples, deletes before the first fork, slot-cleanup deletes
-  between taking the deferred count and the reset, an empty index, `p = 0`
+  between taking the deferred count and the reset, a forced reset between queueing a
+  scheduled run and its check, an empty index, `p = 0`
   with `N` above 1, `CLEAN_THRESHOLD 0`, and values near the overflow limit; the same
   cases under the thread policy if MOD-20523 has landed.
 - Flow tests for T5: the two-index example in the spec delta, inheritance of the global

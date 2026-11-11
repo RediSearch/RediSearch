@@ -142,6 +142,13 @@ and at least each time a scheduled run is queued. Both counts SHALL be the index
 - **AND** after it, 60 documents are deleted
 - **THEN** the next scheduled cycle SHALL fork, because 60 reaches 60% of 100
 
+#### Scenario: Forced cycle after a scheduled run is queued
+- **WHEN** `idx` has `CLEAN_THRESHOLD_PERCENT 60` with a clean threshold of 1000
+- **AND** a scheduled run is queued while `idx` has 1000 live documents
+- **AND** before that run starts, a forced cycle forks while `idx` has 100 live
+  documents, and 60 documents are then updated
+- **THEN** the queued run SHALL fork, because 60 reaches 60% of 100
+
 #### Scenario: Zero percent with a larger clean threshold
 - **WHEN** `idx` has `CLEAN_THRESHOLD_PERCENT 0` and a clean threshold of 100
 - **AND** 1 document was deleted since its last cycle

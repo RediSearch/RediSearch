@@ -120,8 +120,9 @@ disk); 7 needs 2 and 3, and its Flex path needs 6.
       effective-value helper; add it to the `GC SET` branch in `commands.json`,
       regenerate `src/command_info/command_info.c` and check `COMMAND DOCS`
 - [ ] 5.3 Combined threshold: `N` when `p = 0`, otherwise
-      `min(N, max(1, ceil(p × base / 100)))`, computed on the main thread in the
-      queue-time copy; read the live count under the spec read lock; `base` is a peak in
+      `min(N, max(1, ceil(p × base / 100)))`, computed when the run checks, from the
+      `N` and `p` that the queue-time copy stores and the peak at that moment; read the
+      live count under the spec read lock; `base` is a peak in
       `ForkGC` that each queue-time copy raises to the live count, that the run
       resetting the counter, forced or scheduled, sets to the live count plus the
       still-deferred slot-cleanup deletes at the reset (also under the spec read lock),
@@ -135,10 +136,11 @@ disk); 7 needs 2 and 3, and its Flex path needs 6.
       deletes before the first fork, deletes between the queue-time copy and the fork
       (the new window starts at the count the fork saw), slot-cleanup deletes between
       taking the deferred count and the reset (the base includes them), a forced fork
-      setting the peak, a failed fork leaving it, empty index, `p = 0` with `N` above 1,
-      `CLEAN_THRESHOLD 0`, overflow limits, and the same cases under the thread policy
-      if MOD-20523 has landed; RDB round trip with the percentage set and cleared with
-      `DEFAULT`, and a stored percentage above 100 failing the load
+      setting the peak, a failed fork leaving it, a forced fork between queueing a
+      scheduled run and its check (the run uses the new window), empty index, `p = 0`
+      with `N` above 1, `CLEAN_THRESHOLD 0`, overflow limits, and the same cases under
+      the thread policy if MOD-20523 has landed; RDB round trip with the percentage set
+      and cleared with `DEFAULT`, and a stored percentage above 100 failing the load
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,
       FT.INFO in RESP2 and RESP3, and no `clean_threshold_percent` on a disk index
 
