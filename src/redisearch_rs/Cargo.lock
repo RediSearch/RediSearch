@@ -824,6 +824,7 @@ version = "0.0.1"
 dependencies = [
  "decorum",
  "proptest",
+ "rqe_core",
  "thiserror",
  "workspace_hack",
 ]
