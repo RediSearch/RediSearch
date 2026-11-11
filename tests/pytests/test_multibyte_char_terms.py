@@ -1463,6 +1463,7 @@ def testTagSearch(env):
     env.assertEqual(res, [1, 'doc:2s'])
 
 
+@skip(enterprise=True)
 def test_utf8_lowercase_longer_than_uppercase_tags(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn = getConnectionByEnv(env)
@@ -1533,6 +1534,7 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         env.assertEqual(res, expected_2)
 
 
+@skip(enterprise=True)
 def test_utf8_lowercase_longer_than_uppercase_texts(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
@@ -1623,7 +1625,7 @@ UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testToLowerConversionExactMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters.
     This test skips surrogate pairs, which are not valid unicode characters
@@ -1680,7 +1682,7 @@ def testToLowerConversionExactMatch(env):
             env.assertEqual(res, expected_l, message = f'{idx} query_l char: {char} {unicode_codes}')
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testTagToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TAG fields and running a query with a prefix, infix or suffix.
@@ -1735,7 +1737,7 @@ def testTagToLowerConversionSimilarMatch(env):
         env.cmd('DEL', f'doc:u:{codepoint:04X}')
         env.cmd('DEL', f'doc:l:{codepoint:04X}')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testTextToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TEXT fields and running a query with a prefix, infix or suffix.

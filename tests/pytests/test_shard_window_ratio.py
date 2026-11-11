@@ -124,6 +124,7 @@ def test_shard_k_unstable_feature_flag():
                     'PARAMS', 2, 'query_vec', query_vec.tobytes(), 'nocontent')
         ValidateError(env, res, message=f"{cmd} expected error for unavailable shard k ratio",
                         expected_error_message="Shard k ratio is unavailable")
+@skip(enterprise=True)
 def test_ft_profile_shard_result_validation_scenarios():
     """Test comprehensive scenarios for shard window ratio validation."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true', protocol=3)

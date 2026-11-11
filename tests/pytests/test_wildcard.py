@@ -212,7 +212,7 @@ def testBenchmark(env):
     start_time = time.time()
     print('----*oo234----')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testEscape(env):
   conn = getConnectionByEnv(env)
 

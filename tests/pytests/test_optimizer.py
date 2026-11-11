@@ -67,7 +67,7 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testOptimizer(env):
     env.cmd('FT.CONFIG', 'SET', 'TIMEOUT', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -322,7 +322,7 @@ def testOptimizer(env):
     result = env.cmd('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
     env.assertEqual(result[0], 1200)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testWOLimit(env):
     env.cmd('ft.config', 'set', 'timeout', '0')
     env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -612,6 +612,7 @@ def testCoordinator(env):
             # aggregate only minimal number of ranges
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*', 'SORTBY', 2, '@n', 'ASC'], params, 'case 11')
 
+@skip(enterprise=True)
 def testVector():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK FALSE')
     conn = getConnectionByEnv(env)

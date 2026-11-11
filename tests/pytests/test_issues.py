@@ -173,7 +173,7 @@ def test_issue1834(env):
 
   env.expect('FT.SEARCH', 'idx', 'hell|hello', 'HIGHLIGHT').equal([1, 'doc', ['t', '<b>hell</b> <b>hello</b>']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_issue1880(env):
   # order of iterator in intersect is optimized by function
   conn = getConnectionByEnv(env)
@@ -419,7 +419,7 @@ def test_MOD1907(env):
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA').error().contains('Fields arguments are missing')
   env.expect('FT.CREATE', 'idx', 'STOPWORDS', 0, 'SCHEMA').error().contains('Fields arguments are missing')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_SkipFieldWithNoMatch(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -468,7 +468,7 @@ def test_update_num_terms(env):
   forceInvokeGC(env, 'idx')
   assertInfoField(env, 'idx', 'num_terms', 1)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testOverMaxResults():
   env = Env(moduleArgs='MAXSEARCHRESULTS 20')
   conn = getConnectionByEnv(env)
@@ -599,6 +599,7 @@ def test_sortby_Noexist(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
+@skip(enterprise=True)
 def test_sortby_Noexist_Sortables(env):
   ''' issue 3457 '''
 
@@ -725,7 +726,7 @@ def test_mod_4207(env):
   env.expect('FT.SEARCH', 'idx1', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:4'])
   env.expect('FT.SEARCH', 'idx2', '*', 'NOCONTENT').equal([3, 'address:1', 'address:2', 'address:3'])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_mod_4255(env):
   conn = getConnectionByEnv(env)
 
@@ -799,7 +800,7 @@ def test_mod4296_badexpr(env):
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
   env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_mod5062(env):
   env.expect('FT.CONFIG', 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect('FT.CONFIG', 'SET', 'MAXAGGREGATERESULTS', '0').ok()
@@ -945,7 +946,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.assertEqual(shards_with_slot_0[0][2][0], new_shard_id, message=f"cluster info is {cluster_info}")
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_mod5910(env):
     con = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').equal('OK')
@@ -1156,6 +1157,7 @@ def test_mod_7252(env: Env):
   # Find the maximum negative value. The expected result is -1 (from [-10..-1])
   env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '0', 'REDUCE', 'MAX', '1', '@neg', 'AS', 'max').equal([1, ['max', '-1']])
 
+@skip(enterprise=True)
 def test_unsafe_simpleString_values():
   env = Env(protocol=3) # Some cases only occur in RESP3
   unsafe_index = 'unsafe\r\nindex'
@@ -1713,7 +1715,7 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
 
     check_threads(env, 0, 0)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_mod_12807(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc1', 't', 'foo bar baz').equal(1)

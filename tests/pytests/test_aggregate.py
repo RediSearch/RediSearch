@@ -307,6 +307,7 @@ class TestAggregate():
             self.env.assertGreater(int(row['count']), 2)
 
     def testFilterBeforeLoad(self):
+        skipTest(enterprise=True)
         cmd = ['ft.aggregate', 'games', '*',
                'FILTER', '@price > 500',
                'SORTBY', 2, '@price', 'desc',

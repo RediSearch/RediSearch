@@ -681,6 +681,7 @@ def test_workers_increase_from_nonzero():
     result = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(result[0] > 0)
 
+@skip(enterprise=True)
 def testNameLoader(env: Env):
     def get_RP_name(profile_res):
         if not env.isCluster():

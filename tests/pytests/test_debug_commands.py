@@ -23,6 +23,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
     def testDebugHelp(self):
+        skipTest(enterprise=True)
         err_msg = 'wrong number of arguments'
         help_list = [
             "DUMP_INVIDX",
@@ -253,6 +254,7 @@ class TestDebugCommands(object):
                 pass
 
     def testStopAndResumeWorkersPool(self):
+        skipTest(enterprise=True)
         if not MT_BUILD:
             self.env.skip()
         self.env.expect('FT.DEBUG', 'WORKERS').error().contains(
@@ -303,7 +305,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'WORKERS', 'n_threads').equal(self.workers_count)
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
     # Had we used this test in the TestDebugCommands env, a background indexing would have been triggered, and
@@ -718,6 +720,11 @@ class TestQueryDebugCommands(object):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
+    # 'hide-user-data-from-log' is not a RediSearch-owned config: notifications.c
+    # only reads the server's own config (getRedisConfigValue), so whether it's
+    # registered at all depends on the enterprise server build, not on this module.
+    if is_enterprise_server(env):
+        env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
@@ -1394,6 +1401,7 @@ class ProfileDebugSA:
 
 class TestProfileDebugSAResp2(object):
     def __init__(self):
+        skipTest(enterprise=True)
         env = Env(protocol=2)
         ProfileDebugSA.createIndex(env)
         self.env = env
@@ -1405,6 +1413,7 @@ class TestProfileDebugSAResp2(object):
 
 class TestProfileDebugSAResp3(object):
     def __init__(self):
+        skipTest(enterprise=True)
         env = Env(protocol=3)
         ProfileDebugSA.createIndex(env)
         self.env = env

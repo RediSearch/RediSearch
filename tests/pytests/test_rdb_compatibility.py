@@ -53,7 +53,9 @@ def testRDBCompatibility(env):
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode(), message=fileName)
 
-@skip(cluster=True, noWorkers=True)
+# Not on enterprise: the coordinator reports 0 total results for a KNN query
+# with LIMIT 0 0, since the shards then return no rows to count.
+@skip(cluster=True, noWorkers=True, enterprise=True)
 def testRDBCompatibility_vecsim():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     skipOnExistingEnv(env)

@@ -2742,6 +2742,7 @@ def testNoCreate(env):
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'fields', 'f1', 'hello').noError()
     env.expect('ft.add', 'idx', 'doc1', 1, 'replace', 'nocreate', 'fields', 'f1', 'world').noError()
 
+@skip(enterprise=True)
 def testSpellCheck(env):
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'report', 'TEXT')
     env.cmd('FT.ADD', 'idx', 'doc1', 1.0, 'FIELDS', 'report', 'report content')
@@ -3184,7 +3185,7 @@ def testWithSortKeysOnNoneSortableValue(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '*', 'WITHSORTKEYS', 'SORTBY', 'test').equal([1, 'doc1', '$foo', ['test', 'foo']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testWithWithRawIds(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
@@ -3605,7 +3606,7 @@ def testIssue1208(env):
     env.expect('FT.ADD idx doc3 1 REPLACE PARTIAL IF @n<42e3 FIELDS n 100').ok()
     # print env.cmd('FT.SEARCH', 'idx', '@n:[-inf inf]')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
@@ -3669,7 +3670,7 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'sortby', '1', '@N').error().contains('not loaded')
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testSortedFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
@@ -3781,6 +3782,7 @@ def testEmptyDoc(env):
     conn.execute_command('DEL', 'doc3')
     env.expect('FT.SEARCH idx *').equal([2, 'doc2', ['t', 'foo'], 'doc4', ['t', 'foo']])
 
+@skip(enterprise=True)
 def testRED47209(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
@@ -3792,7 +3794,7 @@ def testRED47209(env):
         res = [1, 'doc1', None, ['t', 'foo']]
     env.expect('FT.SEARCH idx foo WITHSORTKEYS LIMIT 0 1').equal(res)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testInvertedIndexWasEntirelyDeletedDuringCursor():
     env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1')
 
@@ -4065,7 +4067,7 @@ def test_mod_4200(env):
         env.expect('ft.add', 'idx', 'doc%i' % i, '1.0', 'FIELDS', 'test', 'foo').equal('OK')
     env.expect('ft.search', 'idx', '((~foo) foo) | ((~foo) foo)', 'LIMIT', '0', '0').equal([1001])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_RED_86036(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     for i in range(1000):

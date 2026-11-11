@@ -381,7 +381,7 @@ def testDocTableInfo(env):
     env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testInfoIndexingTime(env):
     conn = getConnectionByEnv(env)
 

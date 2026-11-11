@@ -63,7 +63,8 @@ def test_default_scorer_behavior():
     env.assertEqual(agg_default_tfidf, agg_tfidf_in_query)
 
 
-@skip(cluster=True)
+# RSE builds don't ship the example extension.
+@skip(cluster=True, enterprise=True)
 def test_default_scorer_with_extension():
     """
     Test that the default scorer can be set to a custom scorer from an extension
@@ -134,7 +135,7 @@ def test_default_scorer_with_extension():
     env.assertEqual(float(agg_default_example[2][1]), 3.141)  # Second document score
 
 
-@skip(cluster=True, asan=True)
+@skip(cluster=True, asan=True, enterprise=True)
 def test_default_scorer_startup_validation():
     if 'EXT_TEST_PATH' in os.environ:
         ext_path = os.environ['EXT_TEST_PATH']

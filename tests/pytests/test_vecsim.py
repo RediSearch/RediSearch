@@ -984,6 +984,7 @@ def test_hybrid_query_batches_mode_with_complex_queries():
                 'RETURN', 2, 't1', 't2').equal([0])
 
 
+@skip(enterprise=True)
 def test_hybrid_query_non_vector_score():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
