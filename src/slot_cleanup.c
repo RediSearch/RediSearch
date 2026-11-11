@@ -295,6 +295,10 @@ bool SlotCleanup_ReapDiskJobs(void) {
   return reaped;
 }
 
+// The disk layer requires an index's trim turns to run one at a time: jobs with overlapping ranges
+// and different cutoffs can select the same doc, and staging an already-deleted doc panics. A job
+// is never queued twice, but nothing here serializes different jobs of one index; only the clean
+// pool's single thread does.
 static void DiskSlotCleanup_Run(void *arg) {
   IndexSpecSlotTrimJob *job = arg;
   IndexSpecDiskSlotTrimResult result = IndexSpec_RunDiskSlotTrim(job);
