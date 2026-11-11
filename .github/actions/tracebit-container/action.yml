@@ -1,0 +1,26 @@
+name: Tracebit canary credentials (job containers)
+description: Plant Tracebit canary credentials from a job that runs in a container.
+
+# Jobs without a `container:` use tracebit-com/tracebit-community-action
+# directly. Container jobs go through this wrapper because the action's `pre`
+# phase runs at job start, before any step, and a step-level `if:` does not
+# gate it. In our alpine containers Node is installed by a setup step, so that
+# phase would fail the job. Inside a composite action the `pre` phase runs when
+# this step runs instead, by which point the container can execute Node.
+
+inputs:
+  api-token:
+    description: The SECURITY_API_TOKEN secret. Empty on fork PRs, in which case the action warns and plants nothing.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Configure Tracebit canary credentials
+      uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+      with:
+        customer-id: sha5oz2y
+        api-token: ${{ inputs.api-token }}
+        profile: administrator
+        profile-region: us-east-1
+        async: true

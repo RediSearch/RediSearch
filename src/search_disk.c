@@ -8,6 +8,7 @@
 */
 
 #include "search_disk.h"
+#include "slot_cleanup.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -215,6 +216,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     SearchDisk_Close(ctx);
     return false;
   }
+  SlotCleanup_StartDiskJobs();
   return true;
 }
 
@@ -239,6 +241,7 @@ void SearchDisk_StopMetrics(void) {
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
+    SlotCleanup_StopDiskJobs();
     SearchDisk_StopMetrics();
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
@@ -342,7 +345,8 @@ static void SearchDisk_CheckOpenResult(RedisModuleCtx *ctx, RedisSearchDiskIndex
 
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
                                                const char *obfuscatedName, DocumentType type,
-                                               bool deleteBeforeOpen, IndexSpec *c_index_spec) {
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status) {
   RS_ASSERT(disk_db && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
     SearchDisk_CheckOpenResult(ctx, NULL);
@@ -352,7 +356,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-      fields, c_index_spec->numFields, &callbacks, c_index_spec);
+      fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
@@ -544,12 +548,14 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time, DiskReadFailureReason *failure_reason) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
     // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
     // adds them must decide how to provide it (stored on disk, or computed from the key).
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
+    DiskReadFailureReason ignored = DISK_READ_ERROR;
+    if (!failure_reason) failure_reason = &ignored;
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot, failure_reason);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -573,8 +579,8 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
 }
 
 char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics) {
-    RS_ASSERT(disk && disk_db && handle);
-    return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
+  RS_ASSERT(disk && disk_db && handle);
+  return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
 }
 
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
@@ -609,11 +615,11 @@ static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
     return dmd;
 }
 
-uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint* expiration_point) {
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(AsyncReadFailure) failed_reads, const t_expirationTimePoint* expiration_point) {
     RS_ASSERT(disk && pool);
-    AsyncPollResult pollResult = disk->docTable.pollAsyncReads(pool, timeout_ms, results, array_cap(results), failed_user_data, array_cap(failed_user_data), *expiration_point, &allocateDMD);
+    AsyncPollResult pollResult = disk->docTable.pollAsyncReads(pool, timeout_ms, results, array_cap(results), failed_reads, array_cap(failed_reads), *expiration_point, &allocateDMD);
     array_set_len(results, pollResult.ready_count);
-    array_set_len(failed_user_data, pollResult.failed_count);
+    array_set_len(failed_reads, pollResult.failed_count);
     return pollResult.pending_count;
 }
 
@@ -844,4 +850,16 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
     RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
+}
+
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, t_docId *maxDocId) {
+  RS_ASSERT(disk && disk->slotMigration.registerTrim);
+  return disk->slotMigration.registerTrim(index, ranges, numRanges, maxDocId);
+}
+
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx) {
+  RS_ASSERT(disk && disk->slotMigration.forEachPendingTrim);
+  disk->slotMigration.forEachPendingTrim(index, callback, ctx);
 }

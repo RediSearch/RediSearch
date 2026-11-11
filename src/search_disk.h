@@ -101,11 +101,14 @@ void SearchDisk_ReleaseCreateFailure(void);
  *        without SST persistence to ensure stale data is cleared)
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
+ * @param status Receives the disk layer's reason when the open fails and it has one; left
+ *        clear otherwise. May be NULL.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
-    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
-    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -423,7 +426,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  *
  * The returned snapshot can be passed to the iterator-creation wrappers so that all
  * iterators created during one query observe the same database state. Must be released
- * by `SearchDisk_FreeSnapshot` after every iterator created from it has been freed.
+ * by `SearchDisk_FreeSnapshot` according to the lifetime contract in `IndexDiskAPI.createSnapshot`.
  *
  * @param index Pointer to the index spec
  * @return Snapshot handle, or NULL on error
@@ -478,9 +481,10 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
  * @param current_time Current time for expiration check.
+ * @param failure_reason Optional output written when the read fails.
  * @return true if found and not expired, false if not found, expired, or on error
  */
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time, DiskReadFailureReason *failure_reason);
 
 /**
  * @brief Check if a document ID is deleted
@@ -586,18 +590,17 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
 /**
  * @brief Poll the pool for ready results
  *
- * Returns two arrays: successful reads with DMDs, and failed reads with just user_data.
+ * Returns two arrays: successful reads with DMDs, and failed reads with their reasons.
  *
  * @param pool Pool handle
  * @param timeout_ms 0 for non-blocking, >0 to wait
  * @param results Buffer to fill with successful AsyncReadResult structures
  * @param results_capacity Size of results buffer
- * @param failed_user_data Buffer to fill with user_data from failed reads
- * @param failed_capacity Size of failed_user_data buffer
+ * @param failed_reads Buffer to fill with failed request identifiers and reasons
  * @param expiration_point Current time for expiration check.
  * @return Number of pending reads after the poll
  */
-uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint *expiration_point);
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(AsyncReadFailure) failed_reads, const t_expirationTimePoint *expiration_point);
 
 /**
  * @brief Free the async read pool
@@ -1069,6 +1072,11 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+// These wrappers follow the thread, locking and persistence contract in SlotMigrationAPI.
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, t_docId *maxDocId);
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx);
 #ifdef __cplusplus
 }
 #endif
