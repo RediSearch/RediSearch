@@ -24,6 +24,10 @@ harness = false
 name = "add_record"
 harness = false
 
+[[bench]]
+name = "numeric_blocks"
+harness = false
+
 [dependencies]
 criterion.workspace = true
 ffi.workspace = true
