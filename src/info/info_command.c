@@ -329,7 +329,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
-    TextResourceMetrics text = SearchDisk_ReadCachedTextResources(sp->diskSpec);
+    TextResourceMetrics text = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec).text;
     REPLY_KVMAP("column_families");
     REPLY_KVMAP("text");
     REPLY_KVINT("ram_metadata_bytes", text_overhead);

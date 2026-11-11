@@ -841,8 +841,3 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
     RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
 }
-
-TextResourceMetrics SearchDisk_ReadCachedTextResources(const RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  return disk->metrics.readCachedTextResources(index);
-}

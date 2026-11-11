@@ -1054,17 +1054,18 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+typedef struct TextResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} TextResourceMetrics;
+
 /* Numeric cached values; reading these never collects native properties. */
 typedef struct CachedIndexMetrics {
   uint64_t memory;
   uint64_t disk_usage;
   uint64_t blocks;
+  TextResourceMetrics text;
 } CachedIndexMetrics;
-
-typedef struct TextResourceMetrics {
-  uint64_t memtable_bytes;
-  uint64_t storage_bytes;
-} TextResourceMetrics;
 
 typedef struct MetricsDiskAPI {
   /* Stop and join collection before index teardown; idempotent, main thread only. */
@@ -1214,8 +1215,6 @@ typedef struct MetricsDiskAPI {
    */
   char *(*debugDiskStats)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
                           bool withStatistics, AllocateKeyCallback allocate);
-  /* Reads published TEXT resource measurements without collecting native properties. */
-  TextResourceMetrics (*readCachedTextResources)(const RedisSearchDiskIndexSpec *index);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
