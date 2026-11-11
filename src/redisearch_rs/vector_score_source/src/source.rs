@@ -160,6 +160,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     ///    source must remain serialized because clock checks mutate the request-owned counter;
     ///    only the C atomic blocked-client marker and the memory stop flag may be changed
     ///    concurrently.
+    /// 4. Any callback context and statistics referenced by `query_params.navix` must
+    ///    outlive this source. Its caller pins the filter view while collecting batches;
+    ///    source operations and profile reads are serialized with callback writes.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
@@ -212,6 +215,13 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Return the request-owned timeout as the opaque context expected by VecSim.
     fn timeout_ctx_ptr(&self) -> *mut c_void {
         self.timeout.as_ptr().cast()
+    }
+
+    /// Cumulative POC counters, borrowed from the query AST while its iterators are alive.
+    pub fn navix_stats(&self) -> Option<ffi::VecSimNavixStats> {
+        // SAFETY: the constructor's callback-lifetime contract keeps this optional
+        // stats allocation alive, and query execution/profile printing are serialized.
+        unsafe { self.query_params.navix.stats.as_ref().copied() }
     }
 
     /// Return the number of vectors currently in the index.

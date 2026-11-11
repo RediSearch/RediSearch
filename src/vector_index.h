@@ -129,6 +129,7 @@ typedef struct VectorQuery {
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
 
+  struct NavixQuery *navixQuery;      // AST-owned callback contexts; iterators borrow them.
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array
 } VectorQuery;
@@ -181,7 +182,8 @@ typedef VecSimIndexBasicInfo (*VectorIndex_BasicInfoFn)(VecSimIndex *index);
 void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn);
 #endif
 
-QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
+                                 const QueryNode *filter_node);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);

@@ -60,7 +60,17 @@ where
         return NewVectorTopK::ReducedEmpty;
     };
 
-    match reduce_child(child) {
+    // Preserve the exact child even when it reduces to wildcard: the explicit POC
+    // route must use batches, including when its conservative predicate is UNKNOWN.
+    let reduced_child = if query_params.navix.mayMatch.is_some() {
+        match child {
+            Some(child) => ChildReduction::Filtered(child),
+            None => ChildReduction::Unfiltered,
+        }
+    } else {
+        reduce_child(child)
+    };
+    match reduced_child {
         ChildReduction::Empty => NewVectorTopK::ReducedEmpty,
         ChildReduction::Unfiltered => {
             // A caller-supplied hybrid policy must not reach the single-shot KNN call.

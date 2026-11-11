@@ -164,7 +164,23 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         // SAFETY: `mode_enum` is one of the four VecSearchMode values above, each
         // of which VecSimSearchMode_ToString maps to a non-null static C string.
         let mode_cstr: &CStr = unsafe { CStr::from_ptr(VecSimSearchMode_ToString(mode_enum)) };
-        map.kv_simple_string(c"Vector search mode", mode_cstr);
+        if let Some(stats) = self.navix_stats() {
+            map.kv_simple_string(c"Vector search mode", c"NAVIX_QC");
+            map.kv_long_long(c"NaviX filter checks", stats.filterChecks as i64);
+            map.kv_long_long(c"NaviX rejected", stats.filterRejected as i64);
+            map.kv_long_long(c"NaviX distances", stats.distanceComputations as i64);
+            map.kv_long_long(c"NaviX expanded", stats.expandedNodes as i64);
+            map.kv_long_long(c"NaviX one hop", stats.oneHopExpansions as i64);
+            map.kv_long_long(c"NaviX blind", stats.blindExpansions as i64);
+            map.kv_long_long(c"NaviX directed", stats.directedExpansions as i64);
+            map.kv_long_long(c"NaviX second hop visits", stats.secondHopVisits as i64);
+            map.kv_long_long(
+                c"NaviX frontend candidates",
+                stats.frontendCandidates as i64,
+            );
+        } else {
+            map.kv_simple_string(c"Vector search mode", mode_cstr);
+        }
 
         let is_batch_mode = matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
             || (matches!(mode, TopKMode::AdhocBF) && switches > 0);

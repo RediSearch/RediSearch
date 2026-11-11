@@ -50,6 +50,9 @@ use vector_score_source::{NewVectorTopK, new_vector_top_k};
 /// 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
 ///    `spec`, both outliving the returned iterator.
 /// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+/// 8. Optional NaviX callback state in `query_params` is AST-owned and outlives the
+///    returned iterator. Collection holds the spec read lock; calls and profile reads
+///    are serialized with callback writes.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty

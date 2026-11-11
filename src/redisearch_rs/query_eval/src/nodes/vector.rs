@@ -85,6 +85,11 @@ pub(crate) fn eval<'index>(
             ctx.as_non_null().as_ptr(),
             vq,
             child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+            if node.num_children() == 0 {
+                std::ptr::null()
+            } else {
+                node.child(0).as_non_null().as_ptr()
+            },
         )
     };
 
