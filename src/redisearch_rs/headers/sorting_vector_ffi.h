@@ -71,8 +71,8 @@ size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
  *
  * # Safety
  *
- * 1. `rdb` must be a [valid] pointer to the [`RedisModuleIO`] of the RDB load in
- *    progress.
+ * 1. `rdb` must be a non-null, [valid] pointer to the [`RedisModuleIO`] of the RDB
+ *    load in progress.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

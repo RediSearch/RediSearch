@@ -49,7 +49,7 @@ use vector_score_source::{NewVectorTopK, new_vector_top_k};
 ///    duration of this call.
 /// 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
 ///    `spec`, both outliving the returned iterator.
-/// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+/// 7. `timeout` is non-null and remains [valid] for the returned iterator's lifetime.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty

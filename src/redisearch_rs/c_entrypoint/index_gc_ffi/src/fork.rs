@@ -23,13 +23,15 @@ use crate::{ForkGCError, util::borrow_fork_pipe};
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::IndexGC`], with no other reference to it
+/// 1. `gc` must point to a [valid] [`ffi::IndexGC`], with no other reference to it
 ///    alive for the duration of this call.
-/// 2. `spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+/// 2. `spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
 /// 3. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
 /// 4. This function must only be called in a forked GC child, where the spec's
 ///    document table never changes again: the scanners answer existence checks
 ///    from a [`DocExistence::snapshot`] of it.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ForkGC_childScanIndexes(gc: *mut ffi::IndexGC, spec: *mut ffi::IndexSpec) {
     // SAFETY: caller guarantees (1).
@@ -50,8 +52,10 @@ pub unsafe extern "C" fn ForkGC_childScanIndexes(gc: *mut ffi::IndexGC, spec: *m
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::IndexGC`], with no other reference to it
+/// 1. `gc` must point to a [valid] [`ffi::IndexGC`], with no other reference to it
 ///    alive for the duration of this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ForkGC_parentHandleFromChild(gc: *mut ffi::IndexGC) -> ForkGCError {
     // SAFETY: caller guarantees (1).

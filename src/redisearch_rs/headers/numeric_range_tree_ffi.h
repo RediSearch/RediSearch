@@ -34,8 +34,10 @@ size_t NumericRangeTree_BaseSize(void);
  *
  * # Safety
  *
- * 1. `ctx` must be a valid Redis module context.
- * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+ * 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
 
@@ -48,8 +50,10 @@ void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct Nu
  *
  * # Safety
  *
- * 1. `ctx` must be a valid Redis module context.
- * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+ * 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
 
@@ -61,8 +65,10 @@ void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct Num
  *
  * # Safety
  *
- * 1. `ctx` must be a valid Redis module context.
- * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+ * 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
@@ -86,9 +92,11 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
  *
  * # Safety
  *
- * 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * 1. `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
  * 2. The caller must have unique access to `t`: nothing may borrow from the
  *    tree while this function runs.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
 
@@ -102,8 +110,10 @@ struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRang
  *
  * # Safety
  *
- * 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * 1. `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
  * 2. The caller must have unique access to `t`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 

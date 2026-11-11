@@ -26,15 +26,17 @@ use redis_module::RedisModuleCtx;
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid Redis module context.
-/// 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+/// 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
     ctx: *mut RedisModuleCtx,
     t: *const NumericRangeTree,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-    // SAFETY: 1 (a valid Redis module context is non-null).
+    // SAFETY: 1 (`ctx` is non-null).
     let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: 2.
     let tree = unsafe { t.as_ref() };
@@ -53,8 +55,10 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid Redis module context.
-/// 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+/// 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     ctx: *mut RedisModuleCtx,
@@ -62,7 +66,7 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     with_headers: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-    // SAFETY: 1 (a valid Redis module context is non-null).
+    // SAFETY: 1 (`ctx` is non-null).
     let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: 2.
     let tree = unsafe { t.as_ref() };
@@ -81,8 +85,10 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid Redis module context.
-/// 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+/// 1. `ctx` must be a non-null, [valid] pointer to a Redis module context.
+/// 2. `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     ctx: *mut RedisModuleCtx,
@@ -90,7 +96,7 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     minimal: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-    // SAFETY: 1 (a valid Redis module context is non-null).
+    // SAFETY: 1 (`ctx` is non-null).
     let ctx = unsafe { NonNull::new_unchecked(ctx) };
     // SAFETY: 2.
     let tree = unsafe { t.as_ref() };

@@ -51,8 +51,10 @@ pub use numeric_range_tree::NumericRangeTree;
 ///
 /// # Safety
 ///
-/// 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// 1. `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
 /// 2. The caller must have unique access to `t`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
@@ -104,9 +106,11 @@ pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
 ///
 /// # Safety
 ///
-/// 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// 1. `t` must point to a [valid] [`NumericRangeTree`] and cannot be NULL.
 /// 2. The caller must have unique access to `t`: nothing may borrow from the
 ///    tree while this function runs.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
     t: *mut NumericRangeTree,

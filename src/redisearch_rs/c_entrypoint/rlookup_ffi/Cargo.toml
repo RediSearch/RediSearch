@@ -33,7 +33,7 @@ cheadergen.workspace = true
 [dev-dependencies]
 # Crate required to invoke C symbols
 rlookup_ffi = { path = ".", features = ["unittest"] }
-redisearch_rs = { path = "../redisearch_rs" }
+redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
 
 
