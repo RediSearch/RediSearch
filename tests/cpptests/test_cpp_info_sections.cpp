@@ -135,9 +135,10 @@ class InfoSectionsTest : public ::testing::Test {
       ++collections;
       return 1234;
     };
-    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *,
+                                            uint64_t) {
       ++cachedCollections;
-      return CachedIndexMetrics{4321, 55, 9};
+      return CachedIndexMetrics{4321, 55, 9, {0, 0}};
     };
     api.metrics.stopMetrics = [](RedisSearchDisk *) {};
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
