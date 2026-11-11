@@ -100,22 +100,28 @@ def testCompressionConfig(env):
         num = str(1 + i / 100.0)
         env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([1, str(i), ['n', num]])
 
-    # with compression. no exact number match.
+    # With compression, a float with no short decimal form is stored as a lossy f32, so
+    # it no longer matches exactly.
+    def lossy(i):
+        return 1 + i / 100.0 + 1e-6 / 3
+
     env.cmd('ft.dropindex', 'idx')
     env.expect(config_cmd(), 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
     env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
     for i in range(100):
-      env.cmd('hset', i, 'n', str(1 + i / 100.0))
-
-    # delete keys where compression does not change value
-    env.cmd('del', '0')
-    env.cmd('del', '25')
-    env.cmd('del', '50')
-    env.cmd('del', '75')
-
+      env.cmd('hset', i, 'n', str(lossy(i)))
     for i in range(100):
-        num = str(1 + i / 100.0)
+        num = str(lossy(i))
         env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([0])
+
+    # A short decimal is stored exactly whether compression is on or not, because the
+    # exact decimal form is smaller than the f32. Formatted, not computed:
+    # `1 + i / 100.0` is not always a short decimal (1.8900000000000001).
+    for i in range(100):
+          env.cmd('hset', i, 'n', f'{1 + i / 100.0:.2f}')
+    for i in range(100):
+        num = f'{1 + i / 100.0:.2f}'
+        env.expect('ft.search', 'idx', f'@n:[{num} {num}]').equal([1, str(i), ['n', num]])
 
 @skip(cluster=True)
 def testRangeParentsConfig(env):
