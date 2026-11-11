@@ -55,8 +55,9 @@ jobs:
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture
-          # Use GitHub variables if available, otherwise use fallback values
-          runs_on = "${{ vars.RUNS_ON || 'ubuntu-24.04' }}"
+          # x86_64 stays on Ubuntu 24.04: the repo's RUNS_ON (ubuntu-latest)
+          # moved to an image 2.10's CI dependencies don't support.
+          runs_on = "ubuntu-24.04"
           runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
 
           default_env = {
@@ -75,13 +76,14 @@ jobs:
 
           # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
           # Only snapshot expiry checks are disabled; APT still verifies signatures.
+          # snapshot.debian.org intermittently fails downloads with 503/504, which APT does not retry.
           bullseye_setup = (
               "printf '%s\\n'"
               " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
               " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
               " 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
               " > /etc/apt/sources.list"
-              " && apt update && apt install -y git"
+              " && n=0; until apt update && apt install -y git; do n=$((n+1)); [ $n -lt 5 ] || exit 1; sleep $((n*15)); done"
           )
 
           # Platform configurations
