@@ -44,7 +44,9 @@ pub(crate) enum RepairType {
         n_unique_docs_removed: u32,
     },
 
-    /// The block contains GCed entries, and should be replaced with the following blocks.
+    /// The block, or the run of blocks the delta spans, should be replaced with the
+    /// following blocks: the survivors of a block holding GCed entries, or a compacted
+    /// run's entries packed into fewer blocks, gone or not.
     Replace {
         /// The new blocks to replace this block with, each with its field-expiration bitset (see
         /// [`InvertedIndex::expiration`])
@@ -165,7 +167,7 @@ impl IndexBlock {
     ) -> std::io::Result<Option<RepairType>> {
         // A snapshot keeps a block it expects clean with no data; see `gc_snapshot`. There is
         // nothing to repair in it, and it must not pass for a block whose every entry is gone.
-        if self.buffer.is_empty() && self.num_entries > 0 {
+        if !self.has_data() {
             debug_assert!(
                 repair.is_none(),
                 "a scan with a repair callback must snapshot every block"
@@ -232,25 +234,15 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
     let mut unique_read = 0;
     let mut unique_write = 0;
     let mut last_read_doc_id: Option<DocId> = None;
-    // Created at the first dead entry, or at the second block, seeded with the first
-    // block's entries before it.
-    let mut survivors: Option<InvertedIndex<E>> = None;
 
-    for (offset, block) in blocks.iter().enumerate() {
-        debug_assert!(
-            !block.buffer.is_empty() || block.num_entries == 0,
-            "a repaired block carries its data"
-        );
+    // Decode `block`, the run's `offset`th, handing each live entry to `repair` and to
+    // `survivors` once it exists, and creating it at the first dead entry.
+    let mut read_block = |block: &'blocks IndexBlock,
+                          offset: usize,
+                          survivors: &mut Option<InvertedIndex<E>>|
+     -> std::io::Result<()> {
+        debug_assert!(block.has_data(), "a repaired block carries its data");
         let bits = expiration.get(offset);
-        if offset == 1 && survivors.is_none() {
-            let first = &blocks[0];
-            survivors = Some(first.survivors_up_to::<E>(
-                expiration.first(),
-                first.buffer.len(),
-                first.num_entries,
-                last_read_doc_id,
-            ));
-        }
         let mut cursor = std::io::Cursor::new(&block.buffer[..]);
         let mut last_in_block = None;
         let mut result = D::base_result();
@@ -279,11 +271,9 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
                 if new_doc {
                     unique_write += 1;
                 }
-            } else {
-                if survivors.is_none() {
-                    survivors =
-                        Some(block.survivors_up_to::<E>(bits, entry_start, ordinal, last_in_block));
-                }
+            } else if survivors.is_none() {
+                *survivors =
+                    Some(block.survivors_up_to::<E>(bits, entry_start, ordinal, last_in_block));
             }
             if new_doc {
                 unique_read += 1;
@@ -291,6 +281,28 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
             ordinal += 1;
             last_in_block = Some(result.doc_id);
             last_read_doc_id = Some(result.doc_id);
+        }
+        Ok(())
+    };
+
+    let (first, rest) = blocks
+        .split_first()
+        .expect("a run holds at least one block");
+    let mut survivors = None;
+    read_block(first, 0, &mut survivors)?;
+    if !rest.is_empty() {
+        // The rest of the run is packed after the first block's survivors, so they must
+        // be in place even when none of its entries is gone.
+        survivors.get_or_insert_with(|| {
+            first.survivors_up_to::<E>(
+                expiration.first(),
+                first.buffer.len(),
+                first.num_entries,
+                Some(first.last_doc_id),
+            )
+        });
+        for (offset, block) in rest.iter().enumerate() {
+            read_block(block, offset + 1, &mut survivors)?;
         }
     }
 
@@ -325,8 +337,9 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
 /// with their data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcSnapshotScope {
-    /// Only the blocks whose doc-ID range holds a gone document: enough for a scan
-    /// without a repair callback, which skips the other blocks anyway.
+    /// Only the blocks whose doc-ID range holds a gone document, and those of runs the
+    /// scan will compact: enough for a scan without a repair callback, which skips the
+    /// other blocks anyway.
     DirtyBlocks,
     /// Every block: for a scan whose repair callback must see every surviving entry,
     /// such as the numeric tree's cardinality repair.
@@ -388,65 +401,51 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // `repair` must see every surviving entry, so blocks are only skipped without it.
         let skip_clean_blocks = repair.is_none();
         let last_idx = self.blocks.len() - 1;
-        let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
         let mut results = Vec::new();
         let mut i = 0;
         while i < self.blocks.len() {
-            // A run is the consecutive copied blocks from here whose entries fit one block,
-            // as `has_compactable_run` finds them; the last block never joins one, as writers
-            // append to it and the apply's staleness check names it by position. A run is
-            // packed as it is read, so each of its entries is decoded once and each survivor
-            // encoded once.
-            let mut run = 0;
-            if compactable {
-                let mut total = 0;
-                while i + run < last_idx && self.blocks[i + run].has_data() {
-                    let block = &self.blocks[i + run];
-                    let next = total + u32::from(block.num_entries);
-                    if next > limit
-                        || !Self::spans_one_block(self.blocks[i].first_doc_id, block.last_doc_id)
-                    {
-                        break;
-                    }
-                    total = next;
-                    run += 1;
-                }
-            }
-            if run > 1 {
-                if let Some(packed) = repair_run(
+            // A run is packed as it is read, so each of its entries is decoded once and each
+            // survivor encoded once. Only copied blocks join one.
+            let run = if compactable {
+                self.compaction_run(i, IndexBlock::has_data)
+            } else {
+                0
+            };
+            let (span, repaired) = if run > 1 {
+                let repaired = repair_run(
                     &self.blocks[i..i + run],
                     self.expiration.get(i..).unwrap_or(&[]),
                     i,
                     |id| doc_exist.exists(id),
                     repair.as_mut(),
                     PhantomData::<E>,
-                )? {
-                    results.push(BlockGcScanResult {
-                        index: i,
-                        span: run,
-                        repair: packed,
-                    });
-                }
-                i += run;
-                continue;
-            }
-            let block = &self.blocks[i];
-            if (!skip_clean_blocks || doc_exist.any_gone(block.first_doc_id, block.last_doc_id))
-                && let Some(fixed) = block.repair(
-                    i,
-                    self.expiration.get(i),
-                    |id| doc_exist.exists(id),
-                    repair.as_mut(),
-                    PhantomData::<E>,
-                )?
-            {
+                )?;
+                (run, repaired)
+            } else {
+                let block = &self.blocks[i];
+                let repaired = if !skip_clean_blocks
+                    || doc_exist.any_gone(block.first_doc_id, block.last_doc_id)
+                {
+                    block.repair(
+                        i,
+                        self.expiration.get(i),
+                        |id| doc_exist.exists(id),
+                        repair.as_mut(),
+                        PhantomData::<E>,
+                    )?
+                } else {
+                    None
+                };
+                (1, repaired)
+            };
+            if let Some(repair) = repaired {
                 results.push(BlockGcScanResult {
                     index: i,
-                    span: 1,
-                    repair: fixed,
+                    span,
+                    repair,
                 });
             }
-            i += 1;
+            i += span;
         }
         Ok((!results.is_empty()).then(|| GcScanDelta {
             last_block_idx: last_idx,

@@ -1459,10 +1459,11 @@ fn a_packed_run_copies_its_first_blocks_clean_prefix() {
     }
 }
 
-/// A snapshot copies the blocks that pack with a neighbour, not every under-filled one: a
-/// block too full to pack with either neighbour stays without data when nothing in it is gone.
+/// A snapshot copies only the runs the scan packs: a block too full to pack with either
+/// neighbour, or one that packs only with a block an earlier run took, stays without data
+/// when nothing in it is gone.
 #[test]
-fn a_snapshot_copies_only_the_blocks_that_pack_with_a_neighbour() {
+fn a_snapshot_copies_only_the_runs_the_scan_packs() {
     let ii = InvertedIndex::<Dummy>::from_blocks(
         IndexFlags_Index_DocIdsOnly,
         medium_thin_vec![
@@ -1482,5 +1483,14 @@ fn a_snapshot_copies_only_the_blocks_that_pack_with_a_neighbour() {
         .iter()
         .map(|b| !b.buffer.is_empty())
         .collect();
-    assert_eq!(copied, vec![false, true, true, true, false]);
+    assert_eq!(copied, vec![false, true, true, false, false]);
+
+    let delta = snapshot
+        .scan_gc(Gone(vec![]), None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
+        .unwrap()
+        .expect("the run is packed");
+    assert_eq!(
+        delta.deltas.iter().map(|d| (d.index, d.span)).collect::<Vec<_>>(),
+        vec![(1, 2)]
+    );
 }

@@ -213,13 +213,41 @@ impl<E: Encoder> InvertedIndex<E> {
     /// together. A run the GC packs is a chain of such pairs, so a block that packs with
     /// neither neighbour never joins one.
     fn packs_with_next(&self, i: usize) -> bool {
-        let (Some(a), Some(b)) = (self.blocks.get(i), self.blocks.get(i + 1)) else {
+        let next_idx = i + 1;
+        // The last block never joins a run: writers append to it, and the apply's
+        // staleness check names it by position.
+        if next_idx + 1 >= self.blocks.len() {
             return false;
-        };
-        i + 2 < self.blocks.len()
-            && u32::from(a.num_entries) + u32::from(b.num_entries)
-                <= u32::from(E::RECOMMENDED_BLOCK_ENTRIES)
-            && Self::spans_one_block(a.first_doc_id, b.last_doc_id)
+        }
+        let left = &self.blocks[i];
+        let right = &self.blocks[next_idx];
+        let combined_entries = u32::from(left.num_entries) + u32::from(right.num_entries);
+
+        combined_entries <= u32::from(E::RECOMMENDED_BLOCK_ENTRIES)
+            && Self::spans_one_block(left.first_doc_id, right.last_doc_id)
+    }
+
+    /// How many consecutive blocks from `i` the GC packs into one: the longest run before
+    /// the last block, every one of them `usable`, whose entries fit one block. The scan
+    /// and [`Self::gc_snapshot`] both walk the blocks with it, so the snapshot copies
+    /// exactly the runs the scan packs. Below 2 when block `i` starts no run.
+    pub(crate) fn compaction_run(&self, i: usize, usable: impl Fn(&IndexBlock) -> bool) -> usize {
+        let last_idx = self.blocks.len().saturating_sub(1);
+        let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
+        let mut total = 0;
+        let mut run = 0;
+        while i + run < last_idx && usable(&self.blocks[i + run]) {
+            let block = &self.blocks[i + run];
+            let next = total + u32::from(block.num_entries);
+            if next > limit
+                || !Self::spans_one_block(self.blocks[i].first_doc_id, block.last_doc_id)
+            {
+                break;
+            }
+            total = next;
+            run += 1;
+        }
+        run
     }
 
     /// Whether entries from `first` to `last` can share one block: every delta between
@@ -234,10 +262,9 @@ impl<E: Encoder> InvertedIndex<E> {
     /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
     /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
     /// count but no data, so a scan of the copy skips them as it would skip the originals,
-    /// and a repair never touches them. Blocks that pack with a neighbour (see
-    /// [`Self::has_compactable_run`]) are copied regardless, so the scan can compact their run. Returns `None` when no block
-    /// needs a look. Scan the
-    /// copy with the same `live`: another source may find a dataless block dirty and leave
+    /// and a repair never touches them. The blocks of a run the scan will pack (see
+    /// [`Self::compaction_run`]) are copied regardless. Returns `None` when no block needs
+    /// a look. Scan the copy with the same `live`: another source may find a dataless block dirty and leave
     /// its entries uncollected for this cycle.
     pub fn gc_snapshot(
         &self,
@@ -257,26 +284,33 @@ impl<E: Encoder> InvertedIndex<E> {
             expiration: ThinVec::new(),
             _encoder: Default::default(),
         };
-        for (i, b) in self.blocks.iter().enumerate() {
-            // Copying the blocks that pack with a neighbour lets the scan compact their run
-            // even where nothing is gone.
-            let packs = self.packs_with_next(i) || (i > 0 && self.packs_with_next(i - 1));
-            if scope == crate::GcSnapshotScope::AllBlocks
-                || packs
-                || live.any_gone(b.first_doc_id, b.last_doc_id)
-            {
-                // The bits go with the block: a repair carries them onto the survivors.
-                let bits = self.expiration.get(i).cloned().unwrap_or_default();
-                copy.push_block(b.clone(), bits);
-            } else {
-                let hollow = IndexBlock {
-                    first_doc_id: b.first_doc_id,
-                    last_doc_id: b.last_doc_id,
-                    num_entries: b.num_entries,
-                    buffer: Vec::new(),
-                };
-                copy.push_block(hollow, ExpirationBits::new());
+        let mut i = 0;
+        while i < self.blocks.len() {
+            // Copying a run lets the scan compact it even where nothing is gone.
+            let run = match scope {
+                crate::GcSnapshotScope::AllBlocks => 1,
+                crate::GcSnapshotScope::DirtyBlocks => self.compaction_run(i, |_| true).max(1),
+            };
+            for j in i..i + run {
+                let b = &self.blocks[j];
+                if scope == crate::GcSnapshotScope::AllBlocks
+                    || run > 1
+                    || live.any_gone(b.first_doc_id, b.last_doc_id)
+                {
+                    // The bits go with the block: a repair carries them onto the survivors.
+                    let bits = self.expiration.get(j).cloned().unwrap_or_default();
+                    copy.push_block(b.clone(), bits);
+                } else {
+                    let hollow = IndexBlock {
+                        first_doc_id: b.first_doc_id,
+                        last_doc_id: b.last_doc_id,
+                        num_entries: b.num_entries,
+                        buffer: Vec::new(),
+                    };
+                    copy.push_block(hollow, ExpirationBits::new());
+                }
             }
+            i += run;
         }
         Some(copy)
     }
