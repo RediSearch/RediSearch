@@ -366,15 +366,9 @@ void DocTable_ClearExpirationData(DocTable *t) {
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
-/* Put a new document into the table with a fresh incremental id. The key -> docId
- * mapping is published separately by the caller via DocIdMeta; there is no key-based
- * dedup here, so callers must detect an existing document before calling. */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
-                                 RSDocumentFlags flags, const char *payload, size_t payloadSize,
-                                 DocumentType type) {
-
-  t_docId docId = ++t->maxDocId;
-
+static RSDocumentMetadata *docTablePutAt(DocTable *t, t_docId docId, const char *s, size_t n,
+                                         double score, RSDocumentFlags flags, const char *payload,
+                                         size_t payloadSize, DocumentType type) {
   if (payload && payloadSize) {
     flags |= Document_HasPayload | Document_HasPayloadSlot;
   }
@@ -414,6 +408,44 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   t->memsize += sdsAllocSize(keyPtr);
   DMD_Incref(dmd); // Reference for the caller
   return dmd;
+}
+
+/* Put a new document into the table with a fresh incremental id. The key -> docId
+ * mapping is published separately by the caller via DocIdMeta; there is no key-based
+ * dedup here, so callers must detect an existing document before calling. */
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
+                                 RSDocumentFlags flags, const char *payload, size_t payloadSize,
+                                 DocumentType type) {
+  return docTablePutAt(t, ++t->maxDocId, s, n, score, flags, payload, payloadSize, type);
+}
+
+RSDocumentMetadata *DocTable_PutWithId(DocTable *t, t_docId docId, const char *s, size_t n,
+                                       double score, RSDocumentFlags flags, DocumentType type) {
+  t->maxDocId = MAX(t->maxDocId, docId);
+  return docTablePutAt(t, docId, s, n, score, flags, NULL, 0, type);
+}
+
+bool DocTable_CopyById(const DocTable *t, t_docId docId, RSDocumentMetadata *out,
+                       const struct timespec *now) {
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (!dmd) {
+    return false;
+  }
+  const int64_t exp = __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED);
+  if (exp != 0 && exp <= expirationTimePointToNs(*now)) {
+    return false;
+  }
+  // The key is freed in place by DocTable_SetKeyById, so it must be copied under the caller's lock.
+  out->id = dmd->id;
+  out->keyPtr = sdsdup(dmd->keyPtr);
+  out->score = dmd->score;
+  out->maxTermFreq = dmd->maxTermFreq;
+  out->docLen = dmd->docLen;
+  out->flags = dmd->flags & ~(Document_Deleted | Document_HasPayload | Document_HasPayloadSlot);
+  out->type = dmd->type;
+  out->slot = dmd->slot;
+  out->expirationTimeNs = exp;
+  return true;
 }
 
 /*
