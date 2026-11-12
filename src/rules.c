@@ -117,10 +117,10 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
   if (rule->type == DocumentType_Json) {
     if (rule->lang_field) {
-      rule->compiled_lang_path = japi->pathParseNoErrorMsg(rule->lang_field);
+      rule->compiled_lang_path = JSON_CompilePath(rule->lang_field);
     }
     if (rule->score_field) {
-      rule->compiled_score_path = japi->pathParseNoErrorMsg(rule->score_field);
+      rule->compiled_score_path = JSON_CompilePath(rule->score_field);
     }
   }
 
@@ -343,7 +343,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, Redi
     goto done;
   }
 
-  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path, rule->lang_field);
   if (!jsonIter) {
     goto done;
   }
@@ -413,7 +413,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJS
     goto done;
   }
 
-  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path, rule->score_field);
   if (jsonIter == NULL) {
     goto done;
   }

@@ -752,6 +752,13 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
+    println!("cargo::rerun-if-env-changed=REDISJSON_LEGACY_API");
+    let legacy_api = env::var("REDISJSON_LEGACY_API").unwrap_or_else(|_| "0".into());
+    assert!(
+        matches!(legacy_api.as_str(), "0" | "1"),
+        "REDISJSON_LEGACY_API must be 0 or 1"
+    );
+    bindings = bindings.clang_arg(format!("-DREDISJSON_LEGACY_API={legacy_api}"));
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

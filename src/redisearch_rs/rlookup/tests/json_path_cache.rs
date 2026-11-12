@@ -22,6 +22,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 const MULTI: u8 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST as u8;
 const PRE_MULTI: u8 = MULTI - 1;
+const LEGACY_API: bool = redis_json_api::LEGACY_API;
 
 fn key_name() -> RedisString {
     // SAFETY: the initialized mock copies these static bytes and ignores the context.
@@ -79,7 +80,7 @@ fn load_root(doc: JsonValue, cache: &JsonPathCache, version: u8) -> SharedValue 
 
 #[test]
 #[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
-fn compiles_once_reuses_across_documents_and_frees_on_drop() {
+fn build_selects_lookup_api_and_releases_cached_paths() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     let paths = [Some(c"$.name"), Some(c"$.price")];
@@ -108,16 +109,20 @@ fn compiles_once_reuses_across_documents_and_frees_on_drop() {
                 calls.get,
                 calls.path_free
             ),
-            (2, 6, 0, 0)
+            if LEGACY_API {
+                (0, 0, 6, 0)
+            } else {
+                (2, 6, 0, 0)
+            }
         );
         drop(cache);
-        assert_eq!(json_api_calls().path_free, 2);
+        assert_eq!(json_api_calls().path_free, if LEGACY_API { 0 } else { 2 });
     });
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
-fn cache_entries_preserve_positions_and_malformed_paths_are_not_retried() {
+fn cache_entries_preserve_positions_and_handle_malformed_paths() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     let paths = [
@@ -147,16 +152,16 @@ fn cache_entries_preserve_positions_and_malformed_paths_are_not_retried() {
                 calls.get_with_path,
                 calls.get
             ),
-            (3, 2, 0)
+            if LEGACY_API { (0, 0, 3) } else { (3, 2, 0) }
         );
         drop(cache);
-        assert_eq!(json_api_calls().path_free, 2);
+        assert_eq!(json_api_calls().path_free, if LEGACY_API { 0 } else { 2 });
     });
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
-fn root_load_uses_compiled_path_and_preserves_whole_document() {
+fn root_load_uses_selected_api_and_preserves_whole_document() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     with_json_api(None, |api, _ctx| {
@@ -178,10 +183,10 @@ fn root_load_uses_compiled_path_and_preserves_whole_document() {
                 calls.get_with_path,
                 calls.get
             ),
-            (1, 2, 0)
+            if LEGACY_API { (0, 0, 2) } else { (1, 2, 0) }
         );
     });
-    assert_eq!(json_api_calls().path_free, 1);
+    assert_eq!(json_api_calls().path_free, if LEGACY_API { 0 } else { 1 });
 }
 
 #[test]
@@ -209,4 +214,33 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
             assert!(lookup.find_key_by_name(c"$").is_none());
         });
     }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Redis module mock initialization crosses the C FFI boundary.
+fn no_error_path_parser_is_unavailable_in_legacy_builds() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |api, _ctx| {
+        // SAFETY: the static path bytes outlive the returned handle.
+        let path = unsafe { redis_json_api::JsonPath::parse_no_error_msg(c"$.name", &api) };
+        assert_eq!(path.is_none(), LEGACY_API);
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // RedisString creation crosses the C FFI boundary.
+fn compiled_path_lookup_is_unavailable_in_legacy_builds() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!({"name": "alice"})), |api, ctx| {
+        // SAFETY: the mock context remains valid throughout this closure.
+        let path = unsafe { redis_json_api::JsonPath::parse(c"$.name", ctx, &api) }.unwrap();
+        let key = key_name();
+        // SAFETY: the mock context and key remain valid throughout this closure.
+        let root =
+            unsafe { api.open_key_with_flags(ctx, &key, redis_module::key::KeyFlags::empty()) }
+                .unwrap();
+        // SAFETY: the parsed path remains alive until after the iterator is dropped.
+        let iter = unsafe { root.get_with_path(&path) };
+        assert_eq!(iter.is_none(), LEGACY_API);
+    });
 }
