@@ -1059,12 +1059,18 @@ typedef struct TextResourceMetrics {
   uint64_t storage_bytes;
 } TextResourceMetrics;
 
+typedef struct DocTableResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} DocTableResourceMetrics;
+
 /* Numeric cached values; reading these never collects native properties. */
 typedef struct CachedIndexMetrics {
   uint64_t memory;
   uint64_t disk_usage;
   uint64_t blocks;
   TextResourceMetrics text;
+  DocTableResourceMetrics doc_table;
 } CachedIndexMetrics;
 
 typedef struct MetricsDiskAPI {
@@ -1144,7 +1150,7 @@ typedef struct MetricsDiskAPI {
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context
    */
-  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx);
+  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx, uint64_t numDocs);
 
   /**
    * @brief Get per-field disk metrics for a TEXT field.

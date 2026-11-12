@@ -262,3 +262,67 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
+  auto shardReply = [](long long docs, long long maxId, long long memtable, long long storage) {
+    Resp r;
+    r.arr(2)
+        .str("column_families")
+        .arr(2)
+        .str("doc_table")
+        .arr(8)
+        .str("num_docs")
+        .integer(docs)
+        .str("max_doc_id")
+        .integer(maxId)
+        .str("memtable_bytes")
+        .integer(memtable)
+        .str("storage_bytes")
+        .integer(storage);
+    return parseReply(r.s);
+  };
+  MRReply *replies[] = {shardReply(3, 9, 20, 1000), shardReply(5, 7, 50, 4000)};
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  MR_Init(1, 1);
+  MR_InitLocalNodeId();
+  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, 2);
+
+  auto savedString = RedisModule_ReplyWithSimpleString;
+  auto savedInteger = RedisModule_ReplyWithLongLong;
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
+    RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *ctx, long long value) {
+    RMCK_GetReplyLog(ctx).push_back("integer:" + std::to_string(value));
+    return REDISMODULE_OK;
+  };
+  EXPECT_EQ(InfoReplyReducer(mr, 2, replies), REDISMODULE_OK);
+  RedisModule_ReplyWithSimpleString = savedString;
+  RedisModule_ReplyWithLongLong = savedInteger;
+
+  const std::vector<std::string> expected = {"string:column_families",
+                                             "map:postponed",
+                                             "string:doc_table",
+                                             "map:postponed",
+                                             "string:num_docs",
+                                             "integer:8",
+                                             "string:max_doc_id",
+                                             "integer:9",
+                                             "string:memtable_bytes",
+                                             "integer:70",
+                                             "string:storage_bytes",
+                                             "integer:5000",
+                                             "setmap:4",
+                                             "setmap:1"};
+  const auto &output = RMCK_GetReplyLog(ctx);
+  EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()),
+            output.end());
+
+  for (auto *reply : replies) MRReply_Free(reply);
+  MRCtx_DecrRef(mr);
+  RedisModule_ThreadSafeContextLock(ctx);
+  MR_FreeCluster();
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+}
