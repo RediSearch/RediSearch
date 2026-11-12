@@ -171,6 +171,11 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
 
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -214,7 +219,7 @@ jobs:
           RUST_TEST_ARCHIVE_PATH: ${{ github.workspace }}/nextest-archive.tar.zst
         run: make build TESTS=1
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |

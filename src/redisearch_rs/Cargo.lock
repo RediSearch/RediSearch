@@ -532,6 +532,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "deleted_docs"
+version = "0.0.1"
+dependencies = [
+ "roaring",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "deleted_docs_ffi"
+version = "0.0.1"
+dependencies = [
+ "deleted_docs",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "dict"
 version = "0.0.1"
 dependencies = [
@@ -701,6 +719,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "libc",
  "query_term",
  "query_types",
  "redis-module",
@@ -1088,7 +1107,9 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "deleted_docs",
  "dict",
+ "document",
  "ffi",
  "field_spec",
  "global_config",
@@ -1153,12 +1174,14 @@ name = "index_spec"
 version = "0.0.1"
 dependencies = [
  "c_trie",
+ "deleted_docs",
  "dict",
  "document",
  "ffi",
  "field_spec",
  "hidden_string",
  "inverted_index",
+ "libc",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -1609,19 +1632,10 @@ dependencies = [
 name = "numeric_range_tree_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
- "generational_slab",
- "hyperloglog",
- "index_result",
- "inverted_index",
- "inverted_index_ffi",
  "numeric_range_tree",
  "redis-module",
  "redis_mock",
- "rmp-serde",
  "rqe_core",
- "serde",
- "tracing",
  "workspace_hack",
 ]
 
@@ -2229,6 +2243,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "deleted_docs_ffi",
  "doc_key_map_ffi",
  "fnv_ffi",
  "geo_ffi",
@@ -2610,6 +2625,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "deleted_docs_ffi",
  "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",

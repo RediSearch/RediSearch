@@ -39,6 +39,15 @@ jobs:
       run-validation: ${{ steps.check.outputs.run-validation }}
       covered-prs: ${{ steps.check.outputs.covered-prs }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
       - name: Check latest successful validation
         id: check
         shell: python3 {0}
@@ -166,6 +175,8 @@ jobs:
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     uses: ./.github/workflows/task-get-redis-tag.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]
@@ -178,9 +189,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      # macOS Intel (x86_64) test runners are excluded while the macOS runner
-      # problem is mitigated; macOS ARM still runs.
-      platform: 'ubuntu:noble,macos-26,!macos-26~x86_64,alpine:3.23,intel'
+      platform: 'ubuntu:noble,macos-26,alpine:3.23'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": "", "ubsan": ""}'
@@ -199,6 +208,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
       - name: Resolve covered PR URLs
         id: covered-prs
         shell: python3 {0}

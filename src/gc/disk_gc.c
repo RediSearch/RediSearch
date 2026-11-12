@@ -61,14 +61,16 @@ static void retireLogicalDeletes(DiskGC *gc, size_t count) {
   IndexsGlobalStats_DecreaseLogicallyDeleted(retired);
 }
 
+static void takeDeferredDeletes(DiskGC *gc, IndexSpec *spec) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(spec);
+  if (deferred) {
+    recordLogicalDeletes(gc, deferred);
+    atomic_fetch_add(&gc->deletesFromLastRun, deferred);
+  }
+}
 
-// Fold one completed cycle's results into the cumulative per-index counters.
-// Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
-// here so the accounting stays identical regardless of how the cycle was
-// triggered — background tick, forced invoke, or an enterprise/RoR scheduler
-// that drives compaction on its own. All per-cycle numbers (bytes, docs, time)
-// are populated by the disk implementation in `stats`, so this is also what
-// lets FT.INFO/INFO report a single coherent view.
+// Include work from every returned attempt, even when later compaction needs retry.
+// Retire only the document IDs whose markers the backend actually removed.
 static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   atomic_fetch_add(&gc->totalCollectedBytes, stats->bytes_collected);
   atomic_fetch_add(&gc->totalCycles, (size_t)1);
@@ -77,15 +79,18 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   retireLogicalDeletes(gc, stats->num_cleaned_docs);
 }
 
-// `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
-// to wait for and no way to fail to start.
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
+    if (forced && forced->compactAll) {
+      forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
+    }
     return false;
   }
+
+  takeDeferredDeletes(gc, sp);
 
   // Hold the read lock across the whole check-and-run so shutdown teardown
   // (DiskGC_LockRunsAndDisable, which takes the write lock) waits for an in-flight run to
@@ -96,8 +101,8 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
   // Run GC only when teardown has not disabled it, the index is still disk-backed,
   // background work is not paused, and enough changes accumulated since the last run
-  // (unless forced). The pause check is required: the cycle's compaction waits on a
-  // memtable flush that only a resume can schedule.
+  // (unless forced). The pause check is required:
+  // compaction waits on a memtable flush that only a resume can schedule.
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
@@ -110,16 +115,24 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
     DiskGCRunStats stats = {0};
-    SearchDisk_RunGC(sp->diskSpec, &stats);
-    // Storage can retire an ID before its write-locked notification reaches GC.
+    const DiskGCRunResult result = SearchDisk_RunGC(sp->diskSpec, &stats);
+    // A trim can publish deleted IDs after the first drain but before storage's
+    // snapshot. Wait for its write-locked accounting before retiring those IDs.
     IndexSpec_LockRead(sp);
+    takeDeferredDeletes(gc, sp);
     accumulateCycleStats(gc, &stats);
+    if (result == DISK_GC_RUN_RETRY_REQUIRED) {
+      if (forced) forced->outcome = GC_DISK_FORCED_RUN_RETRY_REQUIRED;
+      atomic_fetch_add(&gc->writesFromLastRun, num_writes);
+      atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
+      atomic_fetch_add(&gc->updatesFromLastRun, num_updates);
+    }
     IndexSpec_Unlock(sp);
 
     // After the cycle, which itself writes to that storage, and here rather than on the main
     // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
     // memtables it covers first.
-    if (forced && forced->compactAll) {
+    if (forced && forced->compactAll && result == DISK_GC_RUN_OK) {
       if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
         forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
       }

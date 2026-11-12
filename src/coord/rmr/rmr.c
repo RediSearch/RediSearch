@@ -56,6 +56,7 @@ struct timespec;
 
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
+static GilGate clusterGilGate = GIL_GATE_INIT;
 
 // Number of shards in the cluster (main-thread variable)
 extern size_t NumShards;
@@ -300,6 +301,7 @@ static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) 
 
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size) {
+  GilGate_Reset(&clusterGilGate);
   cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
 }
 
@@ -1103,11 +1105,18 @@ long long MR_Debug_GetPendingRequests() {
 
 void MR_FreeCluster() {
   if (!cluster_g) return;
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  GilGate_BeginJoin(&clusterGilGate);
   MRCluster_Free(cluster_g);
   cluster_g = NULL;
   MR_FreeLocalNodeId();
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
+}
+
+void MR_LockGIL(RedisModuleCtx *ctx) {
+  GilGate_Lock(&clusterGilGate, ctx);
+}
+
+void MR_UnlockGIL(RedisModuleCtx *ctx) {
+  GilGate_Unlock(&clusterGilGate, ctx);
 }
 
 sds MRCommand_SafeToString(const MRCommand *cmd) {

@@ -27,6 +27,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+#include "query_memory.h"
 
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
@@ -237,9 +238,10 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
       DMD_Return(diskDmd);
       return false;
     }
+    DiskReadFailureReason failureReason = DISK_READ_ERROR;
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime);
+                                                   diskDmd, &sctx->currentTime, &failureReason);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -593,8 +595,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
       // until a completion lands instead of making progress.
       index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
     }
-    const size_t pendingCount =
-        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
+    const size_t pendingCount = IndexResultAsyncRead_Poll(
+        &self->async, index_poll_timeout_ms, &sctx->currentTime);
 
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
