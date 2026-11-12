@@ -257,6 +257,11 @@ jobs:
           B=$PWD/$B
           readelf -S -W "$B" | grep -E "debug_info|debug_str|debug_line " || true
           readelf -p .comment "$B" | head -8 || true
+          readelf -lW "$B" | sed -n '/Program Headers/,/Section to Segment/p' || true
+          cp "$B" /tmp/vrcopy
+          valgrind -v -v --trace-symtab=no --leak-check=full --num-callers=8 "$B" --exact range_matching_nothing_is_empty_once_read --nocapture > /tmp/vgv.txt 2>&1 || true
+          grep -nE "Reading syms|syms from|debuginfo|di_notify|Discarding|ignored|Warning|WARNING|warning|rx_map|rw_map|Considering|cannot|can't" /tmp/vgv.txt | head -60
+          valgrind --leak-check=full --num-callers=6 /tmp/vrcopy --nocapture 2>&1 | grep -E "possibly lost:|by 0x" | head -6 || true
           ls -la "$B"; file "$B" || true
           readelf -S "$B" | grep -E 'debug|gnu_debuglink' || true
           readelf --debug-dump=info "$B" 2>/dev/null | grep -m2 'Version:' || true
