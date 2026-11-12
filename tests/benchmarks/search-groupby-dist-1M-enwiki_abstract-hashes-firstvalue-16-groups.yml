@@ -1,11 +1,11 @@
 name: "search-groupby-dist-1M-enwiki_abstract-hashes-firstvalue-16-groups"
 description: >-
-  This filtered 1M-document enwiki workload buckets the matching rows into 16 groups by
-  title length, so every group holds tens of thousands of rows, and asks each group for the
-  url of its longest abstract. A FIRST_VALUE that runs on the shards ships 16 picks per
-  shard; one that runs on the coordinator pulls every matching row across the cluster.
-  This is the regime where distributing the reducer pays off; the firstvalue-k400 sibling
-  measures the many-small-groups overhead instead.
+  This filtered 1M-document enwiki workload matches 53,071 rows and buckets them by title
+  length into 16 groups of 2,604 to 4,230 rows, asking each for the url of its longest
+  abstract. A FIRST_VALUE that runs on the shards ships 16 picks per shard (64 rows on four
+  primaries); one that runs on the coordinator pulls all 53,071 rows. This is the regime
+  where distributing the reducer pays off; the firstvalue-k400 sibling measures the
+  many-small-groups overhead instead.
 
 metadata:
   component: "search"
@@ -17,7 +17,6 @@ timeout_seconds: 1800
 
 setups:
   - oss-cluster-04-primaries
-  - oss-cluster-08-primaries
 
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
@@ -35,4 +34,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "read-only"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url APPLY strlen(@title)%16 AS bucket APPLY strlen(@abstract) AS len GROUPBY 1 @bucket REDUCE COUNT 0 AS n REDUCE FIRST_VALUE 4 @url BY @len DESC AS longest_url SORTBY 2 @n DESC LIMIT 0 16'"
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url APPLY strlen(@title)%16 AS bucket APPLY strlen(@abstract) AS len GROUPBY 1 @bucket REDUCE FIRST_VALUE 4 @url BY @len DESC AS longest_url LIMIT 0 16'"
