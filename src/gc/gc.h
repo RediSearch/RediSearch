@@ -18,6 +18,7 @@
 #include "util/references.h"
 #include "util/rs_atomic.h"
 #include <time.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,6 +83,13 @@ typedef struct {
 // than filling the struct themselves: a forkWaitMs without a matching deadline reads as a budget
 // that expired before the first attempt. Call it on the thread asking for the collection, so the
 // budget runs from there rather than from whenever the GC worker picks the job up.
+// Interval configs accept up to LLONG_MAX seconds. Capping at half the range keeps both the
+// conversion and the timer's jitter (which can double the period) from overflowing.
+static inline long long GC_IntervalSecToMs(size_t sec) {
+  const size_t maxSec = LLONG_MAX / 2 / 1000;
+  return (long long)(sec < maxSec ? sec : maxSec) * 1000;
+}
+
 static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryIntervalMs) {
   GCForcedRun forced;
   forced.forkWaitMs = forkWaitMs;
@@ -113,7 +121,7 @@ typedef struct GCCallbacks {
   void (*onWrite)(void* ctx);
   void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
-  struct timespec (*getInterval)(void* ctx);
+  long long (*getIntervalMs)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
@@ -122,8 +130,8 @@ typedef struct GCContext {
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
   bool enabled;                // periodic collection wanted. Guarded by the GIL
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
-  // GC's retryInterval before the one-shot drains, so it is not re-read there.
-  struct timespec pendingInterval;
+  // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
+  long long pendingIntervalMs;
   // Main thread only in the real path; the atomic covers the RS_IsMock fallback, where the GC
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.

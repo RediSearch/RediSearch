@@ -64,7 +64,8 @@ typedef struct IndexGC {
   // as it reads, NULL otherwise.
   void *readBuffer;
 
-  struct timespec retryInterval;
+  long long retryIntervalMs;
+
   // Deletions and updates not collected yet. A FORK cycle resets it as it forks; under THREAD it
   // counts the doc table's deleted set, and a cycle subtracts the IDs it prunes from it.
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
