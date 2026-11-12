@@ -69,6 +69,9 @@ impl Block {
 pub(crate) struct BlockedLog {
     pub(crate) reads: usize,
     pub(crate) thresholded_reads: usize,
+    /// The threshold of the latest [`read_with_threshold`](RQEIterator::read_with_threshold), or
+    /// `None` if the leaf never received one.
+    pub(crate) last_threshold: Option<MinCompetitiveScore>,
     pub(crate) skip_tos: usize,
     /// Every document the leaf positioned on, in order. A document in a block that a skip jumped
     /// over, or that a skip inside a block stepped over, is not visited.
@@ -111,6 +114,11 @@ impl Blocked {
             result: RSIndexResult::build_virt().build(),
             log: Rc::default(),
         }
+    }
+
+    /// A leaf of one block holding `ids`, every one bounded by `bound`.
+    pub(crate) fn single(ids: impl IntoIterator<Item = DocId>, bound: f64) -> Self {
+        Self::new(vec![Block::uniform(ids, bound)])
     }
 
     /// The same leaf, but reporting no block boundary, as a leaf without block metadata does.
@@ -204,7 +212,11 @@ impl RQEIterator<'static> for Blocked {
         &mut self,
         min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
-        self.log.borrow_mut().thresholded_reads += 1;
+        {
+            let mut log = self.log.borrow_mut();
+            log.thresholded_reads += 1;
+            log.last_threshold = Some(min_competitive_score);
+        }
         if self.past_end() {
             return Ok(None);
         }
@@ -278,4 +290,26 @@ impl ProfilePrint for Blocked {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MOCK");
     }
+}
+
+/// Drains `it` under `min_competitive_score`, as the index result processor reads a query root,
+/// checking that nothing comes back below it.
+pub(crate) fn drain_above<'index>(
+    it: &mut impl RQEIterator<'index>,
+    min_competitive_score: MinCompetitiveScore,
+) -> Vec<DocId> {
+    let mut docs = Vec::new();
+    while let Some(doc) = it
+        .read_with_threshold(min_competitive_score)
+        .expect("read failed")
+        .map(|r| r.doc_id)
+    {
+        assert!(
+            !can_drop(it.current_max_score(), min_competitive_score),
+            "doc {doc} came back with bound {} below {min_competitive_score:?}",
+            it.current_max_score(),
+        );
+        docs.push(doc);
+    }
+    docs
 }

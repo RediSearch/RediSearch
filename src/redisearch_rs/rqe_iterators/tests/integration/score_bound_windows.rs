@@ -23,7 +23,7 @@ use rqe_iterators::{
     union_opaque::build_union,
 };
 
-use crate::utils::blocked::{Block, Blocked, BlockedLog};
+use crate::utils::blocked::{Block, Blocked, BlockedLog, drain_above};
 
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
@@ -43,27 +43,6 @@ fn leaf(blocks: Vec<Block>) -> (Blocked, Log) {
 
 fn visited(log: &Log) -> Vec<DocId> {
     log.borrow().visited.clone()
-}
-
-/// Drains `it` under `min_competitive_score`, checking that nothing comes back below it.
-fn drain_above<'index>(
-    it: &mut impl RQEIterator<'index>,
-    min_competitive_score: MinCompetitiveScore,
-) -> Vec<DocId> {
-    let mut docs = Vec::new();
-    while let Some(doc) = it
-        .read_with_threshold(min_competitive_score)
-        .expect("read failed")
-        .map(|r| r.doc_id)
-    {
-        assert!(
-            !can_drop(it.current_max_score(), min_competitive_score),
-            "doc {doc} came back with bound {} below {min_competitive_score:?}",
-            it.current_max_score(),
-        );
-        docs.push(doc);
-    }
-    docs
 }
 
 /// The documents a plain [`RQEIterator::read`] yields whose bound reaches
