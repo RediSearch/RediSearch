@@ -1153,8 +1153,15 @@ typedef struct MetricsDiskAPI {
   void (*stopMetrics)(RedisSearchDisk *disk);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
-  /* Stages cached index metrics for INFO output, returning resource totals.
-   * Does not collect native storage properties. */
+  /**
+   * @brief Stage cached index metrics for INFO and return resource totals.
+   *
+   * Does not collect native storage properties.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Cached resource totals for the index
+   */
   CachedIndexMetrics (*collectInfoIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
