@@ -249,6 +249,8 @@ def testFirstValueLoadsItsPropertiesOnTheShards(env):
         env.assertEqual(first_value(['@t']), [1, ['g', 'a', 'fv', 'Hello World']])
         env.assertEqual(first_value(['@t'], group='@t'),
                         [1, ['t', 'Hello World', 'fv', 'Hello World']])
+        # `LOAD *` does not provide the document key; the explicit load still does.
+        env.assertEqual(first_value(['@__key'], load=('LOAD', '*')), [1, ['g', 'a', 'fv', 'doc1']])
     else:
         for reducer_args in unloaded:
             env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',

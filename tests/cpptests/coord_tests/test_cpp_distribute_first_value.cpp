@@ -358,16 +358,16 @@ TEST_F(DistributeFirstValueTest, SkipsPropertiesAnEarlierRemoteStepProduces) {
   AREQ_Free(r);
 }
 
-TEST_F(DistributeFirstValueTest, LoadAllCoversEveryProperty) {
+TEST_F(DistributeFirstValueTest, LoadAllDoesNotReplaceTheExplicitLoad) {
   AREQ *r = nullptr;
   AGGPlan *plan = nullptr;
   QueryError qerr = QueryError_Default();
-  ASSERT_EQ(distributeWithPrefix({"LOAD", "*"}, {"@name", "BY", "@price"}, {}, &r, &plan, &qerr),
+  ASSERT_EQ(distributeWithPrefix({"LOAD", "*"}, {"@__key", "BY", "@price"}, {}, &r, &plan, &qerr),
             REDISMODULE_OK)
       << QueryError_GetUserError(&qerr);
 
-  // `LOAD *` carries no argv of its own and nothing is added to it.
-  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{}}));
+  // `LOAD *` (empty argv) does not provide `__key`, so the properties are still loaded by name.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{}, {"@__key", "@price"}}));
 
   AREQ_Free(r);
 }

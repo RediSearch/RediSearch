@@ -92,16 +92,15 @@ static PLN_LoadStep *newLoadStep(const std::vector<std::string> &names) {
   return load;
 }
 
-// Whether a step already in the remote plan writes `name` into the shard's row.
+// Whether a step already in the remote plan writes `name` into the shard's row. `LOAD *`
+// does not count: it neither synthesizes `__key` nor, on JSON, exposes individual paths, so
+// the shard still needs an explicit LOAD for those; a redundant one is skipped there.
 static bool remotePlanProduces(AGGPlan *remote, const char *name) {
   for (DLLIST_node *nn = remote->steps.next; nn != &remote->steps; nn = nn->next) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     switch (stp->type) {
       case PLN_T_LOAD: {
         auto lstp = (const PLN_LoadStep *)stp;
-        if (lstp->base.flags & PLN_F_LOAD_ALL) {
-          return true;
-        }
         ArgsCursor ac = lstp->args;
         while (!AC_IsAtEnd(&ac)) {
           const char *s = AC_GetStringNC(&ac, NULL);
