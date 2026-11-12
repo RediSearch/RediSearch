@@ -600,9 +600,10 @@ bool SearchDisk_IsRamDocVisible(RedisSearchDiskIndexSpec *handle, t_docId docId,
     return disk->docTable.isRamDocVisible(handle, docId, slot);
 }
 
-bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen,
+                           const char *oldKey, size_t oldKeyLen, uint32_t docLen) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
+    return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen, oldKey, oldKeyLen, docLen);
 }
 
 RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent) {

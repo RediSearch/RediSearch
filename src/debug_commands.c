@@ -1838,7 +1838,16 @@ DEBUG_COMMAND(DocInfo) {
       RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->sortVector = RSSortingVector_Empty();
       dmd_disk->ref_count = 1;
-      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, docId, dmd_disk, NULL, NULL)) {
+      bool found;
+      if (IndexSpec_DocTableMode(sctx->spec) == DocTableMode_Ram) {
+        SearchCtx_UpdateCurrentTime(sctx);
+        IndexSpec_LockRead(sctx->spec);
+        found = DocTable_CopyById(&sctx->spec->docs, docId, dmd_disk, &sctx->currentTime);
+        IndexSpec_Unlock(sctx->spec);
+      } else {
+        found = SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, docId, dmd_disk, NULL, NULL);
+      }
+      if (found) {
         dmd = dmd_disk;
       } else {
         DMD_Return(dmd_disk);

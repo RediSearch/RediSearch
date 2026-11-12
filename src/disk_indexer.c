@@ -220,14 +220,18 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // memory mode, which gates `Indexer_RemoveOldDocStats` on whether an old DMD
   // existed, not on its length. `oldDocLen` is still the right value to subtract
   // from `totalDocsLen` (0 for a zero-length old doc is a correct no-op subtraction).
-  const bool replaced = aCtx->oldDocId != 0;
+  bool replaced = aCtx->oldDocId != 0;
   if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
     // Rust skipped its doc-table rows, so the old doc length lives only in the old DMD.
+    // GC prunes DeletedIds, so a stale key->docId mapping can name a doc that is already
+    // gone; only a DMD actually removed here counts as a replace.
     if (replaced) {
       RSDocumentMetadata *oldDmd = DocTable_DeleteById(&spec->docs, aCtx->oldDocId);
       if (oldDmd) {
         aCtx->disk.oldDocLen = oldDmd->docLen;
         DMD_Return(oldDmd);
+      } else {
+        replaced = false;
       }
     }
     size_t keyLen;

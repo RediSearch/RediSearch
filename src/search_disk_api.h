@@ -1005,9 +1005,13 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID whose key should be replaced
    * @param newKey New key name
    * @param newKeyLen Length of the new key
+   * @param oldKey Previous key name, only for RAM doc-table indexes (NULL on disk, where the stored row holds it)
+   * @param oldKeyLen Length of the previous key
+   * @param docLen Document length, only for RAM doc-table indexes
    * @return true if the document was found and updated, false if not found or on error
    */
-  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
+  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen,
+                     const char* oldKey, size_t oldKeyLen, uint32_t docLen);
 
   /**
    * @brief Returns the highest document ID that existed when `snapshot` was created.

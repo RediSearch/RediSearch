@@ -203,9 +203,9 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
     for (size_t i = 0; i < numIds; ++i) {
       IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
       if (ramDocTable) {
-        // The id may already be gone, e.g. deleted while the trim was pending.
         RSDocumentMetadata *dmd = DocTable_DeleteById(&spec->docs, ids[i]);
-        if (dmd) DMD_Return(dmd);
+        RS_LOG_ASSERT_ALWAYS(dmd, "slot cleanup trimmed a document missing from the doc table");
+        DMD_Return(dmd);
       }
     }
     spec->stats.scoring.numDocuments -= numIds;

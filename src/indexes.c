@@ -1226,8 +1226,19 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       uint64_t docId;
       if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         if (SearchDisk_IsEnabled() && IndexSpec_DocTableMode(spec) == DocTableMode_Disk) {
-          SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len);
+          SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len, NULL, 0, 0);
         } else {
+          if (SearchDisk_IsEnabled()) {
+            // The disk layer keeps no key or length of its own, but a cross-slot rename must
+            // still move the doc between slot-index entries.
+            RSDocumentMetadata old = {0};
+            const struct timespec epoch = {0};  // no expiry filtering: expired rows keep slot entries
+            if (DocTable_CopyById(&spec->docs, (t_docId)docId, &old, &epoch)) {
+              SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len, old.keyPtr,
+                                    sdslen(old.keyPtr), old.docLen);
+              sdsfree(old.keyPtr);
+            }
+          }
           DocTable_SetKeyById(&spec->docs, (t_docId)docId, to_str, to_len);
         }
       }
