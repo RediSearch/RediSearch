@@ -16,8 +16,6 @@ use std::rc::Rc;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
-use std::ptr::NonNull;
-
 use rqe_iterators::{
     Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ScoreBoundCtx,
     SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
@@ -521,7 +519,7 @@ fn skipping_leaf_through_the_c_abi() {
     for max_skips in [0, 1, usize::MAX] {
         let raw = RQEIteratorWrapper::boxed_new(Skipping::new(&DOCS, max_skips));
         // SAFETY: `boxed_new` returns a valid, owning header with every callback populated.
-        let child = unsafe { CRQEIterator::new(NonNull::new(raw).expect("non-null header")) };
+        let child = unsafe { CRQEIterator::new(raw) };
         let mut root = Profile::new(child);
         assert_eq!(
             root_survivors(&mut root, 2.0),
@@ -543,7 +541,7 @@ fn c_iterator_without_read_with_threshold_falls_back_to_read() {
     // SAFETY: `raw` was just returned by `boxed_new` and has no other alias.
     unsafe { patch_vtable(raw, |header| header.ReadWithThreshold = None) };
     // SAFETY: `boxed_new` returns a valid, owning header with `Read` populated.
-    let mut child = unsafe { CRQEIterator::new(NonNull::new(raw).expect("non-null header")) };
+    let mut child = unsafe { CRQEIterator::new(raw) };
     let mut seen = Vec::new();
     while let Some(doc) = child
         .read_with_threshold(2.0)
