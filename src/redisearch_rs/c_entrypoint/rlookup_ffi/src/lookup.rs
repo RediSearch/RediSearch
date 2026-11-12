@@ -487,6 +487,54 @@ pub unsafe extern "C" fn RLookup_GetKey_AllValues<'a>(
     key
 }
 
+/// On a shard, a LOAD of `name` that is a coordinator's request for every value of
+/// a field (see [`RLookup::get_key_all_values`]): `*is_request` is set to whether
+/// it is one, and the key that loads it is returned, or null when the request is
+/// declined (see [`RLookup::get_key_load_all_values`]) and nothing is loaded.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. `name` must be [valid] for reads of `name_len` bytes followed by a nul
+///    terminator, all within a single allocation.
+/// 3. `is_request` must be a [valid], non-null pointer to a `bool`.
+/// 4. All bits set in `flags` must correspond to a value of the enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetKey_LoadAllValuesRequest<'a>(
+    lookup: *mut OpaqueRLookup,
+    name: *const c_char,
+    name_len: size_t,
+    flags: u32,
+    is_request: *mut bool,
+) -> *mut RLookupKey<'a> {
+    // Safety: ensured by caller (1.)
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_LoadAllValuesRequest");
+    debug_assert!(!is_request.is_null(), "`is_request` must not be null");
+
+    let name = CStr::from_bytes_with_nul(
+        // Safety: ensured by caller (2.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
+    let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let request = rlookup::is_all_values_request(name);
+    // Safety: ensured by caller (3.)
+    unsafe { is_request.write(request) };
+    if !request {
+        return ptr::null_mut();
+    }
+    // Safety: RedisJSON, when loaded, is initialized before any query runs.
+    let japi = unsafe { RedisJsonApi::get() };
+    japi.and_then(|japi| lookup.get_key_load_all_values_ptr(name, flags, &japi))
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
+}
+
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
 ///
 /// # Safety

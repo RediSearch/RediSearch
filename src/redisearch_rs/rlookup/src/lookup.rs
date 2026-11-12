@@ -30,6 +30,7 @@ use std::{
     pin::Pin,
     ptr::NonNull,
 };
+use value::{SharedValue, Value};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut, Iter, IterMut};
@@ -53,6 +54,13 @@ pub enum RLookupOption {
     /// FT.AGGREGATE's first lookup.
     #[cheadergen(rename = "RLOOKUP_OPT_ALLVALUES")]
     AllValues = 0x04,
+
+    /// Lets [`RLookup::get_key_all_values`] hand out all-values keys that the
+    /// shards load. Set on an FT.AGGREGATE coordinator's lookup, which has no
+    /// documents, when the coordinator runs the GROUPBY rather than merging the
+    /// shards' groups.
+    #[cheadergen(rename = "RLOOKUP_OPT_ALLVALUESFROMSHARDS")]
+    AllValuesFromShards = 0x08,
 }
 
 /// Helper type to represent a set of [`RLookupOption`]s.
@@ -609,8 +617,16 @@ impl<'a> RLookup<'a> {
     /// document holding one value but not one holding several, so grouping on it
     /// would split equal values.
     ///
+    /// In a coordinator's lookup ([`RLookupOption::AllValuesFromShards`]) the key is
+    /// unresolved: the coordinator requests it from the shards under its name, and
+    /// each shard loads it (see [`Self::get_key_load_all_values`]), deciding
+    /// whether the field is multi-value and not shadowed. The coordinator also requests the field's
+    /// ordinary value, which stands in for a shard that does not answer the
+    /// request (see [`Self::fill_unanswered_all_values`]).
+    ///
     /// `None` when `field_name` should resolve as usual instead:
-    /// - the lookup does not [opt in][RLookupOption::AllValues];
+    /// - the lookup does not opt in ([`RLookupOption::AllValues`] or
+    ///   [`RLookupOption::AllValuesFromShards`]);
     /// - it is not a multi-value field: not a field of a JSON index, or one whose
     ///   path matches at most one value (see [`JsonPath::is_single`]);
     /// - an earlier step put a value of its own under that name, such as an
@@ -641,21 +657,25 @@ impl<'a> RLookup<'a> {
         field_name: &CStr,
         japi: &RedisJsonApi,
     ) -> Option<(u16, bool)> {
+        if self.options.contains(RLookupOption::AllValuesFromShards) {
+            return self.get_key_all_values_unresolved_slot(field_name);
+        }
         if !self.options.contains(RLookupOption::AllValues) {
             return None;
         }
-        let cache = self
-            .index_spec_cache
-            .as_ref()
-            .filter(|cache| cache.is_json())?;
-        let fs = cache.find_field(field_name)?;
-        // Safety: the spec cache owns its fields and their name buffers.
-        let path = unsafe { FieldSpec::from_raw(fs) }
-            .field_path()
-            .secret_value();
-        if !is_multi_value(path, japi) {
-            return None;
-        }
+        self.get_key_all_values_loaded_slot(field_name, japi, RLookupKeyFlag::Hidden.into())
+    }
+
+    /// The all-values key of a lookup that loads documents, with `flags`: see
+    /// [`Self::get_key_all_values`].
+    fn get_key_all_values_loaded_slot(
+        &mut self,
+        field_name: &CStr,
+        japi: &RedisJsonApi,
+        flags: RLookupKeyFlags,
+    ) -> Option<(u16, bool)> {
+        let cache = self.index_spec_cache.clone()?;
+        let (fs, path) = multi_value_field(&cache, field_name, japi)?;
 
         // A key of the same name that is not this field's own holds a value an
         // earlier step produced, which must be used instead.
@@ -668,26 +688,123 @@ impl<'a> RLookup<'a> {
             }
         }
 
-        let name = all_values_key_name(field_name);
-        if let Some(slot) = self.keys.find_slot(&name) {
-            let key = self.keys.get(slot)?;
-            return key
-                .flags
-                .contains(RLookupKeyFlag::AllValues)
-                .then_some((slot, false));
+        self.get_or_push_all_values_key(all_values_key_name(field_name), |name| {
+            new_all_values_key(name, fs, flags)
+        })
+    }
+
+    /// The all-values key of a coordinator: see [`Self::get_key_all_values`]. Whether
+    /// a shard step's value of the same name shadows the field is left to the
+    /// shards, which decline the request then.
+    fn get_key_all_values_unresolved_slot(&mut self, field_name: &CStr) -> Option<(u16, bool)> {
+        // Request the field's ordinary value too, unless a shard step already
+        // provides it.
+        if self.keys.find_slot(field_name).is_none() {
+            self.get_key_read(Cow::Owned(field_name.to_owned()), RLookupKeyFlags::empty())?;
         }
 
-        let mut key = RLookupKey::new(
-            name,
-            RLookupKeyFlag::DocSrc
-                | RLookupKeyFlag::IsLoaded
-                | RLookupKeyFlag::Hidden
-                | RLookupKeyFlag::AllValues,
-        );
-        key.update_from_field_spec(fs);
-        key.flags
-            .remove(RLookupKeyFlag::SvSrc | RLookupKeyFlag::ValAvailable);
-        Some((self.keys.push_slot(key), true))
+        self.get_or_push_all_values_key(all_values_key_name(field_name), |name| {
+            let flags =
+                RLookupKeyFlag::Unresolved | RLookupKeyFlag::Hidden | RLookupKeyFlag::AllValues;
+            RLookupKey::new(name, flags)
+        })
+    }
+
+    /// The slot of the all-values key `name` and whether this call created it with
+    /// `new_key`. `None` when an ordinary key happens to bear the name.
+    fn get_or_push_all_values_key(
+        &mut self,
+        name: Cow<'a, CStr>,
+        new_key: impl FnOnce(Cow<'a, CStr>) -> RLookupKey<'a>,
+    ) -> Option<(u16, bool)> {
+        match self.keys.find_slot(&name) {
+            Some(slot) => self
+                .keys
+                .get(slot)?
+                .flags
+                .contains(RLookupKeyFlag::AllValues)
+                .then_some((slot, false)),
+            None => Some((self.keys.push_slot(new_key(name)), true)),
+        }
+    }
+
+    /// On a shard, the key that loads `name`, a coordinator's request for every
+    /// value of the field behind [`ALL_VALUES_KEY_PREFIX`] (see
+    /// [`Self::get_key_all_values`]): an [`RLookupKeyFlag::AllValues`] key for a
+    /// multi-value field this lookup would read through its all-values key, with
+    /// the same conditions. `None` otherwise, or when `name` was already requested,
+    /// and the coordinator then uses the field's ordinary value.
+    pub fn get_key_load_all_values(
+        &mut self,
+        name: &CStr,
+        flags: RLookupKeyFlags,
+        japi: &RedisJsonApi,
+    ) -> Option<&RLookupKey<'a>> {
+        let slot = self.get_key_load_all_values_slot(name, flags, japi)?;
+        self.keys.get(slot)
+    }
+
+    /// FFI-facing variant of [`Self::get_key_load_all_values`] that preserves the
+    /// allocation's raw-pointer provenance.
+    #[doc(hidden)]
+    pub fn get_key_load_all_values_ptr(
+        &mut self,
+        name: &CStr,
+        flags: RLookupKeyFlags,
+        japi: &RedisJsonApi,
+    ) -> Option<NonNull<RLookupKey<'a>>> {
+        let slot = self.get_key_load_all_values_slot(name, flags, japi)?;
+        self.keys.get_ptr(slot)
+    }
+
+    fn get_key_load_all_values_slot(
+        &mut self,
+        name: &CStr,
+        flags: RLookupKeyFlags,
+        japi: &RedisJsonApi,
+    ) -> Option<u16> {
+        if !self.options.contains(RLookupOption::AllValues) {
+            return None;
+        }
+        let field_name = all_values_field_name(name)?;
+        // The coordinator receives this key, so unlike GROUPBY's own it is not hidden.
+        let flags = (flags & GET_KEY_FLAGS) & !TRANSIENT_FLAGS;
+        let (slot, is_new) = self.get_key_all_values_loaded_slot(field_name, japi, flags)?;
+        is_new.then_some(slot)
+    }
+
+    /// On a coordinator, gives each all-values key that `row` lacks the field's
+    /// ordinary value, which the coordinator requested too (see
+    /// [`Self::get_key_all_values`]), as the field's one value. A shard leaves the
+    /// key out for anything but a multi-value field, and so does one of an older
+    /// version, during a rolling upgrade, which does not know the request.
+    pub fn fill_unanswered_all_values(&self, row: &mut RLookupRow<'a>) {
+        if !self.options.contains(RLookupOption::AllValuesFromShards) {
+            return;
+        }
+        for key in self.keys.iter() {
+            if !key.flags.contains(RLookupKeyFlag::AllValues) || row.get(key).is_some() {
+                continue;
+            }
+            let Some(field_name) = all_values_field_name(key.name()) else {
+                continue;
+            };
+            let value = self
+                .keys
+                .find_slot(field_name)
+                .and_then(|slot| self.keys.get(slot))
+                .and_then(|ordinary| row.get(ordinary))
+                .cloned();
+            // An array (FORMAT EXPAND's) is wrapped to stay one value.
+            if let Some(value) = value {
+                let value = if matches!(*value, Value::Array(_)) {
+                    SharedValue::new_array([value])
+                } else {
+                    value
+                };
+                row.write_key(key, value);
+            }
+        }
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
@@ -820,19 +937,68 @@ fn create_key_from_data<'a>(
     }
 }
 
-/// Whether `path` is a JSONPath that can match several values.
-fn is_multi_value(path: &CStr, japi: &RedisJsonApi) -> bool {
+/// The field `field_name` of the JSON index `cache` and its path, if it is a
+/// multi-value field: one whose path can match several values.
+fn multi_value_field<'c>(
+    cache: &'c IndexSpecCache,
+    field_name: &CStr,
+    japi: &RedisJsonApi,
+) -> Option<(&'c ffi::FieldSpec, &'c CStr)> {
+    if !cache.is_json() {
+        return None;
+    }
+    let fs = cache.find_field(field_name)?;
+    // Safety: the spec cache owns its fields and their name buffers.
+    let path = unsafe { FieldSpec::from_raw(fs) }
+        .field_path()
+        .secret_value();
     // Safety: `path` outlives the parsed path, which is dropped before returning.
-    unsafe { JsonPath::parse_no_error_msg(path, japi) }.is_some_and(|path| !path.is_single())
+    let is_multi =
+        unsafe { JsonPath::parse_no_error_msg(path, japi) }.is_some_and(|path| !path.is_single());
+    is_multi.then_some((fs, path))
+}
+
+/// An [`RLookupKeyFlag::AllValues`] key named `name`, holding every value of the
+/// field `fs`, loaded from the document rather than the sorting vector.
+fn new_all_values_key<'a>(
+    name: impl Into<Cow<'a, CStr>>,
+    fs: &ffi::FieldSpec,
+    flags: RLookupKeyFlags,
+) -> RLookupKey<'a> {
+    let mut key = RLookupKey::new(
+        name,
+        flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded | RLookupKeyFlag::AllValues,
+    );
+    key.update_from_field_spec(fs);
+    key.flags
+        .remove(RLookupKeyFlag::SvSrc | RLookupKeyFlag::ValAvailable);
+    key
+}
+
+/// What the name of an [all-values key][RLookup::get_key_all_values] starts with,
+/// followed by the field's name. A control character makes a clash with a
+/// user-chosen name unlikely; a key that does clash is an ordinary key, which is
+/// never taken for an all-values key.
+const ALL_VALUES_KEY_PREFIX: u8 = 0x01;
+
+/// Whether `name`, LOADed by a coordinator, requests every value of a field (see
+/// [`RLookup::get_key_load_all_values`]).
+pub fn is_all_values_request(name: &CStr) -> bool {
+    all_values_field_name(name).is_some()
+}
+
+/// The field name in the [all-values key][RLookup::get_key_all_values] name `name`,
+/// if it is one.
+fn all_values_field_name(name: &CStr) -> Option<&CStr> {
+    let bytes = name.to_bytes_with_nul();
+    (bytes.first() == Some(&ALL_VALUES_KEY_PREFIX))
+        .then(|| CStr::from_bytes_with_nul(&bytes[1..]).expect("a C string's tail is a C string"))
 }
 
 /// The name of the [all-values key][RLookup::get_key_all_values] of `field_name`.
-/// The control-character prefix makes a clash with a user-chosen name unlikely;
-/// an alias that does clash is an ordinary key of that name, which
-/// [`RLookup::get_key_all_values`] never hands out.
 fn all_values_key_name(field_name: &CStr) -> Cow<'static, CStr> {
     let mut name = Vec::with_capacity(field_name.count_bytes() + 1);
-    name.push(0x01);
+    name.push(ALL_VALUES_KEY_PREFIX);
     name.extend_from_slice(field_name.to_bytes());
     Cow::Owned(CString::new(name).expect("a C string has no interior nul"))
 }

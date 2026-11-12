@@ -154,6 +154,19 @@ void LoaderCache_Free(struct LoaderCache *cache);
 struct LoaderCache *LoaderCache_New(enum DocumentType doc_type, const RLookupKey *const *keys, size_t nkeys);
 
 /**
+ * [`RLookup::fill_unanswered_all_values`]: on a coordinator, gives each
+ * all-values key a shard left out of `row` the field's ordinary value.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`] of `lookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_FillUnansweredAllValues(const struct RLookup *lookup, struct RLookupRow *row);
+
+/**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
  *
  * The function first checks for dynamic values, and if not found, it checks the sorting vector
@@ -451,6 +464,24 @@ RLookupKey *RLookup_GetKey_AllValues(struct RLookup *lookup, const char *field_n
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
+
+/**
+ * On a shard, a LOAD of `name` that is a coordinator's request for every value of
+ * a field (see [`RLookup::get_key_all_values`]): `*is_request` is set to whether
+ * it is one, and the key that loads it is returned, or null when the request is
+ * declined (see [`RLookup::get_key_load_all_values`]) and nothing is loaded.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. `name` must be [valid] for reads of `name_len` bytes followed by a nul
+ *    terminator, all within a single allocation.
+ * 3. `is_request` must be a [valid], non-null pointer to a `bool`.
+ * 4. All bits set in `flags` must correspond to a value of the enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupKey *RLookup_GetKey_LoadAllValuesRequest(struct RLookup *lookup, const char *name, size_t name_len, uint32_t flags, bool *is_request);
 
 /**
  * Get an RLookup key for a given name.
