@@ -8,8 +8,8 @@
 */
 
 //! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE`, `COUNT_DISTINCT`,
-//! `COUNT_DISTINCTISH`, `HLL`, `HLL_SUM` and `RANDOM_SAMPLE`, driven through
-//! [`AccumulatorReducer`] the way the grouper drives them.
+//! `COUNT_DISTINCTISH`, `HLL`, `HLL_SUM`, `RANDOM_SAMPLE` and `TOLIST`, driven
+//! through [`AccumulatorReducer`] the way the grouper drives them.
 
 extern crate redisearch_rs;
 
@@ -24,6 +24,7 @@ use reducers::min_max::{Extreme, MinMax};
 use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
+use reducers::to_list::ToList;
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::{SharedValue, Value};
 
@@ -568,6 +569,97 @@ fn random_sample_of_a_larger_group_replaces_values_as_the_reservoir_draws() {
     assert_eq!(sample(0, &values), [] as [f64; 0]);
 }
 
+/// The `TOLIST` of one group with a row per entry of `values`, each element
+/// rendered as text.
+fn to_list(values: &[Option<SharedValue>]) -> Vec<String> {
+    let key = key();
+    let rows: Vec<_> = values.iter().map(|value| [value.clone()]).collect();
+    match &*reduce_rows(ToList::new(&key), [&key], &rows) {
+        Value::Array(elements) => elements.iter().map(|e| render(e)).collect(),
+        other => panic!("expected an array, got {other:?}"),
+    }
+}
+
+fn render(value: &Value) -> String {
+    match value {
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => String::from_utf8_lossy(s.as_bytes()).into_owned(),
+        Value::Null => "null".to_owned(),
+        Value::Array(elements) => {
+            let elements: Vec<_> = elements.iter().map(|e| render(e)).collect();
+            format!("[{}]", elements.join(","))
+        }
+        Value::Ref(inner) => render(inner),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+fn array(
+    elements: impl IntoIterator<Item = SharedValue, IntoIter: ExactSizeIterator>,
+) -> Option<SharedValue> {
+    Some(SharedValue::new_array(elements))
+}
+
+/// Duplicates are dropped and missing properties skipped; the rest keep the order
+/// they were first seen in.
+#[test]
+fn to_list_keeps_distinct_values_in_first_seen_order() {
+    let rows = [
+        num(2.0),
+        string("a"),
+        num(2.0),
+        None,
+        string("b"),
+        string("a"),
+        num(1.0),
+    ];
+    assert_eq!(to_list(&rows), ["2", "a", "b", "1"]);
+    assert!(to_list(&[]).is_empty());
+}
+
+/// An array contributes its elements, one level deep, and they dedupe against
+/// the other values.
+#[test]
+fn to_list_adds_each_element_of_an_array() {
+    let nested = SharedValue::new_array([SharedValue::new_string(b"x".to_vec())]);
+    let rows = [
+        array([
+            SharedValue::new_num(1.0),
+            SharedValue::new_string(b"a".to_vec()),
+            nested,
+        ]),
+        num(1.0),
+        string("a"),
+        num(3.0),
+    ];
+    assert_eq!(to_list(&rows), ["1", "a", "[x]", "3"]);
+}
+
+/// An array behind a reference is one value, not flattened.
+#[test]
+fn to_list_does_not_flatten_an_array_behind_a_reference() {
+    let inner = SharedValue::new_array([SharedValue::new_num(1.0), SharedValue::new_num(2.0)]);
+    let rows = [Some(SharedValue::new(Value::Ref(inner)))];
+    assert_eq!(to_list(&rows), ["[1,2]"]);
+}
+
+/// A null is a value like any other, and all nulls are one value.
+#[test]
+fn to_list_keeps_one_null() {
+    let rows = [
+        Some(SharedValue::null_static()),
+        Some(SharedValue::new(Value::Null)),
+        None,
+    ];
+    assert_eq!(to_list(&rows), ["null"]);
+}
+
+/// NaN equals itself here, so repeated NaNs are kept once.
+#[test]
+fn to_list_keeps_one_nan() {
+    assert_eq!(to_list(&[num(f64::NAN), num(f64::NAN)]), ["NaN"]);
+}
+
 /// Runs `accumulator` over two groups the way the grouper does: a state per
 /// group, rows interleaved between them, then finalize and drop. Returns each
 /// group's result.
@@ -621,6 +713,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
         CountDistinctReducer_Create, CountDistinctishReducer_Create, FirstValueReducer_Create,
         HllSumReducer_Create, RandomSampleReducer_Create, StdDevReducer_Create, SumReducer_Create,
+        ToListReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -656,4 +749,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let random_sample = unsafe { RandomSampleReducer_Create(key_ptr, 10) };
     assert!(frees_states(random_sample));
+    // SAFETY: as above.
+    let to_list = unsafe { ToListReducer_Create(key_ptr) };
+    assert!(frees_states(to_list));
 }

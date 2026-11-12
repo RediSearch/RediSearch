@@ -18,5 +18,6 @@ pub mod random_sample;
 mod reducer;
 pub mod std_dev;
 pub mod sum;
+pub mod to_list;
 
 pub use reducer::Reducer;
