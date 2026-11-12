@@ -315,13 +315,16 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         const size_t size = VecSimIndex_IndexSize(vecsim);
         const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
         bool preferExact = !size || estimated <= size / 50;
+        bool preferOrdinary = false;
         if (!preferExact && !strcmp(navix, "NAVIX_AUTO2")) {
           preferExact = VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true);
-          if (!preferExact && size == ctx->spec->stats.scoring.numDocuments &&
-              filter_node->type == QN_PHRASE && array_len(filter_node->children) > 1) {
-            vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery,
-                                           &qParams.navix, false);
-            preferExact = NavixQuery_PreferExactScan(vq->navixQuery);
+          if (!preferExact) {
+            vq->navixQuery =
+                NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, false);
+            if (size == ctx->spec->stats.scoring.numDocuments && filter_node->type == QN_PHRASE &&
+                array_len(filter_node->children) > 1)
+              preferExact = NavixQuery_PreferExactScan(vq->navixQuery);
+            preferOrdinary = NavixQuery_PreferOrdinarySearch(vq->navixQuery, estimated, size);
           }
         }
         if (preferExact) {
@@ -334,10 +337,15 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
             return NULL;
           if (!strcmp(navix, "NAVIX_AUTO2") && IsWildcardIterator(child_it)) {
             // Preserve the selected scan through wildcard-child reduction.
-            vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery,
-                                           &qParams.navix, false);
+            vq->navixQuery =
+                NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, false);
             qParams.navix.stats = NULL;
           }
+          navix = NULL;
+        } else if (preferOrdinary) {
+          // Restore adaptive batches and the original EF when TAG traversal adds little pruning.
+          qParams.searchMode = EMPTY_MODE;
+          qParams.navix = (VecSimNavixParams){0};
           navix = NULL;
         } else {
           // EF counts summary-MAYBE results here; scale the ordinary search effort.

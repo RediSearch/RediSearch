@@ -19,6 +19,7 @@ typedef struct NavixQuery NavixQuery;
 NavixQuery* NavixQuery_New(struct IndexSpec* spec, const struct RSQueryNode* filter,
                            NavixQuery* previous, VecSimNavixParams* params, bool blind);
 bool NavixQuery_PreferExactScan(NavixQuery* query);
+bool NavixQuery_PreferOrdinarySearch(const NavixQuery* query, size_t estimated, size_t size);
 void NavixQuery_Free(NavixQuery* query);
 
 #endif

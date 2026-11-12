@@ -107,9 +107,15 @@ measure them together. This does not change the default AUTO policy.
 
 Option 2 also probes at most 512 deterministic pseudo-random document summaries for
 conjunctions that would otherwise traverse, and only when the queried vector field
-covers every indexed document. It selects exact scanning if at most two
-probes return MAYBE, and stops probing as soon as a third does. Missing or ambiguous
+covers every indexed document. It selects exact scanning if at most eight
+probes return MAYBE, and stops probing as soon as a ninth does. Missing or ambiguous
 summaries count as MAYBE. This catches sparse intersections whose min-child estimate
 is large; it does not build a membership set or change the traversal EF estimate.
 The sample only selects the search route. A sampling mistake can make scanning slow,
 but cannot reject a matching document or reduce exact-scan recall.
+
+For TAG predicates, Option 2 restores ordinary AUTO planning for non-conjunctions,
+and for conjunctions containing a TAG union with at least 32 terms when the
+iterator estimate covers at least half the vectors. It keeps the caller's EF
+and adaptive batch-to-scan switching; the sparse probe takes precedence. These
+are experimental routing heuristics, not changes to filter eligibility.
