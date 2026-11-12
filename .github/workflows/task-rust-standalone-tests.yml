@@ -251,40 +251,29 @@ jobs:
       - name: DEBUG valgrind vector_range
         if: always() && inputs.tool == 'valgrind'
         continue-on-error: true
+        shell: bash
         run: |
-          set -x
+          set +e
           B=$(ls bin/redisearch_rs/optimised_test/deps/vector_range-* | grep -v '\.d$' | head -1)
           B=$PWD/$B
-          (apt-get install -y -qq bzip2 >/dev/null 2>&1 || true)
-          curl -sSfL https://sourceware.org/pub/valgrind/valgrind-3.26.0.tar.bz2 -o /tmp/vg.tar.bz2
-          tar -C /tmp -xjf /tmp/vg.tar.bz2
+          SUPP=$PWD/src/redisearch_rs/valgrind.supp
+          echo "===== binary"; ls -la "$B"; sha256sum "$B"
+          readelf -lW "$B" | grep -E "LOAD|RELRO"
+          echo "===== main step outcome: ${{ steps.rust_unit_tests_valgrind.outcome }}"
+          apt-get install -y -qq bzip2 >/dev/null 2>&1
+          curl -sSfL https://sourceware.org/pub/valgrind/valgrind-3.26.0.tar.bz2 -o /tmp/vg.tar.bz2 && tar -C /tmp -xjf /tmp/vg.tar.bz2
           (cd /tmp/valgrind-3.26.0 && ./configure --prefix=/opt/vg326 -q >/dev/null && make -s -j"$(nproc)" >/dev/null 2>&1 && make -s install >/dev/null 2>&1)
           for V in /usr/bin/valgrind /opt/vg326/bin/valgrind; do
-            echo "===== $($V --version)"
-            $V -v --leak-check=full --num-callers=8 --suppressions=$PWD/src/redisearch_rs/valgrind.supp "$B" --nocapture > /tmp/cmp.txt 2>&1 || true
-            grep -c "Reading syms from $B" /tmp/cmp.txt || true
-            grep -E "possibly lost:|suppressed:|ERROR SUMMARY" /tmp/cmp.txt || true
+            echo "===== $($V --version 2>&1)"
+            $V -v --leak-check=full --num-callers=8 --suppressions=$SUPP "$B" --nocapture > /tmp/cmp.txt 2>&1
+            echo "reads binary syms: $(grep -c "Reading syms from $B" /tmp/cmp.txt)"
+            grep -E "possibly lost:|suppressed:|ERROR SUMMARY" /tmp/cmp.txt | head -3
             sed -n '/lost in loss record/,/^==[0-9]*== $/p' /tmp/cmp.txt | head -6
-            PATH=$(dirname $V):$PATH VALGRINDFLAGS=--suppressions=$PWD/src/redisearch_rs/valgrind.supp cargo-valgrind "$B" --nocapture > /tmp/cv.txt 2>&1; echo "cargo-valgrind exit=$?"; grep -A3 leaked /tmp/cv.txt | head -4
+            PATH=$(dirname $V):$PATH VALGRINDFLAGS=--suppressions=$SUPP cargo-valgrind "$B" --nocapture > /tmp/cv.txt 2>&1
+            echo "cargo-valgrind exit=$?"
+            grep -A3 leaked /tmp/cv.txt | head -4
           done
-          readelf -S -W "$B" | grep -E "debug_info|debug_str|debug_line " || true
-          readelf -p .comment "$B" | head -8 || true
-          readelf -lW "$B" | sed -n '/Program Headers/,/Section to Segment/p' || true
-          cp "$B" /tmp/vrcopy
-          valgrind -v -v --trace-symtab=no --leak-check=full --num-callers=8 "$B" --exact range_matching_nothing_is_empty_once_read --nocapture > /tmp/vgv.txt 2>&1 || true
-          grep -nE "Reading syms|syms from|debuginfo|di_notify|Discarding|ignored|Warning|WARNING|warning|rx_map|rw_map|Considering|cannot|can't" /tmp/vgv.txt | head -60
-          valgrind --leak-check=full --num-callers=6 /tmp/vrcopy --nocapture 2>&1 | grep -E "possibly lost:|by 0x" | head -6 || true
-          ls -la "$B"; file "$B" || true
-          readelf -S "$B" | grep -E 'debug|gnu_debuglink' || true
-          readelf --debug-dump=info "$B" 2>/dev/null | grep -m2 'Version:' || true
-          valgrind --version; df -h . /tmp; free -m; ulimit -a; nproc
-          cd src/redisearch_rs
-          for i in 1 2; do
-            valgrind -v --leak-check=full --show-leak-kinds=definite,indirect,possible --num-callers=50 --suppressions=$PWD/valgrind.supp "$B" --nocapture > /tmp/vg$i.txt 2>&1 || true
-            grep -nE 'lost:|suppressed:|ERROR SUMMARY|reading debug|debuginfo|warning|WARNING|Cannot|cannot|error' /tmp/vg$i.txt | head -60
-            sed -n '/lost in loss record/,/^==[0-9]*== $/p' /tmp/vg$i.txt | head -80
-          done
-          VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp cargo-valgrind "$B" --nocapture 2>&1 | tail -40 || true
+          exit 0
 
       - name: Upload Test Logs (failure)
         if: inputs.tool == 'miri' && (failure() || steps.rust_unit_tests_miri.outcome == 'failure')
