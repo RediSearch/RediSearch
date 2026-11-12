@@ -831,3 +831,46 @@ TEST_F(IndexGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
 }
+
+TEST(GCTimerDelayTest, testJitterRange) {
+  EXPECT_EQ(GC_TimerDelayMs(1, 12345), 1000);  // no whole second of jitter below 2s
+  EXPECT_EQ(GC_TimerDelayMs(10, 0), 10000);
+  EXPECT_EQ(GC_TimerDelayMs(10, 7), 17000);
+  EXPECT_EQ(GC_TimerDelayMs(10, 19), 19000);  // almost twice the interval, never twice
+  EXPECT_EQ(GC_TimerDelayMs(10, 20), 10000);
+}
+
+TEST(GCTimerDelayTest, testSaturatesAtTheCap) {
+  const size_t maxSec = RS_MAX_TIMER_DELAY_MS / 1000;
+  // The largest interval the config accepts, and beyond it, with the largest draw.
+  EXPECT_EQ(GC_TimerDelayMs((size_t)LLONG_MAX, ULONG_MAX), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(SIZE_MAX, ULONG_MAX), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(maxSec, 0), RS_MAX_TIMER_DELAY_MS);
+  // Just below the cap the interval converts exactly, and the jitter is what saturates.
+  EXPECT_EQ(GC_TimerDelayMs(maxSec - 1, 0), (long long)(maxSec - 1) * 1000);
+  EXPECT_EQ(GC_TimerDelayMs(maxSec - 1, 1), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(maxSec / 2 + 1, maxSec / 2), RS_MAX_TIMER_DELAY_MS);
+}
+
+// Redis truncates a module timer's remaining delay to `int` (MOD-21060), so the cap must fit one.
+TEST(GCTimerDelayTest, testFitsTheEventLoopInt) {
+  static_assert(RS_MAX_TIMER_DELAY_MS <= INT_MAX);
+  // Intervals that made Redis spin before the cap: the delay of 2147484s always landed in
+  // (2^31, 2^32) ms, and that of 30 days could also pass 2^32 ms.
+  EXPECT_EQ(GC_TimerDelayMs(2147484, 0), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(2592000, 2591999), RS_MAX_TIMER_DELAY_MS);
+  // 1073743s (about 12.4 days) is the shortest interval whose jitter could exceed INT_MAX ms.
+  EXPECT_EQ(GC_TimerDelayMs(1073743, 0), 1073743000LL);
+  EXPECT_EQ(GC_TimerDelayMs(1073743, 1073742), RS_MAX_TIMER_DELAY_MS);
+}
+
+TEST(ModuleTimerTest, testDelayToDeadline) {
+  const uint64_t now = 1000;
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(0, now), 0);  // past
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now, now), 0);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + 1, now), 1);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS, now), RS_MAX_TIMER_DELAY_MS);
+  // Further out, the timer fires at the cap and re-arms for what is left.
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS + 1, now), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(UINT64_MAX, now), RS_MAX_TIMER_DELAY_MS);
+}

@@ -345,6 +345,9 @@ typedef struct IndexSpec {
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
+  // Monotonic ms at which the index expires. Kept apart from the timer, which may fire first: see
+  // RS_TimerDelayToDeadlineMs.
+  uint64_t timeoutDeadlineMs;
   RedisModuleTimerID timerId;
   bool isTimerSet;
 

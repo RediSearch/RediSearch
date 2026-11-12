@@ -15,6 +15,7 @@
 
 #include "redismodule.h"
 #include "util/dllist.h"
+#include "util/module_timer.h"
 #include "util/references.h"
 #include "util/rs_atomic.h"
 #include <time.h>
@@ -161,6 +162,11 @@ bool GCContext_BeginDrop(GCContext* gc);
 // that discovers the drop and frees the context.
 void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
+// The delay, in milliseconds, of a timer armed for `intervalSec`: the interval plus a jitter
+// of `draw % intervalSec` whole seconds, so it runs from the interval to almost twice it.
+// Saturates, and never exceeds RS_MAX_TIMER_DELAY_MS. `draw` is a rand() value; a parameter
+// so tests can pin it.
+long long GC_TimerDelayMs(size_t intervalSec, unsigned long draw);
 // Suspend/resume scheduling for a disk consistency window, leaving `enabled` untouched so a
 // GC stopped by a debug command stays stopped across one. Both require the GIL.
 void GCContext_PauseScheduling(GCContext* gc);

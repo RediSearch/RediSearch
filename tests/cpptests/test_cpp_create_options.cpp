@@ -9,6 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "spec.h"
+#include <cstring>
 #include <vector>
 
 class CreateOptionsTest : public ::testing::Test {
@@ -75,5 +76,18 @@ TEST_F(CreateOptionsTest, DeferredUnknownAndUnsupportedOptions) {
     EXPECT_FALSE(options.unsupportedOption);
     EXPECT_EQ(2, AC_NumRemaining(&cursor));
     EXPECT_FALSE(QueryError_HasError(&error));
+  }
+}
+
+// The TTL is kept in ms as a long long, so larger values used to wrap and drop the index at once.
+TEST_F(CreateOptionsTest, TemporaryMustFitInMilliseconds) {
+  ASSERT_EQ(REDISMODULE_OK, parse({"TEMPORARY", "9223372036854775", "SCHEMA"}));
+  EXPECT_EQ(9223372036854775000LL, options.timeout);
+  ASSERT_EQ(REDISMODULE_OK, parse({"TEMPORARY", "-9223372036854775", "SCHEMA"}));
+  EXPECT_EQ(-9223372036854775000LL, options.timeout);
+  for (const char* tooFar : {"9223372036854776", "9223372036854775806", "-9223372036854776"}) {
+    ASSERT_EQ(REDISMODULE_ERR, parse({"TEMPORARY", tooFar, "SCHEMA"})) << tooFar;
+    EXPECT_NE(nullptr, strstr(QueryError_GetUserError(&error), "TEMPORARY value out of range"))
+        << QueryError_GetUserError(&error);
   }
 }
