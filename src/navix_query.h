@@ -18,6 +18,7 @@ typedef struct NavixQuery NavixQuery;
 /* The AST owns these contexts until after its iterators have been destroyed. */
 NavixQuery* NavixQuery_New(struct IndexSpec* spec, const struct RSQueryNode* filter,
                            NavixQuery* previous, VecSimNavixParams* params, bool blind);
+bool NavixQuery_PreferExactScan(NavixQuery* query);
 void NavixQuery_Free(NavixQuery* query);
 
 #endif

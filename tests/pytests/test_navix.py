@@ -213,3 +213,36 @@ def test_navix_auto_retains_scan_preference(env):
                        *args).error().contains('requires filtered')
     finally:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_samples_sparse_conjunction(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'a', 'NUMERIC', 'b', 'NUMERIC', 'body', 'TEXT',
+               'v', 'VECTOR', 'HNSW', 8, 'TYPE', 'FLOAT32', 'DIM', 1,
+               'DISTANCE_METRIC', 'L2', 'EF_CONSTRUCTION', 100).ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6000):
+        conn.execute_command('HSET', f'd:{i}', 'a', i, 'b', (i + 2998) % 6000,
+                             'v', struct.pack('<f', i))
+    env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    try:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+        for predicate, mode in [('@a:[0 2999] @b:[0 2999]', 'HYBRID_ADHOC_BF'),
+                                ('@a:[0 2999] @b:[0 5999]', 'NAVIX_QC'),
+                                ('@a:[0 5999] ~@body:missing', 'NAVIX_QC')]:
+            results = []
+            for policy in ['NAVIX_AUTO', 'NAVIX_AUTO2']:
+                query = f'({predicate})=>[KNN 2 @v $q HYBRID_POLICY {policy} EF_RUNTIME 100 AS dist]'
+                result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                                 'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                                 'PARAMS', 2, 'q', struct.pack('<f', 0))
+                env.assertEqual(result[0], [2, 'd:0', 'd:1'])
+                env.assertEqual(_profile_value(result[1], 'Vector search mode'),
+                                mode if policy == 'NAVIX_AUTO2' else 'NAVIX_QC')
+                results.append(result)
+            if mode == 'HYBRID_ADHOC_BF':
+                env.assertEqual(_profile_value(results[1][1], 'NaviX bridge expansions'), None)
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)

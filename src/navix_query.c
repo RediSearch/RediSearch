@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "navix_query.h"
+#include "doc_table.h"
 #include "numeric_filter.h"
 #include "query_node.h"
 #include "rmalloc.h"
@@ -83,6 +84,25 @@ NavixQuery* NavixQuery_New(IndexSpec* spec, const QueryNode* filter, NavixQuery*
                                 .stats = &query->stats,
                                 .forceBlind = blind};
   return query;
+}
+
+bool NavixQuery_PreferExactScan(NavixQuery* query) {
+  if (!query || !query->context.spec) return false;
+  const t_docId maxDocId = DocTable_GetMaxDocId(&query->context.spec->docs);
+  if (!maxDocId) return false;
+  size_t maybe = 0;
+  uint64_t state = 0;
+  // A bounded routing sample; unknown summaries count as possible matches.
+  for (size_t i = 0; i < 512; ++i) {
+    state += UINT64_C(0x9e3779b97f4a7c15);
+    uint64_t hash = state;
+    hash = (hash ^ (hash >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94d049bb133111eb);
+    hash ^= hash >> 31;
+    if (FilterSummary_MayMatch(&query->context, 1 + hash % maxDocId) && ++maybe > 2)
+      return false;
+  }
+  return true;
 }
 
 void NavixQuery_Free(NavixQuery* query) {

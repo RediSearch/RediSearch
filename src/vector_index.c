@@ -314,9 +314,17 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       if (navixAuto) {
         const size_t size = VecSimIndex_IndexSize(vecsim);
         const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
-        if (!size || estimated <= size / 50 ||
-            (!strcmp(navix, "NAVIX_AUTO2") &&
-             VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true))) {
+        bool preferExact = !size || estimated <= size / 50;
+        if (!preferExact && !strcmp(navix, "NAVIX_AUTO2")) {
+          preferExact = VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true);
+          if (!preferExact && filter_node->type == QN_PHRASE &&
+              array_len(filter_node->children) > 1) {
+            vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery,
+                                           &qParams.navix, false);
+            preferExact = NavixQuery_PreferExactScan(vq->navixQuery);
+          }
+        }
+        if (preferExact) {
           VecSimRawParam exactPolicy = {.name = "HYBRID_POLICY",
                                         .nameLen = strlen("HYBRID_POLICY"),
                                         .value = "ADHOC_BF",
@@ -342,8 +350,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         }
       }
       if (navix) {
-        vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
-                                        !strcmp(navix, "NAVIX_BLIND"));
+        if (!qParams.navix.context) {
+          vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
+                                          !strcmp(navix, "NAVIX_BLIND"));
+        }
         qParams.navix.skipScanned = !strcmp(navix, "NAVIX_DEDUP") || secondHopBudget;
         qParams.navix.secondHopBudget = secondHopBudget;
         qParams.navix.bridgeRejected = !strcmp(navix, "NAVIX_BRIDGE") || navixAuto;
