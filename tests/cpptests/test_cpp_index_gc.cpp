@@ -12,6 +12,10 @@
 #include "common.h"
 #include "llapi_test_helpers.h"
 #include "gc/index_gc.h"
+#include "index_gc_ffi.h"
+#include "deleted_docs_ffi.h"
+#include "config.h"
+#include "util/references.h"
 #include "tag_index.h"
 #include "rules.h"
 #include "query_error_ffi.h"
@@ -830,4 +834,95 @@ TEST_F(IndexGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
   job.hold = false;
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
+}
+
+/** A spec made under the THREAD policy, whose doc table tracks its deleted IDs. */
+class ThreadGCTest : public IndexGCTestTag {
+ protected:
+  void SetUp() override {
+    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
+    IndexGCTestTag::SetUp();
+  }
+
+  void TearDown() override {
+    IndexGCTestTag::TearDown();
+    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  }
+
+  uint64_t trackedDeletions() {
+    return DeletedDocs_Len(get_spec(ism)->docs.deletedDocs);
+  }
+};
+
+TEST_F(ThreadGCTest, testRunScannersCollectsTheTrackedDeletions) {
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  ASSERT_EQ(1, trackedDeletions());
+
+  uint64_t pruned = UINT64_MAX;
+  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_RunScanners(fgc, &pruned));
+  ASSERT_EQ(1, pruned);
+
+  ASSERT_EQ(0, trackedDeletions());
+  ASSERT_EQ(1, get_spec(ism)->stats.numRecords);
+  ASSERT_GT(fgc->stats.totalCollected, 0);
+}
+
+TEST_F(ThreadGCTest, testRunTakesOffWhatItPrunes) {
+  for (const char *key : {"doc1", "doc2", "doc3"}) {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, key, "f1", "hello"));
+  }
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  // Deleted the way slot cleanup does: the count reaches the GC only through the spec.
+  IndexSpec *spec = get_spec(ism);
+  IndexSpec_LockWrite(spec);
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2));
+  IndexSpec_DeferGCDeletes(spec, 1);
+  IndexSpec_Unlock(spec);
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 1);
+  ASSERT_EQ(2, trackedDeletions());
+
+  runGC();
+
+  EXPECT_EQ(0, trackedDeletions());
+  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 0);
+  EXPECT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+}
+
+TEST_F(ThreadGCTest, testDeletedIdsCountInTheDocTableMemory) {
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, ("doc" + std::to_string(i)).c_str(), "f1", "hello"));
+  }
+  const DocTable *docs = &get_spec(ism)->docs;
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0) << "an empty set counts for nothing";
+  for (int i = 0; i < 100; i += 3) {
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, ("doc" + std::to_string(i)).c_str()));
+  }
+  EXPECT_GT(DocTable_DeletedDocsMemoryUsage(docs), 0);
+
+  runGC();
+
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0);
+}
+
+static void keepObject(void *) {}
+
+TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
+  // Point the GC at an index reference that outlived its object, as after a drop.
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = fgc->index;
+  fgc->index = dropped;
+
+  uint64_t pruned = UINT64_MAX;
+  ThreadGCResult result = ThreadGC_RunScanners(fgc, &pruned);
+
+  fgc->index = index;
+  WeakRef_Release(dropped);
+  ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
+  ASSERT_EQ(0, pruned);
 }

@@ -62,6 +62,8 @@ typedef enum {
   // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
   // work was paused before it started), the index disappeared, or compaction was cancelled.
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
+  // The cycle stopped on an error, logged as a warning, and collected only what it applied first.
+  GC_FORCED_RUN_FAILED,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a
