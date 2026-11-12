@@ -62,8 +62,8 @@ where
         return NewVectorTopK::ReducedEmpty;
     };
 
-    // Preserve the exact child even when it reduces to wildcard: the explicit POC
-    // route must use batches, including when its conservative predicate is UNKNOWN.
+    // Preserve the exact child even when it reduces to wildcard: the explicit POC's
+    // selected scan or batch strategy must survive child reduction.
     let reduced_child = if query_params.navix.mayMatch.is_some() {
         match child {
             Some(child) => ChildReduction::Filtered(child),

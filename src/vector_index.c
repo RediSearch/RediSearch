@@ -324,6 +324,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           if (VecSim_ResolveQueryParams(vecsim, &exactPolicy, 1, &qParams, queryType, q->status) !=
               VecSim_OK)
             return NULL;
+          if (!strcmp(navix, "NAVIX_AUTO2") && IsWildcardIterator(child_it)) {
+            // Preserve the selected scan through wildcard-child reduction.
+            vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery,
+                                           &qParams.navix, false);
+            qParams.navix.stats = NULL;
+          }
           navix = NULL;
         } else {
           // EF counts summary-MAYBE results here; scale the ordinary search effort.

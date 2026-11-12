@@ -174,7 +174,7 @@ def test_navix_auto_retains_scan_preference(env):
         for count, expected_mode in [(100, 'HYBRID_ADHOC_BF'), (6000, 'NAVIX_QC')]:
             index, prefix = f'idx:{count}', f'd{count}:'
             env.expect('FT.CREATE', index, 'ON', 'HASH', 'PREFIX', 1, prefix, 'SCHEMA',
-                       't', 'TAG', 'v', 'VECTOR', 'HNSW', 8,
+                       't', 'TAG', 'body', 'TEXT', 'v', 'VECTOR', 'HNSW', 8,
                        'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
                        'EF_CONSTRUCTION', 100).ok()
             for i in range(count):
@@ -202,6 +202,13 @@ def test_navix_auto_retains_scan_preference(env):
             else:
                 env.assertGreater(_profile_value(result[1], 'NaviX bridge expansions'), 0,
                                   message=result)
+            for predicate in ['-@t:{missing}', '~@body:missing']:
+                wildcard_query = query.replace('@t:{even}', predicate)
+                wildcard_result = env.cmd('FT.PROFILE', index, 'SEARCH', 'QUERY',
+                                          wildcard_query, *args)
+                env.assertEqual(wildcard_result[0], [2, f'{prefix}0', f'{prefix}1'])
+                env.assertEqual(_profile_value(wildcard_result[1], 'Vector search mode'),
+                                expected_mode)
             env.expect('FT.SEARCH', index, query.replace('(@t:{even})', '*'),
                        *args).error().contains('requires filtered')
     finally:
