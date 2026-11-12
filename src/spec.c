@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "util/gil_gate.h"
 
 #include <math.h>
 #include <limits.h>
@@ -109,6 +110,7 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
+static GilGate cleanPoolGilGate = GIL_GATE_INIT;
 
 extern DebugCTX globalDebugCtx;
 
@@ -1500,17 +1502,25 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
- * Validate that a disk-backed JSON field uses a single-value JSONPath.
- * Returns `true` when the validation does not apply or the field path is valid.
+ * Validate the JSONPath of a disk-backed JSON field: it must parse, and it must
+ * be single-value unless `SearchDisk_SupportsMultiValue` accepts the field's type.
+ * Call after `parseFieldSpec`, which sets the type, and only for a disk index.
+ * Returns `true` when the index is not JSON or the field path is valid.
  * On failure, sets `status` with the validation error and returns `false`.
  */
-static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
-  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  RS_ASSERT(fs->types);
+  RS_ASSERT(isSpecOnDiskForValidation(sp));
+  if (!isSpecJson(sp)) {
     return true;
   }
 
   if (!validateJsonFieldPath(sp, fs, status)) {
     return false;
+  }
+
+  if (SearchDisk_SupportsMultiValue(fs->types)) {
+    return true;
   }
 
   bool isSingle = japi->pathIsSingle(fs->compiledPath);
@@ -1617,15 +1627,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
                              sp->numFields);
       goto reset;
     }
-    if (!validateDiskJsonSinglePath(sp, fs, status)) {
-      goto reset;
-    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
     if (isSpecOnDiskForValidation(sp))
     {
+      if (!validateDiskJsonPath(sp, fs, status)) {
+        goto reset;
+      }
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC/GEO fields");
         goto reset;
@@ -1814,6 +1824,9 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
     {.name = "SCORE_FIELD", .target = &options->rule.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
     {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
     {.name = NULL}
   };
   ACArgSpec non_flex_argopts[] = {
@@ -1924,10 +1937,12 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       goto failure;
     }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
-                                          spec->rule->type, true, spec);
+                                          spec->rule->type, true, spec, status);
     if (!spec->diskSpec) {
       SearchDisk_ReleaseCreateFailure();
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       goto failure;
     }
   }
@@ -2070,16 +2085,17 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
+    GilGate_Reset(&cleanPoolGilGate);
+    // Single-threaded: DiskSlotCleanup_Run relies on it. More threads need a per-index guard there.
     cleanPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "cleanPool");
   }
 }
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    GilGate_BeginJoin(&cleanPoolGilGate);
     redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
@@ -2099,8 +2115,22 @@ int CleanPool_AddWork(void (*work)(void *), void *arg) {
   return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
 }
 
+void CleanPool_Pause(void) {
+  if (cleanPool) redisearch_thpool_pause_threads(cleanPool);
+}
+
+void CleanPool_Resume(void) {
+  if (cleanPool && redisearch_thpool_paused(cleanPool)) {
+    redisearch_thpool_resume_threads(cleanPool);
+  }
+}
+
+bool CleanPool_IsPaused(void) {
+  return cleanPool && redisearch_thpool_paused(cleanPool);
+}
+
 void CleanPool_Wait() {
-  redisearch_thpool_wait(cleanPool);
+  if (cleanPool) redisearch_thpool_wait(cleanPool);
 }
 
 size_t CleanInProgressOrPending() {
@@ -2212,7 +2242,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
   }
 
   if (lockGil) {
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&cleanPoolGilGate, ctx);
   }
   for (size_t i = 0; i < len; ++i) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
@@ -2220,7 +2250,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
     RedisModule_FreeString(ctx, keyName);
   }
   if (lockGil) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&cleanPoolGilGate, ctx);
   }
 
   for (size_t i = 0; i < len; ++i) {
@@ -3550,10 +3580,12 @@ cleanup_no_index:
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
   if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data. (Enforce no populated data, restart may come with dirty disk data)
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type,
-                                        true, sp);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, true,
+                                        sp, status);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       return REDISMODULE_ERR;
     }
     IndexSpec_BindFieldsStorage(sp);
@@ -4067,7 +4099,8 @@ int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock, and notifies the GC itself (see IndexSpec_DeleteDocById_Unsafe).
+// Caller must hold the spec write lock, and notifies the GC itself (see
+// IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
@@ -4075,12 +4108,16 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
 
+  IndexSpec_RemoveDocFromMemoryIndexes(spec, docId);
+}
+
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
+        if (!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, docId);
       }
     }

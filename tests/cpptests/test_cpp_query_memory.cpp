@@ -14,9 +14,15 @@
 #include <vector>
 
 #include "config.h"
+#include "query_error.h"
+#include "result_processor.h"
 #include "query_memory.h"
 #include "query_request.h"
 #include "redismodule.h"
+
+// aggregate_exec_common.h is not C++-clean; the signature is restated here.
+extern "C" int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                            QueryError *err, int rc);
 
 namespace {
 
@@ -321,6 +327,46 @@ TEST_F(QueryMemoryTest, ResetClearsEveryFake) {
   EXPECT_LT(QueryMemory_GetForcedRatio(), 0);
   EXPECT_EQ(QueryMemory_GetPressureAtCall(), 0u);
   EXPECT_EQ(QueryMemory_GetRatioReadInterval(), (uint32_t)QUERY_MEMORY_RATIO_READ_INTERVAL);
+}
+
+class ApplyOomStopTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
+    QueryRequestLimits_Init(&limits_, &timeoutConfig);
+  }
+  void TearDown() override {
+    QueryError_ClearError(&err_);
+  }
+  QueryRequestLimits limits_ = {};
+  QueryError err_ = QueryError_Default();
+};
+
+TEST_F(ApplyOomStopTest, LeavesOtherOutcomesAlone) {
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+
+  QueryRequestLimits_RequestMemoryStop(&limits_);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Fail, &err_, RS_RESULT_EOF), RS_RESULT_EOF);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+}
+
+TEST_F(ApplyOomStopTest, FailRepliesTheOomErrorAndKeepsAnEarlierOne) {
+  QueryRequestLimits_RequestMemoryStop(&limits_);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+
+  QueryError_ClearError(&err_);
+  QueryError_SetCode(&err_, QUERY_ERROR_CODE_SYNTAX);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_SYNTAX);
+}
+
+TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
+  QueryRequestLimits_RequestMemoryStop(&limits_);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_EOF);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+  EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
 
 }  // namespace

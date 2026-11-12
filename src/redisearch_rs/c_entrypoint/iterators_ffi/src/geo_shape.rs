@@ -119,7 +119,7 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
     // dropped, and excludes source changes and deadline writes during probes.
     let timeout_ctx = unsafe { AnyTimeoutContext::from_sctx(sctx_nn, TIMEOUT_CHECK_GRANULARITY) };
 
-    let ids_list = if !ids.is_null() {
+    let ids_list = if let Some(ids) = NonNull::new(ids) {
         // SAFETY: precondition 3.
         unsafe { OwnedSlice::from_c(ids, num) }
     } else {
@@ -139,12 +139,14 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
                 expiration_checker,
                 mem_tracker,
             ))
+            .as_ptr()
         }
         None => RQEIteratorWrapper::boxed_new(GeoShape::new(
             ids_list,
             timeout_ctx,
             expiration_checker,
             NoTracker,
-        )),
+        ))
+        .as_ptr(),
     }
 }
