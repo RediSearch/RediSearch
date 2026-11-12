@@ -51,7 +51,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, score_bound,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -226,67 +226,6 @@ where
     pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<Self> {
         (self.children.len() >= 3).then(|| Self::new(self.children, limit, asc))
     }
-
-    /// Makes the result the current one of the cursor child, which must be positioned.
-    fn publish_cursor_child(&mut self) {
-        self.result.reset_aggregate();
-        let child_result = self.children[self.cursor]
-            .current()
-            .expect("the cursor child is positioned on a result");
-        self.result.doc_id = child_result.doc_id;
-        let drained_metrics = std::mem::take(&mut child_result.metrics);
-        let child_ptr: *const RSIndexResult<'index> = child_result;
-        // SAFETY: child_result and self.result are disjoint fields — no aliasing.
-        // The child is owned by self, so the 'index data remains valid.
-        let child_ref = unsafe { &*child_ptr };
-        self.result.push_borrowed(child_ref, drained_metrics);
-    }
-
-    /// Moves the cursor to the next child once the current one is exhausted.
-    const fn retire_cursor_child(&mut self) {
-        if self.cursor > self.trim_start {
-            self.cursor -= 1;
-        } else {
-            self.is_eof = true;
-        }
-    }
-
-    /// [`read`](RQEIterator::read) under a threshold. Only the cursor child contributes
-    /// to a result, so its blocks alone decide what is skipped: it jumps past every block whose
-    /// bound cannot reach `min_competitive_score`, and a document whose own bound cannot is
-    /// dropped.
-    fn read_above_threshold(
-        &mut self,
-        min_competitive_score: score_bound::MinCompetitiveScore,
-    ) -> Result<bool, RQEIteratorError> {
-        self.result.reset_aggregate();
-        let scale = self.result.weight.max(1.0);
-        while !self.is_eof {
-            let child = &mut self.children[self.cursor];
-            let position = child.last_doc_id();
-            let skip_target = child
-                .current_block_bound()
-                .filter(|block| {
-                    block.last_doc_id > position
-                        && score_bound::can_drop(block.max_score * scale, min_competitive_score)
-                })
-                .and_then(|block| block.last_doc_id.checked_add(1));
-            let found = match skip_target {
-                Some(target) => child.skip_to(target)?.is_some(),
-                None => child.read()?.is_some(),
-            };
-            if !found {
-                self.retire_cursor_child();
-                continue;
-            }
-            if score_bound::can_drop(child.current_max_score() * scale, min_competitive_score) {
-                continue;
-            }
-            self.publish_cursor_child();
-            return Ok(true);
-        }
-        Ok(false)
-    }
 }
 
 impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
@@ -303,11 +242,26 @@ where
         self.result.reset_aggregate();
         // Drain active children from last to first using the cursor for O(1) access.
         while !self.is_eof {
-            if self.children[self.cursor].read()?.is_some() {
-                self.publish_cursor_child();
-                return Ok(Some(&mut self.result));
+            let child = &mut self.children[self.cursor];
+            match child.read()? {
+                Some(child_result) => {
+                    self.result.doc_id = child_result.doc_id;
+                    let drained_metrics = std::mem::take(&mut child_result.metrics);
+                    let child_ptr: *const RSIndexResult<'index> = child_result;
+                    // SAFETY: child_result and self.result are disjoint fields — no aliasing.
+                    // The child is owned by self, so the 'index data remains valid.
+                    let child_ref = unsafe { &*child_ptr };
+                    self.result.push_borrowed(child_ref, drained_metrics);
+                    return Ok(Some(&mut self.result));
+                }
+                None => {
+                    if self.cursor > self.trim_start {
+                        self.cursor -= 1;
+                    } else {
+                        self.is_eof = true;
+                    }
+                }
             }
-            self.retire_cursor_child();
         }
         Ok(None)
     }
@@ -384,37 +338,6 @@ where
         } else {
             1.0
         }
-    }
-
-    fn reports_score_bounds(&self) -> bool {
-        crate::composite::all_report_score_bounds(&self.children)
-    }
-
-    fn current_max_score(&self) -> f64 {
-        if self.is_eof {
-            return f64::INFINITY;
-        }
-        // A superset of the children in the aggregate result: a quick-exit union keeps only the
-        // first one, and the bound only loosens.
-        let doc_id = self.last_doc_id();
-        crate::composite::summed_max_score(
-            self.children
-                .iter()
-                .filter(|child| child.last_doc_id() == doc_id),
-            self.result.weight,
-        )
-    }
-
-    // The default `current_block_bound` stays: documents come out child after child, not in
-    // doc-id order, so no window ahead of the current one is bounded by the children's blocks.
-
-    fn read_with_threshold(
-        &mut self,
-        min_competitive_score: score_bound::MinCompetitiveScore,
-    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        Ok(self
-            .read_above_threshold(min_competitive_score)?
-            .then_some(&mut self.result))
     }
 }
 

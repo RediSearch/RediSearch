@@ -17,7 +17,6 @@ use query_types::QueryNodeType;
 use rqe_core::DocId;
 use rqe_iterators::{
     Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
-    UnionTrimmed,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
@@ -287,26 +286,6 @@ fn full_unions_follow_misaligned_block_boundaries() {
         );
         assert_eq!(visited(&b_log), [2, 6, 10, 12], "{}", case.name);
     }
-}
-
-#[test]
-fn trimmed_union_skips_blocks_of_the_child_it_drains() {
-    let (low, _) = leaf(vec![Block::uniform(1..=3, 5.0)]);
-    let (mid, _) = leaf(vec![Block::uniform(10..=12, 5.0)]);
-    let (high, high_log) = leaf(vec![
-        Block::uniform(20..=24, 1.0),
-        Block::uniform(25..=29, 5.0),
-    ]);
-    // A limit above every estimate keeps all children; the last one is drained first.
-    let mut it = UnionTrimmed::new(vec![low, mid, high], usize::MAX, true);
-
-    let mut expected = ids(25..=29);
-    expected.extend(10..=12);
-    expected.extend(1..=3);
-    assert_eq!(drain_above(&mut it, min_competitive(3.0)), expected);
-    let mut high_visited = vec![20];
-    high_visited.extend(25..=29);
-    assert_eq!(visited(&high_log), high_visited);
 }
 
 /****************************** threshold edges ******************************/
