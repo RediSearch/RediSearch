@@ -154,8 +154,15 @@ fn eval_disk<'index>(
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config, offsets);
 
-    let iter =
-        disk::new_term_iterator(ctx, disk, term, effective_field_mask, weight, needs_offsets)?;
+    let iter = disk::new_term_iterator(
+        ctx,
+        disk,
+        term,
+        effective_field_mask,
+        weight,
+        num_docs_in_term,
+        needs_offsets,
+    )?;
 
     Some(Evaluated::RustLeaf(iter))
 }
