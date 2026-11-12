@@ -248,6 +248,24 @@ jobs:
           REDISEARCH_GENERATE_HEADERS: "0"
         run: ./build.sh RUN_RUST_VALGRIND
 
+      - name: DEBUG valgrind vector_range
+        if: always() && inputs.tool == 'valgrind'
+        continue-on-error: true
+        run: |
+          set -x
+          B=$(ls bin/redisearch_rs/optimised_test/deps/vector_range-* | grep -v '\.d$' | head -1)
+          ls -la "$B"; file "$B" || true
+          readelf -S "$B" | grep -E 'debug|gnu_debuglink' || true
+          readelf --debug-dump=info "$B" 2>/dev/null | grep -m2 'Version:' || true
+          valgrind --version; df -h . /tmp; free -m; ulimit -a; nproc
+          cd src/redisearch_rs
+          for i in 1 2; do
+            valgrind -v --leak-check=full --show-leak-kinds=definite,indirect,possible --num-callers=50 --suppressions=$PWD/valgrind.supp "$B" --nocapture > /tmp/vg$i.txt 2>&1 || true
+            grep -nE 'lost:|suppressed:|ERROR SUMMARY|reading debug|debuginfo|warning|WARNING|Cannot|cannot|error' /tmp/vg$i.txt | head -60
+            sed -n '/lost in loss record/,/^==[0-9]*== $/p' /tmp/vg$i.txt | head -80
+          done
+          VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp cargo-valgrind "$B" --nocapture 2>&1 | tail -40 || true
+
       - name: Upload Test Logs (failure)
         if: inputs.tool == 'miri' && (failure() || steps.rust_unit_tests_miri.outcome == 'failure')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
