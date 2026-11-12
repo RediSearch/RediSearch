@@ -69,7 +69,10 @@ pub unsafe extern "C" fn ForkGC_parentHandleFromChild(gc: *mut ffi::IndexGC) -> 
             log_error!(error, level: Level::WARN, "ForkPipe: {scanner}: index spec deleted");
             ForkGCError::SpecDeleted
         }
-        Err((scanner, error @ GcError::ApplyError(_))) => {
+        Err((
+            scanner,
+            error @ (GcError::TargetGone(_) | GcError::ApplyError(_) | GcError::DeletionsUntracked),
+        )) => {
             log_error!(error, level: Level::WARN, "ForkPipe: {scanner}: apply error");
             ForkGCError::ParentError
         }

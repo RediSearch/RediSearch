@@ -647,6 +647,10 @@ void Indexes_UpgradeLegacyIndexes() {
     // recreate the doctable
     DocTable_Free(&sp->docs);
     sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+    if (!sp->gc) {
+      // As IndexSpec_StartGC decided at load: no cycle will ever prune what it records.
+      DocTable_StopTrackingDeleted(&sp->docs);
+    }
 
     // clear index stats
     IndexError_Clear(sp->stats.indexError);

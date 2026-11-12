@@ -135,7 +135,7 @@ pub fn apply_missing_docs(
 /// Apply a pre-decoded GC delta to the missing-docs inverted index of the field at `field_index`.
 ///
 /// The field's inverted index is removed from the dict once it has no unique docs left.
-/// Returns [`GcError::ApplyError`] when the field has no inverted index, or one
+/// Returns [`GcError::TargetGone`] when the field has no inverted index, or one
 /// other than the index scanned: it can be removed, and recreated, between the scan
 /// and the apply.
 ///
@@ -157,18 +157,18 @@ pub fn apply_missing_docs_with(
         .get(usize::from(field_index))
         .map(|fs| fs.field_name())
     else {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "no field in the spec is at the scanned field index",
         ));
     };
 
     let Some(ii) = dict.fetch_mut(name) else {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the field was removed from missing.indexes before the delta could be applied",
         ));
     };
     if u32::from(ii.unique_id()) != unique_id {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the field's missing-docs inverted index is not the one scanned",
         ));
     }

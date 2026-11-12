@@ -227,12 +227,12 @@ pub fn apply_terms_with(
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, GcError> {
     let Some(ii) = guard.keys_dict_mut().fetch_mut(term) else {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the term's inverted index was removed before the delta could be applied",
         ));
     };
     if u32::from(ii.unique_id()) != unique_id {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the term's inverted index is not the one scanned",
         ));
     }

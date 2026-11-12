@@ -896,7 +896,7 @@ TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
   RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
   RMCK_GetLastError(RSDummyContext).clear();
   EXPECT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
-  EXPECT_EQ(RMCK_GetLastError(RSDummyContext), "GC FAILED: disk cleanup requires retry");
+  EXPECT_EQ(RMCK_GetLastError(RSDummyContext), "GC_DISK_RETRY disk cleanup requires retry");
   RMCK_GetLastError(RSDummyContext).clear();
   RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *reply) {
     RMCK_GetLastError(ctx) = reply;
@@ -965,7 +965,7 @@ TEST_F(DiskSlotTrimTest, BlockedForcedGcRepliesWithTheActualRunOutcome) {
     }
   } drain;
   RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
-  for (const char *expected : {"GC FAILED: disk cleanup requires retry", "DONE"}) {
+  for (const char *expected : {"GC_DISK_RETRY disk cleanup requires retry", "DONE"}) {
     replyData = nullptr;
     ASSERT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
     {

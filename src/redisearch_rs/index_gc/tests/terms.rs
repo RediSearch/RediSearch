@@ -329,7 +329,7 @@ fn apply_returns_err_when_term_not_found() {
         let mut write_guard = spec.write();
         assert!(matches!(
             apply_terms(&trie_term(b"nonexistent"), 0, delta, &mut write_guard),
-            Err(GcError::ApplyError(
+            Err(GcError::TargetGone(
                 "the term's inverted index was removed before the delta could be applied"
             ))
         ));
@@ -349,7 +349,7 @@ fn apply_returns_err_when_the_index_was_replaced() {
         let mut write_guard = spec.write();
         assert!(matches!(
             apply_terms(&trie_term(b"apple"), scanned, delta, &mut write_guard),
-            Err(GcError::ApplyError(
+            Err(GcError::TargetGone(
                 "the term's inverted index is not the one scanned"
             ))
         ));
