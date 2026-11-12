@@ -268,8 +268,8 @@ typedef struct BasicDiskAPI {
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
       bool deleteBeforeOpen, IndexFlags flags, bool scoreSkipping, const SearchDiskField *fields,
-      size_t numFields,
-      const SearchDiskCompactionCallbacks *callbacks, void *private_data, QueryError *status);
+      size_t numFields, const SearchDiskCompactionCallbacks *callbacks, void *private_data,
+      QueryError *status);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
