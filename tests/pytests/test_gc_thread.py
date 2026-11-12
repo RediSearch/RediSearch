@@ -359,8 +359,7 @@ def testThreadGCCleansSeveralIndexesConcurrently():
 
 @skip(cluster=True)
 def testThreadGCPoolShrinksWhileItsThreadsAreBusy():
-    """Lowering search-gc-threads while every GC thread is mid-cycle queues one reduction per
-    thread to remove, which the busy threads take as they finish: every cycle still completes,
+    """Lowering search-gc-threads while every GC thread is mid-cycle lets every cycle complete,
     and the pool ends at the new size."""
     env = thread_gc_env()
     skipIfNoEnableAssert(env)

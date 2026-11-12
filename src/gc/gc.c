@@ -175,9 +175,9 @@ static void runPass(GCContext* gc, GCDebugTask *task) {
   SyncPoint_Wait(SYNC_POINT_GC_TASK_START);
 #endif
 
-  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, task ? &task->forced : NULL);
+  bool keep_running = gc->callbacks.periodicCallback(gc->gcCtx, task ? &task->forced : NULL);
 
-  if (ret) { // The common case
+  if (keep_running) { // The common case
     // The index was not freed. Hand the re-arm to the main thread.
     if (RS_IsMock) {  // the unit-test harness has no event loop
       RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
@@ -415,7 +415,7 @@ void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
 
 // Cycles of different indexes run in parallel only under the thread policy: fork cycles all
 // compete for Redis' single child slot.
-static size_t GC_ThreadPoolSize(void) {
+static size_t GC_ThreadPoolDesiredSize(void) {
   const GCConfig *gc = &RSGlobalConfig.gcConfigParams;
   return gc->gcPolicy == GCPolicy_Thread ? gc->gcThreads : 1;
 }
@@ -423,7 +423,7 @@ static size_t GC_ThreadPoolSize(void) {
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
     GilGate_Reset(&gcGilGate_g);
-    gcThreadpool_g = redisearch_thpool_create(GC_ThreadPoolSize(), DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
+    gcThreadpool_g = redisearch_thpool_create(GC_ThreadPoolDesiredSize(), DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
   }
 }
 
@@ -431,7 +431,7 @@ void GC_ThreadPoolSetSize(void) {
   if (gcThreadpool_g == NULL) {
     return;  // created at its size once the module starts its GCs
   }
-  const size_t want = GC_ThreadPoolSize();
+  const size_t want = GC_ThreadPoolDesiredSize();
   const size_t have = redisearch_thpool_get_num_threads(gcThreadpool_g);
   if (want > have) {
     redisearch_thpool_add_threads(gcThreadpool_g, want - have);
