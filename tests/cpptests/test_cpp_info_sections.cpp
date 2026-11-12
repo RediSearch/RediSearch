@@ -135,9 +135,10 @@ class InfoSectionsTest : public ::testing::Test {
       ++collections;
       return 1234;
     };
-    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *,
+                                            uint64_t) {
       ++cachedCollections;
-      return CachedIndexMetrics{4321, 55, 9};
+      return CachedIndexMetrics{4321, 55, 9, {0, 0}};
     };
     api.metrics.stopMetrics = [](RedisSearchDisk *) {};
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
@@ -322,8 +323,9 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   api.basic.reserveOpenFiles = [](RedisSearchDisk *) { return true; };
   api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
   api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
-                               const char *, size_t, DocumentType, bool, const SearchDiskField *,
-                               size_t, const SearchDiskCompactionCallbacks *, void *privateData,
+                               const char *, size_t, DocumentType, bool, IndexFlags,
+                               const SearchDiskField *, size_t,
+                               const SearchDiskCompactionCallbacks *, void *privateData,
                                QueryError *) {
     EXPECT_EQ(total, 0u);
     return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);

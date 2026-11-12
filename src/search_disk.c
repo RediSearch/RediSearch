@@ -358,7 +358,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-      fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
+      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
@@ -375,6 +375,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
 void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request) {
     RS_ASSERT(disk);
     disk->basic.asyncLoaderSetSyncCtx(rp, request);
+}
+
+uint64_t SearchDisk_AsyncLoader_GetAsyncWaitTime(ResultProcessor *rp) {
+    RS_ASSERT(disk);
+    return disk->basic.asyncLoaderGetAsyncWaitTime(rp);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -428,8 +433,8 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
-      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, fields,
-      c_index_spec->numFields, &callbacks, c_index_spec);
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
+      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
@@ -595,10 +600,10 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
 }
 
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent) {
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent, bool isProfiled) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
-    return disk->docTable.createAsyncReadPool(handle, max_concurrent, snapshot);
+    return disk->docTable.createAsyncReadPool(handle, max_concurrent, snapshot, isProfiled);
 }
 
 bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data) {
@@ -623,6 +628,11 @@ uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t t
     array_set_len(results, pollResult.ready_count);
     array_set_len(failed_reads, pollResult.failed_count);
     return pollResult.pending_count;
+}
+
+uint64_t SearchDisk_AsyncReadPool_GetAsyncWaitTime(RedisSearchDiskAsyncReadPool pool) {
+    RS_ASSERT(disk && pool);
+    return disk->docTable.asyncReadPoolGetAsyncWaitTime(pool);
 }
 
 void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool) {
@@ -747,9 +757,10 @@ bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
-CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index) {
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index,
+                                                     uint64_t textRamMetadataBytes) {
   RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.readCachedIndexMetrics(disk_db, index);
+  return disk->metrics.readCachedIndexMetrics(disk_db, index, textRamMetadataBytes);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {
