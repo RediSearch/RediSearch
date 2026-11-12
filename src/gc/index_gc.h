@@ -46,6 +46,15 @@ typedef struct {
   void *privdata;
 } IndexGCHook;
 
+// How the last scheduled cycle left the schedule, which decides the next timer. Only scheduled
+// cycles change it: a forced run's fork result is its caller's, not the schedule's. Written by
+// a scheduled cycle while it holds RUN_PENDING and read when arming on the main thread, which
+// never happens while that bit is held.
+typedef enum {
+  INDEX_GC_SCHED_OK = 0,       // wait the run interval
+  INDEX_GC_SCHED_FORK_FAILED,  // the last fork failed; retry after the retry interval
+} IndexGCSchedState;
+
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct IndexGC {
 
@@ -64,7 +73,7 @@ typedef struct IndexGC {
   // as it reads, NULL otherwise.
   void *readBuffer;
 
-  struct timespec retryInterval;
+  IndexGCSchedState schedState;
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes

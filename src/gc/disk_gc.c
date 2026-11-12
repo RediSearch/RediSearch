@@ -223,9 +223,19 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = (long long)atomic_load(&gc->lastRunTimeMs);
 }
 
-static struct timespec getIntervalCb(void *ctx) {
+static GCTimerPlan nextTimerCb(void *ctx) {
   const DiskGC *gc = ctx;
-  return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
+  return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL, .intervalSec = gc->intervalSec};
+}
+
+static bool indexExistsCb(void *ctx) {
+  const DiskGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  if (!StrongRef_Get(ref)) {
+    return false;
+  }
+  StrongRef_Release(ref);
+  return true;
 }
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -252,7 +262,8 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getInterval = getIntervalCb;
+  callbacks->nextTimer = nextTimerCb;
+  callbacks->indexExists = indexExistsCb;
   callbacks->onDelete = deleteCb;
   callbacks->onWrite = writeCb;
   callbacks->onUpdate = updateCb;

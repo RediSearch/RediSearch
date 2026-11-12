@@ -1029,6 +1029,97 @@ def testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309():
         lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
         'a drop that overtook the pending re-arm never tore the context down', timeout=30)
     env.expect('FT._LIST').equal(['keep'])
+
+
+# The run interval is read when a timer is armed, on the main thread. These start from a run
+# interval of 1000s, so a second cycle or arm inside the test can only come from a new value.
+# GC_STOP_SCHEDULE / GC_CONTINUE_SCHEDULE stand in for the waiting timer firing: CONTINUE queues
+# a scheduled run at once, so no test waits out the old period.
+def oneShotArms(env):
+    return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'FROM_ONESHOT'))
+
+
+@skip(cluster=True)
+def testGCIdleIndexPicksUpNewRunInterval():
+    """An index below the clean threshold never forks, and used to keep the run interval it had
+    when it last forked -- or was created -- however often the global value changed."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1000 FORK_GC_CLEAN_THRESHOLD 1000')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1).ok()
+    try:
+        env.expect(debug_cmd(), 'GC_TIMER_ARMS', 'RESET').ok()
+        # Skipped cycles leave total_cycles alone, so count re-arms instead. The first follows
+        # the run CONTINUE queued; the next two need timers armed with the new interval.
+        env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        wait_for_condition(lambda: (oneShotArms(env) >= 3, {'arms': oneShotArms(env)}),
+                           'the idle index kept its old run interval', timeout=30)
+    finally:
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+
+
+@skip(cluster=True)
+def testGCRearmReadsIntervalChangedWhileRearmIsPending():
+    """A change that lands after a pass finished but before its re-arm drains reaches that
+    re-arm. The pass used to capture the interval before posting the re-arm."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1000 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_REARM_POST, 10000).ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_REARM_POST,
+                     'Timeout waiting for the GC run to park before its re-arm')
+    parked = gcCycles(env, 'idx')  # the parked pass is already counted
+
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1).ok()
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_REARM_POST)
+        waitForGCCycles(env, 'idx', parked, 2, timeout=30)
+    finally:
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+
+
+@skip(cluster=True)
+def testGCScheduledForkFailureRetriesAtRetryInterval():
+    """A scheduled cycle that cannot fork arms with search-fork-gc-retry-interval, not the run
+    interval, until a fork succeeds -- read when the retry timer is armed. The retry interval
+    changes after the fork failed and before its re-arm drains, where the fork-failure path
+    used to fix it."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1000 FORK_GC_RETRY_INTERVAL 1000 '
+                         'FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    base = gcCycles(env, 'idx')
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_REARM_POST, 10000).ok()
+    try:
+        # The scheduled run parks before its fork, so the bgsave holds the slot when it tries.
+        env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                         'Timeout waiting for the scheduled GC run to park before its fork')
+        # 50 live keys at 0.1s each hold the slot for about 5s, several retries' worth.
+        holdForkSlot(env, 100000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+        waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_REARM_POST,
+                         'Timeout waiting for the failed GC run to park before its re-arm')
+        env.assertEqual(gcCycles(env, 'idx'), base,
+                        message='the scheduled fork did not fail, so nothing below tests the retry')
+
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RETRY_INTERVAL', 1).ok()
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_REARM_POST)
+        # Once the bgsave ends, only a 1s retry timer brings the next cycle within the timeout.
+        waitForGCCycles(env, 'idx', base, timeout=60)
+    finally:
+        # The bgsave keeps the delay it was forked with, so an early failure still has to wait
+        # it out before the next test.
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RETRY_INTERVAL', 1000).ok()
+
+
 def waitForSyncPoint(env, name, message, timeout=30):
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', name) == 1, {}),

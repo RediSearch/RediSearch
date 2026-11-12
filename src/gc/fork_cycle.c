@@ -177,7 +177,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
+    if (!forced) {
+      gc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+    }
     IndexSpecRef_Release(early_check);
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -193,10 +195,11 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   size_t num_docs_to_clean = gc->deletedOrUpdatedDocsFromLastRun;
   gc->deletedOrUpdatedDocsFromLastRun = 0;
 
-  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  if (!forced) {
+    gc->schedState = INDEX_GC_SCHED_OK;
+  }
 
   RedisModule_ThreadSafeContextUnlock(ctx);
-
 
   if (cpid == 0) {
     // fork process
