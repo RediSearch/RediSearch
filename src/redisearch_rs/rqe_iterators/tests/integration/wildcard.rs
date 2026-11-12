@@ -623,11 +623,11 @@ mod disk_via_resume {
         ctx.set_dummy_disk_snapshot();
 
         let snapshot = std::ptr::NonNull::<ffi::RedisSearchDiskSnapshot>::dangling();
-        let status = std::ptr::null_mut();
+        let status = None;
 
         // SAFETY: `SEARCH_ENTERPRISE_ITERATORS` is initialised just above;
         // `disk_spec` and `snapshot` are non-null and never dereferenced by the
-        // mock; `status` is null, which the factory accepts.
+        // mock; `status` is absent, which the factory accepts.
         let it = unsafe { new_wildcard_iterator_on_disk(disk_spec, 1.0, snapshot, status) };
         let NewWildcardIterator::Disk(disk) = it else {
             panic!("the mock enterprise backend must produce the Disk variant");

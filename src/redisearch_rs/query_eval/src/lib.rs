@@ -130,10 +130,10 @@ impl<'index> Evaluated<'index> {
     /// [`RQEIteratorWrapper::boxed_new`]; an already-lowered handle
     /// ([`Evaluated::C`] or [`Evaluated::RustCompound`]) is returned as-is, so
     /// C-side introspection (optimizer, profiler) keeps seeing the same iterator.
-    pub fn into_c_iterator(self) -> *mut ffi::QueryIterator {
+    pub fn into_c_iterator(self) -> NonNull<ffi::QueryIterator> {
         match self {
             Evaluated::RustLeaf(it) => RQEIteratorWrapper::boxed_new(it),
-            Evaluated::C(it) | Evaluated::RustCompound(it) => it.as_ptr(),
+            Evaluated::C(it) | Evaluated::RustCompound(it) => it,
         }
     }
 
@@ -378,18 +378,17 @@ fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
         Some(ev) => ev.into_c_iterator(),
         None => RQEIteratorWrapper::boxed_new(Empty),
     };
-    // `into_c_iterator` and `boxed_new` always return a valid, owning, non-null
-    // C `QueryIterator`.
-    let nn = NonNull::new(ptr).expect("evaluated child iterator must not be null");
-    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // SAFETY: `ptr` is a valid, owning C `QueryIterator` with all callbacks
     // populated — exactly the precondition of `CRQEIterator::new`.
-    unsafe { CRQEIterator::new(nn) }
+    unsafe { CRQEIterator::new(ptr) }
 }
 
 /// Whether a term disk reader must carry term offsets: required when the node
 /// forces slop/in-order matching ([`slop_forces_offsets`]), when an enclosing
 /// phrase does so on its behalf ([`OffsetRequirement::Required`]), or when the
-/// effective scorer needs positions.
+/// effective scorer needs positions. Never required on an index created with
+/// `NOOFFSETS` (no [`ffi::IndexFlags_Index_StoreTermOffsets`]), which stores
+/// none to read.
 /// Used only on the disk path.
 fn expansion_needs_offsets(
     ctx: &mut QueryEvalContext,
@@ -397,6 +396,9 @@ fn expansion_needs_offsets(
     config: Config,
     offsets: OffsetRequirement,
 ) -> bool {
+    if ctx.spec().flags & ffi::IndexFlags_Index_StoreTermOffsets == 0 {
+        return false;
+    }
     // A custom (non built-in) scorer conservatively needs offsets since we
     // can't resolve what it does.
     offsets == OffsetRequirement::Required

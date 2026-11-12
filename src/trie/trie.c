@@ -204,6 +204,11 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
+int Trie_VisitAfter(const Trie *t, const rune *after, size_t afterLen, TrieVisitCallback visit,
+                    void *ctx) {
+  return TrieNode_VisitAfter(t->root, after, afterLen, visit, ctx);
+}
+
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode) {
   size_t rlen;

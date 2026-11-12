@@ -78,7 +78,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   t_docId docId = aCtx->disk.batch
     ? SearchDisk_PutDocument(spec->diskSpec, aCtx->disk.batch, key, len,
         aCtx->doc->score, aCtx->docFlags, aCtx->fwIdx->maxTermFreq,
-        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, oldDocId)
+        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, &aCtx->oldDocId)
     : 0;
 
   // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
@@ -213,6 +213,8 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
+  // The backend clears oldDocId when the mapped row was already removed.
+  // A trim that prewrote its tombstone still owns that old document’s accounting.
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
   // (`IndexSpec_DeleteDoc`) now clears that mapping, so in normal operation a
   // non-zero `oldDocId` means a real on-disk row is being replaced.
@@ -304,7 +306,7 @@ static void applyVectorInserts(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     RS_LOG_ASSERT_ALWAYS(vecsim, "openVectorIndex returned NULL after a successful disk commit");
     // Safe here and not before `commitDocument`: the batch is durable, so the
     // vector index cannot end up pointing at an unpersisted doc-id.
-    if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
+    if (aCtx->oldDocId != 0 && AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
         VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
       continue;
     }

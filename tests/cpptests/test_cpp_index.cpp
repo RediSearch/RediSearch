@@ -1047,7 +1047,7 @@ TEST_F(IndexTest, testIndexFlags) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 0.5, Document_HasPayloadSlot, nullptr, 0, DocumentType_Hash);
@@ -1115,7 +1115,7 @@ TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
 }
 
 TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, "payload", 7, DocumentType_Hash);
@@ -1130,7 +1130,7 @@ TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
@@ -1151,7 +1151,7 @@ TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
 
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
   ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
@@ -1223,7 +1223,7 @@ namespace {
 // Frees the table even when an ASSERT returns early.
 struct ScopedDocTable {
   DocTable t;
-  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize, false)) {}
   ~ScopedDocTable() { DocTable_Free(&t); }
 
   void put(size_t n) {
@@ -1235,52 +1235,6 @@ struct ScopedDocTable {
   }
 };
 }  // namespace
-
-TEST_F(IndexTest, testDocTableLiveBitmap) {
-  // A max size below N chains documents in shared buckets.
-  ScopedDocTable dt(10, 10);
-  const size_t N = 100;
-  dt.put(N);
-  for (t_docId id = 3; id <= N; id += 3) {
-    DMD_Return(DocTable_DeleteById(&dt.t, id));
-  }
-
-  const size_t words = DocTable_LiveBitmapWords(&dt.t);
-  ASSERT_EQ(N / 64 + 1, words);
-  std::vector<uint64_t> live(words);
-  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
-  for (t_docId id = 0; id < words * 64; id++) {
-    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
-        << "docId " << id;
-  }
-
-  // A shorter buffer is filled only up to its own length.
-  std::vector<uint64_t> shorter(words, 0);
-  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
-  ASSERT_EQ(live[0], shorter[0]);
-  ASSERT_EQ(0, shorter[1]);
-}
-
-TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
-  ScopedDocTable dt(10, 10);
-  const size_t N = 1000;
-  dt.put(N);
-  for (t_docId id = 2; id < N; id++) {
-    DMD_Return(DocTable_DeleteById(&dt.t, id));
-  }
-  // Two live docs still get a bitmap of every docId: only its total size is bounded.
-  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
-}
-
-TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
-  // Only maxDocId is read, so a table this large needs no documents.
-  DocTable t = {};
-  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
-  t.maxDocId = capDocIds - 1;
-  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
-  t.maxDocId = capDocIds;
-  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
-}
 
 static void collectLiveId(void *ctx, t_docId docId) {
   static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
@@ -1684,7 +1638,7 @@ struct KeyMapTestCleanup {
 }  // namespace
 
 TEST_F(IndexTest, testDocKeyMapLifecycle) {
-  DocTable dt = NewDocTable(1, 10);
+  DocTable dt = NewDocTable(1, 10, false);
   KeyMapTestCleanup cleanup{&dt};
   EXPECT_EQ(dt.keyMap, nullptr);
   EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Ready);
@@ -1727,7 +1681,7 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
   ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
   const bool previousFlex = isFlex;
   isFlex = true;
-  spec.docs = NewDocTable(1, 10);
+  spec.docs = NewDocTable(1, 10, false);
   KeyMapTestCleanup cleanup{&spec.docs};
   IndexSpec_ActivateKeyMap(&spec);
   isFlex = previousFlex;
@@ -1741,7 +1695,7 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
 
 TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 2);
+  DocTable dt = NewDocTable(1, 2, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 8; ++i) {
     std::string key = "doc:" + std::to_string(i);
@@ -1784,7 +1738,7 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
 
 TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 64);
+  DocTable dt = NewDocTable(1, 64, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1819,7 +1773,7 @@ TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
 
 TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 1);
+  DocTable dt = NewDocTable(1, 1, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1846,7 +1800,7 @@ TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
 
 TEST_F(IndexTest, testLazyKeyMapCursorOutlivesTable) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 1);
+  DocTable dt = NewDocTable(1, 1, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 3; ++i) {
     auto key = std::to_string(i);

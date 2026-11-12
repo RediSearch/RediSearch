@@ -49,6 +49,14 @@ jobs:
       run-id: ${{ steps.resolve.outputs.run-id }}
       run-attempt: ${{ steps.resolve.outputs.run-attempt }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Resolve PR and source run
         id: resolve
         shell: python3 {0}
@@ -308,6 +316,15 @@ jobs:
           # attacker-controlled fork-PR logs piped into Codex could reach
           # the token via the working tree.
           persist-credentials: false
+
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
 
       - name: Fetch failed-job logs from source run
         # Lower-signal job-level logs go in first so the final tail-cap
