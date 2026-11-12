@@ -174,6 +174,12 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
             map.kv_long_long(c"NaviX blind", stats.blindExpansions as i64);
             map.kv_long_long(c"NaviX directed", stats.directedExpansions as i64);
             map.kv_long_long(c"NaviX second hop visits", stats.secondHopVisits as i64);
+            map.kv_long_long(c"NaviX second hop skipped", stats.secondHopSkipped as i64);
+            map.kv_long_long(
+                c"NaviX second hop budget exhausted",
+                stats.secondHopBudgetExhausted as i64,
+            );
+            map.kv_long_long(c"NaviX bridge expansions", stats.bridgeExpansions as i64);
             map.kv_long_long(
                 c"NaviX frontend candidates",
                 stats.frontendCandidates as i64,

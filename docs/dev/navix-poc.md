@@ -44,3 +44,29 @@ Focused validation: VecSim's four deterministic `test_navix` cases plus
 refill, including UNKNOWN predicates. The initial run is standalone HASH; cluster,
 concurrent mutation, persistence/reload behavior, JSON, quantization, and other numeric
 vector types are outside this POC's validated scope.
+
+## Traversal experiments
+
+The following additional `HYBRID_POLICY` values require the same unstable-feature gate
+and index restrictions as `NAVIX`. They include the per-query filter-decision cache.
+
+| Policy | Behavior |
+| --- | --- |
+| `NAVIX_DEDUP` | Adaptive NaviX, skipping completely processed second-hop neighborhoods across batches. |
+| `NAVIX_BUDGET` | Deduplication plus at most `4 * M0 = 8 * M` second-hop neighbor inspections per expansion (512 at M=64). |
+| `NAVIX_BRIDGE` | No second-hop expansion. Traverse all direct neighbors, including summary rejects, and admit only MAYBE nodes to result heaps. |
+
+`NAVIX` and `NAVIX_BLIND` remain controls with their existing traversal. Exact filter
+verification and batch refill remain in RediSearch for every policy. The budget is a
+fixed POC preset here; VecSim callers can set `secondHopBudget` directly (zero = unlimited).
+Budgets can lower recall and cause underfilled results; partial lists remain eligible but
+restart from the beginning. Bridge mode can cross rejected chains, but is not an exact
+search or guaranteed sparse-query fallback and can visit the entire reachable graph.
+
+`FT.PROFILE` adds `NaviX second hop skipped`, `NaviX second hop budget exhausted`, and
+`NaviX bridge expansions`. The existing second-hop visit counter should be zero for
+bridge mode. Deduplication adds one byte per encountered internal-ID slot, plus capacity
+slack, and reset clears it. Completed neighborhoods are not revisited for concurrent graph
+changes; use a fully built stable graph for comparisons. These are experiments without a
+performance or recall claim. This branch pins the matching VecSim traversal implementation;
+callers must rebuild because its query-parameter and counter structs extend the C ABI.

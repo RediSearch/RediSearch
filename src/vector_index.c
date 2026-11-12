@@ -206,19 +206,22 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
-static bool isNavixParam(const VecSimRawParam *param) {
-  return param->nameLen == strlen("HYBRID_POLICY") &&
-         !strncasecmp(param->name, "HYBRID_POLICY", param->nameLen) &&
-         ((param->valLen == strlen("NAVIX") &&
-           !strncasecmp(param->value, "NAVIX", param->valLen)) ||
-          (param->valLen == strlen("NAVIX_BLIND") &&
-           !strncasecmp(param->value, "NAVIX_BLIND", param->valLen)));
+static const char *navixPolicy(const VecSimRawParam *param) {
+  if (param->nameLen != strlen("HYBRID_POLICY") ||
+      strncasecmp(param->name, "HYBRID_POLICY", param->nameLen)) return NULL;
+  static const char *policies[] = {
+      "NAVIX", "NAVIX_BLIND", "NAVIX_DEDUP", "NAVIX_BUDGET", "NAVIX_BRIDGE"};
+  for (size_t i = 0; i < sizeof(policies) / sizeof(*policies); ++i) {
+    if (param->valLen == strlen(policies[i]) &&
+        !strncasecmp(param->value, policies[i], param->valLen)) return policies[i];
+  }
+  return NULL;
 }
 
 int VectorQuery_ValidateUnstable(QueryEvalCtx *q, const VectorQuery *vq) {
   if (!RSGlobalConfig.enableUnstableFeatures) {
     for (size_t i = 0; i < array_len(vq->params.params); ++i) {
-      if (isNavixParam(&vq->params.params[i])) {
+      if (navixPolicy(&vq->params.params[i])) {
         QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
                             "NAVIX requires CONFIG SET search-enable-unstable-features yes");
         return REDISMODULE_ERR;
@@ -268,13 +271,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
-      bool navix = false, blind = false;
+      const char *navix = NULL;
+      size_t secondHopBudget = 0;
       size_t nparams = array_len(vq->params.params);
       for (size_t i = 0; i < nparams; ++i) {
         const VecSimRawParam *param = &vq->params.params[i];
-        if (isNavixParam(param)) {
-          navix = true;
-          blind = !strcasecmp(param->value, "NAVIX_BLIND");
+        if (navixPolicy(param)) {
+          navix = navixPolicy(param);
         }
       }
       VecSimRawParam *resolved = vq->params.params;
@@ -290,10 +293,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
               "NAVIX POC requires filtered, unquantized, single-value FLOAT32 RAM HNSW");
           return NULL;
         }
+        if (!strcmp(navix, "NAVIX_BUDGET"))
+          secondHopBudget = 8 * createParams->algoParams.hnswParams.M;
         resolved = rm_malloc(nparams * sizeof(*resolved));
         memcpy(resolved, vq->params.params, nparams * sizeof(*resolved));
         for (size_t i = 0; i < nparams; ++i) {
-          if (isNavixParam(&resolved[i])) {
+          if (navixPolicy(&resolved[i])) {
             resolved[i].value = "BATCHES";
             resolved[i].valLen = strlen("BATCHES");
           }
@@ -305,7 +310,11 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       if (resolveCode != VecSim_OK) return NULL;
       if (navix) {
         vq->navixQuery =
-            NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, blind);
+            NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
+                           !strcmp(navix, "NAVIX_BLIND"));
+        qParams.navix.skipScanned = !strcmp(navix, "NAVIX_DEDUP") || secondHopBudget;
+        qParams.navix.secondHopBudget = secondHopBudget;
+        qParams.navix.bridgeRejected = !strcmp(navix, "NAVIX_BRIDGE");
         // MAYBE output has a different acceptance rate from the global filter population.
         if (!qParams.batchSize) qParams.batchSize = vq->knn.k ? vq->knn.k : 1;
       }

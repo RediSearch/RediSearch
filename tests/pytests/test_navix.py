@@ -41,11 +41,13 @@ def test_navix_exact_filter_and_batch_refill(env):
         return [f'({predicate})=>[KNN 2 @v $q HYBRID_POLICY {policy} BATCH_SIZE 1 EF_RUNTIME 40 AS dist]',
                 'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2, 'PARAMS', 2, 'q', query_blob]
 
+    policies = ['NAVIX', 'NAVIX_BLIND', 'NAVIX_DEDUP', 'NAVIX_BUDGET', 'NAVIX_BRIDGE']
     previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
     try:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'no')
-        env.expect('FT.SEARCH', 'idx', *args('@t:{A}')).error().contains('requires CONFIG SET')
-        env.expect('FT.SEARCH', 'idx', *args('@t:{missing}')).error().contains('requires CONFIG SET')
+        for policy in policies:
+            for predicate in ['@t:{A}', '@t:{missing}']:
+                env.expect('FT.SEARCH', 'idx', *args(predicate, policy)).error().contains('requires CONFIG SET')
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
         cases = [('@t:{A}', [2, 'd:0', 'd:2']),
                  ('@n:[13 27]', [2, 'd:13', 'd:14']),
@@ -54,7 +56,7 @@ def test_navix_exact_filter_and_batch_refill(env):
                  ('@n:[0 +inf] @body:keep', [2, 'd:30', 'd:31']),
                  ('@t:{missing}|@body:keep', [2, 'd:30', 'd:31'])]
         for predicate, expected in cases:
-            for policy in ['NAVIX', 'NAVIX_BLIND', 'BATCHES']:
+            for policy in policies + ['BATCHES']:
                 result = env.cmd('FT.SEARCH', 'idx', *args(predicate, policy))
                 env.assertEqual(result, expected, message=f'{predicate}, {policy}: {result}')
         oversized = '|'.join([f'@t:{{missing{i}}}' for i in range(260)] + ['@t:{A}'])
@@ -71,5 +73,20 @@ def test_navix_exact_filter_and_batch_refill(env):
         env.assertEqual(_profile_value(profiled[1], 'Vector search mode'), 'NAVIX_QC')
         env.assertGreater(_profile_value(profiled[1], 'NaviX expanded'), 0, message=profiled)
         env.assertGreater(_profile_value(profiled[1], 'Batches number'), 2, message=profiled)
+        for policy in policies[2:]:
+            result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+                             *args('@n:[39 39]', policy))
+            if policy == 'NAVIX_BRIDGE':
+                env.assertEqual(result[0], [1, 'd:39'])
+            elif policy == 'NAVIX_DEDUP':
+                baseline = env.cmd('FT.SEARCH', 'idx', *args('@n:[39 39]', 'NAVIX'))
+                env.assertEqual(result[0], baseline)
+            else:
+                env.assertTrue(result[0] in ([0], [1, 'd:39']), message=result)
+            env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'NAVIX_QC')
+            if policy == 'NAVIX_BRIDGE':
+                env.assertEqual(_profile_value(result[1], 'NaviX second hop visits'), 0)
+                env.assertGreater(_profile_value(result[1], 'NaviX bridge expansions'), 0, message=result)
+            env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args('@n:[100 101]', policy)), [0])
     finally:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
