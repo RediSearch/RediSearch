@@ -72,6 +72,64 @@ static const char *distAllocStr(BlkAlloc *alloc, const char *s, size_t len) {
   return p;
 }
 
+// A LOAD step for the remote plan; the step owns its argv.
+static PLN_LoadStep *newLoadStep(const std::vector<std::string> &names) {
+  PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
+  load->base.type = PLN_T_LOAD;
+  load->base.dtor = [](PLN_BaseStep *stp) {
+    PLN_LoadStep *load = (PLN_LoadStep *)stp;
+    for (size_t ii = 0; ii < load->args.argc; ++ii) {
+      rm_free(load->args.objs[ii]);
+    }
+    rm_free(load->args.objs);
+    rm_free(stp);
+  };
+  const char **argv = (const char **)rm_malloc(sizeof(*argv) * names.size());
+  for (size_t ii = 0; ii < names.size(); ++ii) {
+    argv[ii] = rm_strndup(names[ii].c_str(), names[ii].size());
+  }
+  ArgsCursor_InitCString(&load->args, argv, names.size());
+  return load;
+}
+
+// Whether a step already in the remote plan writes `name` into the shard's row. `LOAD *`
+// does not count: it neither synthesizes `__key` nor, on JSON, exposes individual paths, so
+// the shard still needs an explicit LOAD for those; a redundant one is skipped there.
+static bool remotePlanProduces(AGGPlan *remote, const char *name) {
+  for (DLLIST_node *nn = remote->steps.next; nn != &remote->steps; nn = nn->next) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    switch (stp->type) {
+      case PLN_T_LOAD: {
+        auto lstp = (const PLN_LoadStep *)stp;
+        ArgsCursor ac = lstp->args;
+        while (!AC_IsAtEnd(&ac)) {
+          const char *s = AC_GetStringNC(&ac, NULL);
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            s = AC_GetStringNC(&ac, NULL);
+          }
+          if (strcmp(stripAtPrefix(s), name) == 0) {
+            return true;
+          }
+        }
+        break;
+      }
+      case PLN_T_APPLY:
+        if (stp->alias && strcmp(stp->alias, name) == 0) {
+          return true;
+        }
+        break;
+      case PLN_T_VECTOR_NORMALIZER:
+        if (strcmp(((const PLN_VectorNormalizerStep *)stp)->distanceFieldAlias, name) == 0) {
+          return true;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -303,10 +361,16 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
 
-/* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
+/* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE. The optional third
+ * argument, the resolution, only tunes the estimator, so it travels to the local reducer. */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
-  CHECK_ARG_COUNT(2);
+  const size_t argc = src->args.argc;
+  if (argc != 2 && argc != 3) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "Invalid arguments for reducer %s", src->name);
+    return REDISMODULE_ERR;
+  }
   const char *alias = NULL;
 
   if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
@@ -314,11 +378,12 @@ static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (!rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
+  const bool added =
+      argc == 3 ? rdctx->addLocal("QUANTILE", status, "3", alias, rdctx->srcarg(1),
+                                  rdctx->srcarg(2), "AS", src->alias)
+                : rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS",
+                                  src->alias);
+  return added ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* Distribute STDDEV into remote RANDOM_SAMPLE and local STDDEV */
@@ -496,6 +561,116 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+// `@ret [BY @sort [ASC|DESC]]`; any other shape returns false. `*sort` is null without
+// BY. `*dir` is spelled out even when omitted so that case and omitted-direction variants
+// of one request dedup to a single remote reducer.
+static bool parseFirstValueArgs(const ReducerDistCtx *rdctx, const char **sort,
+                                const char **dir) {
+  const ArgsCursor *args = &rdctx->srcReducer->args;
+  *sort = nullptr;
+  *dir = "ASC";
+  if (args->argc == 1) {
+    return true;
+  }
+  if ((args->argc != 3 && args->argc != 4) ||
+      strcasecmp(AC_StringArg(args, 1, NULL), "BY") != 0) {
+    return false;
+  }
+  *sort = rdctx->srcarg(2);
+  if (args->argc == 4) {
+    const char *d = AC_StringArg(args, 3, NULL);
+    if (!strcasecmp(d, "DESC")) {
+      *dir = "DESC";
+    } else if (strcasecmp(d, "ASC") != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The output name for the next remote reducer: its position in the remote group. A name
+// derived from the arguments would either lowercase them, as the generated alias does and so
+// collide for `@Price BY @price`, or be forgeable by a field name containing the separator.
+// Dedup happens before the name is used, so the position is stable for a given query.
+static const char *firstValueRemoteAlias(ReducerDistCtx *rdctx) {
+  std::string s = "__first_value_" + std::to_string(array_len(rdctx->remoteGroup->reducers));
+  return distAllocStr(rdctx->alloc, s.c_str(), s.size());
+}
+
+// The coordinator-side GROUPBY had the shards LOAD every property it named. Keep doing that
+// for the ones FIRST_VALUE names, so moving the reducer to the shards does not change its
+// answer for `@__key`, for a field outside the schema, or for a SORTABLE field, which the
+// sort vector would hand over normalized. Properties an earlier remote step produces are
+// left to that step.
+static void loadFirstValueProperties(ReducerDistCtx *rdctx, const char *ret, const char *sort) {
+  std::vector<std::string> names;
+  for (const char *prop : {ret, sort}) {
+    if (!prop || remotePlanProduces(rdctx->remotePlan, prop)) {
+      continue;
+    }
+    // LOAD takes `@field` or a JSON `$` path.
+    std::string arg = prop[0] == '$' ? std::string(prop) : std::string("@") + prop;
+    if (std::find(names.begin(), names.end(), arg) == names.end()) {
+      names.push_back(std::move(arg));
+    }
+  }
+  if (names.empty()) {
+    return;
+  }
+  PLN_LoadStep *load = newLoadStep(names);
+  AGPLN_AddStep(rdctx->remotePlan, &load->base);
+  rdctx->addedRemoteSteps.push_back(&load->base);
+}
+
+/* Distribute FIRST_VALUE.
+ *
+ * The properties it names are LOADed on the shards (`loadFirstValueProperties`).
+ * Each shard reduces its rows to one pick per group and the local FIRST_VALUE picks among
+ * the shards' picks. With BY, ranking the picks needs the sort value each one won with, so
+ * the remote side also emits `FIRST_VALUE @sort BY @sort <dir>` and the local reducer sorts
+ * by that alias. Both remote reducers see the same rows with the same tie-break, so the two
+ * values come from the same row. A shard whose group has no non-null sort value ships a null
+ * one and loses to any shard that has one, as a null-sort-key row does within a group.
+ * Without BY, "first" is first-seen on both sides, which is all the non-distributed plan
+ * promises too: shard replies arrive in no particular order.
+ */
+static int distributeFirstValue(ReducerDistCtx *rdctx, QueryError *status) {
+  PLN_Reducer *src = rdctx->srcReducer;
+  const char *sort, *dir;
+  if (!parseFirstValueArgs(rdctx, &sort, &dir)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "Invalid arguments for reducer %s", src->name);
+    return REDISMODULE_ERR;
+  }
+  const char *ret = rdctx->srcarg(0);
+  loadFirstValueProperties(rdctx, ret, sort);
+  const char *retAlias;
+  if (!sort) {
+    if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "1", ret, "AS",
+                          firstValueRemoteAlias(rdctx))) {
+      return REDISMODULE_ERR;
+    }
+    if (!rdctx->addLocal("FIRST_VALUE", status, "1", retAlias, "AS", src->alias)) {
+      return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+  }
+  const char *sortAlias;
+  if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "4", ret, "BY", sort, dir, "AS",
+                        firstValueRemoteAlias(rdctx))) {
+    return REDISMODULE_ERR;
+  }
+  if (!rdctx->addRemote("FIRST_VALUE", &sortAlias, status, "4", sort, "BY", sort, dir, "AS",
+                        firstValueRemoteAlias(rdctx))) {
+    return REDISMODULE_ERR;
+  }
+  if (!rdctx->addLocal("FIRST_VALUE", status, "4", retAlias, "BY", sortAlias, dir, "AS",
+                       src->alias)) {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -511,6 +686,7 @@ static struct {
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
     {"COLLECT", distributeCollect},
+    {"FIRST_VALUE", distributeFirstValue},
 
     {NULL, NULL}  // sentinel value
 
@@ -572,24 +748,11 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
           if (RLookup_GetRowLen(&filter_keys)) {
-            PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
-            load->base.type = PLN_T_LOAD;
-            load->base.dtor = [](PLN_BaseStep *stp) {
-              PLN_LoadStep *load = (PLN_LoadStep *)stp;
-              for (size_t ii = 0; ii < load->args.argc; ++ii) {
-                rm_free(load->args.objs[ii]);
-              }
-              rm_free(load->args.objs);
-              rm_free(stp);
-            };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * RLookup_GetRowLen(&filter_keys));
-            size_t argc = 0;
-
+            std::vector<std::string> names;
             RLOOKUP_FOREACH(kk, &filter_keys, {
-              argv[argc++] = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+              names.emplace_back(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
             });
-            ArgsCursor_InitCString(&load->args, argv, argc);
-            AGPLN_AddStep(remote, &load->base);
+            AGPLN_AddStep(remote, &newLoadStep(names)->base);
           }
           // Step 3: cleanup
           RLookup_Cleanup(&filter_keys);
