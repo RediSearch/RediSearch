@@ -874,10 +874,10 @@ fn eval_tag_lex_range_unescapes_the_bound() {
     assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
 }
 
-/// The cap bounds how many readers one range opens, and the truncation is
-/// reported rather than silently dropping values.
+/// A range drains each value's reader as it goes rather than holding one open
+/// per value, so the expansion cap, which bounds open readers, does not apply.
 #[test]
-fn eval_tag_lex_range_stops_at_the_expansion_cap() {
+fn eval_tag_lex_range_ignores_the_expansion_cap() {
     let mut fixture = TagFixture::new(TagOptions {
         max_prefix_expansions: Some(2),
         children: vec![Child::LexRange {
@@ -886,13 +886,12 @@ fn eval_tag_lex_range_stops_at_the_expansion_cap() {
         }],
         ..TagOptions::default()
     });
-    let mut it = fixture.eval().expect("the first two values are admitted");
-    // `apple` (docs 1, 2) and `apricot` (docs 2, 3) are the two lowest values.
-    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3]);
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
     drop(it);
     assert!(
-        fixture.reached_max_prefix_expansions(),
-        "a capped range must say so"
+        !fixture.reached_max_prefix_expansions(),
+        "nothing was truncated, so nothing is reported"
     );
 }
 
@@ -2409,9 +2408,8 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
 
 #[test]
 fn eval_tag_lex_range_walk_stops_at_the_deadline() {
-    // The cap counts readers opened, not values visited, so it cannot bound a
-    // walk on its own: a value whose reader does not open leaves the count
-    // where it was. The deadline is what ends such a walk.
+    // A range is not bound by the expansion cap, so the deadline is what ends a
+    // long walk.
     let mut fixture = TagFixture::new(TagOptions {
         values: generated(TIMEOUT_VALUES, 100),
         children: vec![Child::LexRange {
@@ -2426,6 +2424,69 @@ fn eval_tag_lex_range_walk_stops_at_the_deadline() {
     let ids = drain_doc_ids(&mut it);
     assert!(!ids.is_empty());
     assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+/// How many documents the single value of the drain-limit tests holds: several
+/// times the postings read between two of the drain's limit probes.
+const BULK_DOCS: DocId = 5000;
+
+/// One value carrying [`BULK_DOCS`] documents, so the trie walk visits a single
+/// value and only the drain's own probes can stop the collection.
+fn bulk_value() -> Vec<Indexed> {
+    vec![(b"bulk".to_vec(), (1..=BULK_DOCS).collect())]
+}
+
+#[test]
+fn eval_tag_lex_range_drain_stops_at_the_deadline() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::Expired,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the drain starts before it times out");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as DocId) < BULK_DOCS);
+}
+
+#[test]
+fn eval_tag_lex_range_drain_stops_when_the_blocked_client_is_cancelled() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the drain starts before it is cancelled");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as DocId) < BULK_DOCS);
+}
+
+#[test]
+fn eval_tag_lex_range_drain_ignores_the_deadline_when_checks_are_skipped() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::ExpiredButSkipped,
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("every document is in range");
+    assert_eq!(drain_doc_ids(&mut it).len() as DocId, BULK_DOCS);
 }
 
 #[test]
@@ -2517,4 +2578,27 @@ fn eval_tag_reader_filters_an_expired_field() {
         .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
     let mut it = fixture.eval().expect("apple is indexed");
     assert_eq!(drain_doc_ids(&mut it), vec![2]);
+}
+
+#[test]
+fn eval_tag_lex_range_filters_an_expired_field() {
+    // A range reads each value's postings directly rather than through the
+    // value's reader, so it must apply the reader's expiration check itself.
+    // Doc 1 is expired and must be filtered from every value it carries.
+    let values = values(&[(TAG_APPLE, &[1, 2]), (TAG_BANANA, &[1, 3])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        field_expiration_docs: &[1, 2, 3],
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let field_index = fixture.field_index();
+    fixture
+        ._context
+        .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3]);
 }
