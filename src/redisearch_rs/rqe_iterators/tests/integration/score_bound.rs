@@ -27,15 +27,16 @@ use rqe_iterators::{
     optional::Optional,
     profile::Profile,
     profile_print::{ProfilePrint, ProfilePrintCtx},
+    score_bound::BlockBound,
     utils::NoTimeoutChecker,
 };
 
-/// A leaf over fixed doc ids that reports a fixed score bound and block boundary, and records the
+/// A leaf over fixed doc ids that reports a fixed score bound and block bound, and records the
 /// last threshold passed to [`RQEIterator::read_with_threshold`].
 struct Bounded<'index> {
     inner: IdListSorted<'index>,
     bound: f64,
-    block_last_doc_id: Option<DocId>,
+    block: Option<BlockBound>,
     threshold: Rc<Cell<f64>>,
 }
 
@@ -44,7 +45,7 @@ impl<'index> Bounded<'index> {
         Self {
             inner: IdListSorted::new(ids),
             bound,
-            block_last_doc_id: None,
+            block: None,
             threshold: Rc::new(Cell::new(f64::NEG_INFINITY)),
         }
     }
@@ -105,8 +106,8 @@ impl<'index> RQEIterator<'index> for Bounded<'index> {
         self.bound
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
-        self.block_last_doc_id
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        self.block
     }
 
     fn read_with_threshold(
@@ -131,7 +132,7 @@ fn leaves_report_no_bound_by_default() {
     read_doc(&mut it);
     assert!(!it.reports_score_bounds());
     assert_eq!(it.current_max_score(), f64::INFINITY);
-    assert_eq!(it.current_block_last_doc_id(), None);
+    assert_eq!(it.current_block_bound(), None);
 }
 
 /// A composite reports bounds only when every child does.
@@ -287,13 +288,14 @@ fn default_read_with_threshold_is_read() {
     }
 }
 
+/// Children get plain reads: the threshold bounds the composite's score, not theirs.
 #[test]
-fn composites_ignore_the_threshold() {
+fn composites_do_not_pass_the_threshold_on() {
     let leaf = Bounded::new(vec![1, 2], 1.0);
     let threshold = Rc::clone(&leaf.threshold);
     let mut and = Intersection::new(vec![leaf], 1.0, false);
     let doc = and
-        .read_with_threshold(10.0)
+        .read_with_threshold(0.5)
         .expect("read failed")
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(1));
@@ -303,7 +305,7 @@ fn composites_ignore_the_threshold() {
     let threshold = Rc::clone(&leaf.threshold);
     let mut or = UnionFullFlat::new(vec![leaf]);
     let doc = or
-        .read_with_threshold(10.0)
+        .read_with_threshold(0.5)
         .expect("read failed")
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(3));
@@ -312,8 +314,12 @@ fn composites_ignore_the_threshold() {
 
 #[test]
 fn wrappers_forward_every_hook() {
+    let block = BlockBound {
+        last_doc_id: 7,
+        max_score: 3.0,
+    };
     let mut leaf = Bounded::new(vec![1, 2], 2.5);
-    leaf.block_last_doc_id = Some(7);
+    leaf.block = Some(block);
     let threshold = Rc::clone(&leaf.threshold);
 
     let mut it = Profile::new(MaybeEmpty::new(Box::new(leaf)));
@@ -324,7 +330,7 @@ fn wrappers_forward_every_hook() {
     assert_eq!(doc, Some(1));
     assert_eq!(threshold.get(), 1.25);
     assert_eq!(it.current_max_score(), 2.5);
-    assert_eq!(it.current_block_last_doc_id(), Some(7));
+    assert_eq!(it.current_block_bound(), Some(block));
     // A thresholded read is still a read for the profile.
     assert_eq!(it.counters().read, 1);
 }

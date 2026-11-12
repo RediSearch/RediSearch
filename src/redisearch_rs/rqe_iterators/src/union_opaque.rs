@@ -299,8 +299,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         delegate_variant_ref!(self, current_max_score)
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
-        delegate_variant_ref!(self, current_block_last_doc_id)
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        delegate_variant_ref!(self, current_block_bound)
     }
 
     fn read_with_threshold(

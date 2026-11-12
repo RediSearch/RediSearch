@@ -642,8 +642,8 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.current_max_score()
     }
 
-    fn current_block_last_doc_id(&self) -> Option<t_docId> {
-        self.0.current_block_last_doc_id()
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.0.current_block_bound()
     }
 
     #[inline(always)]

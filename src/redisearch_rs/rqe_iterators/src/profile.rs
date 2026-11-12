@@ -238,8 +238,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.current_max_score()
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
-        self.child.current_block_last_doc_id()
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.child.current_block_bound()
     }
 
     fn read_with_threshold(

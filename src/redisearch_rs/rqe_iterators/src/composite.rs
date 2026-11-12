@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Machinery shared by the `Box<Self>` [`resume`](crate::RQESuspendedIterator::resume)
-//! of composite iterators — the unions and the intersection — which transition
-//! a `Vec` of children in place and re-narrow an aggregate that borrows from
-//! them.
+//! Machinery shared by composite iterators — the unions and the intersection: the
+//! composition of the score-bound hooks, and the `Box<Self>`
+//! [`resume`](crate::RQESuspendedIterator::resume), which transitions a `Vec` of children in
+//! place and re-narrows an aggregate that borrows from them.
 
 use std::marker::PhantomData;
 
@@ -18,7 +18,10 @@ use index_result::{RSIndexResult, RawBorrowedAggregateResult};
 use ref_mode::Suspended;
 use rqe_core::{DocId, FieldMask};
 
-use crate::RQEIterator;
+use crate::{
+    RQEIterator, RQEIteratorError,
+    score_bound::{self, BlockBound},
+};
 
 /// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
 /// the scores of `children`.
@@ -38,6 +41,72 @@ where
         .map(|child| child.current_max_score())
         .sum();
     sum * weight.max(1.0)
+}
+
+/// [`RQEIterator::current_block_bound`] of a composite whose score is `weight` times the sum of
+/// the scores of `children`, scaled as in [`summed_max_score`]: `None` unless there is a child
+/// and every one reports a block.
+pub(crate) fn summed_block_bound<'index, 'c, I>(
+    children: impl IntoIterator<Item = &'c I>,
+    weight: f64,
+) -> Option<BlockBound>
+where
+    I: RQEIterator<'index> + 'c,
+{
+    let mut window: Option<BlockBound> = None;
+    for child in children {
+        let block = child.current_block_bound()?;
+        window = Some(match window {
+            None => block,
+            Some(window) => BlockBound {
+                last_doc_id: window.last_doc_id.min(block.last_doc_id),
+                max_score: window.max_score + block.max_score,
+            },
+        });
+    }
+    window.map(|window| BlockBound {
+        max_score: window.max_score * weight.max(1.0),
+        ..window
+    })
+}
+
+/// [`RQEIterator::read_with_threshold`] of a union that yields in doc-id order, built on its own
+/// [`read`](RQEIterator::read) and [`skip_to`](RQEIterator::skip_to).
+///
+/// The union's [`current_block_bound`](RQEIterator::current_block_bound) must cover every child
+/// that can still yield. When it cannot reach the threshold, no document up to its end can, so
+/// the union skips past it and every child behind it moves on; otherwise it reads. Either way, a
+/// document whose own bound cannot reach the threshold is dropped.
+pub(crate) fn union_read_with_threshold<'index, U>(
+    union: &mut U,
+    min_competitive_score: f64,
+) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>
+where
+    U: RQEIterator<'index>,
+{
+    if !score_bound::is_active(min_competitive_score) {
+        return union.read();
+    }
+    loop {
+        let current = union.last_doc_id();
+        let skip_target = union
+            .current_block_bound()
+            .filter(|window| {
+                window.last_doc_id > current
+                    && score_bound::can_drop(window.max_score, min_competitive_score)
+            })
+            .and_then(|window| window.last_doc_id.checked_add(1));
+        let found = match skip_target {
+            Some(target) => union.skip_to(target)?.is_some(),
+            None => union.read()?.is_some(),
+        };
+        if !found {
+            return Ok(None);
+        }
+        if !score_bound::can_drop(union.current_max_score(), min_competitive_score) {
+            return Ok(union.current());
+        }
+    }
 }
 
 /// [`RQEIterator::reports_score_bounds`] of a composite that sums the scores of `children`: only

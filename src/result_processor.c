@@ -164,7 +164,9 @@ static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterat
                                                                    bool withThreshold,
                                                                    double minCompetitiveScore,
                                                                    bool isProfiled) {
-  // Iterators may honour the threshold only partly, or not at all, so the root checks again.
+  // Intersections and unions never yield a candidate below the threshold, but a leaf root may:
+  // `ReadWithThreshold` lets it skip only whole blocks, or nothing. This check is what drops such
+  // a leaf's candidates.
   if (!withThreshold) {
     return false;
   }

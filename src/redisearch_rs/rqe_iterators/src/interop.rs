@@ -65,7 +65,7 @@ where
                 PrintProfile: Some(print_profile::<I>),
                 ReportsScoreBounds: Some(reports_score_bounds::<I>),
                 CurrentMaxScore: Some(current_max_score::<I>),
-                CurrentBlockLastDocId: Some(current_block_last_doc_id::<I>),
+                CurrentBlockBound: Some(current_block_bound::<I>),
                 ReadWithThreshold: Some(read_with_threshold::<I>),
             },
             inner,
@@ -451,9 +451,11 @@ extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
     wrapper.inner.current_max_score()
 }
 
-extern "C" fn current_block_last_doc_id<'index, I: RQEIterator<'index> + 'index>(
+extern "C" fn current_block_bound<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
-) -> DocId {
+    last_doc_id: *mut DocId,
+    max_score: *mut f64,
+) -> bool {
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe {
@@ -461,8 +463,15 @@ extern "C" fn current_block_last_doc_id<'index, I: RQEIterator<'index> + 'index>
             NonNull::new(base.cast_mut()).expect("`base` must not be null"),
         )
     };
-    // The C API reports "no block" as 0, which no document id takes.
-    wrapper.inner.current_block_last_doc_id().unwrap_or(0)
+    let Some(block) = wrapper.inner.current_block_bound() else {
+        return false;
+    };
+    debug_assert!(last_doc_id.is_aligned() && max_score.is_aligned());
+    // SAFETY: The `CurrentBlockBound` contract has the caller pass valid, writable outputs.
+    unsafe { last_doc_id.write(block.last_doc_id) };
+    // SAFETY: As above.
+    unsafe { max_score.write(block.max_score) };
+    true
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in

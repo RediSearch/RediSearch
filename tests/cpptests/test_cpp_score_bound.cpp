@@ -65,7 +65,11 @@ TEST_F(ScoreBoundTest, unsetHooksAreSafeDefaults) {
   ASSERT_EQ(QueryIterator_ReadWithThreshold(it, INFINITY), ITERATOR_OK);
   EXPECT_EQ(it->lastDocId, 1);
   EXPECT_EQ(QueryIterator_CurrentMaxScore(it), INFINITY);
-  EXPECT_EQ(QueryIterator_CurrentBlockLastDocId(it), 0);
+  t_docId lastDocId = 7;
+  double maxScore = 7;
+  EXPECT_FALSE(QueryIterator_CurrentBlockBound(it, &lastDocId, &maxScore));
+  EXPECT_EQ(lastDocId, 7);
+  EXPECT_EQ(maxScore, 7);
   ASSERT_EQ(QueryIterator_ReadWithThreshold(it, INFINITY), ITERATOR_OK);
   EXPECT_EQ(it->lastDocId, 2);
   it->Free(it);

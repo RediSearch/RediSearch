@@ -17,8 +17,11 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
-    composite::{FreeSuspendedShell, repush_borrowed_entries},
+    composite::{
+        FreeSuspendedShell, repush_borrowed_entries, summed_block_bound, summed_max_score,
+    },
     profile_print::{ProfilePrint, ProfilePrintCtx},
+    score_bound::{self, BlockBound},
 };
 
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
@@ -442,6 +445,63 @@ where
         }
     }
 
+    /// Reads the next document that can reach `min_competitive_score`, as
+    /// [`read_with_threshold`](RQEIterator::read_with_threshold) does with an active threshold.
+    ///
+    /// Aligns the children as [`find_consensus`](Self::find_consensus) does, except that before
+    /// each step it checks the window from the alignment target up to the earliest end among the
+    /// children's blocks: every document there that all children can match is bounded by the sum of
+    /// their block bounds, so when that sum cannot reach the threshold the first child jumps past
+    /// the window. An agreed document whose own bound cannot reach it is dropped.
+    fn read_above_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<DocId>, RQEIteratorError> {
+        let Some(mut target) = self.read_from_first_child()? else {
+            return Ok(None);
+        };
+        loop {
+            // `target` is the furthest any child stands, so every child's block covers the
+            // window that starts there.
+            if let Some(BlockBound { last_doc_id, .. }) =
+                summed_block_bound(&self.children, self.result.weight).filter(|window| {
+                    target <= window.last_doc_id
+                        && score_bound::can_drop(window.max_score, min_competitive_score)
+                })
+                && let Some(past_window) = last_doc_id.checked_add(1)
+            {
+                match self.children[0].skip_to(past_window)? {
+                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
+                        target = r.doc_id;
+                    }
+                    None => {
+                        self.is_eof = true;
+                        return Ok(None);
+                    }
+                }
+                continue;
+            }
+            match self.agree_on_doc_id(target)? {
+                AgreeResult::Ahead(new_target) => target = new_target,
+                AgreeResult::Eof => return Ok(None),
+                AgreeResult::Agreed => {
+                    let bound = summed_max_score(&self.children, self.result.weight);
+                    if !score_bound::can_drop(bound, min_competitive_score) {
+                        self.build_aggregate_result(target);
+                        if !self.needs_relevancy_check() || self.current_is_relevant() {
+                            self.last_doc_id = target;
+                            return Ok(Some(target));
+                        }
+                    }
+                    let Some(next) = self.read_from_first_child()? else {
+                        return Ok(None);
+                    };
+                    target = next;
+                }
+            }
+        }
+    }
+
     /// Builds the aggregate result from all children's current results.
     ///
     /// # Why `unsafe` is used here
@@ -717,7 +777,29 @@ where
         if self.is_eof {
             return f64::INFINITY;
         }
-        crate::composite::summed_max_score(&self.children, self.result.weight)
+        summed_max_score(&self.children, self.result.weight)
+    }
+
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        if self.is_eof || self.last_doc_id == 0 {
+            return None;
+        }
+        summed_block_bound(&self.children, self.result.weight)
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if !score_bound::is_active(min_competitive_score) {
+            return self.read();
+        }
+        if self.is_eof {
+            return Ok(None);
+        }
+        Ok(self
+            .read_above_threshold(min_competitive_score)?
+            .map(|_| &mut self.result))
     }
 }
 

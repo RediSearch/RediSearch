@@ -821,6 +821,23 @@ where
             self.result.weight,
         )
     }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        if self.is_eof || self.last_doc_id() == 0 {
+            return None;
+        }
+        crate::composite::summed_block_bound(
+            self.children.iter().filter(|child| !child.at_eof()),
+            self.result.weight,
+        )
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        crate::composite::union_read_with_threshold(self, min_competitive_score)
+    }
 }
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>

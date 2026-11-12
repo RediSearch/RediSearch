@@ -225,10 +225,10 @@ where
         }
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.current_block_last_doc_id(),
-            MaybeEmptyOption::Some(it) => it.current_block_last_doc_id(),
+            MaybeEmptyOption::None(empty) => empty.current_block_bound(),
+            MaybeEmptyOption::Some(it) => it.current_block_bound(),
         }
     }
 

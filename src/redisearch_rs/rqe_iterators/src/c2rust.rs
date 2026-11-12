@@ -21,6 +21,7 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome, interop::RQEIteratorWrapper,
     intersection::Intersection, profile_print, profile_print::ProfilePrint,
+    score_bound::BlockBound,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -63,7 +64,7 @@ pub struct CRQEIterator {
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
     ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
-    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`),
+    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockBound`, `ReadWithThreshold`),
     ///    which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
@@ -148,7 +149,7 @@ impl CRQEIterator {
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
     ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
-    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`),
+    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockBound`, `ReadWithThreshold`),
     ///    which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
@@ -468,13 +469,21 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             })
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
-        // SAFETY: As in `reports_score_bounds`.
-        let last = self
-            .CurrentBlockLastDocId
-            .map_or(0, |callback| unsafe { callback(self.header.as_ptr()) });
-        // The C API reports "no block" as 0, which no document id takes.
-        (last != 0).then_some(last)
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        let callback = self.CurrentBlockBound?;
+        let mut block = BlockBound {
+            last_doc_id: 0,
+            max_score: f64::INFINITY,
+        };
+        // SAFETY: As in `reports_score_bounds`; the outputs point to a live local.
+        let reported = unsafe {
+            callback(
+                self.header.as_ptr(),
+                &raw mut block.last_doc_id,
+                &raw mut block.max_score,
+            )
+        };
+        reported.then_some(block)
     }
 
     fn read_with_threshold(

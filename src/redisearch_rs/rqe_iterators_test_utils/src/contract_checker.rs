@@ -725,8 +725,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         self.inner.current_max_score()
     }
 
-    fn current_block_last_doc_id(&self) -> Option<DocId> {
-        self.inner.current_block_last_doc_id()
+    fn current_block_bound(&self) -> Option<rqe_iterators::score_bound::BlockBound> {
+        self.inner.current_block_bound()
     }
 
     fn read_with_threshold(

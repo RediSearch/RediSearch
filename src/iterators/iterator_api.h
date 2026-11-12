@@ -160,13 +160,16 @@ typedef struct QueryIterator {
    * `+INFINITY`; use `QueryIterator_CurrentMaxScore`. */
   double (*CurrentMaxScore)(const struct QueryIterator *self);
 
-  /* Last doc id of the storage block holding the current result, or 0 when the iterator has no
-   * block boundary to report. NULL means 0; use `QueryIterator_CurrentBlockLastDocId`. */
-  t_docId (*CurrentBlockLastDocId)(const struct QueryIterator *self);
+  /* Bound on the scores of every document the iterator can yield from the current result up to
+   * `*lastDocId`, the end of the storage block that holds it. Returns false, leaving the outputs
+   * untouched, when there is no block to report. Only valid while positioned on a result. NULL
+   * means false; use `QueryIterator_CurrentBlockBound`. */
+  bool (*CurrentBlockBound)(const struct QueryIterator *self, t_docId *lastDocId, double *maxScore);
 
   /* `Read`, except that the iterator may move past documents whose `CurrentMaxScore` is below
    * `minCompetitiveScore` without yielding them; it never moves past a document that could reach
-   * it. Same post-conditions as `Read`. NULL means plain `Read`; use
+   * it. Intersections and unions never yield a document below it either; a leaf may, so the root
+   * caller drops those. Same post-conditions as `Read`. NULL means plain `Read`; use
    * `QueryIterator_ReadWithThreshold`. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
@@ -179,8 +182,9 @@ static inline double QueryIterator_CurrentMaxScore(const QueryIterator *it) {
   return it->CurrentMaxScore ? it->CurrentMaxScore(it) : INFINITY;
 }
 
-static inline t_docId QueryIterator_CurrentBlockLastDocId(const QueryIterator *it) {
-  return it->CurrentBlockLastDocId ? it->CurrentBlockLastDocId(it) : 0;
+static inline bool QueryIterator_CurrentBlockBound(const QueryIterator *it, t_docId *lastDocId,
+                                                   double *maxScore) {
+  return it->CurrentBlockBound && it->CurrentBlockBound(it, lastDocId, maxScore);
 }
 
 static inline IteratorStatus QueryIterator_ReadWithThreshold(QueryIterator *it,
