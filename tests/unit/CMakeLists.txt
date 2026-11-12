@@ -66,7 +66,11 @@ target_link_libraries(test_uint8 PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_index_test_utils PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_svs PUBLIC gtest VectorSimilarity)
 
+add_executable(test_allocation_transfer ../utils/test_main_with_timeout.cpp test_allocation_transfer.cpp)
+target_link_libraries(test_allocation_transfer PUBLIC gtest VectorSimilarity)
+
 include(GoogleTest)
+gtest_discover_tests(test_allocation_transfer)
 
 gtest_discover_tests(test_hnsw)
 gtest_discover_tests(test_hnsw_sq8)

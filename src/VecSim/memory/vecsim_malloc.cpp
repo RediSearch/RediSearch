@@ -80,6 +80,16 @@ void *VecSimAllocator::reallocate(void *p, size_t size) {
     return nullptr;
 }
 
+void VecSimAllocator::transferAllocationTo(void *p, VecSimAllocator &destination) noexcept {
+    if (!p || this == &destination) {
+        return;
+    }
+    const auto *header = static_cast<const VecSimAllocationHeader *>(p) - 1;
+    const size_t bytes = header->allocation_size + allocation_header_size;
+    this->allocated -= bytes;
+    destination.allocated += bytes;
+}
+
 void VecSimAllocator::free_allocation(void *p) {
     if (!p)
         return;
