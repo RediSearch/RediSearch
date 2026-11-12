@@ -255,6 +255,18 @@ jobs:
           set -x
           B=$(ls bin/redisearch_rs/optimised_test/deps/vector_range-* | grep -v '\.d$' | head -1)
           B=$PWD/$B
+          (apt-get install -y -qq bzip2 >/dev/null 2>&1 || true)
+          curl -sSfL https://sourceware.org/pub/valgrind/valgrind-3.26.0.tar.bz2 -o /tmp/vg.tar.bz2
+          tar -C /tmp -xjf /tmp/vg.tar.bz2
+          (cd /tmp/valgrind-3.26.0 && ./configure --prefix=/opt/vg326 -q >/dev/null && make -s -j"$(nproc)" >/dev/null 2>&1 && make -s install >/dev/null 2>&1)
+          for V in /usr/bin/valgrind /opt/vg326/bin/valgrind; do
+            echo "===== $($V --version)"
+            $V -v --leak-check=full --num-callers=8 --suppressions=$PWD/src/redisearch_rs/valgrind.supp "$B" --nocapture > /tmp/cmp.txt 2>&1 || true
+            grep -c "Reading syms from $B" /tmp/cmp.txt || true
+            grep -E "possibly lost:|suppressed:|ERROR SUMMARY" /tmp/cmp.txt || true
+            sed -n '/lost in loss record/,/^==[0-9]*== $/p' /tmp/cmp.txt | head -6
+            PATH=$(dirname $V):$PATH VALGRINDFLAGS=--suppressions=$PWD/src/redisearch_rs/valgrind.supp cargo-valgrind "$B" --nocapture > /tmp/cv.txt 2>&1; echo "cargo-valgrind exit=$?"; grep -A3 leaked /tmp/cv.txt | head -4
+          done
           readelf -S -W "$B" | grep -E "debug_info|debug_str|debug_line " || true
           readelf -p .comment "$B" | head -8 || true
           readelf -lW "$B" | sed -n '/Program Headers/,/Section to Segment/p' || true
