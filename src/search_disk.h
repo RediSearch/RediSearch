@@ -101,11 +101,14 @@ void SearchDisk_ReleaseCreateFailure(void);
  *        without SST persistence to ensure stale data is cleared)
  * @param c_index_spec Pointer to the C IndexSpec used as private callback data for
  *        compaction. Must outlive the returned RedisSearchDiskIndexSpec.
+ * @param status Receives the disk layer's reason when the open fails and it has one; left
+ *        clear otherwise. May be NULL.
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(
-    RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName,
-    DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec);
+RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
+                                               const char *obfuscatedName, DocumentType type,
+                                               bool deleteBeforeOpen, IndexSpec *c_index_spec,
+                                               QueryError *status);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -368,13 +371,13 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
- * `stats` before the call.
+ * `stats` before the call. See `DiskGCRunResult` for recoverable failure handling.
  *
  * @param index Pointer to the disk index
  * @param stats Caller-allocated, zero-initialized stats out-parameter
  *              (MUST NOT be NULL; RS_ASSERT)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -424,7 +427,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  *
  * The returned snapshot can be passed to the iterator-creation wrappers so that all
  * iterators created during one query observe the same database state. Must be released
- * by `SearchDisk_FreeSnapshot` after every iterator created from it has been freed.
+ * by `SearchDisk_FreeSnapshot` according to the lifetime contract in `IndexDiskAPI.createSnapshot`.
  *
  * @param index Pointer to the index spec
  * @return Snapshot handle, or NULL on error
@@ -461,10 +464,10 @@ size_t SearchDisk_GetLiveSnapshotCount(void);
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -659,6 +662,18 @@ bool SearchDisk_IsEnabled();
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabledForValidation();
+
+/**
+ * @brief Check if a disk JSON index supports multi-value fields of the given type:
+ * dynamic JSONPaths and JSON arrays at a single path.
+ *
+ * VECTOR must stay false here: an array at a single path is a vector's blob,
+ * and multi-value vectors need their own disk support.
+ *
+ * @param types The field's type
+ * @return true if multi-value is supported for the type, false otherwise
+ */
+bool SearchDisk_SupportsMultiValue(FieldType types);
 
 /**
  * @brief Report whether disk vector indexes are currently throttling writers.
@@ -1058,6 +1073,15 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+// These wrappers follow the thread, locking and persistence contract in SlotMigrationAPI.
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, t_docId *maxDocId);
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx);
+SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
+    RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+    const SearchDiskSlotRange *ranges, size_t numRanges, t_docId maxDocId,
+    size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
 #ifdef __cplusplus
 }
 #endif

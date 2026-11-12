@@ -346,8 +346,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "BasicDiskAPI",
             // RETURN_STRICT GIL handshake context.
             "QueryRequest",
+            "DiskGCRunResult",
             "DocTableDiskAPI",
             "IndexDiskAPI",
+            "SlotMigrationAPI",
             "MetricsDiskAPI",
             "RedisSearchDisk",
             "RedisSearchDiskAPI",

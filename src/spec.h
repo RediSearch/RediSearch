@@ -676,6 +676,30 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey);
 
+typedef enum {
+  INDEX_DISK_TRIM_RETRY,
+  INDEX_DISK_TRIM_MORE,
+  INDEX_DISK_TRIM_FINISHED,
+  INDEX_DISK_TRIM_CANCELLED,
+} IndexSpecDiskSlotTrimResult;
+
+typedef struct IndexSpecSlotTrimJob IndexSpecSlotTrimJob;
+
+// Main thread: register RAM-only trim intent and hide its slots at the returned cutoff.
+// The returned job is caller-owned; scheduling is separate. NULL leaves the index unchanged.
+IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
+                                                   const SearchDiskSlotRange *ranges,
+                                                   size_t numRanges);
+// Worker, without the GIL: scan and apply one bounded batch. Free the job on completion.
+// Run on cleanPool so checkpoint pause and shutdown drain cover the complete turn.
+IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job);
+// Release only after worker calls stop. Unfinished intent and query hiding remain for resumption.
+void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job);
+// Main thread, after disk restore: schedule unfinished backend jobs.
+void IndexSpec_ResumeDiskSlotTrims(IndexSpec *spec);
+// Caller holds the spec write lock.
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
+
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
 // NOT clean up DocIdMeta on the key. No-op if the docId is not present.
@@ -927,6 +951,9 @@ void CleanPool_ThreadPoolDestroy();
 int CleanPool_AddWork(void (*work)(void *), void *arg);
 // Block until every queued clean-pool job has finished.
 void CleanPool_Wait();
+void CleanPool_Pause(void);
+void CleanPool_Resume(void);
+bool CleanPool_IsPaused(void);
 size_t CleanInProgressOrPending();
 
 
