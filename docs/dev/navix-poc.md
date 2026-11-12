@@ -70,3 +70,9 @@ slack, and reset clears it. Completed neighborhoods are not revisited for concur
 changes; use a fully built stable graph for comparisons. These are experiments without a
 performance or recall claim. This branch pins the matching VecSim traversal implementation;
 callers must rebuild because its query-parameter and counter structs extend the C ABI.
+
+Bridge mode retains NaviX's batch-bound tie rule (`>=`, versus ordinary HNSW's `>`):
+an equal-distance rejected node and a closer match behind it may wait for a later batch.
+All cached modes require stable labels and filter data across batches. Relabeling an
+internal node between batches can leave its cached NO/MAYBE decision stale; this POC
+does not implement relabel invalidation and is intended for stable-data experiments.
