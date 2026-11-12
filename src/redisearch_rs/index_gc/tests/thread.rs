@@ -174,6 +174,14 @@ impl TestSpec {
         self.spec.existingDocs = Box::into_raw(doc_ids_only_index(doc_count)).cast();
     }
 
+    /// Give the spec a null-docs index for `field`, holding `doc_count` docs.
+    fn add_null_docs_index(&mut self, field: &CStr, doc_count: u64) {
+        let hidden = OwnedHiddenString::new(field);
+        self._null_dict
+            .try_insert(&hidden, doc_ids_only_index(doc_count))
+            .unwrap_or_else(|_| panic!("field already present in the null-docs dict"));
+    }
+
     fn has_term(&self, term: &[u8]) -> bool {
         self.keys_dict.fetch(term).is_some()
     }
@@ -541,6 +549,44 @@ fn doc_set_indexes_are_collected_and_dropped_once_empty() {
             .is_none()
     );
     assert!(spec.spec.existingDocs.is_null());
+    assert!(recorder.total().bytes_collected > 0);
+}
+
+/// A null-docs index keeps its live docs and loses its deleted ones. Its entries are
+/// internal bookkeeping, so they don't count towards `records_removed`.
+#[test]
+fn null_docs_index_keeps_live_docs_and_collects_deleted_ones() {
+    // The null-docs dict is keyed by field name, so "n" needs a field.
+    let mut spec = TestSpec::create([], vec![(c"n", NumericRangeTree::default())]);
+    spec.add_null_docs_index(c"n", 3);
+    *spec.deleted_docs() = DeletedDocs::from_ids([2]);
+    let mut recorder = Recorder::default();
+
+    run_cycle(&mut spec, &mut recorder, true).unwrap();
+
+    let ii = spec
+        ._null_dict
+        .fetch(&OwnedHiddenString::new(c"n"))
+        .expect("docs 1 and 3 are live");
+    assert_eq!(ii.unique_docs(), 2);
+    assert_eq!(recorder.total().records_removed, 0);
+    assert!(recorder.total().bytes_collected > 0);
+}
+
+/// A null-docs index whose docs are all deleted is dropped.
+#[test]
+fn null_docs_index_is_dropped_once_empty() {
+    let mut spec = TestSpec::create([], vec![(c"n", NumericRangeTree::default())]);
+    spec.add_null_docs_index(c"n", 3);
+    let mut recorder = Recorder::default();
+
+    run_cycle(&mut spec, &mut recorder, true).unwrap();
+
+    assert!(
+        spec._null_dict
+            .fetch(&OwnedHiddenString::new(c"n"))
+            .is_none()
+    );
     assert!(recorder.total().bytes_collected > 0);
 }
 

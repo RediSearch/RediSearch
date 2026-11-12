@@ -1193,6 +1193,9 @@ static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+        return 0;
+      }
       fs->options |= FieldSpec_IndexNull;
     } else {
       break;
@@ -1231,6 +1234,9 @@ static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *statu
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
         fs->options |= FieldSpec_IndexMissing;
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+        if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+          return 0;
+        }
         fs->options |= FieldSpec_IndexNull;
       } else {
         break;
@@ -1242,14 +1248,17 @@ static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *statu
 
 // NUMERIC, GEO, GEOSHAPE and VECTOR take INDEXMISSING and INDEXNULL once each, in either order;
 // a repeat is not an option of the field
-static void parseMissingAndNullOptions(FieldSpec *fs, ArgsCursor *ac) {
+static int parseMissingAndNullOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   while (true) {
     if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
     } else if (!FieldSpec_IndexesNull(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+        return 0;
+      }
       fs->options |= FieldSpec_IndexNull;
     } else {
-      return;
+      return 1;
     }
   }
 }
@@ -1262,8 +1271,7 @@ static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
     return parseTagFieldOptions(fs, ac, status);
   }
-  parseMissingAndNullOptions(fs, ac);
-  return 1;
+  return parseMissingAndNullOptions(fs, ac, status);
 }
 
 // Whether the current argument would start a valid field definition (`name [AS alias] type`),
@@ -1407,8 +1415,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 
   if(result != 0) {
-    parseMissingAndNullOptions(fs, ac);
-    return result;
+    return parseMissingAndNullOptions(fs, ac, status) ? result : 0;
   } else {
     return 0;
   }
@@ -1495,9 +1502,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // Likewise for INDEXNULL: a null value of a field that isn't indexed can't be queried.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesNull(fs)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXNULL`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
-    goto error;
-  }
-  if (FieldSpec_IndexesNull(fs) && !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
     goto error;
   }
   return 1;

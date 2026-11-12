@@ -157,6 +157,19 @@ def test_unsupported_schema_options(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_index_null_is_unsupported(env):
+    """INDEXNULL is rejected for every field type, wherever it appears among the field's options"""
+    for field in [['TEXT', 'INDEXNULL'], ['TAG', 'INDEXNULL'], ['NUMERIC', 'INDEXNULL'], ['GEO', 'INDEXNULL'],
+                  ['NUMERIC', 'INDEXMISSING', 'INDEXNULL'],
+                  ['VECTOR', 'HNSW', '14', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+                   'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10', 'RERANK', 'TRUE', 'INDEXNULL']]:
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA', '$.f', 'AS', 'f', *field) \
+            .error().contains('INDEXNULL is not supported in Redis Flex')
+    env.expect('FT.INFO', 'idx').error().contains('Index not found')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_on_json_is_supported(env):
     """Test that ON JSON is accepted when search-_simulate-in-flex is true"""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
