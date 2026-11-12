@@ -31,8 +31,12 @@ typedef struct {
   size_t numIterations;         // number iterations
   size_t childEstimate;         // results estimate on child
   int lastLimitEstimate;        // last estimation for filter
-
-  size_t offset;
+  bool windowSpansRest;         // the latest numeric window spans everything left of the range
+  bool *missingSortValue;       // per pooled result: the document has no value for the sortby field
+  RSIndexResult *missingTemplate;  // the result pooled for a document without a sortby value
+  // ids of the documents in the heap, kept when a document can hold several sortby values, so a
+  // window reaching one again finds it in constant time
+  struct kh_optimizer_doc_ids_s *heldDocs;
 
   // child iterator with old root and numeric iterator for sortby field
   QueryIterator *child;

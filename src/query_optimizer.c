@@ -13,6 +13,7 @@
 
 #include "iterators/optimizer_reader.h"
 #include "iterators_ffi.h"
+#include "json.h"
 #include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
@@ -53,6 +54,59 @@ static bool planHasSortKeys(const AGGPlan *pln) {
   return false;
 }
 
+/* Resolve the sort keys after the first to the sorting-vector slots the optimizer's heap reads
+ * them from. The heap only keeps `limit` results, so among results tied on the numeric key it must
+ * keep the ones the sorter would rank first; it can only do so for keys in the sorting vector. */
+static bool resolveTieBreakKeys(QOptimizer *opt, const IndexSpec *spec,
+                                const PLN_ArrangeStep *arng) {
+  size_t numKeys = array_len(arng->sortKeys);
+  for (size_t i = 1; i < numKeys; i++) {
+    const char *name = arng->sortKeys[i];
+    const FieldSpec *field = IndexSpec_GetFieldWithLength(spec, name, strlen(name));
+    if (!field || !FieldSpec_IsSortable(field)) {
+      return false;
+    }
+    opt->tieBreakSortIdx[i - 1] = field->sortIdx;
+  }
+  opt->numTieBreakKeys = numKeys - 1;
+  return true;
+}
+
+/* Whether a step before the arrange step can drop rows or change their sort values. The optimizer
+ * prunes documents while collecting them, before any later step runs, so such a step would act on
+ * the rows the optimizer kept rather than on every match. Only LOAD leaves rows as they are. */
+static bool stepsBeforeCanReshapeRows(const AGGPlan *pln, const PLN_ArrangeStep *arng) {
+  DLLIST_FOREACH(nn, &pln->steps) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (stp == &arng->base) {
+      return false;
+    }
+    if (stp->type != PLN_T_ROOT && stp->type != PLN_T_LOAD) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether the field's JSON path can yield several values per document. */
+static bool fieldMayHoldManyValues(const IndexSpec *spec, const FieldSpec *field) {
+  if (!isSpecJson(spec) || !field->fieldPath) {
+    return false;
+  }
+  RedisModuleString *err = NULL;
+  JSONPath path = japi ? pathParse(field->fieldPath, &err) : NULL;
+  if (err) {
+    RedisModule_FreeString(RSDummyContext, err);
+  }
+  if (!path) {
+    // A path that cannot be parsed cannot be shown to be single, so assume the worst.
+    return true;
+  }
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -68,12 +122,16 @@ void QOptimizer_Parse(AREQ *req) {
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
+      if (field && field->types == INDEXFLD_T_NUMERIC &&
+          !stepsBeforeCanReshapeRows(AREQ_AGGPlan(req), arng) &&
+          resolveTieBreakKeys(opt, sctx->spec, arng)) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
+        opt->sortAscMap = arng->sortAscMap;
+        opt->sortFieldMayHoldManyValues = fieldMayHoldManyValues(sctx->spec, field);
       } else {
-        // sortby other fields, or more than one sort key, no optimization
+        // sortby a non-numeric field first, or by a later key the heap cannot read, no optimization
         opt->type = Q_OPT_NONE;
       }
     }
@@ -169,6 +227,71 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
+/* Widen `hull` to also cover `range`. */
+static void widenToInclude(SortFieldBounds *hull, const SortFieldBounds *range) {
+  if (range->min < hull->min) {
+    hull->min = range->min;
+    hull->minInclusive = range->minInclusive;
+  } else if (range->min == hull->min) {
+    hull->minInclusive |= range->minInclusive;
+  }
+  if (range->max > hull->max) {
+    hull->max = range->max;
+    hull->maxInclusive = range->maxInclusive;
+  } else if (range->max == hull->max) {
+    hull->maxInclusive |= range->maxInclusive;
+  }
+}
+
+/* Whether every document matching `node` has its sort field inside some range, and if so, which.
+ * The node stays in the tree as the exact filter; the range only bounds the optimizer's walk, so
+ * it may be wider than the matches but never narrower. A range on the field bounds itself, an
+ * intersection is bounded by any range it contains on the field, and a union by the hull of its
+ * branches when each of them is bounded. A union with an unbounded branch, and every other node,
+ * bounds nothing. */
+static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldIndex,
+                                   SortFieldBounds *bounds) {
+  switch (node->type) {
+    case QN_NUMERIC: {
+      const NumericFilter *nf = node->nn.nf;
+      if (nf->fieldIndex != fieldIndex) {
+        return false;
+      }
+      *bounds = (SortFieldBounds){.min = nf->min,
+                                  .max = nf->max,
+                                  .minInclusive = nf->minInclusive,
+                                  .maxInclusive = nf->maxInclusive};
+      return true;
+    }
+
+    case QN_PHRASE:  // INTERSECT
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        if (impliedSortFieldBounds(node->children[i], fieldIndex, bounds)) {
+          return true;
+        }
+      }
+      return false;
+
+    case QN_UNION: {
+      if (QueryNode_NumChildren(node) == 0 ||
+          !impliedSortFieldBounds(node->children[0], fieldIndex, bounds)) {
+        return false;
+      }
+      for (int i = 1; i < QueryNode_NumChildren(node); ++i) {
+        SortFieldBounds branch;
+        if (!impliedSortFieldBounds(node->children[i], fieldIndex, &branch)) {
+          return false;
+        }
+        widenToInclude(bounds, &branch);
+      }
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
 size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
   if (numDocs == 0 || estimate == 0) {
     return 0;
@@ -214,6 +337,14 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       }
       return;
     }
+  }
+
+  // No range on the sort field could be lifted out of the tree, but the query may still confine
+  // the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
+  // On a field with several values per document the predicates constrain any of them, not the
+  // value the document sorts by, so they bound nothing the walk could start from.
+  if (isSortby && !opt->nf && !opt->sortFieldMayHoldManyValues) {
+    opt->hasImpliedBounds = impliedSortFieldBounds(root, targetFieldIndex, &opt->impliedBounds);
   }
 
   // there is no sorting field and scorer is required - we must check all results

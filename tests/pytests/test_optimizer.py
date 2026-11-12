@@ -99,15 +99,18 @@ def testOptimizer(env):
     numeric_info = conn.execute_command(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
     params = ['NOCONTENT', 'WITHOUTCOUNT']
+    # Every value of `n` is shared by many documents, so a page often ends inside a tie, which the
+    # optimizer breaks the way the sorter does: by document id, in the last sort key's direction.
+    # A DESC page therefore keeps the highest ids among the documents it ties on.
 
     ### (1) range and filter with sort ###
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
@@ -150,10 +153,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -235,10 +238,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
@@ -281,10 +284,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -323,10 +326,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
-    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
+    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19999', '19998'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
-    env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
+    env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19999', '19998'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -678,19 +681,12 @@ def testRewindWidensWindow(env):
 
 
 @skip(cluster=True)
-def testRetryGuardUnderfillsSparseChild(env):
-    """Characterization test: a sparse child whose matches all sit past the first
-    numeric window comes back short of LIMIT.
+def testSparseChildFillsRequestedLimit(env):
+    """A sparse child whose matches all sit past the first numeric window still fills LIMIT.
 
-    The optimizer only widens its window while the first window's document
-    estimate is below the child's estimate. The first window is sized to hold
-    `limit` matches at the child's selectivity, so for a child sparser than
-    about sqrt(limit / num_docs) it already exceeds the child's estimate, and
-    the retry never runs: the heap is drained as the first window left it.
-
-    This pins that under-fill, not the correct answer (the unoptimized query's).
-    A top-k implementation that keeps widening returns the full LIMIT, so this
-    test is expected to flip to the complete answer when one replaces it.
+    The first window is sized to hold `limit` matches at the child's selectivity, which says
+    nothing about where in the sort order the matches lie. The optimizer has to keep widening the
+    window until the heap is full or the walk has covered the whole range.
     """
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
@@ -704,8 +700,24 @@ def testRetryGuardUnderfillsSparseChild(env):
     query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
     top_matches = [str(i) for i in range(first_match, first_match + limit)]
     env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
-    # Characterization: under-filled; flips to [limit] + top_matches once fixed.
-    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [0])
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [limit] + top_matches)
+
+
+@skip(cluster=True)
+def testSparseChildAtFarEndFillsRequestedLimit(env):
+    """A DESC walk starts at the top values, so matches clustered at the bottom are its far end."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    num_matches = num_docs // 100
+    load_sparse_matches(conn, num_docs, lambda i: i < num_matches)
+
+    limit = 10
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0, limit, 'NOCONTENT']
+    top_matches = [str(i) for i in range(num_matches - 1, num_matches - 1 - limit, -1)]
+    env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [limit] + top_matches)
 
 
 @skip(cluster=True)
@@ -825,6 +837,246 @@ def testNotOptimizedQueries(env):
     env.assertNotContains('OPTIMIZER',
                           profile_iterator_types(env, query, params + ['WITHOUTCOUNT']))
     compare_optimized_to_not_nocontent(env, query, params, 'sortby text field')
+
+
+def aggregate_sorted_keys(env, query, sortby, limit, optimized):
+    """The keys `FT.AGGREGATE` returns for `query` sorted by `sortby`, a list of (field, order)."""
+    sort_args = ['SORTBY', len(sortby) * 2] + [x for field, order in sortby for x in (f'@{field}', order)]
+    res = env.cmd('FT.AGGREGATE', 'idx', query, 'WITHOUTCOUNT' if optimized else 'WITHCOUNT',
+                  *sort_args, 'MAX', limit, 'LOAD', 1, '@__key')
+    return [row[row.index('__key') + 1] for row in res[1:]]
+
+
+def aggregate_profile(env, query, sortby, optimized):
+    sort_args = ['SORTBY', len(sortby) * 2] + [x for field, order in sortby for x in (f'@{field}', order)]
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query,
+                  'WITHOUTCOUNT' if optimized else 'WITHCOUNT', *sort_args, 'MAX', 5)
+    return to_dict(res[1][1][0])['Iterators profile']
+
+
+def aggregate_uses_optimizer(env, query, sortby):
+    """Whether the optimizer took effect: an `OPTIMIZER` iterator, or, when the query is a lone range
+    on the sort field, a numeric union it trimmed to fewer reads."""
+    optimized = aggregate_profile(env, query, sortby, optimized=True)
+    if 'OPTIMIZER' in str(optimized):
+        return True
+    plain = aggregate_profile(env, query, sortby, optimized=False)
+    reads = lambda profile: to_dict(profile)['Number of reading operations']
+    return to_dict(optimized)['Type'] == 'UNION' and reads(optimized) < reads(plain)
+
+
+@skip(cluster=True)
+def testOptimizerMultipleSortKeys(env):
+    """A numeric first sort key is optimized whatever sortable keys follow it.
+
+    The optimizer's heap keeps only `MAX` results, so among results tied on the numeric key it has
+    to keep the ones the sorter ranks first: by each later key, a missing value last, then by
+    document id in the last key's direction. Every `n` here is shared by five documents, assigned
+    out of document-id order, and `s` and `m` tie and go missing too, so the cut-off at `MAX` falls
+    inside ties on every key.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE',
+            'm', 'NUMERIC', 'SORTABLE', 't', 'TAG')
+    for i in range(500):
+        fields = ['n', (i * 37) % 500 // 5, 't', 'a' if i % 3 else 'b']
+        if i % 11:
+            fields += ['s', f'v{i % 4}']
+        if i % 13:
+            fields += ['m', i % 3]
+        conn.execute_command('HSET', f'd{i}', *fields)
+
+    sorts = [
+        [('n', 'ASC'), ('s', 'ASC')], [('n', 'ASC'), ('s', 'DESC')],
+        [('n', 'DESC'), ('s', 'ASC')], [('n', 'DESC'), ('s', 'DESC')],
+        [('n', 'ASC'), ('m', 'DESC'), ('s', 'ASC')], [('n', 'DESC'), ('m', 'ASC'), ('s', 'DESC')],
+    ]
+    for sortby in sorts:
+        for query in ['*', '@n:[(20 +inf]', '@t:{a}']:
+            msg = f'{query} sorted by {sortby}'
+            env.assertTrue(aggregate_uses_optimizer(env, query, sortby), message=msg)
+            for limit in [1, 3, 7]:
+                env.assertEqual(aggregate_sorted_keys(env, query, sortby, limit, optimized=True),
+                                aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
+                                message=f'{msg}, MAX {limit}')
+
+
+@skip(cluster=True)
+def testOptimizerSkipsUnsortableTieBreakKey(env):
+    """A later sort key outside the sorting vector keeps the optimizer off.
+
+    The heap reads tie-break keys from the sorting vector, so it cannot rank results tied on the
+    numeric key by a key that is not there, and the query runs unoptimized instead.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG')
+    for i in range(100):
+        conn.execute_command('HSET', f'd{i}', 'n', i // 5, 's', f'v{i % 4}')
+
+    sortby = [('n', 'ASC'), ('s', 'DESC')]
+    env.assertFalse(aggregate_uses_optimizer(env, '*', sortby))
+    env.assertEqual(aggregate_sorted_keys(env, '*', sortby, 3, optimized=True),
+                    aggregate_sorted_keys(env, '*', sortby, 3, optimized=False))
+
+
+def keyset_after(cursor_n, cursor_m, n_order, m_order):
+    """The documents after (cursor_n, cursor_m) in a sort by `n` then `m`: a keyset cursor."""
+    after_n = f'@n:[({cursor_n} +inf]' if n_order == 'ASC' else f'@n:[-inf ({cursor_n}]'
+    after_m = f'@m:[({cursor_m} +inf]' if m_order == 'ASC' else f'@m:[-inf ({cursor_m}]'
+    return f'( {after_n} ) | ( @n:[{cursor_n} {cursor_n}] {after_m} )'
+
+
+@skip(cluster=True)
+def testOptimizerWalksRangeImpliedByUnion(env):
+    """A union whose every branch confines the sort field bounds the optimizer's walk.
+
+    No single range can be lifted out of a keyset cursor's `n > c | (n = c m > x)`, but every
+    match lies in `n >= c`, the hull of its branches, so the walk can start there instead of at
+    the first value, while the union stays in the tree as the exact filter.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'm', 'NUMERIC', 'SORTABLE')
+    # Document order follows `n`, so a walk from the first value meets nothing past the cursor
+    # until it has covered everything before it.
+    for i in range(5000):
+        conn.execute_command('HSET', f'd{i:05d}', 'n', i // 2, 'm', i % 2)
+
+    for n_order, m_order in [('ASC', 'ASC'), ('ASC', 'DESC'), ('DESC', 'ASC'), ('DESC', 'DESC')]:
+        for cursor in [100, 1250, 2400]:
+            query = keyset_after(cursor, 0 if m_order == 'ASC' else 1, n_order, m_order)
+            sortby = [('n', n_order), ('m', m_order)]
+            for limit in [1, 3, 10]:
+                env.assertEqual(aggregate_sorted_keys(env, query, sortby, limit, optimized=True),
+                                aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
+                                message=f'{query} sorted by {sortby}, MAX {limit}')
+
+    # A cursor near the first value: the unbounded walk reads nearly every document before
+    # reaching it, the bounded one starts there.
+    optimized = aggregate_profile(env, keyset_after(100, 0, 'ASC', 'ASC'), [('n', 'ASC'), ('m', 'ASC')],
+                                  optimized=True)
+    union = to_dict(to_dict(optimized)['Child iterator'])
+    env.assertLess(union['Number of reading operations'], 2500, message=optimized)
+
+
+@skip(cluster=True)
+def testOptimizerIgnoresUnionWithUnboundedBranch(env):
+    """A union branch that leaves the sort field unconfined leaves the walk unbounded."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TAG')
+    for i in range(500):
+        conn.execute_command('HSET', f'd{i}', 'n', (i * 37) % 500 // 5, 't', 'a' if i % 3 else 'b')
+
+    for query in ['@n:[0 10] | @t:{b}', '@n:[(20 +inf] | -@n:[0 5]']:
+        for limit in [1, 7]:
+            env.assertEqual(aggregate_sorted_keys(env, query, [('n', 'ASC')], limit, optimized=True),
+                            aggregate_sorted_keys(env, query, [('n', 'ASC')], limit, optimized=False),
+                            message=f'{query}, MAX {limit}')
+
+
+@skip(cluster=True)
+def testDeletedDocsBeforeGcFillRequestedLimit(env):
+    """Postings of deleted documents do not make the walk look exhausted.
+
+    Until garbage collection runs, the numeric index still lists deleted documents, so a window
+    sized by the index's live-document count covers fewer postings than remain, and treating it as
+    spanning the rest of the range would end the walk with the survivors unvisited.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    env.cmd(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx')
+
+    num_docs = 10000
+    load_sparse_matches(conn, num_docs, lambda i: True)
+    survivors = num_docs // 100
+    for i in range(num_docs - survivors):
+        conn.execute_command('del', i)
+
+    limit = 10
+    expected = [str(i) for i in range(num_docs - survivors, num_docs - survivors + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+
+
+@skip(cluster=True)
+def testStepBeforeSortbyKeepsOptimizerOff(env):
+    """A step before SORTBY that drops rows or changes their sort values keeps the optimizer off.
+
+    The optimizer prunes documents while collecting them, before any step runs, so a FILTER would
+    act on the rows it kept: here the heap keeps (0, 1), the filter then drops it, and (0, 2), the
+    right answer, is already gone.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'NUMERIC', 'SORTABLE')
+    conn.execute_command('HSET', 'a', 'n', 0, 's', 1)
+    conn.execute_command('HSET', 'b', 'n', 0, 's', 2)
+
+    for steps in [['FILTER', '@s > 1'], ['APPLY', '@s * -1', 'AS', 'n']]:
+        for sortby in [['SORTBY', 2, '@n', 'ASC'], ['SORTBY', 4, '@n', 'ASC', '@s', 'ASC']]:
+            query = ['FT.AGGREGATE', 'idx', '*']
+            tail = [*steps, *sortby, 'MAX', 1, 'LOAD', 1, '@__key']
+            env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT', *tail)[1:],
+                            env.cmd(*query, 'WITHCOUNT', *tail)[1:],
+                            message=f'{steps} then {sortby}')
+
+
+@skip(cluster=True)
+def testMatchesWithoutSortValueRankLast(env):
+    """Matches without a value for the numeric sort key rank after every match with one.
+
+    The walk only visits documents in the field's numeric index, so once it is exhausted with the
+    page short, the rest of the page comes from matches without a value, ordered by the later keys
+    as the sorter orders them.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE')
+    for i in range(20):
+        fields = ['s', f'v{i % 3}']
+        if i % 4 == 0:
+            fields += ['n', i]
+        conn.execute_command('HSET', f'd{i}', *fields)
+
+    for sortby in [[('n', 'ASC')], [('n', 'DESC')], [('n', 'ASC'), ('s', 'DESC')],
+                   [('n', 'DESC'), ('s', 'ASC')]]:
+        for limit in [3, 7, 20]:
+            env.assertEqual(aggregate_sorted_keys(env, '*', sortby, limit, optimized=True),
+                            aggregate_sorted_keys(env, '*', sortby, limit, optimized=False),
+                            message=f'{sortby}, MAX {limit}')
+
+
+@skip(cluster=True)
+def testSortFieldWithoutAnyValueKeepsMatches(env):
+    """A sort field no document has a value for has no numeric index to walk, and every match ties
+    on it, so the query runs unoptimized rather than coming back empty."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE')
+    for i in range(5):
+        conn.execute_command('HSET', f'd{i}', 's', f'v{i}')
+
+    for sortby in [[('n', 'ASC')], [('n', 'ASC'), ('s', 'DESC')]]:
+        optimized = aggregate_sorted_keys(env, '*', sortby, 3, optimized=True)
+        env.assertEqual(len(optimized), 3, message=f'{sortby}')
+        env.assertEqual(optimized, aggregate_sorted_keys(env, '*', sortby, 3, optimized=False),
+                        message=f'{sortby}')
+
+
+@skip(cluster=True)
+def testRangeOnSortFieldExcludesMatchesWithoutValue(env):
+    """A range on the sort field requires a value, even once the optimizer lifts it out of the query
+    to walk it, so a page short of LIMIT is not filled with matches lacking one.
+
+    The same holds for a union that bounds the walk, every branch of which constrains the field.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT')
+    conn.execute_command('HSET', 'a', 'n', 1, 't', 'foo')
+    conn.execute_command('HSET', 'b', 't', 'foo')
+
+    for query in ['foo @n:[0 2]', '@n:[0 0] | @n:[1 1]']:
+        search = ['ft.search', 'idx', query, 'SORTBY', 'n', 'LIMIT', 0, 10, 'NOCONTENT', 'DIALECT', 2]
+        env.assertEqual(env.cmd(*search, 'WITHOUTCOUNT')[1:], ['a'], message=query)
+        env.assertEqual(env.cmd(*search)[1:], ['a'], message=query)
 
 
 @skip()  # TODO: solve flakiness (MOD-5257)

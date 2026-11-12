@@ -59,6 +59,14 @@ typedef enum {
   SCORER_TYPE_DOC = 2,
 } ScorerType;
 
+/* A range of the sort field, with each end open or closed. */
+typedef struct SortFieldBounds {
+    double min;
+    double max;
+    bool minInclusive;
+    bool maxInclusive;
+} SortFieldBounds;
+
 typedef struct QOptimizer {
     Q_Optimize_Type type;       // type of optimization
 
@@ -72,6 +80,23 @@ typedef struct QOptimizer {
     QueryNode *sortbyNode;      // pointer to QueryNode
     NumericFilter *nf;          // filter with required parameters
     bool asc;                   // ASC/DESC order of sortby
+
+    // The sort keys after the numeric one, which the optimizer's heap breaks ties on the way the
+    // pipeline's sorter does. Each is a SORTABLE schema field, read from the sorting vector.
+    int16_t tieBreakSortIdx[SORTASCMAP_MAXFIELDS - 1];
+    size_t numTieBreakKeys;
+    uint64_t sortAscMap;        // ASC/DESC order of every sort key, as the arrange step holds it
+
+    // The range of the sort field every matching document lies in, when no range on the field
+    // could be lifted out of the query but the query still confines the field to one. The
+    // optimizer walks this range rather than the whole field.
+    bool hasImpliedBounds;
+    SortFieldBounds impliedBounds;
+
+    // Whether a document can hold several values for the sortby field (a JSON path such as
+    // `$.n[*]`). A query predicate then constrains any of them, not the one the document sorts by,
+    // and the field's numeric index lists such a document once per value.
+    bool sortFieldMayHoldManyValues;
 
     QueryIterator *numIter;
     QueryIterator *root;
