@@ -223,25 +223,50 @@ def testFirstValueSeparatorInFieldNames(env):
     env.assertEqual(res[0], 1, message=res)
     env.assertEqual(to_dict(res[1]), {'g': 'a', 'x': 'ab2', 'y': 'a2'}, message=res)
 
-def testFirstValueRequiresLoadedProperty(env):
-    """A FIRST_VALUE over a property that is neither in the schema nor LOADed is rejected the
-    same way in standalone and in cluster, where the reducer now runs on the shards and follows
-    their rule, as SUM and MAX always have."""
+def testFirstValueLoadsItsPropertiesOnTheShards(env):
+    """In cluster, `distributeFirstValue` has the shards LOAD the properties a FIRST_VALUE
+    names, as the coordinator-side GROUPBY had them do before the reducer was distributed. So
+    without a LOAD, a FIRST_VALUE keeps working over `@__key` and over a field outside the
+    schema, and keeps returning a SORTABLE field as stored rather than normalized. Standalone
+    has never done any of that. A property the FIRST_VALUE does not name follows the usual
+    rules in both modes: the GROUPBY key below comes normalized from the sort vector, unless
+    the FIRST_VALUE names it too and so has it loaded."""
     verify_shard_init(env)
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG').ok()
-    conn.execute_command('HSET', 'doc1', 'g', 'a', 'name', 'x')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 't', 'TEXT', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 't', 'Hello World', 'name', 'x')
 
-    for reducer in (['FIRST_VALUE', '1', '@name'],
-                    ['FIRST_VALUE', '3', '@name', 'BY', '@g'],
-                    ['FIRST_VALUE', '3', '@g', 'BY', '@name']):
-        env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
-                   'REDUCE', *reducer, 'AS', 'fv') \
-           .error().contains('Property not loaded nor in pipeline')
+    def first_value(reducer_args, group='@g', load=()):
+        return env.cmd('FT.AGGREGATE', 'idx', '*', *load, 'GROUPBY', '1', group,
+                       'REDUCE', 'FIRST_VALUE', str(len(reducer_args)), *reducer_args, 'AS', 'fv')
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name', 'GROUPBY', '1', '@g',
-               'REDUCE', 'FIRST_VALUE', '3', '@name', 'BY', '@g', 'AS', 'fv') \
-       .equal([1, ['g', 'a', 'fv', 'x']])
+    unloaded = (['@name'], ['@__key'], ['@name', 'BY', '@t'], ['@t', 'BY', '@name'])
+    if env.isCluster():
+        env.assertEqual(first_value(['@name']), [1, ['g', 'a', 'fv', 'x']])
+        env.assertEqual(first_value(['@__key']), [1, ['g', 'a', 'fv', 'doc1']])
+        env.assertEqual(first_value(['@name', 'BY', '@t']), [1, ['g', 'a', 'fv', 'x']])
+        env.assertEqual(first_value(['@t', 'BY', '@name']), [1, ['g', 'a', 'fv', 'Hello World']])
+        env.assertEqual(first_value(['@t']), [1, ['g', 'a', 'fv', 'Hello World']])
+        env.assertEqual(first_value(['@t'], group='@t'),
+                        [1, ['t', 'Hello World', 'fv', 'Hello World']])
+    else:
+        for reducer_args in unloaded:
+            env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                       'REDUCE', 'FIRST_VALUE', str(len(reducer_args)), *reducer_args, 'AS', 'fv') \
+               .error().contains('Property not loaded nor in pipeline')
+        env.assertEqual(first_value(['@t']), [1, ['g', 'a', 'fv', 'hello world']])
+        env.assertEqual(first_value(['@t'], group='@t'),
+                        [1, ['t', 'hello world', 'fv', 'hello world']])
+
+    # Both modes agree once the properties are LOADed, and on a GROUPBY key the FIRST_VALUE
+    # does not name.
+    for reducer_args in unloaded:
+        res = first_value(reducer_args, load=('LOAD', '3', '@name', '@__key', '@t'))
+        env.assertEqual(res[0], 1, message=res)
+        expected = {'@name': 'x', '@__key': 'doc1', '@t': 'Hello World'}[reducer_args[0]]
+        env.assertEqual(to_dict(res[1])['fv'], expected, message=res)
+    env.assertEqual(first_value(['@name'], group='@t', load=('LOAD', '1', '@name')),
+                    [1, ['t', 'hello world', 'fv', 'x']])
 
 @skip(cluster=True)
 def test_required_fields(env):

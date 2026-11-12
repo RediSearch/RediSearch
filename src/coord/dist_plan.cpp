@@ -72,6 +72,65 @@ static const char *distAllocStr(BlkAlloc *alloc, const char *s, size_t len) {
   return p;
 }
 
+// A LOAD step for the remote plan; the step owns its argv.
+static PLN_LoadStep *newLoadStep(const std::vector<std::string> &names) {
+  PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
+  load->base.type = PLN_T_LOAD;
+  load->base.dtor = [](PLN_BaseStep *stp) {
+    PLN_LoadStep *load = (PLN_LoadStep *)stp;
+    for (size_t ii = 0; ii < load->args.argc; ++ii) {
+      rm_free(load->args.objs[ii]);
+    }
+    rm_free(load->args.objs);
+    rm_free(stp);
+  };
+  const char **argv = (const char **)rm_malloc(sizeof(*argv) * names.size());
+  for (size_t ii = 0; ii < names.size(); ++ii) {
+    argv[ii] = rm_strndup(names[ii].c_str(), names[ii].size());
+  }
+  ArgsCursor_InitCString(&load->args, argv, names.size());
+  return load;
+}
+
+// Whether a step already in the remote plan writes `name` into the shard's row.
+static bool remotePlanProduces(AGGPlan *remote, const char *name) {
+  for (DLLIST_node *nn = remote->steps.next; nn != &remote->steps; nn = nn->next) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    switch (stp->type) {
+      case PLN_T_LOAD: {
+        auto lstp = (const PLN_LoadStep *)stp;
+        if (lstp->base.flags & PLN_F_LOAD_ALL) {
+          return true;
+        }
+        ArgsCursor ac = lstp->args;
+        while (!AC_IsAtEnd(&ac)) {
+          const char *s = AC_GetStringNC(&ac, NULL);
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            s = AC_GetStringNC(&ac, NULL);
+          }
+          if (strcmp(stripAtPrefix(s), name) == 0) {
+            return true;
+          }
+        }
+        break;
+      }
+      case PLN_T_APPLY:
+        if (stp->alias && strcmp(stp->alias, name) == 0) {
+          return true;
+        }
+        break;
+      case PLN_T_VECTOR_NORMALIZER:
+        if (strcmp(((const PLN_VectorNormalizerStep *)stp)->distanceFieldAlias, name) == 0) {
+          return true;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
 struct ReducerDistCtx {
   AGGPlan *localPlan;
   AGGPlan *remotePlan;
@@ -539,8 +598,34 @@ static const char *firstValueRemoteAlias(ReducerDistCtx *rdctx) {
   return distAllocStr(rdctx->alloc, s.c_str(), s.size());
 }
 
+// The coordinator-side GROUPBY had the shards LOAD every property it named. Keep doing that
+// for the ones FIRST_VALUE names, so moving the reducer to the shards does not change its
+// answer for `@__key`, for a field outside the schema, or for a SORTABLE field, which the
+// sort vector would hand over normalized. Properties an earlier remote step produces are
+// left to that step.
+static void loadFirstValueProperties(ReducerDistCtx *rdctx, const char *ret, const char *sort) {
+  std::vector<std::string> names;
+  for (const char *prop : {ret, sort}) {
+    if (!prop || remotePlanProduces(rdctx->remotePlan, prop)) {
+      continue;
+    }
+    // LOAD takes `@field` or a JSON `$` path.
+    std::string arg = prop[0] == '$' ? std::string(prop) : std::string("@") + prop;
+    if (std::find(names.begin(), names.end(), arg) == names.end()) {
+      names.push_back(std::move(arg));
+    }
+  }
+  if (names.empty()) {
+    return;
+  }
+  PLN_LoadStep *load = newLoadStep(names);
+  AGPLN_AddStep(rdctx->remotePlan, &load->base);
+  rdctx->addedRemoteSteps.push_back(&load->base);
+}
+
 /* Distribute FIRST_VALUE.
  *
+ * The properties it names are LOADed on the shards (`loadFirstValueProperties`).
  * Each shard reduces its rows to one pick per group and the local FIRST_VALUE picks among
  * the shards' picks. With BY, ranking the picks needs the sort value each one won with, so
  * the remote side also emits `FIRST_VALUE @sort BY @sort <dir>` and the local reducer sorts
@@ -559,6 +644,7 @@ static int distributeFirstValue(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   const char *ret = rdctx->srcarg(0);
+  loadFirstValueProperties(rdctx, ret, sort);
   const char *retAlias;
   if (!sort) {
     if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "1", ret, "AS",
@@ -663,24 +749,11 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
           if (RLookup_GetRowLen(&filter_keys)) {
-            PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
-            load->base.type = PLN_T_LOAD;
-            load->base.dtor = [](PLN_BaseStep *stp) {
-              PLN_LoadStep *load = (PLN_LoadStep *)stp;
-              for (size_t ii = 0; ii < load->args.argc; ++ii) {
-                rm_free(load->args.objs[ii]);
-              }
-              rm_free(load->args.objs);
-              rm_free(stp);
-            };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * RLookup_GetRowLen(&filter_keys));
-            size_t argc = 0;
-
+            std::vector<std::string> names;
             RLOOKUP_FOREACH(kk, &filter_keys, {
-              argv[argc++] = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+              names.emplace_back(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
             });
-            ArgsCursor_InitCString(&load->args, argv, argc);
-            AGPLN_AddStep(remote, &load->base);
+            AGPLN_AddStep(remote, &newLoadStep(names)->base);
           }
           // Step 3: cleanup
           RLookup_Cleanup(&filter_keys);

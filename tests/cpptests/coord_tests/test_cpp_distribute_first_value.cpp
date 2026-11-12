@@ -12,7 +12,8 @@
 // Each test compiles an `FT.AGGREGATE ... REDUCE FIRST_VALUE ...` query into an
 // AGGPlan, runs `AGGPLN_Distribute`, and inspects the local / remote
 // `PLN_Reducer`s the rewrite produced: which reducers each side runs, their
-// argv, and how the local reducer's argv names the remote reducers' aliases.
+// argv, how the local reducer's argv names the remote reducers' aliases, and
+// which properties the rewrite has the shards LOAD.
 
 #include "gtest/gtest.h"
 
@@ -22,6 +23,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "dist_plan.h"
 #include "util/arr.h"
+#include "util/dllist.h"
 
 #include <strings.h>
 #include <set>
@@ -50,14 +52,17 @@ protected:
     }
   }
 
-  // Compiles `* GROUPBY 1 @g REDUCE FIRST_VALUE <n> <tokens...> AS fv <extraReducers...>`
-  // and distributes it. Compilation must succeed; the distribution result is
-  // returned so the caller can assert either way. `*outPlan` is owned by the
-  // returned AREQ, which the caller frees with `AREQ_Free`.
-  int distribute(const Argv &firstValueTokens, const Argv &extraReducers, AREQ **outReq,
-                 AGGPlan **outPlan, QueryError *qerr) {
-    Argv argv = {"*", "GROUPBY", "1", "@g", "REDUCE", "FIRST_VALUE",
-                 std::to_string(firstValueTokens.size())};
+  // Compiles `* <prefix...> GROUPBY 1 @g REDUCE FIRST_VALUE <n> <tokens...> AS fv
+  // <extraReducers...>` and distributes it. Compilation must succeed; the
+  // distribution result is returned so the caller can assert either way.
+  // `*outPlan` is owned by the returned AREQ, which the caller frees with `AREQ_Free`.
+  int distributeWithPrefix(const Argv &prefix, const Argv &firstValueTokens,
+                           const Argv &extraReducers, AREQ **outReq, AGGPlan **outPlan,
+                           QueryError *qerr) {
+    Argv argv = {"*"};
+    argv.insert(argv.end(), prefix.begin(), prefix.end());
+    argv.insert(argv.end(), {"GROUPBY", "1", "@g", "REDUCE", "FIRST_VALUE",
+                             std::to_string(firstValueTokens.size())});
     argv.insert(argv.end(), firstValueTokens.begin(), firstValueTokens.end());
     argv.emplace_back("AS");
     argv.emplace_back("fv");
@@ -71,6 +76,37 @@ protected:
     *outReq = r;
     *outPlan = AREQ_AGGPlan(r);
     return AGGPLN_Distribute(*outPlan, qerr);
+  }
+
+  int distribute(const Argv &firstValueTokens, const Argv &extraReducers, AREQ **outReq,
+                 AGGPlan **outPlan, QueryError *qerr) {
+    return distributeWithPrefix({}, firstValueTokens, extraReducers, outReq, outPlan, qerr);
+  }
+
+  // The argv of each LOAD step in the remote plan, in plan order. A LOAD after the
+  // remote GROUPBY would be rejected by the shard, so that fails the test.
+  static std::vector<Argv> remoteLoads(const AGGPlan *plan) {
+    std::vector<Argv> out;
+    auto dstp = (const PLN_DistributeStep *)AGPLN_FindStep(plan, nullptr, nullptr,
+                                                            PLN_T_DISTRIBUTE);
+    EXPECT_NE(dstp, nullptr) << "distribute step missing";
+    if (!dstp) return out;
+    bool pastGroup = false;
+    for (DLLIST_node *nn = dstp->plan->steps.next; nn != &dstp->plan->steps; nn = nn->next) {
+      const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+      if (stp->type == PLN_T_GROUP) {
+        pastGroup = true;
+      } else if (stp->type == PLN_T_LOAD) {
+        EXPECT_FALSE(pastGroup) << "LOAD after the remote GROUPBY";
+        auto lstp = (const PLN_LoadStep *)stp;
+        Argv args;
+        for (size_t i = 0; i < lstp->args.argc; i++) {
+          args.emplace_back(AC_StringArg(&lstp->args, i, NULL));
+        }
+        out.push_back(args);
+      }
+    }
+    return out;
   }
 
   // The split GROUPBY: the local group follows the distribute step, the remote
@@ -199,6 +235,7 @@ TEST_F(DistributeFirstValueTest, SortKeyIsReturnKey_SingleRemoteReducer) {
 
   EXPECT_EQ(argsOf(remote[0]), (Argv{"price", "BY", "price", "DESC"}));
   EXPECT_EQ(argsOf(local[0]), (Argv{remote[0]->alias, "BY", remote[0]->alias, "DESC"}));
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{"@price"}}));
 
   AREQ_Free(r);
 }
@@ -287,6 +324,81 @@ TEST_F(DistributeFirstValueTest, DistributesAlongsideOtherReducers) {
   EXPECT_EQ(reducersNamed(g.remote, "FIRST_VALUE").size(), 2u);
   EXPECT_EQ(reducersNamed(g.remote, "COUNT").size(), 1u);
   EXPECT_EQ(reducersNamed(g.local, "FIRST_VALUE").size(), 1u);
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, LoadsItsPropertiesOnTheShards) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distribute({"@name", "BY", "@price"}, {}, &r, &plan, &qerr), REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // The coordinator-side plan had the shards LOAD what the GROUPBY named; the shard-side
+  // reducer gets the same LOAD, so `@__key`, fields outside the schema and SORTABLE fields
+  // keep yielding the values they did.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{"@name", "@price"}}));
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, SkipsPropertiesAnEarlierRemoteStepProduces) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distributeWithPrefix({"LOAD", "1", "@name", "APPLY", "strlen(@name)", "AS", "len"},
+                                 {"@name", "BY", "@len"}, {}, &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // `name` is loaded already and `len` is an APPLY output: the user's LOAD stays the only one.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{"@name"}}));
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, LoadAllCoversEveryProperty) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distributeWithPrefix({"LOAD", "*"}, {"@name", "BY", "@price"}, {}, &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // `LOAD *` carries no argv of its own and nothing is added to it.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{}}));
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, LoadAliasIsWhatAnEarlierLoadProduces) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distributeWithPrefix({"LOAD", "3", "@name", "AS", "n"}, {"@name", "BY", "@n"}, {},
+                                 &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // The shard's row has `n`, not `name`, so only `name` is loaded again.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{"@name", "AS", "n"}, {"@name"}}));
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, SharedPropertiesAreLoadedOnce) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  ASSERT_EQ(distribute({"@a", "BY", "@p"},
+                       {"REDUCE", "FIRST_VALUE", "4", "@b", "BY", "@p", "DESC", "AS", "fv2"},
+                       &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  // The second reducer's sort key was loaded by the first one's step.
+  EXPECT_EQ(remoteLoads(plan), (std::vector<Argv>{{"@a", "@p"}, {"@b"}}));
 
   AREQ_Free(r);
 }
