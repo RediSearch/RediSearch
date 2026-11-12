@@ -97,12 +97,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
-        // Pin the per-subquery disk view to the same point in time as the in-memory
-        // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
-        // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
-        // Aborts the hybrid pipeline if any subquery on a disk index can't take a
-        // snapshot — falling back to live reads is unsafe because the parent unlock
-        // is unconditional and subsequent depleter / cursor reads would race with GC.
+        // Open the per-subquery disk read view against the same index state as the
+        // in-memory trie/stats that QAST_Iterate is about to consult. Callers hold the spec
+        // read lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
+        // Aborts the hybrid pipeline if any subquery on a disk index can't open its
+        // read view: reading without one is unsafe because the parent unlock is
+        // unconditional and subsequent depleter / cursor reads run without the spec lock.
         if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;

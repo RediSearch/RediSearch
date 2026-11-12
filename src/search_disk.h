@@ -384,12 +384,12 @@ DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
- * and handles cleanup on failure. The disk snapshot is taken from `sctx->diskSnapshot`
- * (which must be non-NULL), so the same snapshot is shared by every iterator created
- * during one query without having to thread it through each call site.
+ * and handles cleanup on failure. The per-query read view is taken from `sctx->diskSnapshot`
+ * (which must be non-NULL), so every iterator created during one query shares it without
+ * having to thread it through each call site.
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
+ * @param sctx Search context whose `diskSnapshot` field carries the query's read view. The
  *             `diskSnapshot` field is required to be non-NULL.
  * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
  * @param tokenId Token ID for the term
@@ -407,11 +407,11 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * @brief Create a tag IndexIterator for a specific tag value
  *
  * This function creates a tag IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines. The disk snapshot is taken from
+ * in RediSearch query execution pipelines. The per-query read view is taken from
  * `sctx->diskSnapshot` (which must be non-NULL).
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
+ * @param sctx Search context whose `diskSnapshot` field carries the query's read view. The
  *             `diskSnapshot` field is required to be non-NULL.
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
@@ -422,28 +422,29 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
 
 /**
- * @brief Take a point-in-time snapshot of the disk database for this index.
+ * @brief Open a per-query read view of this index.
  *
- * The returned snapshot can be passed to the iterator-creation wrappers so that all
- * iterators created during one query observe the same database state. Must be released
- * by `SearchDisk_FreeSnapshot` according to the lifetime contract in `IndexDiskAPI.createSnapshot`.
+ * The returned handle is stored on the query's search context and passed to the
+ * iterator-creation and metadata-read wrappers, so they all agree on which documents the
+ * query can see. Must be released by `SearchDisk_FreeSnapshot` according to the lifetime
+ * contract in `IndexDiskAPI.createSnapshot`.
  *
  * @param index Pointer to the index spec
- * @return Snapshot handle, or NULL on error
+ * @return View handle, or NULL on error
  */
 RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Release a snapshot previously returned by `SearchDisk_CreateSnapshot`.
+ * @brief Release a read view previously returned by `SearchDisk_CreateSnapshot`.
  *
- * Safe to call with NULL (no-op). After this call, the snapshot pointer must not be used.
+ * Safe to call with NULL (no-op). After this call, the handle must not be used.
  *
- * @param snapshot Snapshot handle returned by `SearchDisk_CreateSnapshot`
+ * @param snapshot View handle returned by `SearchDisk_CreateSnapshot`
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
 /**
- * @brief Number of snapshots created by `SearchDisk_CreateSnapshot` and not yet released
+ * @brief Number of read views opened by `SearchDisk_CreateSnapshot` and not yet released
  * by `SearchDisk_FreeSnapshot`, across all indexes.
  */
 size_t SearchDisk_GetLiveSnapshotCount(void);
@@ -471,13 +472,13 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 /**
  * @brief Get document metadata by document ID
  *
- * Reads through the snapshot stored on `sctx` (if any), so the metadata observed
- * here matches the on-disk view the iterators built from the same `sctx` are reading.
- * Pass `sctx == NULL` to read the live state (used by debug commands and other
+ * Reads through the query's read view stored on `sctx` (if any), so the documents
+ * observed here are the ones the iterators built from the same `sctx` can return.
+ * Pass `sctx == NULL` to read outside any query (used by debug commands and other
  * out-of-query paths).
  *
  * @param handle Handle to the document table
- * @param sctx Search context whose `diskSnapshot` selects the read view (may be NULL).
+ * @param sctx Search context whose `diskSnapshot` carries the query's read view (may be NULL).
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
  * @param current_time Current time for expiration check.
@@ -489,9 +490,9 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
 /**
  * @brief Check if a document ID is deleted
  *
- * Deletions live in the storage layer's in-memory deleted-id bitmap, not in
- * SpeedB, so this check always reads the live bitmap — it cannot be pinned to
- * a query's `sctx->diskSnapshot`.
+ * The storage layer tracks deletions outside the per-query read view, so this
+ * check always reflects the current state; it cannot be pinned to a query's
+ * `sctx->diskSnapshot`.
  *
  * @param handle Handle to the document table
  * @param docId Document ID
@@ -565,13 +566,13 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
 /**
  * @brief Create an async read pool for batched document metadata reads
  *
- * Pins the pool to the snapshot stored on `sctx` (if any), so every read issued
- * through this pool matches the on-disk view the iterators built from the same
- * `sctx` are reading. Pass `sctx == NULL` to read the live state.
+ * Reads through the query's read view stored on `sctx` (if any), so every read issued
+ * through this pool observes the documents the iterators built from the same `sctx`
+ * can return. Pass `sctx == NULL` to read outside any query.
  *
  * @param handle Handle to the index
- * @param sctx Search context whose `diskSnapshot` pins the pool's read view (may be NULL).
- *             The snapshot must outlive the pool.
+ * @param sctx Search context whose `diskSnapshot` carries the pool's read view (may be NULL).
+ *             The view must outlive the pool.
  * @param max_concurrent Maximum number of concurrent pending reads
  * @return Opaque handle to the pool, or NULL on error
  */
