@@ -34,7 +34,7 @@ use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus, max_visible_doc_id};
 
 /// An iterator over numeric inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
@@ -185,6 +185,8 @@ where
     /// `range_min` and `range_max` are the minimum and maximum numeric ranges,
     /// respectively. They are only used in debug print.
     ///
+    /// The iterator ends at `max_doc_id`; see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. If `range_source` is Some, `node` must hold the range whose entries
@@ -201,6 +203,7 @@ where
         range_source: Option<RangeSource>,
         range_min: Option<f64>,
         range_max: Option<f64>,
+        max_doc_id: DocId,
     ) -> Self {
         let result = RSIndexResult::build_numeric(0.0).build();
 
@@ -218,7 +221,7 @@ where
         assert!(range_min <= range_max);
 
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(reader, result, expiration_checker, max_doc_id),
             range_tree_info,
             range_min,
             range_max,
@@ -604,6 +607,9 @@ impl<'index> NumericIteratorVariant<'index> {
         // between rewinds; every other query leaves it unbounded.
         let nodes = tree_ref.find_windowed_nodes(filter, RangeWindow::from_filter(filter));
 
+        // SAFETY: precondition 1 guarantees `sctx` is valid.
+        let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
+
         nodes
             .into_iter()
             .map(|node| {
@@ -651,6 +657,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         Some(source),
                         min_val,
                         max_val,
+                        max_doc_id,
                     )
                 }
             })
@@ -664,6 +671,8 @@ impl<'index> NumericIteratorVariant<'index> {
     /// - `filter` is `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
     /// - `filter` is `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
     ///
+    /// The iterator ends at `max_doc_id`; see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// The requirements of [`Numeric::new`] on `range_source` and `reader`.
@@ -674,6 +683,7 @@ impl<'index> NumericIteratorVariant<'index> {
         range_source: Option<RangeSource>,
         range_min: f64,
         range_max: f64,
+        max_doc_id: DocId,
     ) -> Self {
         match filter {
             None => {
@@ -685,6 +695,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_source,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Unfiltered(iter)
@@ -699,6 +710,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_source,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Filtered(iter)
@@ -713,6 +725,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_source,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Geo(iter)

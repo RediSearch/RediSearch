@@ -111,6 +111,7 @@ where
                 self.range_source,
                 self.range_min,
                 self.range_max,
+                DocId::MAX,
             )
         }
     }
@@ -706,6 +707,7 @@ mod variant {
     use index_result::RSIndexResult;
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
+    use rqe_core::DocId;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;
 
@@ -747,6 +749,7 @@ mod variant {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -778,6 +781,7 @@ mod variant {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -809,6 +813,7 @@ mod variant {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -1037,6 +1042,7 @@ mod variant_resume {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert_eq!(
@@ -1119,6 +1125,7 @@ mod variant_resume {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -1198,6 +1205,7 @@ mod variant_resume {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -1267,6 +1275,7 @@ mod variant_resume {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert_eq!(
@@ -1320,6 +1329,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         let guard = ctx.spec_read();
@@ -1364,6 +1374,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         let guard = ctx.spec_read();
@@ -1413,6 +1424,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         let guard = ctx.spec_read();
@@ -1455,6 +1467,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 3.0,
+                DocId::MAX,
             )
         };
         let _ = variant.read().expect("read failed");
@@ -1485,6 +1498,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 3.0,
+                DocId::MAX,
             )
         };
         let _ = variant.read().expect("read failed");
@@ -1521,6 +1535,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 7.0,
+                DocId::MAX,
             )
         };
         assert_eq!(
@@ -1589,6 +1604,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 7.0,
+                DocId::MAX,
             )
         };
         assert_eq!(
@@ -1663,6 +1679,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 9.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -1755,6 +1772,7 @@ mod variant_resume {
                 Some(tree.source()),
                 1.0,
                 9.0,
+                DocId::MAX,
             )
         };
         assert!(
@@ -1824,6 +1842,7 @@ mod variant_resume {
                 None,
                 1.0,
                 5.0,
+                DocId::MAX,
             )
         };
         assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
@@ -1881,6 +1900,7 @@ mod not_miri {
                     Some(self.test.context.numeric_range_source()),
                     None,
                     None,
+                    DocId::MAX,
                 )
             }
         }

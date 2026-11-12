@@ -30,7 +30,7 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus, max_visible_doc_id};
 
 /// An iterator over term inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
@@ -70,6 +70,9 @@ where
     ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
     ///
+    /// The iterator ends at `context`'s
+    /// [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId); see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
@@ -96,7 +99,12 @@ where
             .weight(weight)
             .build();
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(
+                reader,
+                result,
+                expiration_checker,
+                max_visible_doc_id(context_ref),
+            ),
         }
     }
 

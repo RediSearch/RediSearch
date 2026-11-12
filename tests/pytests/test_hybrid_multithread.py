@@ -170,3 +170,57 @@ def test_hybrid_writer_not_blocked_before_depletion():
     env.assertEqual(hybrid_reply_keys(payload) & late_keys, set())
     # The late documents match the query, so their absence above comes from the bound.
     env.assertEqual(hybrid_reply_keys(env.cmd(*query)) & late_keys, late_keys)
+
+
+@skip(cluster=True)
+def test_hybrid_filtered_knn_keeps_k_with_late_document():
+    """A document added after the build of a background hybrid query must not
+    take one of the K places of its filtered KNN subquery.
+    """
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_basic_index(env)
+    query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    k = 3
+    # The SEARCH clause matches nothing, so the reply holds only the KNN results.
+    query = ('FT.HYBRID', 'idx', 'SEARCH', '@text:(nomatch)',
+             'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(k),
+             'FILTER', '@type:{vector}', 'PARAMS', '2', 'BLOB', query_vector,
+             'LIMIT', '0', '100')
+
+    sync_point = 'BeforeHybridDepletion'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+    outcome = []
+    def run_hybrid_query(conn, out):
+        try:
+            # TIMEOUT 0 leaves the signal as the only release of the sync point.
+            out.append(('ok', conn.execute_command(*query, 'TIMEOUT', '0')))
+        except Exception as e:
+            out.append(('err', str(e)))
+
+    query_thread = threading.Thread(target=run_hybrid_query,
+                                    args=(env.getConnection(), outcome), daemon=True)
+    query_thread.start()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    # The closest vector to the query, so it would take the first place.
+    env.cmd('HSET', 'late:vector', 'type', 'vector', 'vector', query_vector)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    query_thread.join(timeout=30)
+    env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
+    if not outcome:
+        return  # still parked; the assertion above is the diagnostic
+
+    kind, payload = outcome[0]
+    env.assertEqual(kind, 'ok', message=f'expected the query to be served, got: {payload}')
+    if kind != 'ok':
+        return
+    keys = hybrid_reply_keys(payload)
+    env.assertNotContains('late:vector', keys)
+    env.assertEqual(len(keys), k, message=f'expected {k} KNN results, got: {sorted(keys)}')
+    # The late document is a top match, so its absence above comes from the bound.
+    env.assertContains('late:vector', hybrid_reply_keys(env.cmd(*query)))

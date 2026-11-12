@@ -13,6 +13,7 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
+use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Wildcard};
 use rqe_iterators_test_utils::TestContext;
 
@@ -64,7 +65,7 @@ impl WildcardBencher {
         group.bench_function("Rust", |b| {
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
             b.iter(|| {
-                let mut it = Wildcard::new(ii.reader(), 1.0);
+                let mut it = Wildcard::new(ii.reader(), 1.0, DocId::MAX);
                 while let Ok(Some(current)) = it.read() {
                     black_box(current);
                 }
@@ -80,7 +81,7 @@ impl WildcardBencher {
         group.bench_function("Rust", |b| {
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
             b.iter(|| {
-                let mut it = Wildcard::new(ii.reader(), 1.0);
+                let mut it = Wildcard::new(ii.reader(), 1.0, DocId::MAX);
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                     match outcome {
                         SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {

@@ -88,6 +88,9 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
     /// modes can report.
     num_docs: u64,
 
+    /// The end of the index for this iterator. See [`InvIndIterator::new`].
+    max_doc_id: DocId,
+
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
@@ -147,11 +150,21 @@ const _: () = {
     assert!(offset_of!(A, expiration_checker) == offset_of!(S, expiration_checker));
     assert!(offset_of!(A, flags) == offset_of!(S, flags));
     assert!(offset_of!(A, num_docs) == offset_of!(S, num_docs));
+    assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
     assert!(offset_of!(A, read_impl) == offset_of!(S, read_impl));
     assert!(offset_of!(A, skip_to_impl) == offset_of!(S, skip_to_impl));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
+
+/// The `max_doc_id` of [`InvIndIterator::new`] for an iterator built for `sctx`:
+/// [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId), or [`DocId::MAX`] when it is 0.
+pub(crate) const fn max_visible_doc_id(sctx: &ffi::RedisSearchCtx) -> DocId {
+    match sctx.maxVisibleDocId {
+        0 => DocId::MAX,
+        max_doc_id => max_doc_id,
+    }
+}
 
 impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     /// Read the cached `last_doc_id` regardless of mode.
@@ -191,7 +204,17 @@ where
     E: ExpirationChecker,
 {
     /// Creates a new inverted index iterator with the given expiration checker.
-    pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
+    ///
+    /// The iterator ends at `max_doc_id`: records with a larger document ID are
+    /// never yielded. Pass [`DocId::MAX`] to read the whole index. Document IDs
+    /// only grow along an inverted index, so the iterator stops at the first such
+    /// record rather than skipping it.
+    pub fn new(
+        reader: R,
+        result: RSIndexResult<'static>,
+        expiration_checker: E,
+        max_doc_id: DocId,
+    ) -> Self {
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
         // Check if expiration checking is enabled
@@ -221,9 +244,22 @@ where
             expiration_checker,
             flags,
             num_docs,
+            max_doc_id,
             read_impl,
             skip_to_impl,
         }
+    }
+
+    /// [`IndexReader::next_record`], with the index ending at `max_doc_id`.
+    fn next_record_bounded(&mut self) -> Result<bool, RQEIteratorError> {
+        Ok(self.reader.next_record(&mut self.result)? && self.result.doc_id <= self.max_doc_id)
+    }
+
+    /// [`IndexReader::seek_record`], with the index ending at `max_doc_id`.
+    fn seek_record_bounded(&mut self, doc_id: DocId) -> Result<bool, RQEIteratorError> {
+        Ok(doc_id <= self.max_doc_id
+            && self.reader.seek_record(doc_id, &mut self.result)?
+            && self.result.doc_id <= self.max_doc_id)
     }
 
     /// Returns the current query term bytes, if available.
@@ -241,7 +277,7 @@ where
             return Ok(None);
         }
 
-        if self.reader.next_record(&mut self.result)? {
+        if self.next_record_bounded()? {
             self.last_doc_id = self.result.doc_id;
             Ok(Some(&mut self.result))
         } else {
@@ -256,7 +292,7 @@ where
             return Ok(None);
         }
 
-        while self.reader.next_record(&mut self.result)? {
+        while self.next_record_bounded()? {
             if self.last_doc_id == self.result.doc_id {
                 // Prevent returning the same doc
                 continue;
@@ -279,7 +315,7 @@ where
             return Ok(None);
         }
 
-        while self.reader.next_record(&mut self.result)? {
+        while self.next_record_bounded()? {
             if self.is_current_doc_expired() {
                 continue;
             }
@@ -300,7 +336,7 @@ where
             return Ok(None);
         }
 
-        while self.reader.next_record(&mut self.result)? {
+        while self.next_record_bounded()? {
             if self.last_doc_id == self.result.doc_id {
                 // Prevent returning the same doc
                 continue;
@@ -334,7 +370,7 @@ where
             return Ok(None);
         }
 
-        if !self.reader.seek_record(doc_id, &mut self.result)? {
+        if !self.seek_record_bounded(doc_id)? {
             // reached end of iterator
             self.at_eos = true;
             return Ok(None);
@@ -360,7 +396,7 @@ where
             return Ok(None);
         }
 
-        if !self.reader.seek_record(doc_id, &mut self.result)? {
+        if !self.seek_record_bounded(doc_id)? {
             // reached end of iterator
             self.at_eos = true;
             return Ok(None);

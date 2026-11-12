@@ -583,6 +583,7 @@ fn make_numeric_variant<'a>(
             None,
             range_min,
             range_max,
+            rqe_core::DocId::MAX,
         )
     }
 }
