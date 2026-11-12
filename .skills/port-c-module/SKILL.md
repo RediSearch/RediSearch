@@ -64,8 +64,14 @@ The most important part of the plan separates what must stay the same from what 
   change so a human reviewer can accept or reject it. The divergences belong in the PR
   description and commit message.
 
-Name each test for the behavior it asserts, never for the contract it belongs to, as
-[`/rust-tests-guidelines`](../rust-tests-guidelines/SKILL.md) describes.
+Map every contract item to tests named for the behavior they assert, never for the contract
+they belong to, as [`/rust-tests-guidelines`](../rust-tests-guidelines/SKILL.md) describes: in
+Rust, and in the flow tests wherever users can see the behavior. The test names then read as the
+contract, such as `invalid_unit_is_reported_before_coordinates_and_radius`: a reviewer can tell
+from the names alone what each item guarantees, and which test fails when it breaks.
+
+Pin a contract item that holds over a range of inputs with property tests, as
+[`/rust-tests-guidelines`](../rust-tests-guidelines/SKILL.md) rule 4 requires.
 
 #### Two PRs
 
@@ -149,7 +155,6 @@ workspace does not enable yet, so `make lint` enforces them for the new code:
   `build_utils::bind_foreign_c_symbols`, and each benchmark is a group with a `c` function
   calling the C through the generated `ffi` bindings and a `rust` function calling the Rust
   API. Never copy C sources into the benchmark or rebuild C from git history.
-- Use `proptest` for property-based testing where appropriate
 - Testing code should be written with the same care reserved to production code
 
 ### 5. Compare Rust API with C API

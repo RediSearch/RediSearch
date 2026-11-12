@@ -1,0 +1,31 @@
+{
+  "name": "rust-port",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "test": "node --test '*/test/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "check": "prettier --check . && tsc --noEmit && node --test '*/test/*.test.ts'"
+  },
+  "dependencies": {
+    "@octokit/rest": "22.0.1",
+    "execa": "10.1.1"
+  },
+  "devDependencies": {
+    "@ampcode/plugin": "0.0.0-20261029001459-g185813a",
+    "@rollup/plugin-commonjs": "29.0.3",
+    "@rollup/plugin-node-resolve": "16.0.3",
+    "@rollup/plugin-typescript": "12.3.0",
+    "@types/node": "25.9.9",
+    "prettier": "3.6.2",
+    "rollup": "4.64.7",
+    "tslib": "2.8.1",
+    "typescript": "5.9.3"
+  },
+  "prettier": {
+    "printWidth": 100,
+    "singleQuote": true
+  }
+}
