@@ -54,6 +54,14 @@ impl IndexSpecCache {
         Self::from_fields_and_rule(fields, None, None, None)
     }
 
+    /// Like [`IndexSpecCache::from_fields`], for an index on JSON documents.
+    pub fn from_json_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
+        let cache = Self::from_fields(fields);
+        // SAFETY: the cache was just allocated and is not shared yet.
+        unsafe { (*cache.0.as_ptr()).is_json = true };
+        cache
+    }
+
     /// Like [`IndexSpecCache::from_fields`], additionally recording the schema
     /// rule's special document-field names, mirroring what
     /// `IndexSpec_BuildSpecCache` copies from the schema rule. The names are
@@ -105,10 +113,17 @@ impl IndexSpecCache {
                 lang_field: rm_strdup(lang),
                 score_field: rm_strdup(score),
                 payload_field: rm_strdup(payload),
+                is_json: false,
             });
         }
 
         Self(ptr)
+    }
+
+    /// Whether the index is on JSON documents, so its fields' paths are JSONPaths.
+    pub const fn is_json(&self) -> bool {
+        // SAFETY: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        unsafe { self.0.as_ref() }.is_json
     }
 
     /// Returns `true` if `name` is one of the schema rule's special document

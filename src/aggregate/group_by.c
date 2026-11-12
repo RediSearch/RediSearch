@@ -66,6 +66,10 @@ KHASH_MAP_INIT_INT64(khid, Group *);
  * than one element contributes each of its elements in turn; any other value
  * contributes itself, with an empty array standing for null and a single-element
  * array for its element.
+ *
+ * The array of an all-values key (RLOOKUP_F_ALLVALUES) holds every value of a
+ * multi-value field, and contributes each distinct one once, so a document joins
+ * each of its values' groups once.
  */
 typedef struct {
   const RSValue *value;  // the value this key contributes, or its array
@@ -73,6 +77,12 @@ typedef struct {
   size_t fanout;         // how many values this key contributes; > 1 only for arrays
   size_t idx;            // which of them is currently selected
   uint64_t hash;         // hash of the selected values up to and including this key
+
+  // For an all-values key: the distinct elements of its array, which the cursor
+  // contributes instead of the array's own elements. Reused across rows.
+  bool allValues;
+  const RSValue **distinct;
+  size_t distinctCap;
 } GroupKeyCursor;
 
 typedef struct Grouper {
@@ -218,6 +228,24 @@ static int addToGroup(Grouper *g, uint64_t hval, RLookupRow *res, t_docId docId)
   return RS_RESULT_OK;
 }
 
+/** The `idx`th value the array of key cursor `c` contributes. */
+static const RSValue *cursorElement(const GroupKeyCursor *c, size_t idx) {
+  return c->allValues ? c->distinct[idx] : RSValue_ArrayItem(c->deref, idx);
+}
+
+/**
+ * The number of values the array of an all-values key cursor `c` contributes:
+ * its distinct elements, collected into `c->distinct`.
+ */
+static size_t collectDistinct(GroupKeyCursor *c) {
+  size_t len = RSValue_ArrayLen(c->deref);
+  if (len > c->distinctCap) {
+    c->distinct = rm_realloc(c->distinct, len * sizeof(*c->distinct));
+    c->distinctCap = len;
+  }
+  return RSValue_ArrayDistinct(c->deref, c->distinct);
+}
+
 /** Select the `idx`th value of key `pos` and extend the hash of the selection. */
 static void selectGroupValue(Grouper *g, size_t pos, size_t idx) {
   GroupKeyCursor *c = &g->cursors[pos];
@@ -225,7 +253,7 @@ static void selectGroupValue(Grouper *g, size_t pos, size_t idx) {
   const RSValue *hashed = c->deref;
   if (c->fanout > 1) {
     // Elements are hashed as-is, even arrays.
-    selected = hashed = RSValue_ArrayItem(c->deref, idx);
+    selected = hashed = cursorElement(c, idx);
   }
   c->idx = idx;
   g->groupvals[pos] = selected;
@@ -263,7 +291,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     c->deref = RSValue_Dereference(c->value);
     c->fanout = 1;
     if (RSValue_IsArray(c->deref)) {
-      size_t len = RSValue_ArrayLen(c->deref);
+      size_t len = c->allValues ? collectDistinct(c) : RSValue_ArrayLen(c->deref);
       if (len > 1) {
         if (combinations > g->groupByLimits.maxGroups / len) {
           setAggregateGroupLimitError(g);
@@ -273,7 +301,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
         c->fanout = len;
       } else {
         // An empty array groups as null, a single element as itself (as-is).
-        c->value = c->deref = len ? RSValue_ArrayItem(c->deref, 0) : RSValue_NullStatic();
+        c->value = c->deref = len ? cursorElement(c, 0) : RSValue_NullStatic();
       }
     }
     selectGroupValue(g, pos, 0);
@@ -337,6 +365,9 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
   rm_free(g->srckeys);
   rm_free(g->dstkeys);
   rm_free(g->groupvals);
+  for (size_t i = 0; i < GROUPER_NSRCKEYS(g); i++) {
+    rm_free(g->cursors[i].distinct);
+  }
   rm_free(g->cursors);
   rm_free(g);
 }
@@ -359,7 +390,10 @@ Grouper *Grouper_New(const RLookupKey **srckeys, const RLookupKey **dstkeys, siz
     memcpy(g->srckeys, srckeys, nkeys * sizeof(*g->srckeys));
     memcpy(g->dstkeys, dstkeys, nkeys * sizeof(*g->dstkeys));
     g->groupvals = rm_malloc(nkeys * sizeof(*g->groupvals));
-    g->cursors = rm_malloc(nkeys * sizeof(*g->cursors));
+    g->cursors = rm_calloc(nkeys, sizeof(*g->cursors));
+    for (size_t i = 0; i < nkeys; i++) {
+      g->cursors[i].allValues = RLookupKey_GetFlags(srckeys[i]) & RLOOKUP_F_ALLVALUES;
+    }
   }
 
   g->base.type = RP_GROUP;

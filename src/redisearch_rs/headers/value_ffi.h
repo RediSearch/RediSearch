@@ -138,6 +138,25 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Writes the elements of an array [`RSValue`] to `out` in order, skipping any
+ * whose [hash][value::hash::hash] equals an earlier element's, and returns how
+ * many it wrote. The written pointers are borrowed from the array.
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ * 2. Unless the array is empty, `out` must be [valid] for writes of
+ *    [`RSValue_ArrayLen`]`(value)` pointers.
+ *
+ * # Panics
+ *
+ * Panics if `value` is not an array.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint32_t RSValue_ArrayDistinct(const struct RSValue *value, const struct RSValue * *out);
+
+/**
  * Returns a pointer to the element at `index` in an array [`RSValue`].
  *
  * If `value` is not an array, returns a null pointer. The returned pointer

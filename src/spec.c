@@ -2048,6 +2048,7 @@ static void IndexSpecCache_CopyRuleFields(IndexSpecCache *c, const struct Schema
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
   IndexSpecCache_CopyRuleFields(ret, spec->rule);
+  ret->is_json = isSpecJson(spec);
   ret->nfields = spec->numFields;
   ret->fields = rm_malloc(sizeof(*ret->fields) * ret->nfields);
   ret->refcount = 1;

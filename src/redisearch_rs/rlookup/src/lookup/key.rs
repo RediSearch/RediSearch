@@ -84,6 +84,11 @@ pub enum RLookupKeyFlag {
     /// This key type is numeric
     #[cheadergen(rename = "RLOOKUP_F_NUMERIC")]
     Numeric = 0x1000,
+
+    /// This key holds every value of a multi-value JSON field as an array (see
+    /// [`super::RLookup::get_key_all_values`]).
+    #[cheadergen(rename = "RLOOKUP_F_ALLVALUES")]
+    AllValues = 0x2000,
 }
 
 /// Helper type to represent a set of [`RLookupKeyFlag`]s.

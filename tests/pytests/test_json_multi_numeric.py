@@ -762,8 +762,10 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'LOAD', '1', '@val', *dialect_param),
                     [1, ['val', expected[1][2][1]]], message=message)
 
-    env.assertEqual(conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param),
-                    [1, ['val', expected[1][2][1]]], message=message)
+    # Groups per value (see test_multi_value_aggregation.py).
+    res = conn.execute_command('FT.AGGREGATE', 'idx_flat', '@val:[2 3]', 'GROUPBY', '1', '@val', *dialect_param)
+    env.assertEqual([res[0], *sorted(res[1:])],
+                    [3, ['val', '1'], ['val', '2'], ['val', '3']], message=message)
 
     # Array
     env.assertEqual(conn.execute_command('FT.SEARCH', 'idx_arr', '@val:[2 3]', 'RETURN', '3', '$.arr[1]', 'AS', 'arr_1', *dialect_param),
