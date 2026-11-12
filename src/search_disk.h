@@ -849,8 +849,9 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  * to the Redis INFO context.
  *
  * @param ctx Redis module info context
+ * @param includeIndexMetrics False to emit only shard-wide resource gauges.
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, bool includeIndexMetrics);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.

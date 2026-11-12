@@ -102,6 +102,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // Still emit the number of indexes and runtime configuration so operators can understand
     // why metrics are suppressed.
     AddToInfo_IndexesEmpty(ctx);
+    if (SearchDisk_IsEnabled() && RedisModule_InfoAddSection(ctx, "disk") == REDISMODULE_OK) {
+      SearchDisk_OutputInfoMetrics(ctx, false);
+    }
     if (RedisModule_InfoAddSection(ctx, "runtime_configurations") == REDISMODULE_OK) {
       AddToInfo_RSConfig(ctx);
     }
@@ -534,5 +537,5 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
 
 void AddToInfo_Disk(RedisModuleInfoCtx *ctx) {
   // Delegate to the disk API which outputs aggregated metrics directly
-  SearchDisk_OutputInfoMetrics(ctx);
+  SearchDisk_OutputInfoMetrics(ctx, true);
 }
