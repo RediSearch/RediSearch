@@ -212,6 +212,18 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
                                         uint64_t *notDiscarded);
 
 /**
+ * Enable async metadata reads when supported and configured; otherwise keep synchronous reads.
+ * Call once after attaching the processor to its query context, before execution.
+ */
+void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp);
+
+/**
+ * For profiled queries only: write accumulated metadata completion-wait time to out_ns in
+ * nanoseconds. Return false without writing when the processor has no async read pool.
+ */
+bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns);
+
+/**
  * Read score-bound counters from a profiled Index processor.
  * @return whether the processor's iterator tree reports score bounds, so the counters apply.
  */

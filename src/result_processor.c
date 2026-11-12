@@ -692,34 +692,38 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
-  // Determine which Next function to use based on disk configuration
-  if (sctx->spec->diskSpec &&
-      SearchDisk_IsAsyncIOSupported() &&
-      SearchDisk_GetAsyncIOEnabled()) {
-    // Create async pool and setup async I/O
-    RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, asyncPoolSize);
+  ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+  ret->base.NextWithThreshold =
+      isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
+  return &ret->base;
+}
 
-    if (asyncPool) {
-      // Async disk flow with buffering
-      IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
-      ret->base.Next = isProfiled ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
-      ret->base.NextWithThreshold = isProfiled ? rpQueryItNextAsyncDiskWithThresholdProfiled
-                                               : rpQueryItNextAsyncDiskWithThreshold;
-    } else {
-      ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
-      ret->base.NextWithThreshold =
-          isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
-    }
-  } else {
-    // Sync disk or regular in-memory flow (both use getDocumentMetadata)
-    ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
-    ret->base.NextWithThreshold =
-        isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
+void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent);
+  RPQueryIterator *self = (RPQueryIterator *)rp;
+  RS_ASSERT(!self->async.asyncPool);
+  RedisSearchCtx *sctx = self->sctx;
+  if (!sctx->spec->diskSpec || !SearchDisk_IsAsyncIOSupported() ||
+      !SearchDisk_GetAsyncIOEnabled()) {
+    return;
   }
 
+  RedisSearchDiskAsyncReadPool pool = SearchDisk_CreateAsyncReadPool(
+      sctx->spec->diskSpec, sctx, self->async.poolSize, rp->parent->isProfile);
+  if (pool) {
+    IndexResultAsyncRead_SetupAsyncPool(&self->async, pool);
+    rp->Next = rp->parent->isProfile ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
+    rp->NextWithThreshold = rp->parent->isProfile ? rpQueryItNextAsyncDiskWithThresholdProfiled
+                                                  : rpQueryItNextAsyncDiskWithThreshold;
+  }
+}
 
-  return &ret->base;
+bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
+  RPQueryIterator *self = (RPQueryIterator *)rp;
+  if (!self->async.asyncPool) return false;
+  *out_ns = SearchDisk_AsyncReadPool_GetAsyncWaitTime(self->async.asyncPool);
+  return true;
 }
 
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
