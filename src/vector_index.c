@@ -313,7 +313,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         const size_t size = VecSimIndex_IndexSize(vecsim);
         const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
         if (!size || estimated <= size / 50) {
-          qParams.searchMode = HYBRID_ADHOC_BF;
+          VecSimRawParam exactPolicy = {.name = "HYBRID_POLICY",
+                                        .nameLen = strlen("HYBRID_POLICY"),
+                                        .value = "ADHOC_BF",
+                                        .valLen = strlen("ADHOC_BF")};
+          if (VecSim_ResolveQueryParams(vecsim, &exactPolicy, 1, &qParams, queryType, q->status) !=
+              VecSim_OK)
+            return NULL;
           navix = NULL;
         } else {
           // EF counts summary-MAYBE results here; scale the ordinary search effort.
@@ -343,8 +349,11 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
             fieldSpec->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
+        QueryError_SetWithoutUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG
+            ", must not exceed %zu",
+            MAX_KNN_K);
         return NULL;
       }
       RS_ASSERT(q->sctx->limits);
