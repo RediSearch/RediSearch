@@ -299,8 +299,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         delegate_variant_ref!(self, current_block_last_doc_id)
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        delegate_variant_ref_mut!(self, set_score_threshold, min_competitive_score)
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        delegate_variant_ref_mut!(self, read_with_threshold, min_competitive_score)
     }
 }
 

@@ -64,7 +64,7 @@ where
                 PrintProfile: Some(print_profile::<I>),
                 CurrentMaxScore: Some(current_max_score::<I>),
                 CurrentBlockLastDocId: Some(current_block_last_doc_id::<I>),
-                SetScoreThreshold: Some(set_score_threshold::<I>),
+                ReadWithThreshold: Some(read_with_threshold::<I>),
             },
             inner,
         });
@@ -236,10 +236,31 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    match wrapper.inner.read() {
+    let outcome = wrapper.inner.read();
+    publish_read(&mut wrapper.header, outcome)
+}
+
+extern "C" fn read_with_threshold<'index, I: RQEIterator<'index> + 'index>(
+    base: *mut QueryIterator,
+    min_competitive_score: f64,
+) -> IteratorStatus {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    let outcome = wrapper.inner.read_with_threshold(min_competitive_score);
+    publish_read(&mut wrapper.header, outcome)
+}
+
+/// Report the outcome of a read in the C header, as `Read` and `ReadWithThreshold` require.
+fn publish_read(
+    header: &mut QueryIterator,
+    outcome: Result<Option<&mut RSIndexResult<'_>>, RQEIteratorError>,
+) -> IteratorStatus {
+    match outcome {
         Ok(Some(result)) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
-            wrapper.header.lastDocId = result.doc_id;
+            header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
         Err(RQEIteratorError::TimedOut) => IteratorStatus_ITERATOR_TIMEOUT,
@@ -249,8 +270,8 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
             )
         }
         Ok(None) => {
-            wrapper.header.atEOF = true;
-            wrapper.header.current = std::ptr::null_mut();
+            header.atEOF = true;
+            header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -417,17 +438,6 @@ extern "C" fn current_block_last_doc_id<'index, I: RQEIterator<'index> + 'index>
     let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
     // The C API reports "no block" as 0, which no document id takes.
     wrapper.inner.current_block_last_doc_id().unwrap_or(0)
-}
-
-extern "C" fn set_score_threshold<'index, I: RQEIterator<'index> + 'index>(
-    base: *mut QueryIterator,
-    min_competitive_score: f64,
-) {
-    debug_assert!(!base.is_null());
-    debug_assert!(base.is_aligned());
-    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    wrapper.inner.set_score_threshold(min_competitive_score);
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in

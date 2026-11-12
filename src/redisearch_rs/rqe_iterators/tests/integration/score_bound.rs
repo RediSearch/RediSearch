@@ -16,10 +16,19 @@ use std::rc::Rc;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
+use std::ptr::NonNull;
+
 use rqe_iterators::{
     Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ScoreBoundCtx,
-    SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat, id_list::IdListSorted,
-    maybe_empty::MaybeEmpty, not::Not, optional::Optional, profile::Profile,
+    SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
+    c2rust::CRQEIterator,
+    id_list::IdListSorted,
+    interop::{RQEIteratorWrapper, patch_vtable},
+    maybe_empty::MaybeEmpty,
+    not::Not,
+    optional::Optional,
+    profile::Profile,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::NoTimeoutChecker,
 };
 
@@ -28,7 +37,7 @@ const CTX: ScoreBoundCtx = ScoreBoundCtx {
 };
 
 /// A leaf over fixed doc ids that reports a fixed score bound and block boundary, and records the
-/// last threshold pushed to it.
+/// last threshold passed to [`RQEIterator::read_with_threshold`].
 struct Bounded<'index> {
     inner: IdListSorted<'index>,
     bound: f64,
@@ -102,8 +111,12 @@ impl<'index> RQEIterator<'index> for Bounded<'index> {
         self.block_last_doc_id
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.threshold.set(min_competitive_score);
+        self.inner.read()
     }
 }
 
@@ -318,14 +331,44 @@ fn not_and_optional_report_no_bound() {
 }
 
 #[test]
-fn composites_do_not_forward_the_threshold() {
-    let leaf = Bounded::new(vec![1], 1.0);
+fn default_read_with_threshold_is_read() {
+    let ids = vec![1, 4, 9];
+    let mut plain = IdListSorted::new(ids.clone());
+    let mut thresholded = IdListSorted::new(ids);
+    loop {
+        let expected = plain.read().expect("read failed").map(|r| r.doc_id);
+        let actual = thresholded
+            .read_with_threshold(f64::MAX)
+            .expect("read failed")
+            .map(|r| r.doc_id);
+        assert_eq!(actual, expected);
+        if expected.is_none() {
+            break;
+        }
+    }
+}
+
+#[test]
+fn composites_ignore_the_threshold() {
+    let leaf = Bounded::new(vec![1, 2], 1.0);
     let threshold = Rc::clone(&leaf.threshold);
-    let mut it = Intersection::new(vec![leaf], 1.0, false);
-    it.set_score_threshold(10.0);
-    read_doc(&mut it);
+    let mut and = Intersection::new(vec![leaf], 1.0, false);
+    let doc = and
+        .read_with_threshold(10.0)
+        .expect("read failed")
+        .map(|r| r.doc_id);
+    assert_eq!(doc, Some(1));
     assert_eq!(threshold.get(), f64::NEG_INFINITY);
-    assert_eq!(it.current_block_last_doc_id(), None);
+
+    let leaf = Bounded::new(vec![3], 1.0);
+    let threshold = Rc::clone(&leaf.threshold);
+    let mut or = UnionFullFlat::new(vec![leaf]);
+    let doc = or
+        .read_with_threshold(10.0)
+        .expect("read failed")
+        .map(|r| r.doc_id);
+    assert_eq!(doc, Some(3));
+    assert_eq!(threshold.get(), f64::NEG_INFINITY);
 }
 
 #[test]
@@ -335,11 +378,183 @@ fn wrappers_forward_every_hook() {
     let threshold = Rc::clone(&leaf.threshold);
 
     let mut it = Profile::new(MaybeEmpty::new(Box::new(leaf)));
-    it.set_score_threshold(1.25);
-    read_doc(&mut it);
+    let doc = it
+        .read_with_threshold(1.25)
+        .expect("read failed")
+        .map(|r| r.doc_id);
+    assert_eq!(doc, Some(1));
+    assert_eq!(threshold.get(), 1.25);
     assert_eq!(it.current_max_score(&CTX), 2.5);
     assert_eq!(it.current_block_last_doc_id(), Some(7));
-    assert_eq!(threshold.get(), 1.25);
+    // A thresholded read is still a read for the profile.
+    assert_eq!(it.counters().read, 1);
+}
+
+/// A leaf whose documents have their own bounds and that skips, inside
+/// [`RQEIterator::read_with_threshold`], the ones whose bound is below the threshold, up to
+/// `max_skips` in a row.
+struct Skipping<'index> {
+    inner: IdListSorted<'index>,
+    bounds: Vec<f64>,
+    position: Option<usize>,
+    max_skips: usize,
+}
+
+impl<'index> Skipping<'index> {
+    fn new(docs: &[(DocId, f64)], max_skips: usize) -> Self {
+        Self {
+            inner: IdListSorted::new(docs.iter().map(|&(id, _)| id).collect::<Vec<_>>()),
+            bounds: docs.iter().map(|&(_, bound)| bound).collect(),
+            position: None,
+            max_skips,
+        }
+    }
+
+    fn step(&mut self) -> Result<Option<DocId>, RQEIteratorError> {
+        let doc = self.inner.read()?.map(|r| r.doc_id);
+        self.position = doc.map(|_| self.position.map_or(0, |p| p + 1));
+        Ok(doc)
+    }
+}
+
+impl<'index> RQEIterator<'index> for Skipping<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.inner.current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.step()?;
+        Ok(self.inner.current())
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let mut skipped = 0;
+        while self.step()?.is_some() {
+            let below = self.current_max_score(&CTX) < min_competitive_score;
+            if !below || skipped == self.max_skips {
+                return Ok(self.inner.current());
+            }
+            skipped += 1;
+        }
+        Ok(None)
+    }
+
+    fn skip_to(
+        &mut self,
+        _doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        unimplemented!("not used by these tests")
+    }
+
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.inner.revalidate(spec)
+    }
+
+    fn rewind(&mut self) {
+        self.inner.rewind();
+        self.position = None;
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.inner.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.inner.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.inner.at_eof()
+    }
+
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+
+    fn current_max_score(&self, _ctx: &ScoreBoundCtx) -> f64 {
+        self.position.map_or(f64::INFINITY, |p| self.bounds[p])
+    }
+}
+
+impl ProfilePrint for Skipping<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
+/// The root loop of the index result processor: read with the threshold, then drop whatever
+/// still comes back below it.
+fn root_survivors<'index>(
+    it: &mut impl RQEIterator<'index>,
+    min_competitive_score: f64,
+) -> Vec<DocId> {
+    let mut survivors = Vec::new();
+    while let Some(doc) = it
+        .read_with_threshold(min_competitive_score)
+        .expect("read failed")
+        .map(|r| r.doc_id)
+    {
+        if it.current_max_score(&CTX) >= min_competitive_score {
+            survivors.push(doc);
+        }
+    }
+    survivors
+}
+
+const DOCS: [(DocId, f64); 6] = [(1, 5.0), (2, 1.0), (3, 0.5), (4, 3.0), (5, 0.1), (6, 2.0)];
+
+/// A leaf that skips below the threshold, reached through the C vtable and a profile wrapper as
+/// a query root is, yields the same survivors as one that does not skip at all, and only the
+/// competitive documents.
+#[test]
+fn skipping_leaf_through_the_c_abi() {
+    for max_skips in [0, 1, usize::MAX] {
+        let raw = RQEIteratorWrapper::boxed_new(Skipping::new(&DOCS, max_skips));
+        // SAFETY: `boxed_new` returns a valid, owning header with every callback populated.
+        let child = unsafe { CRQEIterator::new(NonNull::new(raw).expect("non-null header")) };
+        let mut root = Profile::new(child);
+        assert_eq!(
+            root_survivors(&mut root, 2.0),
+            vec![1, 4, 6],
+            "max_skips {max_skips}"
+        );
+        if max_skips == usize::MAX {
+            // Every below-threshold document was skipped by the leaf, none by the root.
+            assert_eq!(root.counters().read, 4);
+        }
+    }
+}
+
+/// A C iterator without `ReadWithThreshold` falls back to `Read`, and the root check alone keeps
+/// the result correct.
+#[test]
+fn c_iterator_without_read_with_threshold_falls_back_to_read() {
+    let raw = RQEIteratorWrapper::boxed_new(Skipping::new(&DOCS, usize::MAX));
+    // SAFETY: `raw` was just returned by `boxed_new` and has no other alias.
+    unsafe { patch_vtable(raw, |header| header.ReadWithThreshold = None) };
+    // SAFETY: `boxed_new` returns a valid, owning header with `Read` populated.
+    let mut child = unsafe { CRQEIterator::new(NonNull::new(raw).expect("non-null header")) };
+    let mut seen = Vec::new();
+    while let Some(doc) = child
+        .read_with_threshold(2.0)
+        .expect("read failed")
+        .map(|r| r.doc_id)
+    {
+        seen.push(doc);
+    }
+    assert_eq!(seen, vec![1, 2, 3, 4, 5, 6]);
+    child.rewind();
+    assert_eq!(root_survivors(&mut child, 2.0), vec![1, 4, 6]);
 }
 
 /// Mixes a scored leaf with a filter leaf under one composite child type.

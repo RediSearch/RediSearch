@@ -158,6 +158,52 @@ pub struct ContractChecker<I> {
 }
 
 impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
+    /// Run `read` or `read_with_threshold` on the inner iterator, checking the same contract for
+    /// both.
+    fn checked_read(
+        &mut self,
+        op: &'static str,
+        read: impl FnOnce(&mut I) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.assert_usable(op);
+        let previous = self.position;
+        let outcome = read(&mut self.inner)?
+            .map(|result| (result.doc_id, result as *const RSIndexResult<'index>));
+        match outcome {
+            None => {
+                self.after_exhaustion(op);
+                Ok(None)
+            }
+            Some((id, yielded)) => {
+                assert_ne!(
+                    previous,
+                    Position::PastEnd,
+                    "{op}: an exhausted iterator must keep returning None, but it yielded doc \
+                     {id}",
+                );
+                self.assert_may_yield_while_unread(op, previous, id);
+                if let Position::On(previous_id) = previous {
+                    match self.ordering {
+                        Ordering::Strict => assert!(
+                            id > previous_id,
+                            "{op}: doc ids must strictly ascend between rewinds, but {id} follows \
+                             {previous_id} — wrap an iterator that repeats a doc id with \
+                             `ContractChecker::new_with_duplicates`, or a deliberately unordered \
+                             one with `new_unordered`",
+                        ),
+                        Ordering::NonDecreasing => assert!(
+                            id >= previous_id,
+                            "{op}: doc ids must not descend between rewinds, but {id} follows \
+                             {previous_id}",
+                        ),
+                        Ordering::Unordered => {}
+                    }
+                }
+                Ok(Some(self.after_yield(op, id, yielded)))
+            }
+        }
+    }
+
     /// Wrap a freshly-constructed iterator whose doc ids ascend strictly
     /// between rewinds — the normal case, relied upon by every composite.
     pub fn new(inner: I) -> Self {
@@ -436,45 +482,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
 
     #[track_caller]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.assert_usable("read");
-        let previous = self.position;
-        let outcome = self
-            .inner
-            .read()?
-            .map(|result| (result.doc_id, result as *const RSIndexResult<'index>));
-        match outcome {
-            None => {
-                self.after_exhaustion("read");
-                Ok(None)
-            }
-            Some((id, yielded)) => {
-                assert_ne!(
-                    previous,
-                    Position::PastEnd,
-                    "read: an exhausted iterator must keep returning None, but it yielded doc \
-                     {id}",
-                );
-                self.assert_may_yield_while_unread("read", previous, id);
-                if let Position::On(previous_id) = previous {
-                    match self.ordering {
-                        Ordering::Strict => assert!(
-                            id > previous_id,
-                            "read: doc ids must strictly ascend between rewinds, but {id} follows \
-                             {previous_id} — wrap an iterator that repeats a doc id with \
-                             `ContractChecker::new_with_duplicates`, or a deliberately unordered \
-                             one with `new_unordered`",
-                        ),
-                        Ordering::NonDecreasing => assert!(
-                            id >= previous_id,
-                            "read: doc ids must not descend between rewinds, but {id} follows \
-                             {previous_id}",
-                        ),
-                        Ordering::Unordered => {}
-                    }
-                }
-                Ok(Some(self.after_yield("read", id, yielded)))
-            }
-        }
+        self.checked_read("read", |inner| inner.read())
     }
 
     #[track_caller]
@@ -717,7 +725,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         self.inner.current_block_last_doc_id()
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        self.inner.set_score_threshold(min_competitive_score)
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.checked_read("read_with_threshold", |inner| {
+            inner.read_with_threshold(min_competitive_score)
+        })
     }
 }

@@ -644,8 +644,12 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.current_block_last_doc_id()
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        self.0.set_score_threshold(min_competitive_score)
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.0.read_with_threshold(min_competitive_score)
     }
 }
 

@@ -223,10 +223,13 @@ where
         }
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.set_score_threshold(min_competitive_score),
-            MaybeEmptyOption::Some(it) => it.set_score_threshold(min_competitive_score),
+            MaybeEmptyOption::None(empty) => empty.read_with_threshold(min_competitive_score),
+            MaybeEmptyOption::Some(it) => it.read_with_threshold(min_competitive_score),
         }
     }
 }

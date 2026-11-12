@@ -168,11 +168,11 @@ typedef struct QueryIterator {
    * block boundary to report. NULL means 0; use `QueryIterator_CurrentBlockLastDocId`. */
   t_docId (*CurrentBlockLastDocId)(const struct QueryIterator *self);
 
-  /* Tell the iterator that no document whose `CurrentMaxScore` is below `minCompetitiveScore` can
-   * reach the results, so it may skip such documents without yielding them. Only ever raised
-   * while a query runs, except back to `-INFINITY`, which withdraws the threshold. NULL means the
-   * iterator ignores it; use `QueryIterator_SetScoreThreshold`. */
-  void (*SetScoreThreshold)(struct QueryIterator *self, double minCompetitiveScore);
+  /* `Read`, except that the iterator may move past documents whose `CurrentMaxScore` is below
+   * `minCompetitiveScore` without yielding them; it never moves past a document that could reach
+   * it. Same post-conditions as `Read`. NULL means plain `Read`; use
+   * `QueryIterator_ReadWithThreshold`. */
+  IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
 
 static inline double QueryIterator_CurrentMaxScore(const QueryIterator *it,
@@ -184,10 +184,9 @@ static inline t_docId QueryIterator_CurrentBlockLastDocId(const QueryIterator *i
   return it->CurrentBlockLastDocId ? it->CurrentBlockLastDocId(it) : 0;
 }
 
-static inline void QueryIterator_SetScoreThreshold(QueryIterator *it, double minCompetitiveScore) {
-  if (it->SetScoreThreshold) {
-    it->SetScoreThreshold(it, minCompetitiveScore);
-  }
+static inline IteratorStatus QueryIterator_ReadWithThreshold(QueryIterator *it,
+                                                             double minCompetitiveScore) {
+  return it->ReadWithThreshold ? it->ReadWithThreshold(it, minCompetitiveScore) : it->Read(it);
 }
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {

@@ -337,8 +337,8 @@ pub trait RQEIterator<'index> {
     /// query's scorer.
     ///
     /// Computed only from data the iterator already holds: it must not cost I/O. Root callers drop
-    /// a candidate whose bound is below the threshold pushed through
-    /// [`set_score_threshold`](Self::set_score_threshold), without reading its document, so an
+    /// a candidate whose bound is below the threshold they pass to
+    /// [`read_with_threshold`](Self::read_with_threshold), without reading its document, so an
     /// implementation must never return less than the score the scorer would compute.
     /// [`f64::INFINITY`] means "unknown" and is always correct.
     ///
@@ -361,14 +361,20 @@ pub trait RQEIterator<'index> {
         None
     }
 
-    /// Tell the iterator that no document whose
-    /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` can reach
-    /// the results, so it may skip such documents without yielding them.
+    /// [`read`](Self::read), except that the iterator may move past documents whose
+    /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` without
+    /// yielding them. It never moves past a document that could reach `min_competitive_score`.
     ///
-    /// Only pushed to the root of a query tree, whose score is the document's final score: a
-    /// composite must not forward it unchanged to its children. Raised monotonically while a query
-    /// runs, and reset to [`f64::NEG_INFINITY`] to withdraw it. Ignoring it is always correct.
-    fn set_score_threshold(&mut self, _min_competitive_score: f64) {}
+    /// The caller passes the threshold its own score is measured against, so a composite must not
+    /// hand it unchanged to its children, whose scores are only part of its own. Ignoring the
+    /// threshold, as the default does, is always correct; callers still check the bound of what
+    /// comes back. [`skip_to`](Self::skip_to) has no thresholded form.
+    fn read_with_threshold(
+        &mut self,
+        _min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.read()
+    }
 }
 
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
@@ -434,8 +440,11 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
         (**self).current_block_last_doc_id()
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        (**self).set_score_threshold(min_competitive_score)
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read_with_threshold(min_competitive_score)
     }
 }
 

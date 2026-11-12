@@ -118,8 +118,6 @@ typedef struct {
   struct {
     bool enabled;
     ScoreBoundCtx ctx;
-    // The threshold last pushed to `iterator`; `-INFINITY` while none is in force.
-    double minCompetitiveScore;
   } scoreBound;
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
@@ -149,23 +147,28 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
 }
 
 /**
- * Push the heap threshold the sorter has reached to the root iterator, or withdraw it when the
- * query-side switch has been turned off. Called once per `Next`: the sorter only raises its
- * threshold between calls.
+ * The score below which no candidate can reach the results, or `-INFINITY` when the query has no
+ * such threshold or the query-side switch is off. The sorter only raises its threshold between
+ * calls to `Next`, so callers compute it once per call.
  */
-static inline void refreshScoreThreshold(RPQueryIterator *self) {
-  if (!self->scoreBound.enabled) {
-    return;
+static inline double scoreBoundThreshold(const RPQueryIterator *self) {
+  if (!self->scoreBound.enabled || !RSGlobalConfig.diskScoreSkippingQuery) {
+    return -INFINITY;
   }
   // `minScore` is the score of the sorter's heap minimum once the heap is full, and 0 before:
   // `RPQueryIterator_EnableScoreBounds` is only called for pipelines where that holds.
-  const double minCompetitiveScore = RSGlobalConfig.diskScoreSkippingQuery
-                                         ? ScoreBound_MinCompetitive(self->base.parent->minScore)
-                                         : -INFINITY;
-  if (minCompetitiveScore != self->scoreBound.minCompetitiveScore) {
-    self->scoreBound.minCompetitiveScore = minCompetitiveScore;
-    QueryIterator_SetScoreThreshold(self->iterator, minCompetitiveScore);
-  }
+  return ScoreBound_MinCompetitive(self->base.parent->minScore);
+}
+
+/**
+ * Advance `it`, letting it skip candidates below `minCompetitiveScore` when there is a threshold.
+ * Without one this is a plain `Read`, which is all in-memory indexes ever do.
+ */
+static inline __attribute__((always_inline)) IteratorStatus
+readCandidate(QueryIterator *it, double minCompetitiveScore) {
+  return minCompetitiveScore == -INFINITY
+             ? it->Read(it)
+             : QueryIterator_ReadWithThreshold(it, minCompetitiveScore);
 }
 
 /**
@@ -179,12 +182,14 @@ static inline void refreshScoreThreshold(RPQueryIterator *self) {
  */
 static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterator *self,
                                                                    const QueryIterator *it,
+                                                                   double minCompetitiveScore,
                                                                    bool isProfiled) {
-  if (self->scoreBound.minCompetitiveScore == -INFINITY) {
+  // Iterators may honour the threshold only partly, or not at all, so the root checks again.
+  if (minCompetitiveScore == -INFINITY) {
     return false;
   }
   const double bound = QueryIterator_CurrentMaxScore(it, &self->scoreBound.ctx);
-  if (!ScoreBound_CanDrop(bound, self->scoreBound.minCompetitiveScore)) {
+  if (!ScoreBound_CanDrop(bound, minCompetitiveScore)) {
     // TODO(MOD-21193): once the metadata of this survivor is read, compare its exact bound with
     // the threshold to count reads caused by bound quantization.
     return false;
@@ -213,12 +218,14 @@ static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterat
  * @param prefetchDmd Whether to prefetch the metadata of the docIds just ahead of `it`
  * @param dmd The document metadata pointer to set
  * @param self The owning query iterator processor
+ * @param minCompetitiveScore `scoreBoundThreshold` of this call
  * @param isProfiled Whether to record candidate counts for this query
  * @return true if the document is not deleted or expired, false otherwise.
  */
 static inline __attribute__((always_inline)) bool getDocumentMetadata(
     IndexSpec *spec, DocTable *docs, RedisSearchCtx *sctx, const QueryIterator *it,
-    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self, bool isProfiled) {
+    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self,
+    double minCompetitiveScore, bool isProfiled) {
   if (spec->diskSpec) {
     RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
@@ -226,7 +233,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
-    if (!deleted && dropByScoreBound(self, it, isProfiled)) {
+    if (!deleted && dropByScoreBound(self, it, minCompetitiveScore, isProfiled)) {
       DMD_Return(diskDmd);
       return false;
     }
@@ -274,8 +281,8 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
  * Fills up to current capacity, doesn't grow the queue.
  * Returns RS_RESULT_OK on success, RS_RESULT_STOPPED on timeout.
  */
-static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQueryIterator *self,
-                                                                          bool isProfiled) {
+static inline __attribute__((always_inline)) int refillQueueUsingIterator(
+    RPQueryIterator *self, double minCompetitiveScore, bool isProfiled) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
 
@@ -290,7 +297,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
       return RS_RESULT_STOPPED;
     }
 
-    IteratorStatus rc = it->Read(it);
+    IteratorStatus rc = readCandidate(it, minCompetitiveScore);
     if (rc == ITERATOR_EOF) {
       break;
     } else if (rc == ITERATOR_TIMEOUT) {
@@ -301,7 +308,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
     t_docId docId = it->current->docId;
     const bool deleted = SearchDisk_DocIdDeleted(sctx->spec->diskSpec, docId);
     recordCandidate(self, deleted, isProfiled);
-    if (deleted || dropByScoreBound(self, it, isProfiled)) {
+    if (deleted || dropByScoreBound(self, it, minCompetitiveScore, isProfiled)) {
       continue;
     }
 
@@ -460,7 +467,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
-  refreshScoreThreshold(self);
+  const double minCompetitiveScore = scoreBoundThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
@@ -480,7 +487,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
     }
 
     if (!needToValidateCurrent) {
-      IteratorStatus rc = it->Read(it);
+      IteratorStatus rc = readCandidate(it, minCompetitiveScore);
       switch (rc) {
         case ITERATOR_EOF:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
@@ -496,7 +503,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
     // Get document metadata (either from disk or in-memory DocTable)
     if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self,
-                             isProfiled)) {
+                             minCompetitiveScore, isProfiled)) {
       continue;
     }
 
@@ -529,7 +536,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
-  refreshScoreThreshold(self);
+  const double minCompetitiveScore = scoreBoundThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // See rpQueryItNext: same interruptible park for the async-disk variant.
@@ -552,7 +559,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     }
 
     // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
-    int refillResult = refillQueueUsingIterator(self, isProfiled);
+    int refillResult = refillQueueUsingIterator(self, minCompetitiveScore, isProfiled);
     if (refillResult == RS_RESULT_STOPPED) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
@@ -650,7 +657,6 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
-  ret->scoreBound.minCompetitiveScore = -INFINITY;
 #ifdef ENABLE_ASSERT
   ret->firstRead = true;
 #endif

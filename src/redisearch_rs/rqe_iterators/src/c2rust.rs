@@ -10,9 +10,10 @@
 //   this shim.
 
 use ffi::{
-    IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, ValidateStatus_VALIDATE_TIMEOUT,
+    IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
+    IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator,
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_core::DocId;
 
@@ -61,7 +62,8 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
+    ///    (`CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`), which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -144,7 +146,8 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
+    ///    (`CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`), which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -215,15 +218,12 @@ impl CRQEIterator {
     }
 }
 
-impl<'index> RQEIterator<'index> for CRQEIterator {
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
-        let callback = unsafe { self.Read.unwrap_unchecked() };
-        // SAFETY:
-        // - We have a unique handle over this iterator.
-        // - The C code must guarantee, by constructor, that callbacks
-        //   can be called on types that implement its C iterator API.
-        let status = unsafe { callback(self.header.as_ptr()) };
+impl CRQEIterator {
+    /// Map the status of a `Read` or `ReadWithThreshold` callback to the Rust result.
+    fn read_outcome<'index>(
+        &mut self,
+        status: IteratorStatus,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
@@ -247,6 +247,19 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 unreachable!("`Read` returned an unexpected iterator status, {status}")
             }
         }
+    }
+}
+
+impl<'index> RQEIterator<'index> for CRQEIterator {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.Read.unwrap_unchecked() };
+        // SAFETY:
+        // - We have a unique handle over this iterator.
+        // - The C code must guarantee, by constructor, that callbacks
+        //   can be called on types that implement its C iterator API.
+        let status = unsafe { callback(self.header.as_ptr()) };
+        self.read_outcome(status)
     }
 
     fn skip_to(
@@ -451,13 +464,16 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         (last != 0).then_some(last)
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        if let Some(callback) = self.SetScoreThreshold {
-            // SAFETY: We have a unique handle over this iterator, and the C code must guarantee,
-            // by constructor, that callbacks can be called on types that implement its C
-            // iterator API.
-            unsafe { callback(self.header.as_ptr(), min_competitive_score) }
-        }
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let Some(callback) = self.ReadWithThreshold else {
+            return self.read();
+        };
+        // SAFETY: As in `read`.
+        let status = unsafe { callback(self.header.as_ptr(), min_competitive_score) };
+        self.read_outcome(status)
     }
 }
 

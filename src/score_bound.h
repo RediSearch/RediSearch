@@ -26,7 +26,7 @@ extern "C" {
 // go through the exact score and the sorter's own tie-break.
 #define SCORE_BOUND_REL_EPSILON 1e-6
 
-// The value pushed to iterators through `SetScoreThreshold` for heap threshold `theta`.
+// The value passed to `ReadWithThreshold` and `ScoreBound_CanDrop` for heap threshold `theta`.
 // Thresholds that are not positive are withdrawn: the supported scorers never score below 0, so
 // such a threshold could not drop anything.
 static inline double ScoreBound_MinCompetitive(double theta) {

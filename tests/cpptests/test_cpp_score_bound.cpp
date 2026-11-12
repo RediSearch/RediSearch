@@ -58,14 +58,16 @@ TEST_F(ScoreBoundTest, filterLeavesAddNothingOnlyUnderBM25STD) {
   }
 }
 
-// C iterators that leave the hooks unset report no bound and ignore thresholds.
+// C iterators that leave the hooks unset report no bound and read as if there were no threshold.
 TEST_F(ScoreBoundTest, unsetHooksAreSafeDefaults) {
   MockIterator *mock = new MockIterator(t_docId{1}, t_docId{2}, t_docId{3});
   QueryIterator *it = &mock->base;
-  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  ASSERT_EQ(QueryIterator_ReadWithThreshold(it, INFINITY), ITERATOR_OK);
+  EXPECT_EQ(it->lastDocId, 1);
   const ScoreBoundCtx ctx = {.filterLeafBound = 0};
   EXPECT_EQ(QueryIterator_CurrentMaxScore(it, &ctx), INFINITY);
   EXPECT_EQ(QueryIterator_CurrentBlockLastDocId(it), 0);
-  QueryIterator_SetScoreThreshold(it, 1.0);
+  ASSERT_EQ(QueryIterator_ReadWithThreshold(it, INFINITY), ITERATOR_OK);
+  EXPECT_EQ(it->lastDocId, 2);
   it->Free(it);
 }

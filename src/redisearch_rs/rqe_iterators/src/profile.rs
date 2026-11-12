@@ -236,8 +236,19 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.current_block_last_doc_id()
     }
 
-    fn set_score_threshold(&mut self, min_competitive_score: f64) {
-        self.child.set_score_threshold(min_competitive_score)
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: f64,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let start = Instant::now();
+        let result = self.child.read_with_threshold(min_competitive_score);
+        self.wall_time += start.elapsed();
+
+        self.counters.read += 1;
+        if matches!(&result, Ok(None)) {
+            self.counters.eof = true;
+        }
+        result
     }
 }
 
