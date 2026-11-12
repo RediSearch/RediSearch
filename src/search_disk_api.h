@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include "redisearch.h"
 #include "field_spec.h"
+#include "index_flags.h"
 #include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
@@ -232,6 +233,8 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @param flags The index's `IndexSpec::flags`. Selects which per-posting data TEXT
+   *              postings store (`Index_StoreTermOffsets`, `Index_StoreFieldFlags`).
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
@@ -247,13 +250,11 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
-                                             const HiddenString *indexName,
-                                             const char *obfuscatedName, size_t obfuscatedNameLen,
-                                             DocumentType type, bool deleteBeforeOpen,
-                                             const SearchDiskField *fields, size_t numFields,
-                                             const SearchDiskCompactionCallbacks *callbacks,
-                                             void *private_data, QueryError *status);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      bool deleteBeforeOpen, IndexFlags flags, const SearchDiskField *fields, size_t numFields,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data, QueryError *status);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -335,6 +336,7 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param flags The index's `IndexSpec::flags`, as for openIndexSpec.
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
@@ -346,8 +348,8 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, const SearchDiskField *fields, size_t numFields,
-      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+      RedisSearchDiskRdbState *rdbState, IndexFlags flags, const SearchDiskField *fields,
+      size_t numFields, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.

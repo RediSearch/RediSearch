@@ -358,7 +358,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-      fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
+      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec, status);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
@@ -428,8 +428,8 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
-      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, fields,
-      c_index_spec->numFields, &callbacks, c_index_spec);
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
+      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
