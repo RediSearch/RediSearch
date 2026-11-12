@@ -106,7 +106,8 @@ measure them together. This does not change the default AUTO policy.
 
 
 Option 2 also probes at most 512 deterministic pseudo-random document summaries for
-conjunctions that would otherwise traverse. It selects exact scanning if at most two
+conjunctions that would otherwise traverse, and only when the queried vector field
+covers every indexed document. It selects exact scanning if at most two
 probes return MAYBE, and stops probing as soon as a third does. Missing or ambiguous
 summaries count as MAYBE. This catches sparse intersections whose min-child estimate
 is large; it does not build a membership set or change the traversal EF estimate.

@@ -317,8 +317,8 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         bool preferExact = !size || estimated <= size / 50;
         if (!preferExact && !strcmp(navix, "NAVIX_AUTO2")) {
           preferExact = VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true);
-          if (!preferExact && filter_node->type == QN_PHRASE &&
-              array_len(filter_node->children) > 1) {
+          if (!preferExact && size == ctx->spec->stats.scoring.numDocuments &&
+              filter_node->type == QN_PHRASE && array_len(filter_node->children) > 1) {
             vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery,
                                            &qParams.navix, false);
             preferExact = NavixQuery_PreferExactScan(vq->navixQuery);

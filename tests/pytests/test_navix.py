@@ -244,5 +244,12 @@ def test_navix_auto_samples_sparse_conjunction(env):
                 results.append(result)
             if mode == 'HYBRID_ADHOC_BF':
                 env.assertEqual(_profile_value(results[1][1], 'NaviX bridge expansions'), None)
+        conn.execute_command('HSET', 'without-vector', 'a', -1, 'b', -1)
+        query = '(@a:[0 2999] @b:[0 2999])=>[KNN 2 @v $q HYBRID_POLICY NAVIX_AUTO2 EF_RUNTIME 100 AS dist]'
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                         'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                         'PARAMS', 2, 'q', struct.pack('<f', 0))
+        env.assertEqual(result[0], [2, 'd:0', 'd:1'])
+        env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'NAVIX_QC')
     finally:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
