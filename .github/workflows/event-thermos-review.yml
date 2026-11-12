@@ -54,7 +54,8 @@ jobs:
             exit 1
           fi
 
-      - uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
+      - id: claude
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The job token, not the Claude GitHub App's: the App token exchange refuses
@@ -85,6 +86,23 @@ jobs:
             --plugin-dir .ci/pstack-claude/plugins/pstack
             --max-turns 120
             --allowedTools "Agent,Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),mcp__github_inline_comment__create_inline_comment"
+
+      # The action exits green even when the session fails, so surface the
+      # session's outcome as annotations on the run.
+      - name: Report the review session
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          note() { printf '::%s title=%s::%s\n' "$1" "$2" "$(printf '%s' "$3" | head -c 3000 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"; }
+          f="$EXECUTION_FILE"
+          note notice "session init" "$(jq -c '[.[] | select(.type=="system" and .subtype=="init")][0]
+            | {model, plugins, thermos: ((.slash_commands // []) | map(select(test("thermos"))))}' "$f")"
+          note notice "session result" "$(jq -c '[.[] | select(.type=="result")][-1]
+            | {subtype, is_error, num_turns, duration_ms, permission_denials, result}' "$f")"
+          errors=$(jq -c '[.[] | select(.type=="user") | .message.content[]?
+            | select(.type=="tool_result" and .is_error==true) | .content] | .[:8]' "$f")
+          [ "$errors" = "[]" ] || note warning "tool errors" "$errors"
 
       - name: Remove the trigger label
         if: always()
