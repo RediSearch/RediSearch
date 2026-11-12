@@ -77,3 +77,34 @@ TEST_F(CreateOptionsTest, DeferredUnknownAndUnsupportedOptions) {
     EXPECT_FALSE(QueryError_HasError(&error));
   }
 }
+
+TEST_F(CreateOptionsTest, DocTableModes) {
+  ASSERT_EQ(REDISMODULE_OK, parse({"SCHEMA"}, true));
+  EXPECT_EQ(0, options.flags & INDEX_DOCTABLE_MODE_MASK);
+  ASSERT_EQ(REDISMODULE_OK, parse({"DOCTABLE", "disk", "SKIPINITIALSCAN", "SCHEMA"}, true));
+  EXPECT_EQ(DocTableMode_Disk, (options.flags & INDEX_DOCTABLE_MODE_MASK) >> INDEX_DOCTABLE_MODE_SHIFT);
+  EXPECT_TRUE(options.flags & Index_SkipInitialScan);
+  ASSERT_EQ(REDISMODULE_OK, parse({"PREFIX", "1", "DOCTABLE", "doctable", "Ram", "SCHEMA"}, true));
+  EXPECT_EQ(DocTableMode_Ram, (options.flags & INDEX_DOCTABLE_MODE_MASK) >> INDEX_DOCTABLE_MODE_SHIFT);
+  EXPECT_EQ(1, AC_NumRemaining(&cursor));
+}
+
+TEST_F(CreateOptionsTest, DocTableErrors) {
+  ASSERT_EQ(REDISMODULE_ERR, parse({"DOCTABLE", "RAM", "DOCTABLE", "RAM", "SCHEMA"}, true));
+  EXPECT_NE(nullptr, strstr(QueryError_GetUserError(&error), "DOCTABLE was specified more than once"));
+  ASSERT_EQ(REDISMODULE_ERR, parse({"DOCTABLE"}, true));
+  EXPECT_NE(nullptr, strstr(QueryError_GetUserError(&error), "DOCTABLE requires a value"));
+  ASSERT_EQ(REDISMODULE_ERR, parse({"DOCTABLE", "BOGUS", "SCHEMA"}, true));
+  EXPECT_NE(nullptr, strstr(QueryError_GetUserError(&error), "Unknown DOCTABLE value"));
+  for (const char *mode : {"RAM_SLIM", "RAM_SLIM_WITH_DISK_KEYS"}) {
+    ASSERT_EQ(REDISMODULE_ERR, parse({"DOCTABLE", mode, "SCHEMA"}, true));
+    EXPECT_NE(nullptr, strstr(QueryError_GetUserError(&error), "not yet implemented"));
+  }
+}
+
+TEST_F(CreateOptionsTest, DocTableUnknownOffFlex) {
+  ASSERT_EQ(REDISMODULE_OK, parse({"DOCTABLE", "DISK", "SCHEMA"}, false));
+  EXPECT_FALSE(options.unsupportedOption);
+  EXPECT_EQ(3, AC_NumRemaining(&cursor));
+  EXPECT_EQ(0, options.flags & INDEX_DOCTABLE_MODE_MASK);
+}

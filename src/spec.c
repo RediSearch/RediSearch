@@ -1848,7 +1848,43 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
     {.name = NULL}
   };
   ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  bool docTableSeen = false;
+  // DOCTABLE is handled outside the spec table because the table cannot detect a repeat.
+  for (;;) {
+    rc = AC_ParseArgSpec(ac, argopts, &errarg);
+    if (rc != AC_ERR_ENOENT || !flex) break;
+    const char *arg;
+    AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
+    if (strcasecmp(arg, "DOCTABLE") != 0) break;
+    AC_Advance(ac);
+    if (docTableSeen) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DOCTABLE was specified more than once");
+      return REDISMODULE_ERR;
+    }
+    docTableSeen = true;
+    const char *value;
+    if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DOCTABLE requires a value");
+      return REDISMODULE_ERR;
+    }
+    DocTableMode mode;
+    if (!strcasecmp(value, "DISK")) {
+      mode = DocTableMode_Disk;
+    } else if (!strcasecmp(value, "RAM")) {
+      mode = DocTableMode_Ram;
+    } else if (!strcasecmp(value, "RAM_SLIM") || !strcasecmp(value, "RAM_SLIM_WITH_DISK_KEYS")) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "DOCTABLE value not yet implemented:", " `%s`", value);
+      return REDISMODULE_ERR;
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "Unknown DOCTABLE value:", " `%s`", value);
+      return REDISMODULE_ERR;
+    }
+    options->flags = (options->flags & ~INDEX_DOCTABLE_MODE_MASK) |
+                     ((IndexFlags)mode << INDEX_DOCTABLE_MODE_SHIFT);
+  }
   if (rc == AC_ERR_ENOENT && flex) {
     const char *arg;
     AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);

@@ -290,6 +290,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
+  if (sp->diskSpec) {
+    REPLY_KVSTR("doc_table_storage", DocTableMode_ToString(IndexSpec_DocTableMode(sp)));
+  }
   REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
   REPLY_KVINT("max_doc_id", maxDocId);
@@ -316,6 +319,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
     sp->docs.memsize;
+  if (isDisk && IndexSpec_DocTableMode(sp) == DocTableMode_Ram) {
+    doc_table_size += sp->docs.memsize;
+  }
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 

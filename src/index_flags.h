@@ -36,4 +36,30 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
+  // Flex only: 2-bit doc-table placement, see DocTableMode. Always 0 off Flex.
+  Index_DocTableModeBit0 = 0x100000,
+  Index_DocTableModeBit1 = 0x200000,
 } IndexFlags;
+
+#define INDEX_DOCTABLE_MODE_SHIFT 20
+#define INDEX_DOCTABLE_MODE_MASK (Index_DocTableModeBit0 | Index_DocTableModeBit1)
+
+// Where a Flex index serves its document metadata from. The value is stored in the
+// IndexFlags mode bits, so the numeric values are persisted and must not change.
+typedef enum {
+  DocTableMode_Disk = 0,
+  DocTableMode_Ram = 1,
+  DocTableMode_RamSlim = 2,
+  DocTableMode_RamSlimWithDiskKeys = 3,
+} DocTableMode;
+
+static inline const char *DocTableMode_ToString(DocTableMode mode) {
+  switch (mode) {
+    case DocTableMode_Disk: return "DISK";
+    case DocTableMode_Ram: return "RAM";
+    case DocTableMode_RamSlim: return "RAM_SLIM";
+    case DocTableMode_RamSlimWithDiskKeys: return "RAM_SLIM_WITH_DISK_KEYS";
+  }
+  return "UNKNOWN";
+}
