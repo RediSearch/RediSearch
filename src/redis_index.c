@@ -122,6 +122,8 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   }
   // Disk is enabled and this index is disk-backed, so the backend must be up.
   RS_ASSERT(SearchDisk_IsInitialized());
+  // The view is only meaningful against the index state the caller is holding stable.
+  RS_ASSERT(IndexSpec_IsReadLocked(sp));
   sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
   if (!sctx->diskSnapshot) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,

@@ -1232,7 +1232,8 @@ DEBUG_COMMAND(DiskFlush) {
 }
 
 // FT.DEBUG DISK_LIVE_SNAPSHOTS
-// Number of disk snapshots currently alive, so tests can assert they are released.
+// Number of per-query disk read views (RedisSearchDiskSnapshot handles) currently alive, so
+// tests can assert they are released.
 DEBUG_COMMAND(DiskLiveSnapshots) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);

@@ -930,7 +930,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   // In-memory background depleters acquire their own read locks before this thread unlocks.
   // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
   // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
-  // Disk depletion uses the snapshot taken during the build and needs no spec lock.
+  // Disk depletion reads through the per-query view taken during the build and needs no spec lock.
   const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
   bool unlockSuppressed = false;
 

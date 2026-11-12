@@ -272,7 +272,7 @@ bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
                                    SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
                                    size_t numFields, t_docId docId);
 
-/** Open missing postings using sctx's query snapshot. See IndexDiskAPI.newMissingIterator. */
+/** Open missing postings through sctx's query read view. See IndexDiskAPI.newMissingIterator. */
 QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
                                              const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                              QueryError *status);

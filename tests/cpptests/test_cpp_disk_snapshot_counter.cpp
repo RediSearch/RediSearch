@@ -10,6 +10,7 @@
 #include "common.h"
 #include <vector>
 extern "C" {
+#include "util/dict.h"
 #include "hybrid/hybrid_request.h"
 #include "obfuscation/hidden.h"
 #include "result_processor.h"
@@ -79,11 +80,13 @@ TEST_F(DiskSnapshotCounterTest, FreeingNullIsNotCounted) {
 }
 
 // A two-subquery hybrid request on a disk-backed index, with just enough state to take each
-// subquery's own snapshot as HybridRequest_BuildDepletionPipeline does.
+// subquery's own read view as HybridRequest_BuildDepletionPipeline does: a lockable spec, since
+// SearchCtx_TakeDiskSnapshot asserts the spec read lock.
 class HybridSnapshotTest : public DiskSnapshotCounterTest {
  protected:
   bool savedFlex = false;
   RedisSearchDisk* savedDiskDb = nullptr;
+  dictType type{};
   IndexSpec spec{};
   AREQ first{};
   AREQ second{};
@@ -98,6 +101,8 @@ class HybridSnapshotTest : public DiskSnapshotCounterTest {
     savedDiskDb = disk_db;
     isFlex = true;
     disk_db = reinterpret_cast<RedisSearchDisk*>(&sentinel);
+    ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
+    spec.keysDict = dictCreate(&type, nullptr);
     spec.diskSpec = index;
     spec.specName = NewHiddenString("idx", 3, true);
     first.sctx = &firstCtx;
@@ -109,19 +114,26 @@ class HybridSnapshotTest : public DiskSnapshotCounterTest {
   }
 
   int takeSnapshots() {
+    int rc = REDISMODULE_OK;
+    IndexSpec_LockRead(&spec);
     for (AREQ* sub : subqueries) {
       if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(sub), &sub->base.reply.err) !=
           REDISMODULE_OK) {
-        return REDISMODULE_ERR;
+        rc = REDISMODULE_ERR;
+        break;
       }
     }
-    return REDISMODULE_OK;
+    IndexSpec_Unlock(&spec);
+    return rc;
   }
 
   void TearDown() override {
     QueryError_ClearError(&first.base.reply.err);
     QueryError_ClearError(&second.base.reply.err);
     HiddenString_Free(spec.specName, true);
+    IndexSpec_AssertLockNotHeld();
+    dictRelease(spec.keysDict);
+    EXPECT_EQ(pthread_rwlock_destroy(&spec.rwlock), 0);
     isFlex = savedFlex;
     disk_db = savedDiskDb;
     DiskSnapshotCounterTest::TearDown();
