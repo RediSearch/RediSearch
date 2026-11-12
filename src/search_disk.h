@@ -499,6 +499,12 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
  */
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
+/** Highest document ID that existed when `snapshot` was created (RAM doc-table queries). */
+t_docId SearchDisk_GetSnapshotCutoff(RedisSearchDiskSnapshot *snapshot);
+
+/** Whether a RAM doc-table document in cluster slot `slot` is not deleted or pending a slot trim. */
+bool SearchDisk_IsRamDocVisible(RedisSearchDiskIndexSpec *handle, t_docId docId, uint16_t slot);
+
 /**
  * @brief Get the maximum document ID of the index (next to be assigned)
  *

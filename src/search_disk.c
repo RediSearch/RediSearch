@@ -590,6 +590,16 @@ char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_f
     return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
 }
 
+t_docId SearchDisk_GetSnapshotCutoff(RedisSearchDiskSnapshot *snapshot) {
+    RS_ASSERT(disk && snapshot);
+    return disk->docTable.getSnapshotCutoff(snapshot);
+}
+
+bool SearchDisk_IsRamDocVisible(RedisSearchDiskIndexSpec *handle, t_docId docId, uint16_t slot) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.isRamDocVisible(handle, docId, slot);
+}
+
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
     RS_ASSERT(disk && handle);
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);

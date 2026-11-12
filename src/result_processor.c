@@ -165,9 +165,22 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
     DiskReadFailureReason failureReason = DISK_READ_ERROR;
-    const bool foundDocument =
-        !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime, &failureReason);
+    bool foundDocument;
+    if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
+      // The live vector index can yield ids newer than the query's snapshot.
+      foundDocument = !deleted && it->current->docId <= SearchDisk_GetSnapshotCutoff(sctx->diskSnapshot);
+      if (foundDocument) {
+        IndexSpec_LockRead(spec);
+        foundDocument = DocTable_CopyById(docs, it->current->docId, diskDmd, &sctx->currentTime);
+        IndexSpec_Unlock(spec);
+      }
+      foundDocument = foundDocument &&
+                      SearchDisk_IsRamDocVisible(spec->diskSpec, diskDmd->id, diskDmd->slot);
+    } else {
+      foundDocument =
+          !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
+                                                     diskDmd, &sctx->currentTime, &failureReason);
+    }
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -598,6 +611,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
+      IndexSpec_DocTableMode(sctx->spec) == DocTableMode_Disk &&
       SearchDisk_IsAsyncIOSupported() &&
       SearchDisk_GetAsyncIOEnabled()) {
     // Create async pool and setup async I/O

@@ -221,6 +221,25 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // existed, not on its length. `oldDocLen` is still the right value to subtract
   // from `totalDocsLen` (0 for a zero-length old doc is a correct no-op subtraction).
   const bool replaced = aCtx->oldDocId != 0;
+  if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
+    // Rust skipped its doc-table rows, so the old doc length lives only in the old DMD.
+    if (replaced) {
+      RSDocumentMetadata *oldDmd = DocTable_DeleteById(&spec->docs, aCtx->oldDocId);
+      if (oldDmd) {
+        aCtx->disk.oldDocLen = oldDmd->docLen;
+        DMD_Return(oldDmd);
+      }
+    }
+    size_t keyLen;
+    const char *key = RedisModule_StringPtrLen(aCtx->doc->docKey, &keyLen);
+    RSDocumentMetadata *dmd =
+        DocTable_PutWithId(&spec->docs, aCtx->doc->docId, key, keyLen, aCtx->doc->score,
+                           aCtx->docFlags, aCtx->doc->type);
+    dmd->maxTermFreq = aCtx->fwIdx->maxTermFreq;
+    dmd->docLen = aCtx->fwIdx->totalFreq;
+    DocTable_SetDocExpiration(dmd, aCtx->doc->docExpirationTime);
+    DMD_Return(dmd);
+  }
   if (replaced) {
     Indexer_HandleReplacedDocVectorAndGeometry(spec, aCtx->oldDocId, aCtx);
     Indexer_RemoveOldDocStats(spec, aCtx->disk.oldDocLen);

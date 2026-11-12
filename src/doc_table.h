@@ -155,6 +155,17 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
+/* Flex RAM mode: insert a document under an id allocated by the disk layer, raising maxDocId to
+ * it. No payload. Returns a reference for the caller. Caller holds the spec write lock. */
+RSDocumentMetadata *DocTable_PutWithId(DocTable *t, t_docId docId, const char *s, size_t n,
+                                       double score, RSDocumentFlags flags, DocumentType type);
+
+/* Copy the live, unexpired metadata of `docId` into the caller-owned `out` (key duplicated, no
+ * payload or sort vector). Returns false if absent, deleted or expired at `now`. Caller holds
+ * the spec read or write lock for the duration of the call only. */
+bool DocTable_CopyById(const DocTable *t, t_docId docId, RSDocumentMetadata *out,
+                       const struct timespec *now);
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);

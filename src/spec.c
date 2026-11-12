@@ -3341,6 +3341,44 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 
 // A new top-level schema-defining member saved here must be mirrored in
 // schemaFingerprint.
+// RAM-mode doc table section of the SST block: count, then per document
+// id, key, score, flags, maxTermFreq, docLen, expirationTimeNs.
+static void docTableRamRdbSave(RedisModuleIO *rdb, DocTable *dt) {
+  uint64_t count = 0;
+  DOCTABLE_FOREACH(dt, count++);
+  RedisModule_SaveUnsigned(rdb, count);
+  DOCTABLE_FOREACH(dt, {
+    RedisModule_SaveUnsigned(rdb, dmd->id);
+    RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
+    RedisModule_SaveFloat(rdb, dmd->score);
+    RedisModule_SaveUnsigned(rdb, dmd->flags);
+    RedisModule_SaveUnsigned(rdb, dmd->maxTermFreq);
+    RedisModule_SaveUnsigned(rdb, dmd->docLen);
+    RedisModule_SaveSigned(rdb, __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED));
+  });
+}
+
+static int docTableRamRdbLoad(RedisModuleIO *rdb, DocTable *dt, DocumentType type) {
+  uint64_t count = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+  for (uint64_t i = 0; i < count; ++i) {
+    t_docId id = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    size_t keyLen;
+    char *key = LoadStringBuffer_IOError(rdb, &keyLen, return REDISMODULE_ERR);
+    float score = RedisModule_LoadFloat(rdb);
+    RSDocumentFlags flags = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    uint32_t maxTermFreq = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    uint32_t docLen = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    int64_t expirationTimeNs = LoadSigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    RSDocumentMetadata *dmd = DocTable_PutWithId(dt, id, key, keyLen, score, flags, type);
+    RedisModule_Free(key);
+    dmd->maxTermFreq = maxTermFreq;
+    dmd->docLen = docLen;
+    __atomic_store_n(&dmd->expirationTimeNs, expirationTimeNs, __ATOMIC_RELAXED);
+    DMD_Return(dmd);
+  }
+  return REDISMODULE_OK;
+}
+
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3406,6 +3444,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
         rdb, (uint64_t)(sp->scan_in_progress || RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+    if (IndexSpec_DocTableMode(sp) == DocTableMode_Ram) {
+      docTableRamRdbSave(rdb, &sp->docs);
+    }
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3580,6 +3621,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
     if (!sp->terms) {
+      goto cleanup;
+    }
+
+    if (IndexSpec_DocTableMode(sp) == DocTableMode_Ram &&
+        docTableRamRdbLoad(rdb, &sp->docs, sp->rule->type) != REDISMODULE_OK) {
       goto cleanup;
     }
 
@@ -4203,6 +4249,34 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
   return DocTable_Borrow(&sp->docs, docId);
 }
 
+// Removes `docId` from wherever the doc table lives and reports its length.
+// False if the document is absent.
+static bool removeDocFromDocTable(IndexSpec *spec, t_docId docId, uint32_t *docLen) {
+  if (SearchDisk_IsEnabled()) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
+      // The disk layer has no record to read, so gate on the C table to avoid marking an
+      // already-removed id twice.
+      RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+      if (!md) {
+        return false;
+      }
+      *docLen = md->docLen;
+      DMD_Return(md);
+      uint32_t ignored = 0;
+      return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &ignored);
+    }
+    return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen);
+  }
+  RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+  if (!md) {
+    return false;
+  }
+  *docLen = md->docLen;
+  DMD_Return(md);
+  return true;
+}
+
 // Logical de-index of a still-existing key that should no longer be indexed
 // (filter no longer matches, REPLACE, changed indexed field). Physical key
 // removal goes through the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
@@ -4217,20 +4291,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   }
 
   uint32_t docLen = 0;
-  if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Failed to delete
-      return;
-    }
-  } else {
-    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, (t_docId)docId);
-    if (!md) {
-      // Nothing to delete
-      return;
-    }
-    docLen = md->docLen;
-    DMD_Return(md);
+  if (!removeDocFromDocTable(spec, (t_docId)docId, &docLen)) {
+    // Nothing to delete
+    return;
   }
 
   // Drop the mapping so a surviving-but-de-indexed key isn't left pointing at a
@@ -4259,20 +4322,8 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
-  if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Document not found on disk
-      return false;
-    }
-  } else {
-    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
-    if (!md) {
-      // Document not found in the in-memory table
-      return false;
-    }
-    docLen = md->docLen;
-    DMD_Return(md);
+  if (!removeDocFromDocTable(spec, docId, &docLen)) {
+    return false;
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
