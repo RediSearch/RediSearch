@@ -287,7 +287,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/redisearch.h",
         fns: &[],
         types: &["RSToken"],
-        vars: &["BAD_POINTER_ADDR"],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
@@ -405,7 +405,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
-        types: &["SuffixCtx", "SuffixType"],
+        types: &["SuffixCtx", "SuffixType", "SuffixWildcardStatus"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {

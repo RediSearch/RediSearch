@@ -16,6 +16,7 @@
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"
+#include "suffix.h"
 
 struct InvertedIndex;
 typedef struct TrieMapIterator TrieMapIterator;
@@ -159,11 +160,11 @@ arrayof(char **)
     TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
                            struct timespec timeout, bool skipTimeoutChecks);
 
-/* Return a list of terms which match the wildcard pattern or NULL
- * If pattern does not match using suffix trie, return 0xBAAAAAAD */
-arrayof(char *)
-    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
-                                      struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+/* Find the tag values which match the wildcard pattern in the suffix trie.
+ * See `GetList_SuffixTrieMap_Wildcard` for the outcomes and `*matches` ownership. */
+SuffixWildcardStatus TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                                       struct timespec timeout, long long maxPrefixExpansions,
+                                                       bool skipTimeoutChecks, arrayof(char *) *matches);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
