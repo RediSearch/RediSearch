@@ -69,6 +69,12 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
+static InfoFieldSpec textResourceSpecs[] = {
+    {.name = "ram_metadata_bytes", .type = InfoField_WholeSum},
+    {.name = "memtable_bytes", .type = InfoField_WholeSum},
+    {.name = "storage_bytes", .type = InfoField_WholeSum},
+};
+
 static InfoFieldSpec gcSpecs[] = {
     {.name = "bytes_collected", .type = InfoField_WholeSum},
     {.name = "total_ms_run", .type = InfoField_WholeSum},
@@ -130,6 +136,7 @@ typedef struct {
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
   MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
+  InfoValue textResources[ARRAY_SIZE(textResourceSpecs)];
 } InfoFields;
 
 /**
@@ -295,6 +302,16 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     if (!fields->stopWordList) {
       fields->stopWordList = value;
     }
+  } else if (!strcmp(name, "column_families")) {
+    if (MRReply_Type(value) == MR_REPLY_ARRAY || MRReply_Type(value) == MR_REPLY_MAP) {
+      for (size_t i = 0; i + 1 < MRReply_Length(value); i += 2) {
+        const char *group = MRReply_String(MRReply_ArrayElement(value, i), NULL);
+        if (group && !strcmp(group, "text")) {
+          processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->textResources,
+                         textResourceSpecs, ARRAY_SIZE(textResourceSpecs), 1, error);
+        }
+      }
+    }
   } else if (!strcmp(name, "gc_stats")) {
     processKvArray(fields, value, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, 1, error);
     recomputeAverageCycleTimeMs(fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
@@ -431,6 +448,14 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   replyIndexAverages(reply, fields);
+  if (fields->textResources[0].isSet) {
+    RedisModule_ReplyKV_Map(reply, "column_families");
+    RedisModule_ReplyKV_Map(reply, "text");
+    replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
+                 ARRAY_SIZE(textResourceSpecs));
+    RedisModule_Reply_MapEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
+  }
 
 
   // Global index error stats

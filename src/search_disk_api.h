@@ -1135,11 +1135,17 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+typedef struct TextResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} TextResourceMetrics;
+
 /* Numeric cached values; reading these never collects native properties. */
 typedef struct CachedIndexMetrics {
   uint64_t memory;
   uint64_t disk_usage;
   uint64_t blocks;
+  TextResourceMetrics text;
 } CachedIndexMetrics;
 
 typedef struct MetricsDiskAPI {
@@ -1147,8 +1153,9 @@ typedef struct MetricsDiskAPI {
   void (*stopMetrics)(RedisSearchDisk *disk);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
-  /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
-  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /* Stages the disk snapshot and live C-owned TEXT metadata for INFO output. */
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
+                                                uint64_t textRamMetadataBytes);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *
