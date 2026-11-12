@@ -210,8 +210,8 @@ static const char *navixPolicy(const VecSimRawParam *param) {
   if (param->nameLen != strlen("HYBRID_POLICY") ||
       strncasecmp(param->name, "HYBRID_POLICY", param->nameLen))
     return NULL;
-  static const char *policies[] = {"NAVIX",        "NAVIX_BLIND",  "NAVIX_DEDUP",
-                                   "NAVIX_BUDGET", "NAVIX_BRIDGE", "NAVIX_AUTO"};
+  static const char *policies[] = {"NAVIX", "NAVIX_BLIND", "NAVIX_DEDUP", "NAVIX_BUDGET",
+                                   "NAVIX_BRIDGE", "NAVIX_AUTO", "NAVIX_AUTO2"};
   for (size_t i = 0; i < sizeof(policies) / sizeof(*policies); ++i) {
     if (param->valLen == strlen(policies[i]) &&
         !strncasecmp(param->value, policies[i], param->valLen)) return policies[i];
@@ -309,10 +309,14 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           VecSim_ResolveQueryParams(vecsim, resolved, nparams, &qParams, queryType, q->status);
       if (navix) rm_free(resolved);
       if (resolveCode != VecSim_OK) return NULL;
-      if (navix && !strcmp(navix, "NAVIX_AUTO")) {
+      const bool navixAuto =
+          navix && (!strcmp(navix, "NAVIX_AUTO") || !strcmp(navix, "NAVIX_AUTO2"));
+      if (navixAuto) {
         const size_t size = VecSimIndex_IndexSize(vecsim);
         const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
-        if (!size || estimated <= size / 50) {
+        if (!size || estimated <= size / 50 ||
+            (!strcmp(navix, "NAVIX_AUTO2") &&
+             VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true))) {
           VecSimRawParam exactPolicy = {.name = "HYBRID_POLICY",
                                         .nameLen = strlen("HYBRID_POLICY"),
                                         .value = "ADHOC_BF",
@@ -336,8 +340,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                         !strcmp(navix, "NAVIX_BLIND"));
         qParams.navix.skipScanned = !strcmp(navix, "NAVIX_DEDUP") || secondHopBudget;
         qParams.navix.secondHopBudget = secondHopBudget;
-        qParams.navix.bridgeRejected =
-            !strcmp(navix, "NAVIX_BRIDGE") || !strcmp(navix, "NAVIX_AUTO");
+        qParams.navix.bridgeRejected = !strcmp(navix, "NAVIX_BRIDGE") || navixAuto;
         // MAYBE output has a different acceptance rate from the global filter population.
         if (!qParams.batchSize) qParams.batchSize = vq->knn.k ? vq->knn.k : 1;
       }

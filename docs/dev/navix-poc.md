@@ -88,3 +88,18 @@ index default. The default AUTO policy is unchanged. Estimates are not exact
 selectivities; quality and latency must be measured together. The same stable-data,
 unquantized single-value FLOAT32 RAM HNSW restrictions apply, and RediSearch still
 performs exact filtering and refill. No persistence or concurrent-update claim.
+
+
+### Option 2: retain exact scanning when the index favors it
+
+`HYBRID_POLICY NAVIX_AUTO2` preserves the first option's sparse-filter cutoff and
+scaled bridge effort. It also selects exact scanning when VecSim's existing
+heuristic prefers scanning even with the entire vector index as the estimated
+matching population. This avoids forcing graph traversal for index shapes that
+AUTO already handles with exact scans. The choice uses index metadata and K;
+it does not materialize a membership set or use benchmark query IDs.
+
+`NAVIX_AUTO` remains available as Option 1 for comparisons on the same graph.
+Both experiments retain the same unstable-feature gate, index restrictions,
+and RediSearch exact filtering/refill. Lower EF can reduce latency and recall;
+measure them together. This does not change the default AUTO policy.
