@@ -514,7 +514,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot, status);
 }
 
-// Snapshots pin disk resources until freed, so tests need to see whether any outlived their query.
+// Read views pin storage resources until freed, so tests need to see whether any outlived their query.
 static atomic_size_t liveSnapshots = 0;
 
 RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index) {

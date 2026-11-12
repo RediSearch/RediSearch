@@ -42,10 +42,10 @@ typedef struct RedisSearchCtx {
   // NULL when there is no owning request.
   struct QueryRequestLimits *limits;
   uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
-  // backing index has no disk component). Used by the disk-iterator construction paths
-  // so all iterators created during one query observe a consistent on-disk view.
-  // Owned by the query setup that took the snapshot; iterators borrow it.
+  // Per-query disk read view (NULL until opened, or when the backing index has no disk
+  // component). Every disk iterator and disk metadata read built from this context passes
+  // it, so they agree on which documents the query can see. Owned by the query setup that
+  // opened it; iterators borrow it.
   RedisSearchDiskSnapshot *diskSnapshot;
 } RedisSearchCtx;
 
@@ -76,18 +76,18 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
 
 typedef struct QueryError QueryError;
 
-// Open a disk snapshot on `sctx` for the duration of one query, so every iterator
-// built from `sctx` (and any snapshot-aware disk read on the same sctx) observes the
-// same point-in-time view. Must be called exactly once per sctx, while holding the
-// spec read lock so the in-memory trie/stats consulted by query planning are coherent
-// with the snapshot. Calling this on an sctx that already has a snapshot asserts.
+// Open the per-query disk read view on `sctx`, so every iterator built from `sctx` (and
+// every disk metadata read on the same sctx) agrees on which documents the query can see.
+// Must be called exactly once per sctx, while holding the spec read lock, so the view is
+// opened against the same index state as the in-memory trie/stats consulted by query
+// planning. Calling this on an sctx that already has a view asserts.
 //
 // Returns REDISMODULE_OK in two cases:
-//   - the index has no disk component (no snapshot needed), or
-//   - the disk snapshot was successfully created.
+//   - the index has no disk component (no view needed), or
+//   - the disk read view was successfully opened.
 // Returns REDISMODULE_ERR and sets `status` if the index is disk-backed but
 // the underlying `SearchDisk_CreateSnapshot` returned NULL. Callers must abort
-// the query in that case rather than fall back to live disk reads.
+// the query in that case rather than read the disk index without a view.
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
 
 // Context destruction never releases a spec lock: a cursor sweep can destroy
