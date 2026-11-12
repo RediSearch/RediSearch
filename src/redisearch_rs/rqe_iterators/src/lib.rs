@@ -354,6 +354,11 @@ pub trait RQEIterator<'index> {
     /// implementation must never return less than the score the scorer would compute.
     /// [`f64::INFINITY`] means "unknown" and is always correct.
     ///
+    /// Unlike [`current_block_bound`](Self::current_block_bound) it covers this one document, so
+    /// it may be exact: a tighter value drops more candidates, and the exact score, when the
+    /// iterator can compute it, is the tightest valid one. It only decides drops: a kept candidate
+    /// is still read and scored as usual, even when the value is exact.
+    ///
     /// Only meaningful while the iterator is positioned on a result.
     ///
     /// Composites build theirs from their children's: [`Intersection`] sums all of them,
