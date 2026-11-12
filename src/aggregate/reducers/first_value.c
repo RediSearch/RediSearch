@@ -25,7 +25,7 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
 
   if (AC_AdvanceIfMatch(options->args, "BY")) {
     // Get the next field...
-    if (!ReducerOpts_GetKey(options, &sortkey)) {
+    if (!ReducerOpts_GetValuesKey(options, &sortkey)) {
       return NULL;
     }
     if (AC_AdvanceIfMatch(options->args, "ASC")) {

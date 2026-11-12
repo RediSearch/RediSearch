@@ -134,11 +134,11 @@ struct ReducerDistCtx {
   // appends a new reducer.
   //
   // The same logical reducer may legitimately appear multiple times in a single distributed plan:
-  // e.g. an `AVG` rewrites to remote `COUNT` + `SUM`, so a client that asked for both `COUNT` and
-  // `AVG` produces two remote `COUNT`s. Likewise two `REDUCE COLLECT` calls over the same field in
-  // the same `GROUPBY` should run as a single remote COLLECT, with both local reducers reading its
-  // output. Deduping here avoids redundant shard work and avoids `SEARCH_FIELD_DUP` on synthetic
-  // remote aliases.
+  // e.g. an `AVG` rewrites to remote `__COUNT_NUMBERS` + `SUM`, so a client that asked for both
+  // `SUM` and `AVG` of a field produces two remote `SUM`s. Likewise two `REDUCE COLLECT` calls over
+  // the same field in the same `GROUPBY` should run as a single remote COLLECT, with both local
+  // reducers reading its output. Deduping here avoids redundant shard work and avoids
+  // `SEARCH_FIELD_DUP` on synthetic remote aliases.
   bool addRemote(const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
     ArgsCursor tmp = *cargs;
     auto existing = PLNGroupStep_FindReducer(remoteGroup, name, &tmp);
@@ -355,9 +355,10 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_GroupStep *local = rdctx->localGroup, *remote = rdctx->remoteGroup;
   CHECK_ARG_COUNT(1);
 
-  // COUNT to know how many results
+  // How many numbers each shard added up, which is what standalone AVG divides by:
+  // a document missing the field adds none, one with several values adds each.
   const char *remoteCountAlias;
-  if (!rdctx->addRemote("COUNT", &remoteCountAlias, status, "0")) {
+  if (!rdctx->addRemote("__COUNT_NUMBERS", &remoteCountAlias, status, "1", rdctx->srcarg(0))) {
     return REDISMODULE_ERR;
   }
 

@@ -15,15 +15,20 @@ use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
-/// Whether a [`Sum`] reducer returns the total or the average.
+/// Whether a [`Sum`] reducer returns the total, the average, or how many numbers
+/// it added up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SumMode {
     Sum,
     Average,
+    /// What a distributed `AVG` divides by: the shards count the numbers, and the
+    /// coordinator adds up the counts.
+    Count,
 }
 
-/// `SUM` or `AVG` of a property, over the rows where it converts to a number (see
-/// [`value::Value::to_number`]). A group with no such row reduces to NaN.
+/// `SUM` or `AVG` of a property, over its [values][RLookupRow::values_of] that convert to
+/// a number (see [`value::Value::to_number`]). A group with no such value reduces to
+/// NaN.
 pub struct Sum<'a> {
     key: &'a RLookupKey<'a>,
     mode: SumMode,
@@ -50,7 +55,10 @@ impl Accumulator for Sum<'_> {
     }
 
     fn add(&self, state: &mut SumState, row: &RLookupRow<'_>) {
-        if let Some(num) = row.get(self.key).and_then(|value| value.to_number()) {
+        for num in row
+            .values_of(self.key)
+            .filter_map(|value| value.to_number())
+        {
             state.total += num;
             state.count += 1;
         }
@@ -58,6 +66,7 @@ impl Accumulator for Sum<'_> {
 
     fn finalize(&self, state: &SumState) -> SharedValue {
         let result = match (state.count, self.mode) {
+            (count, SumMode::Count) => count as f64,
             (0, _) => f64::NAN,
             (count, SumMode::Average) => state.total / count as f64,
             (_, SumMode::Sum) => state.total,

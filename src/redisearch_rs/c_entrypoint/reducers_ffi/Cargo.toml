@@ -15,6 +15,7 @@ bench = false
 workspace = true
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 query_error.workspace = true
 reducers.workspace = true

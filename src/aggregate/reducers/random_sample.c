@@ -17,7 +17,7 @@
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
   const RLookupKey *srckey;
-  if (!ReducerOpts_GetKey(options, &srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &srckey)) {
     return NULL;
   }
   // Get the number of samples..

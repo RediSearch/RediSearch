@@ -13,7 +13,7 @@
 
 static Reducer *newMinMax(const ReducerOptions *options, bool isMax) {
   const RLookupKey *srckey;
-  if (!ReducerOpts_GetKey(options, &srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &srckey)) {
     return NULL;
   }
   return MinMaxReducer_Create(srckey, isMax);

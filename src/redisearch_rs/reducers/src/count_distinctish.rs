@@ -41,7 +41,8 @@ pub enum Output {
     Registers,
 }
 
-/// `COUNT_DISTINCTISH` or `HLL`: a HyperLogLog of the group's values.
+/// `COUNT_DISTINCTISH` or `HLL`: a HyperLogLog of the group's
+/// [values][RLookupRow::values_of].
 pub struct CountDistinctish<'a> {
     key: &'a RLookupKey<'a>,
     output: Output,
@@ -61,7 +62,10 @@ impl Accumulator for CountDistinctish<'_> {
     }
 
     fn add(&self, hll: &mut Hll, row: &RLookupRow<'_>) {
-        if let Some(value) = row.get(self.key).filter(|value| !value.is_null_static()) {
+        for value in row
+            .values_of(self.key)
+            .filter(|value| !value.is_null_static())
+        {
             let hash = value::hash::hash_stable(value, STABLE_SEED);
             hll.add_precomputed_hash((hash as u32) ^ ((hash >> 32) as u32));
         }
