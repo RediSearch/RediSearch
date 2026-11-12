@@ -1486,11 +1486,18 @@ fn a_snapshot_copies_only_the_runs_the_scan_packs() {
     assert_eq!(copied, vec![false, true, true, false, false]);
 
     let delta = snapshot
-        .scan_gc(Gone(vec![]), None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
+        .scan_gc(
+            Gone(vec![]),
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
+        )
         .unwrap()
         .expect("the run is packed");
     assert_eq!(
-        delta.deltas.iter().map(|d| (d.index, d.span)).collect::<Vec<_>>(),
+        delta
+            .deltas
+            .iter()
+            .map(|d| (d.index, d.span))
+            .collect::<Vec<_>>(),
         vec![(1, 2)]
     );
 }
