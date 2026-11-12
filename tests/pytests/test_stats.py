@@ -348,12 +348,12 @@ def testDocTableInfo(env):
     doctable_size1 = float(d['doc_table_size_mb'])
     # exp_doc_table_size:
     # For each hash, the doc_table_size is increased by:
-    # = leanSize + sdsAllocSize(keyPtr)
+    # = leanSize + sdsAllocSize(keyPtr) + FilterSummary_MemoryUsage
     # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
-    #   + (strlen(key) + 2)
-    # = (72 - 8) + 3 = 67
-    # 2 docs * 67 = 134
-    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
+    #   + (strlen(key) + 2) + sizeof(FilterSummary)  (No numeric fields)
+    # = (80 - 8) + 3 + 40 = 115
+    # 2 docs * 115 = 230
+    exp_doc_table_size = (n * doc_table_size_mb) + (230 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)

@@ -208,9 +208,10 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
 
 static const char *navixPolicy(const VecSimRawParam *param) {
   if (param->nameLen != strlen("HYBRID_POLICY") ||
-      strncasecmp(param->name, "HYBRID_POLICY", param->nameLen)) return NULL;
-  static const char *policies[] = {
-      "NAVIX", "NAVIX_BLIND", "NAVIX_DEDUP", "NAVIX_BUDGET", "NAVIX_BRIDGE"};
+      strncasecmp(param->name, "HYBRID_POLICY", param->nameLen))
+    return NULL;
+  static const char *policies[] = {"NAVIX",        "NAVIX_BLIND",  "NAVIX_DEDUP",
+                                   "NAVIX_BUDGET", "NAVIX_BRIDGE", "NAVIX_AUTO"};
   for (size_t i = 0; i < sizeof(policies) / sizeof(*policies); ++i) {
     if (param->valLen == strlen(policies[i]) &&
         !strncasecmp(param->value, policies[i], param->valLen)) return policies[i];
@@ -308,13 +309,35 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           VecSim_ResolveQueryParams(vecsim, resolved, nparams, &qParams, queryType, q->status);
       if (navix) rm_free(resolved);
       if (resolveCode != VecSim_OK) return NULL;
+      if (navix && !strcmp(navix, "NAVIX_AUTO")) {
+        const size_t size = VecSimIndex_IndexSize(vecsim);
+        const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
+        if (!size || estimated <= size / 50) {
+          VecSimRawParam exactPolicy = {.name = "HYBRID_POLICY",
+                                        .nameLen = strlen("HYBRID_POLICY"),
+                                        .value = "ADHOC_BF",
+                                        .valLen = strlen("ADHOC_BF")};
+          if (VecSim_ResolveQueryParams(vecsim, &exactPolicy, 1, &qParams, queryType, q->status) !=
+              VecSim_OK)
+            return NULL;
+          navix = NULL;
+        } else {
+          // EF counts summary-MAYBE results here; scale the ordinary search effort.
+          const size_t ef = qParams.hnswRuntimeParams.efRuntime;
+          if (ef) {
+            const long double target = (long double)ef * estimated / size;
+            const size_t scaled = target < (long double)ef ? (size_t)target : ef;
+            qParams.hnswRuntimeParams.efRuntime = MAX(vq->knn.k, MAX(64, scaled));
+          }
+        }
+      }
       if (navix) {
-        vq->navixQuery =
-            NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
-                           !strcmp(navix, "NAVIX_BLIND"));
+        vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
+                                        !strcmp(navix, "NAVIX_BLIND"));
         qParams.navix.skipScanned = !strcmp(navix, "NAVIX_DEDUP") || secondHopBudget;
         qParams.navix.secondHopBudget = secondHopBudget;
-        qParams.navix.bridgeRejected = !strcmp(navix, "NAVIX_BRIDGE");
+        qParams.navix.bridgeRejected =
+            !strcmp(navix, "NAVIX_BRIDGE") || !strcmp(navix, "NAVIX_AUTO");
         // MAYBE output has a different acceptance rate from the global filter population.
         if (!qParams.batchSize) qParams.batchSize = vq->knn.k ? vq->knn.k : 1;
       }
@@ -326,8 +349,11 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
             fieldSpec->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
+        QueryError_SetWithoutUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG
+            ", must not exceed %zu",
+            MAX_KNN_K);
         return NULL;
       }
       RS_ASSERT(q->sctx->limits);

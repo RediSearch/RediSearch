@@ -41,7 +41,7 @@ def test_navix_exact_filter_and_batch_refill(env):
         return [f'({predicate})=>[KNN 2 @v $q HYBRID_POLICY {policy} BATCH_SIZE 1 EF_RUNTIME 40 AS dist]',
                 'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2, 'PARAMS', 2, 'q', query_blob]
 
-    policies = ['NAVIX', 'NAVIX_BLIND', 'NAVIX_DEDUP', 'NAVIX_BUDGET', 'NAVIX_BRIDGE']
+    policies = ['NAVIX', 'NAVIX_BLIND', 'NAVIX_DEDUP', 'NAVIX_BUDGET', 'NAVIX_BRIDGE', 'NAVIX_AUTO']
     previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
     try:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'no')
@@ -76,7 +76,7 @@ def test_navix_exact_filter_and_batch_refill(env):
         for policy in policies[2:]:
             result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
                              *args('@n:[39 39]', policy))
-            if policy == 'NAVIX_BRIDGE':
+            if policy in ('NAVIX_BRIDGE', 'NAVIX_AUTO'):
                 env.assertEqual(result[0], [1, 'd:39'])
             elif policy == 'NAVIX_DEDUP':
                 baseline = env.cmd('FT.SEARCH', 'idx', *args('@n:[39 39]', 'NAVIX'))
@@ -84,9 +84,82 @@ def test_navix_exact_filter_and_batch_refill(env):
             else:
                 env.assertTrue(result[0] in ([0], [1, 'd:39']), message=result)
             env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'NAVIX_QC')
-            if policy == 'NAVIX_BRIDGE':
+            if policy in ('NAVIX_BRIDGE', 'NAVIX_AUTO'):
                 env.assertEqual(_profile_value(result[1], 'NaviX second hop visits'), 0)
                 env.assertGreater(_profile_value(result[1], 'NaviX bridge expansions'), 0, message=result)
             env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args('@n:[100 101]', policy)), [0])
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_sparse_filter_uses_exact_scan(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               't', 'TAG', 'v', 'VECTOR', 'HNSW', 6,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(100):
+        conn.execute_command('HSET', f'd:{i}', 't', 'rare' if i == 99 else 'common',
+                             'v', struct.pack('<f', i))
+    env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    try:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+        query = '(@t:{rare})=>[KNN 2 @v $q HYBRID_POLICY NAVIX_AUTO EF_RUNTIME 40 AS dist]'
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                         'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                         'PARAMS', 2, 'q', struct.pack('<f', 0))
+        env.assertEqual(result[0], [1, 'd:99'])
+        env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'HYBRID_ADHOC_BF')
+        env.assertEqual(_profile_value(result[1], 'NaviX bridge expansions'), None)
+        info = env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v')
+        env.assertEqual(_profile_value(info, 'LAST_SEARCH_MODE'), 'HYBRID_ADHOC_BF')
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_search_effort_and_cutoff(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               't', 'TAG', 'v', 'VECTOR', 'HNSW', 8,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
+               'EF_RUNTIME', 10).ok()
+    conn = getConnectionByEnv(env)
+    for i in range(1000):
+        tags = ['even' if i % 2 == 0 else 'odd']
+        if i < 20:
+            tags.append('cutoff')
+        if i < 21:
+            tags.append('above')
+        conn.execute_command('HSET', f'd:{i}', 't', ','.join(tags),
+                             'v', struct.pack('<f', i))
+    env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    try:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+
+        def profile(policy, predicate='@t:{even}', ef=None, k=5):
+            effort = '' if ef is None else f' EF_RUNTIME {ef}'
+            query = f'({predicate})=>[KNN {k} @v $q HYBRID_POLICY {policy} BATCH_SIZE 1{effort} AS dist]'
+            return env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                           'SORTBY', 'dist', 'LIMIT', 0, k, 'NOCONTENT', 'DIALECT', 2,
+                           'PARAMS', 2, 'q', struct.pack('<f', 0))
+
+        for requested, effective, k in [(400, 200, 5), (40, 64, 5),
+                                         (40, 100, 100), (None, None, 5)]:
+            actual = profile('NAVIX_AUTO', ef=requested, k=k)
+            control = profile('NAVIX_BRIDGE', ef=effective, k=k)
+            env.assertEqual(actual[0], control[0])
+            for counter in ['NaviX expanded', 'NaviX distances', 'NaviX filter checks']:
+                env.assertEqual(_profile_value(actual[1], counter),
+                                _profile_value(control[1], counter), message=(requested, k, counter))
+        actual = profile('NAVIX_AUTO', ef=400)
+        unscaled = profile('NAVIX_BRIDGE', ef=400)
+        env.assertLess(_profile_value(actual[1], 'NaviX expanded'),
+                       _profile_value(unscaled[1], 'NaviX expanded'))
+        for tag, expected_mode in [('cutoff', 'HYBRID_ADHOC_BF'), ('above', 'NAVIX_QC')]:
+            result = profile('NAVIX_AUTO', predicate=f'@t:{{{tag}}}', ef=400)
+            env.assertEqual(result[0], [5, 'd:0', 'd:1', 'd:2', 'd:3', 'd:4'])
+            env.assertEqual(_profile_value(result[1], 'Vector search mode'), expected_mode)
     finally:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)

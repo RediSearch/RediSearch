@@ -76,3 +76,15 @@ an equal-distance rejected node and a closer match behind it may wait for a late
 All cached modes require stable labels and filter data across batches. Relabeling an
 internal node between batches can leave its cached NO/MAYBE decision stale; this POC
 does not implement relabel invalidation and is intended for stable-data experiments.
+
+
+### Selectivity-aware latency experiment
+
+`HYBRID_POLICY NAVIX_AUTO` uses the existing child-iterator cardinality upper bound.
+When it is at most 2% of the vector-index size, it selects exact ad-hoc scanning.
+Otherwise it uses bridge traversal and scales an explicitly supplied `EF_RUNTIME`
+by that estimated fraction, with a floor of `max(K, 64)`. An omitted EF retains the
+index default. The default AUTO policy is unchanged. Estimates are not exact
+selectivities; quality and latency must be measured together. The same stable-data,
+unquantized single-value FLOAT32 RAM HNSW restrictions apply, and RediSearch still
+performs exact filtering and refill. No persistence or concurrent-update claim.
