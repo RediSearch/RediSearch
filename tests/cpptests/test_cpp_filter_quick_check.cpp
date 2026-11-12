@@ -526,3 +526,77 @@ TEST(FilterQuickCheckTest, signatureOnlyEvaluationAndNegatedNumericLeavesStayCon
   EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
   EXPECT_TRUE(provider.requests.empty());
 }
+
+TEST(FilterQuickCheckTest, shortCircuitsNestedNumericBranches) {
+  NumericProvider provider;
+  provider.documents[1][2] = numericSummary({10});
+  provider.documents[1][3] = numericSummary({20});
+  provider.documents[1][4] = numericSummary({30});
+  auto a = numeric(0, 1, true, true, 2);
+  auto b = numeric(20, 20, true, true, 3);
+  auto c = numeric(30, 30, true, true, 4);
+  std::array<FilterQuickCheckPredicate, 2> inner = {a, c};
+  std::array<FilterQuickCheckPredicate, 3> outer = {
+      compound(FilterQuickCheck_AND, inner.data(), inner.size()), b, c};
+  auto check = compile(compound(FilterQuickCheck_OR, outer.data(), outer.size()));
+  FilterQuickCheckContext context = {check.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  EXPECT_EQ(provider.requests, (std::vector<std::pair<uint64_t, uint16_t>>{{1, 2}, {1, 3}}));
+
+  // UNKNOWN is MAYBE: it ends an OR, but cannot end an AND.
+  provider.requests.clear();
+  std::array<FilterQuickCheckPredicate, 2> unknownFirst = {FilterQuickCheckPredicate{}, a};
+  auto any = compile(compound(FilterQuickCheck_OR, unknownFirst.data(), unknownFirst.size()));
+  context.check = any.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  EXPECT_TRUE(provider.requests.empty());
+  auto all = compile(compound(FilterQuickCheck_AND, unknownFirst.data(), unknownFirst.size()));
+  context.check = all.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  EXPECT_EQ(provider.requests, (std::vector<std::pair<uint64_t, uint16_t>>{{1, 2}}));
+}
+
+TEST(FilterQuickCheckTest, nestedNumericShortCircuitPreservesTruthTable) {
+  std::array<FilterQuickCheckPredicate, 4> leaves;
+  for (uint16_t i = 0; i < leaves.size(); ++i) leaves[i] = numeric(1, 1, true, true, i);
+  std::array<FilterQuickCheckPredicate, 2> children = {
+      compound(FilterQuickCheck_OR, leaves.data(), 2),
+      compound(FilterQuickCheck_OR, leaves.data() + 2, 2)};
+  auto check = compile(compound(FilterQuickCheck_AND, children.data(), children.size()));
+  NumericProvider provider;
+  FilterQuickCheckContext context = {check.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  for (unsigned subset = 0; subset < 16; ++subset) {
+    for (uint16_t i = 0; i < leaves.size(); ++i) {
+      provider.documents[1][i] = numericSummary({double(bool(subset & (1U << i)))});
+    }
+    EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), bool(subset & 3) && bool(subset & 12))
+        << subset;
+  }
+}
+
+TEST(FilterQuickCheckTest, resolvesNumericSlotsOnceAndKeepsUncoveredFieldsUnknown) {
+  unsigned resolutions = 0;
+  auto resolver = [](void* opaque, uint16_t field, uint16_t* slot) -> bool {
+    ++*static_cast<unsigned*>(opaque);
+    if (field != 17) return false;
+    *slot = 0;
+    return true;
+  };
+  std::array<FilterQuickCheckPredicate, 2> leaves = {numeric(10, 10, true, true, 17),
+                                                     numeric(0, 1, true, true, 99)};
+  auto predicate = compound(FilterQuickCheck_AND, leaves.data(), leaves.size());
+  Check check(FilterQuickCheck_CompileWithNumericResolver(&predicate, resolver, &resolutions),
+              FilterQuickCheck_Free);
+  EXPECT_EQ(resolutions, 2u);
+  NumericProvider provider;
+  provider.documents[1][0] = numericSummary({10});
+  provider.documents[2][0] = numericSummary({20});
+  FilterQuickCheckContext context = {check.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 2), 0);
+  EXPECT_EQ(resolutions, 2u);
+  EXPECT_EQ(provider.requests, (std::vector<std::pair<uint64_t, uint16_t>>{{1, 0}, {2, 0}}));
+}

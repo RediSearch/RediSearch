@@ -113,6 +113,12 @@ typedef struct FilterQuickCheck FilterQuickCheck;
  * they compile to MAYBE. Returns NULL if the allocator reports failure; evaluation of NULL
  * is also MAYBE. */
 FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* predicate);
+/* Resolve each numeric field once while compiling. A false result makes that leaf UNKNOWN.
+ * The numeric lookup receives the resolved slot instead of the original schema field ID. */
+typedef bool (*FilterQuickCheckNumericResolver)(void* context, uint16_t fieldIndex, uint16_t* slot);
+FilterQuickCheck* FilterQuickCheck_CompileWithNumericResolver(
+    const FilterQuickCheckPredicate* predicate, FilterQuickCheckNumericResolver resolver,
+    void* context);
 void FilterQuickCheck_Free(FilterQuickCheck* check);
 
 /* Term-signature evaluation only: numeric leaves are MAYBE. Use the context callbacks for
