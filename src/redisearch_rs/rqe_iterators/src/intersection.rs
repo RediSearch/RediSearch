@@ -21,7 +21,7 @@ use crate::{
         FreeSuspendedShell, repush_borrowed_entries, summed_block_bound, summed_max_score,
     },
     profile_print::{ProfilePrint, ProfilePrintCtx},
-    score_bound::{self, BlockBound},
+    score_bound::{self, BlockBound, MinCompetitiveScore},
 };
 
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
@@ -446,7 +446,7 @@ where
     }
 
     /// Reads the next document that can reach `min_competitive_score`, as
-    /// [`read_with_threshold`](RQEIterator::read_with_threshold) does with an active threshold.
+    /// [`read_with_threshold`](RQEIterator::read_with_threshold) does.
     ///
     /// Aligns the children as [`find_consensus`](Self::find_consensus) does, except that before
     /// each step it checks the window from the alignment target up to the earliest end among the
@@ -455,7 +455,7 @@ where
     /// the window. An agreed document whose own bound cannot reach it is dropped.
     fn read_above_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<DocId>, RQEIteratorError> {
         let Some(mut target) = self.read_from_first_child()? else {
             return Ok(None);
@@ -789,11 +789,8 @@ where
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if !score_bound::is_active(min_competitive_score) {
-            return self.read();
-        }
         if self.is_eof {
             return Ok(None);
         }

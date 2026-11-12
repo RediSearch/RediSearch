@@ -18,7 +18,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
-    score_bound::{BlockBound, can_drop},
+    score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
 
 use super::past_end_cursor;
@@ -202,7 +202,7 @@ impl RQEIterator<'static> for Blocked {
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
         self.log.borrow_mut().thresholded_reads += 1;
         if self.past_end() {

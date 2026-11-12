@@ -187,8 +187,9 @@ typedef struct ResultProcessor {
    * `Next`, told that no result scoring below `minCompetitiveScore` can be kept downstream, so the
    * processor may drop such candidates without producing them. A processor passes the threshold
    * on only if every result it produces keeps the score of the upstream result it came from.
-   * NULL means plain `Next`, which drops the threshold and is always correct; use
-   * `RP_NextWithThreshold`.
+   * `minCompetitiveScore` is always positive (see `ScoreBound_MinCompetitive`): a caller without
+   * a threshold calls `Next`. NULL means plain `Next`, which drops the threshold and is always
+   * correct; use `RP_NextWithThreshold`.
    */
   int (*NextWithThreshold)(struct ResultProcessor *self, SearchResult *res,
                            double minCompetitiveScore);

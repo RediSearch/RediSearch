@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
+    score_bound::MinCompetitiveScore,
 };
 
 #[repr(C)]
@@ -258,7 +259,12 @@ extern "C" fn read_with_threshold<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { wrapper_from_callback::<I>(base) };
-    let outcome = wrapper.inner.read_with_threshold(min_competitive_score);
+    // A threshold that does not apply could not drop anything, so a plain read is what it asks
+    // for.
+    let outcome = match MinCompetitiveScore::new(min_competitive_score) {
+        Some(min_competitive_score) => wrapper.inner.read_with_threshold(min_competitive_score),
+        None => wrapper.inner.read(),
+    };
     publish_read(&mut wrapper.header, outcome)
 }
 

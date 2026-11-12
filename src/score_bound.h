@@ -26,11 +26,17 @@ extern "C" {
 // go through the exact score and the sorter's own tie-break.
 #define SCORE_BOUND_REL_EPSILON 1e-6
 
-// The value passed down as `minCompetitiveScore` for heap threshold `theta`. Thresholds that are
-// not positive are withdrawn: leaves only report bounds under scorers that never score below 0,
-// so such a threshold could not drop anything.
-static inline double ScoreBound_MinCompetitive(double theta) {
-  return theta > 0 ? theta * (1 - SCORE_BOUND_REL_EPSILON) : -INFINITY;
+// Sets `*minCompetitiveScore` to the value passed down as the threshold for heap minimum `theta`,
+// and returns true, when that threshold can drop anything; otherwise returns false and the caller
+// reads without one. Leaves only report bounds under scorers that never score below 0, so only a
+// positive `theta` can. Every threshold passed to `NextWithThreshold` or `ReadWithThreshold`
+// comes from here, so it is always positive.
+static inline bool ScoreBound_MinCompetitive(double theta, double *minCompetitiveScore) {
+  if (!(theta > 0)) {
+    return false;
+  }
+  *minCompetitiveScore = theta * (1 - SCORE_BOUND_REL_EPSILON);
+  return true;
 }
 
 // Whether a candidate with upper bound `bound` cannot reach the results.

@@ -20,7 +20,7 @@ use rqe_core::{DocId, FieldMask};
 
 use crate::{
     RQEIterator, RQEIteratorError,
-    score_bound::{self, BlockBound},
+    score_bound::{self, BlockBound, MinCompetitiveScore},
 };
 
 /// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
@@ -79,14 +79,11 @@ where
 /// document whose own bound cannot reach the threshold is dropped.
 pub(crate) fn union_read_with_threshold<'index, U>(
     union: &mut U,
-    min_competitive_score: f64,
+    min_competitive_score: MinCompetitiveScore,
 ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>
 where
     U: RQEIterator<'index>,
 {
-    if !score_bound::is_active(min_competitive_score) {
-        return union.read();
-    }
     loop {
         let current = union.last_doc_id();
         let skip_target = union

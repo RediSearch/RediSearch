@@ -399,7 +399,7 @@ pub trait RQEIterator<'index> {
     /// ([`score_bound::can_drop`]). [`skip_to`](Self::skip_to) has no thresholded form.
     fn read_with_threshold(
         &mut self,
-        _min_competitive_score: f64,
+        _min_competitive_score: score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.read()
     }
@@ -474,7 +474,7 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         (**self).read_with_threshold(min_competitive_score)
     }

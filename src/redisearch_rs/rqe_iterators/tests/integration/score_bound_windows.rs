@@ -20,7 +20,7 @@ use rqe_iterators::{
     UnionTrimmed,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
-    score_bound::{BlockBound, can_drop},
+    score_bound::{BlockBound, MinCompetitiveScore, can_drop},
     union_opaque::build_union,
 };
 
@@ -31,8 +31,9 @@ type DynIterator = Box<dyn RQEIterator<'static>>;
 
 /// The threshold the score sorter passes down for heap minimum `theta`, as
 /// `ScoreBound_MinCompetitive` computes it.
-fn min_competitive(theta: f64) -> f64 {
-    theta * (1.0 - ffi::SCORE_BOUND_REL_EPSILON)
+fn min_competitive(theta: f64) -> MinCompetitiveScore {
+    MinCompetitiveScore::new(theta * (1.0 - ffi::SCORE_BOUND_REL_EPSILON))
+        .expect("a positive heap minimum")
 }
 
 fn leaf(blocks: Vec<Block>) -> (Blocked, Log) {
@@ -48,7 +49,7 @@ fn visited(log: &Log) -> Vec<DocId> {
 /// Drains `it` under `min_competitive_score`, checking that nothing comes back below it.
 fn drain_above<'index>(
     it: &mut impl RQEIterator<'index>,
-    min_competitive_score: f64,
+    min_competitive_score: MinCompetitiveScore,
 ) -> Vec<DocId> {
     let mut docs = Vec::new();
     while let Some(doc) = it
@@ -58,7 +59,7 @@ fn drain_above<'index>(
     {
         assert!(
             !can_drop(it.current_max_score(), min_competitive_score),
-            "doc {doc} came back with bound {} below {min_competitive_score}",
+            "doc {doc} came back with bound {} below {min_competitive_score:?}",
             it.current_max_score(),
         );
         docs.push(doc);
@@ -70,7 +71,7 @@ fn drain_above<'index>(
 /// `min_competitive_score`: with exact leaf bounds, the ones a thresholded read must keep.
 fn plain_survivors<'index>(
     it: &mut impl RQEIterator<'index>,
-    min_competitive_score: f64,
+    min_competitive_score: MinCompetitiveScore,
 ) -> Vec<DocId> {
     let mut docs = Vec::new();
     while let Some(doc) = it.read().expect("read failed").map(|r| r.doc_id) {
@@ -332,12 +333,12 @@ fn edge_cases() -> [EdgeCase; 4] {
         },
         EdgeCase {
             name: "at the margin",
-            window_bound: at_margin,
+            window_bound: at_margin.get(),
             skipped: false,
         },
         EdgeCase {
             name: "just below the margin",
-            window_bound: at_margin.next_down(),
+            window_bound: at_margin.get().next_down(),
             skipped: true,
         },
     ]
@@ -453,10 +454,13 @@ fn a_composite_with_a_child_without_blocks_reports_none() {
 #[test]
 fn composites_do_not_pass_the_threshold_to_their_children() {
     let [(a, a_log), (b, b_log)] = and_children();
-    drain_above(&mut Intersection::new(vec![a, b], 1.0, false), 3.0);
+    drain_above(
+        &mut Intersection::new(vec![a, b], 1.0, false),
+        min_competitive(3.0),
+    );
     for case in UNIONS {
         let [(c, c_log), (d, d_log)] = union_children();
-        drain_above(&mut (case.build)(vec![c, d]), 3.0);
+        drain_above(&mut (case.build)(vec![c, d]), min_competitive(3.0));
         for log in [&c_log, &d_log] {
             assert_eq!(log.borrow().thresholded_reads, 0, "{}", case.name);
         }
@@ -658,10 +662,13 @@ fn tree() -> impl Strategy<Value = Tree> {
 
 /// Thresholds for successive reads, rising like the minimum of a filling heap. The last one holds
 /// for every later read.
-fn thresholds() -> impl Strategy<Value = Vec<f64>> {
-    proptest::collection::vec(0u8..=32, 1..=6).prop_map(|mut steps| {
+fn thresholds() -> impl Strategy<Value = Vec<MinCompetitiveScore>> {
+    proptest::collection::vec(1u8..=32, 1..=6).prop_map(|mut steps| {
         steps.sort_unstable();
-        steps.into_iter().map(|s| f64::from(s) * 0.25).collect()
+        steps
+            .into_iter()
+            .map(|s| MinCompetitiveScore::new(f64::from(s) * 0.25).expect("positive"))
+            .collect()
     })
 }
 
@@ -687,7 +694,7 @@ proptest! {
             let passed_to = yielded.unwrap_or(DocId::MAX);
             for (&doc, &score) in scores.range(previous + 1..=passed_to) {
                 if !can_drop(score, min) {
-                    prop_assert_eq!(Some(doc), yielded, "doc {} scoring {} skipped under {}", doc, score, min);
+                    prop_assert_eq!(Some(doc), yielded, "doc {} scoring {} skipped under {:?}", doc, score, min);
                 }
             }
             let Some(doc) = yielded else { break };
@@ -700,7 +707,7 @@ proptest! {
             }
             previous = doc;
         }
-        prop_assert!(it.read_with_threshold(0.0).expect("read failed").is_none(), "EOF is terminal");
+        prop_assert!(it.read().expect("read failed").is_none(), "EOF is terminal");
 
         // Only the root may receive the threshold.
         let thresholded = logs.iter().filter(|log| log.borrow().thresholded_reads > 0).count();

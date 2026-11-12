@@ -731,7 +731,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: rqe_iterators::score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.checked_read("read_with_threshold", |inner| {
             inner.read_with_threshold(min_competitive_score)

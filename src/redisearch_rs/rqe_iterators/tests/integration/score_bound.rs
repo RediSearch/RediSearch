@@ -27,7 +27,7 @@ use rqe_iterators::{
     optional::Optional,
     profile::Profile,
     profile_print::{ProfilePrint, ProfilePrintCtx},
-    score_bound::BlockBound,
+    score_bound::{BlockBound, MinCompetitiveScore, can_drop},
     utils::NoTimeoutChecker,
 };
 
@@ -37,7 +37,12 @@ struct Bounded<'index> {
     inner: IdListSorted<'index>,
     bound: f64,
     block: Option<BlockBound>,
-    threshold: Rc<Cell<f64>>,
+    threshold: Rc<Cell<Option<MinCompetitiveScore>>>,
+}
+
+/// The threshold `value`, which the test knows to be positive.
+fn min_score(value: f64) -> MinCompetitiveScore {
+    MinCompetitiveScore::new(value).expect("a positive threshold")
 }
 
 impl<'index> Bounded<'index> {
@@ -46,7 +51,7 @@ impl<'index> Bounded<'index> {
             inner: IdListSorted::new(ids),
             bound,
             block: None,
-            threshold: Rc::new(Cell::new(f64::NEG_INFINITY)),
+            threshold: Rc::default(),
         }
     }
 }
@@ -112,9 +117,9 @@ impl<'index> RQEIterator<'index> for Bounded<'index> {
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.threshold.set(min_competitive_score);
+        self.threshold.set(Some(min_competitive_score));
         self.inner.read()
     }
 }
@@ -278,7 +283,7 @@ fn default_read_with_threshold_is_read() {
     loop {
         let expected = plain.read().expect("read failed").map(|r| r.doc_id);
         let actual = thresholded
-            .read_with_threshold(f64::MAX)
+            .read_with_threshold(min_score(f64::MAX))
             .expect("read failed")
             .map(|r| r.doc_id);
         assert_eq!(actual, expected);
@@ -295,21 +300,21 @@ fn composites_do_not_pass_the_threshold_on() {
     let threshold = Rc::clone(&leaf.threshold);
     let mut and = Intersection::new(vec![leaf], 1.0, false);
     let doc = and
-        .read_with_threshold(0.5)
+        .read_with_threshold(min_score(0.5))
         .expect("read failed")
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(1));
-    assert_eq!(threshold.get(), f64::NEG_INFINITY);
+    assert_eq!(threshold.get(), None);
 
     let leaf = Bounded::new(vec![3], 1.0);
     let threshold = Rc::clone(&leaf.threshold);
     let mut or = UnionFullFlat::new(vec![leaf]);
     let doc = or
-        .read_with_threshold(0.5)
+        .read_with_threshold(min_score(0.5))
         .expect("read failed")
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(3));
-    assert_eq!(threshold.get(), f64::NEG_INFINITY);
+    assert_eq!(threshold.get(), None);
 }
 
 #[test]
@@ -324,11 +329,11 @@ fn wrappers_forward_every_hook() {
 
     let mut it = Profile::new(MaybeEmpty::new(Box::new(leaf)));
     let doc = it
-        .read_with_threshold(1.25)
+        .read_with_threshold(min_score(1.25))
         .expect("read failed")
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(1));
-    assert_eq!(threshold.get(), 1.25);
+    assert_eq!(threshold.get(), Some(min_score(1.25)));
     assert_eq!(it.current_max_score(), 2.5);
     assert_eq!(it.current_block_bound(), Some(block));
     // A thresholded read is still a read for the profile.
@@ -374,11 +379,11 @@ impl<'index> RQEIterator<'index> for Skipping<'index> {
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         let mut skipped = 0;
         while self.step()?.is_some() {
-            let below = self.current_max_score() < min_competitive_score;
+            let below = can_drop(self.current_max_score(), min_competitive_score);
             if !below || skipped == self.max_skips {
                 return Ok(self.inner.current());
             }
@@ -435,6 +440,12 @@ impl<'index> RQEIterator<'index> for Skipping<'index> {
     }
 }
 
+impl ProfilePrint for Bounded<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
 impl ProfilePrint for Skipping<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MOCK");
@@ -445,7 +456,7 @@ impl ProfilePrint for Skipping<'_> {
 /// still comes back below it.
 fn root_survivors<'index>(
     it: &mut impl RQEIterator<'index>,
-    min_competitive_score: f64,
+    min_competitive_score: MinCompetitiveScore,
 ) -> Vec<DocId> {
     let mut survivors = Vec::new();
     while let Some(doc) = it
@@ -453,7 +464,7 @@ fn root_survivors<'index>(
         .expect("read failed")
         .map(|r| r.doc_id)
     {
-        if it.current_max_score() >= min_competitive_score {
+        if !can_drop(it.current_max_score(), min_competitive_score) {
             survivors.push(doc);
         }
     }
@@ -474,7 +485,7 @@ fn skipping_leaf_through_the_c_abi() {
         let mut root = Profile::new(child);
         assert!(root.reports_score_bounds());
         assert_eq!(
-            root_survivors(&mut root, 2.0),
+            root_survivors(&mut root, min_score(2.0)),
             vec![1, 4, 6],
             "max_skips {max_skips}"
         );
@@ -483,6 +494,49 @@ fn skipping_leaf_through_the_c_abi() {
             assert_eq!(root.counters().read, 4);
         }
     }
+}
+
+/// Only a positive threshold can drop a candidate, so it is the only one there is.
+#[test]
+fn only_positive_thresholds_exist() {
+    for value in [0.0, -0.0, -1.0, f64::NEG_INFINITY, f64::NAN] {
+        assert_eq!(MinCompetitiveScore::new(value), None, "{value}");
+    }
+    for value in [f64::MIN_POSITIVE, 1.25, f64::INFINITY] {
+        assert_eq!(
+            MinCompetitiveScore::new(value).map(MinCompetitiveScore::get),
+            Some(value)
+        );
+    }
+}
+
+/// A C caller that passes a threshold that cannot drop anything gets the plain read it asks for,
+/// and one that can is handed on as is.
+#[test]
+fn c_threshold_that_cannot_drop_is_a_plain_read() {
+    let raw = RQEIteratorWrapper::boxed_new(Bounded::new(vec![1, 2, 3, 4, 5], 1.0));
+    let threshold = {
+        // SAFETY: `raw` was just returned by `boxed_new`, which wraps a `Bounded`.
+        let wrapper = unsafe { raw.cast::<RQEIteratorWrapper<Bounded<'_>>>().as_ref() };
+        Rc::clone(&wrapper.inner.threshold)
+    };
+    // SAFETY: `boxed_new` populates every callback.
+    let read_with_threshold = unsafe { raw.as_ref() }
+        .ReadWithThreshold
+        .expect("set by boxed_new");
+    for value in [0.0, -1.0, f64::NEG_INFINITY, f64::NAN] {
+        // SAFETY: `raw` is a valid, uniquely-owned header.
+        let status = unsafe { read_with_threshold(raw.as_ptr(), value) };
+        assert_eq!(status, ffi::IteratorStatus_ITERATOR_OK, "{value}");
+        assert_eq!(threshold.get(), None, "{value}");
+    }
+    // SAFETY: As above.
+    let status = unsafe { read_with_threshold(raw.as_ptr(), 1.5) };
+    assert_eq!(status, ffi::IteratorStatus_ITERATOR_OK);
+    assert_eq!(threshold.get(), Some(min_score(1.5)));
+    // SAFETY: `raw` is still a valid, uniquely-owned header; this takes ownership to free it.
+    let it = unsafe { CRQEIterator::new(raw) };
+    assert_eq!(it.last_doc_id(), 5);
 }
 
 /// A C iterator without `ReadWithThreshold` falls back to `Read`, and the root check alone keeps
@@ -496,7 +550,7 @@ fn c_iterator_without_read_with_threshold_falls_back_to_read() {
     let mut child = unsafe { CRQEIterator::new(raw) };
     let mut seen = Vec::new();
     while let Some(doc) = child
-        .read_with_threshold(2.0)
+        .read_with_threshold(min_score(2.0))
         .expect("read failed")
         .map(|r| r.doc_id)
     {
@@ -504,7 +558,7 @@ fn c_iterator_without_read_with_threshold_falls_back_to_read() {
     }
     assert_eq!(seen, vec![1, 2, 3, 4, 5, 6]);
     child.rewind();
-    assert_eq!(root_survivors(&mut child, 2.0), vec![1, 4, 6]);
+    assert_eq!(root_survivors(&mut child, min_score(2.0)), vec![1, 4, 6]);
 }
 
 /// Mixes a leaf that reports bounds with one that does not under one composite child type.

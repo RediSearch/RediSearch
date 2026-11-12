@@ -34,11 +34,18 @@
 #include "spec.h"
 #include "types_ffi.h"
 
+// The threshold passed down for heap minimum `theta`, which the test knows to apply.
+static double minCompetitiveFor(double theta) {
+  double minCompetitive = NAN;
+  EXPECT_TRUE(ScoreBound_MinCompetitive(theta, &minCompetitive)) << theta;
+  return minCompetitive;
+}
+
 class ScoreBoundTest : public ::testing::Test {};
 
 TEST_F(ScoreBoundTest, dropsOnlyClearlyBelowTheThreshold) {
   const double theta = 2.5;
-  const double minCompetitive = ScoreBound_MinCompetitive(theta);
+  const double minCompetitive = minCompetitiveFor(theta);
   const double edge = theta * (1 - SCORE_BOUND_REL_EPSILON);
 
   // A bound equal to the threshold may still enter the heap through the tie-break.
@@ -52,12 +59,12 @@ TEST_F(ScoreBoundTest, dropsOnlyClearlyBelowTheThreshold) {
   EXPECT_FALSE(ScoreBound_CanDrop(INFINITY, minCompetitive));
 }
 
-TEST_F(ScoreBoundTest, nonPositiveThresholdDropsNothing) {
-  for (double theta : {0.0, -0.0, -1.0}) {
-    const double minCompetitive = ScoreBound_MinCompetitive(theta);
-    EXPECT_EQ(minCompetitive, -INFINITY);
-    EXPECT_FALSE(ScoreBound_CanDrop(0, minCompetitive));
-    EXPECT_FALSE(ScoreBound_CanDrop(-1e300, minCompetitive));
+// A heap minimum that is not positive could drop nothing, so it gives no threshold at all.
+TEST_F(ScoreBoundTest, nonPositiveHeapMinimumGivesNoThreshold) {
+  for (double theta : {0.0, -0.0, -1.0, -(double)INFINITY, (double)NAN}) {
+    double minCompetitive = 42;
+    EXPECT_FALSE(ScoreBound_MinCompetitive(theta, &minCompetitive)) << theta;
+    EXPECT_EQ(minCompetitive, 42) << theta;
   }
 }
 
@@ -138,6 +145,11 @@ static double scoreByDocId(const ScoringFunctionArgs *, const RSIndexResult *res
   return (double)res->docId;
 }
 
+static double scoreZero(const ScoringFunctionArgs *, const RSIndexResult *,
+                        const RSDocumentMetadata *, double) {
+  return 0;
+}
+
 class ScoreThresholdChainTest : public ::testing::Test {
  protected:
   QueryProcessingCtx qctx = {};
@@ -166,8 +178,8 @@ class ScoreThresholdChainTest : public ::testing::Test {
     push(source);
   }
 
-  ResultProcessor *newScorer() {
-    ExtScoringFunctionCtx funcs = {.sf = scoreByDocId};
+  ResultProcessor *newScorer(RSScoringFunction sf = scoreByDocId) {
+    ExtScoringFunctionCtx funcs = {.sf = sf};
     ScoringFunctionArgs args = {};
     return RPScorer_New(&funcs, &args, NULL);
   }
@@ -199,7 +211,7 @@ TEST_F(ScoreThresholdChainTest, reachesTheSourceThroughScorerProfileAndMetrics) 
   push(RPSorter_NewByScore(k, NULL));
   drain();
   EXPECT_EQ(source->thresholdCalls, n - k + 1);
-  EXPECT_EQ(source->lastThreshold, ScoreBound_MinCompetitive((double)(n - k + 1)));
+  EXPECT_EQ(source->lastThreshold, minCompetitiveFor((double)(n - k + 1)));
 }
 
 TEST_F(ScoreThresholdChainTest, unknownProcessorBlocksIt) {
@@ -223,6 +235,14 @@ TEST_F(ScoreThresholdChainTest, sortBySorterPassesNone) {
 TEST_F(ScoreThresholdChainTest, heapThatNeverFillsPassesNone) {
   pushSource(4);
   push(newScorer());
+  push(RPSorter_NewByScore(5, NULL));
+  drain();
+  EXPECT_EQ(source->thresholdCalls, 0);
+}
+
+TEST_F(ScoreThresholdChainTest, nonPositiveHeapMinimumPassesNone) {
+  pushSource(20);
+  push(newScorer(scoreZero));
   push(RPSorter_NewByScore(5, NULL));
   drain();
   EXPECT_EQ(source->thresholdCalls, 0);
@@ -283,11 +303,24 @@ class EmptyIndexTest : public ::testing::Test {
 
   // The index RP takes ownership of `root`.
   void nextWithThreshold(QueryIterator *root, double minCompetitive) {
-    rp = RPQueryIterator_New(root, NULL, 0, sctx, false, false);
-    QITR_PushRP(&qctx, rp);
+    pushIndexRP(root);
     SearchResult res = SearchResult_New();
     EXPECT_EQ(RP_NextWithThreshold(rp, &res, minCompetitive), RS_RESULT_EOF);
     SearchResult_Destroy(&res);
+  }
+
+  // The index RP takes ownership of `root`.
+  void next(QueryIterator *root) {
+    pushIndexRP(root);
+    SearchResult res = SearchResult_New();
+    EXPECT_EQ(rp->Next(rp, &res), RS_RESULT_EOF);
+    SearchResult_Destroy(&res);
+  }
+
+ private:
+  void pushIndexRP(QueryIterator *root) {
+    rp = RPQueryIterator_New(root, NULL, 0, sctx, false, false);
+    QITR_PushRP(&qctx, rp);
   }
 };
 
@@ -317,12 +350,6 @@ TEST_F(ScoreThresholdIndexTest, rootWithBoundsReadsWithTheThreshold) {
   mock->base.ReportsScoreBounds = reportsBounds;
   nextWithThreshold(1.0);
   EXPECT_GT(thresholdReads, 0);
-}
-
-TEST_F(ScoreThresholdIndexTest, withdrawnThresholdTakesThePlainRead) {
-  mock->base.ReportsScoreBounds = reportsBounds;
-  nextWithThreshold(-INFINITY);
-  EXPECT_EQ(thresholdReads, 0);
 }
 
 /****************************** composites over blocked C leaves ******************************/
@@ -434,7 +461,7 @@ TEST_F(ScoreBoundCompositeTest, intersectionSkipsWindowsThroughTheIndexRP) {
   QueryIterator *root = NewIntersectionIterator(childArray({a, b}), 2, -1, false, 1.0);
   ASSERT_TRUE(QueryIterator_ReportsScoreBounds(root));
 
-  nextWithThreshold(root, ScoreBound_MinCompetitive(3.0));
+  nextWithThreshold(root, minCompetitiveFor(3.0));
 
   std::vector<t_docId> expected = {1, 2};
   for (t_docId id : idRange(11, 20)) expected.push_back(id);
@@ -460,7 +487,7 @@ TEST_F(ScoreBoundCompositeTest, unionSkipsWindowsThroughTheIndexRP) {
         NewUnionIterator(childArray({far, a}), 2, false, 1.0, QN_UNION, NULL, &config);
     ASSERT_TRUE(QueryIterator_ReportsScoreBounds(root));
 
-    nextWithThreshold(root, ScoreBound_MinCompetitive(3.0));
+    nextWithThreshold(root, minCompetitiveFor(3.0));
 
     EXPECT_EQ(a->visited, (std::vector<t_docId>{1, 5, 9, 10, 11, 12}));
     EXPECT_EQ(a->thresholdedReads + far->thresholdedReads, 0);
@@ -473,7 +500,7 @@ TEST_F(ScoreBoundCompositeTest, plainNextSkipsNothing) {
   auto *b = new BlockedLeaf({{1, 20, 1.0}});
   QueryIterator *root = NewIntersectionIterator(childArray({a, b}), 2, -1, false, 1.0);
 
-  nextWithThreshold(root, -INFINITY);
+  next(root);
 
   EXPECT_EQ(a->visited, idRange(1, 20));
 }

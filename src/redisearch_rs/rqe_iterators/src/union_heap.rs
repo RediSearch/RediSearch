@@ -834,7 +834,7 @@ where
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         crate::composite::union_read_with_threshold(self, min_competitive_score)
     }

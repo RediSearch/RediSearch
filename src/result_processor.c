@@ -614,13 +614,13 @@ static int rpQueryItNextAsyncDiskProfiled(ResultProcessor *base, SearchResult *r
 }
 
 // A threshold only helps a tree that can bound its candidates; any other takes the plain path.
-static inline bool appliesThreshold(const RPQueryIterator *self, double minCompetitiveScore) {
-  return minCompetitiveScore != -INFINITY && QueryIterator_ReportsScoreBounds(self->iterator);
+static inline bool appliesThreshold(const RPQueryIterator *self) {
+  return QueryIterator_ReportsScoreBounds(self->iterator);
 }
 
 static int rpQueryItNextWithThreshold(ResultProcessor *base, SearchResult *res,
                                       double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+  if (!appliesThreshold((RPQueryIterator *)base)) {
     return rpQueryItNext(base, res);
   }
   return rpQueryItNextImpl(base, res, true, minCompetitiveScore, false);
@@ -628,7 +628,7 @@ static int rpQueryItNextWithThreshold(ResultProcessor *base, SearchResult *res,
 
 static int rpQueryItNextWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
                                               double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+  if (!appliesThreshold((RPQueryIterator *)base)) {
     return rpQueryItNextProfiled(base, res);
   }
   return rpQueryItNextImpl(base, res, true, minCompetitiveScore, true);
@@ -636,7 +636,7 @@ static int rpQueryItNextWithThresholdProfiled(ResultProcessor *base, SearchResul
 
 static int rpQueryItNextAsyncDiskWithThreshold(ResultProcessor *base, SearchResult *res,
                                                double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+  if (!appliesThreshold((RPQueryIterator *)base)) {
     return rpQueryItNextAsyncDisk(base, res);
   }
   return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, false);
@@ -644,7 +644,7 @@ static int rpQueryItNextAsyncDiskWithThreshold(ResultProcessor *base, SearchResu
 
 static int rpQueryItNextAsyncDiskWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
                                                        double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+  if (!appliesThreshold((RPQueryIterator *)base)) {
     return rpQueryItNextAsyncDiskProfiled(base, res);
   }
   return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, true);
@@ -1018,10 +1018,12 @@ static void rpsortFree(ResultProcessor *rp) {
  */
 static inline int pullCandidate(RPSorter *self) {
   ResultProcessor *upstream = self->base.upstream;
-  if (RPSorter_IsByScore(&self->base) && self->pq->size > 0 &&
-      self->pq->count == self->pq->size && RSGlobalConfig.diskScoreSkippingQuery) {
-    const double theta = SearchResult_GetScore(mmh_peek_min(self->pq));
-    return RP_NextWithThreshold(upstream, self->pooledResult, ScoreBound_MinCompetitive(theta));
+  double minCompetitiveScore;
+  if (RPSorter_IsByScore(&self->base) && self->pq->size > 0 && self->pq->count == self->pq->size &&
+      RSGlobalConfig.diskScoreSkippingQuery &&
+      ScoreBound_MinCompetitive(SearchResult_GetScore(mmh_peek_min(self->pq)),
+                                &minCompetitiveScore)) {
+    return RP_NextWithThreshold(upstream, self->pooledResult, minCompetitiveScore);
   }
   return upstream->Next(upstream, self->pooledResult);
 }

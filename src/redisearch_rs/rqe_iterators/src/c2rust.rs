@@ -19,9 +19,12 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection, profile_print, profile_print::ProfilePrint,
-    score_bound::BlockBound,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    interop::RQEIteratorWrapper,
+    intersection::Intersection,
+    profile_print,
+    profile_print::ProfilePrint,
+    score_bound::{BlockBound, MinCompetitiveScore},
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -488,13 +491,13 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         let Some(callback) = self.ReadWithThreshold else {
             return self.read();
         };
         // SAFETY: As in `read`.
-        let status = unsafe { callback(self.header.as_ptr(), min_competitive_score) };
+        let status = unsafe { callback(self.header.as_ptr(), min_competitive_score.get()) };
         self.read_outcome(status)
     }
 }

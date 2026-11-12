@@ -25,20 +25,38 @@ pub struct BlockBound {
     pub max_score: f64,
 }
 
+/// A score that a candidate must reach to enter the results, as handed to
+/// [`RQEIterator::read_with_threshold`].
+///
+/// Always positive, so a value of this type always applies: a caller with no threshold, or with
+/// one that could not drop anything, calls [`read`](RQEIterator::read) instead. The caller has
+/// already taken the rounding margin (`SCORE_BOUND_REL_EPSILON` in `score_bound.h`) off the heap
+/// minimum.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct MinCompetitiveScore(f64);
+
+impl MinCompetitiveScore {
+    /// The threshold `value`, or `None` when it is not positive (NaN included).
+    ///
+    /// Leaves only report bounds under scorers that never score below 0, so a threshold that is
+    /// not positive could not drop anything.
+    #[inline(always)]
+    pub fn new(value: f64) -> Option<Self> {
+        (value > 0.0).then_some(Self(value))
+    }
+
+    /// The threshold as a plain score.
+    #[inline(always)]
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}
+
 /// Whether a document, or a window of them, whose score is at most `bound` cannot reach
 /// `min_competitive_score`.
 ///
-/// `min_competitive_score` is the threshold handed to [`RQEIterator::read_with_threshold`]: the
-/// caller has already taken the rounding margin (`SCORE_BOUND_REL_EPSILON` in `score_bound.h`)
-/// off the heap minimum, so this is the same strict comparison as the C `ScoreBound_CanDrop`.
+/// The same strict comparison as the C `ScoreBound_CanDrop`.
 #[inline(always)]
-pub fn can_drop(bound: f64, min_competitive_score: f64) -> bool {
-    bound < min_competitive_score
-}
-
-/// Whether `min_competitive_score` can ever make [`can_drop`] true. A withdrawn threshold is
-/// `-inf`; a NaN compares false everywhere.
-#[inline(always)]
-pub(crate) fn is_active(min_competitive_score: f64) -> bool {
-    min_competitive_score > f64::NEG_INFINITY
+pub fn can_drop(bound: f64, min_competitive_score: MinCompetitiveScore) -> bool {
+    bound < min_competitive_score.0
 }

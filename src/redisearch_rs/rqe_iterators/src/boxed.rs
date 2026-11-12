@@ -649,7 +649,7 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     #[inline(always)]
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.0.read_with_threshold(min_competitive_score)
     }

@@ -251,13 +251,13 @@ where
         }
     }
 
-    /// [`read`](RQEIterator::read) under an active threshold. Only the cursor child contributes
+    /// [`read`](RQEIterator::read) under a threshold. Only the cursor child contributes
     /// to a result, so its blocks alone decide what is skipped: it jumps past every block whose
     /// bound cannot reach `min_competitive_score`, and a document whose own bound cannot is
     /// dropped.
     fn read_above_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: score_bound::MinCompetitiveScore,
     ) -> Result<bool, RQEIteratorError> {
         self.result.reset_aggregate();
         let scale = self.result.weight.max(1.0);
@@ -410,11 +410,8 @@ where
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if !score_bound::is_active(min_competitive_score) {
-            return self.read();
-        }
         Ok(self
             .read_above_threshold(min_competitive_score)?
             .then_some(&mut self.result))

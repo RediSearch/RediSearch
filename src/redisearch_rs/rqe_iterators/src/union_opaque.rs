@@ -305,7 +305,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
 
     fn read_with_threshold(
         &mut self,
-        min_competitive_score: f64,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, read_with_threshold, min_competitive_score)
     }
