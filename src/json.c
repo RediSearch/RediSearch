@@ -8,13 +8,27 @@
 */
 
 #include "json.h"
+
+#include <math.h>
+#include <string.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+
 #include "value_ffi.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "VecSim/vec_sim_common.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
 
-#include <math.h>
-#include <string.h>
+struct RedisModuleCtx;
 
 // REJSON APIs
 RedisJSONAPI *japi = NULL;
@@ -53,6 +67,17 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
                                          (RedisModuleEventCallback) ModuleChangeHandler);
     }
     return 0;
+}
+
+RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
+  if (!japi || !key) {
+    return NULL;
+  }
+  return japi->getJsonFromHandle(key);
+}
+
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+  return path ? japi->getWithPath(root, path) : NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1061,8 +1086,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
 
     JSONType jsonType = japi->getType(json);
     if (rejectMultiValue && jsonType == JSONType_Array && fs->types != INDEXFLD_T_VECTOR) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                          "Disk JSON index supports JSON array values only for VECTOR fields");
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_INVAL,
+          "Disk JSON index does not support JSON array values for %s fields",
+          FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
       return REDISMODULE_ERR;
     }
     if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {
@@ -1116,13 +1143,13 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
-                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
-  RedisModule_FreeString(RSDummyContext, err_msg);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(
+      status, QUERY_ERROR_CODE_INVAL_PATH, "Invalid JSONPath",
+      " '%s' in attribute '%s' in index '%s'", HiddenString_GetUnsafe(path, NULL),
+      HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
 }
-
 
 #ifdef ENABLE_ASSERT
 #include "json_test_api.h"

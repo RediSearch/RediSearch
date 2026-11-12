@@ -24,9 +24,14 @@ build_utils = { path = "../build_utils" }
 [dependencies]
 cheadergen.workspace = true
 ffi.workspace = true
+rqe_core.workspace = true
 hyperloglog.workspace = true
+index_result.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 redis_reply.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
 generational_slab.workspace = true
 tracing.workspace = true
 workspace_hack.workspace = true
@@ -47,7 +52,6 @@ harness = false
 criterion.workspace = true
 insta = { workspace = true, features = ["filters"] }
 numeric_range_tree = { path = ".", features = ["unittest", "test-utils"] }
-pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rstest.workspace = true
 

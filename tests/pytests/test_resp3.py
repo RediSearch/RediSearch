@@ -1,8 +1,20 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from math import nan
 import json
 from test_coordinator import test_error_propagation_from_shards
 from test_profile import TimedoutTest_resp3, TimedOutWarningtestCoord
+
+def _index_profile(count):
+    return {'Type': 'Index', 'Time': ANY, 'Results processed': count,
+            'Deleted candidates discarded': 0, 'Candidates not discarded': count}
+
 
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
@@ -113,6 +125,107 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_sortby_limit_offset():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
+    for i in range(30):
+        conn.execute_command('HSET', f'cdoc{{{i}}}', 'count', i)
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
+    ids = [row['id'] for row in res['results']]
+    env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
+
+def _search_knn_limit_offset(protocol):
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 'v',
+                             np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '0', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10)])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '10', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10, 20)])
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp2():
+    _search_knn_limit_offset(protocol=2)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp3():
+    _search_knn_limit_offset(protocol=3)
+
+def _search_knn_sortby_limit_total(protocol):
+    # MOD-16818: with KNN + SORTBY <distance field>, the coordinator sized its
+    # merge heap by min(K, offset+count) and reported the heap count as
+    # `total_results`, so the reported number of matching documents was the size
+    # of the response window (0 for `LIMIT 0 0`) instead of min(K, matches).
+    # The same assertions run in standalone, where they always held - this pins
+    # the cluster reply to the single-shard behavior.
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 't', 'tiny' if i < 8 else 'rest',
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    def run(query, offset, count):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'B', blob,
+                      'SORTBY', 'dist', 'LIMIT', str(offset), str(count),
+                      'NOCONTENT', 'DIALECT', '2')
+        if protocol == 3:
+            return res['total_results'], [row['id'] for row in res['results']]
+        return res[0], res[1:]
+
+    # 30 documents match, K=20: the query matches 20 documents on every page,
+    # including the count-only `LIMIT 0 0`. Rows follow the window.
+    for offset, count in [(0, 0), (0, 5), (5, 5), (15, 5), (0, 20)]:
+        total, ids = run('*=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 20, message=f'LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, offset + count)],
+                        message=f'LIMIT {offset} {count}')
+
+    # filter (8 matches) smaller than K=20: total must be 8 on every page
+    for offset, count in [(0, 0), (0, 5), (5, 5)]:
+        total, ids = run('@t:{tiny}=>[KNN 20 @v $B AS dist]', offset, count)
+        env.assertEqual(total, 8, message=f'tiny LIMIT {offset} {count}')
+        env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, min(offset + count, 8))],
+                        message=f'tiny LIMIT {offset} {count}')
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp2():
+    _search_knn_sortby_limit_total(protocol=2)
+
+@skip(redis_less_than="7.0.0")
+def test_search_knn_sortby_limit_total_resp3():
+    _search_knn_sortby_limit_total(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
@@ -188,7 +301,7 @@ def test_profile(env):
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
-            {'Type': 'Index',  'Time': ANY, 'Results processed': 2},
+            _index_profile(2),
             {'Type': 'Scorer', 'Time': ANY, 'Results processed': 2},
             {'Type': 'Sorter', 'Time': ANY, 'Results processed': 2},
             {'Type': 'Loader', 'Time': ANY, 'Results processed': 2}
@@ -197,7 +310,8 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF')
+    env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -227,7 +341,7 @@ def test_coord_profile():
         'Shards': env.shardsCount * [
                       {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Workers queue time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time [ms]': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
-                        'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
+                        'Result processors profile': [_index_profile(ANY),
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
@@ -258,7 +372,11 @@ def test_coord_profile():
           'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
-          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
+          'Result processors profile': [{
+            'Type': 'Network', 'Time': ANY, 'Results processed': 2,
+            'Shard-Wait-Time': ANY, 'Row-Convert-Time': ANY, 'Reply-Free-Time': ANY,
+            'Shard replies': ANY, 'Fields converted': 0,
+          }]
         }
       }
     }
@@ -272,13 +390,62 @@ def test_coord_profile():
       'Warning': ['None'],
       'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
-      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
+      'Result processors profile': [_index_profile(ANY),]
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
     env.assertEqual(res, exp)
+    network = res['Profile']['Coordinator']['Result processors profile'][0]
+    for metric in ('Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time'):
+      env.assertGreaterEqual(network[metric], 0, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
     env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
     for shard_res in res['Profile']['Shards']:
       env.assertEqual(shard_res, shard)
+
+def network_profile(env, res):
+    if env.protocol == 3:
+      return res['Profile']['Coordinator']['Result processors profile'][0]
+    coordinator = to_dict(to_dict(res[1])['Coordinator'])
+    return to_dict(coordinator['Result processors profile'][0])
+
+def check_network_breakdown(env):
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+    env.cmd('FT.create', 'idx1', 'PREFIX', 1, 'doc', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT')
+    waitForIndex(env, 'idx1')
+
+    breakdown_keys = ['Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time', 'Shard replies', 'Fields converted']
+
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    for key in breakdown_keys:
+      env.assertContains(key, network)
+    # Two rows of two loaded fields each, however they are spread over the shards.
+    env.assertEqual(int(network['Fields converted']), 4, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+    env.assertGreater(float(network['Row-Convert-Time']), 0, message=network)
+
+    # An index with no matches yields only empty replies, which are still counted.
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '@f1:nomatch', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    env.assertEqual(int(network['Fields converted']), 0, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+
+    # Early termination drains remaining shard profiles outside the Network timer.
+    res = env.cmd("FT.PROFILE", "idx1", "AGGREGATE", "QUERY", "*", "LIMIT", 0, 1)
+    network = network_profile(env, res)
+    measured = sum(float(network[key]) for key in breakdown_keys[:3])
+    # Allow floating-point rounding when summing the disjoint timers.
+    env.assertLessEqual(measured, float(network["Time"]) + 1e-9, message=network)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp3():
+    check_network_breakdown(Env(protocol=3))
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp2():
+    check_network_breakdown(Env(protocol=2))
 
 @skip(redis_less_than="7.0.0")
 def test_aggregate():
@@ -439,7 +606,8 @@ def test_info():
                       ],
       'bytes_per_record_avg': ANY,
       'cleaning': 0,
-      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0},
+      'cursor_stats': {'global_idle': 0, 'global_total': 0, 'index_capacity': ANY, 'index_total': 0,
+                       'index_total_internal': 0},
       'dialect_stats': {'dialect_1': 0, 'dialect_2': 0, 'dialect_3': 0, 'dialect_4': 0},
       'doc_table_size_mb': ANY,
       'gc_stats': ANY,
@@ -464,6 +632,7 @@ def test_info():
       'num_records': 3,
       'num_terms': ANY,
       'number_of_uses': ANY,
+      'number_of_admin_ops': ANY,
       'offset_bits_per_record_avg': ANY,
       'offset_vectors_sz_mb': ANY,
       'offsets_per_term_avg': ANY,
@@ -472,7 +641,9 @@ def test_info():
       'sortable_values_size_mb': 0.0,
       'geoshapes_sz_mb': 0.0,
       'total_inverted_index_blocks': ANY,
-      'vector_index_sz_mb': 0.0,
+      # vector_index_sz_mb folds in the process-wide shared SVS thread pool memory,
+      # which has a small non-zero baseline once the pool singleton is initialized.
+      'vector_index_sz_mb': ANY,
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
@@ -663,7 +834,7 @@ def test_profile_crash_mod5323():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
+            _index_profile(3),
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Sorter' }
           ],
@@ -673,7 +844,7 @@ def test_profile_crash_mod5323():
        },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 def test_profile_child_itrerators_array():
     env = Env(protocol=3)
@@ -712,7 +883,7 @@ def test_profile_child_itrerators_array():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
+            _index_profile(2),
             {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
             {'Results processed': 2, 'Time': ANY, 'Type': 'Sorter'}
           ],
@@ -722,7 +893,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
     # test INTERSECT
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
@@ -750,7 +921,7 @@ def test_profile_child_itrerators_array():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
+            _index_profile(0),
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
             {'Results processed': 0, 'Time': ANY, 'Type': 'Sorter'}
           ],
@@ -760,7 +931,7 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        env.assertEqual(res, exp)
+        env.assertEqual(strip_enterprise_profile_keys(res), exp)
 
 @skip(no_json=True)
 def testExpandErrorsResp3():
@@ -1272,13 +1443,22 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
-      # Size of an empty TrieMap
-      key_table_sz_mb = 24 / (1024 * 1024)
-      total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
+      #              = 96 + (1000 * 8) = 8096 bytes
+      initial_doc_table_size_mb = 8096 / (1024 * 1024)
+      # No map allocation until this index receives an INKEYS query.
+      key_table_sz_mb = 0
+      per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
+      # The FT.INFO vector_index_sz_mb field folds in VecSim_GetSharedMemory()
+      # (process-wide vector allocations not tied to any single index). For an
+      # index without vector fields IndexSpec_VectorIndexesSize() is 0, so
+      # vector_index_sz_mb is exactly that global overhead. In cluster mode it's
+      # already aggregated across shards. We pin to the response value so
+      # total_index_memory_sz_mb stays exact (rather than an ANY match).
+      global_vector_mem_mb = res['vector_index_sz_mb']
+      total_index_memory_sz_mb = per_node_index_memory_sz_mb + global_vector_mem_mb
 
       exp = {
         'attributes': [
@@ -1306,7 +1486,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {
           'dialect_1': 0,
@@ -1343,7 +1524,8 @@ def test_ft_info():
         'num_docs': 0.0,
         'num_records': 0.0,
         'num_terms': 0.0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1353,7 +1535,7 @@ def test_ft_info():
         'geoshapes_sz_mb': 0.0,
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
@@ -1388,7 +1570,8 @@ def test_ft_info():
           'global_idle': 0,
           'global_total': 0,
           'index_capacity': ANY,
-          'index_total': 0
+          'index_total': 0,
+          'index_total_internal': 0
         },
         'dialect_stats': {'dialect_1': 0,
                           'dialect_2': 0,
@@ -1418,12 +1601,16 @@ def test_ft_info():
         'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
+        # global_vector_mem_mb is already aggregated across shards (FT.INFO sums
+        # vector_index_sz_mb from each shard), so it's added once — not multiplied
+        # by `nodes` — to the per-node base * nodes.
+        'total_index_memory_sz_mb': nodes * per_node_index_memory_sz_mb + global_vector_mem_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
         'num_terms': 0,
-        'number_of_uses': 1,
+        'number_of_uses': 0,
+        'number_of_admin_ops': 1,
         'offset_bits_per_record_avg': nan,
         'offset_vectors_sz_mb': 0.0,
         'offsets_per_term_avg': nan,
@@ -1431,8 +1618,9 @@ def test_ft_info():
         'records_per_doc_avg': nan,
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
+        'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
@@ -1610,6 +1798,45 @@ def test_warning_maxprefixexpansions():
     if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+def test_warning_not_carried_across_cursor_reads():
+  """
+  A warning belongs to the reply of the cycle that raised it. The request's error
+  slot outlives a cursor read, so this pins that the next FT.CURSOR READ does not
+  re-emit (and re-count) the previous read's warning. Max prefix expansions is
+  raised once, while the iterator tree is built at cursor creation, so it is the
+  warning most likely to leak.
+  """
+  # RESP3 for the `warning` reply field; dialect 2 for the prefix query syntax.
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  # Two matches for the single allowed expansion (`foo`), one more term (`fooo`)
+  # to push the expansion count over the limit. Same shard, so the limit is hit there.
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc2{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc3{3}', 't', 'fooo')
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Drain the cursor one row per read, recording each reply's warnings. Where the warning
+  # lands differs by mode (standalone: the creating reply; cluster: the read that consumes the
+  # shard reply carrying it), but it must land in exactly one reply.
+  warnings_per_read = []
+  rows = 0
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1') # codespell:ignore fo
+  while True:
+    warnings_per_read.append(res['warning'])
+    rows += len(res['results'])
+    if not cid:
+      break
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+  env.assertEqual(rows, 2, message=warnings_per_read)
+  env.assertGreaterEqual(len(warnings_per_read), 2, message=warnings_per_read)
+  env.assertEqual([w for w in warnings_per_read if w], [['Max prefix expansions limit was reached']],
+                  message=warnings_per_read)
+
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 def test_multiple_warnings():
   """

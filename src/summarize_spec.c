@@ -6,11 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
+#include <stddef.h>
+
 #include "rmutil/args.h"
 #include "util/array.h"
 #include "search_options.h"
+#include "redismodule.h"
+#include "rmalloc.h"
 
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]
@@ -33,33 +35,12 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
   return 0;
 }
 
-static void setHighlightSettings(HighlightSettings *tgt, const HighlightSettings *defaults) {
-  rm_free(tgt->closeTag);
-  rm_free(tgt->openTag);
-
-  tgt->closeTag = NULL;
-  tgt->openTag = NULL;
-  if (defaults->openTag) {
-    tgt->openTag = rm_strdup(defaults->openTag);
-  }
-  if (defaults->closeTag) {
-    tgt->closeTag = rm_strdup(defaults->closeTag);
-  }
-}
-
-static void setSummarizeSettings(SummarizeSettings *tgt, const SummarizeSettings *defaults) {
-  *tgt = *defaults;
-  if (tgt->separator) {
-    tgt->separator = rm_strdup(tgt->separator);
-  }
-}
-
 static void setFieldSettings(ReturnedField *tgt, const ReturnedField *defaults, int isHighlight) {
   if (isHighlight) {
-    setHighlightSettings(&tgt->highlightSettings, &defaults->highlightSettings);
+    tgt->highlightSettings = defaults->highlightSettings;
     tgt->mode |= SummarizeMode_Highlight;
   } else {
-    setSummarizeSettings(&tgt->summarizeSettings, &defaults->summarizeSettings);
+    tgt->summarizeSettings = defaults->summarizeSettings;
     tgt->mode |= SummarizeMode_Synopsis;
   }
 }
@@ -91,8 +72,8 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-      defOpts.highlightSettings.openTag = (char *)AC_GetStringNC(ac, NULL);
-      defOpts.highlightSettings.closeTag = (char *)AC_GetStringNC(ac, NULL);
+      defOpts.highlightSettings.openTag = AC_GetStringNC(ac, NULL);
+      defOpts.highlightSettings.closeTag = AC_GetStringNC(ac, NULL);
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
@@ -106,7 +87,7 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       }
       defOpts.summarizeSettings.numFrags = tmp;
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
-      if (AC_GetString(ac, (const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
+      if (AC_GetString(ac, &defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
       }

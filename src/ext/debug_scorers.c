@@ -23,16 +23,21 @@
  ******************************************************************************************/
 
 #include "debug_scorers.h"
+
+#include <stddef.h>
+
 #include "redisearch.h"
 #include "types_ffi.h"
 #include "query_term_ffi.h"
 #include "score_explain.h"
 #include "extension.h"
+#include "index_result_rs.h"
+#include "inverted_index.h"
 
 /* Recursively sum IDF values from all terms in the result */
 static double sumIdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    const RSQueryTerm *term = IndexResult_QueryTermRef(r);
     return term ? QueryTerm_GetIDF(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
@@ -50,7 +55,7 @@ static double sumIdfRecursive(const RSIndexResult *r) {
 /* Recursively sum BM25 IDF values from all terms in the result */
 static double sumBm25IdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    const RSQueryTerm *term = IndexResult_QueryTermRef(r);
     return term ? QueryTerm_GetBM25_IDF(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {

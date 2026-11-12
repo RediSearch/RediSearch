@@ -6,13 +6,23 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stddef.h>
+#include <strings.h>
+
 #include "redisearch.h"
-#include "module.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "query_error_ffi.h"
 #include "util/likely.h"
+#include "aggregate/reducer.h"
+#include "query_error.h"
+#include "redismodule.h"
+#include "rmutil/vector.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
 
 extern bool isCrdt;
 
@@ -90,7 +100,6 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
-
   /* Create an empty value object if the key is currently empty. */
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     tree = NewTrie(NULL, Trie_Sort_Score);
@@ -103,6 +112,10 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   rc = Trie_Insert(tree, val, score, incr, &payload, 0);
   if (unlikely(rc == TRIE_ERR_PAYLOAD_OVERFLOW)) {
     RedisModule_ReplyWithError(ctx, "Payload too large");
+    goto end;
+  }
+  if (unlikely(rc == TRIE_ERR_TOO_MANY_CHILDREN)) {
+    RedisModule_ReplyWithError(ctx, "Too many suggestions branch from a common prefix");
     goto end;
   }
 
@@ -294,7 +307,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   // get the string to search for
   size_t len = 0;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+  if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
 
@@ -329,8 +342,8 @@ parse_error:
     goto end;
   }
 
-  res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
-                    options.optimize);
+  res = Trie_CollectFuzzy(tree, s, len, options.numResults, options.maxDistance, TRIE_MATCH_PREFIX,
+                          options.trim, options.optimize);
   if (!res) {
     RedisModule_ReplyWithError(ctx, "Invalid query");
     goto end;

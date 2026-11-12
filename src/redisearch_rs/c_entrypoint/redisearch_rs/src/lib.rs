@@ -13,19 +13,27 @@
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
 
 /// Registers the Redis module allocator as the global allocator for the application.
+///
+/// [`OverAligned`](over_aligned_alloc::OverAligned) serves the layouts the Redis
+/// allocator cannot align on its own.
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
-static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc> =
+    over_aligned_alloc::OverAligned(redis_module::alloc::RedisAlloc);
 
+pub use deleted_docs_ffi as deleted_docs;
+pub use doc_key_map_ffi as doc_key_map;
 pub use fnv_ffi as fnv;
-pub use fork_gc_ffi as fork_gc;
+pub use geo_ffi as geo;
 pub use idf_ffi as idf;
+pub use index_gc_ffi as index_gc;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use metrics_ffi as metrics;
 pub use module_init_ffi as tracing_redismodule;
 pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
+pub use query_eval_ffi as query_eval;
 pub use query_term_ffi as query_term;
 pub use reducers_ffi as reducers;
 pub use result_processor_ffi as result_processor;
@@ -33,7 +41,13 @@ pub use rlookup_ffi as rlookup;
 pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
+pub use spellcheck_dictionary_ffi as spellcheck_dictionary;
+pub use string_utils_ffi as string_utils;
+pub use term_dictionary_ffi as term_dictionary;
+pub use term_suffix_index_ffi as term_suffix_index;
+pub use trie_rdb_ffi as trie_rdb;
 pub use triemap_ffi as triemap;
+pub use ttl_table_ffi as ttl_table;
 pub use types_ffi as types;
 pub use value_ffi as value;
 pub use varint_ffi as varint;

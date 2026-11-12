@@ -3,7 +3,11 @@
 #ifdef NU_WITH_TOUPPER
 
 #include "casemap_internal.h"
-#include "gen/_toupper.c"
+#ifndef NU_WITH_BMP_ONLY
+# include "gen/_toupper.c"
+#else
+# include "gen/_toupper_compact.c"
+#endif /* NU_WITH_BMP_ONLY */
 
 const char* nu_toupper(uint32_t codepoint) {
 	return _nu_to_something(codepoint, NU_TOUPPER_G, NU_TOUPPER_G_SIZE,

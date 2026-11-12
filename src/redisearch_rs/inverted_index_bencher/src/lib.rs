@@ -13,6 +13,8 @@
     clippy::multiple_unsafe_ops_per_block
 )]
 
+use rqe_core::DocId;
+
 pub mod benchers;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -27,6 +29,6 @@ pub extern "C" fn isWithinRadius(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn DocTable_Exists(_dt: *const ::ffi::DocTable, _d: ::ffi::t_docId) -> bool {
+pub extern "C" fn DocTable_Exists(_dt: *const ::ffi::DocTable, _d: DocId) -> bool {
     panic!("DocTable_Exists should not be called by any of the benchmarks");
 }

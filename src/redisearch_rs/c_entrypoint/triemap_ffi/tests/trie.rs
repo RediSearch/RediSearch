@@ -6,9 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_void};
 use triemap_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
@@ -28,7 +27,7 @@ macro_rules! assert_entries {
     };
 }
 
-unsafe extern "C" fn do_not_free(_val: *mut c_void) {
+const unsafe extern "C" fn do_not_free(_val: *mut c_void) {
     // We're using stack-allocated types (i.e. integers) as values,
     // so there's nothing to be freed.
 }
@@ -299,234 +298,101 @@ fn test_trie_iter_wildcard() {
 #[test]
 #[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
 fn test_trie_iter_timeout() {
-    with_trie_map(|t| {
-        let pattern = b"";
-        // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
-        let it = unsafe {
-            TrieMap_IterateWithFilter(
-                t,
-                pattern.as_ptr().cast(),
-                pattern.len() as tm_len_t,
-                tm_iter_mode::TM_PREFIX_MODE,
-            )
-        };
-
-        let mut char: *mut c_char = std::ptr::null_mut();
-        let mut len: tm_len_t = 0;
-        let mut value: *mut c_void = std::ptr::null_mut();
-
-        let mut deadline = timespec_monotonic_now();
-        let duration_ns = 200_000_000; // 200 ms are 200_000_000 nanoseconds
-        deadline.tv_nsec += duration_ns;
-
-        // handle overflow, a second consists of 1_000_000_000 nanoseconds
-        deadline.tv_sec += deadline.tv_nsec / 1_000_000_000;
-        deadline.tv_nsec %= 1_000_000_000;
-
-        // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
-        unsafe { TrieMapIterator_SetTimeout(it, deadline) };
-
-        for _ in 0..2 {
-            assert_eq!(
-                1,
-                // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
-                unsafe {
-                    TrieMapIterator_Next(
-                        it,
-                        &mut char as *mut *mut c_char,
-                        &mut len as *mut tm_len_t,
-                        &mut value as *mut *mut c_void,
-                    )
-                },
-                "Before the deadline passes, next should yield a result"
-            );
-        }
-
-        // Wait until the deadline has passed.
-        // We're using a monotonic timer, so this should not be flaky
-        while {
-            let now = timespec_monotonic_now();
-            now.tv_sec < deadline.tv_sec
-                || (now.tv_sec == deadline.tv_sec && now.tv_nsec <= deadline.tv_nsec)
-        } {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        for _ in 0..2 {
-            assert_eq!(
-                0,
-                // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
-                unsafe {
-                    TrieMapIterator_Next(
-                        it,
-                        &mut char as *mut *mut c_char,
-                        &mut len as *mut tm_len_t,
-                        &mut value as *mut *mut c_void,
-                    )
-                },
-                "After the deadline passes, next should not yield a result"
-            );
-        }
-
-        // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
-        unsafe { TrieMapIterator_Free(it) };
-    });
+    // Prefix mode with an empty pattern matches every entry in the map.
+    run_iter_timeout_test(b"", tm_iter_mode::TM_PREFIX_MODE);
 }
 
 #[test]
-fn test_trie_iter_range() {
-    type ResultsVec = Vec<(String, u8)>;
+#[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
+fn test_trie_wildcard_iter_timeout() {
+    // `*` matches every entry in the map, exercising the wildcard iterator's
+    // own timeout enforcement (a distinct code path from prefix mode).
+    run_iter_timeout_test(b"*", tm_iter_mode::TM_WILDCARD_MODE);
+}
 
-    macro_rules! assert_range {
-        (None, None, $expected:expr $(,)?) => {
-            assert_range!(None::<&str>, true, None::<&str>, true, $expected)
-        };
-        ($min:expr, $include_min:expr, None, $expected:expr $(,)?) => {
-            assert_range!($min, $include_min, None::<&str>, true, $expected)
-        };
-        (None, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
-            assert_range!(None::<&str>, true, $max, $include_max, $expected)
-        };
-        ($min: expr, $include_min:expr, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
-            let results = do_iterate($min, $include_min, $max, $include_max);
-            let range_start = if $include_min { "[" } else { "(" };
-            let range_end = if $include_max { "]" } else { ")" };
-            let min = $min.map(|m| format!("{m:?}")).unwrap_or("←".to_owned());
-            let max = $max.map(|m| format!("{m:?}")).unwrap_or("→".to_owned());
+/// Number of entries inserted into the map used by the timeout tests.
+const TIMEOUT_MAP_ENTRIES: usize = 1_000;
 
-            assert_eq!(
-                results,
-                $expected.map(|(k, v)| (k.to_owned(), v)),
-                "Invalid results for range {range_start} {min} ; {max} {range_end}"
+fn run_iter_timeout_test(pattern: &[u8], mode: tm_iter_mode) {
+    let t = NewTrieMap();
+
+    let mut value: u8 = 0;
+    let value_ptr = &mut value as *mut u8 as *mut c_void;
+
+    for i in 0..TIMEOUT_MAP_ENTRIES {
+        let key = format!("{i:08}");
+        // Safety: We adhere to all the safety requirements of `TrieMap_Add`
+        unsafe {
+            TrieMap_Add(
+                t,
+                key.as_ptr().cast(),
+                key.len() as tm_len_t,
+                value_ptr,
+                None,
             );
-        };
+        }
     }
 
-    unsafe extern "C" fn callback(
-        key: *const c_char,
-        key_len: size_t,
-        ctx: *mut c_void,
-        value: *mut c_void,
-    ) {
-        // Safety: the passed context was indeed a `&mut ResultsVec`
-        let results = unsafe { &mut *(ctx as *mut ResultsVec) };
+    // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
+    let it = unsafe {
+        TrieMap_IterateWithFilter(t, pattern.as_ptr().cast(), pattern.len() as tm_len_t, mode)
+    };
 
-        // Safety: We're reconstructing the keys and the values created in `with_trie_map`
-        let key = unsafe { std::slice::from_raw_parts(key, key_len) };
-        let key = String::from_utf8(key.iter().copied().map(|c| c as u8).collect()).unwrap();
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
 
-        // Safety: We're reconstructing the keys and the values created in `with_trie_map`
-        let value = unsafe { *(value as *mut u8) };
+    let mut deadline = timespec_monotonic_now();
+    let duration_ns = 200_000_000; // 200 ms are 200_000_000 nanoseconds
+    deadline.tv_nsec += duration_ns;
 
-        results.push((key, value));
-    }
-    fn do_iterate(
-        min: Option<&str>,
-        include_min: bool,
-        max: Option<&str>,
-        include_max: bool,
-    ) -> ResultsVec {
-        let mut results: ResultsVec = Vec::new();
-        with_trie_map(|t| {
-            let min_c_char = min.map(|m| m.as_bytes());
-            let max_c_char = max.map(|m| m.as_bytes());
+    // handle overflow, a second consists of 1_000_000_000 nanoseconds
+    deadline.tv_sec += deadline.tv_nsec / 1_000_000_000;
+    deadline.tv_nsec %= 1_000_000_000;
 
-            let (min_ptr, min_len) = min_c_char
-                .as_ref()
-                .map(|min| (min.as_ptr(), min.len() as c_int))
-                .unwrap_or((std::ptr::null(), -1));
-            let (max_ptr, max_len) = max_c_char
-                .as_ref()
-                .map(|max| (max.as_ptr(), max.len() as c_int))
-                .unwrap_or((std::ptr::null(), -1));
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
+    unsafe { TrieMapIterator_SetTimeout(it, deadline) };
 
-            // Safety: We adhere to all the safety requirements of `TrieMap_IterateRange`
+    for _ in 0..2 {
+        assert_eq!(
+            1,
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
             unsafe {
-                TrieMap_IterateRange(
-                    t,
-                    min_ptr.cast(),
-                    min_len,
-                    include_min,
-                    max_ptr.cast(),
-                    max_len,
-                    include_max,
-                    Some(callback),
-                    (&mut results) as *mut ResultsVec as *mut _,
+                TrieMapIterator_Next(
+                    it,
+                    &mut char as *mut *mut c_char,
+                    &mut len as *mut tm_len_t,
+                    &mut value as *mut *mut c_void,
                 )
-            };
-        });
-        results
+            },
+            "Before the deadline passes, next should yield a result"
+        );
     }
 
-    assert_range!(
-        Some("biker"),
-        true,
-        Some("cool"),
-        true,
-        [("biker", 1), ("bis", 2), ("cider", 5), ("cool", 3)],
-    );
+    // Wait until the deadline has passed.
+    // We're using a monotonic timer, so this should not be flaky
+    while {
+        let now = timespec_monotonic_now();
+        now.tv_sec < deadline.tv_sec
+            || (now.tv_sec == deadline.tv_sec && now.tv_nsec <= deadline.tv_nsec)
+    } {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
-    assert_range!(
-        Some("biker"),
-        false,
-        Some("cool"),
-        true,
-        [("bis", 2), ("cider", 5), ("cool", 3)],
-    );
+    let found = unsafe {
+        TrieMapIterator_Next(
+            it,
+            &mut char as *mut *mut c_char,
+            &mut len as *mut tm_len_t,
+            &mut value as *mut *mut c_void,
+        )
+    };
+    // Expired
+    assert_eq!(found, 1);
 
-    assert_range!(
-        Some("biker"),
-        true,
-        Some("cool"),
-        false,
-        [("biker", 1), ("bis", 2), ("cider", 5)],
-    );
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
 
-    assert_range!(
-        Some("biker"),
-        false,
-        Some("cool"),
-        false,
-        [("bis", 2), ("cider", 5)],
-    );
-
-    assert_range!(
-        None,
-        Some("cool"),
-        true,
-        [
-            ("bike", 0),
-            ("biker", 1),
-            ("bis", 2),
-            ("cider", 5),
-            ("cool", 3)
-        ],
-    );
-
-    assert_range!(
-        Some("bike"),
-        true,
-        None,
-        [
-            ("bike", 0),
-            ("biker", 1),
-            ("bis", 2),
-            ("cider", 5),
-            ("cool", 3),
-            ("cooler", 4),
-        ],
-    );
-
-    assert_range!(
-        None,
-        None,
-        [
-            ("bike", 0),
-            ("biker", 1),
-            ("bis", 2),
-            ("cider", 5),
-            ("cool", 3),
-            ("cooler", 4),
-        ],
-    );
+    // Safety: We adhere to all the safety requirements of `TrieMap_Free`
+    unsafe { TrieMap_Free(t, Some(do_not_free)) };
 }

@@ -12,7 +12,8 @@
 //! This module provides the [`SparseVectorQueryIterator`] which uses an
 //! intersection-based approach to find documents matching all query dimensions.
 
-use inverted_index::{IndexReaderCore, RSIndexResult, numeric::Numeric};
+use index_result::RSIndexResult;
+use inverted_index::{IndexReaderCore, numeric::Numeric};
 use rqe_iterators::{
     Intersection, NoOpChecker, RQEIterator, RQEIteratorError, inverted_index::InvIndIterator,
 };
@@ -77,7 +78,7 @@ impl<'index> SparseVectorQueryIterator<'index> {
         for &(dim_id, _weight) in query {
             let posting_list = index.get_dimension(dim_id)?;
             let reader = posting_list.reader();
-            let result = RSIndexResult::numeric(0.0);
+            let result = RSIndexResult::build_numeric(0.0).build();
             let iterator = InvIndIterator::new(reader, result, NoOpChecker);
             iterators.push(iterator);
         }
@@ -85,7 +86,7 @@ impl<'index> SparseVectorQueryIterator<'index> {
         // Sort by estimated count (smallest first) for efficient intersection
         iterators.sort_by_cached_key(|it| it.num_estimated());
 
-        let intersection = Intersection::new(iterators);
+        let intersection = Intersection::new(iterators, 1.0, false);
 
         Some(Self { intersection })
     }

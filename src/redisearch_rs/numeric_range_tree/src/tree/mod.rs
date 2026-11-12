@@ -20,15 +20,15 @@
 mod find;
 mod gc;
 mod insert;
-#[cfg(all(feature = "unittest", not(miri)))]
+#[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
 mod invariants;
 mod util;
 
 pub(crate) use util::CheckedCount;
 
-pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
+pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult, scan_range_index_gc};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
@@ -61,6 +61,11 @@ pub struct AddResult {
     /// The net change in the number of leaf nodes.
     /// Splitting a leaf adds one new leaf. Trimming decreases this.
     pub num_leaves_delta: i32,
+    /// The net change in the number of inverted-index blocks across all leaves touched by
+    /// this add. Block growth (writes spilling into a new block, new leaves created by a
+    /// split) contributes positively; range removals during rebalancing (`remove_range`,
+    /// rotations dropping an internal node's retained range) contribute negatively.
+    pub block_count_delta: i32,
 }
 
 /// Result of trimming empty leaves from the tree.
@@ -82,6 +87,9 @@ pub struct TrimEmptyLeavesResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
+    pub block_count_delta: i32,
 }
 
 /// Aggregate statistics for a [`NumericRangeTree`].
@@ -143,14 +151,18 @@ pub struct NumericRangeTree {
     /// Aggregate statistics for the tree.
     stats: TreeStats,
     /// The last document ID added to the tree.
-    last_doc_id: t_docId,
-    /// Revision ID, incremented when the tree structure changes (splits/rotations).
+    last_doc_id: DocId,
+    /// Whether any document has been indexed under more than one value, as a
+    /// multivalue field does. See [`has_multivalued_docs`](Self::has_multivalued_docs).
+    has_multivalued_docs: bool,
+    /// Revision ID, incremented when the tree structure changes (splits/rotations)
+    /// and whenever nodes move in memory (slab compaction). While it is
+    /// unchanged, every [`NodeIndex`] resolves to the same node, at the same
+    /// address.
     ///
-    /// When `revision_id != 0`, it indicates the tree nodes have changed and
-    /// concurrent iteration may not be safe. Iterators like
-    /// `NumericRangeTreeIterator` should check this value and abort if it
-    /// changes during iteration, as the tree structure they were traversing
-    /// may no longer be valid.
+    /// Anything holding on to a node or range across a release of the lock that
+    /// guards the tree — a parked iterator, say — must compare it against a
+    /// snapshot taken when it started, and stop using what it holds if it changed.
     revision_id: u32,
     /// Unique identifier for this tree instance.
     unique_id: TreeUniqueId,
@@ -211,6 +223,7 @@ impl NumericRangeTree {
                 empty_leaves: CheckedCount::new(1),
             },
             last_doc_id: 0,
+            has_multivalued_docs: false,
             revision_id: 0,
             unique_id: TreeUniqueId::next(),
             compress_floats,
@@ -220,6 +233,15 @@ impl NumericRangeTree {
     /// Resolve a [`NodeIndex`] to a shared reference to the node.
     pub fn node(&self, idx: NodeIndex) -> &NumericRangeNode {
         &self.nodes[idx]
+    }
+
+    /// Resolve a [`NodeIndex`] that may be stale to a shared reference to the node.
+    ///
+    /// Returns `None` when the node was removed since `idx` was taken, so a
+    /// caller holding an index across a lock release can tell instead of
+    /// panicking like [`Self::node`].
+    pub fn try_node(&self, idx: NodeIndex) -> Option<&NumericRangeNode> {
+        self.nodes.get(idx)
     }
 
     /// Resolve a [`NodeIndex`] to a mutable reference to the node.
@@ -235,6 +257,19 @@ impl NumericRangeTree {
     /// Get the root node index.
     pub const fn root_index(&self) -> NodeIndex {
         self.root
+    }
+
+    /// Whether any document has been indexed under more than one value.
+    ///
+    /// Ranges are value-disjoint, so a document with a single value occurs in
+    /// exactly one range. Only when this is `true` can a document be reached
+    /// twice by a value-ordered scan and need de-duplicating.
+    ///
+    /// The flag is never cleared, even once the documents that set it are
+    /// removed, so `true` may over-report: de-duplication can be redundant,
+    /// but is never skipped when needed.
+    pub const fn has_multivalued_docs(&self) -> bool {
+        self.has_multivalued_docs
     }
 
     /// Get the total number of ranges in the tree.
@@ -258,7 +293,7 @@ impl NumericRangeTree {
     }
 
     /// Get the last document ID added to the tree.
-    pub const fn last_doc_id(&self) -> t_docId {
+    pub const fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 
@@ -297,6 +332,12 @@ impl NumericRangeTree {
     /// Returns an iterator over all nodes in the tree, alongside their indices (depth-first traversal).
     pub fn indexed_iter(&self) -> crate::IndexedReversePreOrderDfsIterator<'_> {
         crate::IndexedReversePreOrderDfsIterator::new(self)
+    }
+
+    /// Returns an iterator over all nodes in the tree, alongside their indices, that
+    /// yields each node after its descendants.
+    pub fn indexed_post_order_iter(&self) -> crate::IndexedPostOrderDfsIterator<'_> {
+        crate::IndexedPostOrderDfsIterator::new(self)
     }
 
     /// Calculate the total memory usage of the tree, in bytes.

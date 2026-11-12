@@ -9,6 +9,8 @@
 #ifndef RS_MODULE_H_
 #define RS_MODULE_H_
 
+#include <string.h>
+
 #include "redismodule.h"
 #include <query_node.h>
 #include <coord/rmr/reply.h>
@@ -21,6 +23,8 @@
 #include "profile/options.h"
 
 #include "util/stringify.h"
+#include "util/rs_atomic.h"
+#include "util/references.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -38,12 +42,14 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
+int RediSearch_Init(RedisModuleCtx *ctx);
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
-bool IsEnterprise();
+bool RS_IsEnterpriseServer(void);
 
 size_t GetNumShards_UnSafe();
 
@@ -73,6 +79,7 @@ do {                                            \
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
+#define INCONSISTENT_INDEX_STATE "Inconsistent index state"
 
 #define RM_TRY(expr)                                                   \
   if (expr == REDISMODULE_ERR) {                                       \
@@ -80,12 +87,32 @@ do {                                            \
     return REDISMODULE_ERR;                                            \
   }
 
-#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+static inline bool IS_SST_RDB_IN_PROCESS(RedisModuleCtx *ctx) {
+  return (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB) != 0;
+}
+
+static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
+  // Fetch the context flags once and test both bits, instead of calling
+  // RedisModule_GetContextFlags() twice.
+  int flags = RedisModule_GetContextFlags(ctx);
+  return (flags & REDISMODULE_CTX_FLAGS_SST_RDB) &&
+         (flags & (REDISMODULE_CTX_FLAGS_LOADING | REDISMODULE_CTX_FLAGS_ASYNC_LOADING));
+}
+
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
 typedef struct {
-  char *queryString;
+  QueryRequest base;
+
+  /* Owns the initial reference to the shared context. Dispatch, fanout and reducer retain it
+   * separately because request cleanup after UnblockClient can precede their final release. */
+  struct MRCtx *mrctx;
+  /* Owns a weak reference so queued dispatch can promote the original index for prefix
+   * preparation without keeping a dropped index alive. */
+  WeakRef spec_ref;
+  rs_wall_clock_ns_t coordStartTime;
+
   long long offset;
   long long limit;
   long long requestedResultsCount;
@@ -113,10 +140,36 @@ typedef struct {
   struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
+/* Borrows the query from QueryRequest's held arguments. */
+static inline const char *searchRequestCtx_Query(const searchRequestCtx *req, size_t *len) {
+  RS_ASSERT(req->base.args.queryOffset < req->base.args.parseArgc);
+  const char *query =
+      RedisModule_StringPtrLen(req->base.args.argv[req->base.args.queryOffset], NULL);
+  // Keep this in sync with the transitional handling in AREQ_Query() (aggregate/aggregate.h).
+  if (len) *len = strlen(query);
+  return query;
+}
+
+#ifdef __cplusplus
+static_assert(offsetof(searchRequestCtx, base) == 0,
+              "QueryRequest must be the first searchRequestCtx field");
+#else
+_Static_assert(offsetof(searchRequestCtx, base) == 0,
+               "QueryRequest must be the first searchRequestCtx field");
+#endif
+
+static inline searchRequestCtx *QueryRequest_GetSearch(QueryRequest *request) {
+  RS_ASSERT(request != NULL);
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_COORD_SEARCH);
+  return (searchRequestCtx *)request;
+}
+
+void searchRequestCtx_Free(searchRequestCtx *r);
+
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
-                             QueryError *status);
+// `params` is the request's parsed PARAMS dict (NULL if none); it is only read.
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
@@ -127,10 +180,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug, bool isProfile);
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
-
-void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
-
-bool should_return_error(QueryErrorCode errCode);
 
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 

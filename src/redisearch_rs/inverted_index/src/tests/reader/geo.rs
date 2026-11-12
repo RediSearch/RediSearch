@@ -9,9 +9,11 @@
 
 use std::ptr;
 
-use crate::{FilterGeoReader, IndexReader, NumericFilter, RSIndexResult};
+use crate::{FilterGeoReader, IndexReader, NumericFilter};
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::RS_INVALID_FIELD_INDEX;
 
 #[test]
 fn reading_filter_based_on_geo_filter() {
@@ -37,7 +39,7 @@ fn reading_filter_based_on_geo_filter() {
     ];
 
     let geo_filter = GeoFilter {
-        fieldSpec: ptr::null(),
+        fieldIndex: RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 20.0,
@@ -50,14 +52,12 @@ fn reading_filter_based_on_geo_filter() {
         max: 0.0,
         min_inclusive: false,
         max_inclusive: false,
-        field_spec: ptr::null(),
         geo_filter: &geo_filter as *const _ as *const _,
         ascending: true,
-        limit: 0,
-        offset: 0,
+        ..Default::default()
     };
 
-    let mut reader = FilterGeoReader::new(&filter, iter.into_iter());
+    let mut reader = FilterGeoReader::new(filter, iter.into_iter());
     let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();

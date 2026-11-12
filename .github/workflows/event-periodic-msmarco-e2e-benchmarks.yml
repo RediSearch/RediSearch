@@ -8,6 +8,7 @@ jobs:
   run-benchmarks:
     permissions:
       contents: read
+      actions: read   # fetch-failed-run-logs (triage) reads job logs via the actions REST API
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit

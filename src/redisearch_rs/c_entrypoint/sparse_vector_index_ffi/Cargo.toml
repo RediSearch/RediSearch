@@ -15,6 +15,4 @@ bench = false
 
 [dependencies]
 sparse_vector_index.workspace = true
-
-[build-dependencies]
-build_utils.workspace = true
+workspace_hack.workspace = true

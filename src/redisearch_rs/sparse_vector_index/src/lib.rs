@@ -45,18 +45,12 @@
 
 mod query;
 
-use std::ptr;
-
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
-use inverted_index::{
-    EntriesTrackingIndex, RSIndexResult, RSResultData, numeric::Numeric, t_fieldMask,
-};
+use index_result::RSIndexResult;
+use inverted_index::{EntriesTrackingIndex, numeric::Numeric};
 use rustc_hash::FxHashMap;
 
 pub use query::SparseVectorQueryIterator;
-
-/// All fields mask constant for sparse vector entries.
-const RS_FIELDMASK_ALL: t_fieldMask = !0;
 
 /// Sparse vector index storing dimension_id -> posting list mappings.
 ///
@@ -115,20 +109,13 @@ impl SparseVectorIndex {
 
         // Add each dimension entry to its posting list
         for &(dim_id, weight) in entries {
-            let posting_list = self.dimensions.entry(dim_id).or_insert_with(|| {
-                EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric)
-            });
+            let posting_list = self
+                .dimensions
+                .entry(dim_id)
+                .or_insert_with(|| EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric));
 
-            let record = RSIndexResult {
-                doc_id,
-                dmd: ptr::null(),
-                field_mask: RS_FIELDMASK_ALL,
-                freq: 1,
-                data: RSResultData::Numeric(weight),
-                metrics: ptr::null_mut(),
-                weight: 1.0,
-            };
-            bytes_added += posting_list.add_record(&record)?;
+            let record = RSIndexResult::build_numeric(weight).doc_id(doc_id).build();
+            bytes_added += posting_list.add_record(&record)?.mem_growth as usize;
         }
 
         self.num_docs += 1;

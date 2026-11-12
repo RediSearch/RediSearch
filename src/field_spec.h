@@ -15,6 +15,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rejson_api.h"
 
 struct TagIndex;
 struct NumericRangeTree;
@@ -123,7 +124,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes)
+      // Disk index params. A non-NULL diskCtx.indexName means the field is
+      // disk-backed; it is set once the field's storage is opened, or
+      // earlier by FieldSpec_RdbLoad so that the disk teardown path is
+      // selected even if the load aborts before storage is bound. While a
+      // new field is still being parsed it is NULL even on a disk index.
+      // diskCtx.storage is non-NULL only once the field's storage is open.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
@@ -149,6 +155,9 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+
+  // Owned indexing path; NULL for HASH, invalid paths, and snapshots.
+  JSONPath compiledPath;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -162,6 +171,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
+#define FieldSpec_IsIndexableText(fs) (FIELD_IS((fs), INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs))
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)
@@ -177,6 +187,24 @@ const char *FieldSpec_GetTypeNames(int idx);
 
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
+
+/**
+ * True iff `name` is the document field this FieldSpec is fed from.
+ *
+ * Compares against `fieldPath`, not `fieldName`: a changed field is the hash field the command
+ * wrote, which is the path. `fieldName` is the `AS` alias, so comparing that would find no
+ * match on an aliased schema. `IndexSpec_CreateField` points `fieldPath` at `fieldName` when
+ * `AS` is absent, so unaliased schemas are unaffected.
+ */
+static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, size_t len) {
+  return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

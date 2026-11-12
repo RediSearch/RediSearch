@@ -38,9 +38,13 @@ typedef struct {
  * Builds the static portion of the distributed pipeline
  * @param r the request
  * @param[out] us upstream parameters
+ * @param aggregationParams parameters for building the coordinator aggregation pipeline.
+ *                          If NULL, defaults are derived from the request.
  * @param status if there is an error
  */
-int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status);
+int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
+                                  const AggregationPipelineParams *aggregationParams,
+                                  QueryError *status);
 
 #ifdef __cplusplus
 }

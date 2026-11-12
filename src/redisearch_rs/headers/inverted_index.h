@@ -7,27 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
+#include "index_result_rs.h"
+#include "rqe_core.h"
 // Forward declarations of C types defined in redisearch.h and elsewhere.
 // We can't include redisearch.h directly: it transitively includes inverted_index.h.
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct FieldSpec FieldSpec;
 
-
-/**
- * A single term being evaluated at query time.
- *
- * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
- * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
- * [`id`](RSQueryTerm::id) assigned during query parsing.
- *
- */
-typedef struct RSQueryTerm RSQueryTerm;
-
-/**
- * Result of scanning the index for garbage collection
- */
-typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
 
 /**
  * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
@@ -46,7 +32,33 @@ typedef struct IndexBlock IndexBlock;
  */
 typedef struct InvertedIndex InvertedIndex;
 
-typedef struct RLookupKey RLookupKey;
+/**
+ * Result of scanning the index for garbage collection
+ */
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
+
+/**
+ * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+ */
+typedef struct AddRecordOutcome {
+  /**
+   * Number of bytes the inverted index's memory usage grew by.
+   */
+  uint32_t mem_growth;
+  /**
+   * Number of new index blocks this write created.
+   */
+  uint32_t blocks_added;
+} AddRecordOutcome;
+
+/**
+ * Summary information about the key metrics of a block in an inverted index
+ */
+typedef struct IIBlockSummary {
+  t_docId first_doc_id;
+  t_docId last_doc_id;
+  uint16_t number_of_entries;
+} IIBlockSummary;
 
 /**
  * Summary information about an inverted index containing all key metrics
@@ -60,167 +72,6 @@ typedef struct IISummary {
   double block_efficiency;
   bool has_efficiency;
 } IISummary;
-
-/**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter {
-  /**
-   * The field specification which this filter is acting on
-   */
-  const FieldSpec *fieldSpec;
-  /**
-   * Beginning of the range
-   */
-  double min;
-  /**
-   * End of the range
-   */
-  double max;
-  /**
-   * Geo filter, if any
-   */
-  const void *geoFilter;
-  /**
-   * Range includes the min value
-   */
-  bool minInclusive;
-  /**
-   * Range includes the max value
-   */
-  bool maxInclusive;
-  /**
-   * Order of SORTBY (ascending/descending)
-   */
-  bool ascending;
-  /**
-   * Minimum number of results needed
-   */
-  size_t limit;
-  /**
-   * Number of results to skip
-   */
-  size_t offset;
-} NumericFilter;
-
-/**
- * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
- * iterating over it with RSIndexResult_IterateOffsets.
- *
- * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
- * Use [`RSOffsetVector`] for owned offset data.
- */
-typedef struct RSOffsetVector {
-  /**
-   * Pointer to the borrowed offset data.
-   */
-  const uint8_t *data;
-  uint32_t len;
-} RSOffsetVector;
-
-/**
- * Represents a single record of a document inside a term in the inverted index
- */
-enum RSTermRecord_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  RSTermRecord_Borrowed,
-  RSTermRecord_Owned,
-  RSTermRecord_FullyOwned,
-};
-#ifndef __cplusplus
-typedef uint8_t RSTermRecord_Tag;
-#endif // __cplusplus
-
-typedef struct RSTermRecord_Borrowed_Body {
-  RSTermRecord_Tag tag;
-  /**
-   * The term that brought up this record.
-   *
-   * The term is owned by the record. The name of the variant, `Borrowed`,
-   * refers to the `offsets` field.
-   *
-   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
-   * variants have the same memory layout.
-   */
-  struct RSQueryTerm *term;
-  /**
-   * The encoded offsets in which the term appeared in the document
-   *
-   * A decoder can choose to borrow this data from the index block, hence the `'index` lifetime.
-   */
-  struct RSOffsetVector offsets;
-} RSTermRecord_Borrowed_Body;
-
-typedef struct RSTermRecord_Owned_Body {
-  RSTermRecord_Tag tag;
-  /**
-   * The term that brought up this record.
-   *
-   * It borrows the term from another record.
-   * The name of the variant, `Owned`, refers to the `offsets` field.
-   */
-  const struct RSQueryTerm *term;
-  /**
-   * The encoded offsets in which the term appeared in the document
-   *
-   * The owned version owns a copy of the offsets data, which is freed on drop.
-   */
-  RSOffsetVector offsets;
-} RSTermRecord_Owned_Body;
-
-typedef struct RSTermRecord_FullyOwned_Body {
-  RSTermRecord_Tag tag;
-  /**
-   * The term that brought up this record.
-   *
-   * The term is owned by the record (wrapped in a `Box`), same as in the
-   * `Borrowed` variant.
-   */
-  struct RSQueryTerm *term;
-  /**
-   * The encoded offsets in which the term appeared in the document.
-   *
-   * Unlike `Borrowed`, the offsets are owned by the record as well and
-   * therefore do not tie the record to an external lifetime. Used when
-   * the decoded record must outlive the source of the offset bytes
-   * (e.g. reading from a disk page that may be evicted).
-   */
-  RSOffsetVector offsets;
-} RSTermRecord_FullyOwned_Body;
-
-typedef union RSTermRecord {
-  RSTermRecord_Tag tag;
-  struct RSTermRecord_Borrowed_Body borrowed;
-  struct RSTermRecord_Owned_Body owned;
-  struct RSTermRecord_FullyOwned_Body fullyowned;
-} RSTermRecord;
-
-/**
- * A single metric: a borrowed key and a numeric value.
- */
-typedef struct MetricEntry {
-  /**
-   * Borrowed reference to the lookup key that identifies this metric.
-   * `None` when the metric has no associated key.
-   */
-  const RLookupKey *key;
-  /**
-   * The metric value (e.g. vector distance, score).
-   */
-  double value;
-} MetricEntry;
-
-/**
- * Summary information about the key metrics of a block in an inverted index
- */
-typedef struct IIBlockSummary {
-  t_docId first_doc_id;
-  t_docId last_doc_id;
-  uint16_t number_of_entries;
-} IIBlockSummary;
 
 /**
  * Information about the result of applying a garbage collection scan to the index
@@ -239,10 +90,24 @@ typedef struct II_GCScanStats {
    */
   size_t entries_removed;
   /**
-   * Whether or not we ignored the last block in the index, since it changed
-   * compared to the time we performed the scan
+   * Net change in the index's block count for this apply. Positive when blocks were added
+   * (e.g. a `Replace` repair adding more blocks than it removed), negative when removed.
+   * Callers maintaining per-spec totals should add this signed value to their counter.
+   */
+  int64_t block_count_delta;
+  /**
+   * Whether the last block's delta was dropped because the block changed since the
+   * scan and could not be rescanned (no liveness source given, or it would not decode).
    */
   bool ignored_last_block;
+  /**
+   * Whether the last block changed since the scan and was rescanned in place with the
+   * liveness source given to [`InvertedIndex::apply_gc_with`]. The block's survivors are
+   * then whatever the rescan kept, not what the scan's delta described, so a caller
+   * keeping derived statistics about the last block (as the numeric tree does) must
+   * recompute them from the block as it is now.
+   */
+  bool rescanned_last_block;
 } II_GCScanStats;
 
 /**
@@ -284,359 +149,45 @@ typedef union IndexDecoderCtx {
 } IndexDecoderCtx;
 
 /**
- * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
- *
- * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
- * from C. The pointed-to data is valid as long as the originating
- * [`MetricsVec`] is not mutated or dropped.
+ * Filter details to apply to numeric values
  */
-typedef struct MetricsSlice {
+typedef struct NumericFilter {
   /**
-   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
-   * when `len == 0`.
+   * Stable index of the field this filter acts on, into `IndexSpec.fields`.
+   * Re-derive the `FieldSpec` from this at evaluation time, rather than a
+   * pointer captured when the filter was built, which could already be freed.
    */
-  const struct MetricEntry *data;
+  t_fieldIndex fieldIndex;
   /**
-   * Number of entries.
+   * Beginning of the range
    */
-  size_t len;
-} MetricsSlice;
-
-#ifndef THINVEC_BOX_RSINDEXRESULT__U16_DEFINED
-#define THINVEC_BOX_RSINDEXRESULT__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_Box_RSIndexResult__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RSIndexResult__u16;
-#endif /* THINVEC_BOX_RSINDEXRESULT__U16_DEFINED */
-
-#ifndef THINVEC_METRICENTRY__U64_DEFINED
-#define THINVEC_METRICENTRY__U64_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_MetricEntry__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_MetricEntry__u64;
-#endif /* THINVEC_METRICENTRY__U64_DEFINED */
-
-/**
- * A dynamically-sized collection of [`MetricEntry`] values.
- *
- * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
- * the allocation header. `MetricsVec::new()` does not allocate.
- *
- * `repr(transparent)` over `ThinVec` means this type is pointer-sized
- * and can be embedded directly in `repr(C)` structs.
- */
-typedef struct ThinVec_MetricEntry__u64 MetricsVec;
-
-#ifndef THINVEC_RSINDEXRESULT__U16_DEFINED
-#define THINVEC_RSINDEXRESULT__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_RSIndexResult__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_RSIndexResult__u16;
-#endif /* THINVEC_RSINDEXRESULT__U16_DEFINED */
-
-#ifndef SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED
-#define SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED
-/**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
- *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
- */
-typedef struct ThinVec_Box_RSIndexResult__u16 SmallThinVec_Box_RSIndexResult;
-#endif /* SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED */
-
-#ifndef SMALLTHINVEC_RSINDEXRESULT_DEFINED
-#define SMALLTHINVEC_RSINDEXRESULT_DEFINED
-/**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
- *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
- */
-typedef struct ThinVec_RSIndexResult__u16 SmallThinVec_RSIndexResult;
-#endif /* SMALLTHINVEC_RSINDEXRESULT_DEFINED */
-
-#ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
-#define BITFLAGS_RSRESULTKIND__U8_DEFINED
-/**
- * Represents a set of flags of some type `T`.
- * `T` must have the `#[bitflags]` attribute applied.
- *
- * A `BitFlags<T>` is as large as the `T` itself,
- * and stores one flag per bit.
- *
- * ## Comparison operators, [`PartialOrd`] and [`Ord`]
- *
- * To make it possible to use `BitFlags` as the key of a
- * [`BTreeMap`][std::collections::BTreeMap], `BitFlags` implements
- * [`Ord`]. There is no meaningful total order for bitflags,
- * so the implementation simply compares the integer values of the bits.
- *
- * Unfortunately, this means that comparing `BitFlags` with an operator
- * like `<=` will compile, and return values that are probably useless
- * and not what you expect. In particular, `<=` does *not* check whether
- * one value is a subset of the other. Use [`BitFlags::contains`] for that.
- *
- * ## Customizing `Default`
- *
- * By default, creating an instance of `BitFlags<T>` with `Default` will result
- * in an empty set. If that's undesirable, you may customize this:
- *
- * ```
- * # use enumflags2::{BitFlags, bitflags};
- * #[bitflags(default = B | C)]
- * #[repr(u8)]
- * #[derive(Copy, Clone, Debug, PartialEq)]
- * enum MyFlag {
- *     A = 0b0001,
- *     B = 0b0010,
- *     C = 0b0100,
- *     D = 0b1000,
- * }
- *
- * assert_eq!(BitFlags::default(), MyFlag::B | MyFlag::C);
- * ```
- *
- * ## Memory layout
- *
- * `BitFlags<T>` is marked with the `#[repr(transparent)]` trait, meaning
- * it can be safely transmuted into the corresponding numeric type.
- *
- * Usually, the same can be achieved by using [`BitFlags::bits`] in one
- * direction, and [`BitFlags::from_bits`], [`BitFlags::from_bits_truncate`],
- * or [`BitFlags::from_bits_unchecked`] in the other direction. However,
- * transmuting might still be useful if, for example, you're dealing with
- * an entire array of `BitFlags`.
- *
- * When transmuting *into* a `BitFlags`, make sure that each set bit
- * corresponds to an existing flag
- * (cf. [`from_bits_unchecked`][BitFlags::from_bits_unchecked]).
- *
- * For example:
- *
- * ```
- * # use enumflags2::{BitFlags, bitflags};
- * #[bitflags]
- * #[repr(u8)] // <-- the repr determines the numeric type
- * #[derive(Copy, Clone)]
- * enum TransmuteMe {
- *     One = 1 << 0,
- *     Two = 1 << 1,
- * }
- *
- * # use std::slice;
- * // NOTE: we use a small, self-contained function to handle the slice
- * // conversion to make sure the lifetimes are right.
- * fn transmute_slice<'a>(input: &'a [BitFlags<TransmuteMe>]) -> &'a [u8] {
- *     unsafe {
- *         slice::from_raw_parts(input.as_ptr() as *const u8, input.len())
- *     }
- * }
- *
- * let many_flags = &[
- *     TransmuteMe::One.into(),
- *     TransmuteMe::One | TransmuteMe::Two,
- * ];
- *
- * let as_nums = transmute_slice(many_flags);
- * assert_eq!(as_nums, &[0b01, 0b11]);
- * ```
- *
- * ## Implementation notes
- *
- * You might expect this struct to be defined as
- *
- * ```ignore
- * struct BitFlags<T: BitFlag> {
- *     value: T::Numeric
- * }
- * ```
- *
- * Ideally, that would be the case. However, because `const fn`s cannot
- * have trait bounds in current Rust, this would prevent us from providing
- * most `const fn` APIs. As a workaround, we define `BitFlags` with two
- * type parameters, with a default for the second one:
- *
- * ```ignore
- * struct BitFlags<T, N = <T as BitFlag>::Numeric> {
- *     value: N,
- *     marker: PhantomData<T>,
- * }
- * ```
- *
- * Manually providing a type for the `N` type parameter shouldn't ever
- * be necessary.
- *
- * The types substituted for `T` and `N` must always match, creating a
- * `BitFlags` value where that isn't the case is only possible with
- * incorrect unsafe code.
- */
-typedef uint8_t BitFlags_RSResultKind__u8;
-#endif /* BITFLAGS_RSRESULTKIND__U8_DEFINED */
-
-typedef BitFlags_RSResultKind__u8 RSResultKindMask;
-
-/**
- * Represents an aggregate array of values in an index record.
- *
- * The C code should always use `AggregateResult_New` to construct a new instance of this type
- * using Rust since the internals cannot be constructed directly in C. The reason is because of
- * the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
- * managed correctly.
- */
-enum RSAggregateResult_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  RSAggregateResult_Borrowed,
-  RSAggregateResult_Owned,
-};
-#ifndef __cplusplus
-typedef uint8_t RSAggregateResult_Tag;
-#endif // __cplusplus
-
-typedef struct RSAggregateResult_Borrowed_Body {
-  RSAggregateResult_Tag tag;
+  double min;
   /**
-   * The records making up this aggregate result
-   *
-   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
-   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-   *
-   * This requires `'index` on the reference because adding a new lifetime will cause the
-   * type to be `ThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
-   * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
-   * will still try to access it (ie a dangling pointer). Now the decoders will never return
-   * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
-   * above, this means `'index: 'static` which is just incorrect since the index data will
-   * never be `'static` when decoding.
+   * End of the range
    */
-  SmallThinVec_RSIndexResult records;
+  double max;
   /**
-   * A map of the aggregate kind of the underlying records
+   * Geo filter, if any
    */
-  RSResultKindMask kind_mask;
-} RSAggregateResult_Borrowed_Body;
-
-typedef struct RSAggregateResult_Owned_Body {
-  RSAggregateResult_Tag tag;
+  const void *geoFilter;
   /**
-   * The records making up this aggregate result
-   *
-   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
-   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * Range includes the min value
    */
-  SmallThinVec_Box_RSIndexResult records;
+  bool minInclusive;
   /**
-   * A map of the aggregate kind of the underlying records
+   * Range includes the max value
    */
-  RSResultKindMask kind_mask;
-} RSAggregateResult_Owned_Body;
-
-typedef union RSAggregateResult {
-  RSAggregateResult_Tag tag;
-  struct RSAggregateResult_Borrowed_Body borrowed;
-  struct RSAggregateResult_Owned_Body owned;
-} RSAggregateResult;
-
-/**
- * Holds the actual data of an ['IndexResult']
- *
- * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
- * the bitflags on [`super::kind::RSResultKindMask`]
- *
- * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
- */
-enum RSResultData_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  RSResultData_Union = 1,
-  RSResultData_Intersection = 2,
-  RSResultData_Term = 4,
-  RSResultData_Virtual = 8,
-  RSResultData_Numeric = 16,
-  RSResultData_Metric = 32,
-  RSResultData_HybridMetric = 64,
-};
-#ifndef __cplusplus
-typedef uint8_t RSResultData_Tag;
-#endif // __cplusplus
-
-typedef union RSResultData {
-  RSResultData_Tag tag;
-  struct {
-    RSResultData_Tag union__tag;
-    union RSAggregateResult union_;
-  };
-  struct {
-    RSResultData_Tag intersection_tag;
-    union RSAggregateResult intersection;
-  };
-  struct {
-    RSResultData_Tag term_tag;
-    union RSTermRecord term;
-  };
-  struct {
-    RSResultData_Tag numeric_tag;
-    double numeric;
-  };
-  struct {
-    RSResultData_Tag metric_tag;
-    double metric;
-  };
-  struct {
-    RSResultData_Tag hybridmetric_tag;
-    union RSAggregateResult hybridmetric;
-  };
-} RSResultData;
-
-/**
- * The result of an inverted index
- */
-typedef struct RSIndexResult {
+  bool maxInclusive;
   /**
-   * The document ID of the result
+   * Order of SORTBY (ascending/descending)
    */
-  t_docId docId;
+  bool ascending;
   /**
-   * Some metadata about the result document
+   * Minimum number of results needed
    */
-  const RSDocumentMetadata *dmd;
+  size_t limit;
   /**
-   * The aggregate field mask of all the records in this result
+   * Number of results to skip
    */
-  t_fieldMask fieldMask;
-  /**
-   * The total frequency of all the records in this result
-   */
-  uint32_t freq;
-  /**
-   * The actual data of the result
-   */
-  union RSResultData data;
-  /**
-   * Holds an array of metrics yielded by the different iterators in the AST.
-   *
-   * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
-   * allocation when empty.
-   */
-  MetricsVec metrics;
-  /**
-   * Relative weight for scoring calculations. This is derived from the result's iterator weight
-   */
-  double weight;
-} RSIndexResult;
+  size_t offset;
+} NumericFilter;

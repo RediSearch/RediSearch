@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+
+import sys
+
+if __name__ == '__main__':
+	for line in sys.stdin:
+		assert isinstance(line, str)
+
+		line = line.strip()  # used later when printing
+		chunks = line.strip().split(' ')
+
+		bmp = True
+		for chunk in chunks:
+			try:
+				# BMP-only means that only codepoints from BMP (U+0000..U+FFFF) are included into hash tables
+				# therefore if there is a non-BMP codepoint in a contraction, ignore entire contraction.
+				# note hovewer that this doesn't reduce compact version of contractions for very much,
+				# there is very small number of contractions outside of BMP (few dozens as of Unicode 17),
+				# so it's debatable if contractions should do that at all, but for consistency sake, it is so for now.
+				if int(chunk, base=16) > 0xFFFF:
+					bmp = False
+					break
+			except ValueError:
+				pass
+
+		if bmp:
+			print(line)

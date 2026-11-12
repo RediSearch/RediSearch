@@ -105,7 +105,7 @@ impl SlotsTracker {
         Self {
             local: SlotSet::from_ranges(&[SlotRange {
                 start: 0,
-                end: 16383,
+                end: crate::CLUSTER_SLOTS - 1,
             }]),
             fully_available: SlotSet::new(),
             partially_available: SlotSet::new(),
@@ -119,6 +119,11 @@ impl SlotsTracker {
     pub const fn get_version(&self) -> Version {
         // Internal invariant: self.version is always Stable
         self.version
+    }
+
+    /// Returns the local responsibility slot ranges as a sorted, normalized slice.
+    pub fn local_slot_ranges(&self) -> &[SlotRange] {
+        self.local.as_ranges()
     }
 
     /// Increments the version counter using wrapping arithmetic.
@@ -339,6 +344,47 @@ mod tests {
         assert_eq!(
             tracker,
             ([(0, 100)], [], [], Some(initial_version.increment()))
+        );
+    }
+
+    #[test]
+    fn test_local_slot_ranges_reflects_local_set() {
+        let mut tracker = SlotsTracker::new();
+        // A new tracker owns the full slot range
+        assert_eq!(
+            tracker.local_slot_ranges(),
+            &[SlotRange {
+                start: 0,
+                end: 16383
+            }]
+        );
+
+        tracker.set_local_slots(&[
+            SlotRange { start: 0, end: 100 },
+            SlotRange {
+                start: 200,
+                end: 300,
+            },
+        ]);
+        assert_eq!(
+            tracker.local_slot_ranges(),
+            &[
+                SlotRange { start: 0, end: 100 },
+                SlotRange {
+                    start: 200,
+                    end: 300
+                },
+            ]
+        );
+
+        // Migrated-away slots are no longer local
+        tracker.mark_fully_available_slots(&[SlotRange {
+            start: 200,
+            end: 300,
+        }]);
+        assert_eq!(
+            tracker.local_slot_ranges(),
+            &[SlotRange { start: 0, end: 100 }]
         );
     }
 

@@ -2,6 +2,10 @@ name: Build Cached Container
 
 on:
   workflow_call:
+    secrets:
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
     inputs:
       container:
         description: "Base container image (for example: ubuntu:noble)"
@@ -35,16 +39,25 @@ jobs:
       contents: read
       packages: write # required for GHCR push
     outputs:
-      image: ${{ steps.meta.outputs.image }}
+      image: ${{ steps.select-pull-image.outputs.image }}
       succeeded: ${{ steps.mark-status.outputs.succeeded }}
     steps:
       - name: Checkout
         if: inputs.checkout-ref == ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
 
       - name: Checkout (custom ref)
         if: inputs.checkout-ref != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout-ref }}
       - name: Set image name
@@ -54,18 +67,23 @@ jobs:
           SAN: ${{ inputs.san }}
           RUNNER_ENV: ${{ inputs.runner-env }}
           RUN_ID: ${{ github.run_id }}
+          OWNER: ${{ github.repository_owner }}
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/${OWNER_LC}/redisearch-ci"
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's#[^A-Za-z0-9_.-]#-#g')
           SAN_SAFE=$(echo "$SAN" | sed 's#[^A-Za-z0-9_.-]#-#g')
           RUNNER_ENV_SAFE=$(echo "$RUNNER_ENV" | sed 's#[^A-Za-z0-9_.-]#-#g')
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-${RUN_ID}"
+          IMAGE_PATH="${OWNER_LC}/redisearch-ci:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-${RUN_ID}"
+          GHCR_IMAGE_TAG="ghcr.io/${IMAGE_PATH}"
           CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN_SAFE}-${RUNNER_ENV_SAFE}-cache"
 
-          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "image-path=$IMAGE_PATH" >> "$GITHUB_OUTPUT"
+          echo "ghcr-image=$GHCR_IMAGE_TAG" >> "$GITHUB_OUTPUT"
           echo "cache=$CACHE_REF" >> "$GITHUB_OUTPUT"
-          echo "Using image tag: $IMAGE_TAG"
+          echo "Using image path: $IMAGE_PATH"
+          echo "Using GHCR image tag: $GHCR_IMAGE_TAG"
           echo "Using cache ref: $CACHE_REF"
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "can_push=false" >> "$GITHUB_OUTPUT"
@@ -75,21 +93,21 @@ jobs:
           fi
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build and push (cached)
         id: build-and-push
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           push: ${{ steps.meta.outputs.can_push == 'true' }}
           context: .
@@ -99,9 +117,40 @@ jobs:
           secrets: |
             GITHUB_TOKEN=${{ github.token }}
           file: Dockerfile
-          tags: ${{ steps.meta.outputs.image }}
+          tags: ${{ steps.meta.outputs.ghcr-image }}
           cache-to: ${{ steps.meta.outputs.can_push == 'true' && format('type=registry,ref={0},mode=max,compression=zstd', steps.meta.outputs.cache) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+
+      - name: Select pull image
+        if: always()
+        id: select-pull-image
+        env:
+          GHCR_IMAGE: ${{ steps.meta.outputs.ghcr-image }}
+          IMAGE_PATH: ${{ steps.meta.outputs.image-path }}
+          BUILD_OUTCOME: ${{ steps.build-and-push.outcome }}
+          GHCR_MIRROR_HOST: ${{ vars.GHCR_MIRROR_HOST }}
+          # The mirror is only reachable from self-hosted runners; skip the
+          # check on GitHub-hosted runners rather than pay for a connection
+          # that can't succeed.
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          image="$GHCR_IMAGE"
+
+          if [[ "$BUILD_OUTCOME" == "success" && "$RUNNER_ENVIRONMENT" == "self-hosted" && -n "${GHCR_MIRROR_HOST:-}" ]]; then
+            mirror_image="${GHCR_MIRROR_HOST%/}/${IMAGE_PATH}"
+            echo "Checking mirror manifest: $mirror_image"
+            if docker manifest inspect "$mirror_image" >/dev/null 2>&1; then
+              image="$mirror_image"
+              echo "Mirror image is available."
+            else
+              echo "Mirror image is not available; using GHCR image."
+            fi
+          else
+            echo "Mirror host is unreachable (not a self-hosted runner), unconfigured, or image build did not succeed; using GHCR image."
+          fi
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Using pull image tag: $image"
 
       - name: Mark build status
         if: always()

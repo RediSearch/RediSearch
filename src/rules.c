@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+
 #include "triemap_ffi.h"
-#include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
@@ -18,6 +22,14 @@
 #include "util/likely.h"
 #include "spec.h"
 #include "rmutil/rm_assert.h"
+#include "doc_table.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "util/dict/dict.h"
+#include "value_ffi.h"
 
 
 TrieMap *SchemaPrefixes_g = NULL;
@@ -103,6 +115,14 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  if (rule->type == DocumentType_Json) {
+    if (rule->lang_field) {
+      rule->compiled_lang_path = japi->pathParseNoErrorMsg(rule->lang_field);
+    }
+    if (rule->score_field) {
+      rule->compiled_score_path = japi->pathParseNoErrorMsg(rule->score_field);
+    }
+  }
 
   if (args->score_default) {
     double score;
@@ -118,7 +138,7 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, strlen(args->lang_default));
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid language");
       goto error;
@@ -235,6 +255,12 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
+  if (rule->compiled_lang_path) {
+    japi->pathFree(rule->compiled_lang_path);
+  }
+  if (rule->compiled_score_path) {
+    japi->pathFree(rule->compiled_score_path);
+  }
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
@@ -299,8 +325,8 @@ done:
   return lang;
 }
 
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonRoot, const char *kname) {
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                               const char *kname) {
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
@@ -317,7 +343,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path);
   if (!jsonIter) {
     goto done;
   }
@@ -372,8 +398,8 @@ done:
   return score;
 }
 
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonRoot, const char *kname) {
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                            const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
   RedisJSON scoreJson = NULL;
@@ -387,7 +413,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->score_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path);
   if (jsonIter == NULL) {
     goto done;
   }
@@ -429,7 +455,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   uint64_t exist = 0;
   uint64_t nprefixes_u64 = 0;
   double score_default = 0.0;
-  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  uint64_t lang_default_u64 = DEFAULT_LANGUAGE;
   bool index_all = false;
   SchemaRule *rule = NULL;
   IndexSpec *sp = NULL;
@@ -477,7 +503,14 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
   score_default = LoadDouble_IOError(rdb, goto cleanup);
-  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  lang_default_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  if (lang_default_u64 >= RS_LANG_UNSUPPORTED) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "RDB Load: Invalid default language (%llu)",
+                                     (unsigned long long)lang_default_u64);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
@@ -488,7 +521,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     goto cleanup;
   }
   rule->score_default = score_default;
-  rule->lang_default = lang_default;
+  rule->lang_default = (RSLanguage)lang_default_u64;
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
@@ -566,7 +599,8 @@ bool SchemaRule_FilterPasses(EvalCtx *r, RSExpr *filter_exp) {
          RSValue_BoolTest(r->res);
 }
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey) {
   // check type
   if (type != sp->rule->type) {
     return false;
@@ -598,7 +632,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
     RedisSearchCtx sctx = { .redisCtx = RSDummyContext };
     QueryError status = QueryError_Default();
-    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, &status);
+    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, openKey, &status);
     QueryError_ClearError(&status); // TODO: report errors
 
     ret = SchemaRule_FilterPasses(r, rule->filter_exp);

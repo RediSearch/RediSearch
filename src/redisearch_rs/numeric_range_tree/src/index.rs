@@ -12,12 +12,17 @@
 //! This module contains the index and reader enums that abstract over
 //! compressed and uncompressed numeric storage in inverted indexes.
 
+use std::ptr::NonNull;
+
 use ffi::IndexFlags_Index_StoreNumeric;
+use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
+    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore, ReseatIndex,
     debug::Summary,
-    numeric::{Numeric, NumericFloatCompression},
+    numeric::{Numeric, NumericEncoder, NumericFloatCompression, PreparedValue},
 };
+use ref_mode::{Active, Ref, Suspended};
+use rqe_core::DocId;
 
 /// Enum to hold either compressed or uncompressed numeric index.
 #[cheadergen::config(rename = "InvertedIndexNumeric")]
@@ -42,16 +47,68 @@ impl NumericIndex {
         }
     }
 
-    /// Add a record to the index, returning bytes written.
+    /// Ask this index's encoder how it will represent `value` — see
+    /// [`NumericEncoder::prepare`].
+    pub fn prepare(&self, value: f64) -> PreparedValue {
+        match self {
+            NumericIndex::Uncompressed(_) => Numeric::prepare(value),
+            NumericIndex::Compressed(_) => NumericFloatCompression::prepare(value),
+        }
+    }
+
+    /// [`Self::prepare`] for callers that hold the `compress_floats` flag rather than
+    /// an index — the tree prepares on the way in, before it has descended to the leaf
+    /// whose index will write the entry. Kept next to [`Self::new`], which owns the
+    /// same flag-to-encoder mapping.
+    pub fn prepare_for(compress_floats: bool, value: f64) -> PreparedValue {
+        if compress_floats {
+            NumericFloatCompression::prepare(value)
+        } else {
+            Numeric::prepare(value)
+        }
+    }
+
+    /// Add a record to the index. Returns `(memory_growth, blocks_added)` — see
+    /// [`InvertedIndex::add_record`][inverted_index::InvertedIndex::add_record].
+    ///
+    /// For callers that already hold an [`RSIndexResult`] and derive nothing from the
+    /// value. A caller that also needs to know what will be stored should
+    /// [`prepare`](Self::prepare) it and use
+    /// [`add_prepared_record`](Self::add_prepared_record) instead of asking twice.
     ///
     /// # Panics
     ///
     /// Panics if the underlying write fails. This should never happen with
     /// in-memory inverted indexes, so a panic indicates a bug.
-    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> usize {
+    pub fn add_record(&mut self, record: &RSIndexResult) -> inverted_index::AddRecordOutcome {
         let result = match self {
             NumericIndex::Uncompressed(idx) => idx.add_record(record),
             NumericIndex::Compressed(idx) => idx.add_record(record),
+        };
+        result.expect("in-memory inverted index write cannot fail")
+    }
+
+    /// Add an entry whose representation was already decided by [`Self::prepare`].
+    /// Returns `(memory_growth, blocks_added)` — see
+    /// [`InvertedIndex::add_prepared_record`][inverted_index::InvertedIndex::add_prepared_record].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying write fails. This should never happen with
+    /// in-memory inverted indexes, so a panic indicates a bug.
+    pub fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+        has_field_expiration: bool,
+    ) -> inverted_index::AddRecordOutcome {
+        let result = match self {
+            NumericIndex::Uncompressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
+            NumericIndex::Compressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
         };
         result.expect("in-memory inverted index write cannot fail")
     }
@@ -114,22 +171,10 @@ impl NumericIndex {
         }
     }
 
-    /// Get a reference to the last block in this index, if any.
-    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
-        let n = self.num_blocks();
-        if n == 0 {
-            return None;
-        }
-        match self {
-            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
-            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
-        }
-    }
-
     /// Get the first document ID in a specific block.
     ///
     /// Returns `None` if the block index is out of bounds.
-    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<ffi::t_docId> {
+    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<DocId> {
         match self {
             NumericIndex::Uncompressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
             NumericIndex::Compressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
@@ -140,9 +185,50 @@ impl NumericIndex {
     ///
     /// Consumes the `delta` and returns information about what changed.
     pub fn apply_gc(&mut self, delta: inverted_index::GcScanDelta) -> inverted_index::GcApplyInfo {
+        self.apply_gc_with(delta, None)
+    }
+
+    /// [`Self::apply_gc`], rescanning a last block that grew since the scan with `live`
+    /// instead of denying its delta; see
+    /// [`InvertedIndex::apply_gc_with`](inverted_index::InvertedIndex::apply_gc_with).
+    pub fn apply_gc_with(
+        &mut self,
+        delta: inverted_index::GcScanDelta,
+        live: Option<&dyn inverted_index::DocLiveness>,
+    ) -> inverted_index::GcApplyInfo {
         match self {
-            NumericIndex::Uncompressed(idx) => idx.apply_gc(delta),
-            NumericIndex::Compressed(idx) => idx.apply_gc(delta),
+            NumericIndex::Uncompressed(idx) => idx.apply_gc_with(delta, live),
+            NumericIndex::Compressed(idx) => idx.apply_gc_with(delta, live),
+        }
+    }
+
+    /// A full private copy of the index for a GC scan without the lock; the HLL
+    /// recomputation needs every surviving entry, so no block is left out. See
+    /// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
+    pub fn gc_snapshot(&self, live: &impl inverted_index::DocLiveness) -> Option<Self> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx
+                .gc_snapshot(live, inverted_index::GcSnapshotScope::AllBlocks)
+                .map(Self::Uncompressed),
+            NumericIndex::Compressed(idx) => idx
+                .gc_snapshot(live, inverted_index::GcSnapshotScope::AllBlocks)
+                .map(Self::Compressed),
+        }
+    }
+
+    /// See [`InvertedIndex::doc_id_range`](inverted_index::InvertedIndex::doc_id_range).
+    pub fn doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.doc_id_range(),
+            NumericIndex::Compressed(idx) => idx.doc_id_range(),
+        }
+    }
+
+    /// See [`InvertedIndex::last_block_doc_id_range`](inverted_index::InvertedIndex::last_block_doc_id_range).
+    pub fn last_block_doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.last_block_doc_id_range(),
+            NumericIndex::Compressed(idx) => idx.last_block_doc_id_range(),
         }
     }
 
@@ -152,11 +238,11 @@ impl NumericIndex {
     /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
     pub fn scan_gc<F>(
         &self,
-        doc_exist: impl Fn(ffi::t_docId) -> bool,
+        doc_exist: impl inverted_index::DocLiveness,
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where
-        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+        F: for<'index> FnMut(&RSIndexResult<'index>, &inverted_index::RepairContext<'index>),
     {
         match self {
             NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),
@@ -165,14 +251,99 @@ impl NumericIndex {
     }
 }
 
-/// Iterate over the entries stored in a numeric index.
+/// Iterate over the entries stored in a numeric index, parameterised over a
+/// [`Ref`] mode.
 ///
-/// This abstracts over whether the underlying index is compressed or uncompressed.
-pub enum NumericIndexReader<'a> {
+/// Abstracts over whether the underlying index is compressed or uncompressed.
+/// `RawNumericIndexReader<Active<'index>>` (aliased [`NumericIndexReader`]) and
+/// `RawNumericIndexReader<Suspended>` are layout-identical, so the owning
+/// `RawInvIndIterator` can suspend/resume by a same-allocation reinterpretation —
+/// the [`SuspendableReader`](inverted_index::SuspendableReader) /
+/// [`ResumableReader`](inverted_index::ResumableReader) contract. This holds
+/// because `Rf` flows only through the per-variant [`RawIndexReaderCore`]
+/// payloads, each itself layout-compatible (invariant 1 on that type). Enforced
+/// by the `const _` proof below.
+#[repr(C)]
+pub enum RawNumericIndexReader<Rf: Ref> {
     /// Reader over uncompressed entries.
-    Uncompressed(IndexReaderCore<'a, Numeric>),
+    Uncompressed(RawIndexReaderCore<Rf, Numeric>),
     /// Reader over compressed entries.
-    Compressed(IndexReaderCore<'a, NumericFloatCompression>),
+    Compressed(RawIndexReaderCore<Rf, NumericFloatCompression>),
+}
+
+/// Active-form alias of [`RawNumericIndexReader`] — the live numeric reader.
+pub type NumericIndexReader<'index> = RawNumericIndexReader<Active<'index>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawNumericIndexReader` are layout-identical. As an enum we assert size and
+// alignment equality; the per-variant `RawIndexReaderCore` payloads are
+// layout-compatible by their own invariant 1, so a divergence here is a build error.
+const _: () = {
+    use std::mem::{align_of, size_of};
+    type A = RawNumericIndexReader<Active<'static>>;
+    type S = RawNumericIndexReader<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+// SAFETY: `RawNumericIndexReader<Active>` and `<Suspended>` are layout-identical
+// (const proof above), as `SuspendableReader` requires.
+unsafe impl<'a> inverted_index::SuspendableReader for NumericIndexReader<'a> {
+    type Suspended = RawNumericIndexReader<Suspended>;
+}
+
+// SAFETY: layout-compatible for the same reason as the `SuspendableReader` impl above.
+unsafe impl inverted_index::ResumableReader for RawNumericIndexReader<Suspended> {
+    type Resumed<'a> = NumericIndexReader<'a>;
+
+    unsafe fn refresh_pointers(&mut self) -> inverted_index::RefreshOutcome {
+        match self {
+            // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+            // read-lock obligation, which we forward unchanged to the inner reader.
+            Self::Uncompressed(r) => unsafe { r.refresh_pointers() },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.refresh_pointers() },
+        }
+    }
+}
+
+/// Reseats on the encoding's inverted index inside a [`NumericIndex`]. The
+/// variant must match the reader's encoding — requirement 1 of the trait's
+/// contract implies it.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, Numeric> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Uncompressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("an uncompressed reader cannot read a compressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+/// See the [`Numeric`] impl above.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, NumericFloatCompression> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Compressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("a compressed reader cannot read an uncompressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawNumericIndexReader<Rf> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        match self {
+            // SAFETY: the caller upholds the trait's contract, which forwards as is.
+            Self::Uncompressed(r) => unsafe { r.reseat(index) },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.reseat(index) },
+        }
+    }
 }
 
 /// Marker trait for readers producing numeric values.
@@ -188,7 +359,7 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
 
     fn seek_record(
         &mut self,
-        doc_id: ffi::t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'a>,
     ) -> std::io::Result<bool> {
         match self {
@@ -197,7 +368,7 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
         }
     }
 
-    fn skip_to(&mut self, doc_id: ffi::t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         match self {
             Self::Uncompressed(r) => r.skip_to(doc_id),
             Self::Compressed(r) => r.skip_to(doc_id),
@@ -236,13 +407,6 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
         match self {
             Self::Uncompressed(r) => r.needs_revalidation(),
             Self::Compressed(r) => r.needs_revalidation(),
-        }
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
-        match self {
-            Self::Uncompressed(r) => r.refresh_buffer_pointers(),
-            Self::Compressed(r) => r.refresh_buffer_pointers(),
         }
     }
 }

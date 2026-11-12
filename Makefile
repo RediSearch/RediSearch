@@ -14,6 +14,8 @@ MAKEFLAGS += --no-print-directory
 ROOT := $(shell pwd)
 BUILD_SCRIPT := $(ROOT)/build.sh
 
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(PATH)
+
 # Default target
 .DEFAULT_GOAL := build
 
@@ -147,6 +149,9 @@ define HELPTEXT
 RediSearch Build System
 
 Setup:
+  make bootstrap     Install build- and test-time system dependencies.
+                     Auto-prefixes `sudo` when not root.
+    SUDO=cmd           Override the privilege-escalation command (default: auto)
   make fetch         Download and prepare dependent modules
 
 Build:
@@ -167,8 +172,10 @@ Build:
                        Set to 0 on pre-Armv8.1-a cores (Cortex-A72,
                        Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 
-  make clean         Remove build artifacts
-    ALL=1              Remove entire artifacts directory
+  make clean         Remove build artifacts and stray *.profraw files
+    ALL=1              Also remove the whole artifacts directory, which holds
+                       the cargo target dir, plus any stray
+                       src/redisearch_rs/target
 
 Testing:
   make test          Run all tests
@@ -202,7 +209,6 @@ Packaging:
 Benchmarks:
   make benchmark        Run performance benchmarks
   make micro-benchmarks Run micro-benchmarks
-  make vecsim-bench     Run VecSim micro-benchmarks
 
 Documentation:
   make check-links         Check all links in Markdown files (failures only)
@@ -213,6 +219,29 @@ endef # HELPTEXT
 help:
 	$(info $(HELPTEXT))
 	@:
+
+# Auto-detect: empty when running as root (containers/CI), "sudo" otherwise.
+# Override with SUDO= for environments that need a different prefix (e.g. doas)
+# or to force no prefix.
+SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
+
+# `list` / `dry-run` route through the REAL installer (install_script.sh),
+# same as the other modules: CHECK_DEPS=1 records present/missing deps and
+# installs nothing; DRY_RUN=1 prints the exact commands bootstrap would run for
+# missing deps and installs nothing.
+bootstrap:
+ifeq ($(filter list,$(MAKECMDGOALS)),list)
+	@cd $(ROOT)/.install && CHECK_DEPS=1 ./install_script.sh $(SUDO)
+else ifeq ($(filter dry-run,$(MAKECMDGOALS)),dry-run)
+	@cd $(ROOT)/.install && DRY_RUN=1 ./install_script.sh $(SUDO)
+else
+	@echo "Installing build dependencies..."
+	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
+endif
+
+list: ; @:
+dry-run: ; @:
+bootstrap-modes: ; @echo "list dry-run"
 
 fetch:
 	@echo "Fetching dependencies..."
@@ -238,11 +267,18 @@ verify-deps:
 clean:
 ifeq ($(ALL),1)
 	@echo "Cleaning all build artifacts..."
-	@rm -rf $(ROOT)/bin
+	@rm -rf $(ROOT)/bin $(ROOT)/src/redisearch_rs/target
 else
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(ROOT)/bin/*/search-*
 endif
+# An instrumented binary drops one .profraw per process into its working
+# directory. cargo-llvm-cov keeps its own under the cargo target dir, which
+# src/redisearch_rs/.cargo/config.toml points into bin/, but an ad-hoc
+# instrumented cargo run scatters them through the source tree instead.
+# Best-effort: an unwritable leftover must not fail the target.
+	@echo "Removing stray LLVM coverage profiles..."
+	@-find $(ROOT) -name '*.profraw' -type f -delete
 
 test: $(BUILD_SCRIPT)
 	@echo "Running all tests..."
@@ -255,6 +291,14 @@ unit-tests: $(BUILD_SCRIPT)
 rust-tests: $(BUILD_SCRIPT)
 	@echo "Running Rust tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
+
+archive-rust-tests: $(BUILD_SCRIPT)
+	@echo "Archiving Rust tests into a nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) ARCHIVE_RUST_TESTS
+
+rust-tests-from-archive: $(BUILD_SCRIPT)
+	@echo "Running Rust tests from nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_ARCHIVED_RUST_TESTS
 
 pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
@@ -404,17 +448,6 @@ micro-benchmarks: $(BUILD_SCRIPT)
 	@echo "Running micro-benchmarks..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
 
-vecsim-bench: $(BUILD_SCRIPT)
-	@echo "Running VecSim micro-benchmarks..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) TESTS
-	@RSBENCH_PATH=$$(find $(ROOT)/bin -name "rsbench" | head -1); \
-	if [ -z "$$RSBENCH_PATH" ]; then \
-		echo "Error: rsbench executable not found after build"; \
-		exit 1; \
-	fi; \
-	echo "Running rsbench from $$RSBENCH_PATH"; \
-	$$RSBENCH_PATH
-
 callgrind:
 	@echo "Running callgrind profiling..."
 	@valgrind --tool=callgrind --dump-instr=yes --simulate-cache=no \
@@ -455,7 +488,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: help build clean test unit-tests rust-tests pytest
+.PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
-.PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
+.PHONY: benchmark micro-benchmarks callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck

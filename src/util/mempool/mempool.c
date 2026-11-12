@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "mempool.h"
+
 #include <sys/param.h>
-#include <stdio.h>
 #include <pthread.h>
+
 #include "rmalloc.h"
 #include "config.h"
+#include "redismodule.h"
 
 struct mempool_t {
   void **entries;
@@ -98,6 +100,10 @@ inline void mempool_release(mempool_t *p, void *ptr) {
     }
     p->entries[p->top++] = ptr;
   }
+}
+
+size_t mempool_size(const mempool_t *p) {
+  return p->top;
 }
 
 void mempool_destroy(mempool_t *p) {

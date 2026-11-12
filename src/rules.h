@@ -66,6 +66,8 @@ typedef struct SchemaRule {
   double score_default;
   RSLanguage lang_default;
   bool index_all;
+  JSONPath compiled_lang_path;
+  JSONPath compiled_score_path;
 } SchemaRule;
 
 /*
@@ -87,19 +89,24 @@ void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonKey, const char *keyName);
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
+                               const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonKey, const char *keyName);
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
+                            const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
 
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
+// Decide whether `keyname` (of `type`) belongs to `sp`: matches its type, a prefix, and the
+// optional FILTER expression. `openKey`, when non-NULL, is an already-open pinned handle for
+// `keyname` (e.g. the value pinned for an AsyncScan callback) that the FILTER evaluation reuses
+// to load fields instead of reopening by name; pass NULL when no such handle is available.
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey);
 
 struct EvalCtx;
 /**

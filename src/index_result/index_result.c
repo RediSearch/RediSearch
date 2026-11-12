@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "types_ffi.h"
-#include "query_term_ffi.h"
-#include "rmalloc.h"
+
 #include <math.h>
 #include <sys/param.h>
+#include <stdint.h>
+
+#include "types_ffi.h"
+#include "query_term_ffi.h"
+#include "index_result_rs.h"
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->data.tag) {
@@ -101,7 +104,8 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   return dist ? sqrt(dist) : num - 1;
 }
 
-void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
+void result_GetMatchedTerms(const RSIndexResult *r, const RSQueryTerm *arr[], size_t cap,
+                            size_t *len) {
   if (*len == cap) return;
 
   switch (r->data.tag) {
@@ -120,7 +124,7 @@ void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t c
     }
     case RSResultData_Term:
     {
-      RSQueryTerm *term = IndexResult_QueryTermRef(r);
+      const RSQueryTerm *term = IndexResult_QueryTermRef(r);
       if (term) {
         size_t s_len = 0;
         // make sure we have a term string and it's not an expansion
@@ -134,7 +138,7 @@ void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t c
   }
 }
 
-size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap) {
+size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, const RSQueryTerm **arr, size_t cap) {
   size_t arrlen = 0;
   result_GetMatchedTerms(r, arr, cap, &arrlen);
   return arrlen;

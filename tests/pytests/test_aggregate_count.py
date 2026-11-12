@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 DEFAULT_LIMIT = 10
@@ -281,9 +288,9 @@ def _test_withoutcount(protocol):
 
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT),
 
         # WITHOUTCOUNT + SORTBY + MAX
         # total_results = docs, length of results = MAX
@@ -791,7 +798,7 @@ def _test_profile(protocol):
         # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
-         [('Index', 49), ('Pager/Limiter', 50), ('Grouper', 25)],
+         [('Index', 3100), ('Sorter', 50), ('Grouper', 25)],
          [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
@@ -812,7 +819,7 @@ def _test_profile(protocol):
           'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
           'FILTER', '@cnt > 5'],
-         [('Index', 199), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
          [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
@@ -828,22 +835,25 @@ def _test_profile(protocol):
            [('Index', 1041), ('Grouper', 25)]],
            [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
 
-        # MOD-14849: WITHOUTCOUNT + SORTBY (no MAX) + GROUPBY returns
-        # "Success (not an error)". Uncomment when MOD-14849 is fixed.
-        #
-        # # WITHOUTCOUNT + SORTBY -> GROUPBY
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title',
-        #   'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
-        #  [<TBD standalone profile>],
-        #  [<TBD cluster profile>]),
-        #
-        # # WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
-        #   'GROUPBY', 1, '@category', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
-        #   'SORTBY', 2, '@cnt', 'DESC',
-        #   'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_categories'],
-        #  [<TBD standalone profile>],
-        #  [<TBD cluster profile>]),
+        # WITHOUTCOUNT + SORTBY -> GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 3100), ('Sorter', 10), ('Grouper', 7)],
+         [[[('Index', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10), ('Grouper', 7)]]),
+
+        # WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'SORTBY', 2, '@cnt', 'DESC',
+          'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_brands'],
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)]]),
 
     ]
 
@@ -870,27 +880,38 @@ def test_profile_resp2():
 def test_profile_resp3():
     _test_profile(3)
 
-def test_withcursor(env):
-    env = Env()
-    docs = 5
+def _test_withcursor(protocol):
+    env = Env(protocol=protocol)
+    docs = 25
     _setup_index_and_data(env, docs)
 
-    invalid_queries = [
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 10],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR'],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'WITHCOUNT'],
+    # WITHCOUNT + WITHCURSOR was previously rejected at parse time; make sure
+    # the combination is now accepted and that every chunk reports the same
+    # total_results (the full pipeline count, not the chunk size).
+    queries = [
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'WITHCURSOR', 'COUNT', 5],
+        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 5, 'WITHCOUNT'],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'WITHCOUNT'],
     ]
-    error_message = 'FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together'
-    for query in invalid_queries:
-        env.expect(*query).error().contains(error_message)
+    for query in queries:
+        res, cursor = env.cmd(*query)
+        first_total = _get_total_results(res)
+        env.assertEqual(first_total, docs,
+                        message=f'{query}: first chunk total_results')
+        rows_seen = len(_get_results(res))
+        while cursor != 0:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor))
+            env.assertEqual(_get_total_results(res), first_total,
+                            message=f'{query}: per-chunk total_results drift')
+            rows_seen += len(_get_results(res))
+        env.assertEqual(rows_seen, docs,
+                        message=f'{query}: total rows across chunks')
 
-    valid_queries = [
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10],
-        ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR'],
-    ]
-    for query in valid_queries:
-        env.expect(*query).notContains(error_message)
+def test_withcursor_resp2():
+    _test_withcursor(2)
+
+def test_withcursor_resp3():
+    _test_withcursor(3)
 
 def _test_pagers(protocol):
     env = Env(protocol=protocol)
@@ -922,8 +943,9 @@ def _test_pagers(protocol):
         results2 = _get_results(res2)
         env.assertEqual(len(results1), len(results2))
 
-        # Compare common part of the results
-        if any(x in query for x in ('SORTBY', 'GROUPBY')):
+        # Compare common part of the results (order-sensitive only for SORTBY;
+        # GROUPBY without SORTBY has no deterministic iteration order in cluster mode)
+        if 'SORTBY' in query:
             env.assertEqual(results1[offset:limit + offset + 1],
                             results2[0:limit - offset], message=query)
 

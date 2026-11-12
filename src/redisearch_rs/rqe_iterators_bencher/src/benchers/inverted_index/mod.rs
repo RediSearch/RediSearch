@@ -40,8 +40,5 @@ fn benchmark_group<'a>(
     test: &str,
 ) -> BenchmarkGroup<'a, WallTime> {
     let label = format!("Iterator - InvertedIndex - {it_name} - {test}");
-    let mut group = c.benchmark_group(label);
-    group.measurement_time(MEASUREMENT_TIME);
-    group.warm_up_time(WARMUP_TIME);
-    group
+    super::group(c, &label, MEASUREMENT_TIME, WARMUP_TIME)
 }

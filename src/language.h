@@ -44,15 +44,26 @@ typedef enum {
   RS_LANG_SERBIAN,
   RS_LANG_YIDDISH,
   RS_LANG_TAGALOG,
+  RS_LANG_MALAY,
   RS_LANG_UNSUPPORTED,
   RS_LANG_UNSET, // The user did not set the language for FT.SEARCH, use the index language
 } RSLanguage;
 
 #define DEFAULT_LANGUAGE RS_LANG_ENGLISH
 
-/* check if a language is supported by our stemmers */
+/* Look up a supported language by name.
+ * - Reads exactly `len` bytes of `language`; it need not be NUL-terminated.
+ * - `len == 0` is the empty string and returns RS_LANG_UNSUPPORTED; pass strlen(s) for a C string.
+ * - `language == NULL` returns DEFAULT_LANGUAGE.
+ * - Matches case-insensitively (strncasecmp; ASCII in the C locale) on all `len` bytes;
+ *   anything else returns RS_LANG_UNSUPPORTED. */
 RSLanguage RSLanguage_Find(const char *language, size_t len);
 const char *RSLanguage_ToString(RSLanguage language);
+
+/* Snowball stemmer name for a language. Usually identical to RSLanguage_ToString,
+ * but maps languages without a dedicated snowball algorithm onto a linguistically
+ * close one (e.g. Malay -> Indonesian). */
+const char *RSLanguage_ToSnowballStemmer(RSLanguage language);
 
 #ifdef __cplusplus
 }

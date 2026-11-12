@@ -44,6 +44,16 @@ impl NodeIndex {
     pub const fn from_raw_parts(position: u32, generation: u32) -> Self {
         Self(Key::from_raw_parts(position, generation))
     }
+
+    /// Return the slab slot position of this index.
+    pub const fn position(self) -> u32 {
+        self.0.position()
+    }
+
+    /// Return the generation counter of this index.
+    pub const fn generation(self) -> u32 {
+        self.0.generation()
+    }
 }
 
 impl From<Key> for NodeIndex {
@@ -88,6 +98,11 @@ impl NodeArena {
         self.nodes.capacity() as u32
     }
 
+    /// Get a shared reference to a node in the arena, if it exists.
+    pub fn get(&self, idx: NodeIndex) -> Option<&NumericRangeNode> {
+        self.nodes.get(idx.key())
+    }
+
     /// Get a mutable reference to a node in the arena, if it exists.
     pub fn get_mut(&mut self, idx: NodeIndex) -> Option<&mut NumericRangeNode> {
         self.nodes.get_mut(idx.key())
@@ -116,7 +131,7 @@ impl NodeArena {
     ///
     /// Yields `(NodeIndex, &NumericRangeNode)` pairs.
     #[cfg_attr(
-        not(all(feature = "unittest", not(miri))),
+        not(all(feature = "unittest", debug_assertions, not(miri))),
         expect(dead_code, reason = "used by invariant checks in unittest feature")
     )]
     pub fn iter(&self) -> impl Iterator<Item = (NodeIndex, &NumericRangeNode)> {

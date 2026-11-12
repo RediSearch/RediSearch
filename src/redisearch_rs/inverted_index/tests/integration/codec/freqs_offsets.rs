@@ -9,8 +9,9 @@
 
 use std::io::Cursor;
 
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     freqs_offsets::FreqsOffsets,
     test_utils::{TermRecordCompare, TestTermRecord},
 };
@@ -71,10 +72,10 @@ fn test_encode_freqs_offsets_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::build_term().build();
+    let record = index_result::RSIndexResult::build_term().build();
 
     let res = FreqsOffsets::encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -86,7 +87,7 @@ fn test_decode_freqs_offsets_input_too_small() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = FreqsOffsets::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -98,7 +99,7 @@ fn test_decode_freqs_offsets_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = FreqsOffsets::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -122,7 +123,7 @@ fn test_seek_freqs_offsets() {
 
     let record_expected = TestTermRecord::new(30, 0, 3, &[5u8, 6, 7, 8]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -133,7 +134,7 @@ fn test_seek_freqs_offsets() {
 
     let record_expected = TestTermRecord::new(55, 0, 9, &[20u8, 21]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -142,5 +143,5 @@ fn test_seek_freqs_offsets() {
     let found = FreqsOffsets::seek(&mut buf, 55, 70, &mut record_decoded)
         .expect("to decode fields offsets record");
 
-    assert!(!found);
+    assert!(found.is_none());
 }

@@ -32,7 +32,7 @@ typedef struct StopWordList StopWordList;
 struct StopWordList;
 #endif
 
-/* Check if a stopword list contains a term. The term must be already lowercased */
+/* Check if a stopword list contains a term (case-insensitive lookup). */
 int StopWordList_Contains(const struct StopWordList *sl, const char *term, size_t len);
 
 struct StopWordList *DefaultStopWordList();
@@ -57,14 +57,14 @@ struct StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver);
 /* Save a stopword list to RDB */
 void StopWordList_RdbSave(RedisModuleIO *rdb, struct StopWordList *sl);
 
+// Deterministic content hash, independent of insertion order.
+uint64_t StopWordList_Fingerprint(const struct StopWordList *sl);
+
 void StopWordList_Ref(struct StopWordList *sl);
 
 void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl);
 
 void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl);
-
-/* Returns a NULL terminated list of stopwords */
-char **GetStopWordsList(struct StopWordList *sl, size_t *size);
 
 #ifdef __cplusplus
 }

@@ -96,6 +96,11 @@ IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus);
 // Change the background_indexing_OOM_failure flag to true.
 void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error);
 
+// Clear the background_indexing_OOM_failure flag (e.g. when a fresh scan supersedes an
+// earlier OOM-aborted build). Only clears the status flag, not the cumulative failure
+// count or last-error message, which are historical.
+void IndexError_ClearBackgroundIndexFailureFlag(IndexError *error);
+
 // Get the background_indexing_OOM_failure flag.
 bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error);
 

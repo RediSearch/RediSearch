@@ -1,8 +1,18 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 import psutil
 import numpy as np
 from redis.exceptions import ResponseError
+from test_info_modules import (
+    COORD_WARN_ERR_SECTION, OOM_WARNING_COORD_METRIC, info_modules_to_dict,
+)
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
@@ -13,9 +23,6 @@ def run_cmd_expect_oom(env, query_args):
 
 def run_cmd(env, query_args):
     return (env.cmd(*query_args))
-
-def pid_cmd(conn):
-    return conn.execute_command('info', 'server')['process_id']
 
 def get_all_shards_pid(env):
     for shardId in range(1, env.shardsCount + 1):
@@ -45,11 +52,12 @@ def _common_cluster_test_scenario(env):
 
     return n_docs
 
+@skip(cluster=True)
+@env_spec()
 class testOomStandaloneBehavior:
 
-    def __init__(self):
-        skipTest(cluster=True)
-        self.env = Env()
+    def __init__(self, env):
+        self.env = env
         _common_test_scenario(self.env)
         # Init all shards
         verify_shard_init(self.env.getConnection())
@@ -75,8 +83,8 @@ class testOomStandaloneBehavior:
         self.env.assertEqual(res, [0])
 
 @skip(cluster=True)
-def test_oom_verbosity_standalone():
-    env = Env(protocol=3)
+@env_spec(protocol=3)
+def test_oom_verbosity_standalone(env):
     _common_test_scenario(env)
 
     # Check commands return SHARD_OOM_WARNING when returning empty results
@@ -98,9 +106,8 @@ def test_oom_verbosity_standalone():
     env.assertContains('Profile', res)
 
 @skip(cluster=False)
-def test_oom_verbosity_cluster_hybrid_profile():
-    env = Env(shardsCount=3, protocol=3)
-
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_verbosity_cluster_hybrid_profile(env):
     allShards_change_oom_policy(env, 'return')
     _common_hybrid_cluster_test_scenario(env)
     allShards_change_maxmemory_low(env)
@@ -113,10 +120,11 @@ def test_oom_verbosity_cluster_hybrid_profile():
     env.assertContains('Profile', res)
 
 
+@skip(cluster=False)
+@env_spec(shardsCount=3)
 class testOomClusterBehavior:
-    def __init__(self):
-        skipTest(cluster=False)
-        self.env = Env(shardsCount=3)
+    def __init__(self, env):
+        self.env = env
         self.n_docs = _common_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
         # Init all shards
@@ -163,12 +171,11 @@ class testOomClusterBehavior:
         self.env.assertEqual(len(res), n_keys + 1)
 
 # Test OOM error returned from shards (only for fail), enforcing first reply from non-error shard
-# Test has specific environment requirements, so it's left out of the test class
+# Test has specific environment requirements, so it's left out of the test class.
+# Workers is necessary to make sure the query is not finished before we resume the shards.
 @skip(cluster=False, asan=True)
-def test_query_oom_cluster_shards_error_first_reply():
-    # Workers is necessary to make sure the query is not finished before we resume the shards
-    env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
-
+@env_spec(shardsCount=3, moduleArgs='WORKERS 1')
+def test_query_oom_cluster_shards_error_first_reply(env):
     # Init all shards
     for i in range(env.shardsCount):
         verify_shard_init(env.getConnection(i))
@@ -261,11 +268,12 @@ def _common_hybrid_cluster_test_scenario(env):
 
     return n_docs
 
+@skip(cluster=True)
+@env_spec()
 class testOomHybridStandaloneBehavior:
 
-    def __init__(self):
-        skipTest(cluster=True)
-        self.env = Env()
+    def __init__(self, env):
+        self.env = env
         _common_hybrid_test_scenario(self.env)
         verify_shard_init(self.env.getConnection())
 
@@ -288,10 +296,33 @@ class testOomHybridStandaloneBehavior:
         res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], 0)
 
+@skip(cluster=False)
+@env_spec(shardsCount=3, protocol=3,
+          moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN-STRICT')
+def test_deferred_hybrid_oom_warning(env):
+    """Deferred HYBRID replies retain OOM warnings and count them once."""
+    for shard_id in range(env.shardsCount):
+        verify_shard_init(env.getConnection(shard_id))
+    allShards_change_oom_policy(env, 'return')
+    _common_hybrid_cluster_test_scenario(env)
+    allShards_change_maxmemory_low(env)
+    set_unlimited_maxmemory_for_oom(env)
+
+    before = int(info_modules_to_dict(env)[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                       '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000',
+                       'PARAMS', '2', 'BLOB', query_vector)
+    env.assertContains(COORD_OOM_WARNING, response['warnings'])
+    after = int(info_modules_to_dict(env)[COORD_WARN_ERR_SECTION][OOM_WARNING_COORD_METRIC])
+    env.assertEqual(after, before + 1)
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
 class testOomHybridClusterBehavior:
-    def __init__(self):
-        skipTest(cluster=False)
-        self.env = Env(shardsCount=3)
+    def __init__(self, env):
+        self.env = env
         self.n_docs = _common_hybrid_cluster_test_scenario(self.env)
         allShards_change_maxmemory_low(self.env)
         # Init all shards
@@ -339,9 +370,8 @@ class testOomHybridClusterBehavior:
         self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
 @skip(cluster=False)
-def test_oom_verbosity_cluster_return():
-    env  = Env(shardsCount=3, protocol=3)
-
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_verbosity_cluster_return(env):
     # Init all shards
     for i in range(env.shardsCount):
         verify_shard_init(env.getConnection(i))
@@ -393,3 +423,95 @@ def test_oom_verbosity_cluster_return():
     # Index 13 is Warning array (after adding Workers queue time field at indices 6-7)
     n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[13])
     env.assertEqual(n_warnings, 2, message=f"res: {res}")
+
+@skip(cluster=False)
+@env_spec(shardsCount=3, protocol=3)
+def test_oom_shards_return_hybrid_profile(env):
+    """Profiled hybrid whose non-coordinator shards are the only ones OOM.
+
+    An OOM shard answers the internal fan-out from
+    common_hybrid_query_reply_empty, which under profiling used to wrap the
+    cursor-mapping map inside "Results" alongside a sibling "Profile" key.
+    The internal reply is now bare either way; this covers the profiled
+    early-bail mapping path end to end.
+
+    The coordinator itself must stay under its memory limit: if it is OOM too,
+    its own guard replies before the command ever fans out, which is the case
+    test_oom_verbosity_cluster_hybrid_profile already covers.
+    """
+    for i in range(env.shardsCount):
+        verify_shard_init(env.getConnection(i))
+
+    allShards_change_oom_policy(env, 'return')
+    n_docs = _common_hybrid_cluster_test_scenario(env)
+    allShards_change_maxmemory_low(env)
+    set_unlimited_maxmemory_for_oom(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*',
+                  'VSIM', '@embedding', '$BLOB',
+                  'COMBINE', 'RRF', '2', 'WINDOW', '1000',
+                  'PARAMS', '2', 'BLOB', query_vector)
+
+    # Unlike FT.PROFILE SEARCH, a coordinator hybrid profile reply is flat --
+    # the "Results" envelope only appears when the coordinator itself bails.
+    env.assertContains('Profile', res)
+    # Proves the OOM shards really took the empty-reply path, i.e. that the
+    # coordinator parsed their profile-wrapped cursor mappings.
+    env.assertContains(COORD_OOM_WARNING, res['warnings'])
+    # Those shards published no cursors, so only the healthy coordinator shard
+    # contributes rows: partial, not empty, and not the whole cluster.
+    env.assertGreater(res['total_results'], 0, message=f"res: {res}")
+    env.assertLess(res['total_results'], n_docs, message=f"res: {res}")
+    env.expect('PING').true()
+
+
+def _timeout_return_keeps_rows_under_oom_fail(env):
+    """ON_OOM FAIL buffers the whole result before replying, under every timeout policy. Under
+    ON_TIMEOUT RETURN a timeout must still reply the rows produced before it, with the timeout
+    warning, as the unbuffered path does."""
+    n_docs, after_n = 100, 20
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc:{i}', 'title', f'hello doc {i}')
+    # (query, reply elements per row in RESP2)
+    queries = (
+        (('FT.SEARCH', 'idx', 'hello', 'RETURN', 1, 'title', 'LIMIT', 0, n_docs), 2),
+        (('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LIMIT', 0, n_docs), 1),
+        (('FT.AGGREGATE', 'idx', 'hello', 'LOAD', 1, '@title'), 1),
+        (('FT.AGGREGATE', 'idx', 'hello'), 1),
+    )
+    res = env.cmd('CONFIG', 'GET', 'search-on-timeout')
+    timeout_policy = res['search-on-timeout'] if isinstance(res, dict) else res[1]
+    env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+    allShards_change_oom_policy(env, 'fail')
+    try:
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for query, per_row in queries:
+                res = env.cmd(debug_cmd(), *query, 'TIMEOUT_AFTER_N', after_n,
+                              'DEBUG_PARAMS_COUNT', 2)
+                if env.protocol == 3:
+                    env.assertEqual(len(res['results']), after_n, message=(workers, query, res))
+                    env.assertEqual(res['warning'], ['Timeout limit was reached'],
+                                    message=(workers, query, res))
+                else:
+                    env.assertEqual((len(res) - 1) // per_row, after_n,
+                                    message=(workers, query, res))
+    finally:
+        set_workers(env, 0)
+        allShards_change_oom_policy(env, 'return')
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', timeout_policy).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_timeout_return_keeps_rows_under_oom_fail_resp3(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_timeout_return_keeps_rows_under_oom_fail_resp2(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)

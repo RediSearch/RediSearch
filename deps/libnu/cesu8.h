@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#include "config.h"
 #include "cesu8_internal.h"
+#include "config.h"
 #include "defines.h"
 #include "utf8_internal.h"
 
@@ -14,7 +14,7 @@
  * http://www.unicode.org/reports/tr26/
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -36,22 +36,19 @@ const char* nu_cesu8_read(const char *cesu8, uint32_t *unicode) {
 			cesu8_6b(cesu8, unicode);
 		}
 		return cesu8 + 6;
-	}
-	else if (c >= 0x80) {
+	} else if (c >= 0x80) {
 		if (c < 0xE0) {
 			if (unicode != 0) {
 				utf8_2b(cesu8, unicode);
 			}
 			return cesu8 + 2;
-		}
-		else {
+		} else {
 			if (unicode != 0) {
 				utf8_3b(cesu8, unicode);
 			}
 			return cesu8 + 3;
 		}
-	}
-	else if (unicode != 0) {
+	} else if (unicode != 0) {
 		*unicode = c;
 	}
 
@@ -129,7 +126,7 @@ char* nu_cesu8_write(uint32_t unicode, char *cesu8);
 
 #endif /* NU_WITH_CESU8_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

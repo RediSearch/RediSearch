@@ -275,6 +275,20 @@ Install `memtier_benchmark` as per the instructions on https://github.com/redis/
 
 Make sure you have the `memtier_benchmark` binary available in your `$PATH`.
 
+#### RedisJSON (required)
+
+The benchmark command below always loads the RedisJSON module alongside search (as CI
+does), because some benchmarks store their documents as JSON (`ON JSON`) and fail without
+it. A plain `./build.sh` does **not** produce `rejson.so`, so build it explicitly:
+
+```sh
+./tests/deps/setup_rejson.sh
+```
+
+This places `rejson.so` under `bin/<target>-release/RedisJSON/<branch>/`, where the
+`find ... rejson.so` in the run command picks it up. Without it, that `find` expands to
+nothing and the run aborts before any benchmark starts — including hash-only ones.
+
 #### Python packages
 
 Install necessary python packages:
@@ -288,9 +302,11 @@ uv pip install -r ./tests/benchmarks/requirements.txt
 To run a specific benchmark, use the following command:
 
 ```sh
-uv redisbench-admin run-local \
+uv run redisbench-admin run-local \
     --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
     --required-module search \
+    --module_path $(find $(pwd)/bin -name "rejson.so" | head -1) \
+    --required-module ReJSON \
     --allowed-setups oss-standalone \
     --allowed-envs oss-standalone \
     --test tests/benchmarks/<benchmark>.yml
@@ -307,15 +323,18 @@ Make sure you have the `samply` binary available in your `$PATH`.
 In one terminal panel run:
 
 ```sh
-samply record redis-server --loadmodule $(find $(pwd)/bin -name "redisearch.so" | head -1)
+samply record redis-server \
+    --loadmodule $(find $(pwd)/bin -name "redisearch.so" | head -1) \
+    --loadmodule $(find $(pwd)/bin -name "rejson.so" | head -1)
 ```
 
 In the other terminal panel run:
 
 ```sh
-uv redisbench-admin run-local \
+uv run redisbench-admin run-local \
     --skip-redis-spin True \
     --required-module search \
+    --required-module ReJSON \
     --allowed-setups oss-standalone \
     --allowed-envs oss-standalone \
     --test tests/benchmarks/<benchmark>.yml
@@ -323,9 +342,8 @@ uv redisbench-admin run-local \
 
 ## Supported Platforms
 
-The following operating systems are supported and tested in CI on both `x86_64` and `aarch64` (with the exception of macOS 14, which is ARM64-only):
+The following operating systems are supported and tested in CI on both `x86_64` and `aarch64`, except macOS, which is ARM64-only:
 
-* Ubuntu 20.04 (Focal)
 * Ubuntu 22.04 (Jammy)
 * Ubuntu 24.04 (Noble)
 * Ubuntu 26.04 (Resolute)
@@ -334,10 +352,7 @@ The following operating systems are supported and tested in CI on both `x86_64` 
 * Rocky Linux 8
 * Rocky Linux 9
 * Rocky Linux 10
-* Amazon Linux 2023
-* Azure Linux 3
 * Alpine Linux 3.23
-* macOS 14 (ARM64)
 * macOS 15
 * macOS 26
 

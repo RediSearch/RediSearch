@@ -11,7 +11,7 @@
 #include "common.h"
 #include "index_utils.h"
 #include "rules.h"
-#include "redisearch_api.h"
+#include "llapi_test_helpers.h"
 #include "obfuscation/hidden_unicode.h"
 #include "rmutil/args.h"
 #include "util/arr.h"

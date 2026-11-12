@@ -9,19 +9,27 @@
 
 extern "C" {
 #include "hiredis/sds.h"
+#include "util/dict.h"
 }
 
 #include "buffer/buffer.h"
 #include "forward_index.h"
 #include "index_result.h"
+#include "indexes_scan.h"
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "varint_ffi.h"
-#include "iterators/hybrid_reader.h"
+extern "C" {
+#include "vector_index.h"
+#include "redis_index.h"
+#include "search_disk.h"
+extern RedisSearchDiskAPI *disk;
+}
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
 #include "types_ffi.h"
@@ -38,11 +46,14 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <algorithm>
+#include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
 #include <random>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 class IndexTest : public ::testing::Test {};
 
@@ -96,16 +107,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
-  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // LowMemoryThinVec<IndexBlock, u32> blocks    8
-  // u32 n_uniqe_blocks                          4
-  // flags IndexFlags                            4
-  // u32 gc_marker                               4
-  // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
-
-  size_t exp_idx_no_block_memsize = 24;
+  size_t exp_idx_no_block_memsize = 32;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -129,7 +131,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -292,7 +294,7 @@ TEST_F(IndexTest, testNot) {
   MockQueryEvalCtx mockQctx(16, 16);
   irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   MockQueryEvalCtx mockQctx2(10, 10);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -314,7 +316,7 @@ TEST_F(IndexTest, testPureNot) {
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
   MockQueryEvalCtx mockQctx(10, 10);
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -392,7 +394,7 @@ TEST_F(IndexTest, testNumericInverted) {
     }
 
     // Check if the write matches the simulation
-    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1)).mem_growth;
     ASSERT_EQ(sz, expected_sz) << " at i=" << i;
   }
   ASSERT_EQ(75, InvertedIndex_LastId(idx));
@@ -429,7 +431,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]).mem_growth;
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -490,10 +492,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+    size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
 
     if (isMulti) {
-      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
+      size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value).mem_growth;
     }
   }
 
@@ -597,198 +599,6 @@ TEST_F(IndexTest, testIntersection) {
   InvertedIndex_Free(w2);
 }
 
-TEST_F(IndexTest, testHybridVector) {
-
-  size_t n = 100;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t d = 4;
-  size_t k = 10;
-  VecSimMetric met = VecSimMetric_L2;
-  VecSimType t = VecSimType_FLOAT32;
-  InvertedIndex *w = createPopulateTermsInvIndex(n, step);
-
-  // Create vector index
-  VecSimLogCtx logCtx = { .index_field_name = "v" };
-  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .algoParams = {.hnswParams = HNSWParams{.type = t,
-                                               .dim = d,
-                                               .metric = met,
-                                               .initialCapacity = max_id,
-                                               .M = 16,
-                                               .efConstruction = 100}},
-                      .logCtx = &logCtx};
-  VecSimIndex *index = VecSimIndex_New(&params);
-  for (size_t i = 1; i <= max_id; i++) {
-    float f[d];
-    for (size_t j = 0; j < d; j++) {
-      f[j] = (float)i;
-    }
-    VecSimIndex_AddVector(index, (const void *)f, (int)i);
-  }
-  ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
-
-  float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
-  KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {0};
-  queryParams.hnswRuntimeParams.efRuntime = max_id;
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Create a mock context for timeout configuration
-  MockQueryEvalCtx mockQctx(max_id, max_id);
-  // Run simple top k query.
-  HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
-                                  .index = index,
-                                  .dim = d,
-                                  .elementType = t,
-                                  .spaceMetric = met,
-                                  .query = top_k_query,
-                                  .qParams = queryParams,
-                                  .vectorScoreField = (char *)"__v_score",
-                                  .canTrimDeepResults = true,
-                                  .childIt = NULL,
-                                  .filterCtx = &filterCtx
-  };
-  QueryError err = QueryError_Default();
-  QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-
-  size_t count = 0;
-
-  // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
-  while (vecIt->Read(vecIt) != ITERATOR_EOF) {
-    ASSERT_EQ(vecIt->current->data.tag, RSResultData_Metric);
-    ASSERT_EQ(vecIt->current->docId, max_id - count);
-    count++;
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(vecIt->atEOF);
-
-  vecIt->Rewind(vecIt);
-  ASSERT_FALSE(vecIt->atEOF);
-  ASSERT_EQ(vecIt->NumEstimated(vecIt), k);
-  // Read one result to verify that we get the one with best score after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
-  ASSERT_EQ(vecIt->current->docId, max_id);
-  vecIt->Free(vecIt);
-
-  // Test in hybrid mode.
-  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
-  hParams.childIt = ir;
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-
-  HybridIterator *hr = (HybridIterator *)hybridIt;
-  hr->searchMode = VECSIM_HYBRID_BATCHES;
-
-  // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get lower id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(hybridIt->atEOF);
-
-  hybridIt->Rewind(hybridIt);
-  ASSERT_FALSE(hybridIt->atEOF);
-  ASSERT_EQ(hybridIt->NumEstimated(hybridIt), k);
-
-  // check rerun and abort (go over only half of the results)
-  count = 0;
-  for (size_t i = 0; i < k/2; i++) {
-    ASSERT_EQ(hybridIt->Read(hybridIt), ITERATOR_OK);
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
-  ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
-
-  // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt);
-  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  hybridIt->Free(hybridIt);
-
-  // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
-  hParams.canTrimDeepResults = false;
-  hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  hr = (HybridIterator *)hybridIt;
-  hr->searchMode = VECSIM_HYBRID_BATCHES;
-
-  // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
-    ASSERT_TRUE(IndexResult_IsAggregate(h));
-    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
-    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(hybridIt->atEOF);
-
-  // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt);
-  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
-    ASSERT_TRUE(IndexResult_IsAggregate(h));
-    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
-    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
-  }
-  hybridIt->Free(hybridIt);
-
-  InvertedIndex_Free(w);
-  VecSimIndex_Free(index);
-}
-
-TEST_F(IndexTest, testInvalidHybridVector) {
-
-  size_t n = 1;
-  size_t d = 4;
-  InvertedIndex *w = createPopulateTermsInvIndex(n, 1);
-
-  // Create vector index with a single vector.
-  VecSimLogCtx logCtx = { .index_field_name = "v" };
-  VecSimParams params{
-      .algo = VecSimAlgo_HNSWLIB,
-      .algoParams = {.hnswParams = HNSWParams{
-          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}},
-      .logCtx = &logCtx};
-  VecSimIndex *index = VecSimIndex_New(&params);
-
-  float vec[] = {(float)n, (float)n, (float)n, (float)n};
-  VecSimIndex_AddVector(index, (const void *)vec, n);
-  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-  InvertedIndex_Free(w);
-  VecSimIndex_Free(index);
-}
-
 TEST_F(IndexTest, testMetric_VectorRange) {
 
   size_t n = 100;
@@ -819,25 +629,38 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
-  RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  RangeVectorQuery range_query = {
+      .vector = query, .vecLen = sizeof(query), .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
-  VecSimQueryReply *results =
-      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
-  // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
+  // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
+  // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
+  // mirrors request-owned state without imposing a deadline on the test.
+  QueryRequestLimits timeout = {};
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  timeoutConfig.queryTimeoutMS = 0;
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
+      index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
+      range_query.order, /*yields_metric=*/true, &timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
-  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
-  VecSim_Normalize(query, d, t);
+  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100.
+  // VecSimIndex_GetDistanceFrom_Unsafe does not normalize its input, so compute expected distances
+  // against a normalized copy. The iterator runs its deferred range query on its own copy of the
+  // raw `query`.
+  float query_normalized[d];
+  memcpy(query_normalized, query, sizeof(query));
+  VecSim_Normalize(query_normalized, d, t);
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     RSIndexResult *h = vecIt->current;
     ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
-    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
+    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query_normalized);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
     ASSERT_EQ(MetricsVec_AsSlice(&h->metrics).data[0].value, exp_dist);
     count++;
@@ -856,13 +679,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Test valid combinations of SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
-  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
-  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
@@ -1053,7 +876,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->sortIdx == -1);
   ASSERT_TRUE(s->numSortableFields == 2);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
@@ -1067,7 +890,7 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 
   const char *args_invalid[] = {
       "NOFIELDS", "MAXTEXTFIELDS", "SCHEMA", title, "TEXT",
@@ -1086,7 +909,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1134,7 +957,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1146,7 +969,7 @@ TEST_F(IndexTest, testHugeSpec) {
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__))
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
   ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
@@ -1171,61 +994,164 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 48 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
+  // sizeof InvertedIndex                 32
   // storing fieldmask on idx             16
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
   ASSERT_EQ(73, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
   ASSERT_EQ(sz2, 60);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h));
+  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 24 bytes
+  // Index_StoreFieldFlags == 0 is 32 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  ASSERT_EQ(24, index_memsize);
+  // sizeof InvertedIndex                 32
+  ASSERT_EQ(32, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
   ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
   ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
 }
 
+TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
+  DocTable dt = NewDocTable(10, 10, false);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 0.5, Document_HasPayloadSlot, nullptr, 0, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  const size_t baseSize = emptySize + sizeof(RSDocumentMetadata) + sdsAllocSize(dmd->keyPtr);
+  const size_t tableSize = dt.size;
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_EQ(dmd->payload, nullptr);
+  dmd->docLen = 7;
+  dmd->maxTermFreq = 3;
+  dmd->expirationTimeNs = 123456789;
+
+  const std::vector<std::string> payloads = {std::string("a\0b", 3), "longer payload", "x"};
+  for (const auto &payload : payloads) {
+    EXPECT_EQ(DocTable_SetPayload(&dt, dmd, payload.data(), payload.size()), 1);
+    EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload) + payload.size());
+    EXPECT_TRUE(hasPayload(dmd->flags));
+    ASSERT_NE(dmd->payload, nullptr);
+    EXPECT_EQ(std::string(dmd->payload->data, dmd->payload->len), payload);
+    EXPECT_EQ(dmd->payload->data[payload.size()], '\0');
+  }
+
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  EXPECT_EQ(dmd->payload, nullptr);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+
+  // The low-level setter retains empty payload support; the Hash update path clears it.
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "", 0), 1);
+  EXPECT_TRUE(hasPayload(dmd->flags));
+  EXPECT_EQ(dmd->payload->len, 0u);
+  EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload));
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, baseSize);
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "again", 5), 1);
+  EXPECT_EQ(dt.memsize, baseSize + sizeof(RSPayload) + 5);
+
+  EXPECT_EQ(dmd->id, id);
+  EXPECT_EQ(dt.maxDocId, id);
+  EXPECT_EQ(dt.size, tableSize);
+  EXPECT_FLOAT_EQ(dmd->score, 0.5);
+  EXPECT_EQ(dmd->docLen, 7u);
+  EXPECT_EQ(dmd->maxTermFreq, 3u);
+  EXPECT_EQ(dmd->expirationTimeNs, 123456789);
+  EXPECT_STREQ(dmd->keyPtr, "doc");
+  EXPECT_EQ(RSSortingVector_Length(&dmd->sortVector), 0u);
+
+  const RSDocumentMetadata *borrowed = DocTable_Borrow(&dt, id);
+  DMD_Return(dmd);
+  RSDocumentMetadata *removed = DocTable_DeleteById(&dt, id);
+  ASSERT_EQ(removed, borrowed);
+  EXPECT_EQ(dt.memsize, emptySize);
+  EXPECT_EQ(dt.size, tableSize - 1);
+  EXPECT_EQ(DocTable_Borrow(&dt, id), nullptr);
+  DMD_Return(removed);
+  EXPECT_TRUE(borrowed->flags & Document_Deleted);
+  EXPECT_EQ(std::string(borrowed->payload->data, borrowed->payload->len), "again");
+  DMD_Return(borrowed);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
+  DocTable dt = NewDocTable(10, 10, false);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, "payload", 7, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, emptySize + sizeof(RSDocumentMetadata) + sdsAllocSize(dmd->keyPtr));
+  DMD_Return(dmd);
+  DMD_Return(DocTable_DeleteById(&dt, id));
+  EXPECT_EQ(dt.memsize, emptySize);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
+  DocTable dt = NewDocTable(10, 10, false);
+  const size_t emptySize = dt.memsize;
+  RSDocumentMetadata *dmd =
+      DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  const t_docId id = dmd->id;
+  const size_t leanSize =
+      emptySize + sizeof(RSDocumentMetadata) - sizeof(RSPayload *) + sdsAllocSize(dmd->keyPtr);
+  EXPECT_EQ(dt.memsize, leanSize);
+  EXPECT_EQ(DocTable_SetPayload(&dt, dmd, "payload", 7), 0);
+  DocTable_ClearPayload(&dt, dmd);
+  EXPECT_EQ(dt.memsize, leanSize);
+  EXPECT_FALSE(hasPayload(dmd->flags));
+  EXPECT_FALSE(dmd->flags & Document_HasPayloadSlot);
+  DMD_Return(dmd);
+  DMD_Return(DocTable_DeleteById(&dt, id));
+  EXPECT_EQ(dt.memsize, emptySize);
+  DocTable_Free(&dt);
+}
+
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
   ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
@@ -1260,13 +1186,11 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_TRUE(!(strncmp(pl, (char *)buf, dmd->payload->len)));
 
     ASSERT_EQ((int)dmd->score, i);
-    ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
+    ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload | Document_HasPayloadSlot));
 
-    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
-
-    ASSERT_EQ((int)xid, i + 1);
-
-    ASSERT_TRUE(DocTable_Pop(&dt, dmd->keyPtr, sdslen(dmd->keyPtr)) != NULL);
+    // key -> docId is no longer stored in the DocTable (it lives on the Redis
+    // key as DocIdMeta); delete by the docId we already hold.
+    ASSERT_TRUE(DocTable_DeleteById(&dt, dmd->id) != NULL);
     DMD_Return(dmd);
 
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
@@ -1275,7 +1199,6 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_TRUE(!dmd);
   }
 
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
   ASSERT_FALSE(DocTable_Borrow(&dt, N + 2));
 
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
@@ -1286,16 +1209,57 @@ TEST_F(IndexTest, testDocTable) {
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
-  ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
   ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
+  // A fresh Put always assigns a new incremental docId (no key-based dedup).
   ASSERT_NE(dmd->id, strDocId);
-  ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
-  ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DMD_Return(dmd);
   DocTable_Free(&dt);
+}
+
+namespace {
+// Frees the table even when an ASSERT returns early.
+struct ScopedDocTable {
+  DocTable t;
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize, false)) {}
+  ~ScopedDocTable() { DocTable_Free(&t); }
+
+  void put(size_t n) {
+    char buf[16];
+    for (size_t i = 0; i < n; i++) {
+      size_t nkey = snprintf(buf, sizeof(buf), "doc_%zu", i);
+      DMD_Return(DocTable_Put(&t, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    }
+  }
+};
+}  // namespace
+
+static void collectLiveId(void *ctx, t_docId docId) {
+  static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
+}
+
+TEST_F(IndexTest, testDocTableForEachLiveId) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  std::vector<t_docId> ids;
+  DocTable_ForEachLiveId(&dt.t, collectLiveId, &ids);
+  std::sort(ids.begin(), ids.end());
+  std::vector<t_docId> expected;
+  for (t_docId id = 0; id <= N + 10; id++) {
+    if (DocTable_Exists(&dt.t, id)) {
+      expected.push_back(id);
+    }
+  }
+  ASSERT_EQ(N - N / 3, expected.size());
+  ASSERT_EQ(expected, ids);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {
@@ -1324,18 +1288,18 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent, false);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
@@ -1407,80 +1371,454 @@ TEST_F(IndexTest, testRawDocId) {
   RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }
 
-// Test HybridIteratorReducer optimization with NULL child iterator
-TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
-  // Create hybrid params with NULL child iterator
-  size_t n = 100;
-  size_t d = 4;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t k = 10;
+// Forces disk-mode validation on (SearchDisk_IsEnabledForValidation() reads
+// RSGlobalConfig.simulateInFlex) and restores the previous value on scope exit,
+// even if an ASSERT_* aborts the test body. (MOD-15148)
+struct SimulateInFlexGuard {
+  bool prev;
+  SimulateInFlexGuard() : prev(RSGlobalConfig.simulateInFlex) {
+    RSGlobalConfig.simulateInFlex = true;
+  }
+  // Non-copyable/movable: a copy would restore the flag twice on scope exit.
+  SimulateInFlexGuard(const SimulateInFlexGuard &) = delete;
+  SimulateInFlexGuard &operator=(const SimulateInFlexGuard &) = delete;
+  ~SimulateInFlexGuard() {
+    RSGlobalConfig.simulateInFlex = prev;
+  }
+};
 
-  VecSimQueryParams queryParams = {0};
-  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
+// Consumes the parsed spec's StrongRef on scope exit (via
+// Indexes_RemoveSpecFromGlobals), so the spec/prefix globals are cleaned up even
+// if an ASSERT_* aborts the test body. The StrongRef_Get check skips removal
+// only when the parse failed (the ref carries no object). This guard must be the
+// sole owner of the ref: do NOT also call Indexes_RemoveSpecFromGlobals on the
+// same ref, since that consumes it and the StrongRef_Get here would then be a
+// use-after-free. (MOD-15148)
+struct SpecCleanupGuard {
+  StrongRef ref;
+  explicit SpecCleanupGuard(StrongRef r) : ref(r) {
+  }
+  // Non-copyable/movable: a copy would let two destructors each consume the same
+  // StrongRef, double-removing the spec (use-after-free).
+  SpecCleanupGuard(const SpecCleanupGuard &) = delete;
+  SpecCleanupGuard &operator=(const SpecCleanupGuard &) = delete;
+  ~SpecCleanupGuard() {
+    if (StrongRef_Get(ref)) {
+      Indexes_RemoveSpecFromGlobals(ref, false);
+    }
+  }
+};
 
-  HybridIteratorParams hParams = {
-    .sctx = NULL,
-    .index = NULL,
-    .dim = d,
-    .elementType = VecSimType_FLOAT32,
-    .spaceMetric = VecSimMetric_L2,
-    .query = top_k_query,
-    .qParams = queryParams,
-    .vectorScoreField = (char *)"__v_score",
-    .canTrimDeepResults = true,
-    .childIt = NewEmptyIterator(),  // Empty child iterator
-    .filterCtx = NULL
-  };
+// MOD-15148: disk HNSW validation accepts FLOAT16 alongside FLOAT32, and keeps
+// rejecting every other element type. All schemas carry ON HASH SKIPINITIALSCAN
+// because Flex specs require the SkipInitialScan flag (src/spec.c).
+TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
+  SimulateInFlexGuard flexGuard;
+  const size_t dim = 4;
 
-  QueryError err = QueryError_Default();
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  // Positive: FLOAT16 disk HNSW parses, and the stored params carry the FP16
+  // type and the matching 2-byte blob size.
+  {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        "FLOAT16",
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(nullptr, "idx_fp16", args, std::size(args), &err);
+    // Cleans up on scope exit even if an assertion below aborts the test.
+    SpecCleanupGuard cleanup(ref);
+    auto *s = (IndexSpec *)StrongRef_Get(ref);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(s);
 
-  // Verify the iterator was not created due to NULL child
-  ASSERT_FALSE(QueryError_HasError(&err));
-  ASSERT_TRUE(hybridIt == hParams.childIt);
-  ASSERT_EQ(hybridIt->type, EMPTY_ITERATOR);
-  hybridIt->Free(hybridIt);
+    const FieldSpec *f = IndexSpec_GetFieldWithLength(s, "v", 1);
+    ASSERT_TRUE(f != nullptr);
+    ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_VECTOR));
+    // HNSW is stored as a TIERED wrapper; the HNSW params live under primaryIndexParams.
+    ASSERT_EQ(f->vectorOpts.vecSimParams.algo, VecSimAlgo_TIERED);
+    const VecSimParams *prim = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    ASSERT_TRUE(prim != nullptr);
+    ASSERT_EQ(prim->algo, VecSimAlgo_HNSWLIB);
+    ASSERT_EQ(prim->algoParams.hnswParams.type, VecSimType_FLOAT16);
+    ASSERT_EQ(f->vectorOpts.expBlobSize, (size_t)dim * 2);  // VecSimType_sizeof(FLOAT16) == 2
+  }
+
+  // Negative: every other element type is still rejected on disk.
+  const char *unsupportedTypes[] = {"FLOAT64", "BFLOAT16", "INT8", "UINT8"};
+  for (const char *vecType : unsupportedTypes) {
+    QueryError err = QueryError_Default();
+    const char *args[] = {
+        "ON",
+        "HASH",
+        "SKIPINITIALSCAN",
+        "SCHEMA",
+        "v",
+        "VECTOR",
+        "HNSW",
+        "14",
+        "TYPE",
+        vecType,
+        "DIM",
+        "4",
+        "DISTANCE_METRIC",
+        "L2",
+        "M",
+        "16",
+        "EF_CONSTRUCTION",
+        "200",
+        "EF_RUNTIME",
+        "10",
+        "RERANK",
+        "TRUE",
+    };
+    StrongRef ref =
+        IndexSpec_ParseC(nullptr, "idx_bad", args, std::size(args), &err);
+    // Cleans up if a regression ever lets an unsupported type parse, so a failing
+    // assertion below cannot leak the created spec into later tests.
+    SpecCleanupGuard cleanup(ref);
+    ASSERT_TRUE(QueryError_HasError(&err)) << "type " << vecType << " should be rejected";
+    ASSERT_EQ(nullptr, StrongRef_Get(ref));
+    ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
+        << "type " << vecType << " got: " << QueryError_GetUserError(&err);
+    QueryError_ClearError(&err);
+  }
 }
 
-// Test HybridIteratorReducer optimization with invalid child iterator
-TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
-  size_t n = 100;
-  size_t d = 4;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t k = 10;
-
-  VecSimQueryParams queryParams = {0};
-  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-
-  // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
-
-  // Create a mock context for timeout configuration
-  MockQueryEvalCtx mockQctx(max_id, max_id);
-  HybridIteratorParams hParams = {
-    .sctx = &mockQctx.sctx,
-    .index = NULL,
-    .dim = d,
-    .elementType = VecSimType_FLOAT32,
-    .spaceMetric = VecSimMetric_L2,
-    .query = top_k_query,
-    .qParams = queryParams,
-    .vectorScoreField = (char *)"__v_score",
-    .canTrimDeepResults = true,
-    .childIt = wildcardIt,
-    .filterCtx = &filterCtx
+TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) {
+  SimulateInFlexGuard flexGuard;
+  struct RestoreSq8Gate {
+    bool previous = RSGlobalConfig.diskSq8Enabled;
+    ~RestoreSq8Gate() {
+      RSGlobalConfig.diskSq8Enabled = previous;
+    }
+  } restoreSq8Gate;
+  struct {
+    bool enabled;
+    bool compression;
+    const char *threshold;
+    size_t expectedThreshold;
+  } cases[] = {
+      {false, false, nullptr, 0}, {false, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {false, true, "0", 0},      {false, true, "32", 32},
+      {true, false, nullptr, 0},  {true, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {true, true, "0", 0},       {true, true, "32", 32},
   };
+  for (const char *type : {"FLOAT32", "FLOAT16"}) {
+    for (const auto &testCase : cases) {
+      RSGlobalConfig.diskSq8Enabled = testCase.enabled;
+      SCOPED_TRACE(::testing::Message() << type << ", enabled=" << testCase.enabled
+                                        << ", compression=" << testCase.compression
+                                        << ", threshold=" << testCase.expectedThreshold);
+      std::vector<const char *> args = {"ON",
+                                        "HASH",
+                                        "SKIPINITIALSCAN",
+                                        "SCHEMA",
+                                        "v",
+                                        "VECTOR",
+                                        "HNSW",
+                                        nullptr,
+                                        "TYPE",
+                                        type,
+                                        "DIM",
+                                        "4",
+                                        "DISTANCE_METRIC",
+                                        "L2",
+                                        "M",
+                                        "16",
+                                        "EF_CONSTRUCTION",
+                                        "200",
+                                        "EF_RUNTIME",
+                                        "10",
+                                        "RERANK",
+                                        "TRUE"};
+      if (testCase.compression) {
+        args.insert(args.end(), {"COMPRESSION", "SQ8"});
+      }
+      if (testCase.threshold) {
+        args.insert(args.end(), {"TRAINING_THRESHOLD", testCase.threshold});
+      }
+      const std::string count = std::to_string(args.size() - 8);
+      args[7] = count.c_str();
+      QueryError err = QueryError_Default();
+      StrongRef ref = IndexSpec_ParseC(nullptr, "idx_disk_sq8", args.data(), args.size(), &err);
+      SpecCleanupGuard cleanup(ref);
+      if (testCase.compression && !testCase.enabled) {
+        EXPECT_EQ(StrongRef_Get(ref), nullptr);
+        ASSERT_TRUE(QueryError_HasError(&err));
+        EXPECT_STREQ(QueryError_GetUserError(&err),
+                     "SEARCH_QUERY_BAD Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                     "only after all nodes have upgraded");
+        QueryError_ClearError(&err);
+        continue;
+      }
+      ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+      auto *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+      ASSERT_NE(spec, nullptr);
+      auto *field = &spec->fields[0];
+      auto *primary = field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+      const auto expectedQuant = testCase.compression ? VecSimQuant_SQ8 : VecSimQuant_NONE;
+      EXPECT_EQ(primary->algoParams.hnswParams.quantType, expectedQuant);
+      EXPECT_EQ(field->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams
+                    .tieredHnswParams.QuantNormalizationSetSize,
+                testCase.expectedThreshold);
 
-  QueryError err = QueryError_Default();
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+      static size_t forwardedThreshold;
+      static VecSimQuantType forwardedQuant;
+      static unsigned creates;
+      creates = 0;
+      RedisSearchDiskAPI api{};
+      api.vector.createVectorIndex = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *,
+                                        const VecSimParamsDisk *params) -> void * {
+        ++creates;
+        const auto &tiered = params->indexParams->algoParams.tieredParams;
+        forwardedThreshold = tiered.specificParams.tieredHnswDiskParams.QuantNormalizationSetSize;
+        forwardedQuant = tiered.primaryIndexParams->algoParams.hnswParams.quantType;
+        return nullptr;
+      };
+      auto *savedDisk = disk;
+      disk = &api;
+      field->vectorOpts.diskCtx.storage = reinterpret_cast<RedisSearchDiskIndexSpec *>(field);
+      unsigned char fieldBefore[sizeof(*field)], primaryBefore[sizeof(*primary)];
+      memcpy(fieldBefore, field, sizeof(*field));
+      memcpy(primaryBefore, primary, sizeof(*primary));
+      const auto fingerprintBefore = IndexSpec_SchemaFingerprint(spec);
 
-  // Verify the iterator was not created due to NULL child
-  ASSERT_FALSE(QueryError_HasError(&err));
-  ASSERT_EQ(hybridIt->type, HYBRID_ITERATOR);
-  HybridIterator* hi = (HybridIterator *)hybridIt;
-  ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
-  hybridIt->Free(hybridIt);
+      EXPECT_EQ(openVectorIndex(RSDummyContext, field, CREATE_INDEX), nullptr);
+
+      EXPECT_EQ(creates, 1u);
+      EXPECT_EQ(forwardedThreshold, testCase.expectedThreshold);
+      EXPECT_EQ(forwardedQuant, expectedQuant);
+      EXPECT_EQ(memcmp(fieldBefore, field, sizeof(*field)), 0);
+      EXPECT_EQ(memcmp(primaryBefore, primary, sizeof(*primary)), 0);
+      EXPECT_EQ(IndexSpec_SchemaFingerprint(spec), fingerprintBefore);
+      field->vectorOpts.diskCtx.storage = nullptr;
+      disk = savedDisk;
+    }
+  }
+}
+
+namespace {
+struct KeyMapTestCleanup {
+  DocTable *table;
+  DocTableKeyMapIterator *iterator = nullptr;
+
+  void freeTable() {
+    if (table) {
+      DocTable_Free(table);
+      table = nullptr;
+    }
+  }
+
+  ~KeyMapTestCleanup() {
+    if (iterator) DocTable_KeyMapIteratorReleaseNext(iterator);
+    freeTable();
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocKeyMapLifecycle) {
+  DocTable dt = NewDocTable(1, 10, false);
+  KeyMapTestCleanup cleanup{&dt};
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Ready);
+  ASSERT_NE(dt.keyMap, nullptr);
+  const char binary[] = {'d', '\0', '1'};
+  auto *first = DocTable_Put(&dt, binary, sizeof(binary), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+  const auto firstId = first->id;
+  DMD_Return(first);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), firstId);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, 1), 0);
+  const size_t initialMemory = DocTable_KeyMapMemoryUsage(&dt);
+  for (int i = 0; i < 1000; ++i) {
+    std::string key = "doc:" + std::to_string(i);
+    auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+  }
+  EXPECT_GT(DocTable_KeyMapMemoryUsage(&dt), initialMemory);
+  DocTable_SetKeyById(&dt, firstId, "renamed", 7);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), 0);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), firstId);
+  auto *removed = DocTable_DeleteById(&dt, firstId);
+  ASSERT_NE(removed, nullptr);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 0);
+  DMD_Return(removed);
+  auto *replacement =
+      DocTable_Put(&dt, "renamed", 7, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), replacement->id);
+  EXPECT_NE(replacement->id, firstId);
+  DMD_Return(replacement);
+  cleanup.freeTable();
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
+}
+
+TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
+  IndexSpec spec = {};
+  // Keep the failure path valid if activation ever bypasses the disk guard.
+  ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
+  const bool previousFlex = isFlex;
+  isFlex = true;
+  spec.docs = NewDocTable(1, 10, false);
+  KeyMapTestCleanup cleanup{&spec.docs};
+  IndexSpec_ActivateKeyMap(&spec);
+  isFlex = previousFlex;
+
+  EXPECT_EQ(spec.docs.keyMap, nullptr);
+  EXPECT_EQ(spec.docs.keyMapState, DocKeyMap_Inactive);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&spec.docs), 0);
+  cleanup.freeTable();
+  EXPECT_EQ(pthread_rwlock_destroy(&spec.rwlock), 0);
+}
+
+TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 2, false);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 8; ++i) {
+    std::string key = "doc:" + std::to_string(i);
+    auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+  }
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0u);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Unchanged);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 3));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  // Delete the parked cursor and mutate both scanned and unscanned entries.
+  DocTable_SetKeyById(&dt, 1, "renamed:1", 9);
+  DocTable_SetKeyById(&dt, 8, "renamed:8", 9);
+  DMD_Return(DocTable_DeleteById(&dt, 2));
+  EXPECT_TRUE(iter.next->flags & Document_Deleted);
+  EXPECT_EQ(iter.next->ref_count, 1u);
+  DMD_Return(DocTable_DeleteById(&dt, 7));
+  auto *added = DocTable_Put(&dt, "new", 3, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
+  const auto addedId = added->id;
+  DMD_Return(added);
+  size_t batches = 0;
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
+    ASSERT_LT(++batches, 10u);
+  }
+  EXPECT_EQ(iter.next, nullptr);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:1", 9), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:8", 9), 8u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:1", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:8", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:2", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:7", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:4", 5), 4u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "new", 3), addedId);
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 64, false);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 2));
+  size_t snapshotCap = dt.cap;
+  for (int i = 5; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_GT(dt.cap, snapshotCap);
+  DocTable_SetKeyById(&dt, 2, "renamed", 7);
+  DMD_Return(DocTable_DeleteById(&dt, 3));
+  size_t batches = 0;
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
+    ASSERT_LT(++batches, 20u);
+  }
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 0u);
+  for (int i = 4; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), i);
+  }
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 1, false);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  // Legacy loading need not preserve the insertion order of a bucket chain.
+  auto *first = dt.buckets[0].root;
+  auto *second = first->nextInChain;
+  first->nextInChain = second->nextInChain;
+  second->nextInChain = first;
+  dt.buckets[0].root = second;
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
+  DMD_Return(DocTable_DeleteById(&dt, 4));
+  DocTable_SetKeyById(&dt, 1, "renamed", 7);
+  EXPECT_TRUE(DocTable_BuildKeyMapBatch(&dt, &iter, 10));
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 3u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "4", 1), 0u);
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapCursorOutlivesTable) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 1, false);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 3; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  EXPECT_EQ(dt.buckets[0].root->ref_count, 1u);
+  EXPECT_EQ(iter.next->nextInChain->ref_count, 1u);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  cleanup.freeTable();
+  EXPECT_EQ(iter.next->ref_count, 1u);
+  DocTable_KeyMapIteratorReleaseNext(&iter);
+  EXPECT_EQ(iter.next, nullptr);
+  DocTable_KeyMapIteratorReleaseNext(&iter);
 }

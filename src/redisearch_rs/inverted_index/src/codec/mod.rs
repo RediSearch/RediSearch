@@ -20,9 +20,10 @@ pub mod raw_doc_ids_only;
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
-use crate::{IndexBlock, RSIndexResult};
+use crate::IndexBlock;
+use index_result::RSIndexResult;
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
@@ -77,7 +78,7 @@ pub trait Encoder {
     ) -> std::io::Result<usize>;
 
     /// Returns the base value that should be used for any delta calculations
-    fn delta_base(block: &IndexBlock) -> t_docId {
+    fn delta_base(block: &IndexBlock) -> DocId {
         block.last_doc_id
     }
 }
@@ -97,7 +98,7 @@ pub trait Decoder {
     /// add to the `base` document ID to get the actual document ID.
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()>;
 
@@ -108,7 +109,7 @@ pub trait Decoder {
     /// an existing one.
     fn decode_new<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
     ) -> std::io::Result<RSIndexResult<'index>> {
         let mut result = Self::base_result();
         Self::decode(cursor, base, &mut result)?;
@@ -122,31 +123,33 @@ pub trait Decoder {
     /// document ID first and skipping ahead if the ID does not match the target, saving decoding
     /// the rest of the record.
     ///
-    /// Returns `false` if end of the cursor was reached before finding a document equal, or bigger,
-    /// than the target.
+    /// Returns `Ok(None)` if the end of the cursor was reached before finding a document equal to,
+    /// or bigger than, the target. On success returns the number of entries skipped before the
+    /// landed entry, so the reader can align its per-block entry cursor with the result.
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         loop {
             match Self::decode(cursor, base, result) {
-                Ok(_) if result.doc_id >= target => {
-                    return Ok(true);
-                }
                 Ok(_) => {
+                    if result.doc_id >= target {
+                        return Ok(Some(skipped));
+                    }
+                    skipped += 1;
                     base = result.doc_id;
-                    continue;
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
                 Err(err) => return Err(err),
             }
         }
     }
 
     /// Returns the base value to use for any delta calculations
-    fn base_id(_block: &IndexBlock, last_doc_id: t_docId) -> t_docId {
+    fn base_id(_block: &IndexBlock, last_doc_id: DocId) -> DocId {
         last_doc_id
     }
 }

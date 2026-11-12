@@ -7,18 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid_callbacks.h"
-#include "config.h"
-#include "param.h"
-#include "util/arr.h"
-#include "result_processor.h"
+
 #include <string.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <strings.h>
+
+#include "config.h"
+#include "param.h"
+#include "result_processor.h"
 #include "util/misc.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "hiredis/sds.h"
+#include "hybrid/parse/hybrid_optional_args.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "redismodule.h"
+#include "rmutil/args.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -180,8 +202,8 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
-        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
+    if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorConfigParams.maxIdle) {
+        ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorConfigParams.maxIdle;
     }
 }
 
@@ -204,18 +226,19 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     }
 
     // Create parameter dictionary and populate
-    dict *params = Param_DictCreate();
+    dict *params = Param_DictCreate(paramsArgs->argc / 2);
     if (!params) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create parameter dictionary");
         return;
     }
 
-    size_t value_len;
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
-        const char *param = AC_GetStringNC(paramsArgs, NULL);
-        const char *value = AC_GetStringNC(paramsArgs, &value_len);
-        if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+        size_t param_len;
+        const char *param = AC_GetStringNC(paramsArgs, &param_len);
+        RedisModuleString *value;
+        AC_GetRString(paramsArgs, &value, 0);
+        if (DICT_ERR == Param_DictAdd(params, param, param_len, value, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
@@ -322,22 +345,19 @@ void handleApply(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_APPLY);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_APPLY);
     AGPLN_AddStep(ctx->plan, &stp->base);
 
     // Check for optional AS alias in remaining arguments
     if (AC_AdvanceIfMatch(ac, "AS")) {
         const char *alias;
-        size_t aliasLen;
-        if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+        if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
             QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
             goto error;
         }
-        stp->base.alias = rm_strndup(alias, aliasLen);
+        stp->base.alias = alias;
     } else {
-        stp->base.alias = rm_strndup(expr, exprLen);
+        stp->base.alias = expr;
     }
     return;
 
@@ -376,6 +396,10 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
         }
     }
 
+    if (PLNLoadStep_ValidateArgs(&loadfields, status) != REDISMODULE_OK) {
+        return;
+    }
+
     PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;
@@ -402,9 +426,7 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_FILTER);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_FILTER);
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
 
@@ -468,21 +490,14 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
-// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+// _INDEX_PREFIXES callback
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   ArgsCursor *paramsArgs = (ArgsCursor*)value;
-  QueryError *status = ctx->status;
-  while (!AC_IsAtEnd(paramsArgs)) {
-    const char *prefix;
-    size_t prefixLen;
-    if (AC_GetString(paramsArgs, &prefix, &prefixLen, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for _INDEX_PREFIXES");
-      return;
-    }
-    sds prefixSds = sdsnewlen(prefix, prefixLen);
-    array_ensure_append_1(*ctx->prefixes, prefixSds);
-  }
+  // The slice is a window into the held argv, which outlives the parse — borrow it
+  RS_ASSERT(paramsArgs->type == AC_TYPE_RSTRING);
+  ctx->prefixes = (RedisModuleString **)paramsArgs->objs;
+  ctx->nprefixes = paramsArgs->argc;
 }
 
 // SLOTS_STR callback - implements EXACT original logic from handleCommonArgs

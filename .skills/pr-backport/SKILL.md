@@ -82,6 +82,13 @@ If cherry-pick produces conflicts:
   - Code that was refactored differently on the target branch.
   - Features that don't exist on the target branch (remove references to them).
   - Config options or struct fields added after the branch point.
+- **Beware of unrelated tests sneaking in via conflict resolution.** Test files
+  (e.g. `tests/pytests/`, `tests/cpptests/`) are append-heavy, so conflicts there
+  often surface tests added by *other* features that landed on master between the
+  branch point and the PR. When resolving, only keep the tests that were part of
+  the original PR — verify against `git show <sha> -- <test_file>` to see exactly
+  which test additions belong to this backport, and drop anything else that the
+  conflict markers pulled in.
 
 ### 4. Verify compatibility
 
@@ -113,6 +120,10 @@ If the original PR includes specific test files, run those:
 ```
 
 ### 6. Create the backport PR
+
+Before publishing anything, summarize the source PR/commit, target branch, backport branch,
+files changed, validation results, and PR title/body. Ask the user to confirm before running
+`git push` or `gh pr create`.
 
 ```bash
 cd .worktrees/backport-<branch>

@@ -99,7 +99,7 @@ mod capacity;
 pub mod header;
 pub mod layout;
 
-pub use capacity::VecCapacity;
+pub use capacity::{AlignedU8, AlignedU16, AlignedU32, AlignedU64, VecCapacity};
 pub use header::Header;
 
 /// Allocates a header (and array) for a `ThinVec<T, S>` with the given capacity.
@@ -295,13 +295,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     ///
     /// This will not allocate.
     pub const fn new() -> ThinVec<T, S> {
-        // SAFETY:
-        // The pointer is not null since it comes from a (static) reference.
-        let ptr = unsafe {
-            // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
-            //   when it stabilizes
-            NonNull::new_unchecked(S::EMPTY_HEADER as *const Header<S> as *mut Header<S>)
-        };
+        let ptr = NonNull::from_ref(S::EMPTY_HEADER);
         ThinVec {
             ptr,
             _phantom: PhantomData,
@@ -396,12 +390,16 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
         // only be included for types with excessive alignment, since all
         // operations are `const`.
         let singleton_header_is_aligned =
-            // If the Header is at
+            // If the singleton is at
             // least as aligned as T *and* the padding would have
             // been 0, then one-past-the-end of the empty singleton
             // *is* a valid data pointer and we can remove the
-            // `dangling` special case.
-            mem::align_of::<Header<S>>() >= mem::align_of::<T>() && header_field_padding == 0;
+            // `dangling` special case. We read the singleton's
+            // alignment from `SINGLETON_ALIGN` rather than
+            // `align_of::<Header<S>>()`, as the `AlignedU*` capacities
+            // over-align their singleton beyond the header's natural
+            // alignment.
+            S::SINGLETON_ALIGN >= mem::align_of::<T>() && header_field_padding == 0;
 
         if !singleton_header_is_aligned && self.header_ref().capacity() == S::ZERO {
             NonNull::dangling().as_ptr()

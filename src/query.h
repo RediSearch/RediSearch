@@ -28,29 +28,6 @@ typedef struct QueryError QueryError;
 extern "C" {
 #endif
 
-// Smart pointer handle for RLookupKey that can be invalidated when iterator is freed
-typedef struct RLookupKeyHandle {
-  RLookupKey **key_ptr;  // Pointer to the actual RLookupKey* field in the iterator
-  bool is_valid;         // Whether the iterator is still alive
-} RLookupKeyHandle;
-
-// Holds a yieldable field name, and the address to write the RLookupKey pointer later.
-typedef struct MetricRequest{
-  const char *metric_name;
-  RLookupKeyHandle *key_handle; // Handle that can be invalidated when iterator is freed
-  bool isInternal; // Indicates if this metric should be excluded from the response
-} MetricRequest;
-
-// Flags indicating which syntax features are enabled for this query
-typedef enum {
-  // All syntax features are enabled
-  QAST_SYNTAX_DEFAULT = 0,
-  // weight attribute is not allowed
-  QAST_NO_WEIGHT = 0x01,
-  // vector queries are not allowed
-  QAST_NO_VECTOR = 0x02,
-} QAST_ValidationFlags;
-
 /**
  * Query AST structure.
  *
@@ -69,9 +46,8 @@ typedef struct QueryAST {
   // array of additional metrics names in the AST.
   MetricRequest *metricRequests;
 
-  // Copied query and length, because it seems we modify the string
-  // in the parser (FIXME). Thus, if the original query is const
-  // then it explodes
+  // Owned copy of a dialect 1 query, whose parser unescapes field names in place. NULL for later
+  // dialects, which parse the caller's string directly.
   char *query;
   size_t nquery;
 
@@ -80,7 +56,7 @@ typedef struct QueryAST {
   IteratorsConfig config;
 
   // Flags indicating which syntax features are enabled for this query
-  QAST_ValidationFlags validationFlags;
+  QASTValidationFlagsSet validationFlags;
 } QueryAST;
 
 /**
@@ -88,7 +64,8 @@ typedef struct QueryAST {
  * @param dst the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
- * @param qstr the query string
+ * @param qstr the query string; it need not be NUL-terminated. From dialect 2 on, parameter names
+ *        in the AST point into it, so it must outlive `dst`.
  * @param len the length of the query string
  * @param dialectVersion parse the query according to the given dialect version
  * @param status error details set here.
@@ -96,7 +73,15 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
+/**
+ * Blocked-client timeout probe used by Rust query iterators.
+ *
+ * The pointer is borrowed for this call and must reference a live request whose
+ * source remains BLOCKED_CLIENT. The main-thread callback may mark that source
+ * concurrently through the QueryRequestLimits atomic API. The named bridge
+ * keeps the query-iterator debug sync point outside the generic timeout API.
+ */
+bool QueryIterator_IsBlockedClientTimedOut(const struct QueryRequestLimits *timeout);
 
 /**
  * Global filter options impact *all* query nodes. This structure can be used
@@ -110,8 +95,9 @@ typedef struct {
   // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
   bool empty;
 
-  /** List of keys to limit to, and the length of that array. Not owned. */
-  const sds *keys;
+  /** The keys to limit to: a borrowed window into the request's held argv
+   * (see QueryRequestArgs.argv). Not owned. */
+  RedisModuleString **keys;
   /** Pre-resolved document IDs (for SearchDisk, resolved on main thread). Same length as keys. (Not owned) */
   t_docId *docIds;
   size_t nkeys;
@@ -122,20 +108,6 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);
-
-/**
- * Open the result iterator on the filters. Returns the iterator for the root node.
- *
- * @param ast the parsed tree
- * @param opts options
- * @param sctx the search context. Note that this may be retained by the iterators
- *  for the remainder of the query.
- * @param reqflags Request (AGG/SEARCH) flags
- * @param status error detail
- * @return an iterator.
- */
-QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

@@ -7,23 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "rmutil/rm_assert.h"
-#include "util/minmax.h"
-#include "util/block_alloc.h"
-#include "aggregate/expr/expression.h"
-#include "util/arr.h"
-#include "function.h"
-#include "rmalloc.h"
+#include <ctype.h>
+#include <sys/param.h>
+#include <stdint.h>
+#include <string.h>
 
+#include "rmutil/rm_assert.h"
+#include "aggregate/expr/expression.h"
+#include "rmalloc.h"
 #include "value_ffi.h"
 #include "query_term_ffi.h"
-
-#include <ctype.h>
+#include "index_result/index_result.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "search_result.h"
 
 #define STRING_BLOCK_SIZE 512
 #define FMT_OUT_STR_MIN_PREALLOC 8
 #define FMT_OUT_STR_MAX_PREALLOC (1024 * 1024)
-#define MAX(i, j) (((i) > (j)) ? (i) : (j))
 
 static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   int maxTerms = 100;
@@ -37,7 +39,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   const SearchResult *res = ctx->res;
 
   if (res && SearchResult_HasIndexResult(res)) {
-    RSQueryTerm *terms[maxTerms];
+    const RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(SearchResult_GetIndexResult(ctx->res), terms, maxTerms);
     if (n) {
       RSValue **arr = RSValue_NewArrayBuilder(n);
@@ -138,14 +140,9 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
+    case RSValueType_RedisString:
       RSValue_MakeReference(result, v);
       break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RSValue_StringPtrLen(v, &sz);
-      RSValue_SetConstString(result, str, sz);
-      break;
-    }
     case RSValueType_Number: {
       char tmpbuf[32];
       size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));

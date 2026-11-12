@@ -13,4 +13,3 @@
 
 // Re-export the sparse vector index types for FFI use
 pub use sparse_vector_index::*;
-

@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::iter_types::TrieMapIteratorImpl;
 use super::*;
 use lending_iterator::LendingIterator;
 use libc::timespec;
-use std::ffi::{c_char, c_int, c_void};
-use wildcard::WildcardPattern;
+use std::{
+    ffi::{c_char, c_int, c_void},
+    time::{Duration, Instant},
+};
+use trie_rs::iter::{PatternLendingIter, PatternMode};
 
 /// Used by [`TrieMapIterator`] to determine type of query.
 #[repr(C)]
@@ -27,13 +29,9 @@ pub enum tm_iter_mode {
 /// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`] or
 /// [`TrieMap_IterateWithFilter`].
 pub struct TrieMapIterator<'tm> {
-    iter: TrieMapIteratorImpl<'tm>,
-    timeout: Option<IteratorTimeoutState>,
-}
-
-struct IteratorTimeoutState {
-    deadline: timespec,
-    counter: u8,
+    // The trie and the C-owned pattern come from the same C-side scope, so
+    // both lifetimes collapse to `'tm` at the FFI boundary.
+    iter: PatternLendingIter<'tm, 'tm, *mut c_void>,
 }
 
 /// Iterate over all the entries stored in the trie.
@@ -54,8 +52,7 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIt
     let TrieMap(trie) = unsafe { &*t };
 
     let iter = Box::new(TrieMapIterator {
-        iter: TrieMapIteratorImpl::Plain(trie.lending_iter()),
-        timeout: None,
+        iter: trie.lending_iter().into(),
     });
 
     Box::into_raw(iter)
@@ -79,6 +76,8 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIt
 /// - `t` must not be freed while the iterator lives.
 /// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
 ///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+/// - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
+///   suffix and wildcard modes keep reading it while iterating.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     t: *mut TrieMap,
@@ -101,33 +100,23 @@ pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     // a valid, non-null pointer to a TrieMap.
     let TrieMap(trie) = unsafe { &*t };
 
-    let iter = match iter_mode {
-        tm_iter_mode::TM_PREFIX_MODE => {
-            TrieMapIteratorImpl::Plain(trie.prefixed_lending_iter(pattern))
-        }
-        tm_iter_mode::TM_CONTAINS_MODE => {
-            TrieMapIteratorImpl::Contains(Box::new(trie.contains_iter(pattern).into()))
-        }
-        tm_iter_mode::TM_SUFFIX_MODE => TrieMapIteratorImpl::Filtered(
-            trie.lending_iter()
-                .filter(Box::new(|(k, _)| k.ends_with(pattern))),
-        ),
-        tm_iter_mode::TM_WILDCARD_MODE => TrieMapIteratorImpl::Wildcard(
-            trie.wildcard_iter(WildcardPattern::parse(pattern)).into(),
-        ),
+    let mode = match iter_mode {
+        tm_iter_mode::TM_PREFIX_MODE => PatternMode::Prefix,
+        tm_iter_mode::TM_CONTAINS_MODE => PatternMode::Contains,
+        tm_iter_mode::TM_SUFFIX_MODE => PatternMode::Suffix,
+        tm_iter_mode::TM_WILDCARD_MODE => PatternMode::Wildcard,
     };
+    let iter = trie.pattern_lending_iter(pattern, mode);
 
-    let iter = TrieMapIterator {
-        iter,
-        timeout: None,
-    };
+    let iter = TrieMapIterator { iter };
     let iter = Box::new(iter);
 
     Box::into_raw(iter)
 }
 
-/// Set timeout limit used for affix queries. This timeout is checked in
-/// [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
+/// Set timeout limit used for affix queries. The deadline is enforced inside
+/// the underlying trie iterator's traversal loop; once it is reached
+/// [`TrieMapIterator_Next`] returns `0`, as if the iterator were exhausted.
 ///
 /// If the provided timeout is 0, it's interpreted as unlimited.
 ///
@@ -141,19 +130,21 @@ pub unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, ti
 
     // SAFETY: caller is to ensure `it` points to a valid
     // TrieMapIterator obtained from `TrieMap_Iterate`
-    let TrieMapIterator {
-        timeout: it_timeout,
-        ..
-    } = unsafe { &mut *it };
+    let TrieMapIterator { iter } = unsafe { &mut *it };
 
-    *it_timeout = if timeout.tv_nsec == 0 && timeout.tv_sec == 0 {
+    let timeout = if timeout.tv_nsec == 0 && timeout.tv_sec == 0 {
         None
     } else {
-        Some(IteratorTimeoutState {
-            deadline: timeout,
-            counter: 0,
-        })
+        // Convert libc monotonic now into Instant. Both are monotonic so the
+        // conversion is exact and immune to wall-clock adjustments.
+        let now = timespec_monotonic_now();
+        let deadline_since_boot = Duration::new(timeout.tv_sec as u64, timeout.tv_nsec as u32);
+        let now_since_boot = Duration::new(now.tv_sec as u64, now.tv_nsec as u32);
+        let remaining = deadline_since_boot.saturating_sub(now_since_boot);
+
+        Some(Instant::now() + remaining)
     };
+    iter.set_timeout(timeout);
 }
 
 /// Free a trie iterator
@@ -197,25 +188,7 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     debug_assert!(!value.is_null(), "value cannot be NULL");
 
     // SAFETY: caller is to ensure that the iterator is valid and not null
-    let TrieMapIterator { iter, timeout } = unsafe { &mut *it };
-
-    if let Some(IteratorTimeoutState { deadline, counter }) = timeout {
-        *counter += 1;
-        // For optimized builds, we only check the deadline
-        // once every 100 iterations. In development,
-        // we're checking each iterationn.
-        if *counter == 100 || cfg!(debug_assertions) {
-            let now = timespec_monotonic_now();
-
-            if now.tv_sec > deadline.tv_sec
-                || (now.tv_sec == deadline.tv_sec && now.tv_nsec > deadline.tv_nsec)
-            {
-                return 0;
-            }
-
-            *counter = 0;
-        }
-    }
+    let TrieMapIterator { iter } = unsafe { &mut *it };
 
     let Some((k, v)) = LendingIterator::next(iter) else {
         return 0;

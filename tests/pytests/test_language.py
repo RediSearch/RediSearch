@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 from common import getConnectionByEnv, waitForIndex, config_cmd, skip
 from RLTest import Env
@@ -544,6 +549,57 @@ def testJsonIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
+@skip(no_json=True)
+def testJsonIndexEmptyLanguageField(env):
+    """An empty JSON language value falls back to the index default language.
+
+    A regression guard over the real RedisJSON path, whose strings are not
+    NUL-terminated: reading the empty value up to a terminator over-reads. A
+    normal build cannot see that over-read, so this passes with or without it;
+    only a sanitizer run can report it.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'LANGUAGE', 'italian', 'LANGUAGE_FIELD', '$.lang',
+               'SCHEMA', '$.word', 'AS', 'word', 'TEXT').ok()
+
+    conn.execute_command('JSON.SET', '{word}:1', '$',
+                         r'{"word":"ciliegia", "lang": ""}') # cherry
+    conn.execute_command('JSON.SET', '{word}:2', '$',
+                         r'{"word":"ciliegie", "lang": ""}') # cherries
+
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_docs']), 2, message=info)
+    env.assertEqual(int(info['hash_indexing_failures']), 0, message=info)
+
+    # Each word finding both documents shows they were stemmed in Italian.
+    expected = [2, '{word}:1', '{word}:2']
+    for word in ['ciliegia', 'ciliegie']:
+        res = env.cmd('FT.SEARCH', 'idx', word, 'SORTBY', 'word', 'ASC',
+                      'NOCONTENT')
+        env.assertEqual(res, expected)
+
+    for shardId in range(1, env.shardsCount + 1):
+        env.assertEqual(env.getConnection(shardId).execute_command('PING'), True)
+
+def testLanguageArgEmbeddedNul(env):
+    """FT.CREATE and FT.SEARCH read a LANGUAGE argument only up to its first
+    NUL byte, so Italian followed by a NUL and junk is accepted as Italian.
+
+    Pinned so that bounding the language lookup by length keeps accepting what
+    these two commands accept today. FT.ADD is not covered: it already uses the
+    argument's full length and rejects the same bytes.
+    """
+    env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'italian\x00x',
+               'SCHEMA', 't', 'TEXT').ok()
+
+    info = index_info(env, 'idx')
+    index_definition = info['index_definition']
+    idx = {index_definition[i]: index_definition[i + 1] for i in range(0, len(index_definition), 2)}
+    env.assertEqual(idx['default_language'], 'italian')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'LANGUAGE', 'italian\x00x').equal([0])
+
 def testTagalogLanguage(env):
     conn = getConnectionByEnv(env)
 
@@ -560,10 +616,43 @@ def testTagalogLanguage(env):
     res = env.cmd('FT.SEARCH', 'idx_tl', 'kain', 'SORTBY', 'word', 'ASC')
     env.assertEqual(res[0], 2)
 
+
+def testMalayLanguage(env):
+    conn = getConnectionByEnv(env)
+
+    # Malay is stemmed via the Indonesian Snowball algorithm; both pairs below
+    # share a stem (niaga / selamat) under that algorithm.
+    conn.execute_command('HSET', '{ml}:1', 'word', 'perniagaan')
+    conn.execute_command('HSET', '{ml}:2', 'word', 'berniaga')
+
+    env.cmd('FT.CREATE', 'idx_ml', 'ON', 'HASH', 'PREFIX', '1', '{ml}:',
+            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_ml')
+
+    res = env.cmd('FT.SEARCH', 'idx_ml', 'perniagaan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_ml', 'berniaga', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    conn.execute_command('HSET', '{ml2}:1', 'word', 'keselamatan')
+    conn.execute_command('HSET', '{ml2}:2', 'word', 'selamat')
+
+    env.cmd('FT.CREATE', 'idx_ml2', 'ON', 'HASH', 'PREFIX', '1', '{ml2}:',
+            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_ml2')
+
+    res = env.cmd('FT.SEARCH', 'idx_ml2', 'keselamatan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_ml2', 'selamat', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+
 def testLanguageInfo(env):
     languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
                  'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
-                 'indonesian', 'irish', 'italian', 'lithuanian',
+                 'indonesian', 'irish', 'italian', 'lithuanian', 'malay',
                  'nepali', 'norwegian', 'portuguese', 'romanian', 'russian',
                  'serbian', 'spanish', 'swedish', 'tagalog', 'tamil',
                  'turkish', 'yiddish', 'chinese']

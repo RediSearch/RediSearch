@@ -9,8 +9,6 @@
 
 //! Integration tests for the sparse vector index.
 
-mod c_mocks;
-
 use sparse_vector_index::{SparseVectorIndex, SparseVectorQueryIterator};
 
 #[test]

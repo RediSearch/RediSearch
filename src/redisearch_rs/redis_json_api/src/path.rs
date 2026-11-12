@@ -17,20 +17,39 @@ use std::ffi::c_void;
 
 use std::ptr::NonNull;
 
-pub struct JsonPath<'a> {
+pub struct JsonPath {
     pub(crate) ptr: NonNull<c_void>,
     pub(crate) free: unsafe extern "C" fn(*const c_void),
-    pub(crate) api: &'a RedisJsonApi,
+    pub(crate) api: RedisJsonApi,
 }
 
-impl Drop for JsonPath<'_> {
+impl Drop for JsonPath {
     fn drop(&mut self) {
         // Safety: `ptr` is valid by construction.
         unsafe { (self.free)(self.ptr.as_ptr()) }
     }
 }
 
-impl<'a> JsonPath<'a> {
+impl JsonPath {
+    /// Parses a path without allocating a Redis error string or requiring the Redis lock.
+    /// Returns `None` if the path cannot be compiled.
+    ///
+    /// # Safety
+    ///
+    /// The bytes of `path` must remain [valid] until the returned path is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn parse_no_error_msg(path: &CStr, api: &RedisJsonApi) -> Option<Self> {
+        let path_parse = vtable_fn!(api, pathParseNoErrorMsg);
+        // SAFETY: `path` is null-terminated and the caller keeps its bytes alive.
+        let ptr = NonNull::new(unsafe { path_parse(path.as_ptr()) }.cast_mut())?;
+        Some(Self {
+            ptr,
+            free: vtable_fn!(api, pathFree),
+            api: *api,
+        })
+    }
+
     /// Parses a JSON path expression.
     ///
     /// Returns the parsed path on success, or an error message on failure.
@@ -42,32 +61,27 @@ impl<'a> JsonPath<'a> {
     /// 1. `ctx` must be a valid Redis module context
     pub unsafe fn parse(
         path: &CStr,
-        ctx: *mut ffi::RedisModuleCtx,
-        api: &'a RedisJsonApi,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
+        api: &RedisJsonApi,
     ) -> Result<Self, RedisString> {
-        let vtable = api.vtable();
-        let path_parse = vtable
-            .pathParse
-            .expect("RedisJSON API function `pathParse` not available");
+        let path_parse = vtable_fn!(api, pathParse);
 
-        let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut err_msg: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { path_parse(path.as_ptr(), ctx, &raw mut err_msg) };
+        let ptr = unsafe { path_parse(path.as_ptr(), ctx.as_ptr(), &raw mut err_msg) };
 
         if let Some(ptr) = NonNull::new(ptr as *mut c_void) {
-            let path_free = vtable
-                .pathFree
-                .expect("RedisJSON API function `pathFree` not available");
+            let path_free = vtable_fn!(api, pathFree);
 
             Ok(Self {
                 ptr,
                 free: path_free,
-                api,
+                api: *api,
             })
         } else {
             Err(RedisString::from_redis_module_string(
-                ctx.cast(),
+                ctx.as_ptr().cast(),
                 err_msg.cast(),
             ))
         }
@@ -80,10 +94,7 @@ impl<'a> JsonPath<'a> {
     ///
     /// Only available with RedisJSON API v2 and later.
     pub fn is_single(&self) -> bool {
-        let vtable = self.api.vtable();
-        let path_is_single = vtable
-            .pathIsSingle
-            .expect("RedisJSON API function `pathIsSingle` not available");
+        let path_is_single = vtable_fn!(self.api, pathIsSingle);
 
         // Safety: `ptr` is valid by construction.
         unsafe { path_is_single(self.ptr.as_ptr()) != 0 }
@@ -97,10 +108,7 @@ impl<'a> JsonPath<'a> {
     ///
     /// Only available with RedisJSON API v2 and later.
     pub fn path_has_defined_order(&self) -> bool {
-        let vtable = self.api.vtable();
-        let path_has_defined_order = vtable
-            .pathHasDefinedOrder
-            .expect("RedisJSON API function `pathHasDefinedOrder` not available");
+        let path_has_defined_order = vtable_fn!(self.api, pathHasDefinedOrder);
 
         // Safety: `ptr` is valid by construction.
         unsafe { path_has_defined_order(self.ptr.as_ptr()) != 0 }

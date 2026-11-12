@@ -26,20 +26,20 @@ Run this skill after modifying Rust code to ensure tests pass.
      2. Map each modified file to its crate (the directory name directly under `src/redisearch_rs/`, e.g., `src/redisearch_rs/hyperloglog/src/lib.rs` → `hyperloglog`)
      3. Run tests for each affected crate:
         ```bash
-        cd src/redisearch_rs && cargo nextest run -p <crate1> -p <crate2> ...
+        cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate1> -p <crate2> ...
         ```
      4. If no Rust files were modified in `src/redisearch_rs/`, or if you cannot determine affected crates, run all tests
    - If `all` is provided, run all Rust tests:
      ```bash
-     cd src/redisearch_rs && cargo nextest run
+     cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
      ```
    - If a crate name is provided, run tests for that crate:
      ```bash
-     cd src/redisearch_rs && cargo nextest run -p <crate_name>
+     cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name>
      ```
    - If both crate and test name are provided, run the specific test:
      ```bash
-     cd src/redisearch_rs && cargo nextest run -p <crate_name> <test_name>
+     cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name> <test_name>
      ```
 2. If tests fail:
    - Read the error output carefully
@@ -50,13 +50,13 @@ Run this skill after modifying Rust code to ensure tests pass.
 
 ```bash
 # Test specific crate
-cd src/redisearch_rs && cargo nextest run -p hyperloglog
-cd src/redisearch_rs && cargo nextest run -p inverted_index
-cd src/redisearch_rs && cargo nextest run -p trie_rs
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p hyperloglog
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p inverted_index
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p trie_rs
 
 # Run a specific test
-cd src/redisearch_rs && cargo nextest run -p <crate_name> <test_name>
+cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name> <test_name>
 
 # Run tests under miri (for undefined behavior detection)
-cd src/redisearch_rs && cargo +nightly miri test
+cargo +nightly miri test --manifest-path src/redisearch_rs/Cargo.toml
 ```

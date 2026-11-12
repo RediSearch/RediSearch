@@ -27,23 +27,11 @@ impl Reducer {
             reducerId: 0,
             NewInstance: None,
             Add: None,
+            AddWithDocId: None,
             Finalize: None,
             FreeInstance: None,
             Free: None,
         })
-    }
-
-    /// Create a `Reducer` wrapper from a non-null pointer.
-    ///
-    /// # Safety
-    ///
-    /// 1. `ptr` must be a valid non-null pointer to an `ffi::Reducer` that is properly initialized.
-    ///    This also applies to any of its subfields.
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw<'a>(ptr: *const ffi::Reducer) -> &'a Self {
-        // SAFETY: ensured by caller (1.)
-        unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
     /// Set `NewInstance` function pointer.
@@ -70,6 +58,20 @@ impl Reducer {
         f: unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void, *const ffi::RLookupRow) -> i32,
     ) -> &mut Self {
         self.0.Add = Some(f);
+        self
+    }
+
+    /// Set `AddWithDocId` function pointer.
+    pub fn set_add_with_doc_id(
+        &mut self,
+        f: unsafe extern "C" fn(
+            *mut ffi::Reducer,
+            *mut c_void,
+            *const ffi::RLookupRow,
+            rqe_core::DocId,
+        ) -> i32,
+    ) -> &mut Self {
+        self.0.AddWithDocId = Some(f);
         self
     }
 

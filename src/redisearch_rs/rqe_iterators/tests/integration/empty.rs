@@ -12,16 +12,17 @@ use rqe_iterators::{
     empty::Empty,
     {RQEIterator, RQEValidateStatus},
 };
+use rqe_iterators_test_utils::ContractChecker;
 
 #[test]
 fn current() {
-    let mut it = Empty::default();
+    let mut it = ContractChecker::new(Empty::default());
     assert!(it.current().is_none());
 }
 
 #[test]
 fn read() {
-    let mut it = Empty::default();
+    let mut it = ContractChecker::new(Empty::default());
 
     assert_eq!(it.num_estimated(), 0);
     assert!(it.at_eof());
@@ -34,7 +35,7 @@ fn read() {
 
 #[test]
 fn skip_to() {
-    let mut it = Empty::default();
+    let mut it = ContractChecker::new(Empty::default());
 
     assert!(matches!(it.skip_to(1), Ok(None)));
     assert!(it.at_eof());
@@ -45,7 +46,7 @@ fn skip_to() {
 
 #[test]
 fn rewind() {
-    let mut it = Empty::default();
+    let mut it = ContractChecker::new(Empty::default());
 
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
@@ -59,16 +60,39 @@ fn rewind() {
 
 #[test]
 fn type_() {
-    let it = Empty::default();
+    let it = ContractChecker::new(Empty::default());
     assert_eq!(it.type_(), IteratorType::Empty);
 }
 
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = Empty::default();
+    let mut it = ContractChecker::new(Empty::default());
     let status = it
         .revalidate(&*mock_ctx.spec_read())
         .expect("revalidate failed");
     assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let it: Box<Empty> = Box::new(Empty::default());
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+            .expect("resume should not fail")
+            .expect_ok();
+    }
+}
+
+#[test]
+fn empty_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(Empty::default());
+    assert!(assert_current_contract(&mut it).is_empty());
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

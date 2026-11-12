@@ -29,7 +29,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rqe_iterators::{
     RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
     id_list::IdListSorted,
@@ -277,10 +277,7 @@ impl Bencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
+        super::group(c, label, Self::MEASUREMENT_TIME, Self::WARMUP_TIME)
     }
 
     pub fn bench(&self, c: &mut Criterion) {

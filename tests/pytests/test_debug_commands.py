@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 import time
@@ -24,6 +31,48 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
         self.env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
 
+    def testGcForceInvokeTimeoutArg(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000').equal('DONE')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000', '30000').error().contains(
+            'wrong number of arguments')
+
+    def testGcForceInvokeCompactAllNeedsDiskIndex(self):
+        """COMPACT_ALL compacts disk storage, so on a RAM index it is an error."""
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'COMPACT_ALL').error().contains(
+            'COMPACT_ALL requires a disk index')
+
+    def testHashSubkeyNotifications(self):
+        """The probe answers whether this server can name the fields a hash command wrote.
+
+        Which decides whether a write reaching no indexed field can skip the reindex, so a
+        test asserting change-set-driven behavior has to be able to ask. Only the shape is
+        checked here: the answer depends on the Redis under test, and pinning either value
+        would make this fail on the other.
+        """
+        res = self.env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        self.env.assertIn(res, (0, 1, True, False),
+                          message=f'expected a boolean, got {res!r}')
+
+    def testDiskLiveSnapshotsIsZeroWithoutDisk(self):
+        """No disk snapshot is ever taken on a RAM index, so the counter stays at zero."""
+        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS').equal(0)
+        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS', 'extra').error().contains(
+            'wrong number of arguments')
+
+    def testDiskStatsRequiresDiskIndex(self):
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'verbose').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected VERBOSE')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'invalid_idx').error().contains(
+            'Can not create a search ctx')
+        self.env.expect(debug_cmd(), 'DISK_STATS').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'VERBOSE', 'extra').error().contains(
+            'wrong number of arguments')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -46,6 +95,10 @@ class TestDebugCommands(object):
             "GC_FORCEINVOKE",
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
+            "DISK_FLUSH_NOWAIT",
+            "DISK_LIVE_SNAPSHOTS",
+            "DISK_PAUSE_BG_WORK",
+            "DISK_RESUME_BG_WORK",
             "GC_CLEAN_NUMERIC",
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
@@ -55,6 +108,7 @@ class TestDebugCommands(object):
             "TTL_PAUSE",
             "TTL_EXPIRE",
             "VECSIM_INFO",
+            "VECSIM_RELABEL_SUPPORTED",
             "DELETE_LOCAL_CURSORS",
             "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",
@@ -65,13 +119,20 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
+            'HASH_SUBKEY_NOTIFICATIONS',
+            'FORCE_PLAIN_HASH_NOTIFICATIONS',
             'YIELDS_COUNTER',
+            'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'MEMORY_PRESSURE',
+            'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
+            'NUMERIC_BUCKET_MAP',
+            'DISK_STATS',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
             'SET_MAX_INDEXES',
@@ -86,17 +147,22 @@ class TestDebugCommands(object):
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
-        # SYNC_POINT and BG_PENDING_REPLIES are only available in ENABLE_ASSERT builds
+        # These commands are only available in ENABLE_ASSERT builds.
         if isEnableAssertEnabled(self.env):
             help_list.append('SYNC_POINT')
             help_list.append('BG_PENDING_REPLIES')
+            help_list.append('IO_RUNTIME_PENDING_REQUESTS')
+            help_list.append('SEND_ERROR')
+            help_list.append('REPL_COMPACTION_COORDINATOR')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES']
+                        'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_SNAPSHOTS',
+                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
+                        'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -197,6 +263,15 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
         self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
 
+    def testDumpPhoneticHashWithoutPhoneticCode(self):
+        # Digits have no phonetic code, so neither the primary nor the secondary one is produced.
+        try:
+            res = self.env.cmd(debug_cmd(), 'DUMP_PHONETIC_HASH', '04')
+        except Exception as e:
+            self.env.assertTrue(False, message=f'DUMP_PHONETIC_HASH failed on a term without a phonetic code: {e}')
+            return
+        self.env.assertEqual(res, [None, None])
+
     def testDumpPhoneticHashWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
 
@@ -260,6 +335,16 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        # CONTINUE must leave the GC enabled, not merely reply OK.
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        # And a forced cycle must still run and unblock its client, which a job stranded on a
+        # paused pool would not.
+        with TimeLimit(30, 'GC_FORCEINVOKE did not complete after GC_CONTINUE_SCHEDULE'):
+            forceInvokeGC(self.env, 'idx')
+        # STOP is idempotent.
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
@@ -816,7 +901,9 @@ class TestQueryDebugCommands(object):
 
         if workers > 0:
             # With workers, ON_TIMEOUT FAIL is not supported with TIMEOUT_AFTER_N
-            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0"):
+            with env.assertResponseError(
+                contained="TIMEOUT_AFTER_N is not supported with blocked-client timeout handling"
+            ):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
         else:
             # Without workers, ON_TIMEOUT FAIL should work with TIMEOUT_AFTER_N
@@ -824,9 +911,21 @@ class TestQueryDebugCommands(object):
             with env.assertResponseError(contained="Timeout limit was reached"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
+            if self.cmd == 'AGGREGATE':
+                # A retained clock-simulation processor cannot safely become a blocked-client
+                # timeout consumer if workers are enabled before a later cursor read.
+                env.expect(
+                    *self.basic_debug_query, 'WITHCURSOR', 'COUNT', 1,
+                    'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 2,
+                ).error().contains(
+                    'TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL'
+                )
+
         # Test ON_TIMEOUT RETURN-STRICT (never supported)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
+        with env.assertResponseError(
+            contained="TIMEOUT_AFTER_N is not supported with blocked-client timeout handling"
+        ):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # Restore the default policy
@@ -834,10 +933,9 @@ class TestQueryDebugCommands(object):
 
     def CoordTimeoutPolicyConstraints(self):
         """
-        Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
-        - ON_TIMEOUT RETURN: always supported
-        - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
-        - ON_TIMEOUT RETURN-STRICT: not supported (coordinator only supports RETURN)
+        Test query debug policy constraints for coordinator-level queries:
+        - ON_TIMEOUT RETURN: supported
+        - ON_TIMEOUT FAIL/RETURN-STRICT: unsupported because they use a blocked-client timeout
         """
         env = self.env
 
@@ -845,18 +943,21 @@ class TestQueryDebugCommands(object):
         if not env.isCluster():
             return
 
-        # Test ON_TIMEOUT FAIL (not supported for coordinator)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-
-        # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-
-        # Restore the default policy
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+        error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
+        try:
+            for policy in ('FAIL', 'RETURN-STRICT'):
+                env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+                with env.assertResponseError(contained=error):
+                    runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+                # A harmless non-timeout parser error verifies that the command-level policy
+                # guard runs before debug parameter parsing.
+                with env.assertResponseError(contained=error):
+                    env.cmd(
+                        *self.basic_debug_query,
+                        'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1,
+                    )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
@@ -878,6 +979,7 @@ class TestQueryDebugCommands(object):
         self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         self.TimeoutPolicyConstraints()
+        self.CoordTimeoutPolicyConstraints()
 
     def testSearchDebug(self):
         self.SearchDebug()
@@ -960,6 +1062,27 @@ class TestQueryDebugCommands(object):
         self.AggregateDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
+    def testAggregateTimeoutDebugRejectsReturnStrict(self):
+        """Standalone rejects only timeout-related aggregate debug hooks with RETURN-STRICT."""
+        skipTest(cluster=True)
+        env = self.env
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        try:
+            env.expect(
+                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3,
+            ).error().contains(
+                'TIMEOUT_AFTER_N is not supported with blocked-client timeout handling'
+            )
+            env.expect(
+                debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+                'CRASH', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2,
+            ).error().contains(
+                'INTERNAL_ONLY is not supported with CRASH'
+            )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
         # avoid running this test in cluster mode, as it relies on the order of the shards reply.
@@ -1032,6 +1155,11 @@ class TestQueryDebugCommands(object):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
+    # 'hide-user-data-from-log' is not a RediSearch-owned config: notifications.c
+    # only mirrors a server-level twin via getRedisConfigBool, so whether it's
+    # registered at all depends on the enterprise server build, not on this module.
+    if RS_TEST_ENTERPRISE:
+        env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
@@ -1342,7 +1470,14 @@ def test_query_controller_set_cursor_read_size():
     # restoring it works.
     prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
     env.assertGreater(int(prev), 0)
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+    try:
+        previous = 7
+        for value in [(1 << 32) - 1, 1 << 32, (1 << 63) - 1]:
+            env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', value).equal(previous)
+            previous = min(value, (1 << 32) - 1)
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1 << 63).error()
+    finally:
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(previous)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():
@@ -1655,6 +1790,26 @@ class ProfileDebugCluster:
             env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
             env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
 
+    @staticmethod
+    def ProfileDebugPolicyConstraints(env):
+        """Coordinator debug profile rejects policies that use blocked-client timeouts."""
+        error = "_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN"
+        try:
+            for policy in ('FAIL', 'RETURN-STRICT'):
+                env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+                for command_type in ('SEARCH', 'AGGREGATE'):
+                    with env.assertResponseError(contained=error):
+                        env.cmd(
+                            debug_cmd(), 'FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*',
+                            'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1,
+                        )
+                with env.assertResponseError(contained=error):
+                    env.cmd(
+                        debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*',
+                    )
+        finally:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
 class TestProfileDebugClusterResp2(object):
     def __init__(self):
         env = Env(protocol=2)
@@ -1676,6 +1831,9 @@ class TestProfileDebugClusterResp3(object):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
     def testProfileTimeoutAggregateResp3(self):
         ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+    def testProfileDebugPolicyConstraints(self):
+        ProfileDebugCluster.ProfileDebugPolicyConstraints(self.env)
 
 @skip(cluster=True)
 def test_max_doc_id(env):
@@ -1794,7 +1952,8 @@ def _run_sync_point_query(conn, result_holder, error_holder, *query):
         error_holder.append(e)
 
 
-def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *query):
+def _assert_sync_point_query_blocks_and_resumes(
+        env, sync_point, release_cmd, *query, release_preserves_state=True):
     """Run a query in the background, wait for the sync point, then release it."""
     conn = env.getConnection()
     result_holder = []
@@ -1811,11 +1970,21 @@ def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *q
         f'Timeout waiting for {sync_point} sync point')
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(1)
+    hit_seq = env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point)
+    env.assertGreater(hit_seq, 0)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
     env.expect(*release_cmd).ok()
 
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
         f'Timeout waiting for {sync_point} sync point to resume')
+    if release_preserves_state:
+        env.assertGreater(env.cmd(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point), hit_seq)
+    else:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_HIT_SEQ', sync_point).equal(0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'LAST_RELEASE_SEQ', sync_point).equal(0)
 
     query_thread.join(timeout=10)
     env.assertFalse(query_thread.is_alive(), message='Query thread is still blocked after release')
@@ -1890,7 +2059,8 @@ def test_sync_point_clear_releases_waiting_query(env):
         env,
         'BeforeFirstRead',
         (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
-        'FT.SEARCH', 'idx', '*'
+        'FT.SEARCH', 'idx', '*',
+        release_preserves_state=False
     )
 
 

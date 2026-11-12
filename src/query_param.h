@@ -12,6 +12,10 @@
 #include "query_parser/tokenizer.h"
 #include "param.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct QueryParseCtx;
 
 typedef enum {
@@ -60,3 +64,7 @@ bool QueryParam_SetParam(struct QueryParseCtx *q, Param *target_param, void *tar
  * Parse the parameters from ac into the dest params.
  */
 int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status);
+
+#ifdef __cplusplus
+}
+#endif

@@ -15,11 +15,13 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
+redis-module.workspace = true
 sorting_vector.workspace = true
 thin_vec.workspace = true
 value.workspace = true
 value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true
+query_error.workspace = true
 
 
 [lints]

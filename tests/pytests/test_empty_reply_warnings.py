@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 class TestEmptyReplyWarnings:
@@ -6,7 +13,7 @@ class TestEmptyReplyWarnings:
 
     Before the fix, when shards returned empty results with a timeout warning,
     the coordinator ignored the warning. After the fix, processWarningsAndCleanup()
-    is called for empty replies, returning RS_RESULT_TIMEDOUT, which propagates
+    is called for empty replies, returning RS_RESULT_STOPPED, which propagates
     the timeout to the coordinator.
     """
 
@@ -44,7 +51,7 @@ class TestEmptyReplyWarnings:
 
         Verify coordinator gets timeout from shard's empty reply.
         Before MOD-12640 fix: Coordinator wouldn't get timeout from empty shard replies.
-        After MOD-12640 fix: processWarningsAndCleanup returns RS_RESULT_TIMEDOUT,
+        After MOD-12640 fix: processWarningsAndCleanup returns RS_RESULT_STOPPED,
         which sets req->has_timedout, so coordinator profile shows timeout.
         """
         query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT', 0]
@@ -54,7 +61,7 @@ class TestEmptyReplyWarnings:
         VerifyTimeoutWarningResp3(self.env, res['Results'],
                                   message=f"Results should have timeout warning, res: {res}")
 
-        # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_TIMEDOUT)
+        # Coordinator SHOULD have timeout warning (propagated via RS_RESULT_STOPPED)
         coord_warning = res['Profile']['Coordinator']['Warning']
         self.env.assertContains('Timeout limit was reached', coord_warning,
                                 message=f"Coordinator should have timeout warning from shard's empty reply, res: {res}")

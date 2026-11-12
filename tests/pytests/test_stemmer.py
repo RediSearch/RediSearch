@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 from common import waitForIndex, config_cmd, debug_cmd, skip
 
@@ -58,7 +63,7 @@ def testHashMinStemLen(env):
             'SCHEMA', 't', 'TEXT')
     env.cmd('HSET', '{doc}:1', 't', 'dar')
     
-    # altough MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
+    # although MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
     # the original word is equal to its stem
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_es')
     env.assertEqual(res, ['dar'])
@@ -129,7 +134,7 @@ def testJsonMinStemLen(env):
             'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     env.cmd('JSON.SET', '{doc}:1', '$', r'{"t":"dar"}')
     
-    # altough MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
+    # although MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
     # the original word is equal to its stem
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_es')
     env.assertEqual(res, ['dar'])

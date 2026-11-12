@@ -18,8 +18,13 @@
 //! the database indexes.
 
 pub mod counter;
-#[cfg(test)]
-mod test_utils;
+/// Test harness (`Chain`, `from_iter`, `ResultRP`) for driving result processors in pure Rust.
+///
+/// Exposed behind the `test-utils` feature so other crates (e.g. `redisearch_disk`) can build
+/// their own result processors against the real [`Context`]/[`Upstream`] machinery in tests,
+/// since [`Context`] has no public constructor. Always available to this crate's own tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 use pin_project::pin_project;
 use search_result::SearchResult;
@@ -35,8 +40,8 @@ use std::{
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    /// Execution halted because of timeout
-    TimedOut,
+    /// Execution halted on a timeout or a requested stop
+    Stopped,
     /// Aborted because of error. The QueryState (parent->status) should have
     /// more information.
     Error,
@@ -106,6 +111,25 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Add GIL acquisition wait and hold time to this processor and its query.
+    ///
+    /// Call only for profiled queries, after releasing the GIL.
+    pub const fn add_gil_time(&mut self, elapsed: std::time::Duration) {
+        // SAFETY: the context exclusively accesses its processor header during this call.
+        let header = unsafe { self.ptr.as_mut() };
+        debug_assert!(
+            !header.parent.is_null(),
+            "profiled result processor must have a parent"
+        );
+        let elapsed_ns = elapsed.as_nanos() as ffi::rs_wall_clock_ns_t + 1;
+        header.rp_gil_time += elapsed_ns;
+        // SAFETY: the parent installed by the C pipeline outlives this processor. Its profiling
+        // counters are updated by the query worker, with no overlapping parent borrow here.
+        if let Some(parent) = unsafe { header.parent.cast_mut().as_mut() } {
+            parent.queryGILTime += elapsed_ns;
+        }
+    }
+
     /// Create a new context for calling the given type-erased result processor
     pub(crate) fn new(header: Pin<&mut Header>) -> Self {
         // Safety: Context & Upstream correctly treat the pointer as pinned
@@ -139,6 +163,30 @@ impl Context<'_> {
         // Safety: We trust that the pointer to the parent context, if set, is
         // set to an appropriate structure.
         unsafe { query_processing_context_ptr.as_ref() }
+    }
+
+    /// Decrease the pipeline's running total result count by `n`.
+    ///
+    /// A result is counted (`totalResults++`) by the index processor as soon as it is produced
+    /// upstream (`setSearchResult`, `result_processor.c`). A processor that later drops a result it
+    /// received must subtract it back, exactly as the C scorer does on `RS_SCORE_FILTEROUT`
+    /// (`result_processor.c`'s `totalResults--`). The disk async loader uses this when it skips a
+    /// document (non-resident key, or a docid that changed under the query).
+    ///
+    /// No-op when the processor has no parent.
+    pub fn subtract_total_results(&mut self, n: u32) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor, the chain runs on a single
+        // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
+        // C provided, so writing through it is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor and the chain
+            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
+            let parent = unsafe { &mut *parent };
+            parent.totalResults = parent.totalResults.saturating_sub(n);
+        }
     }
 }
 
@@ -180,7 +228,7 @@ impl Upstream<'_> {
             ffi::RPStatus_RS_RESULT_PAUSED => {
                 unimplemented!("result processor returned unsupported error code PAUSED")
             }
-            ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus_RS_RESULT_STOPPED => Err(Error::Stopped),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
             code => {
                 unimplemented!("result processor returned unknown error code {code}")
@@ -316,6 +364,27 @@ where
         unsafe { NonNull::new_unchecked(ptr) }
     }
 
+    /// Reborrows the concrete [`ResultProcessor`] implementation `P` behind a raw
+    /// `ffi::ResultProcessor` pointer previously produced by [`Self::into_ptr`].
+    ///
+    /// Lets an FFI entry point that only has the raw `rp` pointer reach into the concrete
+    /// Rust-side state, without going through the `next`/`free` VTable.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must have come from [`Self::into_ptr`] for this exact `P` and not yet been freed.
+    /// 2. The returned reference must not be used to move out of the wrapped `result_processor`.
+    /// 3. No `&mut` to the pointee may exist or be created concurrently for lifetime `'a`.
+    #[inline]
+    pub unsafe fn inner_from_raw<'a>(ptr: NonNull<ffi::ResultProcessor>) -> &'a P {
+        let ptr = ptr.cast::<Self>();
+        debug_assert!(ptr.is_aligned());
+        // Safety: invariant 1, upheld by the caller.
+        unsafe { Self::debug_assert_same_type(ptr.cast()) };
+        // Safety: invariants 1 and 2, upheld by the caller.
+        unsafe { &(*ptr.as_ptr()).result_processor }
+    }
+
     /// Constructs a `Box<ResultProcessor>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
@@ -375,7 +444,7 @@ where
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
+            Err(Error::Stopped) => ffi::RPStatus_RS_RESULT_STOPPED as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
         }
     }
@@ -485,7 +554,7 @@ pub(crate) mod test {
         }
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
-        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_TIMEDOUT as i32);
+        check(Error::Stopped, ffi::RPStatus_RS_RESULT_STOPPED as i32);
     }
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
@@ -598,10 +667,7 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
-        check(
-            ffi::RPStatus_RS_RESULT_TIMEDOUT as i32,
-            Err(Error::TimedOut),
-        );
+        check(ffi::RPStatus_RS_RESULT_STOPPED as i32, Err(Error::Stopped));
     }
 
     /// Assert that the search result is passed correctly

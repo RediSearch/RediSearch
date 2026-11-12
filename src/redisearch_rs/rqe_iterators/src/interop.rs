@@ -11,11 +11,16 @@ use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
-    t_docId,
+    ValidateStatus_VALIDATE_TIMEOUT,
 };
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
+use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
+};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -37,14 +42,14 @@ pub struct RQEIteratorWrapper<E> {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
     pub fn boxed_new_inner(
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
-    ) -> *mut QueryIterator {
-        let mut wrapper = Box::new(Self {
+    ) -> NonNull<QueryIterator> {
+        let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
                 atEOF: inner.at_eof(),
@@ -57,30 +62,34 @@ where
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
+                PrintProfile: Some(print_profile::<I>),
             },
             inner,
         });
-        if let Some(current) = wrapper
-            .inner
-            .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
-        {
-            wrapper.header.current = current;
+        // Derive the self-referential `current` pointer only *after* the box is
+        // stable behind a raw pointer. `sync_current` reads `inner` and writes
+        // `header.current` through a single `&mut self`, so the borrow never
+        // escapes across `Box::into_raw`'s `Unique` retag (which would pop it).
+        let mut raw = NonNull::new(Box::into_raw(wrapper)).expect("Box pointers are non-null");
+        // SAFETY: `raw` was just produced by `Box::into_raw`: initialized, aligned,
+        // and — since nothing else has seen it yet — uniquely ours to borrow mutably.
+        unsafe {
+            raw.as_mut().sync_current();
         }
-        Box::into_raw(wrapper) as *mut QueryIterator
+        raw.cast::<QueryIterator>()
     }
 }
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
 {
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap. The `ProfileChildren` C callback is
     /// set to `None` — use [`boxed_new_compound`](Self::boxed_new_compound) for
     /// compound iterators that need the callback.
-    pub fn boxed_new(inner: I) -> *mut QueryIterator {
+    pub fn boxed_new(inner: I) -> NonNull<QueryIterator> {
         Self::boxed_new_inner(inner, None)
     }
 }
@@ -118,7 +127,7 @@ where
 ///
 /// Concretely:
 ///
-/// 1. C calls `Profile_AddIters` → [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+/// 1. The tree's root is profiled with [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
 /// 2. `into_profiled` calls [`CRQEIterator::profile_children`](crate::c2rust::CRQEIterator::profile_children),
 ///    which invokes the C vtable `ProfileChildren` callback
 /// 3. For Rust compound iterators, that callback is [`rust_profile_children`],
@@ -141,14 +150,14 @@ pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: ProfileChildren<'index>,
+    I: ProfileChildren<'index> + ProfilePrint,
 {
     /// Create a new C-compatible wrapper around a compound Rust iterator.
     ///
     /// Sets the `ProfileChildren` C callback to [`rust_profile_children`],
     /// which calls [`ProfileChildren::profile_children`]
     /// to preserve the concrete type through profiling.
-    pub fn boxed_new_compound(inner: I) -> *mut QueryIterator {
+    pub fn boxed_new_compound(inner: I) -> NonNull<QueryIterator> {
         debug_assert!(
             !inner.type_().is_leaf(),
             "boxed_new_compound should only be used for compound iterators"
@@ -184,19 +193,10 @@ where
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
     /// 3. The caller must ensure that it has a unique handle over the provided header.
     pub const unsafe fn mut_ref_from_header_ptr(
-        base: *mut QueryIterator,
+        base: NonNull<QueryIterator>,
     ) -> &'index mut RQEIteratorWrapper<I> {
-        debug_assert!(!base.is_null());
-
         // SAFETY: Guaranteed by 1 + 2.
-        let wrapper = unsafe { base.cast::<RQEIteratorWrapper<I>>().as_mut() };
-
-        if cfg!(debug_assertions) {
-            wrapper.expect("Unexpected null pointer!")
-        } else {
-            // SAFETY: Guaranteed by 1.
-            unsafe { wrapper.unwrap_unchecked() }
-        }
+        unsafe { base.cast::<RQEIteratorWrapper<I>>().as_mut() }
     }
 
     /// Convert a type-erased iterator "header into a wrapper around a specific Rust iterator type.
@@ -207,25 +207,42 @@ where
     ///    [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
     pub const unsafe fn ref_from_header_ptr(
-        base: *const QueryIterator,
+        base: NonNull<QueryIterator>,
     ) -> &'index RQEIteratorWrapper<I> {
-        debug_assert!(!base.is_null());
         // SAFETY: Guaranteed by 1 + 2.
-        unsafe {
-            base.cast::<RQEIteratorWrapper<I>>()
-                .as_ref()
-                .expect("Null pointer!")
-        }
+        unsafe { base.cast::<RQEIteratorWrapper<I>>().as_ref() }
     }
+}
+
+/// Borrow the wrapper behind the header pointer a vtable callback receives.
+///
+/// A null `base` fails a debug assertion that reports the calling callback;
+/// release builds do not check.
+///
+/// # Safety
+///
+/// 1. `base` satisfies invariant 1. in [`RQEIteratorWrapper`] for `I`, which
+///    rules out null.
+/// 2. The callback holds the wrapper exclusively for as long as the returned
+///    reference is used.
+#[inline(always)]
+#[track_caller]
+unsafe fn wrapper_from_callback<'index, I: RQEIterator<'index> + 'index>(
+    base: *mut QueryIterator,
+) -> &'index mut RQEIteratorWrapper<I> {
+    debug_assert!(!base.is_null());
+    // SAFETY: Guaranteed by 1., which rules out null.
+    let base = unsafe { NonNull::new_unchecked(base) };
+    // SAFETY: Guaranteed by 1. and 2.
+    unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) }
 }
 
 extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
 ) -> IteratorStatus {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    let wrapper = unsafe { wrapper_from_callback::<I>(base) };
     match wrapper.inner.read() {
         Ok(Some(result)) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -240,6 +257,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -247,12 +265,11 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
-    doc_id: t_docId,
+    doc_id: DocId,
 ) -> IteratorStatus {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    let wrapper = unsafe { wrapper_from_callback::<I>(base) };
     match wrapper.inner.skip_to(doc_id) {
         Ok(Some(SkipToOutcome::Found(result))) => {
             wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
@@ -272,52 +289,95 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
+}
+
+/// Debug switch behind `FT.DEBUG MOCK_REVALIDATE_TIMEOUT`: when set, every revalidation reports a
+/// timeout without touching the iterator underneath.
+///
+/// A revalidation timeout is otherwise hard to stage from a test. It needs a deadline that expires
+/// between two cursor reads *and* an index change that makes a composite re-seek its children, and
+/// the blocked-client deadline that tests can fire on demand is the same flag the result processor
+/// checks right after revalidating - so it hides the very case under test. This switch stands in
+/// for the deadline so the flow tests can exercise what C does with the status.
+static MOCK_REVALIDATE_TIMEOUT: AtomicBool = AtomicBool::new(false);
+
+/// Set the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn set_mock_revalidate_timeout(enabled: bool) {
+    MOCK_REVALIDATE_TIMEOUT.store(enabled, Ordering::Relaxed);
+}
+
+/// Read the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn mock_revalidate_timeout() -> bool {
+    MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
 }
 
 extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
     spec: *mut ffi::IndexSpec,
 ) -> ValidateStatus {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     debug_assert!(!spec.is_null());
 
+    // Revalidation runs once per query resume, never in the read loop, so the load costs nothing
+    // worth measuring.
+    if MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed) {
+        return ValidateStatus_VALIDATE_TIMEOUT;
+    }
+
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    let wrapper = unsafe { wrapper_from_callback::<I>(base) };
 
     // SAFETY: spec is a valid pointer (guaranteed by C caller)
     let spec_ref = unsafe { &*spec };
 
     // SAFETY:
-    // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
-    // - from_locked() returns ManuallyDrop to prevent lock release on drop
-    //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
+    // 1. `spec_ref` is a valid pointer to an `IndexSpec`.
+    // 2. C has already acquired the read lock through `IndexSpec_LockRead`
+    //    (see handleSpecLockAndRevalidate in result_processor.c).
+    // 3. C releases it again through `IndexSpec_Unlock`.
+    // 4. `IndexSpec_LockRead` pauses rehashing on the keys dict.
+    // 5. `missing.indexes` is left fully rehashed on insert (see indexer.c).
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     match wrapper.inner.revalidate(&guard) {
-        Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
+        Ok(RQEValidateStatus::Ok) => {
+            // The result has not moved, but the `&mut` borrow of the wrapper taken above
+            // invalidated the pointer `header.current` was derived from, and C reads the result
+            // through it next. Re-derive it from the live borrow. A null one stays null: the
+            // iterator has not yielded anything, or has run out.
+            if !wrapper.header.current.is_null() {
+                wrapper.sync_current();
+            }
+            ValidateStatus_VALIDATE_OK
+        }
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {
                 wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
+                wrapper.header.current = std::ptr::null_mut();
             }
             ValidateStatus_VALIDATE_MOVED
         }
         Ok(RQEValidateStatus::Aborted) => ValidateStatus_VALIDATE_ABORTED,
-        Err(_) => ValidateStatus_VALIDATE_ABORTED,
+        // Both errors leave the iterator in an indeterminate state, so C frees it either way. They
+        // are reported apart because they say different things about the result set: a timeout
+        // makes it partial and has to reach the client, an I/O error kills this subtree in a query
+        // that still has time left.
+        Err(RQEIteratorError::TimedOut) => ValidateStatus_VALIDATE_TIMEOUT,
+        Err(RQEIteratorError::IoError(_)) => ValidateStatus_VALIDATE_ABORTED,
     }
 }
 
 extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
+    let wrapper = unsafe { wrapper_from_callback::<I>(base) };
     wrapper.inner.rewind();
     wrapper.header.lastDocId = wrapper.inner.last_doc_id();
     wrapper.header.atEOF = wrapper.inner.at_eof();
@@ -331,10 +391,13 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
 extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
 ) -> usize {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
-    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
     wrapper.inner.num_estimated()
 }
 
@@ -345,27 +408,90 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
 /// Consumes the wrapper, calls [`ProfileChildren::profile_children`]
 /// on the inner iterator, and re-wraps the result via `boxed_new_inner` with
 /// `ProfileChildren` set to `None` — profiling is a one-shot pass.
-extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index>>(
+extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + ProfilePrint>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
-    debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    debug_assert!(!base.is_null());
+    // SAFETY: As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
+    // `base` is a live header, so it is non-null.
+    let base = unsafe { NonNull::new_unchecked(base) };
+    // SAFETY:
+    // 1. As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
+    //    `base` is an aligned, live header, uniquely owned until it is consumed
+    //    into the `Box` below.
+    // 2. `SkipTo` is `Copy`, so reading it through a shared reference leaves
+    //    `base` intact for that `Box::from_raw`.
+    let had_no_skip_to = unsafe { (*base.as_ptr()).SkipTo.is_none() };
     // SAFETY: Callbacks are guaranteed to get a header pointer created by
-    // `RQEIteratorWrapper::boxed_new_compound`, which uses `Box::into_raw`.
-    let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
+    // `RQEIteratorWrapper::boxed_new_compound`, so it owns a `Box` allocation of
+    // the wrapper around `I`.
+    let it = unsafe { Box::from_raw(base.cast::<RQEIteratorWrapper<I>>().as_ptr()) };
     let profiled = it.inner.profile_children();
     // Re-wrap with `boxed_new_inner` instead of `boxed_new_compound`: profiling is
     // a one-shot pass, so the result's children are already profiled and the
     // `ProfileChildren` callback would never be called again.
-    RQEIteratorWrapper::boxed_new_inner(profiled, None)
+    let ptr = RQEIteratorWrapper::boxed_new_inner(profiled, None);
+    if had_no_skip_to {
+        // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
+        // user today) across this rebox.
+        // SAFETY: `ptr` was just produced above and has no other alias yet.
+        unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
+    }
+    ptr.as_ptr()
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
     if !base.is_null() {
         debug_assert!(base.is_aligned());
         // SAFETY: Callbacks are guaranteed to get a header pointer created by
-        //  `RQEIteratorWrapper::boxed_new` or `boxed_new_compound`,
-        //  which (internally) use `Box::into_raw` to return a raw header pointer.
+        //  `RQEIteratorWrapper::boxed_new` or `boxed_new_compound`, so it owns a
+        //  `Box` allocation of the wrapper around `I`.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
+}
+
+/// `PrintProfile` vtable callback.
+///
+/// # Safety
+///
+/// - `base` must be a valid pointer to a [`QueryIterator`] created by
+///   [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`]
+///   with inner type `I`.
+/// - `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+/// - `ctx` must be a valid pointer to a [`ProfilePrintCtx`](crate::profile_print::ProfilePrintCtx).
+unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    map: *mut ffi::RsMapBuilder,
+    ctx: *mut ffi::RsProfilePrintCtx,
+) {
+    debug_assert!(!map.is_null());
+    debug_assert!(!ctx.is_null());
+    // SAFETY: base was created by boxed_new/boxed_new_compound with inner type I.
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    // SAFETY: map is a valid &mut MapBuilder per precondition.
+    let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
+    // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
+    let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
+    wrapper.inner.print_profile(map, ctx);
+}
+
+/// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.
+///
+/// This is an escape hatch for clearing or overriding vtable entries that
+/// `boxed_new` / `boxed_new_compound` set unconditionally. The closure receives
+/// a mutable reference to the [`QueryIterator`] header and may set any field.
+///
+/// # Safety
+///
+/// 1. `ptr` is a valid [`NonNull<QueryIterator>`](NonNull) produced by a
+///    [`RQEIteratorWrapper`] constructor in this module.
+/// 2. No other alias to `ptr` is live for the duration of `f`.
+pub unsafe fn patch_vtable(mut ptr: NonNull<QueryIterator>, f: impl FnOnce(&mut QueryIterator)) {
+    // SAFETY: upheld by the caller
+    unsafe { f(ptr.as_mut()) }
 }

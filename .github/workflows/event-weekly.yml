@@ -2,6 +2,10 @@ name: Weekly Flow
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   schedule:
     - cron: "20 20 * * 0"
@@ -10,6 +14,7 @@ jobs:
   run-benchmarks:
     permissions:
       contents: read
+      actions: read   # fetch-failed-run-logs (triage) reads job logs via the actions REST API
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
@@ -18,15 +23,26 @@ jobs:
       notify_failure: true
 
   link-check:
+    permissions: # actions/checkout
+      contents: read
     runs-on: ubuntu-slim
     timeout-minutes: 10
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+    - name: Configure Tracebit canary credentials
+      uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+      with:
+        customer-id: sha5oz2y
+        api-token: ${{ secrets.SECURITY_API_TOKEN }}
+        profile: administrator
+        profile-region: us-east-1
+        async: true
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       with:
         python-version: '3.11'
         cache: 'pip'

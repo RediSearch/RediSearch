@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{QueryIterator, t_docId};
-use inverted_index::RSIndexResult;
+use std::ptr::NonNull;
+
+use ffi::QueryIterator;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 
@@ -17,13 +20,13 @@ use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 ///    The array must be sorted in ascending order.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 pub unsafe extern "C" fn NewSortedIdListIterator(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -31,36 +34,18 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
     unsafe { new_id_list_iterator::<true>(ids, num, weight) }
 }
 
-#[unsafe(no_mangle)]
-/// Creates a new iterator over a list of unsorted document IDs.
-///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
-/// 2. The caller must ensure that `ids` is not null unless `num` is zero.
-/// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
-///    so the caller must ensure that the pointer was allocated in a compatible manner.
-pub unsafe extern "C" fn NewUnsortedIdListIterator(
-    ids: *mut t_docId,
-    num: u64,
-    weight: f64,
-) -> *mut QueryIterator {
-    // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<false>(ids, num, weight) }
-}
-
-/// # Safety
-///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 unsafe fn new_id_list_iterator<const SORTED: bool>(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
-    let ids_list = if !ids.is_null() {
+    let ids_list = if let Some(ids) = NonNull::new(ids) {
         // SAFETY: Safe thanks to 1
         unsafe { OwnedSlice::from_c(ids, num as usize) }
     } else {
@@ -76,4 +61,5 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         ids_list,
         RSIndexResult::build_virt().weight(weight).build(),
     ))
+    .as_ptr()
 }

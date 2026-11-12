@@ -31,13 +31,22 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 // When isProfile is true, wraps the reply with profile structure.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile);
 
+// Coordinator empty reply for FT.HYBRID commands.
+// Derives the profile flag from the command itself (FT.PROFILE prefix) and
+// forwards to common_hybrid_query_reply_empty, so callers do not have to track
+// isProfile. Mirrors coord_aggregate_query_reply_empty.
+int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode);
+
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode);
 
-// Coordinator empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT
-// timeout fast-path (timer fires before BG took the cursor). Preserves `cid`
-// so the client can retry, and bumps the timeout warning stats counter for
-// parity with `AREQ_ReplyWithStoredResults`.
+// Empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT timeout
+// fast-path. Preserves `cid` so the client can retry, and bumps the timeout
+// warning stats counter for parity with `AREQ_ReplyWithStoredResults`.
+// Use `internal=true` for shard (_FT.CURSOR READ) calls, `false` for coord.
+// The thin wrappers below are kept for call sites that lack a live AREQ.
+int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal);
 int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);
+int shard_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);

@@ -1,12 +1,22 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 from includes import *
 from common import *
 from RLTest import Env
 
+def _index_profile(count):
+    return ['Type', 'Index', 'Results processed', count,
+            'Deleted candidates discarded', 0, 'Candidates not discarded', count]
+
+
 # search result processors
 search_result_processors = [
-    ['Type', 'Index', 'Results processed', ANY],
+    _index_profile(ANY),
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
     ['Type', 'Loader', 'Results processed', ANY],
@@ -14,7 +24,7 @@ search_result_processors = [
 ]
 
 search_result_processors_background_depletion = [
-    ['Type', 'Index', 'Results processed', ANY],
+    _index_profile(ANY),
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
     ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
@@ -62,7 +72,7 @@ def _make_shard_standalone_profile(search_rp, vsim_rp):
 expected_shard_standalone_profile = _make_shard_standalone_profile(
     search_result_processors,
     [
-        ['Type', 'Index', 'Results processed', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
         ['Type', 'Loader', 'Results processed', ANY],
@@ -73,7 +83,7 @@ expected_shard_standalone_profile = _make_shard_standalone_profile(
 expected_shard_standalone_profile_background_depletion = _make_shard_standalone_profile(
     search_result_processors_background_depletion,
     [
-        ['Type', 'Index', 'Results processed', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
         ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
@@ -111,7 +121,7 @@ _VSIM_SHARD_CLUSTER_PROFILE = [
     ],
     'Result processors profile',
     [
-        ['Type', 'Index', 'Results processed', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Scorer', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
@@ -153,7 +163,7 @@ def _make_extra_loader_shard_cluster_profile(iterators_profile):
             iterators_profile,
             'Result processors profile',
             [
-                ['Type', 'Index', 'Results processed', ANY],
+                _index_profile(ANY),
                 ['Type', 'Scorer', 'Results processed', ANY],
                 ['Type', 'Sorter', 'Results processed', ANY],
                 ['Type', 'Loader', 'Results processed', ANY],
@@ -173,7 +183,7 @@ def _make_extra_loader_shard_cluster_profile(iterators_profile):
             ],
             'Result processors profile',
             [
-                ['Type', 'Index', 'Results processed', ANY],
+                _index_profile(ANY),
                 ['Type', 'Metrics Applier', 'Results processed', ANY],
                 ['Type', 'Scorer', 'Results processed', ANY],
                 ['Type', 'Vector Normalizer', 'Results processed', ANY],
@@ -387,7 +397,7 @@ query_and_profile = [
                 ],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 2],
+                    _index_profile(2),
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
                     ['Type', 'Loader', 'Results processed', 2],
@@ -402,7 +412,7 @@ query_and_profile = [
                 ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 4],
+                    _index_profile(4),
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
                     ['Type', 'Loader', 'Results processed', 4],
@@ -466,7 +476,7 @@ query_and_profile = [
                 },
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', ANY],
+                    _index_profile(ANY),
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
@@ -516,7 +526,7 @@ query_and_profile = [
                 ],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 2],
+                    _index_profile(2),
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
                     ['Type', 'Loader', 'Results processed', 2],
@@ -531,7 +541,7 @@ query_and_profile = [
                 ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 4],
+                    _index_profile(4),
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
                     ['Type', 'Loader', 'Results processed', 4],
@@ -588,7 +598,7 @@ query_and_profile = [
                 },
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', ANY],
+                    _index_profile(ANY),
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
@@ -678,13 +688,15 @@ def test_profile_standalone_with_background_depletion():
 
 @skip(cluster=False)
 def test_profile_cluster():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
+    # This structure test requires complete profiles from every shard.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false TIMEOUT 0')
     _setup_index_and_data(env)
     for query, _, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
         actual_res = env.execute_command(*query)
         _verify_profile_structure(env, env.protocol, actual_res)
 
         shard_profiles = actual_res[8][1]
+        env.assertEqual(len(shard_profiles), env.shardsCount, message=f'query: {query}, reply: {actual_res}')
         for i in range(len(shard_profiles)):
             shard_profile = shard_profiles[i]
             # Shard profile is a list of 6 items

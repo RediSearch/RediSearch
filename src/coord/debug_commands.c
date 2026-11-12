@@ -6,16 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <assert.h>
+#include <stddef.h>
+
 #include "coord/rmr/rmr.h"
-#include "coord/rmr/rq.h"
-#include "commands.h"
-#include "coord/rmr/io_runtime_ctx.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
 #include "module.h"
-#include "src/config.h"
-#include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
   if (!debugCommandsEnabled(ctx)) {
@@ -73,7 +71,7 @@ int RegisterCoordDebugCommands(RedisModuleCommand *debugCommand) {
   for (int i = 0; coordCommands[i].name != NULL; i++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, coordCommands[i].name,
               coordCommands[i].callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }

@@ -1,0 +1,73 @@
+name: Setup LCOV
+description: Install the pinned LCOV release used by coverage jobs
+
+inputs:
+  version:
+    description: LCOV release version
+    required: false
+    default: '2.5'
+  sha256:
+    description: SHA-256 of the LCOV release archive
+    required: false
+    default: 7e5e5a154bd5f3557659c328cab376764e7abd238bb403c424472c296b175126
+
+runs:
+  using: composite
+  steps:
+    - name: Install LCOV runtime dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        if perl -MCapture::Tiny -MDateTime -MDevel::StackTrace -MJSON::XS -e 1 2>/dev/null; then
+          exit 0
+        fi
+
+        if [[ "$(uname -m)" != x86_64 ]] || ! command -v apt-get >/dev/null 2>&1; then
+          echo "LCOV coverage setup is supported only on Ubuntu x86_64" >&2
+          exit 1
+        fi
+
+        sudo_prefix=()
+        if [[ "$(id -u)" != 0 ]]; then
+          command -v sudo >/dev/null 2>&1 || {
+            echo "sudo is required to install LCOV runtime dependencies" >&2
+            exit 1
+          }
+          sudo_prefix=(sudo)
+        fi
+
+        "${sudo_prefix[@]}" apt-get -o DPkg::Lock::Timeout=600 update -qq
+        "${sudo_prefix[@]}" env DEBIAN_FRONTEND=noninteractive \
+          apt-get -o DPkg::Lock::Timeout=600 install -yqq \
+          ca-certificates curl perl tar \
+          libcapture-tiny-perl libdatetime-perl libdevel-stacktrace-perl \
+          libjson-xs-perl libtimedate-perl
+        perl -MCapture::Tiny -MDateTime -MDevel::StackTrace -MJSON::XS -e 1
+
+    - name: Install LCOV
+      shell: bash
+      env:
+        LCOV_VERSION: ${{ inputs.version }}
+        LCOV_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        install_dir="${RUNNER_TEMP}/lcov-${LCOV_VERSION}"
+        archive="${RUNNER_TEMP}/lcov-${LCOV_VERSION}.tar.gz"
+
+        if [[ ! -x "${install_dir}/bin/lcov" ]]; then
+          mkdir -p "${install_dir}"
+          curl --fail --location --silent --show-error --retry 3 \
+            --proto '=https' --proto-redir '=https' \
+            --output "${archive}" \
+            "https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz"
+          if command -v sha256sum >/dev/null; then
+            echo "${LCOV_SHA256}  ${archive}" | sha256sum --check
+          else
+            actual_sha256=$(shasum --algorithm 256 "${archive}" | awk '{print $1}')
+            [[ "${actual_sha256}" == "${LCOV_SHA256}" ]]
+          fi
+          tar --extract --gzip --file "${archive}" --strip-components=1 --directory "${install_dir}"
+        fi
+
+        echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+        "${install_dir}/bin/lcov" --version

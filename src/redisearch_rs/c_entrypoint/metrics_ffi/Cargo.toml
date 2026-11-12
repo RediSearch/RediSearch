@@ -11,7 +11,7 @@ bench = false
 
 [dependencies]
 ffi.workspace = true
-inverted_index.workspace = true
+index_result.workspace = true
 workspace_hack.workspace = true
 
 [lints]

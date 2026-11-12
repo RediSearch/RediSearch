@@ -9,6 +9,7 @@
 
 #include "redisearch.h"
 #include "spec.h"
+#include "indexes.h"
 #include "query_test_utils.h"
 
 #include "gtest/gtest.h"
@@ -17,8 +18,8 @@
 
 class QueryValidationTest : public ::testing::Test {};
 
-QAST_ValidationFlags hybridVectorFilterValidationFlags = (QAST_ValidationFlags)(QAST_NO_VECTOR | QAST_NO_WEIGHT);
-QAST_ValidationFlags hybridSearchValidationFlags = QAST_NO_VECTOR;
+QASTValidationFlagsSet hybridVectorFilterValidationFlags = (QASTValidationFlagsSet)(QAST_NO_VECTOR | QAST_NO_WEIGHT);
+QASTValidationFlagsSet hybridSearchValidationFlags = QAST_NO_VECTOR;
 
 bool isValidAsHybridVectorFilter(const char *qt, RedisSearchCtx &ctx) {
   QASTCXX ast;
@@ -35,7 +36,7 @@ bool isValidAsHybridSearch(const char *qt, RedisSearchCtx &ctx) {
 }
 
 bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
-  QAST_ValidationFlags validationFlags, QueryErrorCode error) {
+  QASTValidationFlagsSet validationFlags, QueryErrorCode error) {
   QASTCXX ast;
   ast.setContext(&ctx);
   ast.isValidQuery(qt, validationFlags);
@@ -103,7 +104,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryValidationTest, testValidVectorFilter) {
@@ -133,7 +134,7 @@ TEST_F(QueryValidationTest, testValidVectorFilter) {
   assertValidHybridVectorFilter("ismissing(@body)", ctx);
   assertValidHybridVectorFilter("@body:''", ctx);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 // Hybrid text filters accept weight attribute, but not vector queries
@@ -171,7 +172,7 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
 TEST_F(QueryValidationTest, testValidHybridSearch) {
@@ -207,5 +208,5 @@ TEST_F(QueryValidationTest, testValidHybridSearch) {
   assertValidHybridSearch("( @title:(foo bar) @body:lol => {$weight: 2.0;} )=> {$slop:2; $inorder:true}", ctx);
   assertValidHybridSearch("( @title:(foo bar) @body:lol )=> {$weight:2.0; $inorder:true}", ctx);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }

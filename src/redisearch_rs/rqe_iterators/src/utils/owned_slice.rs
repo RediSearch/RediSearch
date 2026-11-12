@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 /// An owned slice of `T` which is allocated either in C (Redis) or Rust.
 pub struct OwnedSlice<T> {
     kind: SliceKind<T>,
@@ -15,20 +17,25 @@ pub struct OwnedSlice<T> {
 impl<T> Default for OwnedSlice<T> {
     #[inline(always)]
     fn default() -> Self {
-        Self {
-            kind: SliceKind::Rust(Vec::default()),
-        }
+        Self::new()
     }
 }
 
 impl<T> OwnedSlice<T> {
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self {
+            kind: SliceKind::Rust(Vec::new()),
+        }
+    }
+
     /// # Safety
     ///
-    /// ptr must be non-null and point to `len` initialized elements
-    /// allocated via `RedisModule_Alloc`. [`OwnedSlice`] takes
-    /// ownership from ptr and should therefore no longer be freed by callee.
+    /// ptr must point to `len` initialized elements allocated via
+    /// `RedisModule_Alloc`. [`OwnedSlice`] takes ownership from ptr and should
+    /// therefore no longer be freed by callee.
     #[inline(always)]
-    pub const unsafe fn from_c(ptr: *mut T, len: usize) -> Self {
+    pub const unsafe fn from_c(ptr: NonNull<T>, len: usize) -> Self {
         Self {
             kind: SliceKind::C(
                 // Safety: contract upheld by callee
@@ -59,6 +66,16 @@ impl<T> std::ops::Deref for OwnedSlice<T> {
     }
 }
 
+impl<T> std::ops::DerefMut for OwnedSlice<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [T] {
+        match &mut self.kind {
+            SliceKind::C(s) => s,
+            SliceKind::Rust(v) => v,
+        }
+    }
+}
+
 enum SliceKind<T> {
     C(RedisSlice<T>),
     Rust(Vec<T>),
@@ -69,21 +86,18 @@ enum SliceKind<T> {
 /// This is useful for slices that were created from C,
 /// and we wish to use it as-is without having to re-allocate.
 struct RedisSlice<T> {
-    ptr: std::ptr::NonNull<T>,
+    ptr: NonNull<T>,
     len: usize,
 }
 
 impl<T> RedisSlice<T> {
     /// # Safety
     ///
-    /// ptr must be non-null and point to `len` initialized elements
-    /// allocated via `RedisModule_Alloc`. [`RedisSlice`] takes
-    /// ownership from ptr and should therefore no longer be freed by callee.
+    /// ptr must point to `len` initialized elements allocated via
+    /// `RedisModule_Alloc`. [`RedisSlice`] takes ownership from ptr and should
+    /// therefore no longer be freed by callee.
     #[inline(always)]
-    const unsafe fn from_raw(ptr: *mut T, len: usize) -> Self {
-        debug_assert!(!ptr.is_null());
-        // Safety: because of constructor contract
-        let ptr = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
+    const unsafe fn from_raw(ptr: NonNull<T>, len: usize) -> Self {
         Self { ptr, len }
     }
 }
@@ -98,12 +112,23 @@ impl<T> std::ops::Deref for RedisSlice<T> {
     }
 }
 
+impl<T> std::ops::DerefMut for RedisSlice<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut [T] {
+        // SAFETY: The constructor's safety contract guarantees `self.ptr` is
+        // non-null, well-aligned, and points to `self.len` initialized elements
+        // (so the total size is a valid allocation, hence <= `isize::MAX`).
+        // We hold `&mut self`, so this is the only live reference to the data.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
 impl<T> Drop for RedisSlice<T> {
     fn drop(&mut self) {
         // SAFETY: `RedisModule_Free` is guaranteed to be initialized by the
         // time any module code runs; the Redis module loader sets up the API
         // table before calling `RedisModule_OnLoad`.
-        let free_fn = unsafe { ffi::RedisModule_Free.unwrap() };
+        let free_fn = unsafe { redis_module::RedisModule_Free.unwrap() };
         // SAFETY: The memory at `self.ptr` was allocated via
         // `RedisModule_Alloc` (guaranteed by the constructor's safety
         // contract) and has not been freed yet (guaranteed by Rust's

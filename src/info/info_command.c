@@ -8,25 +8,49 @@
 */
 #include <math.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <string.h>
+#include <strings.h>
 
 #include "triemap_ffi.h"
 #include "spec.h"
-#include "inverted_index_ffi.h"
+#include "indexes.h"
+#include "indexes_scanner.h"
 #include "vector_index.h"
 #include "cursor.h"
-#include "resp3.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
-#include "util/units.h"
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "field_spec.h"
+#include "gc/gc.h"
+#include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error.h"
+#include "redis_index.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -116,7 +140,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   const IndexSpec *sp = sctx->spec;
 
   // Lock the spec
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   IndexSpec *specForOpeningIndexes = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
@@ -130,7 +154,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
 
   for (int i = 0; i < sp->numFields; i++) {
-    RedisModule_Reply_Map(reply); // >>field
+    RedisModule_Reply_MapOrArray(reply); // >>field: RESP2 appends the flags as bare strings
 
     const FieldSpec *fs = &sp->fields[i];
     char *path = FieldSpec_FormatPath(fs, obfuscate);
@@ -196,6 +220,16 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
+          if (hnsw_params.quantType != VecSimQuant_NONE) {
+            REPLY_KVSTR("compression", VecSimHnswCompression_ToString(hnsw_params.quantType));
+            REPLY_KVINT(
+                "training_threshold",
+                algo_params.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+          }
+          if (fs->vectorOpts.diskCtx.indexName) {
+            REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
+          }
         } else if (primary_params->algo == VecSimAlgo_SVS) {
           REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
           SVSParams svs_params = primary_params->algoParams.svsParams;
@@ -251,7 +285,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
-    RedisModule_Reply_MapEnd(reply); // >>field
+    RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
@@ -265,19 +299,23 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
+  // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
+  // counter across all specs in `IndexesInfo_TotalInfo`.
+  size_t total_ii_blocks = IndexSpec_TotalBlockCount(sp);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
-  size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead,
     text_overhead, vector_indexes_size);
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize;
+    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -288,9 +326,20 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
-  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
+  REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
-  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  if (isDisk) {
+    TextResourceMetrics text = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead).text;
+    REPLY_KVMAP("column_families");
+    REPLY_KVMAP("text");
+    REPLY_KVINT("ram_metadata_bytes", text_overhead);
+    REPLY_KVINT("memtable_bytes", text.memtable_bytes);
+    REPLY_KVINT("storage_bytes", text.storage_bytes);
+    REPLY_MAP_END;
+    REPLY_MAP_END;
+  } else {
+    REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  }
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
@@ -317,7 +366,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
-  REPLY_KVINT("number_of_uses", sp->counter);
+  REPLY_KVINT("number_of_uses", IndexSpec_GetQueryCounter(sp));
+  REPLY_KVINT("number_of_admin_ops", IndexSpec_GetAdminCounter(sp));
 
   REPLY_KVINT("cleaning", CleanInProgressOrPending());
 
@@ -330,7 +380,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
 
   // Unlock spec
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);
@@ -352,7 +402,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }
@@ -367,7 +417,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);

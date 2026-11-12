@@ -47,17 +47,20 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <stdbool.h>
 
 #pragma GCC visibility push(default)
-#include "siphash.c.inc"
+#include "siphash.c.inc" // IWYU pragma: keep
+#include "util/arr/arr.h"
+
 #pragma GCC visibility pop
+
+#include <assert.h>
 
 #include "dict.h"
 #include "redismodule.h"
-#include <assert.h>
 #include "rmalloc.h"
 #include "obfuscation/hidden.h"
 
@@ -221,7 +224,7 @@ uint8_t *RS_dictGetHashFunctionSeed(void) {
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-uint64_t RS_dictGenHashFunction(const void *key, int len) {
+uint64_t RS_dictGenHashFunction(const void *key, size_t len) {
     return siphash(key,len,dict_hash_function_seed);
 }
 

@@ -8,6 +8,8 @@ on:
 
 jobs:
   Assign:
+    permissions: # gh issue edit --add-assignee
+      issues: write
     if: ${{ !contains(github.event.issue.labels.*.name, 'feature') }}
     runs-on: ubuntu-slim
     env:
@@ -15,5 +17,13 @@ jobs:
       GITHUB_REPOSITORY: ${{ github.repository }}
 
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Assign
         run: gh issue edit ${{ github.event.issue.number }} --add-assignee ${{ vars.ISSUES_SHIFT_ASSIGNEE }} -R ${{ env.GITHUB_REPOSITORY }}

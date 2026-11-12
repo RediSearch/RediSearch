@@ -12,10 +12,12 @@
 #include "module.h"
 #include "version.h"
 #include "common.h"
+#include "doc_id_meta.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
 #include "gtest/gtest.h"
+#include "util/misc.h"
 
 extern "C" {
 
@@ -25,6 +27,11 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
   RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  // Unit tests assume an empty workers pool, so vector writes run in place.
+  RSGlobalConfig.minMaintenanceWorkers = 0;
+  if (!DocIdMeta_Init(ctx)) {
+    return REDISMODULE_ERR;
+  }
   return RediSearch_InitModuleInternal(ctx);
 }
 
@@ -40,7 +47,10 @@ class MyEnvironment : public ::testing::Environment {
 
   virtual void TearDown() {
     RMCK_Shutdown();
+    // Module shutdown holds the Redis lock; pool drains release it temporarily.
+    RedisModule_ThreadSafeContextLock(nullptr);
     RediSearch_CleanupModule(NULL);
+    RedisModule_ThreadSafeContextUnlock(nullptr);
   }
 };
 
@@ -84,6 +94,7 @@ std::vector<std::string> RS::search(RSIndex *index, const char *s) {
 
 int main(int argc, char **argv) {
   RS::InstallSegvStackTraceHandler();
+  MainThread_Set();
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new MyEnvironment());
   return RUN_ALL_TESTS();

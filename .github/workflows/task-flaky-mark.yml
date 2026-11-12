@@ -1,0 +1,47 @@
+name: Flaky tests — mark
+
+# Thin workflow_dispatch caller of the shared reusable flaky-mark workflow. The
+# inputs are kept here so the manual-run form is unchanged.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch the mark applies to (e.g. master, 2.10, or * for all branches)'
+        required: true
+        default: 'master'
+        type: string
+      test_id:
+        description: "Test identifier in RLTest format: <test_file>:<test_name> (e.g. test_wildcard:testBasic — no .py, no [variant])"
+        required: true
+        type: string
+      reason:
+        description: 'Why is this being skipped?'
+        required: true
+        type: string
+      jira_key:
+        description: 'Jira ticket tracking the flake (e.g. MOD-12345)'
+        required: true
+        type: string
+      expires_in_days:
+        description: 'Days until the mark expires (1-365)'
+        required: true
+        default: '30'
+        type: string
+
+jobs:
+  mark:
+    permissions:
+      # The shared workflow checks out redislabsdev/redisearch-ci-common (for
+      # flaky_db.py) with the inherited token, and a caller's permissions are the
+      # ceiling for the workflow it calls.
+      contents: read
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-mark.yml@v1
+    with:
+      branch: ${{ inputs.branch }}
+      test_id: ${{ inputs.test_id }}
+      reason: ${{ inputs.reason }}
+      jira_key: ${{ inputs.jira_key }}
+      expires_in_days: ${{ inputs.expires_in_days }}
+      ci-common-ref: v1
+    secrets:
+      redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}

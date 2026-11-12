@@ -24,6 +24,11 @@
 #include <array>
 #include <iostream>
 #include <cstdarg>
+#include <pthread.h>
+#include <string>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
@@ -38,7 +43,7 @@ TEST_F(AggTest, testBasic) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  auto spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 
   // Try to create a document...
@@ -56,9 +61,9 @@ TEST_F(AggTest, testBasic) {
   RedisModule_CloseKey(kk);
   RedisModule_FreeString(ctx, vtmp);
 
-  AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
-  rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
+  AREQ *rr = AREQ_New(aggArgs, aggArgs.size());
+  rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
@@ -93,7 +98,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
-  AREQ_DecrRef(rr);
+  AREQ_Free(rr);
   IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
@@ -101,6 +106,37 @@ TEST_F(AggTest, testBasic) {
 }
 
 #endif // HAVE_RM_SCANCURSOR_CREATE
+
+TEST_F(AggTest, GroupBySealsEveryLookup) {
+  RMCK::Context ctx;
+  RMCK::ArgvList args(ctx, "*", "APPLY", "1", "AS", "first", "GROUPBY", "1", "@first", "REDUCE",
+                      "COUNT", "0", "AS", "count", "APPLY", "@count + 1", "AS", "count", "GROUPBY",
+                      "0", "REDUCE", "SUM", "1", "@count", "AS", "total");
+  QueryError status = QueryError_Default();
+  AREQ *req = AREQ_New(args, args.size());
+  ASSERT_EQ(AREQ_Compile(req, ctx, 0, false, &status), REDISMODULE_OK);
+  AREQ_AddRequestFlags(req, QEXEC_F_IS_COORDINATOR);
+  ASSERT_EQ(AREQ_BuildPipeline(req, &status), REDISMODULE_OK) << QueryError_GetUserError(&status);
+
+  AGGPlan *plan = AREQ_AGGPlan(req);
+  size_t count = 0;
+  for (const DLLIST_node *node = plan->steps.next; node != &plan->steps; node = node->next) {
+    const PLN_BaseStep *step = DLLIST_ITEM(node, PLN_BaseStep, llnodePln);
+    if (step->type != PLN_T_GROUP) {
+      continue;
+    }
+    RLookup *lookup = AGPLN_GetLookup(plan, step, AGPLN_GETLOOKUP_PREV);
+    EXPECT_DEATH(RLookup_SetCache(lookup, nullptr), "sealed");
+    ++count;
+  }
+  EXPECT_EQ(count, 2);
+  RLookup *last = AGPLN_GetLookup(plan, nullptr, AGPLN_GETLOOKUP_LAST);
+  EXPECT_DEATH(RLookup_SetCache(last, nullptr), "sealed");
+  // The seal protects existing keys, but coordinator replies can still add fields.
+  EXPECT_NE(RLookup_GetKey_Write(last, "late", RLOOKUP_F_NOFLAGS), nullptr);
+  AREQ_Free(req);
+  QueryError_ClearError(&status);
+}
 
 class RPMock : public ResultProcessor {
  public:
@@ -169,7 +205,8 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -213,7 +250,8 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;
@@ -263,6 +301,159 @@ TEST_F(AggTest, testGroupSplit) {
   RLookup_Cleanup(&lk_out);
 }
 
+// The widest GROUPBY the argument parser accepts (MAX_GROUPBY_PROPERTIES).
+static constexpr size_t WIDEST_GROUPBY = (1 << 16) - 1;
+// The default secondary-thread stack size on macOS; musl's default is smaller.
+static constexpr size_t SMALL_STACK = 512 * 1024;
+// Inaccessible memory right below the small stack. It is wide enough that a
+// frame running past the stack faults in it instead of skipping a page-sized
+// guard into whatever is mapped further down.
+static constexpr size_t STACK_GUARD = 64 << 20;
+
+/** Run `fn(arg)` on a thread with a SMALL_STACK-byte stack. Exits on setup failure. */
+static void runOnSmallStack(void *(*fn)(void *), void *arg) {
+  char *map = static_cast<char *>(mmap(NULL, STACK_GUARD + SMALL_STACK, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0));
+  pthread_attr_t attr;
+  pthread_t thread;
+  if (map == MAP_FAILED || mprotect(map, STACK_GUARD, PROT_NONE) != 0 ||
+      pthread_attr_init(&attr) != 0 ||
+      pthread_attr_setstack(&attr, map + STACK_GUARD, SMALL_STACK) != 0 ||
+      pthread_create(&thread, &attr, fn, arg) != 0 || pthread_join(thread, NULL) != 0) {
+    fprintf(stderr, "could not run a thread on a %zu KiB stack\n", SMALL_STACK / 1024);
+    _exit(2);
+  }
+  pthread_attr_destroy(&attr);
+  munmap(map, STACK_GUARD + SMALL_STACK);
+}
+
+struct WidePipelineBuild {
+  AREQ *req;
+  QueryError status = QueryError_Default();
+  int rc = REDISMODULE_OK;
+};
+
+static void *buildWidePipeline(void *arg) {
+  auto *build = static_cast<WidePipelineBuild *>(arg);
+  build->rc = AREQ_BuildPipeline(build->req, &build->status);
+  return NULL;
+}
+
+/** Build the pipeline of the widest GROUPBY on a small stack. Exits 0 on the expected result. */
+static void buildWidestPipelineOnSmallStack() {
+  RMCK::Context ctx;
+  // Repeating one property passes argument parsing; the repetition is only
+  // rejected while the grouper is built, after its per-property storage exists.
+  std::vector<std::string> argv = {"*", "APPLY", "1", "AS", "f", "GROUPBY",
+                                   std::to_string(WIDEST_GROUPBY)};
+  argv.insert(argv.end(), WIDEST_GROUPBY, "@f");
+  argv.insert(argv.end(), {"REDUCE", "COUNT", "0", "AS", "n"});
+  RMCK::ArgvList args(ctx, argv);
+  WidePipelineBuild build{AREQ_New(args, args.size())};
+  if (AREQ_Compile(build.req, ctx, 0, false, &build.status) != REDISMODULE_OK) {
+    fprintf(stderr, "compile failed: %s\n", QueryError_GetUserError(&build.status));
+    _exit(1);
+  }
+  AREQ_AddRequestFlags(build.req, QEXEC_F_IS_COORDINATOR);
+  runOnSmallStack(buildWidePipeline, &build);
+  if (build.rc != REDISMODULE_ERR ||
+      QueryError_GetCode(&build.status) != QUERY_ERROR_CODE_DUP_FIELD) {
+    fprintf(stderr, "unexpected build result %d: %s\n", build.rc,
+            QueryError_GetUserError(&build.status));
+    _exit(1);
+  }
+  _exit(0);
+}
+
+class WideRowGenerator : public ResultProcessor {
+ public:
+  RLookupKey *multi = NULL;
+  RLookupKey *single = NULL;
+  size_t counter = 0;
+
+  WideRowGenerator() {
+    memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
+  }
+};
+
+struct WideGroupByRun {
+  Grouper *grouper;
+  size_t groups = 0;
+};
+
+static void *runWideGroupBy(void *arg) {
+  auto *run = static_cast<WideGroupByRun *>(arg);
+  ResultProcessor *gp = Grouper_GetRP(run->grouper);
+  SearchResult res = SearchResult_New();
+  while (gp->Next(gp, &res) == RS_RESULT_OK) {
+    ++run->groups;
+    SearchResult_Clear(&res);
+  }
+  SearchResult_Destroy(&res);
+  return NULL;
+}
+
+/** Group one row by the widest GROUPBY on a small stack. Exits 0 on the expected result. */
+static void groupWidestRowOnSmallStack() {
+  QueryProcessingCtx qitr = {0};
+  WideRowGenerator gen;
+  RLookup lk_in = RLookup_New();
+  RLookup lk_out = RLookup_New();
+  gen.multi = RLookup_GetKey_Write(&lk_in, "multi", RLOOKUP_F_NOFLAGS);
+  gen.single = RLookup_GetKey_Write(&lk_in, "single", RLOOKUP_F_NOFLAGS);
+  RLookupKey *multi_out = RLookup_GetKey_Write(&lk_out, "multi", RLOOKUP_F_NOFLAGS);
+  RLookupKey *single_out = RLookup_GetKey_Write(&lk_out, "single", RLOOKUP_F_NOFLAGS);
+
+  // One multi-valued key followed by scalar ones, so the row is added to two groups.
+  std::vector<const RLookupKey *> srckeys(WIDEST_GROUPBY, gen.single);
+  std::vector<const RLookupKey *> dstkeys(WIDEST_GROUPBY, single_out);
+  srckeys[0] = gen.multi;
+  dstkeys[0] = multi_out;
+
+  gen.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+    auto *p = static_cast<WideRowGenerator *>(rp);
+    if (p->counter++ > 0) return RS_RESULT_EOF;
+    SearchResult_SetDocId(res, p->counter);
+    RSValue **arr = RSValue_NewArrayBuilder(2);
+    arr[0] = RSValue_NewBorrowedString("x", 1);
+    arr[1] = RSValue_NewBorrowedString("y", 1);
+    RLookup_WriteOwnKey(p->multi, SearchResult_GetRowDataMut(res),
+                        RSValue_NewArrayFromBuilder(arr, 2));
+    RLookup_WriteOwnKey(p->single, SearchResult_GetRowDataMut(res),
+                        RSValue_NewBorrowedString("s", 1));
+    return RS_RESULT_OK;
+  };
+  QITR_PushRP(&qitr, &gen);
+
+  Grouper *gr = Grouper_New(srckeys.data(), dstkeys.data(), WIDEST_GROUPBY,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
+  ArgsCursor args = {0};
+  ReducerOptions opt = {0};
+  opt.args = &args;
+  RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
+  Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
+  QITR_PushRP(&qitr, Grouper_GetRP(gr));
+
+  WideGroupByRun run{gr};
+  runOnSmallStack(runWideGroupBy, &run);
+  if (run.groups != 2) {
+    fprintf(stderr, "expected 2 groups, got %zu\n", run.groups);
+    _exit(1);
+  }
+  _exit(0);
+}
+
+// The stack must not grow with the number of GROUPBY properties, neither while
+// the pipeline is built nor while rows are added to groups. Each stage runs in a
+// child process, so an overflow is reported as a failure instead of a crash.
+TEST_F(AggTest, testGroupByWidestOnSmallStack) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(buildWidestPipelineOnSmallStack(), ::testing::ExitedWithCode(0), "")
+      << "building a " << WIDEST_GROUPBY << "-property GROUPBY pipeline on a small stack";
+  EXPECT_EXIT(groupWidestRowOnSmallStack(), ::testing::ExitedWithCode(0), "")
+      << "grouping a " << WIDEST_GROUPBY << "-key row on a small stack";
+}
+
 #if 0
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
@@ -303,14 +494,14 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
 
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
     QueryError qerr = QueryError_Default();
-    AREQ *rr = AREQ_New();
-    AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    int rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
+    AREQ *rr = AREQ_New(aggArgs, aggArgs.size());
+    AREQ_AddRequestFlags(rr, flags);
+    int rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
-    AREQ_DecrRef(rr);
+    AREQ_Free(rr);
     return res;
   };
 

@@ -7,15 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "conn.h"
+
+#include <uv.h>
+#include <openssl/ssl.h>
+#include <stdatomic.h>
+#include <string.h>
+#include <sys/time.h>
+
 #include "reply.h"
 #include "coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-
-#include <uv.h>
-
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+#include "config.h"
+#include "hiredis/hiredis.h"
+#include "hiredis/hiredis_ssl.h"
+#include "hiredis/read.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/rmr.h"
+#include "rmr/endpoint.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 // Hot path first: callbacks read conn+state+protocol on every entry, so
 // they share the head of the first cache line. ep/loop are warm (init and
@@ -127,20 +140,25 @@ static void MRConnPool_Free(void *privdata, void *p) {
   rm_free(pool);
 }
 
-/* Get a connection from the connection pool. We select the next available connected connection with
- * a round robin selector */
-static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
-
+/* Return pool->num when no connected slot exists. Leave selection state unchanged. */
+static uint32_t MRConnPool_FindConnected(const MRConnPool *pool) {
+  uint32_t index = pool->rr;
   for (uint32_t i = 0; i < pool->num; i++) {
-
-    MRConn *conn = pool->conns[pool->rr];
-    // increase the round-robin counter
-    pool->rr = (pool->rr + 1) % pool->num;
-    if (conn->state == MRConn_Connected) {
-      return conn;
+    if (pool->conns[index]->state == MRConn_Connected) {
+      return index;
     }
+    index = (index + 1) % pool->num;
   }
-  return NULL;
+  return pool->num;
+}
+
+static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
+  uint32_t index = MRConnPool_FindConnected(pool);
+  if (index == pool->num) {
+    return NULL;
+  }
+  pool->rr = (index + 1) % pool->num;
+  return pool->conns[index];
 }
 
 static dictType nodeIdToConnPoolType = {
@@ -223,7 +241,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 }
 
 
-/* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
@@ -231,6 +248,15 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
     return MRConnPool_GetConn(pool);
   }
   return NULL;
+}
+
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id) {
+  dictEntry *entry = dictFind(mgr->map, id);
+  if (!entry) {
+    return false;
+  }
+  const MRConnPool *pool = dictGetVal(entry);
+  return MRConnPool_FindConnected(pool) != pool->num;
 }
 
 /* Get the state string of the first connection for a specific node by id.
@@ -475,15 +501,27 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!IsEnterprise()) {
+  if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-    size_t len;
+    MR_LockGIL(RSDummyContext);
+    size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    if (!internal_secret) {
+      MR_UnlockGIL(RSDummyContext);
+      // Redis has no internal secret outside cluster mode, which cannot change at runtime, so
+      // warn once rather than on every reconnect attempt.
+      static atomic_flag warned = ATOMIC_FLAG_INIT;
+      if (!atomic_flag_test_and_set(&warned)) {
+        CONN_LOG_WARNING(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      } else {
+        CONN_LOG(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      }
+      return REDIS_ERR;
+    }
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    MR_UnlockGIL(RSDummyContext);
     return status;
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
@@ -555,20 +593,9 @@ error:
 extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_cert,
                     RedisModuleString **ca_cert, RedisModuleString **key_pass) {
-  int ret = 1;
+  int ret = REDIS_OK;
   RedisModuleCtx *ctx = RSDummyContext;
-  RedisModule_ThreadSafeContextLock(ctx);
-
-  // If `tls-cluster` is not set to `yes`, and `tls-port` is not set or zero,
-  // we do not connect to the other nodes with TLS. We always want to connect with TLS
-  // when the tls-port is set to a non-zero value, since this is the port we
-  // get from the proxy on Enterprise, and the preferred port on OSS (see RedisCluster_GetTopology).
-  if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
-    if (getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
-      ret = 0;
-      goto done;
-    }
-  }
+  MR_LockGIL(ctx);
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
   *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
@@ -576,7 +603,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
-    ret = 0;
+    ret = REDIS_ERR;
     if(*client_key){
       RedisModule_FreeString(ctx, *client_key);
       *client_key = NULL;
@@ -595,9 +622,30 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
     }
   }
 
-done:
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  MR_UnlockGIL(ctx);
   return ret;
+}
+
+/* Serves MREndpointTLS_LegacyFromLocalConfig only. The `tls-port` fallback is legacy Enterprise
+ * logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual port is not expected
+ * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
+ * nothing about the cluster ports; a new path that must read the config live should check only
+ * `tls-cluster`, and preferably take the port type from the topology instead. */
+static bool legacyEnterpriseConfigUsesTLS(void) {
+  RedisModuleCtx *ctx = RSDummyContext;
+  MR_LockGIL(ctx);
+  bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
+  MR_UnlockGIL(ctx);
+  return tls;
+}
+
+static bool MRConn_UsesTLS(const MRConn *conn) {
+  switch (conn->ep.tls) {
+    case MREndpointTLS_Off: return false;
+    case MREndpointTLS_On: return true;
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
+  }
+  RS_ABORT("Unknown MREndpointTLS");
 }
 
 /* If TLS is configured for the cluster, build an SSL context and bind it to
@@ -605,9 +653,13 @@ done:
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
-  if (!checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)) {
+  if (!MRConn_UsesTLS(conn)) {
     return REDIS_OK;
+  }
+
+  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
+  if (checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass) == REDIS_ERR) {
+    return REDIS_ERR;
   }
 
   redisSSLContextError ssl_error = 0;
@@ -673,9 +725,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // Authenticate on OSS always (as an internal connection), or on Enterprise if
-  // a password is set to the `default` ACL user.
-  if (!IsEnterprise() || conn->ep.password) {
+  // Without a proxy, authenticate as an internal connection. With a proxy,
+  // authenticate when the topology supplies a password.
+  if (!RS_UsesProxyCoordination() || conn->ep.password) {
     MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);

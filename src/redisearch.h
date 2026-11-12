@@ -14,13 +14,13 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
-#include "redisearch_types.h"
+#include "rqe_core.h"
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
 
 typedef struct RSQueryTerm RSQueryTerm;
-typedef struct RSIndexResult RSIndexResult;
+typedef struct RawIndexResult_Active RSIndexResult;
 typedef struct RSOffsetVector RSOffsetVector;
 typedef uint32_t RSTokenFlags;
 
@@ -31,7 +31,6 @@ typedef uint16_t t_fieldId;
 #define RS_INVALID_FIELD_ID (t_fieldId)-1
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
 struct timespec;
-typedef struct timespec t_expirationTimePoint;
 
 typedef uint64_t t_uniqueId;
 #define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
@@ -45,7 +44,9 @@ typedef uint64_t t_uniqueId;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 #define REDISEARCH_UNINITIALIZED -1
-#define BAD_POINTER ((void *)0xBAAAAAAD)
+// Integer form of BAD_POINTER, exposed so Rust can recognize the sentinel.
+#define BAD_POINTER_ADDR 0xBAAAAAAD
+#define BAD_POINTER ((void *)BAD_POINTER_ADDR)
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
@@ -79,9 +80,14 @@ typedef enum {
   Document_HasPayload = 0x02,
   Document_HasSortVector = 0x04,
   Document_HasOffsetVector = 0x08,
-  Document_HasExpiration = 0x10, // Document and/or at least one of its fields has an expiration time
-  Document_FailedToOpen = 0x20, // Document was failed to opened by a loader (might expired) but not yet marked as deleted.
-                                // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
+  Document_HasExpiration =
+      0x10,  // Document and/or at least one of its fields has an expiration time
+  Document_FailedToOpen =
+      0x20,  // Document was failed to opened by a loader (might expired) but not yet marked as
+             // deleted. This is an optimization to avoid attempting opening the document for
+             // loading. May be used UN-ATOMICALLY
+  Document_HasPayloadSlot =
+      0x40,  // RAM allocation includes the trailing pointer, even without a payload.
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)
@@ -117,6 +123,10 @@ typedef struct RSDocumentMetadata_s {
   DocumentType type : 8;
 
   uint16_t ref_count;
+
+  /* Cluster hash slot of keyPtr, cached so slot filters skip re-hashing the key.
+   * Kept in step with keyPtr by every writer of keyPtr. */
+  uint16_t slot;
 
   /* Document-level expiration time in nanoseconds since the epoch (0 = none).
    * Inlined to avoid a TTL-table lookup on the result-processor hot path. */
@@ -215,7 +225,7 @@ typedef void (*RSFreeFunction)(void *);
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
-  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
+  uint32_t (*Next)(void *ctx, const RSQueryTerm **term);
   void (*Rewind)(void *ctx);
   void (*Free)(void *ctx);
 } RSOffsetIterator;
@@ -232,7 +242,7 @@ typedef struct {
 
 #pragma pack()
 
-RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, const RSQueryTerm *t);
 
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);

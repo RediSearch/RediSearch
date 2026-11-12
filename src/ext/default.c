@@ -8,15 +8,15 @@
 */
 
 #include <string.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <sys/param.h>
+#include <math.h>
+#include <stdint.h>
 
 #include "redisearch.h"
 #include "spec.h"
 #include "types_ffi.h"
 #include "query_term_ffi.h"
-#include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
 #include "default.h"
@@ -25,7 +25,21 @@
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
-#include "extension.h"
+#include "ext/default.h"
+#include "field_spec.h"
+#include "index_result_rs.h"
+#include "language.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "search_ctx.h"
+#include "search_result_rs.h"
+#include "util/arr/arr.h"
 
 /******************************************************************************************
  *
@@ -54,7 +68,7 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
   if (r->data.tag == RSResultData_Term) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    const RSQueryTerm *term = IndexResult_QueryTermRef(r);
     double idf = term ? QueryTerm_GetIDF(term) : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
@@ -154,7 +168,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double f = (double)r->freq;
   double ret = 0;
   if (r->data.tag == RSResultData_Term) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    const RSQueryTerm *term = IndexResult_QueryTermRef(r);
     double idf = (term ? QueryTerm_GetIDF(term) : 0);
     ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
@@ -244,7 +258,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   double ret = 0;
   if (r->data.tag == RSResultData_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
-    RSQueryTerm *term = IndexResult_QueryTermRef(r);
+    const RSQueryTerm *term = IndexResult_QueryTermRef(r);
     double idf = QueryTerm_GetBM25_IDF(term);
     size_t term_len = 0;
     const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
@@ -538,7 +552,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     } else {
       dd = ctx->privdata = rm_calloc(1, sizeof(*dd));
       dd->isCn = 0;
-      sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToString(ctx->language), NULL);
+      sb = dd->data.latin = sb_stemmer_new(RSLanguage_ToSnowballStemmer(ctx->language), NULL);
     }
   }
 
@@ -690,7 +704,7 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
       for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
         const FieldSpec *fs = ctx->handle->spec->fields + ii;
-        if (!(fm & FIELD_BIT(fs))) {
+        if (!FieldSpec_IsIndexableTextInMask(fs, fm)) {
           continue;
         }
         if (FieldSpec_IsPhonetics(fs)) {

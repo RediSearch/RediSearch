@@ -9,31 +9,64 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
+typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
+ * Add the stashed Rust panic backtrace to the crash report.
+ *
+ * When no Rust panic was stashed, this is a no-op. In particular, a C crash
+ * does not attempt to initialize or capture a Rust backtrace from the fatal
+ * signal handler.
+ *
+ * A null `ctx` is a no-op.
+ *
+ * # Safety
+ *
+ * `ctx` must either be null or point to a [valid] `RedisModuleInfoCtx`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TracingRedisModule_Init(RedisModuleCtx *ctx);
+void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
 /**
- * Initialize RediSearch's panic hook, without replaacing the pre-existing panic hook (if any).
+ * Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
  *
- * Panic messages will be logged through `tracing` at the `ERROR` level.
+ * Panic messages will be logged through `tracing` at the `ERROR` level, and
+ * stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
+ * the crash report.
  */
 void RustPanicHook_Init(void);
 
 /**
- * Add the current backtrace as a new section to the report printed
- * by RediSearch's INFO command.
+ * Initializes a global subscriber that reports Rust `tracing` traces through `redismodule` logging.
+ *
+ * `level` is the initial redis `loglevel` config value the filter is set to.
+ *
+ * A null `ctx` is accepted: traces are then logged through a null module
+ * context, which `RedisModule_Log` explicitly permits.
  *
  * # Safety
  *
- * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
+ * `level` must point to a valid, null-terminated C string. `ctx` must either
+ * be null or point to a valid `RedisModuleCtx`.
  */
-void AddToInfo_RustBacktrace(RedisModuleInfoCtx *ctx);
+void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
+
+/**
+ * Updates the `tracing` log level filter from a redis `loglevel` config value
+ * (one of `debug`, `verbose`, `notice`, `warning`).
+ *
+ * # Safety
+ *
+ * `level` must point to a valid, null-terminated C string.
+ */
+void TracingRedisModule_SetLogLevel(const char *level);
 
 #ifdef __cplusplus
 }  // extern "C"

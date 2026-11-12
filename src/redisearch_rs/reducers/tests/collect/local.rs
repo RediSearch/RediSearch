@@ -31,6 +31,7 @@ fn local_collect_projects_remote_maps_and_omits_missing_fields() {
         Box::new([]),
         0,
         None,
+        false, // distinct
     );
     let mut ctx = LocalCollectCtx::new(&reducer);
 
@@ -68,6 +69,7 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
         Box::new([]),
         0,
         None,
+        false, // distinct
     );
     let mut ctx = LocalCollectCtx::new(&reducer);
 
@@ -123,6 +125,7 @@ fn local_array_limit_concatenates_then_caps() {
         Box::new([]),
         0,
         Some((0, 3)),
+        false, // distinct
     );
     let mut ctx = LocalCollectCtx::new(&r);
 
@@ -160,6 +163,7 @@ fn local_lookup_in_entry_handles_resp2_flat_array() {
         Box::new([]),
         0,
         Some((0, 3)),
+        false, // distinct
     );
     let mut ctx = LocalCollectCtx::new(&r);
 
@@ -206,7 +210,7 @@ impl LocalCollectFixture {
     }
 
     fn load_all_reducer(&self) -> LocalCollectReducer<'_> {
-        LocalCollectReducer::new(&self.input_key, None, Box::new([]), 0, None)
+        LocalCollectReducer::new(&self.input_key, None, Box::new([]), 0, None, false)
     }
 
     fn outer_row(&self, payload: SharedValue) -> RLookupRow<'_> {

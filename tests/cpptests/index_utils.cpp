@@ -13,7 +13,6 @@
 #include "forward_index.h"
 #include "inverted_index.h"
 #include "redis_index.h"
-#include "numeric_range_tree.h"
 #include "iterators_ffi.h"
 
 std::string numToDocStr(unsigned id) {
@@ -49,7 +48,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
             VVW_Write(h.vw, n);
         }
 
-        InvertedIndex_WriteForwardIndexEntry(idx, &h);
+        InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
         VVW_Free(h.vw);
 
         id += idStep;
@@ -88,11 +87,5 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 }
 
 void freeSpec(RefManager *ism) {
-    IndexSpec_RemoveFromGlobals({ism}, false);
-}
-
-NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, field, strlen(field));
-
-  return openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
+    Indexes_RemoveSpecFromGlobals({ism}, false);
 }

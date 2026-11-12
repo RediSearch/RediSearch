@@ -11,7 +11,8 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader;
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 use rqe_iterators_test_utils::TestContext;
 
@@ -202,7 +203,7 @@ impl NumericBencher {
                     )
                 };
 
-                // SAFETY: `range_tree` is None so no pointer invariants apply.
+                // SAFETY: nothing writes to the index while the iterator lives.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
 
                 while let Ok(Some(current)) = it.read() {
@@ -237,7 +238,7 @@ impl NumericBencher {
                     )
                 };
 
-                // SAFETY: `range_tree` is None so no pointer invariants apply.
+                // SAFETY: nothing writes to the index while the iterator lives.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
 
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {

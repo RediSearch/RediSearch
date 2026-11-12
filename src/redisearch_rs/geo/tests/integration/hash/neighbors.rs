@@ -333,7 +333,7 @@ mod proptests {
     }
 }
 
-fn named_neighbors(nbrs: &GeoHashNeighbors) -> [(&str, Option<GeoHashBits>); 8] {
+const fn named_neighbors(nbrs: &GeoHashNeighbors) -> [(&str, Option<GeoHashBits>); 8] {
     [
         ("north", nbrs.north),
         ("south", nbrs.south),

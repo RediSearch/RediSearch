@@ -7,10 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_param.h"
+
+#include <assert.h>
+#include <math.h>
+#include <string.h>
+
 #include "query_error_ffi.h"
 #include "geo_index.h"
 #include "numeric_filter.h"
 #include "query_internal.h"
+#include "query_error.h"
+#include "redismodule.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/strconv.h"
 
 QueryParam *NewQueryParam(QueryParamType type) {
   QueryParam *ret = rm_calloc(1, sizeof(*ret));
@@ -40,7 +50,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL, NULL);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, RS_INVALID_FIELD_INDEX, NULL);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   if(min != NULL) {
@@ -66,11 +76,7 @@ void QueryParam_Free(QueryParam *p) {
       NumericFilter_Free(p->nf);
       break;
   }
-  size_t n = QueryParam_NumParams(p);
-  if (n) {
-    for (size_t ii = 0; ii < n; ++ii) {
-      Param_FreeInternal(&p->params[ii]);
-    }
+  if (p->params) {
     array_free(p->params);
   }
   p->params = NULL;
@@ -86,7 +92,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   case QT_TERM:
     target_param->type = PARAM_NONE;
     *(char**)target_value = rm_normalize(source->s, source->len);
-    if (target_len) *target_len = strlen(target_value);
+    if (target_len) *target_len = strlen(*(char **)target_value);
     return false; // done
 
   case QT_TERM_CASE:
@@ -149,7 +155,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
   target_param->type = type;
   target_param->target = target_value;
   target_param->target_len = target_len;
-  target_param->name = rm_strndup(source->s, source->len);
+  target_param->name = source->s;
   target_param->len = source->len;
   target_param->sign = source->sign;
   q->numParams++;
@@ -173,7 +179,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;
-  const char *val = Param_DictGet(params, param->name, &val_len, status);
+  const char *val = Param_DictGet(params, param->name, param->len, &val_len, status);
   if (!val)
     return -1;
 
@@ -201,23 +207,29 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
       return 1;
 
     case PARAM_TERM_CASE:
-      *(char**)param->target = rm_strdup(val);
+      // Copy all `val_len` bytes (the value is binary-safe and may contain
+      // interior NULs) with a trailing NUL terminator, keeping `target_len`
+      // consistent with the allocation. `rm_strdup` stops at the first interior
+      // NUL, which would leave `*target_len == val_len` describing a range past
+      // the end of the allocation.
+      *(char**)param->target = rm_calloc(1, val_len + 1);
+      memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
       return 1;
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%s`", \
-        val, param->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%.*s`", \
+        val, (int)param->len, param->name);
         return -1;
       }
       return 1;
 
     case PARAM_SIZE:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%s`", \
-        val, param->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%.*s`", \
+        val, (int)param->len, param->name);
         return -1;
       }
       return 1;
@@ -262,13 +274,14 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  dict *params = Param_DictCreate();
-  size_t value_len;
+  dict *params = Param_DictCreate(paramsArgs.argc / 2);
   while (!AC_IsAtEnd(&paramsArgs)) {
-    const char *param = AC_GetStringNC(&paramsArgs, NULL);
-    const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+    size_t param_len;
+    const char *param = AC_GetStringNC(&paramsArgs, &param_len);
+    RedisModuleString *value;
+    AC_GetRString(&paramsArgs, &value, 0);
     // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
-    if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+    if (DICT_ERR == Param_DictAdd(params, param, param_len, value, status)) {
       Param_DictFree(params);
       return REDISMODULE_ERR;
     }

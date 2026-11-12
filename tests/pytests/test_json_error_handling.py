@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 @skip(no_json=True, cluster=True)
@@ -101,3 +108,43 @@ def test_json_type_validation_errors(env):
     env.assertIn('last indexing error key', error_dict)
     env.assertEqual(error_dict['last indexing error key'], 'obj_val_error_doc')
 
+
+
+@skip(no_json=True, cluster=True)
+def test_populated_array_freed_when_later_field_fails(env):
+    """A populated multi-value field loads, then a later schema field fails, so
+    the document is discarded. The stored array, and for SORTABLE the multi-value
+    sorting value built at load time, must be freed: a leak is only reported
+    under the sanitizer job."""
+
+    conn = getConnectionByEnv(env)
+    # (field, type, array, query matching the array)
+    arrays = [
+        ('tags', 'TAG', '["foo","bar"]', '@tags:{foo}'),
+        ('nums', 'NUMERIC', '[1,2,3]', '@nums:[1 3]'),
+    ]
+    cases = [(name, ftype, arr, query, path, sortable)
+             for name, ftype, arr, query in arrays
+             for path in (f'$.{name}', f'$.{name}[*]')
+             for sortable in ([], ['SORTABLE'])]
+
+    for name, ftype, arr, query, path, sortable in cases:
+        msg = f'{path} {ftype} {" ".join(sortable)}'
+        # Fields load in schema order: the array field must precede `n`.
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:',
+                   'SCHEMA', path, 'AS', name, ftype, *sortable,
+                   '$.n', 'AS', 'n', 'NUMERIC').ok()
+
+        # Control: the same array indexes when `n` is valid.
+        conn.execute_command('JSON.SET', 'doc:ok', '$', f'{{"{name}": {arr}, "n": 1}}')
+        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([1, 'doc:ok'], message=msg)
+
+        conn.execute_command('JSON.SET', 'doc:bad', '$', f'{{"{name}": {arr}, "n": "invalid"}}')
+        info = index_info(env, 'idx')
+        env.assertEqual(info['hash_indexing_failures'], 1, message=msg)
+        errors = to_dict(info['Index Errors'])
+        env.assertEqual(errors['last indexing error key'], 'doc:bad', message=msg)
+        env.assertContains('String type can represent only', errors['last indexing error'],
+                           message=msg)
+        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([1, 'doc:ok'], message=msg)
+        env.flush()

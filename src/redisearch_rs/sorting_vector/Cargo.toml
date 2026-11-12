@@ -8,11 +8,13 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 icu_casemap.workspace = true
+rdb_io.workspace = true
 thin_vec.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
 value.workspace = true
 
 # Crate required to invoke C symbols

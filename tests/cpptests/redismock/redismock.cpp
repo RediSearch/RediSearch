@@ -27,7 +27,9 @@
 #include <sys/wait.h>
 #include <climits>
 #include <cassert>
+#include <atomic>
 #include <mutex>
+#include <thread>
 
 #define __ignore__(X) \
     do { \
@@ -37,10 +39,16 @@
     } while(0)
 
 static std::mutex RMCK_GlobalLock;
+// Owner of RMCK_GlobalLock. Real Redis crashes on an Unlock without a matching Lock on the same
+// thread (newer Enterprise builds read the current client in it), so the mock does too.
+static std::atomic<std::thread::id> RMCK_GlobalLockOwner{};
 
 // KeyMeta mock storage
 static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
 static RedisModuleKeyMetaClassId nextClassId = 1;
+// Keys whose metadata was set since the test last cleared the flag; models a server that persists
+// key metadata and only learns of changes through SetKeyMeta.
+static std::set<std::pair<std::string, RedisModuleKeyMetaClassId>> keyMetaDirty;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
 static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
 
@@ -769,6 +777,11 @@ void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, .
   va_end(ap);
 }
 
+int RMCK_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const char *value) {
+  ctx->fields.emplace_back(field, value);
+  return REDISMODULE_OK;
+}
+
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {
@@ -794,11 +807,10 @@ RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
   return rms;
 }
 
-int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+static int RMCK_RecordPropagatedCommand(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                        va_list ap) {
   std::vector<std::string> command;
   command.emplace_back(cmdname);
-  va_list ap;
-  va_start(ap, fmt);
   // Parse the format string and extract arguments
   for (const char *p = fmt; *p; p++) {
     if (*p == 's') {
@@ -808,7 +820,7 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
       long long ll = va_arg(ap, long long);
       command.emplace_back(std::to_string(ll));
     } else if (*p == 'c') {
-      char *cstr = va_arg(ap, char *);
+      const char *cstr = va_arg(ap, const char *);
       command.emplace_back(cstr);
     } else if (*p == 'v') {
       RedisModuleString **vec = va_arg(ap, RedisModuleString **);
@@ -817,19 +829,34 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
         command.emplace_back(*vec[i]);
       }
     } else if (*p == 'b') {
-      char *buf = va_arg(ap, char *);
+      const char *buf = va_arg(ap, const char *);
       size_t len = va_arg(ap, size_t);
       command.emplace_back(std::string(buf, len));
     } else {
       // Unsupported format specifier
-      va_end(ap);
       return REDISMODULE_ERR;
     }
   }
-  va_end(ap);
   // Propagate the command (by storing it in the context)
   ctx->propagated_commands.push_back(std::move(command));
   return REDISMODULE_OK;
+}
+
+int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                          ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
+}
+
+int RMCK_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
 }
 
 // Function to retrieve propagated commands for testing purposes
@@ -849,11 +876,152 @@ RedisModuleSlotRangeArray *RMCK_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
   auto *array = reinterpret_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(sizeof(RedisModuleSlotRangeArray) + sizeof(dummy_ranges)));
   array->num_ranges = 2;
   std::memcpy(array->ranges, dummy_ranges, sizeof(dummy_ranges));
+  if (ctx && ctx->automemory) ctx->alloc_slot_ranges.insert(array);
   return array;
 }
 
 void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+  if (ctx) ctx->alloc_slot_ranges.erase(slots);
   RMCK_Free(slots);
+}
+
+// Same algorithm as Redis keyHashSlot: CRC16-XMODEM of the key, or of its first non-empty
+// {hashtag}, modulo 16384. Tests rely on the slot of a key matching what Redis computes.
+unsigned int RMCK_ClusterKeySlotC(const char *key, size_t keylen) {
+  size_t start = 0, len = keylen;
+  const char *open = static_cast<const char *>(memchr(key, '{', keylen));
+  if (open) {
+    size_t s = open - key + 1;
+    const char *close = static_cast<const char *>(memchr(key + s, '}', keylen - s));
+    if (close && close != key + s) {
+      start = s;
+      len = close - (key + s);
+    }
+  }
+  uint16_t crc = 0;
+  for (size_t i = start; i < start + len; ++i) {
+    crc ^= static_cast<uint16_t>(static_cast<unsigned char>(key[i])) << 8;
+    for (int b = 0; b < 8; ++b) {
+      crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+    }
+  }
+  return crc & 0x3FFF;
+}
+
+// ============================================================================
+// Configurable cluster topology mock
+// ----------------------------------------------------------------------------
+// Tests populate `mockClusterNodes` via the RMCK_ClusterMock_* helpers below,
+// and the mocked cluster API entry points answer queries against that state.
+// Slot range arrays returned by the mocked APIs follow the real Redis
+// auto-memory contract: if `ctx->automemory` is on, they are freed by the ctx
+// destructor; otherwise the caller must free them via
+// RedisModule_ClusterFreeSlotRanges.
+// ============================================================================
+namespace {
+struct MockClusterNode {
+  std::string id;
+  std::string ip;
+  int port;
+  int flags;
+  std::vector<RedisModuleSlotRange> slots;
+};
+
+std::vector<MockClusterNode> mockClusterNodes;
+std::mutex mockClusterMutex;
+
+const MockClusterNode *findMockNode(const char *id) {
+  for (const auto &n : mockClusterNodes) {
+    if (n.id == id) return &n;
+  }
+  return nullptr;
+}
+}  // namespace
+
+void RMCK_ClusterMock_Reset() {
+  std::scoped_lock lock(mockClusterMutex);
+  mockClusterNodes.clear();
+}
+
+void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flags,
+                              const std::vector<RedisModuleSlotRange> &slots) {
+  std::scoped_lock lock(mockClusterMutex);
+  MockClusterNode node;
+  node.id = id ? id : "";
+  node.ip = ip ? ip : "";
+  node.port = port;
+  node.flags = flags;
+  node.slots = slots;
+  mockClusterNodes.push_back(std::move(node));
+}
+
+static char **RMCK_GetClusterNodesList(RedisModuleCtx * /*ctx*/, size_t *numnodes) {
+  std::scoped_lock lock(mockClusterMutex);
+  *numnodes = mockClusterNodes.size();
+  if (*numnodes == 0) return nullptr;
+  // Real Redis null-terminates the list — mirror that so callers iterating
+  // with `while (ids[i])` still work even if they ignore `numnodes`.
+  auto **list = static_cast<char **>(RMCK_Alloc(sizeof(char *) * (*numnodes + 1)));
+  for (size_t i = 0; i < *numnodes; i++) {
+    list[i] = static_cast<char *>(RMCK_Alloc(REDISMODULE_NODE_ID_LEN + 1));
+    size_t copied = mockClusterNodes[i].id.copy(list[i], REDISMODULE_NODE_ID_LEN);
+    list[i][copied] = '\0';
+  }
+  list[*numnodes] = nullptr;
+  return list;
+}
+
+static void RMCK_FreeClusterNodesList(char **ids) {
+  if (!ids) return;
+  for (size_t i = 0; ids[i] != nullptr; i++) RMCK_Free(ids[i]);
+  RMCK_Free(ids);
+}
+
+static int RMCK_GetClusterNodeInfo(RedisModuleCtx * /*ctx*/, const char *id, char *ip,
+                                   char * /*master_id*/, int *port, int *flags) {
+  std::scoped_lock lock(mockClusterMutex);
+  const MockClusterNode *n = findMockNode(id);
+  if (!n) return REDISMODULE_ERR;
+  // The real API expects the caller to pass a buffer of at least
+  // NET_IP_STR_LEN (46) bytes; we copy at most that to match.
+  if (ip) {
+    size_t copied = n->ip.copy(ip, 46 - 1);
+    ip[copied] = '\0';
+  }
+  if (port) *port = n->port;
+  if (flags) *flags = n->flags;
+  return REDISMODULE_OK;
+}
+
+static const char *RMCK_GetMyClusterID(void) {
+  std::scoped_lock lock(mockClusterMutex);
+  for (const auto &n : mockClusterNodes) {
+    if (n.flags & REDISMODULE_NODE_MYSELF) return n.id.c_str();
+  }
+  return nullptr;
+}
+
+static size_t RMCK_GetClusterSize(void) {
+  std::scoped_lock lock(mockClusterMutex);
+  return mockClusterNodes.size();
+}
+
+static RedisModuleSlotRangeArray *RMCK_GetClusterNodeSlotRanges(RedisModuleCtx *ctx,
+                                                                const char *nodeid) {
+  std::scoped_lock lock(mockClusterMutex);
+  // Upstream contract (RM_GetClusterNodeSlotRanges): always returns a valid
+  // array — possibly empty — never NULL. An unknown nodeid yields an empty
+  // array, same as a known node with no assigned slots.
+  const MockClusterNode *n = findMockNode(nodeid);
+  size_t num_slots = n ? n->slots.size() : 0;
+  size_t buf_size = sizeof(RedisModuleSlotRangeArray) + num_slots * sizeof(RedisModuleSlotRange);
+  auto *arr = static_cast<RedisModuleSlotRangeArray *>(RMCK_Alloc(buf_size));
+  arr->num_ranges = static_cast<int32_t>(num_slots);
+  if (n && !n->slots.empty()) {
+    std::memcpy(arr->ranges, n->slots.data(), num_slots * sizeof(RedisModuleSlotRange));
+  }
+  if (ctx && ctx->automemory) ctx->alloc_slot_ranges.insert(arr);
+  return arr;
 }
 
 // Track contexts associated with IO objects
@@ -909,10 +1077,9 @@ void RMCK_ResetRdbIO(RedisModuleIO *io) {
 
 REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
-REPLY_FUNC(WithArray, size_t)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
-REPLY_FUNC(WithString, RedisModuleString)
+REPLY_FUNC(WithString, RedisModuleString *)
 
 int RMCK_ReplyWithNull(RedisModuleCtx *) {
   return REDISMODULE_OK;
@@ -938,8 +1105,46 @@ int RMCK_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
   return REDISMODULE_OK;
 }
 
-int RMCK_ReplySetArrayLength(RedisModuleCtx *, size_t) {
+// Collection opens and deferred-length closes are logged so tests can check the exact
+// sequence a reply builder issues (postponed vs declared lengths).
+static void logReplyCollection(RedisModuleCtx *ctx, const char *what, long len) {
+  if (!ctx) return;
+  ctx->reply_log.push_back(len == REDISMODULE_POSTPONED_LEN ? std::string(what) + ":postponed"
+                                                            : std::string(what) + ":" + std::to_string(len));
+}
+
+int RMCK_ReplyWithArray(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "array", len);
   return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithMap(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "map", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setarray", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetMapLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setmap", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplyWithSet(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "set", len);
+  return REDISMODULE_OK;
+}
+
+int RMCK_ReplySetSetLength(RedisModuleCtx *ctx, long len) {
+  logReplyCollection(ctx, "setset", len);
+  return REDISMODULE_OK;
+}
+
+std::vector<std::string> &RMCK_GetReplyLog(RedisModuleCtx *ctx) {
+  return ctx->reply_log;
 }
 
 void RMCK_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int) {
@@ -965,10 +1170,24 @@ void RMCK_AutoMemory(RedisModuleCtx *ctx) {
 
 void RMCK_ThreadSafeContextLock(RedisModuleCtx *) {
   RMCK_GlobalLock.lock();
+  RMCK_GlobalLockOwner = std::this_thread::get_id();
 }
 
 void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
+  if (RMCK_GlobalLockOwner != std::this_thread::get_id()) {
+    fprintf(stderr, "redismock: ThreadSafeContextUnlock without a matching Lock on this thread\n");
+    abort();
+  }
+  RMCK_GlobalLockOwner = std::thread::id{};
   RMCK_GlobalLock.unlock();
+}
+
+int RMCK_ThreadSafeContextTryLock(RedisModuleCtx *) {
+  if (!RMCK_GlobalLock.try_lock()) {
+    return REDISMODULE_ERR;
+  }
+  RMCK_GlobalLockOwner = std::this_thread::get_id();
+  return REDISMODULE_OK;
 }
 
 static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
@@ -1268,6 +1487,26 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
+static int RMCK_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback,
+                                       void *pd, void (*free_pd)(void *)) {
+  callback(ctx, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
+static int RMCK_AddPostNotificationJobForKey(RedisModuleCtx *ctx,
+                                             RedisModulePostNotifyJobPerKeyFunc callback,
+                                             RedisModuleString *key, void *pd,
+                                             void (*free_pd)(void *)) {
+  callback(ctx, key, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
 static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback,
                                       int flags) {
   return REDISMODULE_OK;
@@ -1289,7 +1528,7 @@ void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
 }
 
 int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
-  return 0;
+  return ctx ? ctx->ctx_flags : 0;
 }
 
 void RMCK_SelectDb(RedisModuleCtx *ctx, int newid) {
@@ -1349,6 +1588,9 @@ RedisModuleCtx::~RedisModuleCtx() {
     }
     for (auto it : allocstrs) {
       delete it;
+    }
+    for (auto *p : alloc_slot_ranges) {
+      RMCK_Free(p);
     }
   }
 }
@@ -1495,24 +1737,53 @@ static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
   if (!key) {
     return REDISMODULE_ERR;
   }
+
+  // Redis' keyMetaSetMetadata overwrites an existing slot in place, including
+  // reset_value(0); it does not remove the metadata bit or shrink the key.
   keyMetaStorage[key->key][class_id] = meta;
+  keyMetaDirty.insert({key->key, class_id});
   return REDISMODULE_OK;
 }
 
-static void RMCK_ClearKeyMeta() {
-  // Clean up any allocated metadata using the free callback
-  for (auto& keyPair : keyMetaStorage) {
-    for (auto& metaPair : keyPair.second) {
-      if (metaPair.second != 0) {
-        auto configIt = classConfigs.find(metaPair.first);
-        if (configIt != classConfigs.end() && configIt->second.free) {
-          configIt->second.free("testkey", metaPair.second);
-        }
-      }
-    }
+static void RMCK_FreeKeyMetaValue(const std::string &key, RedisModuleKeyMetaClassId class_id,
+                                  uint64_t meta) {
+  if (meta == 0) {
+    return;
   }
 
+  auto configIt = classConfigs.find(class_id);
+  if (configIt != classConfigs.end() && configIt->second.free) {
+    configIt->second.free(key.c_str(), meta);
+  }
+}
+
+void RMCK_FreeKeyMetaForKey(const std::string &key) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    return;
+  }
+
+  for (auto &metaPair : keyIt->second) {
+    RMCK_FreeKeyMetaValue(key, metaPair.first, metaPair.second);
+  }
+  keyMetaStorage.erase(keyIt);
+  for (auto it = keyMetaDirty.begin(); it != keyMetaDirty.end();) {
+    it = it->first == key ? keyMetaDirty.erase(it) : std::next(it);
+  }
+}
+
+void RMCK_FreeAllKeyMeta() {
+  for (auto &keyPair : keyMetaStorage) {
+    for (auto &metaPair : keyPair.second) {
+      RMCK_FreeKeyMetaValue(keyPair.first, metaPair.first, metaPair.second);
+    }
+  }
   keyMetaStorage.clear();
+  keyMetaDirty.clear();
+}
+
+static void RMCK_ClearKeyMeta() {
+  RMCK_FreeAllKeyMeta();
   classConfigs.clear();
   classNames.clear();
   nextClassId = 1;
@@ -1520,12 +1791,28 @@ static void RMCK_ClearKeyMeta() {
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage() {
-  RMCK_ClearKeyMeta();
+  RMCK_FreeAllKeyMeta();
 }
 
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
   auto it = classNames.find(name);
   return it == classNames.end() ? -1 : it->second;
+}
+
+void RMCK_KeyMetaClearDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  keyMetaDirty.erase({key, classId});
+}
+
+bool RMCK_KeyMetaIsDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  return keyMetaDirty.count({key, classId}) != 0;
+}
+
+bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    return false;
+  }
+  return keyIt->second.find(classId) != keyIt->second.end();
 }
 
 int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
@@ -1558,6 +1845,30 @@ void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
     return;
   }
   it->second.unlink(nullptr, meta);
+}
+
+bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end()) {
+    return false;
+  }
+  return it->second.rename != nullptr;
+}
+
+int RMCK_ConfigGetBool(RedisModuleCtx *ctx, const char *name, int *res) {
+  if (!strcmp(name, "tls-cluster")) {
+    *res = 0; // Simulate that tls-cluster is disabled
+    return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR; // Unknown config
+}
+
+int RMCK_ConfigGetNumeric(RedisModuleCtx *ctx, const char *name, long long *res) {
+  if (!strcmp(name, "tls-port")) {
+    *res = 0; // Simulate that tls-port is not set
+    return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR; // Unknown config
 }
 
 static void registerApis() {
@@ -1605,13 +1916,18 @@ static void registerApis() {
   REGISTER_API(Log);
   REGISTER_API(Call);
 
-  // REGISTER_API(ReplyWithLongLong);
-  // REGISTER_API(ReplyWithSimpleString);
-  // REGISTER_API(ReplyWithArray);
-  // REGISTER_API(ReplyWithStringBuffer);
-  // REGISTER_API(ReplyWithDouble);
-  // REGISTER_API(ReplyWithString);
-  // REGISTER_API(ReplyWithNull);
+  REGISTER_API(ReplyWithLongLong);
+  REGISTER_API(ReplyWithSimpleString);
+  REGISTER_API(ReplyWithArray);
+  REGISTER_API(ReplyWithMap);
+  REGISTER_API(ReplySetArrayLength);
+  REGISTER_API(ReplySetMapLength);
+  REGISTER_API(ReplyWithSet);
+  REGISTER_API(ReplySetSetLength);
+  REGISTER_API(ReplyWithStringBuffer);
+  REGISTER_API(ReplyWithDouble);
+  REGISTER_API(ReplyWithString);
+  REGISTER_API(ReplyWithNull);
   REGISTER_API(ReplyWithError);
   REGISTER_API(ReplyWithErrorFormat);
 
@@ -1629,6 +1945,7 @@ static void registerApis() {
   REGISTER_API(FreeThreadSafeContext);
   REGISTER_API(ThreadSafeContextLock);
   REGISTER_API(ThreadSafeContextUnlock);
+  REGISTER_API(ThreadSafeContextTryLock);
   REGISTER_API(StringCompare);
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
@@ -1643,8 +1960,11 @@ static void registerApis() {
   REGISTER_API(ScanKey);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
+  REGISTER_API(AddPostNotificationJob);
+  REGISTER_API(AddPostNotificationJobForKey);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
+  REGISTER_API(Replicate);
 
   REGISTER_API(SetModuleOptions);
 
@@ -1674,6 +1994,9 @@ static void registerApis() {
   REGISTER_API(IsIOError);
   REGISTER_API(LogIOError);
   REGISTER_API(GetContextFromIO);
+
+  // Info
+  REGISTER_API(InfoAddFieldCString);
   // Serialization
   REGISTER_API(LoadDataTypeFromStringEncver);
   REGISTER_API(SaveDataTypeToString);
@@ -1681,13 +2004,24 @@ static void registerApis() {
   // Cluster
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
+  REGISTER_API(GetClusterNodeSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+  REGISTER_API(ClusterKeySlotC);
+  REGISTER_API(GetClusterNodesList);
+  REGISTER_API(FreeClusterNodesList);
+  REGISTER_API(GetClusterNodeInfo);
+  REGISTER_API(GetMyClusterID);
+  REGISTER_API(GetClusterSize);
 
   // KeyMeta
   REGISTER_API(CreateKeyMetaClass);
   REGISTER_API(GetKeyMeta);
   REGISTER_API(SetKeyMeta);
   REGISTER_API(ClearKeyMeta);
+
+  // Config
+  REGISTER_API(ConfigGetBool);
+  REGISTER_API(ConfigGetNumeric);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

@@ -56,9 +56,13 @@ pub enum IteratorType {
     Profile = 18,
     Optimus = 19,
     GeoShape = 20,
+    /// Lazily-populated counterpart of [`MetricSortedById`](Self::MetricSortedById).
+    MetricLazySortedById = 21,
+    /// Lazily-populated counterpart of [`MetricSortedByScore`](Self::MetricSortedByScore).
+    MetricLazySortedByScore = 22,
     /// Used only in tests.
-    Mock = 21,
-    Max = 22,
+    Mock = 23,
+    Max = 24,
 }
 
 impl IteratorType {
@@ -79,6 +83,8 @@ impl IteratorType {
             | Self::IdListUnsorted
             | Self::MetricSortedById
             | Self::MetricSortedByScore
+            | Self::MetricLazySortedById
+            | Self::MetricLazySortedByScore
             | Self::Profile
             | Self::GeoShape
             | Self::Mock => true,
@@ -117,6 +123,8 @@ impl IteratorType {
             Self::IdListUnsorted => "ID_LIST_UNSORTED",
             Self::MetricSortedById => "METRIC_SORTED_BY_ID",
             Self::MetricSortedByScore => "METRIC_SORTED_BY_SCORE",
+            Self::MetricLazySortedById => "METRIC_LAZY_SORTED_BY_ID",
+            Self::MetricLazySortedByScore => "METRIC_LAZY_SORTED_BY_SCORE",
             Self::Profile => "PROFILE",
             Self::Optimus => "OPTIMUS",
             Self::GeoShape => "GEO_SHAPE",
@@ -158,8 +166,10 @@ impl TryFrom<u32> for IteratorType {
             18 => Ok(Self::Profile),
             19 => Ok(Self::Optimus),
             20 => Ok(Self::GeoShape),
-            21 => Ok(Self::Mock),
-            22 => Ok(Self::Max),
+            21 => Ok(Self::MetricLazySortedById),
+            22 => Ok(Self::MetricLazySortedByScore),
+            23 => Ok(Self::Mock),
+            24 => Ok(Self::Max),
             other => Err(other),
         }
     }

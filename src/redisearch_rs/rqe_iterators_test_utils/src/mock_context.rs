@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
+use ffi::{QueryEvalCtx, QueryRequestLimits, RedisSearchCtx, SchemaRule};
+use field::FieldMaskOrIndex;
 use numeric_range_tree::NumericRangeTree;
+use rqe_core::DocId;
 
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
@@ -24,6 +26,7 @@ use numeric_range_tree::NumericRangeTree;
 pub struct MockContext {
     rule: *mut SchemaRule,
     spec: *mut ffi::IndexSpec,
+    timeout: *mut QueryRequestLimits,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -37,6 +40,13 @@ impl Drop for MockContext {
         // tag, but the memory's borrow stack may have been modified by SharedReadOnly
         // tags from the library code's reference creation.
         unsafe {
+            // If `verify_ttl_init` allocated a TTL table, reclaim and drop it before
+            // `self.spec` (which owns the pointer) is deallocated below.
+            let ttl = (*self.spec).docs.ttl;
+            if !ttl.is_null() {
+                drop(Box::from_raw(ttl as *mut ttl_table::TimeToLiveTable));
+            }
+
             std::alloc::dealloc(
                 self.rule as *mut u8,
                 std::alloc::Layout::new::<SchemaRule>(),
@@ -44,6 +54,10 @@ impl Drop for MockContext {
             std::alloc::dealloc(
                 self.spec as *mut u8,
                 std::alloc::Layout::new::<ffi::IndexSpec>(),
+            );
+            std::alloc::dealloc(
+                self.timeout as *mut u8,
+                std::alloc::Layout::new::<QueryRequestLimits>(),
             );
             std::alloc::dealloc(
                 self.sctx as *mut u8,
@@ -63,7 +77,7 @@ impl Drop for MockContext {
 }
 
 impl MockContext {
-    pub fn new(max_doc_id: t_docId, num_docs: usize) -> Self {
+    pub fn new(max_doc_id: DocId, num_docs: usize) -> Self {
         // Allocate each struct using Box::into_raw to get raw pointers.
         // We store raw pointers (not Boxes) because the library code creates
         // references through the pointer chain which would invalidate Box's
@@ -72,6 +86,9 @@ impl MockContext {
         // Create boxes and immediately convert to raw pointers
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
+        let timeout_ptr = Box::into_raw(Box::new(unsafe {
+            std::mem::zeroed::<QueryRequestLimits>()
+        }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
@@ -98,9 +115,16 @@ impl MockContext {
                 max_doc_id as usize
             };
             (*spec_ptr).stats.scoring.numDocuments = (*spec_ptr).docs.size;
+            // Sized so `verify_ttl_init` (used by `mark_index_expired`) has a
+            // non-zero capacity to build the TTL table with, even for a
+            // zero-document mock.
+            (*spec_ptr).docs.maxSize = max_doc_id.max(1);
 
             // Initialize RedisSearchCtx
             (*sctx_ptr).spec = spec_ptr;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx_ptr).limits = timeout_ptr;
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;
@@ -110,6 +134,7 @@ impl MockContext {
             Self {
                 rule: rule_ptr,
                 spec: spec_ptr,
+                timeout: timeout_ptr,
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
@@ -168,5 +193,123 @@ impl MockContext {
     /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.
     pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
+    }
+
+    /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now
+    /// require a non-null snapshot can run against the mock context. The
+    /// snapshot value itself is opaque to the rqe-iterators layer; the mock
+    /// enterprise iterators never dereference it.
+    ///
+    /// # Safety
+    /// `snapshot` must outlive every iterator created against this
+    /// `MockContext`.
+    pub const unsafe fn set_disk_snapshot(&self, snapshot: *mut ffi::RedisSearchDiskSnapshot) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        unsafe { (*self.sctx).diskSnapshot = snapshot };
+    }
+
+    /// Install a non-null sentinel `sctx.diskSnapshot` for tests that exercise
+    /// disk-backed paths, which now require a non-null snapshot.
+    ///
+    /// The snapshot is opaque to the rqe-iterators layer and the mock enterprise
+    /// iterators never dereference it, so a dangling (well-aligned, non-null)
+    /// pointer is sufficient and needs no backing storage — callers no longer
+    /// have to borrow an unrelated address to stand in for the snapshot.
+    pub fn set_dummy_disk_snapshot(&self) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        // The sentinel is never dereferenced, only checked for non-null.
+        unsafe {
+            (*self.sctx).diskSnapshot =
+                NonNull::<ffi::RedisSearchDiskSnapshot>::dangling().as_ptr();
+        }
+    }
+
+    /// Initialize the TTL table if not already initialized.
+    fn verify_ttl_init(&self) {
+        let mut guard = self.spec_write();
+        let docs = guard.doc_table_mut();
+
+        // Already initialized
+        if !docs.ttl.is_null() {
+            return;
+        }
+
+        let max_size = NonZeroUsize::new(docs.maxSize as usize)
+            .expect("doc table maxSize must be non-zero to initialize the TTL table");
+        let time_to_live_table = Box::into_raw(Box::new(ttl_table::TimeToLiveTable::new(max_size)));
+        docs.ttl = time_to_live_table as *mut ffi::TimeToLiveTable;
+    }
+
+    /// Add a TTL entry for the given field in the given document.
+    fn ttl_add(
+        &self,
+        doc_id: DocId,
+        field: FieldMaskOrIndex,
+        expiration: ffi::t_expirationTimePoint,
+    ) {
+        use ttl_table::FieldExpiration;
+
+        self.verify_ttl_init();
+
+        let fe = match field {
+            FieldMaskOrIndex::Index(index) => {
+                // Single field by index
+                let mut fe = ttl_table::FieldExpirations::new();
+                fe.push(FieldExpiration {
+                    index,
+                    point: expiration,
+                });
+                fe
+            }
+            FieldMaskOrIndex::Mask(mask) => {
+                // Multiple fields by mask - count bits to determine array size
+                let count = mask.count_ones();
+                let mut fe = ttl_table::FieldExpirations::with_capacity(count as usize);
+
+                let mut value = mask;
+                while value != 0 {
+                    let index = value.trailing_zeros();
+                    fe.push(FieldExpiration {
+                        index: index as u16,
+                        point: expiration,
+                    });
+                    value &= value - 1;
+                }
+                fe
+            }
+        };
+
+        let mut guard = self.spec_write();
+        let ttl = guard.doc_table_mut().ttl as *mut ttl_table::TimeToLiveTable;
+
+        // SAFETY: we initialized it above.
+        let ttl = unsafe { &mut *ttl };
+
+        ttl.add(doc_id, fe);
+    }
+
+    /// Mark the given field of the given documents as expired.
+    ///
+    /// Sets the field expiration time to the past and the current query time
+    /// to the future, so expiration checks will consider these fields expired.
+    pub fn mark_index_expired(&self, ids: Vec<DocId>, field: FieldMaskOrIndex) {
+        // Expiration time in the past
+        let expiration = ffi::t_expirationTimePoint {
+            tv_sec: 1,
+            tv_nsec: 1,
+        };
+
+        for id in ids {
+            self.ttl_add(id, field, expiration);
+        }
+
+        // Set the current time to the future so expiration checks see these as expired
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        unsafe {
+            (*self.sctx).currentTime = ffi::t_expirationTimePoint {
+                tv_sec: 100,
+                tv_nsec: 100,
+            };
+        }
     }
 }

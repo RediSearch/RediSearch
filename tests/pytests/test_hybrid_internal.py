@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from includes import *
 
@@ -213,6 +220,43 @@ def test_basic_hybrid_internal_withcursor(env):
         search_cursor = result_dict['SEARCH']
         env.assertTrue(isinstance(vsim_cursor, (int, str)))
         env.assertTrue(isinstance(search_cursor, (int, str)))
+
+
+@skip(cluster=True)
+def test_hybrid_internal_without_slots_info(env):
+    """_FT.HYBRID without _SLOTS_INFO (as sent by coordinators older than 8.4) must not
+    fail; the shard falls back to its local slots (MOD-16047)."""
+    setup_hybrid_test_data(env)
+
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+             'VSIM', '@embedding', '$BLOB',
+             'WITHCURSOR', 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+             '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+
+    # Should return a map with VSIM and SEARCH cursor IDs, like a fully-specified query
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+
+@skip(cluster=True)
+def test_hybrid_internal_without_coord_dispatch_time(env):
+    """_FT.HYBRID without _COORD_DISPATCH_TIME (as sent by coordinators older than 8.6)
+    must not fail."""
+    setup_hybrid_test_data(env)
+
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+             'VSIM', '@embedding', '$BLOB',
+             'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+             'PARAMS', '2', 'BLOB', query_vec.tobytes())
+
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
 
 
 def test_hybrid_internal_with_count_parameter(env):
@@ -583,3 +627,37 @@ def test_hybrid_internal_withcursor_with_load():
 
     vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor, protocol=getattr(env, 'protocol', None))
     env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def test_hybrid_internal_withcursor_params(env):
+    """Both subquery cursors resolve PARAMS from the shared request argv across reads"""
+    setup_hybrid_test_data(env)
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:$term',
+                     'VSIM', '@embedding', '$BLOB',
+                     'WITHCURSOR', 'PARAMS', '4', 'term', 'running', 'BLOB', query_vec.tobytes(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+    cursors = to_dict(remove_warnings(result))
+    protocol = getattr(env, 'protocol', None)
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['SEARCH'], protocol=protocol), ['doc:2', 'doc:3'])
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['VSIM'], protocol=protocol),
+                    ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def test_hybrid_internal_binary_param_name(env):
+    """A parameter name is matched by its full length, including bytes after a NUL"""
+    setup_hybrid_test_data(env)
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    name = b'blob\x00suffix'
+    # A parameter named like the prefix before the NUL, holding an unusable vector, must not
+    # collide with (or be picked instead of) the full-length name.
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                     'VSIM', '@embedding', b'$' + name,
+                     'WITHCURSOR', 'PARAMS', '4', b'blob', b'bad', name, query_vec.tobytes(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+    cursors = to_dict(remove_warnings(result))
+    env.assertContains('VSIM', cursors)
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['VSIM'], protocol=getattr(env, 'protocol', None)),
+                    ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
