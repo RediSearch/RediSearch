@@ -33,11 +33,13 @@ def total_forks(env):
 
 
 def add_docs(conn, prefix, count):
+    pipe = conn.pipeline(transaction=False)
     for i in range(count):
         fields = ['t', f'hello word{i % 7}', 'n', i % 11, 'g', f'tag{i % 5}']
         if i % 3:
             fields += ['m', 'present']
-        conn.execute_command('HSET', f'{prefix}{i}', *fields)
+        pipe.execute_command('HSET', f'{prefix}{i}', *fields)
+    pipe.execute()
 
 
 def assert_matches_fresh_index(env, idx, prefix):
@@ -264,8 +266,38 @@ def create_indexes_with_garbage(env):
         # doc id, and one re-indexed after the GC cycle leaves garbage no single cycle can see.
         waitForIndex(env, f'idx{n}')
         add_docs(conn, f'i{n}:', 50)
+        pipe = conn.pipeline(transaction=False)
         for i in range(0, 50, 2):
-            conn.execute_command('DEL', f'i{n}:{i}')
+            pipe.execute_command('DEL', f'i{n}:{i}')
+        pipe.execute()
+
+
+def pool_env(module_args=''):
+    env = thread_gc_env(module_args)
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    return env
+
+
+def park_forced_runs_on_every_index(env, parked):
+    """Queue a forced run on every index and wait until `parked` of them are held at the start of
+    their pass. Only these runs reach the sync point: no scheduled run holds an index busy."""
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', f'idx{n}').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
+    waitForRdbSaveToFinish(env)
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}').ok()
+    hits = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', SYNC_POINT_GC_TASK_START)
+    wait_for_condition(lambda: (hits() >= parked, {'parked': hits()}),
+                       f'fewer than {parked} GC cycles ever ran at once')
+
+
+def release_parked_runs(env):
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    assert_all_indexes_collected(env)
 
 
 def assert_all_indexes_collected(env):
@@ -279,9 +311,8 @@ def assert_all_indexes_collected(env):
 def testThreadGCWaitForJobsCoversEveryGCThread():
     """GC_WAIT_FOR_JOBS with nothing queued still waits for a cycle running on another GC thread.
     The cycle is parked, so the wait cannot pass by it finishing first."""
-    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env = pool_env('FORK_GC_RUN_INTERVAL 1')
     skipIfNoEnableAssert(env)
-    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
 
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -315,8 +346,7 @@ def testThreadGCWaitForJobsCoversEveryGCThread():
 @skip(cluster=True)
 def testThreadGCWaitForJobsWithBackgroundRuns():
     """GC_WAIT_FOR_JOBS returns only after background forced runs on every index finished."""
-    env = thread_gc_env()
-    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    env = pool_env()
     create_indexes_with_garbage(env)
 
     waitForRdbSaveToFinish(env)
@@ -332,57 +362,29 @@ def testThreadGCCleansSeveralIndexesConcurrently():
     """Several GC threads clean several indexes at once, without forking. Every cycle parks
     before its pass, so two of them parked together are two in progress at once, and of
     different indexes, since one index never runs two."""
-    env = thread_gc_env()
+    env = pool_env()
     skipIfNoEnableAssert(env)
-    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     create_indexes_with_garbage(env)
-    # Only the forced runs below reach the sync point: no scheduled run holds an index busy.
-    for n in range(N_INDEXES):
-        env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', f'idx{n}').ok()
-    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
 
     forks_before = total_forks(env)
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
-    waitForRdbSaveToFinish(env)
-    for n in range(N_INDEXES):
-        env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}').ok()
-    hits = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', SYNC_POINT_GC_TASK_START)
-    wait_for_condition(lambda: (hits() >= 2, {'parked': hits()}),
-                       'GC cycles of different indexes never ran at once')
-
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
-    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    park_forced_runs_on_every_index(env, parked=2)
+    release_parked_runs(env)
     env.assertEqual(total_forks(env), forks_before)
-    assert_all_indexes_collected(env)
 
 
 @skip(cluster=True)
 def testThreadGCPoolShrinksWhileItsThreadsAreBusy():
     """Lowering search-gc-threads while every GC thread is mid-cycle lets every cycle complete,
     and the pool ends at the new size."""
-    env = thread_gc_env()
+    env = pool_env()
     skipIfNoEnableAssert(env)
-    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     create_indexes_with_garbage(env)
-    for n in range(N_INDEXES):
-        env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', f'idx{n}').ok()
-    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
 
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
-    waitForRdbSaveToFinish(env)
-    for n in range(N_INDEXES):
-        env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}').ok()
-    hits = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', SYNC_POINT_GC_TASK_START)
-    wait_for_condition(lambda: (hits() >= GC_THREADS, {'parked': hits()}),
-                       'not every GC thread took a cycle')
+    park_forced_runs_on_every_index(env, parked=GC_THREADS)
     env.assertEqual(env.cmd(debug_cmd(), 'GC_THREADS_ALIVE'), GC_THREADS)
 
     env.expect('CONFIG', 'SET', 'search-gc-threads', 1).ok()
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
-    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
-    assert_all_indexes_collected(env)
+    release_parked_runs(env)
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'GC_THREADS_ALIVE') == 1,
                  {'alive': env.cmd(debug_cmd(), 'GC_THREADS_ALIVE')}),
@@ -394,8 +396,7 @@ def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
     """Forced runs from many clients and the index's own schedule all target one index while
     several GC threads are free. Deltas address blocks by position, so an overlap would apply
     one cycle's delta to blocks the other already rewrote; the index must stay exact."""
-    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
-    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    env = pool_env('FORK_GC_RUN_INTERVAL 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
     add_docs(conn, 'doc:', 1000)
