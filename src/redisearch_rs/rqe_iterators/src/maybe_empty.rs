@@ -211,10 +211,17 @@ where
         }
     }
 
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+    fn reports_score_bounds(&self) -> bool {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.current_max_score(ctx),
-            MaybeEmptyOption::Some(it) => it.current_max_score(ctx),
+            MaybeEmptyOption::None(empty) => empty.reports_score_bounds(),
+            MaybeEmptyOption::Some(it) => it.reports_score_bounds(),
+        }
+    }
+
+    fn current_max_score(&self) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.current_max_score(),
+            MaybeEmptyOption::Some(it) => it.current_max_score(),
         }
     }
 

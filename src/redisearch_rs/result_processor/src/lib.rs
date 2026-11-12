@@ -293,6 +293,10 @@ struct Header {
     next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut SearchResult) -> c_int>,
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
+    /// "VTable" function. `next` told the score below which results are useless downstream. Rust
+    /// result processors leave it `None`, which means plain `next`.
+    next_with_threshold:
+        Option<unsafe extern "C" fn(self_: *mut Header, res: *mut SearchResult, f64) -> c_int>,
 
     // the following fields are Rust-specific and do not map to the C (ffi::ResultProcessor) type
     /// The TypeId of the inner ResultProcessor implementation, for debugging purposes
@@ -333,6 +337,7 @@ where
                 rp_gil_time: 0,
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
+                next_with_threshold: None,
                 #[cfg(debug_assertions)]
                 inner_ty_id: TypeId::of::<P>(),
                 #[cfg(debug_assertions)]
@@ -533,6 +538,10 @@ pub(crate) mod test {
             ::std::mem::offset_of!(Header, free)
                 == ::std::mem::offset_of!(ffi::ResultProcessor, Free)
         );
+        assert!(
+            ::std::mem::offset_of!(Header, next_with_threshold)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, NextWithThreshold)
+        );
     };
 
     /// Assert that Rust error types translate to the correct C ret code
@@ -624,6 +633,7 @@ pub(crate) mod test {
                     rp_gil_time: 0,
                     next: Some(result_processor_next),
                     free: Some(result_processor_free),
+                    next_with_threshold: None,
 
                     #[cfg(debug_assertions)]
                     inner_ty_id: TypeId::of::<()>(),

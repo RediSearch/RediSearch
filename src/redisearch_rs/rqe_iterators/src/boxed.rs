@@ -634,8 +634,12 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.intersection_sort_weight(prioritize_union_children)
     }
 
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
-        self.0.current_max_score(ctx)
+    fn reports_score_bounds(&self) -> bool {
+        self.0.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.0.current_max_score()
     }
 
     fn current_block_last_doc_id(&self) -> Option<t_docId> {

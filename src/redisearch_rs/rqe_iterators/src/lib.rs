@@ -28,7 +28,6 @@ use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
 use ::inverted_index::{FieldMask, NumericFilter};
-pub use ffi::ScoreBoundCtx;
 use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
@@ -333,6 +332,18 @@ pub trait RQEIterator<'index> {
 
     /**************** score bounds ****************/
 
+    /// Whether [`current_max_score`](Self::current_max_score) can ever be finite for this
+    /// iterator.
+    ///
+    /// Fixed when the iterator is built, so callers check it once and take the plain
+    /// [`read`](Self::read) path when it is `false`. A leaf reports bounds only for the scorers
+    /// it knows how to bound; a composite only when every child does, since a single unbounded
+    /// child makes the composed bound infinite.
+    fn reports_score_bounds(&self) -> bool {
+        // TODO(MOD-21193): disk leaves report bounds from their scoring context.
+        false
+    }
+
     /// Upper bound on the final score of the document the iterator is positioned on, under the
     /// query's scorer.
     ///
@@ -346,9 +357,8 @@ pub trait RQEIterator<'index> {
     ///
     /// Composites build theirs from their children's: [`Intersection`] sums all of them,
     /// [`Union`] sums those positioned on the current document, both scaled by
-    /// `max(weight, 1)`. A filter leaf (numeric, tag, geo) that reports a bound returns
-    /// [`ScoreBoundCtx::filterLeafBound`]. In-memory leaves report none.
-    fn current_max_score(&self, _ctx: &ScoreBoundCtx) -> f64 {
+    /// `max(weight, 1)`.
+    fn current_max_score(&self) -> f64 {
         f64::INFINITY
     }
 
@@ -432,8 +442,12 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
         (**self).intersection_sort_weight(prioritize_union_children)
     }
 
-    fn current_max_score(&self, ctx: &ScoreBoundCtx) -> f64 {
-        (**self).current_max_score(ctx)
+    fn reports_score_bounds(&self) -> bool {
+        (**self).reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        (**self).current_max_score()
     }
 
     fn current_block_last_doc_id(&self) -> Option<DocId> {

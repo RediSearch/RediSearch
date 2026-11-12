@@ -29,12 +29,6 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
 bool hasQuerySortby(const AGGPlan *pln);
 
-/** Enable score-bound candidate filtering (`RPQueryIterator_EnableScoreBounds`) when the built
- *  pipeline ranks the index results by the score of `scorerName` and nothing else: one score
- *  sorter fed by the scorer, one result per candidate. Otherwise no threshold exists, and the
- *  pipeline is left as is. */
-void Pipeline_EnableScoreBounds(Pipeline *pipeline, const char *scorerName);
-
 #ifdef __cplusplus
 }
 #endif

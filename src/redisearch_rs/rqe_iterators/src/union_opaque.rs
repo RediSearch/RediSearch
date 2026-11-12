@@ -291,8 +291,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
     }
 
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
-        delegate_variant_ref!(self, current_max_score, ctx)
+    fn reports_score_bounds(&self) -> bool {
+        delegate_variant_ref!(self, reports_score_bounds)
+    }
+
+    fn current_max_score(&self) -> f64 {
+        delegate_variant_ref!(self, current_max_score)
     }
 
     fn current_block_last_doc_id(&self) -> Option<DocId> {

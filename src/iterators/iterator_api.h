@@ -41,14 +41,6 @@ typedef enum ValidateStatus {
                     // caller must surface it (`RS_RESULT_STOPPED`) rather than end-of-results.
 } ValidateStatus;
 
-// Query-wide inputs to `CurrentMaxScore`, fixed when the query pipeline is built.
-typedef struct ScoreBoundCtx {
-  // Upper bound on what one numeric, tag or geo leaf adds to a document's score under the query's
-  // scorer. Such leaves carry no term statistics, so whether they contribute depends on the scorer
-  // alone (see `ScoreBound_FilterLeafBound`).
-  double filterLeafBound;
-} ScoreBoundCtx;
-
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
@@ -158,11 +150,15 @@ typedef struct QueryIterator {
    * Rust-exported function. */
   void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
 
-  /* Upper bound on the final score of the document the iterator is positioned on, computed only
-   * from data the iterator already holds. `+INFINITY` means "unknown" and is always correct.
-   * Only valid while positioned on a result. NULL means `+INFINITY`; use
-   * `QueryIterator_CurrentMaxScore`. */
-  double (*CurrentMaxScore)(const struct QueryIterator *self, const ScoreBoundCtx *ctx);
+  /* Whether `CurrentMaxScore` can ever be finite for this tree. Fixed when the tree is built, so
+   * a caller may check it once. NULL means false; use `QueryIterator_ReportsScoreBounds`. */
+  bool (*ReportsScoreBounds)(const struct QueryIterator *self);
+
+  /* Upper bound on the final score of the document the iterator is positioned on, under the
+   * query's scorer, computed only from data the iterator already holds. `+INFINITY` means
+   * "unknown" and is always correct. Only valid while positioned on a result. NULL means
+   * `+INFINITY`; use `QueryIterator_CurrentMaxScore`. */
+  double (*CurrentMaxScore)(const struct QueryIterator *self);
 
   /* Last doc id of the storage block holding the current result, or 0 when the iterator has no
    * block boundary to report. NULL means 0; use `QueryIterator_CurrentBlockLastDocId`. */
@@ -175,9 +171,12 @@ typedef struct QueryIterator {
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
 
-static inline double QueryIterator_CurrentMaxScore(const QueryIterator *it,
-                                                   const ScoreBoundCtx *ctx) {
-  return it->CurrentMaxScore ? it->CurrentMaxScore(it, ctx) : INFINITY;
+static inline bool QueryIterator_ReportsScoreBounds(const QueryIterator *it) {
+  return it->ReportsScoreBounds && it->ReportsScoreBounds(it);
+}
+
+static inline double QueryIterator_CurrentMaxScore(const QueryIterator *it) {
+  return it->CurrentMaxScore ? it->CurrentMaxScore(it) : INFINITY;
 }
 
 static inline t_docId QueryIterator_CurrentBlockLastDocId(const QueryIterator *it) {

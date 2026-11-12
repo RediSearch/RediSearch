@@ -1938,11 +1938,6 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   }
   int rc = Pipeline_BuildAggregationPart(&req->pipeline, aggregationParams, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
-    if (!IsCoordinator(req)) {
-      const char *scorerName = req->searchopts.scorerName;
-      Pipeline_EnableScoreBounds(&req->pipeline,
-                                 scorerName ? scorerName : RSGlobalConfig.defaultScorer);
-    }
     AREQ_SetCanYieldPartialResults(req);
     // The pipeline is final: execution may only append keys to the reply
     // lookup (document loaders, the coordinator's RPNet); changing an existing

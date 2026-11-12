@@ -17,8 +17,8 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ScoreBoundCtx,
-    SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
+    Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    UnionFullFlat, UnionFullHeap, UnionQuickFlat,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::{RQEIteratorWrapper, patch_vtable},
@@ -28,10 +28,6 @@ use rqe_iterators::{
     profile::Profile,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::NoTimeoutChecker,
-};
-
-const CTX: ScoreBoundCtx = ScoreBoundCtx {
-    filterLeafBound: 0.0,
 };
 
 /// A leaf over fixed doc ids that reports a fixed score bound and block boundary, and records the
@@ -101,7 +97,11 @@ impl<'index> RQEIterator<'index> for Bounded<'index> {
         1.0
     }
 
-    fn current_max_score(&self, _ctx: &ScoreBoundCtx) -> f64 {
+    fn reports_score_bounds(&self) -> bool {
+        true
+    }
+
+    fn current_max_score(&self) -> f64 {
         self.bound
     }
 
@@ -118,67 +118,6 @@ impl<'index> RQEIterator<'index> for Bounded<'index> {
     }
 }
 
-/// A leaf standing for a numeric, tag or geo filter.
-struct Filter<'index>(Bounded<'index>);
-
-impl<'index> Filter<'index> {
-    fn new(ids: Vec<DocId>) -> Self {
-        Self(Bounded::new(ids, f64::NAN))
-    }
-}
-
-impl<'index> RQEIterator<'index> for Filter<'index> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.0.current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.0.read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.0.skip_to(doc_id)
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
-    }
-
-    fn rewind(&mut self) {
-        self.0.rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        self.0.num_estimated()
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        self.0.last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        self.0.at_eof()
-    }
-
-    fn type_(&self) -> IteratorType {
-        IteratorType::Mock
-    }
-
-    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
-        1.0
-    }
-
-    fn current_max_score(&self, ctx: &ScoreBoundCtx) -> f64 {
-        ctx.filterLeafBound
-    }
-}
-
 fn read_doc<'index>(it: &mut impl RQEIterator<'index>) -> DocId {
     it.read()
         .expect("read failed")
@@ -190,8 +129,40 @@ fn read_doc<'index>(it: &mut impl RQEIterator<'index>) -> DocId {
 fn leaves_report_no_bound_by_default() {
     let mut it = IdListSorted::new(vec![1, 2]);
     read_doc(&mut it);
-    assert_eq!(it.current_max_score(&CTX), f64::INFINITY);
+    assert!(!it.reports_score_bounds());
+    assert_eq!(it.current_max_score(), f64::INFINITY);
     assert_eq!(it.current_block_last_doc_id(), None);
+}
+
+/// A composite reports bounds only when every child does.
+#[test]
+fn reports_score_bounds_composes() {
+    let term = || TermOrPlain::Term(Bounded::new(vec![1], 1.0));
+    let plain = || TermOrPlain::Plain(IdListSorted::new(vec![1]));
+
+    assert!(Intersection::new(vec![term(), term()], 1.0, false).reports_score_bounds());
+    assert!(!Intersection::new(vec![term(), plain()], 1.0, false).reports_score_bounds());
+    assert!(!Intersection::<TermOrPlain>::new(vec![], 1.0, false).reports_score_bounds());
+
+    assert!(UnionFullFlat::new(vec![term(), term()]).reports_score_bounds());
+    assert!(UnionFullHeap::new(vec![term(), term()]).reports_score_bounds());
+    assert!(UnionQuickFlat::new(vec![term(), term()]).reports_score_bounds());
+    assert!(!UnionFullFlat::new(vec![term(), plain()]).reports_score_bounds());
+    assert!(!UnionFullHeap::new(vec![plain(), term()]).reports_score_bounds());
+    assert!(!UnionFullFlat::<TermOrPlain>::new(vec![]).reports_score_bounds());
+
+    let not = Not::new(Bounded::new(vec![1], 1.0), 5, 1.0, NoTimeoutChecker);
+    assert!(!not.reports_score_bounds());
+    let optional = Optional::new(5, 1.0, Bounded::new(vec![1], 1.0));
+    assert!(!optional.reports_score_bounds());
+
+    // Wrappers pass the answer through.
+    assert!(
+        Profile::new(MaybeEmpty::new(Box::new(Bounded::new(vec![1], 1.0)))).reports_score_bounds()
+    );
+    assert!(
+        !Profile::new(MaybeEmpty::new(Box::new(IdListSorted::new(vec![1])))).reports_score_bounds()
+    );
 }
 
 #[test]
@@ -205,25 +176,7 @@ fn intersection_sums_children() {
         false,
     );
     assert_eq!(read_doc(&mut it), 2);
-    assert_eq!(it.current_max_score(&CTX), 3.5);
-}
-
-#[test]
-fn intersection_with_filter_adds_filter_leaf_bound() {
-    let mut it = Intersection::new(
-        vec![
-            TermOrFilter::Term(Bounded::new(vec![1, 2], 1.5)),
-            TermOrFilter::Filter(Filter::new(vec![2])),
-        ],
-        1.0,
-        false,
-    );
-    assert_eq!(read_doc(&mut it), 2);
-    assert_eq!(it.current_max_score(&CTX), 1.5);
-    let unknown = ScoreBoundCtx {
-        filterLeafBound: f64::INFINITY,
-    };
-    assert_eq!(it.current_max_score(&unknown), f64::INFINITY);
+    assert_eq!(it.current_max_score(), 3.5);
 }
 
 #[test]
@@ -237,7 +190,7 @@ fn intersection_with_unbounded_child_is_unbounded() {
         false,
     );
     read_doc(&mut it);
-    assert_eq!(it.current_max_score(&CTX), f64::INFINITY);
+    assert_eq!(it.current_max_score(), f64::INFINITY);
 }
 
 #[test]
@@ -246,17 +199,17 @@ fn weight_scales_up_but_never_down() {
 
     let mut heavy = Intersection::new(children(), 2.0, false);
     read_doc(&mut heavy);
-    assert_eq!(heavy.current_max_score(&CTX), 6.0);
+    assert_eq!(heavy.current_max_score(), 6.0);
 
     // DOCSCORE ignores the weight, so a weight below 1 must not shrink the bound.
     let mut light = Intersection::new(children(), 0.5, false);
     read_doc(&mut light);
-    assert_eq!(light.current_max_score(&CTX), 3.0);
+    assert_eq!(light.current_max_score(), 3.0);
 
     let mut union = UnionFullFlat::new(children());
     union.current().expect("unread union holds a result").weight = 2.0;
     read_doc(&mut union);
-    assert_eq!(union.current_max_score(&CTX), 6.0);
+    assert_eq!(union.current_max_score(), 6.0);
 }
 
 /// Every union variant sums only the children positioned on the current document.
@@ -265,11 +218,11 @@ fn union_sums_children_on_current_doc() {
     fn check<'index, I: RQEIterator<'index>>(mut it: I, on_shared_doc: impl Fn(f64) -> bool) {
         // Children: a = {1, 3} bound 1, b = {2, 3} bound 2, c = {3} bound 4.
         assert_eq!(read_doc(&mut it), 1);
-        assert_eq!(it.current_max_score(&CTX), 1.0);
+        assert_eq!(it.current_max_score(), 1.0);
         assert_eq!(read_doc(&mut it), 2);
-        assert_eq!(it.current_max_score(&CTX), 2.0);
+        assert_eq!(it.current_max_score(), 2.0);
         assert_eq!(read_doc(&mut it), 3);
-        let bound = it.current_max_score(&CTX);
+        let bound = it.current_max_score();
         assert!(on_shared_doc(bound), "bound {bound} on the shared document");
     }
     let children = || {
@@ -289,26 +242,14 @@ fn union_sums_children_on_current_doc() {
 }
 
 #[test]
-fn union_with_filter_child_on_doc_reports_filter_leaf_bound() {
-    let mut it = UnionFullFlat::new(vec![
-        TermOrFilter::Term(Bounded::new(vec![2], 1.5)),
-        TermOrFilter::Filter(Filter::new(vec![1])),
-    ]);
-    assert_eq!(read_doc(&mut it), 1);
-    assert_eq!(it.current_max_score(&CTX), 0.0);
-    assert_eq!(read_doc(&mut it), 2);
-    assert_eq!(it.current_max_score(&CTX), 1.5);
-}
-
-#[test]
 fn not_and_optional_report_no_bound() {
     let mut not = Not::new(Bounded::new(vec![2], 1.0), 5, 1.0, NoTimeoutChecker);
     read_doc(&mut not);
-    assert_eq!(not.current_max_score(&CTX), f64::INFINITY);
+    assert_eq!(not.current_max_score(), f64::INFINITY);
 
     let mut optional = Optional::new(5, 1.0, Bounded::new(vec![1], 1.0));
     assert_eq!(read_doc(&mut optional), 1);
-    assert_eq!(optional.current_max_score(&CTX), f64::INFINITY);
+    assert_eq!(optional.current_max_score(), f64::INFINITY);
 
     // An intersection with a NOT or optional child can no longer be bounded.
     let mut and_not = Intersection::new(
@@ -325,7 +266,7 @@ fn not_and_optional_report_no_bound() {
         false,
     );
     read_doc(&mut and_not);
-    assert_eq!(and_not.current_max_score(&CTX), f64::INFINITY);
+    assert_eq!(and_not.current_max_score(), f64::INFINITY);
 }
 
 #[test]
@@ -382,7 +323,7 @@ fn wrappers_forward_every_hook() {
         .map(|r| r.doc_id);
     assert_eq!(doc, Some(1));
     assert_eq!(threshold.get(), 1.25);
-    assert_eq!(it.current_max_score(&CTX), 2.5);
+    assert_eq!(it.current_max_score(), 2.5);
     assert_eq!(it.current_block_last_doc_id(), Some(7));
     // A thresholded read is still a read for the profile.
     assert_eq!(it.counters().read, 1);
@@ -431,7 +372,7 @@ impl<'index> RQEIterator<'index> for Skipping<'index> {
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         let mut skipped = 0;
         while self.step()?.is_some() {
-            let below = self.current_max_score(&CTX) < min_competitive_score;
+            let below = self.current_max_score() < min_competitive_score;
             if !below || skipped == self.max_skips {
                 return Ok(self.inner.current());
             }
@@ -479,7 +420,11 @@ impl<'index> RQEIterator<'index> for Skipping<'index> {
         1.0
     }
 
-    fn current_max_score(&self, _ctx: &ScoreBoundCtx) -> f64 {
+    fn reports_score_bounds(&self) -> bool {
+        true
+    }
+
+    fn current_max_score(&self) -> f64 {
         self.position.map_or(f64::INFINITY, |p| self.bounds[p])
     }
 }
@@ -502,7 +447,7 @@ fn root_survivors<'index>(
         .expect("read failed")
         .map(|r| r.doc_id)
     {
-        if it.current_max_score(&CTX) >= min_competitive_score {
+        if it.current_max_score() >= min_competitive_score {
             survivors.push(doc);
         }
     }
@@ -521,6 +466,7 @@ fn skipping_leaf_through_the_c_abi() {
         // SAFETY: `boxed_new` returns a valid, owning header with every callback populated.
         let child = unsafe { CRQEIterator::new(raw) };
         let mut root = Profile::new(child);
+        assert!(root.reports_score_bounds());
         assert_eq!(
             root_survivors(&mut root, 2.0),
             vec![1, 4, 6],
@@ -555,10 +501,10 @@ fn c_iterator_without_read_with_threshold_falls_back_to_read() {
     assert_eq!(root_survivors(&mut child, 2.0), vec![1, 4, 6]);
 }
 
-/// Mixes a scored leaf with a filter leaf under one composite child type.
-enum TermOrFilter<'index> {
+/// Mixes a leaf that reports bounds with one that does not under one composite child type.
+enum TermOrPlain<'index> {
     Term(Bounded<'index>),
-    Filter(Filter<'index>),
+    Plain(IdListSorted<'index>),
 }
 
 /// Mixes a scored leaf with a NOT under one composite child type.
@@ -640,15 +586,22 @@ macro_rules! forward_either {
                 1.0
             }
 
-            fn current_max_score(&self, ctx: &ScoreBoundCtx) -> f64 {
+            fn reports_score_bounds(&self) -> bool {
                 match self {
-                    Self::$a(it) => it.current_max_score(ctx),
-                    Self::$b(it) => it.current_max_score(ctx),
+                    Self::$a(it) => it.reports_score_bounds(),
+                    Self::$b(it) => it.reports_score_bounds(),
+                }
+            }
+
+            fn current_max_score(&self) -> f64 {
+                match self {
+                    Self::$a(it) => it.current_max_score(),
+                    Self::$b(it) => it.current_max_score(),
                 }
             }
         }
     };
 }
 
-forward_either!(TermOrFilter, Term, Filter);
+forward_either!(TermOrPlain, Term, Plain);
 forward_either!(TermOrNot, Term, Not);

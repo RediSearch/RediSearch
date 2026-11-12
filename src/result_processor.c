@@ -114,12 +114,6 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
-
-  // Score-bound candidate filtering, set up by `RPQueryIterator_EnableScoreBounds`.
-  struct {
-    bool enabled;
-    ScoreBoundCtx ctx;
-  } scoreBound;
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -148,28 +142,12 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
 }
 
 /**
- * The score below which no candidate can reach the results, or `-INFINITY` when the query has no
- * such threshold or the query-side switch is off. The sorter only raises its threshold between
- * calls to `Next`, so callers compute it once per call.
- */
-static inline double scoreBoundThreshold(const RPQueryIterator *self) {
-  if (!self->scoreBound.enabled || !RSGlobalConfig.diskScoreSkippingQuery) {
-    return -INFINITY;
-  }
-  // `minScore` is the score of the sorter's heap minimum once the heap is full, and 0 before:
-  // `RPQueryIterator_EnableScoreBounds` is only called for pipelines where that holds.
-  return ScoreBound_MinCompetitive(self->base.parent->minScore);
-}
-
-/**
- * Advance `it`, letting it skip candidates below `minCompetitiveScore` when there is a threshold.
- * Without one this is a plain `Read`, which is all in-memory indexes ever do.
+ * Advance `it`. `withThreshold` is a constant at every call site: without it this is the plain
+ * `Read` the query has always made.
  */
 static inline __attribute__((always_inline)) IteratorStatus
-readCandidate(QueryIterator *it, double minCompetitiveScore) {
-  return minCompetitiveScore == -INFINITY
-             ? it->Read(it)
-             : QueryIterator_ReadWithThreshold(it, minCompetitiveScore);
+readCandidate(QueryIterator *it, bool withThreshold, double minCompetitiveScore) {
+  return withThreshold ? QueryIterator_ReadWithThreshold(it, minCompetitiveScore) : it->Read(it);
 }
 
 /**
@@ -183,13 +161,14 @@ readCandidate(QueryIterator *it, double minCompetitiveScore) {
  */
 static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterator *self,
                                                                    const QueryIterator *it,
+                                                                   bool withThreshold,
                                                                    double minCompetitiveScore,
                                                                    bool isProfiled) {
   // Iterators may honour the threshold only partly, or not at all, so the root checks again.
-  if (minCompetitiveScore == -INFINITY) {
+  if (!withThreshold) {
     return false;
   }
-  const double bound = QueryIterator_CurrentMaxScore(it, &self->scoreBound.ctx);
+  const double bound = QueryIterator_CurrentMaxScore(it);
   if (!ScoreBound_CanDrop(bound, minCompetitiveScore)) {
     // TODO(MOD-21193): once the metadata of this survivor is read, compare its exact bound with
     // the threshold to count reads caused by bound quantization.
@@ -219,14 +198,15 @@ static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterat
  * @param prefetchDmd Whether to prefetch the metadata of the docIds just ahead of `it`
  * @param dmd The document metadata pointer to set
  * @param self The owning query iterator processor
- * @param minCompetitiveScore `scoreBoundThreshold` of this call
+ * @param withThreshold Whether `minCompetitiveScore` applies; a constant at every call site
+ * @param minCompetitiveScore The threshold from `NextWithThreshold`
  * @param isProfiled Whether to record candidate counts for this query
  * @return true if the document is not deleted or expired, false otherwise.
  */
 static inline __attribute__((always_inline)) bool getDocumentMetadata(
     IndexSpec *spec, DocTable *docs, RedisSearchCtx *sctx, const QueryIterator *it,
     bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self,
-    double minCompetitiveScore, bool isProfiled) {
+    bool withThreshold, double minCompetitiveScore, bool isProfiled) {
   if (spec->diskSpec) {
     RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
@@ -234,7 +214,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
-    if (!deleted && dropByScoreBound(self, it, minCompetitiveScore, isProfiled)) {
+    if (!deleted && dropByScoreBound(self, it, withThreshold, minCompetitiveScore, isProfiled)) {
       DMD_Return(diskDmd);
       return false;
     }
@@ -284,7 +264,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
  * Returns RS_RESULT_OK on success, RS_RESULT_STOPPED on timeout.
  */
 static inline __attribute__((always_inline)) int refillQueueUsingIterator(
-    RPQueryIterator *self, double minCompetitiveScore, bool isProfiled) {
+    RPQueryIterator *self, bool withThreshold, double minCompetitiveScore, bool isProfiled) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
 
@@ -299,7 +279,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(
       return RS_RESULT_STOPPED;
     }
 
-    IteratorStatus rc = readCandidate(it, minCompetitiveScore);
+    IteratorStatus rc = readCandidate(it, withThreshold, minCompetitiveScore);
     if (rc == ITERATOR_EOF) {
       break;
     } else if (rc == ITERATOR_TIMEOUT) {
@@ -310,7 +290,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(
     t_docId docId = it->current->docId;
     const bool deleted = SearchDisk_DocIdDeleted(sctx->spec->diskSpec, docId);
     recordCandidate(self, deleted, isProfiled);
-    if (deleted || dropByScoreBound(self, it, minCompetitiveScore, isProfiled)) {
+    if (deleted || dropByScoreBound(self, it, withThreshold, minCompetitiveScore, isProfiled)) {
       continue;
     }
 
@@ -454,6 +434,8 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 /* Next implementation for sync disk and regular (in-memory) flow */
 static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcessor *base,
                                                                    SearchResult *res,
+                                                                   bool withThreshold,
+                                                                   double minCompetitiveScore,
                                                                    bool isProfiled) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
@@ -469,7 +451,6 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
-  const double minCompetitiveScore = scoreBoundThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
@@ -489,7 +470,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
     }
 
     if (!needToValidateCurrent) {
-      IteratorStatus rc = readCandidate(it, minCompetitiveScore);
+      IteratorStatus rc = readCandidate(it, withThreshold, minCompetitiveScore);
       switch (rc) {
         case ITERATOR_EOF:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
@@ -505,7 +486,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
     // Get document metadata (either from disk or in-memory DocTable)
     if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self,
-                             minCompetitiveScore, isProfiled)) {
+                             withThreshold, minCompetitiveScore, isProfiled)) {
       continue;
     }
 
@@ -520,9 +501,9 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 }
 
 /* Next implementation for async disk flow with two-level buffering */
-static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(ResultProcessor *base,
-                                                                            SearchResult *res,
-                                                                            bool isProfiled) {
+static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(
+    ResultProcessor *base, SearchResult *res, bool withThreshold, double minCompetitiveScore,
+    bool isProfiled) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
@@ -538,7 +519,6 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
-  const double minCompetitiveScore = scoreBoundThreshold(self);
 
 #ifdef ENABLE_ASSERT
   // See rpQueryItNext: same interruptible park for the async-disk variant.
@@ -561,7 +541,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     }
 
     // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
-    int refillResult = refillQueueUsingIterator(self, minCompetitiveScore, isProfiled);
+    int refillResult =
+        refillQueueUsingIterator(self, withThreshold, minCompetitiveScore, isProfiled);
     if (refillResult == RS_RESULT_STOPPED) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
@@ -615,19 +596,56 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 }
 
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, false);
+  return rpQueryItNextImpl(base, res, false, -INFINITY, false);
 }
 
 static int rpQueryItNextProfiled(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, true);
+  return rpQueryItNextImpl(base, res, false, -INFINITY, true);
 }
 
 static int rpQueryItNextAsyncDisk(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextAsyncDiskImpl(base, res, false);
+  return rpQueryItNextAsyncDiskImpl(base, res, false, -INFINITY, false);
 }
 
 static int rpQueryItNextAsyncDiskProfiled(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextAsyncDiskImpl(base, res, true);
+  return rpQueryItNextAsyncDiskImpl(base, res, false, -INFINITY, true);
+}
+
+// A threshold only helps a tree that can bound its candidates; any other takes the plain path.
+static inline bool appliesThreshold(const RPQueryIterator *self, double minCompetitiveScore) {
+  return minCompetitiveScore != -INFINITY && QueryIterator_ReportsScoreBounds(self->iterator);
+}
+
+static int rpQueryItNextWithThreshold(ResultProcessor *base, SearchResult *res,
+                                      double minCompetitiveScore) {
+  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+    return rpQueryItNext(base, res);
+  }
+  return rpQueryItNextImpl(base, res, true, minCompetitiveScore, false);
+}
+
+static int rpQueryItNextWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
+                                              double minCompetitiveScore) {
+  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+    return rpQueryItNextProfiled(base, res);
+  }
+  return rpQueryItNextImpl(base, res, true, minCompetitiveScore, true);
+}
+
+static int rpQueryItNextAsyncDiskWithThreshold(ResultProcessor *base, SearchResult *res,
+                                               double minCompetitiveScore) {
+  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+    return rpQueryItNextAsyncDisk(base, res);
+  }
+  return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, false);
+}
+
+static int rpQueryItNextAsyncDiskWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
+                                                       double minCompetitiveScore) {
+  if (!appliesThreshold((RPQueryIterator *)base, minCompetitiveScore)) {
+    return rpQueryItNextAsyncDiskProfiled(base, res);
+  }
+  return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, true);
 }
 
 static void rpQueryItFree(ResultProcessor *iter) {
@@ -684,12 +702,18 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
       // Async disk flow with buffering
       IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
       ret->base.Next = isProfiled ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
+      ret->base.NextWithThreshold = isProfiled ? rpQueryItNextAsyncDiskWithThresholdProfiled
+                                               : rpQueryItNextAsyncDiskWithThreshold;
     } else {
       ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+      ret->base.NextWithThreshold =
+          isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
     }
   } else {
     // Sync disk or regular in-memory flow (both use getDocumentMetadata)
     ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+    ret->base.NextWithThreshold =
+        isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
   }
 
 
@@ -704,25 +728,13 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
   *notDiscarded = self->candidatesNotDiscarded;
 }
 
-void RPQueryIterator_EnableScoreBounds(ResultProcessor *rp, double filterLeafBound) {
-  RS_ASSERT(rp->type == RP_INDEX);
-  RPQueryIterator *self = (RPQueryIterator *)rp;
-  // In-memory indexes keep their behaviour: their leaves report no bounds, so the check would
-  // only cost time.
-  if (!self->sctx->spec->diskSpec) {
-    return;
-  }
-  self->scoreBound.enabled = true;
-  self->scoreBound.ctx.filterLeafBound = filterLeafBound;
-}
-
 bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
                                          uint64_t *readsAvoided) {
   RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
   const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
   *dropped = self->scoreBoundCandidatesDropped;
   *readsAvoided = self->scoreBoundDocTableReadsAvoided;
-  return self->base.scoreBound.enabled;
+  return QueryIterator_ReportsScoreBounds(self->base.iterator);
 }
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
@@ -736,6 +748,7 @@ void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
     return;
   }
   root->Next = rpQueryItNext_Stopped;
+  root->NextWithThreshold = NULL;
 }
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
@@ -782,12 +795,16 @@ typedef struct {
   const RLookupKey *scoreKey;
 } RPScorer;
 
-static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
+static inline __attribute__((always_inline)) int rpscoreNextImpl(ResultProcessor *base,
+                                                                 SearchResult *res,
+                                                                 bool withThreshold,
+                                                                 double minCompetitiveScore) {
   int rc;
   RPScorer *self = (RPScorer *)base;
 
   do {
-    rc = base->upstream->Next(base->upstream, res);
+    rc = withThreshold ? RP_NextWithThreshold(base->upstream, res, minCompetitiveScore)
+                       : base->upstream->Next(base->upstream, res);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
@@ -817,6 +834,17 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
+static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
+  return rpscoreNextImpl(base, res, false, -INFINITY);
+}
+
+// Each score is computed from its upstream candidate alone, so a candidate the threshold rules
+// out could only have produced a result below it.
+static int rpscoreNextWithThreshold(ResultProcessor *base, SearchResult *res,
+                                    double minCompetitiveScore) {
+  return rpscoreNextImpl(base, res, true, minCompetitiveScore);
+}
+
 /* Free impl. for scorer - frees up the scorer privdata if needed */
 static void rpscoreFree(ResultProcessor *rp) {
   RPScorer *self = (RPScorer *)rp;
@@ -839,6 +867,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
   ret->scorerCtx = *fnargs;
   ret->scoreKey = rlk;
   ret->base.Next = rpscoreNext;
+  ret->base.NextWithThreshold = rpscoreNextWithThreshold;
   ret->base.Free = rpscoreFree;
   ret->base.type = RP_SCORER;
   return &ret->base;
@@ -855,10 +884,12 @@ typedef struct {
   ResultProcessor base;
 } RPMetrics;
 
-static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
-  int rc;
-
-  rc = base->upstream->Next(base->upstream, res);
+static inline __attribute__((always_inline)) int rpMetricsNextImpl(ResultProcessor *base,
+                                                                   SearchResult *res,
+                                                                   bool withThreshold,
+                                                                   double minCompetitiveScore) {
+  int rc = withThreshold ? RP_NextWithThreshold(base->upstream, res, minCompetitiveScore)
+                         : base->upstream->Next(base->upstream, res);
   if (rc != RS_RESULT_OK) {
     return rc;
   }
@@ -871,6 +902,16 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
+static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
+  return rpMetricsNextImpl(base, res, false, -INFINITY);
+}
+
+// Metrics only add fields to the row; the score is the upstream one.
+static int rpMetricsNextWithThreshold(ResultProcessor *base, SearchResult *res,
+                                      double minCompetitiveScore) {
+  return rpMetricsNextImpl(base, res, true, minCompetitiveScore);
+}
+
 /* Free implementation for RPMetrics */
 static void rpMetricsFree(ResultProcessor *rp) {
   RPMetrics *self = (RPMetrics *)rp;
@@ -880,6 +921,7 @@ static void rpMetricsFree(ResultProcessor *rp) {
 ResultProcessor *RPMetricsLoader_New() {
   RPMetrics *ret = rm_calloc(1, sizeof(*ret));
   ret->base.Next = rpMetricsNext;
+  ret->base.NextWithThreshold = rpMetricsNextWithThreshold;
   ret->base.Free = rpMetricsFree;
   ret->base.type = RP_METRICS;
   return &ret->base;
@@ -964,11 +1006,25 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
+/**
+ * Pull the next result from upstream into the pooled result. Once a score heap is full, nothing
+ * scoring below its minimum can enter it, so that minimum goes upstream as the threshold.
+ */
+static inline int pullCandidate(RPSorter *self) {
+  ResultProcessor *upstream = self->base.upstream;
+  if (RPSorter_IsByScore(&self->base) && self->pq->size > 0 &&
+      self->pq->count == self->pq->size && RSGlobalConfig.diskScoreSkippingQuery) {
+    const double theta = SearchResult_GetScore(mmh_peek_min(self->pq));
+    return RP_NextWithThreshold(upstream, self->pooledResult, ScoreBound_MinCompetitive(theta));
+  }
+  return upstream->Next(upstream, self->pooledResult);
+}
+
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  int rc = pullCandidate(self);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
@@ -1907,15 +1963,28 @@ typedef struct {
   uint64_t profileCount;
 } RPProfile;
 
-static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
+static inline __attribute__((always_inline)) int rpprofileNextImpl(ResultProcessor *base,
+                                                                   SearchResult *r,
+                                                                   bool withThreshold,
+                                                                   double minCompetitiveScore) {
   RPProfile *self = (RPProfile *)base;
 
   rs_wall_clock start;
   rs_wall_clock_init(&start);
-  int rc = base->upstream->Next(base->upstream, r);
+  int rc = withThreshold ? RP_NextWithThreshold(base->upstream, r, minCompetitiveScore)
+                         : base->upstream->Next(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
   return rc;
+}
+
+static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
+  return rpprofileNextImpl(base, r, false, -INFINITY);
+}
+
+static int rpprofileNextWithThreshold(ResultProcessor *base, SearchResult *r,
+                                      double minCompetitiveScore) {
+  return rpprofileNextImpl(base, r, true, minCompetitiveScore);
 }
 
 static void rpProfileFree(ResultProcessor *base) {
@@ -1930,6 +1999,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   rpp->base.upstream = rp;
   rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
+  rpp->base.NextWithThreshold = rpprofileNextWithThreshold;
   rpp->base.Free = rpProfileFree;
   rpp->base.type = RP_PROFILE;
 

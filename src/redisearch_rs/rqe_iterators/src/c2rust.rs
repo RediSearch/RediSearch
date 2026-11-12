@@ -63,7 +63,8 @@ pub struct CRQEIterator {
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
     ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
-    ///    (`CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`), which are optional.
+    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`),
+    ///    which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -147,7 +148,8 @@ impl CRQEIterator {
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
     ///    with the exception of `SkipTo`, `ProfileChildren` and the score-bound callbacks
-    ///    (`CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`), which are optional.
+    ///    (`ReportsScoreBounds`, `CurrentMaxScore`, `CurrentBlockLastDocId`, `ReadWithThreshold`),
+    ///    which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -450,17 +452,24 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Max => 1.0,
         }
     }
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
-        match self.CurrentMaxScore {
-            // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
-            // types that implement its C iterator API; this one only reads.
-            Some(callback) => unsafe { callback(self.header.as_ptr(), ctx) },
-            None => f64::INFINITY,
-        }
+
+    fn reports_score_bounds(&self) -> bool {
+        // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
+        // types that implement its C iterator API; this one only reads.
+        self.ReportsScoreBounds
+            .is_some_and(|callback| unsafe { callback(self.header.as_ptr()) })
+    }
+
+    fn current_max_score(&self) -> f64 {
+        // SAFETY: As in `reports_score_bounds`.
+        self.CurrentMaxScore
+            .map_or(f64::INFINITY, |callback| unsafe {
+                callback(self.header.as_ptr())
+            })
     }
 
     fn current_block_last_doc_id(&self) -> Option<DocId> {
-        // SAFETY: As in `current_max_score`.
+        // SAFETY: As in `reports_score_bounds`.
         let last = self
             .CurrentBlockLastDocId
             .map_or(0, |callback| unsafe { callback(self.header.as_ptr()) });

@@ -26,9 +26,9 @@ extern "C" {
 // go through the exact score and the sorter's own tie-break.
 #define SCORE_BOUND_REL_EPSILON 1e-6
 
-// The value passed to `ReadWithThreshold` and `ScoreBound_CanDrop` for heap threshold `theta`.
-// Thresholds that are not positive are withdrawn: the supported scorers never score below 0, so
-// such a threshold could not drop anything.
+// The value passed down as `minCompetitiveScore` for heap threshold `theta`. Thresholds that are
+// not positive are withdrawn: leaves only report bounds under scorers that never score below 0,
+// so such a threshold could not drop anything.
 static inline double ScoreBound_MinCompetitive(double theta) {
   return theta > 0 ? theta * (1 - SCORE_BOUND_REL_EPSILON) : -INFINITY;
 }
@@ -37,13 +37,6 @@ static inline double ScoreBound_MinCompetitive(double theta) {
 static inline bool ScoreBound_CanDrop(double bound, double minCompetitiveScore) {
   return bound < minCompetitiveScore;
 }
-
-// Whether the composition rules of `CurrentMaxScore` hold for the scorer named `scorerName`.
-// Any other scorer disables score-bound filtering for the query.
-bool ScoreBound_ScorerSupported(const char *scorerName);
-
-// `ScoreBoundCtx.filterLeafBound` for a supported scorer.
-double ScoreBound_FilterLeafBound(const char *scorerName);
 
 #ifdef __cplusplus
 }

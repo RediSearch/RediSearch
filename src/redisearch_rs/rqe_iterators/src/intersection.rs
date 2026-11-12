@@ -709,11 +709,15 @@ where
         1.0 / self.children.len().max(1) as f64
     }
 
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
+    fn reports_score_bounds(&self) -> bool {
+        crate::composite::all_report_score_bounds(&self.children)
+    }
+
+    fn current_max_score(&self) -> f64 {
         if self.is_eof {
             return f64::INFINITY;
         }
-        crate::composite::summed_max_score(&self.children, self.result.weight, ctx)
+        crate::composite::summed_max_score(&self.children, self.result.weight)
     }
 }
 

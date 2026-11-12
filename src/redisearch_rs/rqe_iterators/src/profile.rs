@@ -230,8 +230,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
             .intersection_sort_weight(prioritize_union_children)
     }
 
-    fn current_max_score(&self, ctx: &crate::ScoreBoundCtx) -> f64 {
-        self.child.current_max_score(ctx)
+    fn reports_score_bounds(&self) -> bool {
+        self.child.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.child.current_max_score()
     }
 
     fn current_block_last_doc_id(&self) -> Option<DocId> {

@@ -37,7 +37,6 @@
 #include "redismodule.h"
 #include "result_processor.h"
 #include "result_processor_ffi.h"
-#include "score_bound.h"
 #include "rlookup.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
@@ -392,38 +391,6 @@ static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLook
   scargs.qdatalen = params->ast->udatalen;
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
-}
-
-void Pipeline_EnableScoreBounds(Pipeline *pipeline, const char *scorerName) {
-  if (!ScoreBound_ScorerSupported(scorerName)) {
-    return;
-  }
-  ResultProcessor *rp = pipeline->qctx.endProc;
-  while (rp && rp->type != RP_SORTER) {
-    rp = rp->upstream;
-  }
-  // SORTBY sorters compare fields, so their heap minimum says nothing about scores.
-  if (!rp || !RPSorter_IsByScore(rp)) {
-    return;
-  }
-  // Every RP between the index and the sorter must pass each candidate on with its score
-  // untouched; anything that groups, merges or rescores results breaks the threshold.
-  bool scored = false;
-  for (rp = rp->upstream; rp && rp->type != RP_INDEX; rp = rp->upstream) {
-    switch (rp->type) {
-      case RP_SCORER:
-        scored = true;
-        break;
-      case RP_PROFILE:
-      case RP_METRICS:
-        break;
-      default:
-        return;
-    }
-  }
-  if (rp && scored) {
-    RPQueryIterator_EnableScoreBounds(rp, ScoreBound_FilterLeafBound(scorerName));
-  }
 }
 
 bool hasQuerySortby(const AGGPlan *pln) {

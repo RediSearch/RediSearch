@@ -63,6 +63,7 @@ where
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
                 PrintProfile: Some(print_profile::<I>),
+                ReportsScoreBounds: Some(reports_score_bounds::<I>),
                 CurrentMaxScore: Some(current_max_score::<I>),
                 CurrentBlockLastDocId: Some(current_block_last_doc_id::<I>),
                 ReadWithThreshold: Some(read_with_threshold::<I>),
@@ -424,21 +425,30 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     wrapper.inner.num_estimated()
 }
 
-extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
+extern "C" fn reports_score_bounds<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
-    ctx: *const ffi::ScoreBoundCtx,
-) -> f64 {
+) -> bool {
     debug_assert!(base.is_aligned());
-    debug_assert!(!ctx.is_null());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe {
         RQEIteratorWrapper::<I>::ref_from_header_ptr(
             NonNull::new(base.cast_mut()).expect("`base` must not be null"),
         )
     };
-    // SAFETY: The C caller passes a valid context that outlives the call.
-    let ctx = unsafe { &*ctx };
-    wrapper.inner.current_max_score(ctx)
+    wrapper.inner.reports_score_bounds()
+}
+
+extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+) -> f64 {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper.inner.current_max_score()
 }
 
 extern "C" fn current_block_last_doc_id<'index, I: RQEIterator<'index> + 'index>(

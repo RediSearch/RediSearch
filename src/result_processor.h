@@ -182,7 +182,23 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * `Next`, told that no result scoring below `minCompetitiveScore` can be kept downstream, so the
+   * processor may drop such candidates without producing them. A processor passes the threshold
+   * on only if every result it produces keeps the score of the upstream result it came from.
+   * NULL means plain `Next`, which drops the threshold and is always correct; use
+   * `RP_NextWithThreshold`.
+   */
+  int (*NextWithThreshold)(struct ResultProcessor *self, SearchResult *res,
+                           double minCompetitiveScore);
 } ResultProcessor;
+
+static inline int RP_NextWithThreshold(ResultProcessor *rp, SearchResult *res,
+                                       double minCompetitiveScore) {
+  return rp->NextWithThreshold ? rp->NextWithThreshold(rp, res, minCompetitiveScore)
+                               : rp->Next(rp, res);
+}
 
 /** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
  * `itr` visits every docId in ascending order, which a profile wrapper hides. */
@@ -196,19 +212,8 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
                                         uint64_t *notDiscarded);
 
 /**
- * Drop candidates whose `CurrentMaxScore` is below the sorter's heap threshold before their
- * document metadata is read, and push that threshold to the root iterator. A no-op for in-memory
- * indexes.
- *
- * The threshold is read from `QueryProcessingCtx.minScore`, so the caller must make sure it is
- * maintained by a score sorter fed one scored result per candidate (see
- * `Pipeline_EnableScoreBounds`).
- */
-void RPQueryIterator_EnableScoreBounds(ResultProcessor *rp, double filterLeafBound);
-
-/**
  * Read score-bound counters from a profiled Index processor.
- * @return whether score-bound filtering is enabled for the query.
+ * @return whether the processor's iterator tree reports score bounds, so the counters apply.
  */
 bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
                                          uint64_t *readsAvoided);
