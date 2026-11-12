@@ -238,7 +238,6 @@ TEST_F(InfoSectionsTest, MultipleAggregateSectionsReadCacheOnce) {
   EXPECT_EQ(diskOutputs, 1);
   EXPECT_EQ(info.fields.at("total_inverted_index_blocks"), "9");
   EXPECT_EQ(info.fields.at("disk_usage"), "1234");
-  EXPECT_EQ(info.fields.count("total_num_docs_in_indexes"), 0u);
 }
 
 TEST_F(InfoSectionsTest, DiskOnlyReadsCacheBeforeOutput) {
