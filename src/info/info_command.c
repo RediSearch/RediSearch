@@ -281,6 +281,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     if (FieldSpec_IndexesMissing(fs)) {
       RedisModule_Reply_SimpleString(reply, SPEC_INDEXMISSING_STR);
     }
+    if (FieldSpec_IndexesNull(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXNULL_STR);
+    }
 
     if (has_map) {
       RedisModule_Reply_ArrayEnd(reply); // >>>flags

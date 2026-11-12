@@ -249,6 +249,7 @@ after_includes = """
 #define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
+#define QN_ISNULL          QueryNodeType_IsNull
 #define QN_MAX             QueryNodeType_Max
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */

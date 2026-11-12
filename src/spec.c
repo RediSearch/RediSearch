@@ -1192,6 +1192,11 @@ static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
       fs->options |= FieldSpec_IndexEmpty;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+        return 0;
+      }
+      fs->options |= FieldSpec_IndexNull;
     } else {
       break;
     }
@@ -1228,12 +1233,34 @@ static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *statu
         fs->options |= FieldSpec_IndexEmpty;
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
         fs->options |= FieldSpec_IndexMissing;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+        if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+          return 0;
+        }
+        fs->options |= FieldSpec_IndexNull;
       } else {
         break;
       }
     }
 
   return rc;
+}
+
+// NUMERIC, GEO, GEOSHAPE and VECTOR take INDEXMISSING and INDEXNULL once each, in either order;
+// a repeat is not an option of the field
+static int parseMissingAndNullOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  while (true) {
+    if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+      fs->options |= FieldSpec_IndexMissing;
+    } else if (!FieldSpec_IndexesNull(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXNULL_STR)) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_INDEXNULL_STR, status)) {
+        return 0;
+      }
+      fs->options |= FieldSpec_IndexNull;
+    } else {
+      return 1;
+    }
+  }
 }
 
 // Parse the options specific to the field's type, stopping at the first argument that is not one
@@ -1244,11 +1271,7 @@ static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
     return parseTagFieldOptions(fs, ac, status);
   }
-  // NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is not an option of the field
-  if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-    fs->options |= FieldSpec_IndexMissing;
-  }
-  return 1;
+  return parseMissingAndNullOptions(fs, ac, status);
 }
 
 // Whether the current argument would start a valid field definition (`name [AS alias] type`),
@@ -1392,10 +1415,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 
   if(result != 0) {
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
-    return result;
+    return parseMissingAndNullOptions(fs, ac, status) ? result : 0;
   } else {
     return 0;
   }
@@ -1477,6 +1497,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   // not contribute and thus this doesn't make sense.
   if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesMissing(fs)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXMISSING`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
+    goto error;
+  }
+  // Likewise for INDEXNULL: a null value of a field that isn't indexed can't be queried.
+  if (!FieldSpec_IsIndexable(fs) && FieldSpec_IndexesNull(fs)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "'Field cannot be defined with both `NOINDEX` and `INDEXNULL`", " `%s` '", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
   return 1;
@@ -2184,6 +2209,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->missing.indexes) {
     dictRelease(spec->missing.indexes);
   }
+  if (spec->nulls.indexes) {
+    dictRelease(spec->nulls.indexes);
+  }
   // Free existing docs inverted index
   if (spec->existingDocs) {
     InvertedIndex_Free(spec->existingDocs);
@@ -2659,6 +2687,7 @@ dictType missingFieldDictType = {
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invIdxDictType, NULL);
   sp->missing.indexes = dictCreate(&missingFieldDictType, NULL);
+  sp->nulls.indexes = dictCreate(&missingFieldDictType, NULL);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the

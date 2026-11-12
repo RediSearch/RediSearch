@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Evaluation of `QN_ISNULL` query nodes.
+
+use std::ptr::NonNull;
+
+use dict::{Dict, MissingFieldDictType};
+use hidden_string::HiddenString;
+use rqe_core::FieldIndex;
+use rqe_iterators::inverted_index::new_null_iterator;
+
+use crate::{EvalResult, QueryEvalContext};
+
+/// `QN_ISNULL` — matches documents where a field holds a JSON `null`.
+pub(crate) fn eval<'index>(
+    ctx: &'index mut QueryEvalContext,
+    field_index: FieldIndex,
+) -> Option<EvalResult<'index>> {
+    // Disk-backed specs reject `INDEXNULL` at creation, so an `isnull` node over
+    // one never makes it past parsing.
+    debug_assert!(
+        ctx.spec().diskSpec.is_null(),
+        "INDEXNULL is not supported on disk-backed specs"
+    );
+
+    let spec = ctx.spec();
+
+    // `field_index` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
+    // local spec (e.g. a coordinator shard); nothing upstream stops it from
+    // reaching evaluation against a different, spec-bearing context.
+    debug_assert!(
+        field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
+    // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+    let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+    // SAFETY: `field_ptr` was just derived above and stays within `spec.fields`'s bounds.
+    let fs = unsafe { &*field_ptr };
+
+    // SAFETY: the query's spec owns a live null-field dictionary created with
+    // MissingFieldDictType. Indexing finishes its rehashing before readers can
+    // access it, and query evaluation holds the spec lock.
+    let nulls = unsafe { Dict::<MissingFieldDictType>::from_raw(spec.nulls.indexes) };
+    // SAFETY: `fs` was just re-derived above and is a valid, non-dangling
+    // `FieldSpec`, so its `fieldName` is a valid `HiddenString` key.
+    let field_name = unsafe { HiddenString::from_raw(fs.fieldName) };
+    let ii_ref = nulls.fetch(field_name)?;
+
+    // `ctx.sctx()` is a live reference, so the resulting pointer is never null.
+    let sctx_nn = NonNull::from(ctx.sctx());
+
+    // SAFETY: `new_null_iterator`'s four preconditions hold here:
+    // 1. `sctx` is a valid `RedisSearchCtx` with a non-null, valid `spec` —
+    //    `QueryEvalContext` invariant (2).
+    // 2. `field_index` is within `spec.fields`'s current bounds, checked above.
+    // 3. `spec.nulls.indexes` is a non-null, valid dict — initialised by
+    //    `IndexSpec_MakeKeyless` for every queryable spec; it is also the dict
+    //    we just fetched `ii_ref` from above.
+    // 4. `ii_ref` uses `DocIdsOnly`/`RawDocIdsOnly` encoding: the indexer only
+    //    ever stores doc-ids-only inverted indexes in `nulls.indexes`.
+    Some(unsafe { new_null_iterator(ii_ref, sctx_nn, field_index) })
+}

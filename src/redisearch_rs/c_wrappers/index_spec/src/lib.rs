@@ -12,7 +12,9 @@
 mod lock;
 mod refs;
 
-pub use lock::{IndexSpecReadGuard, IndexSpecReadLock, IndexSpecWriteGuard, IndexSpecWriteLock};
+pub use lock::{
+    FieldDocsKind, IndexSpecReadGuard, IndexSpecReadLock, IndexSpecWriteGuard, IndexSpecWriteLock,
+};
 pub use refs::{IndexSpecStrongRef, IndexSpecWeakRef};
 
 use std::{ffi::CStr, slice};

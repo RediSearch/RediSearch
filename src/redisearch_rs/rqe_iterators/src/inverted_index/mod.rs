@@ -22,7 +22,7 @@ pub use geo::{
     GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, build_geo_range_iterator,
     extract_geo_unit_factor, free_geo_numeric_filters, new_geo_range_iterator,
 };
-pub use missing::{Missing, new_missing_iterator};
+pub use missing::{Missing, new_missing_iterator, new_null_iterator};
 pub use numeric::{
     Numeric, NumericIteratorVariant, RangeSource, build_numeric_filter_iterator,
     open_numeric_or_geo_index,

@@ -44,8 +44,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, tag, token,
-    union, vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, is_null, missing, not, null, numeric, optional, phrase, prefix, tag,
+    token, union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -330,6 +330,9 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Ids { keys, doc_ids } => Some(ids::eval(ctx, keys, doc_ids)),
         QueryNode::Missing { field_index } => {
             missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
+        }
+        QueryNode::IsNull { field_index } => {
+            is_null::eval(ctx, field_index).map(Evaluated::RustLeaf)
         }
         QueryNode::Optional => Some(optional::eval(ctx, node, config, offsets)),
         QueryNode::Not => Some(not::eval(ctx, node, config)),

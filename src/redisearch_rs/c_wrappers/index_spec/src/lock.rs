@@ -27,6 +27,25 @@ use schema_rule::SchemaRule;
 
 use crate::{IndexSpec, IndexSpecStrongRef};
 
+/// Which of the spec's per-field doc-ids dicts to access. Both map a field's name
+/// to a doc-ids-only inverted index, and share [`MissingFieldDictType`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldDocsKind {
+    /// `missing.indexes`: the documents missing each `INDEXMISSING` field.
+    Missing,
+    /// `nulls.indexes`: the documents holding a JSON `null` in each `INDEXNULL` field.
+    Null,
+}
+
+impl FieldDocsKind {
+    const fn dict_ptr(self, spec: &ffi::IndexSpec) -> *mut ffi::dict {
+        match self {
+            Self::Missing => spec.missing.indexes,
+            Self::Null => spec.nulls.indexes,
+        }
+    }
+}
+
 /// The write-locked accessors of an [`IndexSpec`].
 ///
 /// The guard neither takes nor releases the lock: an [`IndexSpecWriteLock`]
@@ -183,15 +202,18 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
 
     /// Return the spec's `missing.indexes` as a typed [`Dict`].
     pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
-        debug_assert!(
-            !self.0.missing.indexes.is_null(),
-            "missing.indexes must not be null"
-        );
-        // SAFETY: `missing.indexes` is a valid non-null dict* created with
-        // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and lives
-        // as long as the spec (1.). We hold the write lock, so there are no other
-        // live references and no concurrent C access (2.).
-        unsafe { Dict::from_raw_mut(self.0.missing.indexes) }
+        self.field_docs_dict_mut(FieldDocsKind::Missing)
+    }
+
+    /// Return the spec's per-field doc-ids dict of the given `kind` as a typed [`Dict`].
+    pub fn field_docs_dict_mut(&mut self, kind: FieldDocsKind) -> &mut Dict<MissingFieldDictType> {
+        let dict = kind.dict_ptr(self.0);
+        debug_assert!(!dict.is_null(), "{kind:?} field docs dict must not be null");
+        // SAFETY: `missing.indexes` and `nulls.indexes` are valid non-null dict*s
+        // created with `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`),
+        // and live as long as the spec (1.). We hold the write lock, so there are no
+        // other live references and no concurrent C access (2.).
+        unsafe { Dict::from_raw_mut(dict) }
     }
 
     /// The spec's fields alongside its `missing.indexes`, so a field's name can key
@@ -199,11 +221,20 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     pub fn field_specs_and_missing_field_dict_mut(
         &mut self,
     ) -> (&[FieldSpec], &mut Dict<MissingFieldDictType>) {
+        self.field_specs_and_field_docs_dict_mut(FieldDocsKind::Missing)
+    }
+
+    /// The spec's fields alongside its per-field doc-ids dict of the given `kind`, so
+    /// a field's name can key the dict while the dict is borrowed mutably.
+    pub fn field_specs_and_field_docs_dict_mut(
+        &mut self,
+        kind: FieldDocsKind,
+    ) -> (&[FieldSpec], &mut Dict<MissingFieldDictType>) {
         let fields: *const [FieldSpec] = self.field_specs();
         // SAFETY: `fields` points at the spec's field array and the dict borrow at the
         // `dict` struct, two separate allocations; the dict reaches its keys only through
         // raw pointers. The pair keeps the guard borrowed while either lives.
-        (unsafe { &*fields }, self.missing_field_dict_mut())
+        (unsafe { &*fields }, self.field_docs_dict_mut(kind))
     }
 
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
@@ -282,7 +313,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// 2. Caller must have already acquired the read lock
     /// 3. C code is responsible for releasing the lock
     /// 4. The keys dict must be paused for incremental rehashing.
-    /// 5. The missing docs dict must be in a fully hashed state.
+    /// 5. The missing and null docs dicts must be in a fully hashed state.
     ///
     /// # Example
     ///
@@ -342,15 +373,18 @@ impl<'lock> IndexSpecReadGuard<'lock> {
 
     /// Return the spec's `missing.indexes` as a typed [`Dict`].
     pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
-        debug_assert!(
-            !self.0.missing.indexes.is_null(),
-            "missing.indexes must not be null"
-        );
-        // SAFETY: `missing.indexes` is a valid non-null dict* created with
-        // `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`), and
-        // lives as long as the spec (1.). `missing.indexes` is always in a
-        // fully hashed state (2.).
-        unsafe { Dict::from_raw(self.0.missing.indexes) }
+        self.field_docs_dict(FieldDocsKind::Missing)
+    }
+
+    /// Return the spec's per-field doc-ids dict of the given `kind` as a typed [`Dict`].
+    pub fn field_docs_dict(&self, kind: FieldDocsKind) -> &Dict<MissingFieldDictType> {
+        let dict = kind.dict_ptr(self.0);
+        debug_assert!(!dict.is_null(), "{kind:?} field docs dict must not be null");
+        // SAFETY: `missing.indexes` and `nulls.indexes` are valid non-null dict*s
+        // created with `dictTypeHeapHiddenStrings` (`MissingFieldDictType::as_ptr()`),
+        // and live as long as the spec (1.). Both are always in a fully hashed
+        // state (2.).
+        unsafe { Dict::from_raw(dict) }
     }
 
     /// Returns the terms trie.
@@ -385,6 +419,11 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// This dictionary maps field names to their missing-value inverted indexes.
     pub const fn missing_field_dict_ptr(&self) -> *mut ffi::dict {
         self.0.missing.indexes
+    }
+
+    /// Returns a pointer to the spec's per-field doc-ids dict of the given `kind`.
+    pub const fn field_docs_dict_ptr(&self, kind: FieldDocsKind) -> *mut ffi::dict {
+        kind.dict_ptr(self.0)
     }
 
     /// Returns a pointer to the fields array.
@@ -481,7 +520,7 @@ impl IndexSpecReadLock {
         // SAFETY: (1) `spec` is valid for `'_`, (2) the read lock is held for `'_`
         // and (3) released by `IndexSpecReadLock::drop`, which `'_` ends before,
         // (4) `IndexSpec_LockRead` paused keys-dict rehashing, and (5) the indexer
-        // finishes every missing-docs dict rehash before releasing its write lock.
+        // finishes every missing- and null-docs dict rehash before releasing its write lock.
         unsafe { IndexSpecReadGuard::from_locked(spec) }
     }
 }

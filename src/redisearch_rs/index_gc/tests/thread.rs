@@ -49,6 +49,7 @@ struct TestSpec {
     spec: ffi::IndexSpec,
     keys_dict: OwnedDict<KeysDictType>,
     _missing_dict: OwnedDict<MissingFieldDictType>,
+    _null_dict: OwnedDict<MissingFieldDictType>,
     // Keeps the heap buffer `spec.fields` points at alive; names freed in `Drop`.
     field_specs: Vec<ffi::FieldSpec>,
     #[expect(
@@ -77,6 +78,7 @@ impl TestSpec {
     ) -> Self {
         let keys_dict = OwnedDict::<KeysDictType>::create();
         let missing_dict = OwnedDict::<MissingFieldDictType>::create();
+        let null_dict = OwnedDict::<MissingFieldDictType>::create();
 
         let mut trees = Vec::new();
         let mut field_specs = Vec::new();
@@ -104,6 +106,7 @@ impl TestSpec {
         spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
         spec.keysDict = keys_dict.as_mut_ptr();
         spec.missing.indexes = missing_dict.as_mut_ptr();
+        spec.nulls.indexes = null_dict.as_mut_ptr();
         // The Vec's heap buffer stays put when moved into the struct.
         spec.fields = field_specs.as_mut_ptr();
         spec.numFields = field_specs.len() as u16;
@@ -120,6 +123,7 @@ impl TestSpec {
             spec,
             keys_dict,
             _missing_dict: missing_dict,
+            _null_dict: null_dict,
             field_specs,
             trees,
             lock_attempts: 0,
@@ -168,6 +172,14 @@ impl TestSpec {
             .try_insert(&hidden, doc_ids_only_index(doc_count))
             .unwrap_or_else(|_| panic!("field already present in the missing-docs dict"));
         self.spec.existingDocs = Box::into_raw(doc_ids_only_index(doc_count)).cast();
+    }
+
+    /// Give the spec a null-docs index for `field`, holding `doc_count` docs.
+    fn add_null_docs_index(&mut self, field: &CStr, doc_count: u64) {
+        let hidden = OwnedHiddenString::new(field);
+        self._null_dict
+            .try_insert(&hidden, doc_ids_only_index(doc_count))
+            .unwrap_or_else(|_| panic!("field already present in the null-docs dict"));
     }
 
     fn has_term(&self, term: &[u8]) -> bool {
@@ -298,10 +310,10 @@ impl GcStatsSink for Recorder {
 
 /// Read locks a cycle takes on a spec with only terms: one to read the deleted
 /// set, `term_chunks` to walk the terms, and one each to list numeric trees,
-/// walk the (absent) tag values, list missing fields and scan the (absent)
-/// existing-docs index.
+/// walk the (absent) tag values, list missing fields, list null fields and scan
+/// the (absent) existing-docs index.
 const fn terms_only_read_locks(term_chunks: u64) -> u64 {
-    1 + term_chunks + 4
+    1 + term_chunks + 5
 }
 
 /// Write locks a cycle takes: `apply_chunks` to apply deltas, and one to prune
@@ -313,9 +325,10 @@ const fn write_locks(apply_chunks: u64) -> u64 {
 /// Read locks a cycle takes on a spec with one numeric field and nothing else:
 /// one to read the deleted set, one to walk the (absent) terms, one to list the
 /// tree's nodes, `node_chunks` to snapshot them, one to check the tree for
-/// leaves split since, then one each for tags, missing fields and existing docs.
+/// leaves split since, then one each for tags, missing fields, null fields and
+/// existing docs.
 const fn numeric_only_read_locks(node_chunks: u64) -> u64 {
-    1 + 1 + 1 + node_chunks + 1 + 3
+    1 + 1 + 1 + node_chunks + 1 + 4
 }
 
 #[test]
@@ -536,6 +549,44 @@ fn doc_set_indexes_are_collected_and_dropped_once_empty() {
             .is_none()
     );
     assert!(spec.spec.existingDocs.is_null());
+    assert!(recorder.total().bytes_collected > 0);
+}
+
+/// A null-docs index keeps its live docs and loses its deleted ones. Its entries are
+/// internal bookkeeping, so they don't count towards `records_removed`.
+#[test]
+fn null_docs_index_keeps_live_docs_and_collects_deleted_ones() {
+    // The null-docs dict is keyed by field name, so "n" needs a field.
+    let mut spec = TestSpec::create([], vec![(c"n", NumericRangeTree::default())]);
+    spec.add_null_docs_index(c"n", 3);
+    *spec.deleted_docs() = DeletedDocs::from_ids([2]);
+    let mut recorder = Recorder::default();
+
+    run_cycle(&mut spec, &mut recorder, true).unwrap();
+
+    let ii = spec
+        ._null_dict
+        .fetch(&OwnedHiddenString::new(c"n"))
+        .expect("docs 1 and 3 are live");
+    assert_eq!(ii.unique_docs(), 2);
+    assert_eq!(recorder.total().records_removed, 0);
+    assert!(recorder.total().bytes_collected > 0);
+}
+
+/// A null-docs index whose docs are all deleted is dropped.
+#[test]
+fn null_docs_index_is_dropped_once_empty() {
+    let mut spec = TestSpec::create([], vec![(c"n", NumericRangeTree::default())]);
+    spec.add_null_docs_index(c"n", 3);
+    let mut recorder = Recorder::default();
+
+    run_cycle(&mut spec, &mut recorder, true).unwrap();
+
+    assert!(
+        spec._null_dict
+            .fetch(&OwnedHiddenString::new(c"n"))
+            .is_none()
+    );
     assert!(recorder.total().bytes_collected > 0);
 }
 

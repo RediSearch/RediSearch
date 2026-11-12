@@ -62,7 +62,8 @@ pub enum IteratorType {
     MetricLazySortedByScore = 22,
     /// Used only in tests.
     Mock = 23,
-    Max = 24,
+    InvIdxNull = 24,
+    Max = 25,
 }
 
 impl IteratorType {
@@ -76,6 +77,7 @@ impl IteratorType {
             | Self::InvIdxTerm
             | Self::InvIdxWildcard
             | Self::InvIdxMissing
+            | Self::InvIdxNull
             | Self::InvIdxTag
             | Self::Wildcard
             | Self::Empty
@@ -109,6 +111,7 @@ impl IteratorType {
             Self::InvIdxTerm => "INV_IDX_TERM",
             Self::InvIdxWildcard => "INV_IDX_WILDCARD",
             Self::InvIdxMissing => "INV_IDX_MISSING",
+            Self::InvIdxNull => "INV_IDX_NULL",
             Self::InvIdxTag => "INV_IDX_TAG",
             Self::Hybrid => "HYBRID",
             Self::Union => "UNION",
@@ -169,7 +172,8 @@ impl TryFrom<u32> for IteratorType {
             21 => Ok(Self::MetricLazySortedById),
             22 => Ok(Self::MetricLazySortedByScore),
             23 => Ok(Self::Mock),
-            24 => Ok(Self::Max),
+            24 => Ok(Self::InvIdxNull),
+            25 => Ok(Self::Max),
             other => Err(other),
         }
     }

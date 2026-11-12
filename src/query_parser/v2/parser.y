@@ -17,6 +17,7 @@
 %left OR.
 
 %left ISMISSING.
+%left ISNULL.
 %left MODIFIER.
 
 %left RP RB RSQB.
@@ -48,7 +49,7 @@
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
 // if "as" (for instance) is not a stop-word, Or be considered as a stop-word if it is a stop-word.
-%fallback TERM EXACT AS_T ISMISSING.
+%fallback TERM EXACT AS_T ISMISSING ISNULL.
 
 %token_type {QueryToken}
 
@@ -737,6 +738,17 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
     // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
     // otherwise it is uninitialised parser-stack garbage, not NULL.
     A = NewMissingNode(ctx->sctx->spec ? B.fs : NULL);
+  }
+}
+
+expr(A) ::= ISNULL LP modifier(B) RP . {
+  if (ctx->sctx->spec && !FieldSpec_IndexesNull(B.fs)) {
+    reportSyntaxError(ctx->status, &B.tok, "'isnull' requires defining the field with '" SPEC_INDEXNULL_STR "'");
+    A = NULL;
+  } else {
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewIsNullNode(ctx->sctx->spec ? B.fs : NULL);
   }
 }
 

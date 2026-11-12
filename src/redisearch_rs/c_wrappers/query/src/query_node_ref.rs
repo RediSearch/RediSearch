@@ -154,6 +154,15 @@ pub enum QueryNode<'a> {
         /// which may already be freed by then.
         field_index: rqe_core::FieldIndex,
     },
+    /// An `isnull(@field)` predicate — matches documents where the field
+    /// holds a JSON `null`.
+    IsNull {
+        /// Stable index of the field being tested, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this against the spec held at
+        /// evaluation time, rather than caching a pointer from parse time,
+        /// which may already be freed by then.
+        field_index: rqe_core::FieldIndex,
+    },
 }
 
 /// Safe read-only wrapper around a [`ffi::RSQueryNode`] pointer.
@@ -388,6 +397,13 @@ impl QueryNodeRef {
                 let miss = unsafe { &*union_ptr.cast::<ffi::QueryMissingNode>() };
                 QueryNode::Missing {
                     field_index: miss.fieldIndex,
+                }
+            }
+            QueryNodeType::IsNull => {
+                // SAFETY: `type_` is `IsNull`, so the union holds a `QueryIsNullNode`.
+                let is_null = unsafe { &*union_ptr.cast::<ffi::QueryIsNullNode>() };
+                QueryNode::IsNull {
+                    field_index: is_null.fieldIndex,
                 }
             }
             QueryNodeType::LexRange => {

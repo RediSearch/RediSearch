@@ -108,6 +108,12 @@ typedef struct {
                             // pointer captured at parse time may already be freed by then
 } QueryMissingNode;
 
+typedef struct {
+  t_fieldIndex fieldIndex;  // stable index of the field being tested into IndexSpec.fields;
+                            // re-derive the FieldSpec* from this at evaluation time - a
+                            // pointer captured at parse time may already be freed by then
+} QueryIsNullNode;
+
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
@@ -149,6 +155,7 @@ typedef struct RSQueryNode {
     QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
+    QueryIsNullNode isNull;
   };
 
   /* The node type, for resolving the union access */

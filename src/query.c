@@ -148,6 +148,7 @@ void QueryNode_Free(QueryNode *n) {
       }
       break;
     case QN_MISSING:
+    case QN_ISNULL:
     case QN_WILDCARD:
     case QN_TAG:
     case QN_UNION:
@@ -350,6 +351,12 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 QueryNode *NewMissingNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
   ret->miss.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
+  return ret;
+}
+
+QueryNode *NewIsNullNode(const FieldSpec *field) {
+  QueryNode *ret = NewQueryNode(QN_ISNULL);
+  ret->isNull.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   return ret;
 }
 
@@ -734,6 +741,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       break;
     case QN_NULL:
     case QN_MISSING:
+    case QN_ISNULL:
       withChildren = 0;
       break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
@@ -839,6 +847,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NULL:
     case QN_MISSING:
+    case QN_ISNULL:
       withChildren = false;
       break;
     case QN_TAG:
@@ -1204,6 +1213,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_MISSING: {
       const FieldSpec *missFs = spec->fields + qs->miss.fieldIndex;
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(missFs->fieldName, NULL));
+    } break;
+    case QN_ISNULL: {
+      const FieldSpec *nullFs = spec->fields + qs->isNull.fieldIndex;
+      s = sdscatprintf(s, "ISNULL{%s}", HiddenString_GetUnsafe(nullFs->fieldName, NULL));
     } break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE

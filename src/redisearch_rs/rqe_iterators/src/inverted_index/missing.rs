@@ -14,7 +14,7 @@ use std::{
 
 use ffi::RedisSearchCtx;
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
+use index_spec::{FieldDocsKind, IndexSpecReadGuard};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore,
     opaque::OpaqueEncoding,
@@ -45,6 +45,9 @@ use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
 /// [`FieldExpirationChecker`] using the
 /// [`Missing`](field::FieldExpirationPredicate::Missing) predicate.
 ///
+/// The same iterator serves `isnull(@field)` queries, reading the index spec's
+/// `nulls.indexes` instead, as selected by its [`FieldDocsKind`].
+///
 /// # Type Parameters
 ///
 /// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
@@ -62,6 +65,8 @@ pub struct RawMissing<
 > {
     it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, C, RA>,
     field_index: FieldIndex,
+    /// Which of the spec's per-field doc-ids dicts the inverted index lives in.
+    kind: FieldDocsKind,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
     /// `spec.fields`, therefore `context`/`spec` only need to be valid at
@@ -93,8 +98,8 @@ where
     E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
-    /// The missing-field inverted index, freshly fetched from `spec`, or `None`
-    /// when the iterator must [abort](RQEValidateStatus::Aborted).
+    /// The missing-field (or null-field) inverted index, freshly fetched from
+    /// `spec`, or `None` when the iterator must [abort](RQEValidateStatus::Aborted).
     ///
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
@@ -108,8 +113,8 @@ where
     /// # Safety
     ///
     /// 1. `self.field_index` must be a valid index into `spec.fields`.
-    /// 2. `spec.missing.indexes` must be a non-null, valid dict pointer.
-    /// 3. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
+    /// 2. The spec's dict selected by `self.kind` must be a non-null, valid dict pointer.
+    /// 3. The entry in that dict for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -117,19 +122,15 @@ where
         &self,
         spec: &IndexSpecReadGuard,
     ) -> Option<NonNull<inverted_index::InvertedIndex<E>>> {
-        debug_assert!(
-            !spec.missing_field_dict_ptr().is_null(),
-            "spec.missing_field_dict_ptr() must be non-null",
-        );
+        let dict = spec.field_docs_dict_ptr(self.kind);
+        debug_assert!(!dict.is_null(), "the field docs dict must be non-null");
 
         // SAFETY: field_index is a valid index into spec.fields (guaranteed by constructor pre-conditions).
         let field_ptr = unsafe { spec.fields_ptr().offset(self.field_index as isize) };
         // SAFETY: the pointer is valid per the above.
         let field = unsafe { &*field_ptr };
         // SAFETY: The dict is non-null and valid (guaranteed by constructor pre-conditions).
-        let missing_ii_ptr = unsafe {
-            ffi::RS_dictFetchValue(spec.missing_field_dict_ptr(), field.fieldName as *mut _)
-        };
+        let missing_ii_ptr = unsafe { ffi::RS_dictFetchValue(dict, field.fieldName as *mut _) };
 
         if missing_ii_ptr.is_null() {
             // The inverted index was removed from the dict (garbage collected).
@@ -153,15 +154,15 @@ where
     /// Create an iterator returning documents missing the given field.
     ///
     /// `field_index` is the index of the field in `spec.fields` whose missing
-    /// documents inverted index this iterator reads from.
+    /// (or null, per `kind`) documents inverted index this iterator reads from.
     ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
     /// 3. `field_index` must be a valid index into `context.spec.fields`.
-    /// 4. `context.spec.missing.indexes` must be a non-null, valid dict pointer.
-    /// 5. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
+    /// 4. The `context.spec` dict selected by `kind` must be a non-null, valid dict pointer.
+    /// 5. The entry in that dict for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -169,6 +170,7 @@ where
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
         field_index: FieldIndex,
+        kind: FieldDocsKind,
         expiration_checker: C,
     ) -> Self {
         debug_assert!(
@@ -209,6 +211,7 @@ where
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             field_index,
+            kind,
             field_name,
         }
     }
@@ -287,7 +290,10 @@ where
 
     #[inline(always)]
     fn type_(&self) -> IteratorType {
-        IteratorType::InvIdxMissing
+        match self.kind {
+            FieldDocsKind::Missing => IteratorType::InvIdxMissing,
+            FieldDocsKind::Null => IteratorType::InvIdxNull,
+        }
     }
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
@@ -302,7 +308,11 @@ where
     C: ExpirationChecker,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        map.kv_simple_string(c"Type", c"MISSING");
+        let type_name = match self.kind {
+            FieldDocsKind::Missing => c"MISSING",
+            FieldDocsKind::Null => c"NULL",
+        };
+        map.kv_simple_string(c"Type", type_name);
         let field_bytes = self.field_name.as_bytes();
         if !field_bytes.is_empty() {
             map.kv_string_buffer(c"Field", field_bytes);
@@ -342,7 +352,9 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            Box::new(unsafe {
+                Missing::new(reader, sctx, field_index, FieldDocsKind::Missing, checker)
+            })
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
             let reader = ii.reader();
@@ -350,10 +362,56 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            Box::new(unsafe {
+                Missing::new(reader, sctx, field_index, FieldDocsKind::Missing, checker)
+            })
         }
         _ => panic!(
             "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+            std::mem::discriminant(ii)
+        ),
+    }
+}
+
+/// Create a null-field iterator from an opaque [`InvertedIndex`](inverted_index::opaque::InvertedIndex),
+/// dispatching on the encoding type.
+///
+/// Unlike [`new_missing_iterator`], no field-expiration check applies: only JSON
+/// documents hold nulls, and JSON fields do not expire individually.
+///
+/// # Safety
+///
+/// 1. `sctx` must point to a valid [`RedisSearchCtx`] whose `spec` is
+///    non-null and valid.
+/// 2. `field_index` must be a valid index into `sctx.spec.fields`.
+/// 3. `sctx.spec.nulls.indexes` must be a non-null, valid dict pointer.
+/// 4. The opaque inverted index must use either
+///    [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) or
+///    [`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)
+///    encoding.
+pub unsafe fn new_null_iterator<'index>(
+    ii: &'index inverted_index::opaque::InvertedIndex,
+    sctx: NonNull<RedisSearchCtx>,
+    field_index: FieldIndex,
+) -> Box<dyn RQEIteratorPrintable<'index> + 'index> {
+    let checker = crate::expiration_checker::NoOpChecker;
+    match ii {
+        inverted_index::opaque::InvertedIndex::DocIdsOnly(ii) => {
+            // SAFETY: caller guarantees sctx, spec, field_index, and
+            // nulls.indexes validity (1-3).
+            Box::new(unsafe {
+                Missing::new(ii.reader(), sctx, field_index, FieldDocsKind::Null, checker)
+            })
+        }
+        inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
+            // SAFETY: caller guarantees sctx, spec, field_index, and
+            // nulls.indexes validity (1-3).
+            Box::new(unsafe {
+                Missing::new(ii.reader(), sctx, field_index, FieldDocsKind::Null, checker)
+            })
+        }
+        _ => panic!(
+            "Null iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
             std::mem::discriminant(ii)
         ),
     }
@@ -372,7 +430,7 @@ where
         // SAFETY: `RawMissing` is a `#[repr(C)]` newtype whose only
         // `Rf`-dependent field is the inner `RawInvIndIterator`, layout-identical
         // across modes by invariant 1 on [`RawInvIndIterator`] (const proof
-        // there); `field_index` and `field_name` carry no `Rf`. `Box::from_raw`
+        // there); `field_index`, `kind` and `field_name` carry no `Rf`. `Box::from_raw`
         // reuses the same heap allocation.
         unsafe { Box::from_raw(raw as *mut RawMissing<'index, Suspended, E, C>) }
     }
@@ -422,7 +480,7 @@ where
         // SAFETY: `RawMissing` is a `#[repr(C)]` newtype whose only
         // `Rf`-dependent field is the inner `RawInvIndIterator`, layout-identical
         // across modes by invariant 1 on [`RawInvIndIterator`] (const proof
-        // there); `field_index` and `field_name` carry no `Rf`. `resume_in_place`
+        // there); `field_index`, `kind` and `field_name` carry no `Rf`. `resume_in_place`
         // left the inner iterator as a valid active iterator, so the whole
         // `RawMissing` is now a valid `Missing<'a, E, C>`.
         let active = unsafe { Box::from_raw(raw as *mut Missing<'a, E, C>) };

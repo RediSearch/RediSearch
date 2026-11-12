@@ -47,7 +47,7 @@ use std::{collections::HashSet, ops::RangeInclusive, time::Instant};
 
 use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
-use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
+use index_spec::{FieldDocsKind, IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
 use numeric_range_tree::NodeIndex;
 
@@ -57,9 +57,7 @@ use crate::{
     scanners::existing_docs::{
         ExistingDocsEntry, apply_existing_docs_with, snapshot_existing_docs,
     },
-    scanners::missing_docs::{
-        apply_missing_docs_with, missing_field_indexes, snapshot_missing_field,
-    },
+    scanners::missing_docs::{apply_field_docs_with, field_docs_indexes, snapshot_field_docs},
     scanners::numeric::{
         NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with, compact_tree,
         numeric_tree_keys, ranges_of_nodes_added_since, snapshot_numeric_node,
@@ -457,15 +455,15 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         Ok(())
     }
 
-    fn missing_docs(&mut self) -> Result<(), GcError> {
-        // One entry per INDEXMISSING field, so the list is short.
-        let keys: Vec<FieldIndex> = self.read(missing_field_indexes)?;
+    fn field_docs(&mut self, kind: FieldDocsKind) -> Result<(), GcError> {
+        // One entry per INDEXMISSING (or INDEXNULL) field, so the list is short.
+        let keys: Vec<FieldIndex> = self.read(|guard| field_docs_indexes(kind, guard))?;
         if keys.is_empty() {
             return Ok(());
         }
         let live = self.deleted;
         let snapshot_chunk = keyed(&keys, |guard, &field_index: &FieldIndex| {
-            snapshot_missing_field(guard, field_index, &live)
+            snapshot_field_docs(kind, guard, field_index, &live)
                 .map(|snapshot| (field_index, snapshot))
         });
         let scan_snapshot = |(field_index, snapshot): (FieldIndex, InvertedIndex)| {
@@ -477,10 +475,13 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 .map(|delta| ((field_index, unique_id, delta), tail)))
         };
         let apply_delta = |(field_index, unique_id, delta), guard: &mut IndexSpecWriteGuard<'_>| {
-            apply_missing_docs_with(field_index, unique_id, delta, Some(&live), guard)
+            apply_field_docs_with(kind, field_index, unique_id, delta, Some(&live), guard)
         };
         self.run(
-            "missing docs",
+            match kind {
+                FieldDocsKind::Missing => "missing docs",
+                FieldDocsKind::Null => "null docs",
+            },
             &mut Buffers::new(),
             snapshot_chunk,
             scan_snapshot,
@@ -559,7 +560,12 @@ pub fn run_cycle(
         .numeric(clean_numeric_empty_nodes)
         .map_err(|e| ("numeric", e))?;
     driver.tags().map_err(|e| ("tags", e))?;
-    driver.missing_docs().map_err(|e| ("missing docs", e))?;
+    driver
+        .field_docs(FieldDocsKind::Missing)
+        .map_err(|e| ("missing docs", e))?;
+    driver
+        .field_docs(FieldDocsKind::Null)
+        .map_err(|e| ("null docs", e))?;
     driver.existing_docs().map_err(|e| ("existing docs", e))?;
 
     let Driver {
