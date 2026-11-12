@@ -12,7 +12,6 @@
 
 use std::io::Cursor;
 
-use super::super::kind::{RSResultKind, RSResultKindMask};
 use super::super::result_data::RawResultData;
 use super::RSIndexResult;
 
@@ -69,16 +68,15 @@ impl OffsetIter<'_> {
 }
 
 /// Returns `true` if `result` contributes meaningful term-position offsets.
+///
+/// An aggregate contributes them only through its children, so a union of terms
+/// without offsets (e.g. a stem expansion on a `NOOFFSETS` index) is skipped
+/// like those terms are.
 fn has_offsets(result: &RSIndexResult) -> bool {
     match &result.data {
         RawResultData::Term(rec) => !rec.offsets().is_empty(),
         RawResultData::Intersection(agg) | RawResultData::Union(agg) => {
-            // Skip aggregates that consist only of virtual or purely numeric
-            // (Numeric | Metric) results, as neither carries offset data.
-            let mask = agg.kind_mask();
-            let virtual_only: RSResultKindMask = RSResultKind::Virtual.into();
-            let numeric_only: RSResultKindMask = RSResultKind::Numeric | RSResultKind::Metric;
-            mask != virtual_only && mask != numeric_only
+            (0..agg.len()).filter_map(|i| agg.get(i)).any(has_offsets)
         }
         RawResultData::Virtual
         | RawResultData::Numeric(_)
@@ -465,6 +463,61 @@ mod tests {
         static EMPTY: [u8; 0] = [];
         let mut merge = make_merge(vec![static_term_iter(&EMPTY), static_term_iter(&EMPTY)]);
         assert_eq!(merge.next_offset(), None);
+    }
+
+    // ── is_within_range: children without offsets ────────────────────────────
+
+    fn aggregate(
+        children: Vec<RSIndexResult<'static>>,
+        wrap: fn(crate::RSAggregateResult<'static>) -> crate::RSResultData<'static>,
+    ) -> RSIndexResult<'static> {
+        let mut agg = crate::RSOwnedAggregateResult::with_capacity(children.len());
+        for child in children {
+            agg.push_boxed(Box::new(child));
+        }
+        RSIndexResult {
+            doc_id: 0,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            data: wrap(crate::RawAggregateResult::Owned(agg)),
+            metrics: crate::MetricsVec::new(),
+            weight: 0.0,
+            has_field_expiration: false,
+        }
+    }
+
+    fn term(offsets: &'static [u8]) -> RSIndexResult<'static> {
+        RSIndexResult::build_term()
+            .borrowed_record(None, crate::RSOffsetSlice::from_slice(offsets))
+            .build()
+    }
+
+    /// Terms of a `NOOFFSETS` index carry no positions, so they impose no
+    /// proximity constraint, whether bare or wrapped in an expansion union.
+    #[test]
+    fn unions_of_terms_without_offsets_are_within_range() {
+        let union = || aggregate(vec![term(&[]), term(&[])], RawResultData::Union);
+        for children in [vec![term(&[]), term(&[])], vec![union(), union()]] {
+            let ir = aggregate(children, RawResultData::Intersection);
+            assert!(is_within_range(&ir, Some(0), true));
+            assert!(is_within_range(&ir, Some(0), false));
+        }
+    }
+
+    /// A union with at least one child carrying offsets is still checked.
+    #[test]
+    fn unions_with_offsets_are_still_checked() {
+        // Positions 1 and 5: four slots apart.
+        let ir = aggregate(
+            vec![
+                aggregate(vec![term(&[1]), term(&[])], RawResultData::Union),
+                aggregate(vec![term(&[5])], RawResultData::Union),
+            ],
+            RawResultData::Intersection,
+        );
+        assert!(!is_within_range(&ir, Some(0), true));
+        assert!(is_within_range(&ir, Some(3), true));
     }
 
     // ── iterate_offsets: single-child shortcut ────────────────────────────────

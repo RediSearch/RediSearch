@@ -27,6 +27,7 @@ use tracing::Level;
 use tracing_log_error::log_error;
 
 mod fork;
+mod thread;
 mod util;
 
 use util::borrow_fork_pipe;

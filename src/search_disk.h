@@ -371,13 +371,13 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
- * `stats` before the call.
+ * `stats` before the call. See `DiskGCRunResult` for recoverable failure handling.
  *
  * @param index Pointer to the disk index
  * @param stats Caller-allocated, zero-initialized stats out-parameter
  *              (MUST NOT be NULL; RS_ASSERT)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -463,10 +463,10 @@ size_t SearchDisk_GetLiveSnapshotCount(void);
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -1077,6 +1077,10 @@ bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDi
                                  size_t numRanges, t_docId *maxDocId);
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx);
+SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
+    RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+    const SearchDiskSlotRange *ranges, size_t numRanges, t_docId maxDocId,
+    size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
 #ifdef __cplusplus
 }
 #endif
