@@ -24,6 +24,7 @@
 #include "util/arr.h"
 
 #include <strings.h>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -153,8 +154,8 @@ TEST_F(DistributeFirstValueTest, WithBy_ShipsSortValueAndDefaultsToAsc) {
   EXPECT_EQ(argsOf(remote[0]), (Argv{"title", "BY", "price", "ASC"}));
   EXPECT_EQ(argsOf(remote[1]), (Argv{"price", "BY", "price", "ASC"}));
   EXPECT_EQ(argsOf(local[0]), (Argv{remote[0]->alias, "BY", remote[1]->alias, "ASC"}));
-  EXPECT_STREQ(remote[0]->alias, "__first_value(title,price,ASC)");
-  EXPECT_STREQ(remote[1]->alias, "__first_value(price,price,ASC)");
+  EXPECT_STREQ(remote[0]->alias, "__first_value_0");
+  EXPECT_STREQ(remote[1]->alias, "__first_value_1");
   EXPECT_STREQ(local[0]->alias, "fv");
 
   AREQ_Free(r);
@@ -218,6 +219,28 @@ TEST_F(DistributeFirstValueTest, CaseDistinctFields_GetDistinctRemoteAliases) {
   EXPECT_EQ(argsOf(remote[0]), (Argv{"Price", "BY", "price", "ASC"}));
   EXPECT_EQ(argsOf(remote[1]), (Argv{"price", "BY", "price", "ASC"}));
   EXPECT_STRNE(remote[0]->alias, remote[1]->alias);
+
+  AREQ_Free(r);
+}
+
+TEST_F(DistributeFirstValueTest, SeparatorInFieldNames_GetDistinctRemoteAliases) {
+  AREQ *r = nullptr;
+  AGGPlan *plan = nullptr;
+  QueryError qerr = QueryError_Default();
+  // `a,b BY c` and `a BY b,c` read the same once joined with commas; their four remote
+  // reducers must still get four different output names.
+  ASSERT_EQ(distribute({"@a,b", "BY", "@c", "ASC"},
+                       {"REDUCE", "FIRST_VALUE", "4", "@a", "BY", "@b,c", "ASC", "AS", "fv2"},
+                       &r, &plan, &qerr),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&qerr);
+
+  Groups g = locateGroups(plan);
+  auto remote = reducersNamed(g.remote, "FIRST_VALUE");
+  ASSERT_EQ(remote.size(), 4u);
+  std::set<std::string> aliases;
+  for (const PLN_Reducer *rr : remote) aliases.insert(rr->alias);
+  EXPECT_EQ(aliases.size(), remote.size());
 
   AREQ_Free(r);
 }

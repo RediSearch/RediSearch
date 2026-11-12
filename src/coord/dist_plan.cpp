@@ -303,10 +303,16 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
 
-/* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
+/* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE. The optional third
+ * argument, the resolution, only tunes the estimator, so it travels to the local reducer. */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
-  CHECK_ARG_COUNT(2);
+  const size_t argc = src->args.argc;
+  if (argc != 2 && argc != 3) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "Invalid arguments for reducer %s", src->name);
+    return REDISMODULE_ERR;
+  }
   const char *alias = NULL;
 
   if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
@@ -314,11 +320,12 @@ static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (!rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS", src->alias)) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
+  const bool added =
+      argc == 3 ? rdctx->addLocal("QUANTILE", status, "3", alias, rdctx->srcarg(1),
+                                  rdctx->srcarg(2), "AS", src->alias)
+                : rdctx->addLocal("QUANTILE", status, "2", alias, rdctx->srcarg(1), "AS",
+                                  src->alias);
+  return added ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* Distribute STDDEV into remote RANDOM_SAMPLE and local STDDEV */
@@ -523,16 +530,12 @@ static bool parseFirstValueArgs(const ReducerDistCtx *rdctx, const char **sort,
   return true;
 }
 
-// The remote reducers' output names. Built from the arguments as written rather than through
-// the generated alias, which lowercases them and would give both remote reducers of
-// `@Price BY @price` the same name. Identical reducers still get identical names, so they dedup.
-static const char *firstValueRemoteAlias(ReducerDistCtx *rdctx, const char *ret,
-                                         const char *sort, const char *dir) {
-  std::string s = std::string("__first_value(") + ret;
-  if (sort) {
-    s += std::string(",") + sort + "," + dir;
-  }
-  s += ")";
+// The output name for the next remote reducer: its position in the remote group. A name
+// derived from the arguments would either lowercase them, as the generated alias does and so
+// collide for `@Price BY @price`, or be forgeable by a field name containing the separator.
+// Dedup happens before the name is used, so the position is stable for a given query.
+static const char *firstValueRemoteAlias(ReducerDistCtx *rdctx) {
+  std::string s = "__first_value_" + std::to_string(array_len(rdctx->remoteGroup->reducers));
   return distAllocStr(rdctx->alloc, s.c_str(), s.size());
 }
 
@@ -559,7 +562,7 @@ static int distributeFirstValue(ReducerDistCtx *rdctx, QueryError *status) {
   const char *retAlias;
   if (!sort) {
     if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "1", ret, "AS",
-                          firstValueRemoteAlias(rdctx, ret, nullptr, nullptr))) {
+                          firstValueRemoteAlias(rdctx))) {
       return REDISMODULE_ERR;
     }
     if (!rdctx->addLocal("FIRST_VALUE", status, "1", retAlias, "AS", src->alias)) {
@@ -569,9 +572,11 @@ static int distributeFirstValue(ReducerDistCtx *rdctx, QueryError *status) {
   }
   const char *sortAlias;
   if (!rdctx->addRemote("FIRST_VALUE", &retAlias, status, "4", ret, "BY", sort, dir, "AS",
-                        firstValueRemoteAlias(rdctx, ret, sort, dir)) ||
-      !rdctx->addRemote("FIRST_VALUE", &sortAlias, status, "4", sort, "BY", sort, dir, "AS",
-                        firstValueRemoteAlias(rdctx, sort, sort, dir))) {
+                        firstValueRemoteAlias(rdctx))) {
+    return REDISMODULE_ERR;
+  }
+  if (!rdctx->addRemote("FIRST_VALUE", &sortAlias, status, "4", sort, "BY", sort, dir, "AS",
+                        firstValueRemoteAlias(rdctx))) {
     return REDISMODULE_ERR;
   }
   if (!rdctx->addLocal("FIRST_VALUE", status, "4", retAlias, "BY", sortAlias, dir, "AS",

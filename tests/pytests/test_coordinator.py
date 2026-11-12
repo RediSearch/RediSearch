@@ -185,6 +185,44 @@ def testFirstValueCaseDistinctFields(env):
     env.assertEqual(to_dict(res[1]), {'g': 'a', 'Price_of_min_price': '3',
                                       'price_of_min_Price': '2', 'max_Price': '3'}, message=res)
 
+def testFirstValueWithQuantileResolution(env):
+    """QUANTILE takes an optional resolution. In cluster it is forwarded to the coordinator-side
+    estimator (`distributeQuantile` in `src/coord/dist_plan.cpp`), so a GROUPBY that mixes it
+    with a distributed FIRST_VALUE keeps working once FIRST_VALUE no longer pins the GROUPBY
+    to the coordinator."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'name', 'TAG', 'price', 'NUMERIC').ok()
+    for i in range(1, 101):
+        conn.execute_command('HSET', f'doc:{i}', 'g', 'a', 'name', f'n{i}', 'price', i)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'DESC', 'AS', 'top',
+                  'REDUCE', 'QUANTILE', '3', '@price', '0.5', '100', 'AS', 'median',
+                  'REDUCE', 'QUANTILE', '2', '@price', '0.5', 'AS', 'median_default')
+    env.assertEqual(res[0], 1, message=res)
+    row = to_dict(res[1])
+    env.assertEqual(row['top'], 'n100', message=res)
+    # Every shard holds fewer rows than the 500-row sample, so both estimates see all 100 values.
+    for key in ('median', 'median_default'):
+        env.assertTrue(45 <= float(row[key]) <= 56, message=f'{key}={row[key]} in {res}')
+
+def testFirstValueSeparatorInFieldNames(env):
+    """`@a,b BY @c` and `@a BY @b,c` are different reducers that read alike once their arguments
+    are joined with commas; each per-shard reducer still needs its own output name."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 'a,b', 'ab1', 'c', 2, 'a', 'a1', 'b,c', 2)
+    conn.execute_command('HSET', 'doc2', 'g', 'a', 'a,b', 'ab2', 'c', 1, 'a', 'a2', 'b,c', 1)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '4', '@a,b', '@c', '@a', '@b,c',
+                  'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@a,b', 'BY', '@c', 'ASC', 'AS', 'x',
+                  'REDUCE', 'FIRST_VALUE', '4', '@a', 'BY', '@b,c', 'ASC', 'AS', 'y')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'g': 'a', 'x': 'ab2', 'y': 'a2'}, message=res)
+
 def testFirstValueRequiresLoadedProperty(env):
     """A FIRST_VALUE over a property that is neither in the schema nor LOADed is rejected the
     same way in standalone and in cluster, where the reducer now runs on the shards and follows
