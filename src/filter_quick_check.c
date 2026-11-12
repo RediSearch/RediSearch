@@ -20,7 +20,7 @@
 
 typedef struct {
   FilterQuickCheckPredicateType type;
-  size_t arity;
+  size_t end;
   union {
     FilterQuickCheckSignature mask;
     FilterQuickCheckNumericRange numeric;
@@ -116,10 +116,12 @@ void FilterQuickCheckSignature_Add(FilterQuickCheckSignature* signature,
 }
 
 static bool compile(const FilterQuickCheckPredicate* predicate, QuickCheckInstruction* program,
-                    size_t* len, size_t depth) {
+                    size_t* len, size_t depth, FilterQuickCheckNumericResolver resolver,
+                    void* context) {
   if (*len == QUICK_CHECK_MAX_NODES || depth == QUICK_CHECK_MAX_DEPTH) {
     return false;
   }
+  const size_t position = (*len)++;
   QuickCheckInstruction instruction = {.type = FilterQuickCheck_UNKNOWN};
   if (predicate) {
     switch (predicate->type) {
@@ -132,8 +134,11 @@ static bool compile(const FilterQuickCheckPredicate* predicate, QuickCheckInstru
       case FilterQuickCheck_NUMERIC:
         if (!isnan(predicate->numeric.min) && !isnan(predicate->numeric.max) &&
             predicate->numeric.min <= predicate->numeric.max) {
-          instruction.type = FilterQuickCheck_NUMERIC;
           instruction.numeric = predicate->numeric;
+          if (!resolver ||
+              resolver(context, predicate->numeric.fieldIndex, &instruction.numeric.fieldIndex)) {
+            instruction.type = FilterQuickCheck_NUMERIC;
+          }
         }
         break;
       case FilterQuickCheck_AND:
@@ -143,31 +148,31 @@ static bool compile(const FilterQuickCheckPredicate* predicate, QuickCheckInstru
           return false;
         }
         instruction.type = predicate->type;
-        instruction.arity = predicate->operands.len;
-        for (size_t i = 0; i < instruction.arity; ++i) {
-          if (!compile(&predicate->operands.children[i], program, len, depth + 1)) {
+        for (size_t i = 0; i < predicate->operands.len; ++i) {
+          if (!compile(&predicate->operands.children[i], program, len, depth + 1, resolver,
+                       context)) {
             return false;
           }
         }
         break;
       default:
-        /* In particular, never negate the result of a lossy membership test. */
+        /* Never negate the result of a lossy membership test. */
         break;
     }
   }
-  if (*len == QUICK_CHECK_MAX_NODES) {
-    return false;
-  }
-  program[(*len)++] = instruction;
+  instruction.end = *len;
+  program[position] = instruction;
   return true;
 }
 
-FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* predicate) {
+FilterQuickCheck* FilterQuickCheck_CompileWithNumericResolver(
+    const FilterQuickCheckPredicate* predicate, FilterQuickCheckNumericResolver resolver,
+    void* context) {
   QuickCheckInstruction program[QUICK_CHECK_MAX_NODES];
   size_t len = 0;
-  if (!compile(predicate, program, &len, 0)) {
+  if (!compile(predicate, program, &len, 0, resolver, context)) {
     /* Dropping a disjunct would create false negatives; discard the entire incomplete plan. */
-    program[0] = (QuickCheckInstruction){.type = FilterQuickCheck_UNKNOWN};
+    program[0] = (QuickCheckInstruction){.type = FilterQuickCheck_UNKNOWN, .end = 1};
     len = 1;
   }
   FilterQuickCheck* check = rm_malloc(sizeof(*check) + len * sizeof(program[0]));
@@ -183,50 +188,52 @@ FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* pred
   return check;
 }
 
+FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* predicate) {
+  return FilterQuickCheck_CompileWithNumericResolver(predicate, NULL, NULL);
+}
+
 void FilterQuickCheck_Free(FilterQuickCheck* check) {
   rm_free(check);
+}
+
+static bool evaluateNode(const FilterQuickCheck* check, size_t position,
+                         const FilterQuickCheckSignature* signature,
+                         const FilterQuickCheckContext* context, uint64_t docId) {
+  const QuickCheckInstruction* instruction = &check->instructions[position];
+  switch (instruction->type) {
+    case FilterQuickCheck_TERM:
+      if (signature) {
+        for (size_t w = 0; w < 4; ++w) {
+          if ((signature->words[w] & instruction->mask.words[w]) != instruction->mask.words[w]) {
+            return false;
+          }
+        }
+      }
+      return true;
+    case FilterQuickCheck_NUMERIC:
+      return numericMayMatch(&instruction->numeric, context, docId);
+    case FilterQuickCheck_AND:
+    case FilterQuickCheck_OR: {
+      const bool identity = instruction->type == FilterQuickCheck_AND;
+      for (size_t child = position + 1; child < instruction->end;
+           child = check->instructions[child].end) {
+        bool maybe = evaluateNode(check, child, signature, context, docId);
+        if (maybe != identity) {
+          return maybe;
+        }
+      }
+      return identity;
+    }
+    default:
+      return true;
+  }
 }
 
 static FilterQuickCheckResult evaluate(const FilterQuickCheck* check,
                                        const FilterQuickCheckSignature* signature,
                                        const FilterQuickCheckContext* context, uint64_t docId) {
-  if (!check) {
-    return FilterQuickCheck_MAYBE;
-  }
-  bool stack[QUICK_CHECK_MAX_NODES];
-  size_t top = 0;
-  for (size_t i = 0; i < check->len; ++i) {
-    const QuickCheckInstruction* instruction = &check->instructions[i];
-    bool maybe = true;
-    switch (instruction->type) {
-      case FilterQuickCheck_TERM:
-        if (!signature) {
-          break;
-        }
-        for (size_t w = 0; w < 4; ++w) {
-          if ((signature->words[w] & instruction->mask.words[w]) != instruction->mask.words[w]) {
-            maybe = false;
-            break;
-          }
-        }
-        break;
-      case FilterQuickCheck_NUMERIC:
-        maybe = numericMayMatch(&instruction->numeric, context, docId);
-        break;
-      case FilterQuickCheck_AND:
-      case FilterQuickCheck_OR:
-        maybe = instruction->type == FilterQuickCheck_AND;
-        for (size_t j = 0; j < instruction->arity; ++j) {
-          bool child = stack[--top];
-          maybe = instruction->type == FilterQuickCheck_AND ? maybe && child : maybe || child;
-        }
-        break;
-      default:
-        break;
-    }
-    stack[top++] = maybe;
-  }
-  return stack[0] ? FilterQuickCheck_MAYBE : FilterQuickCheck_NO;
+  return !check || evaluateNode(check, 0, signature, context, docId) ? FilterQuickCheck_MAYBE
+                                                                     : FilterQuickCheck_NO;
 }
 
 FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,

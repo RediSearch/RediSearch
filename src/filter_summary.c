@@ -127,40 +127,83 @@ void FilterSummary_IndexDocument(const RSAddDocumentCtx* aCtx) {
   DMD_Return(md);
 }
 
-static bool lookupTerms(void* context, uint64_t docId, FilterQuickCheckSignature* out) {
+static bool resolveNumeric(void* context, uint16_t fieldIndex, uint16_t* slot) {
   const IndexSpec* spec = context;
-  const RSDocumentMetadata* md = DocTable_Borrow(&spec->docs, docId);
-  bool available =
-      md && md->filterSummary && md->filterSummary->schemaFieldCount == spec->numFields;
-  if (available) *out = md->filterSummary->terms;
-  DMD_Return(md);
-  return available;
-}
-
-static bool lookupNumeric(void* context, uint64_t docId, uint16_t fieldIndex,
-                          FilterQuickCheckNumericSummary* out) {
-  const IndexSpec* spec = context;
-  const RSDocumentMetadata* md = DocTable_Borrow(&spec->docs, docId);
-  bool found = false;
-  if (md && md->filterSummary && md->filterSummary->schemaFieldCount == spec->numFields) {
-    const FilterSummary* summary = md->filterSummary;
-    for (size_t i = 0; i < summary->numericCount; ++i) {
-      if (summary->numeric[i].fieldIndex == fieldIndex) {
-        *out = summary->numeric[i].bounds;
-        found = true;
-        break;
+  if (!spec) return false;
+  size_t numericSlot = 0;
+  for (size_t i = 0; i < spec->numFields; ++i) {
+    const FieldSpec* field = &spec->fields[i];
+    if (FieldSpec_IsIndexable(field) && FIELD_IS(field, INDEXFLD_T_NUMERIC)) {
+      if (field->index == fieldIndex) {
+        *slot = numericSlot;
+        return true;
       }
+      ++numericSlot;
     }
   }
-  DMD_Return(md);
-  return found;
+  return false;
 }
 
-FilterQuickCheckContext FilterSummary_CreateContext(IndexSpec* spec,
-                                                    const FilterQuickCheck* check) {
-  return (FilterQuickCheckContext){.check = check,
-                                   .lookup = spec ? lookupTerms : NULL,
-                                   .lookupContext = spec,
-                                   .numericLookup = spec ? lookupNumeric : NULL,
-                                   .numericLookupContext = spec};
+typedef struct {
+  const FilterSummaryContext* query;
+  const RSDocumentMetadata* document;
+  const FilterSummary* summary;
+  bool loaded;
+} DocumentSummary;
+
+static const FilterSummary* loadSummary(DocumentSummary* view, uint64_t docId) {
+  if (!view->loaded) {
+    view->loaded = true;
+    view->document = DocTable_Borrow(&view->query->spec->docs, docId);
+    view->summary = view->document ? view->document->filterSummary : NULL;
+    if (view->summary && view->summary->schemaFieldCount != view->query->schemaFieldCount) {
+      view->summary = NULL;
+    }
+  }
+  return view->summary;
+}
+
+static bool lookupTerms(void* context, uint64_t docId, FilterQuickCheckSignature* out) {
+  const FilterSummary* summary = loadSummary(context, docId);
+  if (!summary) return false;
+  *out = summary->terms;
+  return true;
+}
+
+static bool lookupNumeric(void* context, uint64_t docId, uint16_t slot,
+                          FilterQuickCheckNumericSummary* out) {
+  const FilterSummary* summary = loadSummary(context, docId);
+  if (!summary || slot >= summary->numericCount) return false;
+  *out = summary->numeric[slot].bounds;
+  return true;
+}
+
+FilterSummaryContext FilterSummary_CreateContext(IndexSpec* spec,
+                                                 const FilterQuickCheckPredicate* predicate) {
+  return (FilterSummaryContext){
+      .spec = spec,
+      .check = FilterQuickCheck_CompileWithNumericResolver(predicate, resolveNumeric, spec),
+      .schemaFieldCount = spec ? spec->numFields : 0};
+}
+
+void FilterSummary_FreeContext(FilterSummaryContext* context) {
+  FilterQuickCheck_Free(context->check);
+  context->check = NULL;
+}
+
+int FilterSummary_MayMatch(void* opaque, size_t label) {
+  const FilterSummaryContext* context = opaque;
+  if (!context || !context->spec || !context->check ||
+      context->schemaFieldCount != context->spec->numFields) {
+    return 1;
+  }
+  DocumentSummary document = {.query = context};
+  FilterQuickCheckContext view = {.check = context->check,
+                                  .lookup = lookupTerms,
+                                  .lookupContext = &document,
+                                  .numericLookup = lookupNumeric,
+                                  .numericLookupContext = &document};
+  int result = FilterQuickCheck_MayMatch(&view, label);
+  DMD_Return(document.document);
+  return result;
 }

@@ -15,8 +15,7 @@
 #include <string.h>
 
 struct NavixQuery {
-  FilterQuickCheck* check;
-  FilterQuickCheckContext context;
+  FilterSummaryContext context;
   VecSimNavixStats stats;
   NavixQuery* previous;
 };
@@ -77,10 +76,9 @@ NavixQuery* NavixQuery_New(IndexSpec* spec, const QueryNode* filter, NavixQuery*
   PredicateArena arena = {.used = 1};
   lower(&arena, &arena.nodes[0], filter, spec, 0, -1);
   NavixQuery* query = rm_calloc(1, sizeof(*query));
-  query->check = FilterQuickCheck_Compile(arena.overflow ? NULL : &arena.nodes[0]);
-  query->context = FilterSummary_CreateContext(spec, query->check);
+  query->context = FilterSummary_CreateContext(spec, arena.overflow ? NULL : &arena.nodes[0]);
   query->previous = previous;
-  *params = (VecSimNavixParams){.mayMatch = FilterQuickCheck_MayMatch,
+  *params = (VecSimNavixParams){.mayMatch = FilterSummary_MayMatch,
                                 .context = &query->context,
                                 .stats = &query->stats,
                                 .forceBlind = blind};
@@ -90,7 +88,7 @@ NavixQuery* NavixQuery_New(IndexSpec* spec, const QueryNode* filter, NavixQuery*
 void NavixQuery_Free(NavixQuery* query) {
   while (query) {
     NavixQuery* previous = query->previous;
-    FilterQuickCheck_Free(query->check);
+    FilterSummary_FreeContext(&query->context);
     rm_free(query);
     query = previous;
   }

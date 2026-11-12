@@ -25,10 +25,18 @@ void FilterSummary_IndexDocument(const struct RSAddDocumentCtx* aCtx);
 size_t FilterSummary_MemoryUsage(const FilterSummary* summary);
 void FilterSummary_Free(FilterSummary* summary);
 
-/* Borrows both arguments. Keep the spec alive and its read lock held across evaluations;
- * reacquire it after yielding. No summary pointer escapes a lookup. */
-FilterQuickCheckContext FilterSummary_CreateContext(struct IndexSpec* spec,
-                                                    const FilterQuickCheck* check);
+typedef struct {
+  struct IndexSpec* spec;
+  FilterQuickCheck* check;
+  size_t schemaFieldCount;
+} FilterSummaryContext;
+
+/* Owns the compiled check; borrows spec. Hold its read lock during creation and evaluation.
+ * Evaluations borrow at most one document; no document or summary pointer survives the call. */
+FilterSummaryContext FilterSummary_CreateContext(struct IndexSpec* spec,
+                                                 const FilterQuickCheckPredicate* predicate);
+void FilterSummary_FreeContext(FilterSummaryContext* context);
+int FilterSummary_MayMatch(void* context, size_t label);
 
 #ifdef __cplusplus
 }

@@ -183,10 +183,19 @@ float-rounded values to cover legacy numeric compression conservatively. Replace
 them. Their allocation is included in document-table memory accounting. This POC enables
 collection unconditionally; a field-selection flag and production memory layout come later.
 
-`FilterSummary_CreateContext(spec, check)` supplies both lookup callbacks. The caller
-keeps the spec alive and holds its read lock while evaluating. The context retains no
-document pointer; lookups copy values from the current indexed version. Missing summaries,
-failed indexing, and schema-field-count mismatches return MAYBE. RDB-loaded metadata starts
-without summaries until reindexing; the persistence format is unchanged. Disk providers,
-query lowering, and NaviX integration are separate follow-ups. Exact filtering remains
-mandatory after candidate generation.
+`FilterSummary_CreateContext(spec, &predicate)` compiles the predicate and resolves numeric
+fields to summary slots. The returned context owns that plan; release it with
+`FilterSummary_FreeContext`. Keep the spec alive and hold its read lock during creation
+and evaluation:
+
+```c
+FilterSummaryContext context = FilterSummary_CreateContext(spec, &predicate);
+int maybe = FilterSummary_MayMatch(&context, docId);
+FilterSummary_FreeContext(&context);
+```
+
+Evaluation borrows document metadata lazily, at most once per candidate, and retains no
+document or summary pointer after returning. Missing summaries, failed indexing, and
+schema-field-count mismatches remain conservative. RDB-loaded metadata starts without
+summaries until reindexing; the persistence format is unchanged. Disk providers remain a
+follow-up. Exact filtering remains mandatory after candidate generation.
