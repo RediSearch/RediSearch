@@ -93,6 +93,16 @@ impl Wildcard<'_> {
         }
     }
 
+    /// Like [`Wildcard::new`], but the results carry no frequency or field mask, so every
+    /// document scores the same as a doc-table wildcard that reads no postings.
+    pub fn new_unscored(top_id: DocId, weight: f64) -> Self {
+        Wildcard {
+            top_id,
+            result: RSIndexResult::build_virt().weight(weight).build(),
+            past_end: false,
+        }
+    }
+
     /// Whether this iterator owes no further result, recording it if the
     /// position has just reached `top_id`.
     ///

@@ -3166,6 +3166,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     // A crash can interrupt a change to the deleted set; inspecting it would reenter Rust.
     doc_table_size += DocTable_DeletedDocsMemoryUsage(&sp->docs);
   }
+  if (isDisk && IndexSpec_DocTableMode(sp) == DocTableMode_Ram) {
+    doc_table_size += sp->docs.memsize;
+  }
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
@@ -3373,6 +3376,10 @@ static int docTableRamRdbLoad(RedisModuleIO *rdb, DocTable *dt, DocumentType typ
     size_t keyLen;
     char *key = LoadStringBuffer_IOError(rdb, &keyLen, return REDISMODULE_ERR);
     float score = RedisModule_LoadFloat(rdb);
+    if (RedisModule_IsIOError(rdb)) {
+      RedisModule_Free(key);
+      return REDISMODULE_ERR;
+    }
     RSDocumentFlags flags = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
     uint32_t maxTermFreq = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
     uint32_t docLen = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
@@ -4272,7 +4279,9 @@ static bool removeDocFromDocTable(IndexSpec *spec, t_docId docId, uint32_t *docL
       *docLen = md->docLen;
       DMD_Return(md);
       uint32_t ignored = 0;
-      return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &ignored);
+      RS_LOG_ASSERT_ALWAYS(SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &ignored),
+                         "marking a RAM doc-table document deleted must not fail");
+      return true;
     }
     return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen);
   }

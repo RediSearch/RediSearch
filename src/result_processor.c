@@ -110,6 +110,8 @@ typedef struct {
   // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
   // ascending order over a doc table too big to stay cached.
   bool prefetchDmd;
+  // RAM doc-table mode only: ids above the query's snapshot are not visible. Fixed per query.
+  t_docId ramSnapshotCutoff;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -168,7 +170,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     bool foundDocument;
     if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
       // The live vector index can yield ids newer than the query's snapshot.
-      foundDocument = !deleted && it->current->docId <= SearchDisk_GetSnapshotCutoff(sctx->diskSnapshot);
+      foundDocument = !deleted && it->current->docId <= self->ramSnapshotCutoff;
       if (foundDocument) {
         IndexSpec_LockRead(spec);
         foundDocument = DocTable_CopyById(docs, it->current->docId, diskDmd, &sctx->currentTime);
@@ -593,6 +595,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->prefetchDmd = denseAscendingScan && !sctx->spec->diskSpec &&
                      sctx->spec->docs.size * sizeof(RSDocumentMetadata) >
                          WILDCARD_DMD_PREFETCH_MIN_BYTES;
+  if (sctx->spec->diskSpec && IndexSpec_DocTableMode(sctx->spec) == DocTableMode_Ram) {
+    ret->ramSnapshotCutoff = SearchDisk_GetSnapshotCutoff(sctx->diskSnapshot);
+  }
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
