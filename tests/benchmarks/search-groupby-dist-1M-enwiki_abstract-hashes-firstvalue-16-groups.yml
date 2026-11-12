@@ -1,0 +1,38 @@
+name: "search-groupby-dist-1M-enwiki_abstract-hashes-firstvalue-16-groups"
+description: >-
+  This filtered 1M-document enwiki workload buckets the matching rows into 16 groups by
+  title length, so every group holds tens of thousands of rows, and asks each group for the
+  url of its longest abstract. A FIRST_VALUE that runs on the shards ships 16 picks per
+  shard; one that runs on the coordinator pulls every matching row across the cluster.
+  This is the regime where distributing the reducer pays off; the firstvalue-k400 sibling
+  measures the many-small-groups overhead instead.
+
+metadata:
+  component: "search"
+  query_type: "groupby-distributed-firstvalue"
+  backend: "hash"
+  window: "0-16"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url APPLY strlen(@title)%16 AS bucket APPLY strlen(@abstract) AS len GROUPBY 1 @bucket REDUCE COUNT 0 AS n REDUCE FIRST_VALUE 4 @url BY @len DESC AS longest_url SORTBY 2 @n DESC LIMIT 0 16'"

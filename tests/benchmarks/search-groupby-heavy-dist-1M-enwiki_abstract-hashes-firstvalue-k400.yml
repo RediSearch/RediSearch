@@ -1,0 +1,38 @@
+name: "search-groupby-heavy-dist-1M-enwiki_abstract-hashes-firstvalue-k400"
+description: >-
+  This filtered 1M-document enwiki workload measures FIRST_VALUE ... BY fan-in over the
+  same 32,308 title groups as the COLLECT and COUNT_DISTINCT siblings. A FIRST_VALUE that
+  runs on the shards ships one pick per group plus the sort value it won with; one that runs
+  on the coordinator receives every matching row. With one row per group the two move
+  about the same number of rows, so this workload isolates the per-group reducer cost.
+  Compare against the FIRST_VALUE baseline only; the sibling workloads use different plans.
+
+metadata:
+  component: "search"
+  query_type: "groupby-heavy-distributed-firstvalue"
+  backend: "hash"
+  window: "0-400"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 1 -t 1 --hide-histogram --command 'FT.AGGREGATE enwiki_abstract @abstract:american|county|university|book|district LOAD 2 @title @url APPLY strlen(@abstract) AS len GROUPBY 1 @title REDUCE COUNT 0 AS n REDUCE FIRST_VALUE 4 @url BY @len DESC AS longest_url SORTBY 2 @n DESC LIMIT 0 400'"
