@@ -192,24 +192,11 @@ jobs:
           github-token: ${{ github.token }}
 
       # valgrind is not part of the shared container image, since no other job
-      # needs it. Built from source because Noble's 3.22 skips reading symbols
-      # for some LLD-linked test binaries (two adjacent RW segments). The layout
-      # shifts with the embedded git SHA, so without symbols the std-lib
-      # suppressions miss and the job fails on some commits and not others.
+      # needs it. Installing it needs apt and root, which the ubuntu container
+      # provides.
       - name: Install valgrind
         if: inputs.tool == 'valgrind'
-        env:
-          VALGRIND_VERSION: 3.26.0
-          VALGRIND_SHA256: 8d54c717029106f1644aadaf802ab9692e53d93dd015cbd19e74190eba616bd7
-        run: |
-          ${{ format(env.SETUP_RETRY_LOOP, 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bzip2 curl libc6-dbg && curl -sSfL -o /tmp/valgrind.tar.bz2 https://sourceware.org/pub/valgrind/valgrind-${VALGRIND_VERSION}.tar.bz2') }}
-          echo "${VALGRIND_SHA256}  /tmp/valgrind.tar.bz2" | sha256sum -c -
-          tar -C /tmp -xjf /tmp/valgrind.tar.bz2
-          cd "/tmp/valgrind-${VALGRIND_VERSION}"
-          ./configure --prefix=/usr/local -q
-          make -s -j"$(nproc)"
-          make -s install
-          valgrind --version
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq valgrind') }}
 
       - name: Set log artifact name
         if: inputs.tool == 'miri'

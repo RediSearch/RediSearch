@@ -183,7 +183,9 @@ jobs:
     secrets: inherit
     with:
       tool: valgrind
-      platform: ubuntu:noble
+      # Resolute, not Noble: Noble's valgrind 3.22 skips reading symbols for some
+      # LLD-linked test binaries, so the std-lib suppressions miss on some commits.
+      platform: ubuntu:resolute
       architecture: x86_64
 
   pr-validation:
