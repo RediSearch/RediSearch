@@ -290,12 +290,16 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
+  const bool isDisk = sp->diskSpec != NULL;
+  if (!isDisk) {
+    REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
+  }
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
-  REPLY_KVINT("max_doc_id", maxDocId);
+  if (!isDisk) {
+    REPLY_KVINT("max_doc_id", maxDocId);
+  }
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
-  const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
@@ -314,8 +318,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     text_overhead, vector_indexes_size);
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
-  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize;
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -324,13 +326,22 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
-  REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
-  REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
-  REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
+  if (!isDisk) {
+    REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+    REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
+    REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
+  }
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
-    TextResourceMetrics text = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead).text;
+    CachedIndexMetrics resources = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead);
+    TextResourceMetrics text = resources.text;
     REPLY_KVMAP("column_families");
+    REPLY_KVMAP("doc_table");
+    REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
+    REPLY_KVINT("max_doc_id", maxDocId);
+    REPLY_KVINT("memtable_bytes", resources.doc_table.memtable_bytes);
+    REPLY_KVINT("storage_bytes", resources.doc_table.storage_bytes);
+    REPLY_MAP_END;
     REPLY_KVMAP("text");
     REPLY_KVINT("ram_metadata_bytes", text_overhead);
     REPLY_KVINT("memtable_bytes", text.memtable_bytes);
