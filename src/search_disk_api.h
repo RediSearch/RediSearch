@@ -1153,9 +1153,9 @@ typedef struct MetricsDiskAPI {
   void (*stopMetrics)(RedisSearchDisk *disk);
   void (*activateTarget)(RedisSearchDiskIndexSpec *index);
   uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
-  /* Stages the disk snapshot and live C-owned TEXT metadata for INFO output. */
-  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
-                                                uint64_t textRamMetadataBytes);
+  /* Stages cached index metrics for INFO output, returning resource totals.
+   * Does not collect native storage properties. */
+  CachedIndexMetrics (*collectInfoIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *
@@ -1224,8 +1224,9 @@ typedef struct MetricsDiskAPI {
    *
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context
+   * @param textRamMetadataBytes Aggregate TEXT metadata RAM measured by the caller
    */
-  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx);
+  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx, uint64_t textRamMetadataBytes);
 
   /**
    * @brief Get per-field disk metrics for a TEXT field.

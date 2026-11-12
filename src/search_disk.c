@@ -747,10 +747,9 @@ bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
-CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index,
-                                                     uint64_t textRamMetadataBytes) {
+CachedIndexMetrics SearchDisk_CollectInfoIndexMetrics(RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.readCachedIndexMetrics(disk_db, index, textRamMetadataBytes);
+  return disk->metrics.collectInfoIndexMetrics(disk_db, index);
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index) {
@@ -778,9 +777,9 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
   return disk->metrics.getInvertedIndexTotalBlocks(index);
 }
 
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes) {
   RS_ASSERT(disk && disk_db && ctx);
-  disk->metrics.outputInfoMetrics(disk_db, ctx);
+  disk->metrics.outputInfoMetrics(disk_db, ctx, textRamMetadataBytes);
 }
 
 PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,

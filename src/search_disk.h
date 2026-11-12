@@ -779,8 +779,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  */
 
 void SearchDisk_ActivateUsage(IndexSpec *spec);
-CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index,
-                                                     uint64_t textRamMetadataBytes);
+CachedIndexMetrics SearchDisk_CollectInfoIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Collect metrics for an index and store them in the disk context
@@ -851,7 +850,7 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  *
  * @param ctx Redis module info context
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.
