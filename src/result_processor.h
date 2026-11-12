@@ -224,13 +224,6 @@ void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp);
  */
 bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns);
 
-/**
- * Read score-bound counters from a profiled Index processor.
- * @return whether the processor's iterator tree reports score bounds, so the counters apply.
- */
-bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
-                                         uint64_t *readsAvoided);
-
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);

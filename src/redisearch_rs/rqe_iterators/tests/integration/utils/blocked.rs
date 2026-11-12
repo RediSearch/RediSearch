@@ -78,7 +78,7 @@ pub(crate) struct BlockedLog {
 /// A leaf over [`Block`]s that implements every score-bound hook: its document bound is the exact
 /// score, its block bound the [`Block::max_score`] of the block it stands in, and its
 /// [`read_with_threshold`](RQEIterator::read_with_threshold) jumps over whole blocks whose maximum
-/// cannot reach the threshold.
+/// cannot reach the threshold, then steps over the documents of a kept block that cannot.
 pub(crate) struct Blocked {
     blocks: Vec<Block>,
     /// `(block index, index in block)` of every document, in id order.
@@ -209,13 +209,15 @@ impl RQEIterator<'static> for Blocked {
             return Ok(None);
         }
         let mut at = self.next;
-        while at < self.entries.len()
-            && can_drop(
-                self.blocks[self.entries[at].0].max_score,
-                min_competitive_score,
-            )
-        {
-            at = self.next_block_start(at);
+        while at < self.entries.len() {
+            let (b, i) = self.entries[at];
+            if can_drop(self.blocks[b].max_score, min_competitive_score) {
+                at = self.next_block_start(at);
+            } else if can_drop(self.blocks[b].docs[i].1, min_competitive_score) {
+                at += 1;
+            } else {
+                break;
+            }
         }
         Ok(self.land(at).map(|_| &mut self.result))
     }

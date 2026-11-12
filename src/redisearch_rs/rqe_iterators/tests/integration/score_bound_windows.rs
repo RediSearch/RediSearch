@@ -679,11 +679,7 @@ proptest! {
             let Some(doc) = yielded else { break };
             prop_assert!(doc > previous, "doc {} after {}", doc, previous);
             prop_assert!(scores.contains_key(&doc), "doc {} is not a match", doc);
-            // A composite drops what it yields below the threshold itself; a leaf leaves that to
-            // the root caller.
-            if !is_leaf {
-                prop_assert!(!can_drop(it.current_max_score(), min));
-            }
+            prop_assert!(!can_drop(it.current_max_score(), min), "doc {} below {:?}", doc, min);
             previous = doc;
         }
         prop_assert!(it.read().expect("read failed").is_none(), "EOF is terminal");

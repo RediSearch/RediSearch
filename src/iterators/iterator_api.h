@@ -172,10 +172,11 @@ typedef struct QueryIterator {
 
   /* `Read`, except that the iterator may move past documents whose `CurrentMaxScore` is below
    * `minCompetitiveScore` without yielding them; it never moves past a document that could reach
-   * it. Intersections and unions never yield a document below it either; a leaf may, so the root
-   * caller drops those. Same post-conditions as `Read`. `minCompetitiveScore` is always positive
-   * (see `ScoreBound_MinCompetitive`): a caller without a threshold calls `Read`. NULL means plain
-   * `Read`; use `QueryIterator_ReadWithThreshold`. */
+   * it, and never yields a document whose `CurrentMaxScore` is below it, so the caller takes every
+   * result as competitive. Same post-conditions as `Read`. `minCompetitiveScore` is always
+   * positive (see `ScoreBound_MinCompetitive`): a caller without a threshold calls `Read`. NULL
+   * means plain `Read`, which is only correct for an iterator that does not report bounds: one
+   * that does must implement this. Use `QueryIterator_ReadWithThreshold`. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
 

@@ -733,8 +733,21 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         &mut self,
         min_competitive_score: rqe_iterators::score_bound::MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.checked_read("read_with_threshold", |inner| {
-            inner.read_with_threshold(min_competitive_score)
-        })
+        let yielded = self
+            .checked_read("read_with_threshold", |inner| {
+                inner.read_with_threshold(min_competitive_score)
+            })?
+            .is_some();
+        if !yielded {
+            return Ok(None);
+        }
+        let bound = self.inner.current_max_score();
+        assert!(
+            !rqe_iterators::score_bound::can_drop(bound, min_competitive_score),
+            "read_with_threshold: yielded doc {} whose bound {bound} cannot reach \
+             {min_competitive_score:?}",
+            self.inner.last_doc_id(),
+        );
+        Ok(self.inner.current())
     }
 }

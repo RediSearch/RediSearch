@@ -108,13 +108,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     RPQueryIterator_GetCandidateCounts(rp->upstream, &discarded, &notDiscarded);
     RedisModule_ReplyKV_LongLong(reply, "Deleted candidates discarded", discarded);
     RedisModule_ReplyKV_LongLong(reply, "Candidates not discarded", notDiscarded);
-    uint64_t dropped = 0;
-    uint64_t readsAvoided = 0;
-    // Only printed where the filter can run, so other profiles keep their shape.
-    if (RPQueryIterator_GetScoreBoundCounts(rp->upstream, &dropped, &readsAvoided)) {
-      RedisModule_ReplyKV_LongLong(reply, "Score-bound candidates dropped", dropped);
-      RedisModule_ReplyKV_LongLong(reply, "Document metadata reads avoided", readsAvoided);
-    }
   }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;

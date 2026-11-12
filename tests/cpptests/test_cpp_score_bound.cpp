@@ -378,9 +378,14 @@ class BlockedLeaf {
       const IteratorStatus rc = self(it)->land(target);
       return rc == ITERATOR_OK && it->lastDocId != target ? ITERATOR_NOTFOUND : rc;
     };
-    base.ReadWithThreshold = [](QueryIterator *it, double) {
+    base.ReadWithThreshold = [](QueryIterator *it, double minCompetitiveScore) {
       self(it)->thresholdedReads++;
-      return it->Read(it);
+      IteratorStatus rc;
+      do {
+        rc = it->Read(it);
+      } while (rc == ITERATOR_OK &&
+               ScoreBound_CanDrop(it->CurrentMaxScore(it), minCompetitiveScore));
+      return rc;
     };
     base.NumEstimated = [](const QueryIterator *it) {
       size_t n = 0;

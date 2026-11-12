@@ -123,8 +123,6 @@ typedef struct {
   RPQueryIterator base;
   uint64_t deletedCandidatesDiscarded;
   uint64_t candidatesNotDiscarded;
-  uint64_t scoreBoundCandidatesDropped;
-  uint64_t scoreBoundDocTableReadsAvoided;
 } RPQueryIteratorProfiled;
 
 // Next wrappers pass a constant isProfiled. Forced inlining lets optimized
@@ -144,47 +142,22 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
 /**
  * Advance `it`. `withThreshold` is a constant at every call site: without it this is the plain
  * `Read` the query has always made.
+ *
+ * With it, every candidate is already competitive: `ReadWithThreshold` never yields a document
+ * whose `CurrentMaxScore` is below the threshold, so this only asserts it. Documents the iterators
+ * skip are never seen here and are not counted in `totalResults`.
  */
 static inline __attribute__((always_inline)) IteratorStatus
 readCandidate(QueryIterator *it, bool withThreshold, double minCompetitiveScore) {
-  return withThreshold ? QueryIterator_ReadWithThreshold(it, minCompetitiveScore) : it->Read(it);
-}
-
-/**
- * Whether the candidate `it` is positioned on cannot reach the results, judged before its
- * document metadata is read.
- *
- * A dropped candidate still matches the query, so it is counted in `totalResults`: the reported
- * total then stays what it would be without the filter, except for dropped documents that turn
- * out to be expired or outside the query's slots, which are counted although a metadata read
- * would have rejected them.
- */
-static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterator *self,
-                                                                   const QueryIterator *it,
-                                                                   bool withThreshold,
-                                                                   double minCompetitiveScore,
-                                                                   bool isProfiled) {
-  // Intersections and unions never yield a candidate below the threshold, but a leaf root may:
-  // `ReadWithThreshold` lets it skip only whole blocks, or nothing. This check is what drops such
-  // a leaf's candidates.
   if (!withThreshold) {
-    return false;
+    return it->Read(it);
   }
-  const double bound = QueryIterator_CurrentMaxScore(it);
-  if (!ScoreBound_CanDrop(bound, minCompetitiveScore)) {
-    // TODO(MOD-21193): once the metadata of this survivor is read, compare its exact bound with
-    // the threshold to count reads caused by bound quantization.
-    return false;
-  }
-  // TODO(MOD-21193): under the drop-verification debug config, still read and score the dropped
-  // candidate and assert it could not have entered the results.
-  self->base.parent->totalResults++;
-  if (isProfiled) {
-    RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
-    profiled->scoreBoundCandidatesDropped++;
-    profiled->scoreBoundDocTableReadsAvoided++;
-  }
-  return true;
+  const IteratorStatus rc = QueryIterator_ReadWithThreshold(it, minCompetitiveScore);
+  RS_ASSERT(rc != ITERATOR_OK ||
+            !ScoreBound_CanDrop(QueryIterator_CurrentMaxScore(it), minCompetitiveScore));
+  // TODO(MOD-21193): once the metadata of a candidate is read, compare its exact score with the
+  // threshold to count reads caused by bound quantization.
+  return rc;
 }
 
 /****
@@ -200,15 +173,12 @@ static inline __attribute__((always_inline)) bool dropByScoreBound(RPQueryIterat
  * @param prefetchDmd Whether to prefetch the metadata of the docIds just ahead of `it`
  * @param dmd The document metadata pointer to set
  * @param self The owning query iterator processor
- * @param withThreshold Whether `minCompetitiveScore` applies; a constant at every call site
- * @param minCompetitiveScore The threshold from `NextWithThreshold`
  * @param isProfiled Whether to record candidate counts for this query
  * @return true if the document is not deleted or expired, false otherwise.
  */
 static inline __attribute__((always_inline)) bool getDocumentMetadata(
     IndexSpec *spec, DocTable *docs, RedisSearchCtx *sctx, const QueryIterator *it,
-    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self,
-    bool withThreshold, double minCompetitiveScore, bool isProfiled) {
+    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self, bool isProfiled) {
   if (spec->diskSpec) {
     RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
@@ -216,10 +186,6 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
-    if (!deleted && dropByScoreBound(self, it, withThreshold, minCompetitiveScore, isProfiled)) {
-      DMD_Return(diskDmd);
-      return false;
-    }
     DiskReadFailureReason failureReason = DISK_READ_ERROR;
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
@@ -292,7 +258,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(
     t_docId docId = it->current->docId;
     const bool deleted = SearchDisk_DocIdDeleted(sctx->spec->diskSpec, docId);
     recordCandidate(self, deleted, isProfiled);
-    if (deleted || dropByScoreBound(self, it, withThreshold, minCompetitiveScore, isProfiled)) {
+    if (deleted) {
       continue;
     }
 
@@ -488,7 +454,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
     // Get document metadata (either from disk or in-memory DocTable)
     if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self,
-                             withThreshold, minCompetitiveScore, isProfiled)) {
+                             isProfiled)) {
       continue;
     }
 
@@ -732,15 +698,6 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
   const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
   *discarded = self->deletedCandidatesDiscarded;
   *notDiscarded = self->candidatesNotDiscarded;
-}
-
-bool RPQueryIterator_GetScoreBoundCounts(ResultProcessor *rp, uint64_t *dropped,
-                                         uint64_t *readsAvoided) {
-  RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
-  const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
-  *dropped = self->scoreBoundCandidatesDropped;
-  *readsAvoided = self->scoreBoundDocTableReadsAvoided;
-  return QueryIterator_ReportsScoreBounds(self->base.iterator);
 }
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {

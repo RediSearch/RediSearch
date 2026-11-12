@@ -387,16 +387,20 @@ pub trait RQEIterator<'index> {
 
     /// [`read`](Self::read), except that the iterator may move past documents whose
     /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` without
-    /// yielding them. It never moves past a document that could reach `min_competitive_score`.
+    /// yielding them. It never moves past a document that could reach `min_competitive_score`,
+    /// and never yields one whose [`current_max_score`](Self::current_max_score) cannot
+    /// ([`score_bound::can_drop`]), so the caller takes every result as competitive.
+    ///
+    /// The default, a plain [`read`](Self::read), is only correct for an iterator that does not
+    /// [report bounds](Self::reports_score_bounds), which is never given a threshold; one that
+    /// does must override this.
     ///
     /// The caller passes the threshold its own score is measured against, so a composite must not
     /// hand it to its children, whose scores are only part of its own: [`Intersection`] and
     /// [`Union`] read their children with plain [`read`](Self::read) and
-    /// [`skip_to`](Self::skip_to), skip windows whose [`current_block_bound`](Self::current_block_bound)
-    /// cannot reach the threshold, and never yield a document whose own bound cannot either.
-    /// A leaf may yield such a document, and ignoring the threshold, as the default does, is always
-    /// correct, so a root caller drops what comes back below the threshold
-    /// ([`score_bound::can_drop`]). [`skip_to`](Self::skip_to) has no thresholded form.
+    /// [`skip_to`](Self::skip_to), and skip windows whose
+    /// [`current_block_bound`](Self::current_block_bound) cannot reach the threshold.
+    /// [`skip_to`](Self::skip_to) has no thresholded form.
     fn read_with_threshold(
         &mut self,
         _min_competitive_score: score_bound::MinCompetitiveScore,
