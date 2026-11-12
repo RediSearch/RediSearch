@@ -1064,6 +1064,11 @@ typedef struct DocTableResourceMetrics {
   uint64_t storage_bytes;
 } DocTableResourceMetrics;
 
+typedef struct MissingResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} MissingResourceMetrics;
+
 /* Numeric cached values; reading these never collects native properties. */
 typedef struct CachedIndexMetrics {
   uint64_t memory;
@@ -1071,6 +1076,7 @@ typedef struct CachedIndexMetrics {
   uint64_t blocks;
   TextResourceMetrics text;
   DocTableResourceMetrics doc_table;
+  MissingResourceMetrics missing;
 } CachedIndexMetrics;
 
 typedef struct MetricsDiskAPI {

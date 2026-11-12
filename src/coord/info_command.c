@@ -82,6 +82,11 @@ static InfoFieldSpec textResourceSpecs[] = {
     {.name = "storage_bytes", .type = InfoField_WholeSum},
 };
 
+static InfoFieldSpec missingResourceSpecs[] = {
+    {.name = "memtable_bytes", .type = InfoField_WholeSum},
+    {.name = "storage_bytes", .type = InfoField_WholeSum},
+};
+
 static InfoFieldSpec gcSpecs[] = {
     {.name = "bytes_collected", .type = InfoField_WholeSum},
     {.name = "total_ms_run", .type = InfoField_WholeSum},
@@ -144,6 +149,7 @@ typedef struct {
   MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
   InfoValue textResources[ARRAY_SIZE(textResourceSpecs)];
+  InfoValue missingResources[ARRAY_SIZE(missingResourceSpecs)];
   InfoValue docTable[ARRAY_SIZE(docTableSpecs)];
 } InfoFields;
 
@@ -320,6 +326,9 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
         } else if (group && !strcmp(group, "text")) {
           processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->textResources,
                          textResourceSpecs, ARRAY_SIZE(textResourceSpecs), 1, error);
+        } else if (group && !strcmp(group, "missing")) {
+          processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->missingResources,
+                         missingResourceSpecs, ARRAY_SIZE(missingResourceSpecs), 1, error);
         }
       }
     }
@@ -462,7 +471,8 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   replyIndexAverages(reply, fields);
-  if (fields->textResources[0].isSet || fields->docTable[0].isSet) {
+  if (fields->textResources[0].isSet || fields->docTable[0].isSet ||
+      fields->missingResources[0].isSet) {
     RedisModule_ReplyKV_Map(reply, "column_families");
     if (fields->docTable[0].isSet) {
       RedisModule_ReplyKV_Map(reply, "doc_table");
@@ -473,6 +483,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
       RedisModule_ReplyKV_Map(reply, "text");
       replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
                    ARRAY_SIZE(textResourceSpecs));
+      RedisModule_Reply_MapEnd(reply);
+    }
+    if (fields->missingResources[0].isSet) {
+      RedisModule_ReplyKV_Map(reply, "missing");
+      replyKvArray(reply, fields, fields->missingResources, missingResourceSpecs,
+                   ARRAY_SIZE(missingResourceSpecs));
       RedisModule_Reply_MapEnd(reply);
     }
     RedisModule_Reply_MapEnd(reply);
