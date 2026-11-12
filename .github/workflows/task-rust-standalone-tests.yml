@@ -254,6 +254,9 @@ jobs:
         run: |
           set -x
           B=$(ls bin/redisearch_rs/optimised_test/deps/vector_range-* | grep -v '\.d$' | head -1)
+          B=$PWD/$B
+          readelf -S -W "$B" | grep -E "debug_info|debug_str|debug_line " || true
+          readelf -p .comment "$B" | head -8 || true
           ls -la "$B"; file "$B" || true
           readelf -S "$B" | grep -E 'debug|gnu_debuglink' || true
           readelf --debug-dump=info "$B" 2>/dev/null | grep -m2 'Version:' || true
