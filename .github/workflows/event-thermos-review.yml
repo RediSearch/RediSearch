@@ -28,7 +28,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write # removing the label goes through the issues API
-      id-token: write # claude-code-action exchanges an OIDC token for its GitHub App token
     env:
       # pstack 0.9.136. Pinned by commit so upstream changes cannot alter the
       # review prompt; bump both values together.
@@ -58,6 +57,11 @@ jobs:
       - uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The job token, not the Claude GitHub App's: the App token exchange refuses
+          # (and the action silently skips) whenever this file differs from master's
+          # copy, which is always true on the PR that changes it. Comments post as
+          # github-actions[bot], limited to this job's `permissions`.
+          github_token: ${{ github.token }}
           prompt: |
             /pstack:thermos ${{ github.event.pull_request.html_url }}
 
