@@ -166,6 +166,11 @@ def testYieldScoreAs(env):
     env.assertEqual(res[1:], [['s', '6', 'title', 'a'], ['s', '4', 'title', 'c'],
                               ['s', '2', 'title', 'b']])
 
+    # A query that matches nothing still knows the score's name, so SORTBY on it
+    # returns an empty result instead of an unknown-property error.
+    res = search(env, '@sp:[SPARSE $q]=>{$YIELD_SCORE_AS: s}', [(77, 1.0)], 'SORTBY', 's', 'DESC')
+    env.assertEqual(res, [0])
+
     # The score name may not shadow a schema field.
     env.expect('FT.SEARCH', 'idx', '@sp:[SPARSE $q]=>{$YIELD_SCORE_AS: title}',
                'PARAMS', 2, 'q', sparse_blob(q), 'DIALECT', 2).error().contains('already exists')
@@ -347,3 +352,22 @@ def testGcFork(env):
 @skip(cluster=True)
 def testGcThread():
     check_gc_collects_sparse_entries(Env(moduleArgs='GC_POLICY THREAD'))
+
+
+def schema_fingerprint(env, idx='idx'):
+    con = env.getConnection()
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    return dict(con.execute_command('_FT._LIST', 'WITHCLUSTERSTATE')[3])[idx]
+
+
+@skip(cluster=True)
+def testSchemaFingerprintCoversSparseAttributes(env):
+    """Shards must not report schema agreement when they disagree on DIM or the
+    metric, since those decide how a query vector is checked and scored."""
+    fingerprints = set()
+    for dim, metric in [(10, 'IP'), (11, 'IP'), (10, 'COSINE')]:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4,
+                   'DIM', dim, 'DISTANCE_METRIC', metric).ok()
+        fingerprints.add(schema_fingerprint(env))
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(len(fingerprints), 3)

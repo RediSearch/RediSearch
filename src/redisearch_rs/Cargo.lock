@@ -2653,6 +2653,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "sparse_vector_index_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",

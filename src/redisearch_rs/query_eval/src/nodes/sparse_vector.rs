@@ -9,6 +9,8 @@
 
 //! Evaluation of `QN_SPARSE_VECTOR` query nodes.
 
+use std::ptr::NonNull;
+
 use query_error::QueryErrorCode;
 use rqe_core::FieldIndex;
 use rqe_iterators::interop::RQEIteratorWrapper;
@@ -64,22 +66,9 @@ pub(crate) fn eval<'index>(
         }
     };
 
-    // A field no document has written to yet has no index, and matches nothing.
-    let index = opts.sparseVecIndex.cast::<SparseVectorIndex>();
-    if index.is_null() {
-        return None;
-    }
-    // SAFETY: a non-null `sparseVecIndex` is the index `SparseVectorIndex_New`
-    // allocated for this field. It belongs to the field, so the query's spec
-    // read lock keeps it alive and excludes writers during evaluation; across a
-    // lock release the posting lists it hands out stay put (see
-    // `SparseVectorIndex::dimensions`).
-    let index: &'index SparseVectorIndex = unsafe { &*index };
-
-    let it = SparseVectorIterator::new(index, &query, config.min_union_iter_heap)?;
-
-    // Reserved only once there is an iterator to bind it to; a node that
-    // matches nothing yields no score to name.
+    // Reserved before either exit that matches nothing, so the pipeline still
+    // learns the score's name and a `SORTBY` on it resolves on an empty result;
+    // the request then simply stays unbound.
     let dist_field = node.opts().dist_field;
     let request_id = (!dist_field.is_null()).then(|| {
         // SAFETY: `dist_field` is non-null, per the guard above, and is the
@@ -88,6 +77,16 @@ pub(crate) fn eval<'index>(
         // metric-request array.
         unsafe { ctx.add_metric_request(dist_field, false) }
     });
+
+    // A field no document has written to yet has no index, and matches nothing.
+    let index = NonNull::new(opts.sparseVecIndex.cast::<SparseVectorIndex>())?;
+    // SAFETY: 1. a non-null `sparseVecIndex` is the index `SparseVectorIndex_New`
+    // allocated for this field, which lives as long as the field and so as the
+    // query. 2. Writers, GC included, take the spec write lock, which the query
+    // only releases while its iterators are parked, revalidating them on
+    // re-acquire. 3. It is the field's own pointer, not one derived from a
+    // shared borrow.
+    let it = unsafe { SparseVectorIterator::new(index, &query, config.min_union_iter_heap) }?;
 
     let ptr = RQEIteratorWrapper::boxed_new(it);
     if let Some(id) = request_id {

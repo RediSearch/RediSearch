@@ -54,14 +54,24 @@ pub struct DimensionIterator<'index> {
 }
 
 impl<'index> DimensionIterator<'index> {
-    fn new(index: &'index SparseVectorIndex, dim_id: u32, weight: f32) -> Option<Self> {
-        let posting_list = index.get_dimension(dim_id)?;
+    /// # Safety
+    ///
+    /// As [`SparseVectorIterator::new`].
+    unsafe fn new(index: NonNull<SparseVectorIndex>, dim_id: u32, weight: f32) -> Option<Self> {
+        // SAFETY: the caller guarantees `index` is valid and unwritten for
+        // `'index` while the iterator is not parked.
+        let index_ref: &'index SparseVectorIndex = unsafe { index.as_ref() };
+        let posting_list = index_ref.get_dimension(dim_id)?;
         let result = RSIndexResult::build_numeric(0.0)
             .weight(f64::from(weight))
             .build();
         Some(Self {
             it: InvIndIterator::new(posting_list.reader(), result, NoOpChecker),
-            index: NonNull::from(index),
+            // Kept as given, not re-derived from `index_ref`: a GC write
+            // between parks invalidates every reference derived from a
+            // shared borrow, and revalidation must read through a pointer
+            // that write did not invalidate.
+            index,
             dim_id,
         })
     }
@@ -134,8 +144,11 @@ impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
 /// quick exit), so each result aggregates every dimension present at that
 /// document, which the sum needs.
 enum DimensionUnion<'index> {
-    Flat(UnionFullFlat<'index, DimensionIterator<'index>>),
-    Heap(UnionFullHeap<'index, DimensionIterator<'index>>),
+    // Boxed: the union keeps pointers to its children's results while it
+    // reborrows its child vector mutably, so each result must live outside that
+    // vector's allocation, as a C child's does.
+    Flat(UnionFullFlat<'index, Box<DimensionIterator<'index>>>),
+    Heap(UnionFullHeap<'index, Box<DimensionIterator<'index>>>),
 }
 
 macro_rules! dispatch {
@@ -186,14 +199,29 @@ impl<'index> SparseVectorIterator<'index> {
     ///
     /// The union is a heap union when the query keeps more than
     /// `min_union_iter_heap` dimensions, and a flat one otherwise.
-    pub fn new(
-        index: &'index SparseVectorIndex,
+    ///
+    /// # Safety
+    ///
+    /// 1. `index` points to a live [`SparseVectorIndex`] that outlives the
+    ///    iterator (`'index`).
+    /// 2. The index is written to only while the iterator is parked across a
+    ///    lock release, and [`revalidate`](RQEIterator::revalidate) is called
+    ///    before the iterator is used again, under the read lock.
+    /// 3. `index` was not derived from a shared reference that such a write
+    ///    would invalidate: pass the owner's own pointer, such as the one the
+    ///    field stores.
+    pub unsafe fn new(
+        index: NonNull<SparseVectorIndex>,
         query: &[(u32, f32)],
         min_union_iter_heap: usize,
     ) -> Option<Self> {
-        let children: Vec<DimensionIterator<'index>> = query
+        let children: Vec<Box<DimensionIterator<'index>>> = query
             .iter()
-            .filter_map(|&(dim_id, weight)| DimensionIterator::new(index, dim_id, weight))
+            .filter_map(|&(dim_id, weight)| {
+                // SAFETY: the caller upholds this function's contract, which is
+                // `DimensionIterator::new`'s.
+                unsafe { DimensionIterator::new(index, dim_id, weight) }.map(Box::new)
+            })
             .collect();
 
         if children.is_empty() {

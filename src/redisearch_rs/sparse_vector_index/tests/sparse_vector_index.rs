@@ -15,6 +15,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
 use std::collections::BTreeMap;
+use std::ptr::NonNull;
 
 use index_result::RSIndexResult;
 use inverted_index::RepairContext;
@@ -39,7 +40,7 @@ fn ip(entries: &[(u32, f32)]) -> Vec<(u32, f32)> {
 }
 
 /// Drain the iterator into `(doc_id, score)` pairs.
-fn collect(it: &mut impl RQEIterator<'static>) -> Vec<(u64, f64)> {
+fn collect<'index>(it: &mut impl RQEIterator<'index>) -> Vec<(u64, f64)> {
     let mut out = Vec::new();
     while let Some(r) = it.read().unwrap() {
         out.push((r.doc_id, r.as_numeric().unwrap()));
@@ -47,14 +48,24 @@ fn collect(it: &mut impl RQEIterator<'static>) -> Vec<(u64, f64)> {
     out
 }
 
-/// Build a leaked index so its iterators can be `'static` in tests.
-fn index_of(metric: SparseMetric, docs: &[(u64, Vec<(u32, f32)>)]) -> &'static SparseVectorIndex {
+/// An iterator over `index`, which the test does not write to while it lives.
+fn iter<'index>(
+    index: &'index SparseVectorIndex,
+    query: &[(u32, f32)],
+    min_union_iter_heap: usize,
+) -> Option<SparseVectorIterator<'index>> {
+    // SAFETY: `index` outlives the iterator and is not written while it lives.
+    unsafe { SparseVectorIterator::new(NonNull::from(index), query, min_union_iter_heap) }
+}
+
+/// Build an index holding `docs`, each prepared for `metric`.
+fn index_of(metric: SparseMetric, docs: &[(u64, Vec<(u32, f32)>)]) -> SparseVectorIndex {
     let mut index = SparseVectorIndex::new(DIM, metric);
     for (doc_id, entries) in docs {
         let prepared = prepare(entries.clone(), DIM, metric).unwrap();
         index.add(*doc_id, &prepared).unwrap();
     }
-    Box::leak(Box::new(index))
+    index
 }
 
 #[test]
@@ -159,7 +170,7 @@ fn union_finds_partial_overlap() {
         ],
     );
     let query = ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]);
-    let mut it = ContractChecker::new(SparseVectorIterator::new(index, &query, 10).unwrap());
+    let mut it = ContractChecker::new(iter(&index, &query, 10).unwrap());
     let got = collect(&mut it);
     assert_eq!(got.len(), 2);
     assert_eq!(got[0].0, 1);
@@ -171,7 +182,7 @@ fn union_finds_partial_overlap() {
 #[test]
 fn query_with_only_missing_dimensions_matches_nothing() {
     let index = index_of(SparseMetric::InnerProduct, &[(1, vec![(1, 1.0)])]);
-    assert!(SparseVectorIterator::new(index, &ip(&[(5, 1.0), (6, 1.0)]), 10).is_none());
+    assert!(iter(&index, &ip(&[(5, 1.0), (6, 1.0)]), 10).is_none());
 }
 
 #[test]
@@ -185,7 +196,7 @@ fn skip_to_scores_the_landing_document() {
         ],
     );
     let query = ip(&[(1, 1.0), (2, 2.0)]);
-    let mut it = SparseVectorIterator::new(index, &query, 10).unwrap();
+    let mut it = iter(&index, &query, 10).unwrap();
     assert_eq!(it.type_(), IteratorType::SparseVector);
 
     match it.skip_to(5).unwrap().unwrap() {
@@ -216,7 +227,7 @@ fn cosine_scores_are_cosine_similarities() {
         &[(1, vec![(1, 3.0), (2, 4.0)]), (2, vec![(1, 100.0)])],
     );
     let query = prepare(vec![(1, 1.0)], DIM, SparseMetric::Cosine).unwrap();
-    let got = collect(&mut SparseVectorIterator::new(index, &query, 10).unwrap());
+    let got = collect(&mut iter(&index, &query, 10).unwrap());
     assert_eq!(got[0].0, 1);
     assert!((got[0].1 - 0.6).abs() < 1e-6);
     assert_eq!(got[1].0, 2);
@@ -228,6 +239,8 @@ fn sparse_vector() -> impl Strategy<Value = Vec<(u32, f32)>> {
         .prop_map(|m| m.into_iter().collect::<Vec<_>>())
 }
 
+// proptest reads the working directory, which miri's isolation forbids.
+#[cfg(not(miri))]
 proptest! {
     /// Every document sharing a dimension with the query is yielded once, in
     /// doc-ID order, with its exact dot product; the union variant (flat or
@@ -258,7 +271,7 @@ proptest! {
             })
             .collect();
 
-        let got = match SparseVectorIterator::new(index, &query, min_union_iter_heap) {
+        let got = match iter(&index, &query, min_union_iter_heap) {
             Some(it) => collect(&mut ContractChecker::new(it)),
             None => vec![],
         };
@@ -317,10 +330,7 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
 }
 
 fn collect_results(index: &SparseVectorIndex, query: &[(u32, f32)]) -> Vec<(u64, f64)> {
-    // SAFETY: test-only lifetime extension; the iterator is drained and dropped
-    // before `index` is touched again.
-    let index: &'static SparseVectorIndex = unsafe { &*std::ptr::from_ref(index) };
-    match SparseVectorIterator::new(index, query, 10) {
+    match iter(index, query, 10) {
         Some(mut it) => collect(&mut it),
         None => vec![],
     }
@@ -355,11 +365,13 @@ fn gc_ignores_a_delta_for_a_replaced_posting_list() {
 #[test]
 fn revalidate_drops_a_dimension_gc_removed() {
     let ctx = MockContext::new(0, 0);
-    let index = Box::leak(Box::new(SparseVectorIndex::new(
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
         DIM,
         SparseMetric::InnerProduct,
     )));
-    let index_ptr: *mut SparseVectorIndex = index;
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
     for (doc_id, entries) in [
         (1, vec![(1, 1.0)]),
         (2, vec![(2, 5.0)]),
@@ -369,9 +381,10 @@ fn revalidate_drops_a_dimension_gc_removed() {
         index.add(doc_id, &ip(&entries)).unwrap();
     }
     let query = ip(&[(1, 1.0), (2, 1.0)]);
-    // SAFETY: the index is leaked, and is only written below while the
-    // iterator is parked, as a GC pass would under the write lock.
-    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &query, 10).unwrap();
+    // SAFETY: the index outlives the iterator, and is only written below while
+    // the iterator is parked, as a GC pass would under the write lock.
+    let mut it =
+        unsafe { SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &query, 10) }.unwrap();
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
 
     // Docs 2 and 4 are deleted and collected: dimension 2 is removed and freed.
@@ -382,20 +395,28 @@ fn revalidate_drops_a_dimension_gc_removed() {
     assert!(!matches!(status, RQEValidateStatus::Aborted));
     let rest: Vec<u64> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(rest, vec![3]);
+    drop(it);
+    // SAFETY: the iterator is gone and `index_ptr` came from `Box::into_raw`.
+    drop(unsafe { Box::from_raw(index_ptr) });
 }
 
 #[test]
 fn revalidate_aborts_when_every_dimension_is_removed() {
     let ctx = MockContext::new(0, 0);
-    let index = Box::leak(Box::new(SparseVectorIndex::new(
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
         DIM,
         SparseMetric::InnerProduct,
     )));
-    let index_ptr: *mut SparseVectorIndex = index;
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
     index.add(1, &ip(&[(1, 1.0)])).unwrap();
     index.add(2, &ip(&[(1, 1.0)])).unwrap();
     // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &ip(&[(1, 1.0)]), 10).unwrap();
+    let mut it = unsafe {
+        SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
+    }
+    .unwrap();
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
 
     // SAFETY: as above.
@@ -404,6 +425,9 @@ fn revalidate_aborts_when_every_dimension_is_removed() {
         it.revalidate(&ctx.spec_read()).unwrap(),
         RQEValidateStatus::Aborted
     ));
+    drop(it);
+    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
 }
 
 /// A GC pass that only shrinks a posting list leaves the parked iterator on
@@ -411,16 +435,21 @@ fn revalidate_aborts_when_every_dimension_is_removed() {
 #[test]
 fn revalidate_follows_a_compacted_posting_list() {
     let ctx = MockContext::new(0, 0);
-    let index = Box::leak(Box::new(SparseVectorIndex::new(
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
         DIM,
         SparseMetric::InnerProduct,
     )));
-    let index_ptr: *mut SparseVectorIndex = index;
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
     for doc_id in 1..=6 {
         index.add(doc_id, &ip(&[(1, doc_id as f32)])).unwrap();
     }
     // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
-    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &ip(&[(1, 1.0)]), 10).unwrap();
+    let mut it = unsafe {
+        SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
+    }
+    .unwrap();
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
 
@@ -437,4 +466,7 @@ fn revalidate_follows_a_compacted_posting_list() {
     })
     .collect();
     assert_eq!(rest, vec![(4, 4.0), (6, 6.0)]);
+    drop(it);
+    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
 }

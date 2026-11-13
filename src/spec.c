@@ -4008,6 +4008,11 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isD
   if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
     Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
   }
+  // Both decide how a query vector is validated and scored, so shards must agree on them.
+  if (FIELD_IS(field, INDEXFLD_T_SPARSE_VECTOR)) {
+    Sha1_UpdateU64(hash, field->sparseVecOpts.dim);
+    Sha1_UpdateU64(hash, field->sparseVecOpts.metric);
+  }
 }
 
 static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
