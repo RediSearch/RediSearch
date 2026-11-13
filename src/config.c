@@ -88,7 +88,7 @@ configPair_t __configPairs[] = {
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
-  {"GC_POLICY",                       ""},
+  {"GC_POLICY",                       "search-gc-policy"},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
@@ -1255,14 +1255,32 @@ CONFIG_GETTER(getMultiTextOffsetDelta) {
   return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
 }
 
+GCPolicy GCPolicy_Default(void) {
+  return RS_IsEnterpriseServer() ? GCPolicy_Fork : GCPolicy_Thread;
+}
+
+static int set_gc_policy(const char *name, int val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(GCPolicy *)privdata = (GCPolicy)val;
+  return REDISMODULE_OK;
+}
+
+static int get_gc_policy(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return *(GCPolicy *)privdata;
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
-    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
+  if (!strcasecmp(policy, "DEFAULT")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Default();
   } else if (!strcasecmp(policy, "THREAD")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Thread;
+  } else if (!strcasecmp(policy, "FORK")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -1776,7 +1794,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK/THREAD)",
+         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is FORK on Redis Enterprise, THREAD otherwise",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2253,6 +2271,33 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-clean-threshold|search-gc-clean-threshold",
+      DEFAULT_THREAD_GC_CLEAN_THRESHOLD, REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-run-interval|search-gc-run-interval",
+      DEFAULT_THREAD_GC_RUN_INTERVAL, REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_THREAD_GC_RUN_INTERVAL, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcRunIntervalSec)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-gc-clean-ratio-ppm", DEFAULT_GC_CLEAN_RATIO_PPM,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_GC_CLEAN_RATIO_PPM, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
@@ -2610,6 +2655,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.timeoutConfigParams.timeoutPolicy
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterEnumConfig(
+      ctx, "search-gc-policy", GCPolicy_Default(),
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      gc_policy_vals, gc_policy_enums, 2,
+      get_gc_policy, set_gc_policy, NULL,
+      (void*)&RSGlobalConfig.gcConfigParams.gcPolicy
     )
   )
 

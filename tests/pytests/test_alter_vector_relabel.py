@@ -28,9 +28,10 @@ SQ8_DIM = 64
 # tombstone) for a value that ends up identical either way. WORKERS DRAIN (see _drain) then
 # moves vectors into the backend before each snapshot, matching test_vector_relabel.py's
 # rationale for the same setting.
-# FORK_GC_RUN_INTERVAL 50000: keeps the fork GC from clearing tombstones between the snapshot
-# taken before an ALTER and the one taken after it.
-MODULE_ARGS = 'WORKERS 1 FORK_GC_RUN_INTERVAL 50000'
+MODULE_ARGS = 'WORKERS 1'
+# A 50000 s GC interval keeps the GC from clearing tombstones between the snapshot taken before
+# an ALTER and the one taken after it.
+NO_PERIODIC_GC = thread_gc_settings(run_interval=50000)
 # protocol=3 (RESP3): FT.SEARCH and FT.INFO reply with maps instead of flat arrays, which is
 # what _knn, _marked_deleted and _vector_ops all read.
 
@@ -115,9 +116,11 @@ def _assert_hits(env, ids, vec=_doc_vec, field='vec'):
 # title TEXT plus the pre-existing HNSW vector `vec`: the schema most tests ALTER.
 TITLE_AND_VEC = ('title', 'TEXT', 'vec', *_hnsw(DIM))
 
-def _start(*schema, on='HASH', module_args=MODULE_ARGS, **env_kwargs):
-    """A fresh env and connection, with `idx` created over `schema`."""
-    env = Env(protocol=3, moduleArgs=module_args, **env_kwargs)
+def _start(*schema, on='HASH', module_args=MODULE_ARGS, config=None, **env_kwargs):
+    """A fresh env and connection, with `idx` created over `schema`. `config` adds Redis CONFIG
+    settings to NO_PERIODIC_GC."""
+    env = Env(protocol=3, moduleArgs=module_args,
+              redisConfigFile=redis_config_file({**NO_PERIODIC_GC, **(config or {})}), **env_kwargs)
     env.expect('FT.CREATE', 'idx', 'ON', on, 'SCHEMA', *schema).ok()
     return env, getConnectionByEnv(env)
 
@@ -422,7 +425,7 @@ def test_alter_knn_mid_backfill_no_duplicates():
     comparison confirms each one and it is relabelled. `cat` is the filter field, present on
     every document from creation so the query stays valid throughout; `extra` is the field the
     ALTER adds."""
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=redis_config_file(NO_PERIODIC_GC))
     conn = getConnectionByEnv(env)
     n = 2000
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'cat', 'TAG', 'vec',
@@ -534,8 +537,8 @@ def test_alter_relabels_hnsw_vector_with_no_worker_pool():
     those vectors the same way as when a pool moved them there. WORKERS 0 alone leaves the
     maintenance-worker floor (one thread), so the floor is removed too."""
     env, conn = _start(*TITLE_AND_VEC,
-                       module_args='WORKERS 0 MIN_OPERATION_WORKERS 0 FORK_GC_RUN_INTERVAL 50000',
-                       redisConfigFile=min_maintenance_workers_conf(0))
+                       module_args='WORKERS 0 MIN_OPERATION_WORKERS 0',
+                       config={'search-min-maintenance-workers': 0})
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
     _write_docs(env, conn, 5)
     info = get_tiered_debug_info(env, 'idx', 'vec')

@@ -370,6 +370,11 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 
 /* Load the doc table from RDB. This is used for legacy RDB load only.
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ *
+ * The loaded table only lives until loading ends: Indexes_UpgradeLegacyIndexes then drops the
+ * legacy index keys, replaces this table with a new one and the index is rebuilt from the
+ * keyspace. Nothing loaded here, deleted docs and their postings included, ever reaches the GC,
+ * so it needs no record of them.
  */
 int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
