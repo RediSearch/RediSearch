@@ -106,6 +106,9 @@ typedef struct {
 /* Creates a new DocTable with a given capacity. `track_deleted` gives it a `deletedDocs` set. */
 DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted);
 
+/* Free the `deletedDocs` set, if any, and record no further deletions. */
+void DocTable_StopTrackingDeleted(DocTable *t);
+
 typedef enum {
   DocKeyMapActivation_Unchanged,
   DocKeyMapActivation_Ready,
@@ -139,8 +142,11 @@ bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t l
 /* Key-map allocation, including unused capacity; zero when disabled. */
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
-// No GC policy reads the deleted set yet; the one that does turns tracking on here.
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize, false)
+/* An estimate of the `deletedDocs` set's memory; zero when the table tracks no deletions. */
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t);
+
+#define DocTable_New(cap) \
+  NewDocTable(cap, RSGlobalConfig.maxDocTableSize, RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000

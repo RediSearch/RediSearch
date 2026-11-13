@@ -56,7 +56,7 @@ static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
-static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx, const TotalIndexesInfo *total_info);
 static inline void AddToInfo_CoordinatorErrorsAndWarnings(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
@@ -153,7 +153,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (SearchDisk_IsEnabled() &&
       AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
-    AddToInfo_Disk(ctx);
+    AddToInfo_Disk(ctx, &total_info);
   }
 
   // Active operations
@@ -532,7 +532,7 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   AddCursorsToInfo(ctx, blockedQueries);
 }
 
-void AddToInfo_Disk(RedisModuleInfoCtx *ctx) {
+void AddToInfo_Disk(RedisModuleInfoCtx *ctx, const TotalIndexesInfo *total_info) {
   // Delegate to the disk API which outputs aggregated metrics directly
-  SearchDisk_OutputInfoMetrics(ctx);
+  SearchDisk_OutputInfoMetrics(ctx, total_info->text_ram_metadata_bytes);
 }

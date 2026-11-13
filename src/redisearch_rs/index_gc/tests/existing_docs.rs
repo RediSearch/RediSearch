@@ -135,7 +135,7 @@ fn apply_returns_err_when_existing_docs_absent() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
         apply_existing_docs(entry, &mut guard),
-        Err(GcError::ApplyError(
+        Err(GcError::TargetGone(
             "the existingDocs inverted index was removed before the delta could be applied"
         ))
     ));
@@ -315,7 +315,7 @@ fn a_delta_for_a_replaced_index_is_rejected() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
         apply_existing_docs(entry, &mut guard),
-        Err(GcError::ApplyError(
+        Err(GcError::TargetGone(
             "the existingDocs inverted index is not the one scanned"
         ))
     ));

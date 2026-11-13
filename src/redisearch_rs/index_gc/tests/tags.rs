@@ -576,7 +576,7 @@ fn a_message_for_an_unknown_field_is_rejected() {
 
     let entry = entries.remove(0);
     let err = apply_tag_entry(entry, &mut test.write_guard()).unwrap_err();
-    assert!(matches!(err, GcError::ApplyError(_)));
+    assert!(matches!(err, GcError::TargetGone(_)));
     assert_eq!(
         err.to_string(),
         "the spec has no field at the scanned position"

@@ -315,7 +315,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize;
+    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -329,7 +329,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
-    TextResourceMetrics text = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead).text;
+    TextResourceMetrics text = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec).text;
     REPLY_KVMAP("column_families");
     REPLY_KVMAP("text");
     REPLY_KVINT("ram_metadata_bytes", text_overhead);
