@@ -334,6 +334,21 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make unit-tests
+      - name: VecSim unit tests
+        id: vecsim_unit_tests
+        if: ${{ inputs.unit-tests }}
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          SAN: ${{ inputs.san }}
+          VECSIM_COVERAGE: ${{ inputs.coverage }}
+        run: |
+          if [[ "$VECSIM_COVERAGE" == "true" ]]; then
+            make vecsim-coverage
+          else
+            make vecsim-tests
+          fi
+
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
@@ -463,7 +478,7 @@ jobs:
           echo "=========================="
 
       - name: Decode C++ crash stack traces
-        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        if: failure() || steps.c_unit_tests.outcome == 'failure' || steps.vecsim_unit_tests.outcome == 'failure'
         run: |
           chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
           if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
@@ -505,7 +520,7 @@ jobs:
           failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' || steps.vecsim_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
@@ -516,6 +531,7 @@ jobs:
             tests/**/logs/*.log*
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
+            bin/vecsim/**/Testing/Temporary/**
 
           if-no-files-found: ignore
 
@@ -540,7 +556,7 @@ jobs:
           failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' || steps.vecsim_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
@@ -598,6 +614,13 @@ jobs:
           [ -f .failed_standalone.txt ] && cp .failed_standalone.txt "$DEST/failed-tests-standalone.txt"
           [ -f .failed_coordinator.txt ] && cp .failed_coordinator.txt "$DEST/failed-tests-coordinator.txt"
 
+          if [[ "${{ steps.vecsim_unit_tests.outcome }}" == "failure" ]]; then
+            find bin/vecsim -path '*/Testing/Temporary/*.log' -type f | while read -r log; do
+              mkdir -p "$DEST/$(dirname "$log")"
+              cp "$log" "$DEST/$log"
+            done
+          fi
+
           echo "Failed-test logs bundled:"
           find "$DEST" -type f | wc -l
           exit 0
@@ -609,7 +632,7 @@ jobs:
           failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' || steps.vecsim_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
@@ -626,12 +649,13 @@ jobs:
           failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' || steps.vecsim_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
         run: |
           echo "C/C++ tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "VecSim tests: ${{ steps.vecsim_unit_tests.outcome }}"
           echo "Rust tests: ${{ steps.rust_unit_tests.outcome }}"
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
@@ -663,7 +687,7 @@ jobs:
             )
           fi
           if [[ "$INCLUDE_UNIT" == "true" ]]; then
-            reports+=(--lcov "C unit" bin/unit.info)
+            reports+=(--lcov "C unit" bin/unit.info --lcov "VecSim unit" bin/vecsim.info)
           fi
           if [[ "$INCLUDE_RUST_UNIT" == "true" ]]; then
             reports+=(--cobertura "Rust unit" bin/rust_cov.xml)
@@ -704,7 +728,7 @@ jobs:
         if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.xml
+          files: bin/unit.info,bin/rust_cov.xml,bin/vecsim.info
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

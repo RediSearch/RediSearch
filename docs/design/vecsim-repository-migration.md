@@ -36,7 +36,7 @@ or tag refs. Keep the original repository and its historical tags available.
 ## Dependencies and development
 
 SVS remains a third-party submodule, registered in the root `.gitmodules` at
-`src/vecsim/deps/ScalableVectorSearch`. Its pin is unchanged. Other Search
+`deps/ScalableVectorSearch`. Its pin is unchanged. Other Search
 submodules are unchanged. A fresh checkout uses the normal command:
 
 ```sh
@@ -47,7 +47,7 @@ make vecsim-tests SAN=address
 
 The VecSim unit runner accepts `CTEST_ARGS` for filtering and fails if no tests
 are selected. Benchmarks are built separately with
-`make -C src/vecsim benchmark`; ordinary unit builds do not build benchmarks.
+`make vecsim-benchmarks`; ordinary unit builds do not build benchmarks.
 
 Existing clones may retain the former `deps/VectorSimilarity` checkout when
 switching branches. Preserve any local changes and commits before cleaning up
@@ -56,11 +56,30 @@ delete `.git/modules` or force-clean an existing submodule to switch layouts.
 
 ## CI and tests
 
-PR and merge-queue validation always require the VecSim workflow, without path
-filters. It runs release unit tests, ASan unit tests, unit coverage, formatting,
-and C/C++ CodeQL analysis. The same workflow runs nightly and participates in
-nightly failure reporting. Reports are uploaded as workflow artifacts. Runtime
-and failure measurements should determine any later selective execution policy.
+VecSim units run unconditionally with Search units in PR and merge-queue jobs.
+The shared PR unit pipelines run even for drafts and documentation changes;
+master MQ runs release, coverage, and sanitizer variants. Coverage includes
+Search flows because Codecov has no carryforward; this adds queue runtime that
+must be measured before landing. Units also inherit Search's nightly OS and
+architecture matrix. A separate
+component build keeps its test-only compile definitions out of the shipped
+module, while using Search's provisioning, compilers, and GoogleTest dependency.
+ASan and alignment-sanitizer variants build SVS from source, avoiding an
+uninstrumented prebuilt SVS dependency in component tests. Source-built SVS
+does not contain the prebuilt LVQ implementations; their validation remains in
+the normal prebuilt-SVS configuration, not in these sanitizer checks.
+
+VecSim unit coverage is uploaded with Search unit coverage to Codecov and shown
+in the job summary. Search flow coverage still excludes VecSim instrumentation:
+the existing build explicitly strips coverage flags to avoid SVS flow-test
+timeouts. Search ASan integration tests do instrument source-built VecSim.
+Enabling flow coverage requires measuring runtime and adjusting timeouts; unit
+coverage does not imply that product flows cover the same lines.
+
+Formatting and C/C++ CodeQL remain mandatory PR/MQ checks. Python bindings are
+retained as developer tooling, with no Python package CI. Search's installers
+replace the old VecSim OS installers; the component helpers use Search's sccache
+when available.
 
 Search's existing spelling exclusion for the imported source and tests follows
 them to the new directory, avoiding unrelated edits to the imported baseline.
@@ -98,9 +117,43 @@ repository only after those branches reach end of support; do not delete it.
 - Validate the PR and merge-queue jobs on the final revision, including failure propagation.
 - Validate RSE adoption, supported architectures, and SVS configurations.
 - Compare controlled performance and recall baselines before release.
+- Review the new VecSim coverage baseline: importing previously excluded source
+  changes Search's coverage denominator and patch report. Keep ordinary coverage
+  thresholds unchanged while reviewing that one-time baseline change.
 - Rehearse a legacy VecSim fix plus Search pin-update backport.
 - Verify preserved ancestry after landing.
 
 Repository administration, RSE adoption, release benchmarking, and legacy
 maintenance changes are separate from this source import; they must not be
 inferred from a successful local build.
+
+## Repository layout and benchmarks
+
+- `src/vecsim/`: library, component CMake, and developer Python bindings.
+- `tests/cpptests/vecsim/`: component units and shared test utilities.
+- `tests/cpptests/micro-benchmarks/vecsim/`: C++ microbenchmarks.
+- `tests/benchmarks/vecsim/`: dataset manifests, generators, recall tools, and runner.
+- `docs/vecsim/`: benchmark documentation.
+- `sbin/vecsim.mk` and `sbin/format-vecsim`: component build and formatting helpers.
+- `deps/ScalableVectorSearch/`: unchanged SVS pin.
+
+Search C microbenchmark jobs run the default VecSim suite on their existing x86
+and ARM runners, export results through the same performance backend, and use
+the same baseline comparison. Legacy `benchmarks-*` and `bm-*` selectors launch
+selected suites through that infrastructure. Full-suite runs remain opt-in;
+`benchmarks-all` takes precedence over other selectors. Unknown selectors fail.
+Local commands are `make vecsim-benchmark-data BM_FILTER=<suite>` followed by
+`make vecsim-benchmarks BM_FILTER=<suite>`. Python-based dataset regeneration is
+retained; install the developer package from `src/vecsim` before running those
+tools from the Search root.
+
+Historical results remain under the VectorSimilarity repository identity.
+New Search results need a Search baseline before comparisons are meaningful;
+this branch does not rewrite backend records or recreate old GitHub labels.
+Benchmark execution also depends on the existing hosted dataset URLs and Search
+performance credentials. Validate both in CI before declaring migration complete.
+
+The optional `USE_SVS=OFF` configuration has unconditional SVS includes in the
+pinned implementation and fails to compile. The migration retains that flag's
+existing behavior; repairing an SVS-free library build is separate work. Search
+and the migrated component CI use SVS, with source-built SVS in sanitizer jobs.

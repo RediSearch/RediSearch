@@ -8,7 +8,7 @@
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
 [submodule "src/vecsim/deps/ScalableVectorSearch"]
-	path = src/vecsim/deps/ScalableVectorSearch
+	path = deps/ScalableVectorSearch
 	url = https://github.com/intel/ScalableVectorSearch.git
 [submodule "deps/snowball"]
 	path = deps/snowball

@@ -103,7 +103,7 @@ if(USE_SVS)
         get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
         set(SVS_EXPERIMENTAL_CHECK_BOUNDS OFF CACHE BOOL "Disable SVS bounds checking" FORCE)
         add_subdirectory(
-            ${root}/deps/ScalableVectorSearch
+            ${root}/../../deps/ScalableVectorSearch
             deps/ScalableVectorSearch
         )
         set(SVS_LVQ_HEADER "svs/quantization/lvq/impl/lvq_impl.h")

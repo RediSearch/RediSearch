@@ -5,8 +5,30 @@ name: Run a Micro Benchmark Flow
 permissions: {}
 
 on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        type: choice
+        options: [all, x86_64, aarch64]
+        default: all
+      vecsim-suite:
+        type: string
+        default: benchmarks-default
+      vecsim-only:
+        type: boolean
+        default: false
+      base_branch:
+        type: string
+        default: master
   workflow_call:
     inputs:
+      vecsim-suite:
+        type: string
+        default: 'benchmarks-default'
+        description: 'VecSim suite selector, or comma-separated PR labels'
+      vecsim-only:
+        type: boolean
+        default: false
       architecture:
         type: string
         required: false
@@ -17,16 +39,6 @@ on:
         required: false
         default: ''
         description: 'Branch to use as the comparison baseline. Empty falls back to the PR base branch.'
-  workflow_dispatch:
-    inputs:
-      architecture:
-          type: choice
-          options:
-            - all
-            - aarch64
-            - x86_64
-          description: 'Run only on specific architecture'
-          default: 'all'
 
 jobs:
   prepare_runner_configurations:
@@ -92,6 +104,8 @@ jobs:
       matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
       fail-fast: false
     with:
+      vecsim-suite: ${{ inputs.vecsim-suite }}
+      vecsim-only: ${{ inputs.vecsim-only }}
       architecture: ${{ matrix.architecture }}
       instance-type: ${{ matrix.instance-type }}
       ami-id: ${{ matrix.ami-id }}

@@ -14,10 +14,11 @@ option(VECSIM_BUILD_BENCHMARKS "Build VectorSimilarity benchmarks" OFF)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 message("# VectorSimilarity root: " ${root})
+get_filename_component(SEARCH_ROOT "${root}/../.." ABSOLUTE)
+
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR} ABSOLUTE)
 message("# VectorSimilarity binroot: " ${binroot})
-# Rust's header-change scanner must not descend into standalone build artifacts
-# now that the component and its local build directory live below src/.
+# Mark standalone build output as a cache for source scanners.
 file(WRITE "${binroot}/CACHEDIR.TAG" "Signature: 8a477f597d28d172789f06886806bc55\n")
 
 if(USE_COVERAGE)
@@ -33,6 +34,14 @@ include(cmake/san.cmake)
 # ----------------------------------------------------------------------------------------------
 project(VectorSimilarity)
 
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+	find_program(VECSIM_SCCACHE sccache)
+	if(VECSIM_SCCACHE)
+		set(CMAKE_C_COMPILER_LAUNCHER ${VECSIM_SCCACHE})
+		set(CMAKE_CXX_COMPILER_LAUNCHER ${VECSIM_SCCACHE})
+	endif()
+endif()
+
 # Only do these if this is the main project, and not if it is included through add_subdirectory
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -45,6 +54,10 @@ IF(USE_PROFILE)
 ENDIF()
 
 include(cmake/svs.cmake)
+if(TARGET fmt)
+	# fmt 11 lacks a cstdlib include required by clang 21 on macOS.
+	target_compile_options(fmt PRIVATE "-include" "cstdlib")
+endif()
 
 include_directories(src)
 
@@ -65,17 +78,12 @@ if(VECSIM_BUILD_TESTS OR VECSIM_BUILD_BENCHMARKS)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${LLVM_LD_FLAGS}")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${LLVM_LD_FLAGS}")
 
-	FetchContent_Declare(
-		googletest
-		URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.zip
-	)
-
-	# For Windows: Prevent overriding the parent project's compiler/linker settings
-	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-	FetchContent_MakeAvailable(googletest)
+	if(NOT TARGET gtest)
+		add_subdirectory(${SEARCH_ROOT}/deps/googletest ${binroot}/googletest)
+	endif()
 
 	if(VECSIM_BUILD_TESTS)
-		add_subdirectory(tests/unit unit_tests)
+		add_subdirectory(${SEARCH_ROOT}/tests/cpptests/vecsim/unit unit_tests)
 	endif()
 endif()
 
@@ -88,7 +96,7 @@ if(VECSIM_BUILD_BENCHMARKS)
 		URL https://github.com/google/benchmark/archive/refs/tags/v1.8.0.zip
 	)
 	FetchContent_MakeAvailable(google_benchmark)
-	add_subdirectory(tests/benchmark benchmark)
+	add_subdirectory(${SEARCH_ROOT}/tests/cpptests/micro-benchmarks/vecsim benchmark)
 endif()
 
 add_subdirectory(src/VecSim)

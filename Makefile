@@ -496,4 +496,22 @@ test-linkcheck:
 # VecSim stays independently testable without building the Redis module.
 .PHONY: vecsim-tests
 vecsim-tests:
-	@$(MAKE) -C $(ROOT)/src/vecsim unit_test
+	@$(MAKE) -f $(ROOT)/sbin/vecsim.mk unit_test
+
+.PHONY: vecsim-coverage vecsim-benchmarks vecsim-benchmark-data
+vecsim-benchmarks vecsim-benchmark-data: BM_FILTER ?= benchmarks-default
+vecsim-coverage:
+	@$(MAKE) -f $(ROOT)/sbin/vecsim.mk coverage
+
+vecsim-benchmarks:
+	@$(MAKE) -f $(ROOT)/sbin/vecsim.mk benchmark BM_FILTER="$(BM_FILTER)"
+
+vecsim-benchmark-data:
+	@bash tests/benchmarks/vecsim/bm_files.sh "$(BM_FILTER)"
+
+.PHONY: vecsim-python vecsim-format
+vecsim-python:
+	@$(MAKE) -f $(ROOT)/sbin/vecsim.mk pybind
+
+vecsim-format:
+	@$(MAKE) -f $(ROOT)/sbin/vecsim.mk check-format

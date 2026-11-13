@@ -11,3 +11,8 @@ if (USE_ASAN)
 	set(CLANG_SAN_FLAGS "-fno-omit-frame-pointer -fsanitize=address -fsized-deallocation")
 
 endif()
+
+option(USE_ALIGNMENT_SAN "Use alignment sanitizer" OFF)
+if(USE_ALIGNMENT_SAN)
+	set(CLANG_SAN_FLAGS "-fno-omit-frame-pointer -fsanitize=alignment -fno-sanitize-recover=alignment")
+endif()

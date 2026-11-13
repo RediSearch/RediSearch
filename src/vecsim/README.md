@@ -111,7 +111,11 @@ make unit_test SAN=address
 
 ## Python bindings
 
-To build the Python wheel, first create a dedicated virtualenv using Python 3.7 and higher. Then, activate the environment, install the dependencies, and build the package. Please note, due to the way poetry generates a setup.py, you may have to erase it before re-running *poetry build*.
+These are developer tools built from a complete Search checkout. Python package
+CI and standalone source-distribution support are not maintained. The CMake build
+uses Search's sibling test utilities and SVS checkout.
+
+To build the Python wheel, first create a dedicated virtualenv using Python 3.10 or 3.11. Then, activate the environment, install the dependencies, and build the package. Please note, due to the way poetry generates a setup.py, you may have to erase it before re-running *poetry build*.
 
 ```
 python -m venv venv
@@ -132,8 +136,8 @@ After building the wheel, if you want to use the package you built, you will nee
 
 ## Benchmark
 
-To benchmark the capabilities of this library, follow the instructions in the [benchmarks user guide](docs/benchmarks.md).
-If you'd like to create your own benchmarks, you can find more information in the [developer guide](docs/benchmarks_developer.md).
+To benchmark the capabilities of this library, follow the instructions in the [benchmarks user guide](../../docs/vecsim/benchmarks.md).
+If you'd like to create your own benchmarks, you can find more information in the [developer guide](../../docs/vecsim/benchmarks_developer.md).
 
 
 ## License

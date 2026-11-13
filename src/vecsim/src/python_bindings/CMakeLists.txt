@@ -23,9 +23,9 @@ endif()
 include(${root}/cmake/svs.cmake)
 add_subdirectory(${root}/src/VecSim VectorSimilarity)
 
-include_directories(${root}/src ${root}/tests/utils)
+include_directories(${root}/src ${root}/../../tests/cpptests/vecsim/utils)
 
-pybind11_add_module(VecSim ../../tests/utils/mock_thread_pool.cpp bindings.cpp)
+pybind11_add_module(VecSim ${root}/../../tests/cpptests/vecsim/utils/mock_thread_pool.cpp bindings.cpp)
 
 target_link_libraries(VecSim PRIVATE VectorSimilarity)
 

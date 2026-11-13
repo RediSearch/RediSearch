@@ -229,6 +229,7 @@ as production code.
 
 ### Key Dependencies
 - `src/vecsim/` — vector index backends (HNSW, flat, etc.)
+- `deps/ScalableVectorSearch/` — SVS dependency (git submodule)
 - `deps/snowball/` — stemming algorithms (git submodule)
 - `deps/friso/` — Chinese tokenization
 - `deps/phonetics/` — phonetic matching
@@ -239,7 +240,9 @@ as production code.
 - `tests/pytests/` — Python integration tests (RLTest framework)
 - `tests/cpptests/` — C++ unit tests (Google Test → `rstest` binary)
 - `tests/ctests/` — C unit tests (standalone binaries)
-- `tests/benchmarks/` — YAML-driven benchmark configs
+- `tests/cpptests/vecsim/` — VecSim units and shared test utilities (`make vecsim-tests`)
+- `tests/cpptests/micro-benchmarks/vecsim/` — VecSim C++ microbenchmarks
+- `tests/benchmarks/` — YAML-driven benchmark configs and VecSim dataset tooling
 
 ## Build System
 
