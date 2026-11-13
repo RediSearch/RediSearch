@@ -79,7 +79,7 @@ Sparse vector search is commonly implemented with an **inverted index**: each no
 │  dimension_99 ─→ [doc_2: 0.1, doc_3: 0.4, doc_8: 0.6]                    │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Field attributes: DIM, metric                                           │
-│  Stats: documents, dimensions, entries, memory                           │
+│  Stats: dimensions, entries, memory                                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,7 +93,6 @@ pub struct SparseVectorIndex {
     dimensions: FxHashMap<u32, EntriesTrackingIndex<NumericFloatCompression>>,
     metric: SparseMetric,
     dim: u32,
-    num_docs: u64,
     memory_usage: usize,
 }
 
@@ -136,8 +135,8 @@ typedef struct SparseVectorIndex SparseVectorIndex;
 SparseVectorIndex *openSparseVectorIndex(FieldSpec *fs, bool create_if_missing);
 void SparseVectorIndex_Free(SparseVectorIndex *idx);
 
-size_t SparseVectorIndex_NumDocs(const SparseVectorIndex *idx);
 size_t SparseVectorIndex_NumDimensions(const SparseVectorIndex *idx);
+size_t SparseVectorIndex_NumEntries(const SparseVectorIndex *idx);
 size_t SparseVectorIndex_MemoryUsage(const SparseVectorIndex *idx);
 ```
 
