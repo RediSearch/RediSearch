@@ -13,7 +13,7 @@ workspace license policy is enforced by `cargo deny check licenses` using
 
 VecSim uses SVS at commit `919925a56218da10ee4ae0cb8a2124ee96fdf3fd`.
 The source checkout in `deps/ScalableVectorSearch` is licensed under Apache-2.0;
-its [license](deps/ScalableVectorSearch/LICENSE) remains with the dependency.
+its [license](https://github.com/intel/ScalableVectorSearch/blob/919925a56218da10ee4ae0cb8a2124ee96fdf3fd/LICENSE) remains with the dependency.
 
 Builds using the precompiled SVS distribution instead use binaries covered by
 the Intel Simplified Software License (October 2022), included as `LICENSE` in

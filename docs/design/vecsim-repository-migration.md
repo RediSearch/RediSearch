@@ -160,7 +160,7 @@ references in the imported revision. These are now guarded; the non-SVS API
 reports zero shared memory and retains the factory's unsupported-index behavior.
 The default Search build continues to use SVS.
 
-VecSim retains its clang-format 18 style. Its error-message skill is now in
+VecSim retains its clang-format 18.1.8 style. Its error-message skill is now in
 `.skills/vecsim-error-messages`, with component commands integrated into Search's
 build, unit-test, verification, and lint skills. Python metadata and bundled
 license texts match Search's tri-license; SVS source and binary licenses remain

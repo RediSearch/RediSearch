@@ -71,7 +71,7 @@ make fmt CHECK=1                          # Check formatting without changes
 ```
 
 VecSim source and its relocated tests/benchmarks preserve their scoped four-space
-style with clang-format 18 (`make vecsim-format`). Other C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
+style with clang-format 18.1.8 (`make vecsim-format`). Other C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
 
 ## Running Expensive Commands
 

@@ -20,13 +20,13 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: c-cpp
           build-mode: manual
       - name: Build VecSim for analysis
         run: make -C src/vecsim build NO_TESTS=1
-      - uses: github/codeql-action/analyze@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: vecsim
 
@@ -36,13 +36,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
       - name: Check VecSim formatting
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y clang-format-18
-          mkdir -p "$RUNNER_TEMP/vecsim-tools"
-          ln -s /usr/bin/clang-format-18 "$RUNNER_TEMP/vecsim-tools/clang-format"
-          PATH="$RUNNER_TEMP/vecsim-tools:$PATH" make -C src/vecsim check-format
+          python -m venv "$RUNNER_TEMP/vecsim-format"
+          "$RUNNER_TEMP/vecsim-format/bin/pip" install clang-format==18.1.8
+          CLANG_FORMAT="$RUNNER_TEMP/vecsim-format/bin/clang-format" make -C src/vecsim check-format
 
   without-svs:
     name: VecSim without SVS

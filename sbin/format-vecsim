@@ -7,8 +7,8 @@ if [[ -z ${CLANG_FORMAT:-} ]]; then
         CLANG_FORMAT=clang-format
     fi
 fi
-if ! "$CLANG_FORMAT" --version | grep -Eq 'version 18\.'; then
-    echo "VecSim formatting requires clang-format 18 (set CLANG_FORMAT to its path)." >&2
+if ! "$CLANG_FORMAT" --version | grep -Eq 'version 18\.1\.8([[:space:]]|$)'; then
+    echo "VecSim formatting requires clang-format 18.1.8 (set CLANG_FORMAT to its path)." >&2
     exit 1
 fi
 cd "$(dirname "$0")/../src/vecsim"
