@@ -46,6 +46,24 @@ int cmpDesc(const void *v1, const void *v2, const void *udata) {
   return res1->docId < res2->docId ? -1 : 1;
 }
 
+// `limit` comes from the user's LIMIT, so neither the heap nor the result pool is allocated for it
+// up front. The pool grows in chunks rather than by realloc because the heap points into it.
+#define OPT_INITIAL_CAPACITY 1024
+
+// Returns a fresh result slot. At most limit+1 slots are ever handed out: one per heap entry and
+// the spare that the heap swaps with on replace.
+static RSIndexResult *OPT_NextPooledResult(OptimizerIterator *it) {
+  size_t chunk = it->numPooled / it->resChunkSize;
+  size_t slot = it->numPooled % it->resChunkSize;
+  if (chunk == it->numResChunks) {
+    it->resChunks = rm_realloc(it->resChunks, (chunk + 1) * sizeof(*it->resChunks));
+    it->resChunks[chunk] = rm_malloc(it->resChunkSize * sizeof(RSIndexResult));
+    it->numResChunks++;
+  }
+  it->numPooled++;
+  return &it->resChunks[chunk][slot];
+}
+
 static inline double getSuccessRatio(const OptimizerIterator *optIt) {
   double resultsCollectedSinceLast = heap_count(optIt->heap) - optIt->heapOldSize;
   return resultsCollectedSinceLast / optIt->lastLimitEstimate;
@@ -114,7 +132,7 @@ static void OPT_Rewind(QueryIterator *self) {
     // Size the next window to hold the missing results at the rate the drained
     // window actually hit at. observedEstimate restates that rate as the
     // document count the estimator divides by. successRatio is at least 0.01 here.
-    int resultsMissing = heap_size(heap) - heap_count(heap);
+    int resultsMissing = qOpt->limit - heap_count(heap);
     size_t observedEstimate = successRatio * optIt->numDocs;
     optIt->lastLimitEstimate = nf->limit =
       QOptimizer_EstimateLimit(optIt->numDocs, observedEstimate, resultsMissing);
@@ -144,8 +162,11 @@ void OptimizerIterator_Free(QueryIterator *self) {
     it->numericIter->Free(it->numericIter);
   }
 
-  // we always use the array as RSResultData_Numeric. no need for IndexResult_Free
-  rm_free(it->resArr);
+  // we always use the pool as RSResultData_Numeric. no need for IndexResult_Free
+  for (size_t i = 0; i < it->numResChunks; i++) {
+    rm_free(it->resChunks[i]);
+  }
+  rm_free(it->resChunks);
   heap_free(it->heap);
 
   rm_free(it);
@@ -215,9 +236,9 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         it->pooledResult->dmd = dmd;
 
         // heap is not full. insert
-        if (heap_count(it->heap) < heap_size(it->heap)) {
+        if (heap_count(it->heap) < opt->limit) {
           heap_offer(&it->heap, it->pooledResult);
-          it->pooledResult++;
+          it->pooledResult = OPT_NextPooledResult(it);
 
         // heap is full. try to replace
         } else {
@@ -232,7 +253,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
     }
 
     // Not enough result, try to rewind
-    if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
+    if (opt->limit > heap_count(it->heap) && it->offset < it->childEstimate) {
       if (getSuccessRatio(it) < 1) {
         OPT_Rewind(&it->base);
         childRes = numericRes = NULL;
@@ -245,8 +266,8 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         }
       } else {
         RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %zu, childEstimate: %zu",
-                                        heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
+        RedisModule_Log(RSDummyContext, "debug", "Heap limit: %zu, heap count: %d, offset: %zu, childEstimate: %zu",
+                                        opt->limit, heap_count(it->heap), it->offset, it->childEstimate);
       }
     }
 
@@ -256,7 +277,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
 }
 
 QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, IteratorsConfig *config) {
-  // Check for overflow in result array allocation: (limit + 1) * sizeof(RSIndexResult)
+  // Reject limits whose result pool, (limit + 1) * sizeof(RSIndexResult), could not be addressed.
   size_t resArr_alloc_size;
   if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) {
     return NULL;
@@ -265,26 +286,18 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
     return NULL;
   }
 
-  // Check for overflow in heap allocation: (limit * sizeof(void*)) + sizeof(heap_t)
-  // Note: We only check the multiplication overflow.
-  // The test for overflow due to the addition of sizeof(heap_t) is not needed
-  // because sizeof(RSIndexResult) > sizeof(void*), so any limit that would
-  // cause the heap addition to overflow would have already triggered the resArr
-  // multiplication overflow check above.
-  size_t heap_array_size;
-  if (__builtin_mul_overflow((size_t)qOpt->limit, sizeof(void *), &heap_array_size)) {
-    return NULL;
-  }
-
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
 
   oi->cmp = qOpt->asc ? cmpAsc : cmpDesc;
-  oi->resArr = rm_malloc(resArr_alloc_size);
-  oi->pooledResult = oi->resArr;
-  oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
-  heap_init(oi->heap, oi->cmp, NULL, qOpt->limit);
+  // limit+1 does not overflow, checked above.
+  oi->resChunkSize = MIN(qOpt->limit + 1, OPT_INITIAL_CAPACITY);
+  oi->pooledResult = OPT_NextPooledResult(oi);
+  // At least 1: heap_offer grows by doubling, which never leaves an empty heap.
+  size_t heapInitial = MAX(1, MIN(qOpt->limit, OPT_INITIAL_CAPACITY));
+  oi->heap = rm_malloc(heap_sizeof(heapInitial));
+  heap_init(oi->heap, oi->cmp, NULL, heapInitial);
 
   oi->numDocs = qOpt->sctx->spec->docs.size;
   oi->childEstimate = root->NumEstimated(root);
