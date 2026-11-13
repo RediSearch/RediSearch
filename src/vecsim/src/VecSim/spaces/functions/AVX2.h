@@ -19,4 +19,7 @@ dist_func_t<float> Choose_SQ8_FP32_L2_implementation_AVX2(size_t dim);
 dist_func_t<float> Choose_BF16_IP_implementation_AVX2(size_t dim);
 dist_func_t<float> Choose_BF16_L2_implementation_AVX2(size_t dim);
 
+dist_func_t<float> Choose_SQ4_SQ4_IP_implementation_AVX2(size_t dim);
+dist_func_t<float> Choose_SQ4_SQ4_L2_implementation_AVX2(size_t dim);
+
 } // namespace spaces

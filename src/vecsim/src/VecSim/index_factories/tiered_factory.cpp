@@ -104,6 +104,9 @@ inline VecSimIndex *NewIndex(const TieredIndexParams *params) {
 inline size_t EstimateInitialSize(const TieredIndexParams *params) {
     const auto &hnsw_params = params->primaryIndexParams->algoParams.hnswParams;
 
+    if (hnsw_params.quantType == VecSimQuant_SQ4) {
+        throw std::invalid_argument("Tiered HNSW SQ4 is not supported");
+    }
     const bool requires_training = RequiresQuantizationTraining(params);
     const bool with_mean = requires_training || hnsw_params.quantParams != nullptr;
     size_t est = HNSWFactory::EstimateInitialSize(&hnsw_params, true, with_mean);

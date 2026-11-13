@@ -10,6 +10,10 @@
 
 #include <cstdlib>
 
+// Packed SQ4 storage, compared with FP32 queries or another SQ4 vector.
+float SQ4_FP32_InnerProduct(const void *pVect1v, const void *pVect2v, size_t dimension);
+float SQ4_SQ4_InnerProduct(const void *pVect1v, const void *pVect2v, size_t dimension);
+
 // SQ8-FP32: Common inner product implementation that returns the raw inner product value
 // (not distance). Used by SQ8_FP32_InnerProduct, SQ8_FP32_Cosine, and SQ8_FP32_L2Sqr.
 // pVect1 is storage (SQ8): [uint8_t values (dim)] [min_val] [delta] [x_sum] [x_sum_squares (L2

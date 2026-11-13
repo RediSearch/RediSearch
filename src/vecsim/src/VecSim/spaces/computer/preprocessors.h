@@ -25,6 +25,7 @@
 #include "VecSim/memory/memory_utils.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
+#include "VecSim/types/sq4.h"
 #include "VecSim/utils/vecsim_stl.h"
 
 class PreprocessorInterface : public VecsimBaseObject {
@@ -143,16 +144,17 @@ private:
 
 /*
  * QuantPreprocessor is a preprocessor that quantizes storage vectors from DataType to a
- * lower precision representation using OUTPUT_TYPE (uint8_t).
+ * lower precision representation (SQ8 stores one uint8_t code per coordinate, SQ4 packs
+ * two 4-bit codes per byte).
  * Query vectors remain as DataType for asymmetric distance computation.
  *
  * The quantized storage blob contains the quantized values along with metadata (min value,
  * scaling factor, and precomputed sums for reconstruction) in a single contiguous blob.
  * The quantization is done by finding the minimum and maximum values of the input vector,
- * and then scaling the values to fit in the range of [0, 255].
+ * and then scaling the values to fit in the storage type's code range.
  *
  * Storage layout:
- * | quantized_values[dim] | min_val | delta | x_sum | (x_sum_squares for L2 only) |
+ * | quantized_values (packed for SQ4) | min_val | delta | x_sum | (L2 sum_squares) |
  * where, writing x_r[i] = min_val + delta * a[i] for the value a blob actually represents:
  * x_sum        = Σx_r[i]:  sum of the reconstructed values,
  * x_sum_squares = Σx_r[i]²: sum of their squares.
@@ -164,8 +166,8 @@ private:
  *
  * Storage metadata is always FP32 (independent of DataType) to match the asymmetric distance
  * kernels. The quantized blob size is:
- * - For L2:        dim * sizeof(OUTPUT_TYPE) + 4 * sizeof(float)
- * - For IP/Cosine: dim * sizeof(OUTPUT_TYPE) + 3 * sizeof(float)
+ * - For L2:        StorageType::data_bytes_count(dim) + 4 * sizeof(float)
+ * - For IP/Cosine: StorageType::data_bytes_count(dim) + 3 * sizeof(float)
  *
  * Reconstruction formulas:
  * Given quantized value q_i, the original value is reconstructed as:
@@ -177,11 +179,13 @@ private:
  * store metric-specific FP32 values from the query body to accelerate asymmetric distance
  * computation:
  * - For IP/Cosine: y_sum = Σy_i (sum of query values)
- * - For L2: y_sum = Σy_i (sum of query values), y_sum_squares = Σy_i² (sum of squared query values)
+ * - For SQ8 L2: y_sum = Σy_i, y_sum_squares = Σy_i²
+ * - For SQ4 L2: two zero-initialized reserved FP32 slots; direct residual kernels need no sums.
  *
  * Query blob layout:
  * - For IP/Cosine: | query_values[dim] | y_sum |
  * - For L2:        | query_values[dim] | y_sum | y_sum_squares |
+ *   SQ4 L2 keeps the same layout, with both trailing slots reserved and zero-initialized.
  *
  * Query metadata is always FP32. The query blob size is:
  * - For IP/Cosine: dim * sizeof(DataType) + 1 * sizeof(float)
@@ -200,6 +204,7 @@ private:
  *   where y_sum = Σy_i is precomputed and stored in the query blob.
  *
  * For L2:
+ *   The identity below explains the metadata; direct residual query kernels do not consume it.
  *   ||x_r - y||² = Σx_r[i]² - 2*Σ(x_r[i] * y_i) + Σy_i²
  *                = x_sum_squares - 2 * IP(x_r, y) + y_sum_squares
  *   where:
@@ -256,7 +261,8 @@ static inline T from_fp32(float x) {
     }
 }
 
-template <QuantInput DataType, VecSimMetric Metric, bool WithNorm = false>
+template <QuantInput DataType, VecSimMetric Metric, bool WithNorm = false,
+          typename StorageType = vecsim_types::sq8>
 class QuantPreprocessor : public PreprocessorInterface {
 public:
     // Center L2 queries in FP32 even when the original input is FP16.
@@ -264,8 +270,7 @@ public:
 
 private:
     using OUTPUT_TYPE = uint8_t;
-    using MetadataType = float; // SQ8 metadata is always FP32 (see class doc).
-    using sq8 = vecsim_types::sq8;
+    using MetadataType = float; // Quantized storage metadata is always FP32.
 
     static_assert(Metric == VecSimMetric_L2 || Metric == VecSimMetric_IP ||
                       Metric == VecSimMetric_Cosine,
@@ -283,7 +288,8 @@ private:
 
         // Calculate scaling factor (typed as MetadataType because they end up as metadata).
         const MetadataType diff = (max_val - min_val);
-        const MetadataType delta = (diff == 0.0f) ? MetadataType{1} : diff / MetadataType{255};
+        const MetadataType delta =
+            (diff == 0.0f) ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
         const MetadataType inv_delta = MetadataType{1} / delta;
 
         // Saturating conversion. Casting a float to uint8_t is undefined when the truncated value
@@ -299,8 +305,8 @@ private:
             if (!(scaled > MetadataType{0})) {
                 return OUTPUT_TYPE{0}; // zero, negative, -inf, or NaN
             }
-            if (scaled >= MetadataType{255}) {
-                return OUTPUT_TYPE{255}; // includes +inf
+            if (scaled >= MetadataType{StorageType::max_code}) {
+                return OUTPUT_TYPE{StorageType::max_code}; // includes +inf
             }
             return static_cast<OUTPUT_TYPE>(scaled + MetadataType{0.5});
         };
@@ -337,10 +343,10 @@ private:
             const OUTPUT_TYPE a1 = to_byte((x1 - min_val) * inv_delta);
             const OUTPUT_TYPE a2 = to_byte((x2 - min_val) * inv_delta);
             const OUTPUT_TYPE a3 = to_byte((x3 - min_val) * inv_delta);
-            quantized[i] = a0;
-            quantized[i + 1] = a1;
-            quantized[i + 2] = a2;
-            quantized[i + 3] = a3;
+            StorageType::set_code(quantized, i, a0);
+            StorageType::set_code(quantized, i + 1, a1);
+            StorageType::set_code(quantized, i + 2, a2);
+            StorageType::set_code(quantized, i + 3, a3);
 
             s0 += a0;
             s1 += a1;
@@ -365,7 +371,7 @@ private:
         for (; i < this->dim; ++i) {
             const float x = transformed_value(input, i);
             const OUTPUT_TYPE a = to_byte((x - min_val) * inv_delta);
-            quantized[i] = a;
+            StorageType::set_code(quantized, i, a);
             q_sum += a;
             if constexpr (Metric == VecSimMetric_L2) {
                 q_sum_squares += uint64_t{a} * a;
@@ -386,9 +392,9 @@ private:
                                           d_delta * d_delta * q_sum_squares);
         }
 
-        // Metadata uses MetadataType. Use memcpy because the metadata offset
-        // (dim * sizeof(uint8_t)) is not guaranteed to be sizeof(MetadataType)-aligned.
-        void *meta_dst = quantized + this->dim;
+        // Metadata uses MetadataType. Use memcpy because the metadata offset (after the
+        // quantized body, packed for SQ4) is not guaranteed to be sizeof(MetadataType)-aligned.
+        void *meta_dst = quantized + StorageType::data_bytes_count(this->dim);
         MetadataType buf[5] = {min_val, delta, sum};
         size_t n = 3;
         if constexpr (Metric == VecSimMetric_L2)
@@ -490,25 +496,28 @@ public:
     QuantPreprocessor(std::shared_ptr<VecSimAllocator> allocator, size_t dim)
         requires(!WithNorm)
         : PreprocessorInterface(allocator), dim(dim),
-          storage_bytes_count(sq8::storage_bytes_count<Metric>(dim)),
+          storage_bytes_count(StorageType::template storage_bytes_count<Metric>(dim)),
           query_bytes_count(dim * sizeof(QueryType) +
-                            sq8::query_metadata_count<Metric>() * sizeof(MetadataType)) {}
+                            StorageType::template query_metadata_count<Metric>() *
+                                sizeof(MetadataType)) {}
 
     // WithNorm constructor: accepts a pre-computed mean vector (FP32, length == dim).
     QuantPreprocessor(std::shared_ptr<VecSimAllocator> allocator, size_t dim,
                       const vecsim_stl::vector<float> &mean_vec)
         requires(WithNorm)
         : PreprocessorInterface(allocator), mean(mean_vec), dim(dim),
-          storage_bytes_count(sq8::storage_bytes_count<Metric, WithNorm>(dim)),
+          storage_bytes_count(StorageType::template storage_bytes_count<Metric, WithNorm>(dim)),
           query_bytes_count(dim * sizeof(QueryType) +
-                            sq8::query_metadata_count<Metric, WithNorm>() * sizeof(MetadataType)) {
+                            StorageType::template query_metadata_count<Metric, WithNorm>() *
+                                sizeof(MetadataType)) {
         assert(this->mean.size() == dim && "mean vector size must equal dim");
     }
 
     /**
      * Preprocesses the original blob into separate storage and query blobs.
      *
-     * Storage vectors are quantized to uint8_t values, with metadata (min, delta, sum, and
+     * Storage vectors are quantized to scalar codes (SQ8: one uint8_t per coordinate, SQ4: two
+     * 4-bit codes packed per byte), with metadata (min, delta, sum, and
      * sum_squares for L2) appended for distance reconstruction.
      *
      * Query vectors use QueryType for asymmetric distance computation, with a precomputed
@@ -570,12 +579,13 @@ public:
      * the original query values.
      *
      * - For IP/Cosine: y_sum = Σy_i (sum of query values)
-     * - For L2: y_sum = Σy_i (sum of query values), y_sum_squares = Σy_i² (sum of squared query
-     *                                                                      values)
+     * - For SQ8 L2: y_sum = Σy_i, y_sum_squares = Σy_i²
+     * - For SQ4 L2: two zero-initialized reserved FP32 slots; no query reductions are needed.
      *
      * Query blob layout:
      * - For IP/Cosine: | query_values[dim] | y_sum |
      * - For L2:        | query_values[dim] | y_sum | y_sum_squares |
+     *   SQ4 L2 reserves and zero-initializes both trailing slots instead of computing sums.
      *
      * Query blob size:
      * - For IP/Cosine: dim * sizeof(QueryType) + 1 * sizeof(float)
@@ -601,7 +611,14 @@ public:
         // Compute and write FP32 query metadata after the query body. The metadata offset is
         // body_bytes, which is not guaranteed to be 4-byte aligned for FP16 query bodies.
         void *metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
-        assign_query_metadata(query_values, input, metadata_dst);
+        if constexpr (std::is_same_v<StorageType, vecsim_types::sq4> && Metric == VecSimMetric_L2) {
+            // SQ4 L2 computes residuals directly, so query sums are unused. Keep initialized
+            // padding for SIMD tails that load a final query pair when dim is odd.
+            const MetadataType padding[2] = {};
+            memcpy(metadata_dst, padding, sizeof(padding));
+        } else {
+            assign_query_metadata(query_values, input, metadata_dst);
+        }
 
         query_blob_size = this->query_bytes_count;
     }
@@ -633,8 +650,8 @@ private:
             float value = first_input_value - mean[0];
             float min_val = value;
             float max_val = value;
-            // x_mean_ip only feeds the IP correction term (see DistanceCalculatorWithNorm); the
-            // normalized L2 correction cancels the mean terms exactly, so skip the extra work.
+            // Use the original input for the IP correction: a correction from reconstructed
+            // values would also multiply quantization error by the mean. L2 needs no correction.
             if constexpr (Metric == VecSimMetric_IP)
                 x_mean_ip = first_input_value * mean[0];
 

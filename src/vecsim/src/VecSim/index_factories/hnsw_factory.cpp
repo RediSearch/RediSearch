@@ -14,12 +14,14 @@
 #include "VecSim/algorithms/hnsw/hnsw.h"
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
+#include "VecSim/types/sq4.h"
 
 #include <type_traits>
 
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
 using sq8 = vecsim_types::sq8;
+using sq4 = vecsim_types::sq4;
 
 namespace HNSWFactory {
 
@@ -37,42 +39,53 @@ NewIndex_ChooseMultiOrSingle(const HNSWParams *params,
             HNSWIndex_Single<DataType, DistType>(params, abstractInitParams, components);
 }
 
-template <VecSimMetric Metric>
-[[nodiscard]] constexpr size_t GetSQ8StoredDataSize(size_t dim, bool with_norm) {
+template <VecSimMetric Metric, typename StorageType = sq8>
+[[nodiscard]] constexpr size_t GetQuantizedStoredDataSize(size_t dim, bool with_norm) {
     static_assert(Metric == VecSimMetric_L2 || Metric == VecSimMetric_IP);
 
-    return with_norm ? sq8::storage_bytes_count<Metric, true>(dim)
-                     : sq8::storage_bytes_count<Metric, false>(dim);
+    return with_norm ? StorageType::template storage_bytes_count<Metric, true>(dim)
+                     : StorageType::template storage_bytes_count<Metric, false>(dim);
 }
 
 // Cosine over pre-normalized vectors is computed as inner product.
-[[nodiscard]] constexpr VecSimMetric ResolveSQ8Metric(VecSimMetric metric, bool is_normalized) {
+[[nodiscard]] constexpr VecSimMetric ResolveQuantizedMetric(VecSimMetric metric,
+                                                            bool is_normalized) {
     return (is_normalized && metric == VecSimMetric_Cosine) ? VecSimMetric_IP : metric;
 }
 
 // Keep construction and initial-size validation in sync.
-[[nodiscard]] constexpr bool SQ8ParamsSupported(VecSimType type, VecSimMetric resolved_metric) {
-    // SQ8 kernels accept only FLOAT32 and FLOAT16 input.
+[[nodiscard]] constexpr bool QuantizationParamsSupported(VecSimQuantType quant_type,
+                                                         VecSimType type,
+                                                         VecSimMetric resolved_metric) {
+    // Reject unknown quantizers instead of silently creating an unquantized index.
+    if (quant_type != VecSimQuant_SQ8 && quant_type != VecSimQuant_SQ4) {
+        return false;
+    }
+    if (quant_type == VecSimQuant_SQ4 && type != VecSimType_FLOAT32) {
+        return false;
+    }
+    // SQ8 additionally accepts FLOAT16 input.
     if (type != VecSimType_FLOAT32 && type != VecSimType_FLOAT16) {
         return false;
     }
-    // Only L2 and inner product have SQ8 kernels.
+    // Only L2 and inner product have scalar quantization kernels.
     if (resolved_metric != VecSimMetric_L2 && resolved_metric != VecSimMetric_IP) {
         return false;
     }
     return true;
 }
 
-template <typename DataType, VecSimMetric Metric>
-VecSimIndex *NewIndex_SQ8(const HNSWParams *hnswParams, AbstractIndexInitParams abstractInitParams,
-                          const float *mean_ptr) {
+template <typename DataType, VecSimMetric Metric, typename StorageType = sq8>
+VecSimIndex *NewIndex_Quantized(const HNSWParams *hnswParams,
+                                AbstractIndexInitParams abstractInitParams, const float *mean_ptr) {
     const bool with_norm = mean_ptr != nullptr;
     abstractInitParams.storedDataSize =
-        GetSQ8StoredDataSize<Metric>(abstractInitParams.dim, with_norm);
+        GetQuantizedStoredDataSize<Metric, StorageType>(abstractInitParams.dim, with_norm);
     abstractInitParams.isQuantized = true;
 
-    IndexComponents<DataType, float> components = CreateSQ8IndexComponents<DataType, Metric>(
-        abstractInitParams.allocator, abstractInitParams.dim, mean_ptr);
+    IndexComponents<DataType, float> components =
+        CreateQuantizedIndexComponents<DataType, Metric, StorageType>(
+            abstractInitParams.allocator, abstractInitParams.dim, mean_ptr);
     auto index =
         NewIndex_ChooseMultiOrSingle<DataType, float>(hnswParams, abstractInitParams, components);
 #ifdef BUILD_TESTS
@@ -91,38 +104,42 @@ VecSimIndex *NewIndex(const VecSimParams *params, bool is_normalized) {
         VecSimFactory::NewAbstractInitParams(hnswParams, params->logCtx, is_normalized);
 
     if (hnswParams->quantType != VecSimQuant_NONE) {
-        // Reject unknown quantizers instead of silently creating an unquantized index.
-        if (hnswParams->quantType != VecSimQuant_SQ8) {
+        const VecSimMetric metric = ResolveQuantizedMetric(hnswParams->metric, is_normalized);
+        const float *mean_ptr = static_cast<const float *>(hnswParams->quantParams);
+
+        if (!QuantizationParamsSupported(hnswParams->quantType, hnswParams->type, metric)) {
             return NULL;
         }
 
-        const VecSimMetric metric = ResolveSQ8Metric(hnswParams->metric, is_normalized);
-        const float *mean_ptr = static_cast<const float *>(hnswParams->quantParams);
-
-        if (!SQ8ParamsSupported(hnswParams->type, metric)) {
-            return NULL;
+        if (hnswParams->quantType == VecSimQuant_SQ4) {
+            if (metric == VecSimMetric_L2) {
+                return NewIndex_Quantized<float, VecSimMetric_L2, sq4>(
+                    hnswParams, abstractInitParams, mean_ptr);
+            }
+            return NewIndex_Quantized<float, VecSimMetric_IP, sq4>(hnswParams, abstractInitParams,
+                                                                   mean_ptr);
         }
 
         if (hnswParams->type == VecSimType_FLOAT32) {
             if (metric == VecSimMetric_L2) {
-                return NewIndex_SQ8<float, VecSimMetric_L2>(hnswParams, abstractInitParams,
-                                                            mean_ptr);
+                return NewIndex_Quantized<float, VecSimMetric_L2>(hnswParams, abstractInitParams,
+                                                                  mean_ptr);
             } else if (metric == VecSimMetric_IP) {
-                return NewIndex_SQ8<float, VecSimMetric_IP>(hnswParams, abstractInitParams,
-                                                            mean_ptr);
+                return NewIndex_Quantized<float, VecSimMetric_IP>(hnswParams, abstractInitParams,
+                                                                  mean_ptr);
             }
         } else if (hnswParams->type == VecSimType_FLOAT16) {
             if (metric == VecSimMetric_L2) {
-                return NewIndex_SQ8<float16, VecSimMetric_L2>(hnswParams, abstractInitParams,
-                                                              mean_ptr);
+                return NewIndex_Quantized<float16, VecSimMetric_L2>(hnswParams, abstractInitParams,
+                                                                    mean_ptr);
             } else if (metric == VecSimMetric_IP) {
-                return NewIndex_SQ8<float16, VecSimMetric_IP>(hnswParams, abstractInitParams,
-                                                              mean_ptr);
+                return NewIndex_Quantized<float16, VecSimMetric_IP>(hnswParams, abstractInitParams,
+                                                                    mean_ptr);
             }
         }
 
         // Keep the return for release builds so future dispatch changes cannot fall through.
-        assert(false && "unhandled SQ8 data type and metric combination");
+        assert(false && "unhandled quantized data type and metric combination");
         return NULL;
     }
 
@@ -189,11 +206,16 @@ size_t EstimateInitialSize(const HNSWParams *params, bool is_normalized, bool wi
 
     if (params->quantType != VecSimQuant_NONE) {
         // Keep construction and initial-size validation in sync.
-        if (params->quantType != VecSimQuant_SQ8 ||
-            !SQ8ParamsSupported(params->type, ResolveSQ8Metric(params->metric, is_normalized))) {
+        if (!QuantizationParamsSupported(params->quantType, params->type,
+                                         ResolveQuantizedMetric(params->metric, is_normalized))) {
             throw std::invalid_argument("Unsupported quantization params for HNSW index");
         }
-        // Template arguments do not affect these component sizes.
+        // Template arguments do not affect these component sizes. The storage type does not
+        // either; the asserts keep that true, so one estimate serves SQ8 and SQ4.
+        static_assert(sizeof(QuantPreprocessor<float, VecSimMetric_L2, true, sq4>) ==
+                      sizeof(QuantPreprocessor<float, VecSimMetric_L2, true>));
+        static_assert(sizeof(QuantPreprocessor<float, VecSimMetric_L2, false, sq4>) ==
+                      sizeof(QuantPreprocessor<float, VecSimMetric_L2>));
         if (with_mean) {
             est += allocations_overhead +
                    sizeof(DistanceCalculatorWithNorm<float, float, VecSimMetric_L2>);
@@ -242,11 +264,16 @@ size_t EstimateElementSize(const HNSWParams *params, bool with_mean) {
 
     size_t stored_data_size;
     // Preserve the element estimator's existing contract: return a size and validate in NewIndex.
-    if (params->quantType == VecSimQuant_SQ8) {
+    if (params->quantType == VecSimQuant_SQ4) {
+        stored_data_size =
+            params->metric == VecSimMetric_L2
+                ? GetQuantizedStoredDataSize<VecSimMetric_L2, sq4>(params->dim, with_mean)
+                : GetQuantizedStoredDataSize<VecSimMetric_IP, sq4>(params->dim, with_mean);
+    } else if (params->quantType == VecSimQuant_SQ8) {
         if (params->metric == VecSimMetric_L2) {
-            stored_data_size = GetSQ8StoredDataSize<VecSimMetric_L2>(params->dim, with_mean);
+            stored_data_size = GetQuantizedStoredDataSize<VecSimMetric_L2>(params->dim, with_mean);
         } else {
-            stored_data_size = GetSQ8StoredDataSize<VecSimMetric_IP>(params->dim, with_mean);
+            stored_data_size = GetQuantizedStoredDataSize<VecSimMetric_IP>(params->dim, with_mean);
         }
     } else {
         stored_data_size =
@@ -302,6 +329,19 @@ inline VecSimIndex *NewIndex_ChooseMultiOrSingle(std::ifstream &input, const HNS
     return index;
 }
 
+template <typename DataType, VecSimMetric Metric, typename StorageType = sq8>
+VecSimIndex *LoadIndex_Quantized(std::ifstream &input, const HNSWParams &params,
+                                 AbstractIndexInitParams abstractInitParams,
+                                 HNSWSerializer::EncodingVersion version, const float *mean_ptr) {
+    abstractInitParams.isQuantized = true;
+    abstractInitParams.storedDataSize =
+        GetQuantizedStoredDataSize<Metric, StorageType>(params.dim, mean_ptr != nullptr);
+    auto components = CreateQuantizedIndexComponents<DataType, Metric, StorageType>(
+        abstractInitParams.allocator, params.dim, mean_ptr);
+    return NewIndex_ChooseMultiOrSingle<DataType, float>(input, &params, abstractInitParams,
+                                                         components, version, mean_ptr);
+}
+
 // Initialize @params from file for V3+. For V5+ also reads quantType and mean vector.
 // Returns false if the file holds a quantizer value this version does not know.
 static bool InitializeParams(std::ifstream &source_params, HNSWParams &params,
@@ -320,11 +360,12 @@ static bool InitializeParams(std::ifstream &source_params, HNSWParams &params,
         // VecSimQuantType, so it must never be loaded into the enum.
         std::underlying_type_t<VecSimQuantType> raw_quant_type;
         Serializer::readBinaryPOD(source_params, raw_quant_type);
-        if (raw_quant_type != VecSimQuant_NONE && raw_quant_type != VecSimQuant_SQ8) {
+        if (raw_quant_type != VecSimQuant_NONE && raw_quant_type != VecSimQuant_SQ8 &&
+            raw_quant_type != VecSimQuant_SQ4) {
             return false;
         }
         params.quantType = static_cast<VecSimQuantType>(raw_quant_type);
-        if (params.quantType == VecSimQuant_SQ8) {
+        if (params.quantType != VecSimQuant_NONE) {
             bool hasMean = false;
             Serializer::readBinaryPOD(source_params, hasMean);
             if (hasMean) {
@@ -370,46 +411,36 @@ VecSimIndex *NewIndex(const std::string &location, bool is_normalized) {
 
     if (params.quantType != VecSimQuant_NONE) {
         const float *mean_ptr = meanVector.empty() ? nullptr : meanVector.data();
-        const VecSimMetric metric = ResolveSQ8Metric(params.metric, is_normalized);
+        const VecSimMetric metric = ResolveQuantizedMetric(params.metric, is_normalized);
 
-        if (!SQ8ParamsSupported(params.type, metric)) {
+        if (!QuantizationParamsSupported(params.quantType, params.type, metric)) {
             return NULL;
         }
 
-        // Override blob sizes for SQ8 storage layout.
-        size_t dim = params.dim;
-        abstractInitParams.isQuantized = true;
-        if (metric == VecSimMetric_L2) {
-            abstractInitParams.storedDataSize =
-                GetSQ8StoredDataSize<VecSimMetric_L2>(dim, mean_ptr != nullptr);
-        } else {
-            abstractInitParams.storedDataSize =
-                GetSQ8StoredDataSize<VecSimMetric_IP>(dim, mean_ptr != nullptr);
+        if (params.quantType == VecSimQuant_SQ4) {
+            if (metric == VecSimMetric_L2) {
+                return LoadIndex_Quantized<float, VecSimMetric_L2, sq4>(
+                    input, params, abstractInitParams, version, mean_ptr);
+            }
+            return LoadIndex_Quantized<float, VecSimMetric_IP, sq4>(
+                input, params, abstractInitParams, version, mean_ptr);
         }
 
         if (params.type == VecSimType_FLOAT32) {
             if (metric == VecSimMetric_L2) {
-                auto components = CreateSQ8IndexComponents<float, VecSimMetric_L2>(
-                    abstractInitParams.allocator, dim, mean_ptr);
-                return NewIndex_ChooseMultiOrSingle<float>(input, &params, abstractInitParams,
-                                                           components, version, mean_ptr);
+                return LoadIndex_Quantized<float, VecSimMetric_L2>(
+                    input, params, abstractInitParams, version, mean_ptr);
             } else {
-                auto components = CreateSQ8IndexComponents<float, VecSimMetric_IP>(
-                    abstractInitParams.allocator, dim, mean_ptr);
-                return NewIndex_ChooseMultiOrSingle<float>(input, &params, abstractInitParams,
-                                                           components, version, mean_ptr);
+                return LoadIndex_Quantized<float, VecSimMetric_IP>(
+                    input, params, abstractInitParams, version, mean_ptr);
             }
         } else if (params.type == VecSimType_FLOAT16) {
             if (metric == VecSimMetric_L2) {
-                auto components = CreateSQ8IndexComponents<float16, VecSimMetric_L2>(
-                    abstractInitParams.allocator, dim, mean_ptr);
-                return NewIndex_ChooseMultiOrSingle<float16, float>(
-                    input, &params, abstractInitParams, components, version, mean_ptr);
+                return LoadIndex_Quantized<float16, VecSimMetric_L2>(
+                    input, params, abstractInitParams, version, mean_ptr);
             } else {
-                auto components = CreateSQ8IndexComponents<float16, VecSimMetric_IP>(
-                    abstractInitParams.allocator, dim, mean_ptr);
-                return NewIndex_ChooseMultiOrSingle<float16, float>(
-                    input, &params, abstractInitParams, components, version, mean_ptr);
+                return LoadIndex_Quantized<float16, VecSimMetric_IP>(
+                    input, params, abstractInitParams, version, mean_ptr);
             }
         }
     }

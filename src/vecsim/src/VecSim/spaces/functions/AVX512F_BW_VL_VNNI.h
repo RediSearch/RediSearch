@@ -24,6 +24,15 @@ dist_func_t<float> Choose_SQ8_FP32_IP_implementation_AVX512F_BW_VL_VNNI(size_t d
 dist_func_t<float> Choose_SQ8_FP32_Cosine_implementation_AVX512F_BW_VL_VNNI(size_t dim);
 dist_func_t<float> Choose_SQ8_FP32_L2_implementation_AVX512F_BW_VL_VNNI(size_t dim);
 
+// SQ4 storage with an FP32 query
+dist_func_t<float> Choose_SQ4_FP32_IP_implementation_AVX512F_BW_VL_VNNI(size_t dim);
+dist_func_t<float> Choose_SQ4_FP32_L2_implementation_AVX512F_BW_VL_VNNI(size_t dim);
+
+// SQ4-to-SQ4 distance functions (both vectors are SQ4 stored blobs)
+dist_func_t<float> Choose_SQ4_SQ4_IP_implementation_AVX512F_BW_VL_VNNI(size_t dim);
+// L2 by the stored-sum identity (see L2_SQ4_SQ4_GetDistFunc)
+dist_func_t<float> Choose_SQ4_SQ4_L2_implementation_AVX512F_BW_VL_VNNI(size_t dim);
+
 // SQ8-to-SQ8 distance functions (both vectors are uint8 quantized with precomputed sum)
 dist_func_t<float> Choose_SQ8_SQ8_IP_implementation_AVX512F_BW_VL_VNNI(size_t dim);
 dist_func_t<float> Choose_SQ8_SQ8_Cosine_implementation_AVX512F_BW_VL_VNNI(size_t dim);

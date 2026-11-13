@@ -40,6 +40,14 @@ public:
     void *reallocate(void *p, size_t size);
     void free_allocation(void *p);
 
+    /**
+     * Transfer accounting for an allocation owned by this allocator to destination.
+     * The pointer, contents and alignment are preserved. Null and self transfers are no-ops.
+     * The caller must exclusively own p and update any owning deleter before freeing it
+     * through destination. The two accounting counters are not updated atomically together.
+     */
+    void transferAllocationTo(void *p, VecSimAllocator &destination) noexcept;
+
     // Allocations for scope-life-time memory.
     std::unique_ptr<void, Deleter> allocate_aligned_unique(size_t size, size_t alignment);
     std::unique_ptr<void, Deleter> allocate_unique(size_t size);

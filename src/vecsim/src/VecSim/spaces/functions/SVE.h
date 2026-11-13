@@ -33,6 +33,15 @@ dist_func_t<float> Choose_SQ8_FP32_IP_implementation_SVE(size_t dim);
 dist_func_t<float> Choose_SQ8_FP32_Cosine_implementation_SVE(size_t dim);
 dist_func_t<float> Choose_SQ8_FP32_L2_implementation_SVE(size_t dim);
 
+// SQ4 storage with an FP32 query
+dist_func_t<float> Choose_SQ4_FP32_IP_implementation_SVE(size_t dim);
+dist_func_t<float> Choose_SQ4_FP32_L2_implementation_SVE(size_t dim);
+
+// SQ4-to-SQ4 distance functions (both vectors are SQ4 quantized with precomputed sum)
+dist_func_t<float> Choose_SQ4_SQ4_IP_implementation_SVE(size_t dim);
+// L2 by the stored-sum identity (see L2_SQ4_SQ4_GetDistFunc)
+dist_func_t<float> Choose_SQ4_SQ4_L2_implementation_SVE(size_t dim);
+
 dist_func_t<float> Choose_SQ8_FP16_IP_implementation_SVE(size_t dim);
 dist_func_t<float> Choose_SQ8_FP16_Cosine_implementation_SVE(size_t dim);
 dist_func_t<float> Choose_SQ8_FP16_L2_implementation_SVE(size_t dim);

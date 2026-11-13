@@ -41,8 +41,9 @@ std::optional<QuantizationMean> validateQuantizationMean(const py::object &quant
     if (quantization_mean.is_none()) {
         return std::nullopt;
     }
-    if (params.quantType != VecSimQuant_SQ8) {
-        throw py::value_error("quantization_mean requires quantType VecSimQuant_SQ8");
+    if (params.quantType != VecSimQuant_SQ8 && params.quantType != VecSimQuant_SQ4) {
+        throw py::value_error(
+            "quantization_mean requires quantType VecSimQuant_SQ8 or VecSimQuant_SQ4");
     }
 
     QuantizationMean mean(quantization_mean);
@@ -812,6 +813,7 @@ PYBIND11_MODULE(VecSim, m) {
     py::enum_<VecSimQuantType>(m, "VecSimQuantType")
         .value("VecSimQuant_NONE", VecSimQuant_NONE)
         .value("VecSimQuant_SQ8", VecSimQuant_SQ8)
+        .value("VecSimQuant_SQ4", VecSimQuant_SQ4)
         .export_values();
 
     py::enum_<VecSimOptionMode>(m, "VecSimOptionMode")

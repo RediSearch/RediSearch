@@ -35,6 +35,7 @@ else()
 endif()
 
 add_executable(test_hnsw ../utils/test_main_with_timeout.cpp ../utils/mock_thread_pool.cpp test_hnsw.cpp test_hnsw_multi.cpp test_hnsw_tiered.cpp unit_test_utils.cpp)
+add_executable(test_hnsw_sq4 ../utils/test_main_with_timeout.cpp ../utils/mock_thread_pool.cpp test_hnsw_sq4.cpp test_sq4_distances.cpp test_sq4_components.cpp unit_test_utils.cpp)
 add_executable(test_hnsw_sq8 ../utils/test_main_with_timeout.cpp ../utils/mock_thread_pool.cpp test_hnsw_sq8.cpp unit_test_utils.cpp)
 add_executable(test_bruteforce ../utils/test_main_with_timeout.cpp test_bruteforce.cpp test_bruteforce_multi.cpp ../utils/mock_thread_pool.cpp unit_test_utils.cpp)
 add_executable(test_allocator ../utils/test_main_with_timeout.cpp test_allocator.cpp ../utils/mock_thread_pool.cpp unit_test_utils.cpp)
@@ -51,6 +52,7 @@ add_executable(test_svs ../utils/test_main_with_timeout.cpp ../utils/mock_thread
 
 target_link_libraries(test_hnsw PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_hnsw_sq8 PUBLIC gtest VectorSimilarity)
+target_link_libraries(test_hnsw_sq4 PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_bruteforce PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_allocator PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_spaces PUBLIC gtest VectorSimilarity)
@@ -64,7 +66,11 @@ target_link_libraries(test_uint8 PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_index_test_utils PUBLIC gtest VectorSimilarity)
 target_link_libraries(test_svs PUBLIC gtest VectorSimilarity)
 
+add_executable(test_allocation_transfer ../utils/test_main_with_timeout.cpp test_allocation_transfer.cpp)
+target_link_libraries(test_allocation_transfer PUBLIC gtest VectorSimilarity)
+
 include(GoogleTest)
+gtest_discover_tests(test_allocation_transfer PROPERTIES ENVIRONMENT "ROOT=${binroot}")
 
 # The serialization tests use ROOT/tests/unit for fixtures and scratch files.
 # Keep their writable test root in the build tree, independent of checkout layout.
@@ -83,6 +89,7 @@ gtest_discover_tests(test_fp16 TEST_PREFIX FP16UNIT_ PROPERTIES ENVIRONMENT "ROO
 gtest_discover_tests(test_int8 TEST_PREFIX INT8UNIT_ PROPERTIES ENVIRONMENT "ROOT=${binroot}")
 gtest_discover_tests(test_uint8 TEST_PREFIX UINT8UNIT_ PROPERTIES ENVIRONMENT "ROOT=${binroot}")
 gtest_discover_tests(test_index_test_utils PROPERTIES ENVIRONMENT "ROOT=${binroot}")
+gtest_discover_tests(test_hnsw_sq4 PROPERTIES ENVIRONMENT "ROOT=${binroot}")
 # SVS Tiered tests are slow in debug mode, so we set a longer timeout
 gtest_discover_tests(test_svs PROPERTIES TIMEOUT 3000 ENVIRONMENT "ROOT=${binroot}")
 

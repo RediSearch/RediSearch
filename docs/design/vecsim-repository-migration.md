@@ -9,7 +9,7 @@ boundary, exported names, algorithms, and persistence behavior are unchanged.
 The import starts from the VecSim commit already pinned by Search:
 
 - Repository: <https://github.com/RedisAI/VectorSimilarity>
-- VecSim commit: `001f0b0df1cac1fff87f502548b1c205f061f242`
+- VecSim commit: `eefc4e7a0feb608f3e2e50e7e5050d1f44bdec9e`
 - Search parent: `8751678feddc78eb5ca7651883234f6d10158f00`
 - SVS commit: `919925a56218da10ee4ae0cb8a2124ee96fdf3fd`
 
@@ -27,7 +27,7 @@ are changed by this migration branch. Recheck the effective rules before
 submission. After landing, the following command must succeed:
 
 ```sh
-git merge-base --is-ancestor 001f0b0df1cac1fff87f502548b1c205f061f242 origin/master
+git merge-base --is-ancestor eefc4e7a0feb608f3e2e50e7e5050d1f44bdec9e origin/master
 ```
 
 Importing commit ancestry does not migrate GitHub issues, reviews, releases,
