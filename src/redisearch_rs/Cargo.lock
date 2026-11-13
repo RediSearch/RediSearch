@@ -1132,6 +1132,7 @@ dependencies = [
  "rqe_core",
  "serde",
  "serde_bytes",
+ "sparse_vector_index",
  "string_utils",
  "thiserror",
  "tracing",

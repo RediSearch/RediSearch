@@ -301,3 +301,49 @@ def testJson(env):
     ]:
         conn.execute_command('JSON.SET', 'doc:bad', '$', json.dumps({'sp': bad}))
         env.assertEqual(search(env, '@sp:[SPARSE $q]', [(1, 1.0)], 'NOCONTENT'), [0])
+
+
+def check_gc_collects_sparse_entries(env):
+    conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    create_index(env, dim=200)
+    # Every doc shares one of ten common dimensions, and has one of its own.
+    for n in range(60):
+        conn.execute_command('HSET', f'doc:{n}', 'sp', sparse_blob([(n % 10, 1.0), (100 + n, 2.0)]))
+    q = [(i, 1.0) for i in range(10)]
+    records_before = int(index_info(env)['num_records'])
+    blocks_before = int(index_info(env)['total_inverted_index_blocks'])
+    env.assertEqual(records_before, 120)
+
+    # Delete the even docs and give doc:1 a new vector (an update is a new doc ID).
+    for n in range(0, 60, 2):
+        conn.execute_command('DEL', f'doc:{n}')
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 3.0)]))
+
+    forceInvokeGC(env)
+
+    # 29 untouched odd docs keep 2 entries each; doc:1 now has 1.
+    info = index_info(env)
+    env.assertEqual(int(info['num_records']), 29 * 2 + 1)
+    env.assertLess(int(info['total_inverted_index_blocks']), blocks_before)
+
+    res = search(env, '@sp:[SPARSE $q]', q, 'WITHSCORES', 'NOCONTENT', 'LIMIT', 0, 100)
+    env.assertEqual(res[0], 30)
+    got = dict(ids_and_scores(res))
+    env.assertEqual(got.pop('doc:1'), 3.0)
+    env.assertEqual(sorted(got), sorted(f'doc:{n}' for n in range(3, 60, 2)))
+    # A dimension only a deleted doc had is gone, and one an updated doc dropped is too.
+    env.assertEqual(search(env, '@sp:[SPARSE $q]', [(100, 1.0), (101, 1.0)]), [0])
+    # A second cycle with nothing new to collect changes nothing.
+    forceInvokeGC(env)
+    env.assertEqual(int(index_info(env)['num_records']), 29 * 2 + 1)
+
+
+@skip(cluster=True)
+def testGcFork(env):
+    check_gc_collects_sparse_entries(env)
+
+
+@skip(cluster=True)
+def testGcThread():
+    check_gc_collects_sparse_entries(Env(moduleArgs='GC_POLICY THREAD'))

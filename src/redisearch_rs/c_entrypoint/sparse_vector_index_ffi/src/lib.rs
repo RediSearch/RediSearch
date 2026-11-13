@@ -18,7 +18,7 @@
 use std::ffi::c_char;
 
 use ffi::t_docId;
-use sparse_vector_index::{SparseMetric, SparseVectorIndex};
+use sparse_vector_index::{SparseMetric, SparseVectorAddOutcome, SparseVectorIndex};
 
 /// A document's sparse vector, checked against its field and normalized
 /// under `COSINE`, ready for [`SparseVectorIndex_Add`].
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn PreparedSparseVector_Free(vector: *mut PreparedSparseVe
 
 /// Add a document's prepared vector to `index`.
 ///
-/// Returns the number of bytes the index grew by.
+/// Returns what the write changed, for the spec's statistics.
 ///
 /// # Safety
 ///
@@ -179,7 +179,7 @@ pub unsafe extern "C" fn SparseVectorIndex_Add(
     index: *mut SparseVectorIndex,
     doc_id: t_docId,
     vector: *const PreparedSparseVector,
-) -> usize {
+) -> SparseVectorAddOutcome {
     // SAFETY: guaranteed by 1.
     let index = unsafe { &mut *index };
     // SAFETY: guaranteed by 2.

@@ -369,7 +369,7 @@ Each step is roughly one reviewable PR.
 | 2 | Schema: field type, parse `SPARSEVECTOR <nargs> …` (`DIM`, `DISTANCE_METRIC`, `TYPE`), `FT.INFO` output, spec RDB save/load of the field attributes, free on drop | `spec.c`, `field_spec.[ch]`, `info/` | Done (spec encoding version 30) | Flow tests for create / info / invalid args / RDB reload |
 | 3 | Indexing: HASH blob and JSON parsing, add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Done | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
 | 4 | Query: `@field:[SPARSE $q]` parser node, iterator tree (dimension `InvIndIterator`s, `Union`, `SparseVectorIterator`), sparse `Metric` kind, sparse score as the default document score, `$YIELD_SCORE_AS` | `query_parser/v2/`, `query.c`, `sparse_vector_index/`, `query_eval/`, `ext/default.c` | Done | Top `LIMIT` equals a brute-force reference; filtered, combined-with-text and unfiltered flow tests |
-| 5 | GC scanner | `index_gc/src/scanners/` | Not started | GC flow tests; memory returns after delete |
+| 5 | GC scanner | `index_gc/src/scanners/` | Done (fork and thread policies; emptied dimensions are removed) | GC flow tests; memory returns after delete |
 | 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Partial: `FT.HYBRID` and `FT.PROFILE` work standalone; cluster merge not yet tested | Cluster flow tests; dense + sparse RRF/LINEAR tests |
 | 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
 

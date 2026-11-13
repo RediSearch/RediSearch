@@ -33,10 +33,102 @@ use rqe_iterators::{
 
 use crate::SparseVectorIndex;
 
+type PostingListIterator<'index> =
+    InvIndIterator<'index, IndexReaderCore<'index, NumericFloatCompression>, NoOpChecker>;
+
 /// An iterator over one dimension's posting list, yielding `(doc_id, d_i)`
 /// with the query weight `q_i` as its result weight.
-pub type DimensionIterator<'index> =
-    InvIndIterator<'index, IndexReaderCore<'index, NumericFloatCompression>, NoOpChecker>;
+///
+/// GC removes a dimension whose posting list it empties, which frees the list.
+/// So on [`revalidate`](RQEIterator::revalidate) this looks the dimension up
+/// again and aborts when its list is gone or replaced, before the reader
+/// touches it. The union then drops this child: a dimension no document has
+/// contributes nothing to any score.
+pub struct DimensionIterator<'index> {
+    it: PostingListIterator<'index>,
+    /// The index the posting list belongs to. Only dereferenced under the spec
+    /// read lock, in `revalidate`; it lives as long as its field, which outlives
+    /// every query on it.
+    index: NonNull<SparseVectorIndex>,
+    dim_id: u32,
+}
+
+impl<'index> DimensionIterator<'index> {
+    fn new(index: &'index SparseVectorIndex, dim_id: u32, weight: f32) -> Option<Self> {
+        let posting_list = index.get_dimension(dim_id)?;
+        let result = RSIndexResult::build_numeric(0.0)
+            .weight(f64::from(weight))
+            .build();
+        Some(Self {
+            it: InvIndIterator::new(posting_list.reader(), result, NoOpChecker),
+            index: NonNull::from(index),
+            dim_id,
+        })
+    }
+}
+
+impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: the caller holds the spec read lock (`spec` witnesses it), so
+        // the field's index is alive and no writer holds it.
+        let index = unsafe { self.index.as_ref() };
+        let Some(list) = index.get_dimension(self.dim_id) else {
+            return Ok(RQEValidateStatus::Aborted);
+        };
+        let ii = list.inner();
+        if !self.it.reads_index(ii) {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+        // SAFETY: 1. `reads_index` held just above. 2. `ii` was resolved through
+        // its owner just now, after any write made while the iterator was parked.
+        // 3. The read lock keeps it allocated and unwritten until the iterator is
+        // parked again.
+        unsafe { self.it.reseat_reader_index(NonNull::from(ii)) };
+        self.it.revalidate(spec)
+    }
+
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.it.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+
+    fn type_(&self) -> IteratorType {
+        self.it.type_()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        self.it.intersection_sort_weight(prioritize_union_children)
+    }
+}
 
 /// The union over the query's dimension iterators. Always a full union (no
 /// quick exit), so each result aggregates every dimension present at that
@@ -101,17 +193,7 @@ impl<'index> SparseVectorIterator<'index> {
     ) -> Option<Self> {
         let children: Vec<DimensionIterator<'index>> = query
             .iter()
-            .filter_map(|&(dim_id, weight)| {
-                let posting_list = index.get_dimension(dim_id)?;
-                let result = RSIndexResult::build_numeric(0.0)
-                    .weight(f64::from(weight))
-                    .build();
-                Some(InvIndIterator::new(
-                    posting_list.reader(),
-                    result,
-                    NoOpChecker,
-                ))
-            })
+            .filter_map(|&(dim_id, weight)| DimensionIterator::new(index, dim_id, weight))
             .collect();
 
         if children.is_empty() {

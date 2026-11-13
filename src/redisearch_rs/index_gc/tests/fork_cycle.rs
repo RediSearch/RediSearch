@@ -63,7 +63,8 @@ fn make_fork_gc() -> (Box<ForkPipe>, io::PipeReader, io::PipeWriter) {
 /// Encode the empty stream produced by each scanner in protocol order.
 fn empty_scanner_streams() -> Vec<u8> {
     let mut bytes = Vec::new();
-    for _ in 0..5 {
+    // terms, numeric, tags, sparse vectors, missing docs, existing docs.
+    for _ in 0..6 {
         // One chunk, flagged last, holding MessagePack `nil`: the scanner's `None`.
         bytes.extend_from_slice(&(1usize | 1 << (usize::BITS - 1)).to_ne_bytes());
         bytes.push(0xc0);

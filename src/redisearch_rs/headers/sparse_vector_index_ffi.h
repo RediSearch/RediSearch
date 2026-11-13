@@ -8,17 +8,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "rqe_core.h"
+#include "sparse_vector_index.h"
 
 /**
  * A document's sparse vector, checked against its field and normalized
  * under `COSINE`, ready for [`SparseVectorIndex_Add`].
  */
 typedef struct PreparedSparseVector PreparedSparseVector;
-
-/**
- * One field's sparse vector index.
- */
-typedef struct SparseVectorIndex SparseVectorIndex;
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,7 +53,7 @@ struct PreparedSparseVector *PreparedSparseVector_FromBlob(const uint8_t *blob, 
 /**
  * Add a document's prepared vector to `index`.
  *
- * Returns the number of bytes the index grew by.
+ * Returns what the write changed, for the spec's statistics.
  *
  * # Safety
  *
@@ -72,7 +68,7 @@ struct PreparedSparseVector *PreparedSparseVector_FromBlob(const uint8_t *blob, 
  * Panics when the posting list cannot be written, which only an allocation
  * failure causes.
  */
-size_t SparseVectorIndex_Add(struct SparseVectorIndex *index, t_docId doc_id, const struct PreparedSparseVector *vector);
+struct SparseVectorAddOutcome SparseVectorIndex_Add(struct SparseVectorIndex *index, t_docId doc_id, const struct PreparedSparseVector *vector);
 
 /**
  * Free an index built by [`SparseVectorIndex_New`]. A null `index` is a no-op.

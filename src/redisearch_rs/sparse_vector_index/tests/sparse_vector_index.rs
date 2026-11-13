@@ -16,9 +16,11 @@ extern crate redisearch_rs;
 
 use std::collections::BTreeMap;
 
+use index_result::RSIndexResult;
+use inverted_index::RepairContext;
 use proptest::prelude::*;
-use rqe_iterators::{IteratorType, RQEIterator, SkipToOutcome};
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 use sparse_vector_index::{
     SparseMetric, SparseVectorError, SparseVectorIndex, SparseVectorIterator, parse_blob, prepare,
 };
@@ -133,7 +135,9 @@ fn prepare_rejects_zero_norm_under_cosine() {
 fn add_tracks_dimensions_and_entries() {
     let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
     assert!(index.is_empty());
-    index.add(1, &ip(&[(10, 0.5), (20, 0.3)])).unwrap();
+    let first = index.add(1, &ip(&[(10, 0.5), (20, 0.3)])).unwrap();
+    assert_eq!(first.records, 2);
+    assert!(first.bytes > 0);
     index.add(2, &ip(&[(20, 0.1), (30, 0.2)])).unwrap();
     assert_eq!(index.num_dimensions(), 3);
     assert_eq!(index.num_entries(), 4);
@@ -265,4 +269,172 @@ proptest! {
             prop_assert!((score - expected[&doc_id]).abs() < 1e-4, "doc {doc_id}: {score} vs {}", expected[&doc_id]);
         }
     }
+}
+
+const NO_REPAIR: Option<fn(&RSIndexResult<'_>, &RepairContext<'_>)> = None;
+
+/// Run a GC pass over every dimension of `index`, treating `gone` as deleted.
+/// Returns how many dimensions were removed.
+fn run_gc(index: &mut SparseVectorIndex, gone: &[u64]) -> usize {
+    let live = |id: u64| !gone.contains(&id);
+    let mut removed = 0;
+    for dim_id in index.dimension_ids_after(None) {
+        let list = index.get_dimension(dim_id).unwrap();
+        let unique_id = u32::from(list.unique_id());
+        let Some(delta) = list.scan_gc(live, NO_REPAIR).unwrap() else {
+            continue;
+        };
+        let outcome = index.apply_gc(dim_id, unique_id, delta, None).unwrap();
+        removed += usize::from(outcome.removed.is_some());
+    }
+    removed
+}
+
+#[test]
+fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
+    let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
+    index.add(1, &ip(&[(1, 1.0), (2, 1.0)])).unwrap();
+    index.add(2, &ip(&[(2, 1.0), (3, 1.0)])).unwrap();
+    index.add(3, &ip(&[(1, 1.0)])).unwrap();
+    let memory_before = index.memory_usage();
+    assert_eq!(index.num_entries(), 5);
+
+    // Doc 2 is the only one with dimension 3, so that dimension goes.
+    assert_eq!(run_gc(&mut index, &[2]), 1);
+    assert_eq!(index.num_entries(), 3);
+    assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
+    assert!(index.memory_usage() < memory_before);
+
+    let query = ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]);
+    let got = collect_results(&index, &query);
+    assert_eq!(got.iter().map(|(d, _)| *d).collect::<Vec<_>>(), vec![1, 3]);
+
+    // Collecting everything leaves an empty index with no dimension.
+    run_gc(&mut index, &[1, 3]);
+    assert!(index.is_empty());
+    assert_eq!(index.num_dimensions(), 0);
+    assert_eq!(index.memory_usage(), 0);
+}
+
+fn collect_results(index: &SparseVectorIndex, query: &[(u32, f32)]) -> Vec<(u64, f64)> {
+    // SAFETY: test-only lifetime extension; the iterator is drained and dropped
+    // before `index` is touched again.
+    let index: &'static SparseVectorIndex = unsafe { &*std::ptr::from_ref(index) };
+    match SparseVectorIterator::new(index, query, 10) {
+        Some(mut it) => collect(&mut it),
+        None => vec![],
+    }
+}
+
+#[test]
+fn gc_ignores_a_delta_for_a_replaced_posting_list() {
+    let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
+    index.add(1, &ip(&[(1, 1.0)])).unwrap();
+    index.add(2, &ip(&[(1, 1.0)])).unwrap();
+    let list = index.get_dimension(1).unwrap();
+    let wrong_id = u32::from(list.unique_id()).wrapping_add(1);
+    let delta = list.scan_gc(|id: u64| id != 1, NO_REPAIR).unwrap().unwrap();
+    assert!(index.apply_gc(1, wrong_id, delta, None).is_none());
+    assert_eq!(index.num_entries(), 2);
+
+    let delta = index
+        .get_dimension(1)
+        .unwrap()
+        .scan_gc(|id: u64| id != 1, NO_REPAIR)
+        .unwrap()
+        .unwrap();
+    assert!(
+        index.apply_gc(7, 0, delta, None).is_none(),
+        "no such dimension"
+    );
+}
+
+/// GC freeing a dimension while a query is parked must not leave the
+/// iterator reading the freed posting list: the dimension's child aborts and
+/// the union carries on with the others.
+#[test]
+fn revalidate_drops_a_dimension_gc_removed() {
+    let ctx = MockContext::new(0, 0);
+    let index = Box::leak(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    let index_ptr: *mut SparseVectorIndex = index;
+    for (doc_id, entries) in [
+        (1, vec![(1, 1.0)]),
+        (2, vec![(2, 5.0)]),
+        (3, vec![(1, 2.0)]),
+        (4, vec![(2, 7.0)]),
+    ] {
+        index.add(doc_id, &ip(&entries)).unwrap();
+    }
+    let query = ip(&[(1, 1.0), (2, 1.0)]);
+    // SAFETY: the index is leaked, and is only written below while the
+    // iterator is parked, as a GC pass would under the write lock.
+    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &query, 10).unwrap();
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    // Docs 2 and 4 are deleted and collected: dimension 2 is removed and freed.
+    // SAFETY: as above.
+    assert_eq!(run_gc(unsafe { &mut *index_ptr }, &[2, 4]), 1);
+
+    let status = it.revalidate(&ctx.spec_read()).unwrap();
+    assert!(!matches!(status, RQEValidateStatus::Aborted));
+    let rest: Vec<u64> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(rest, vec![3]);
+}
+
+#[test]
+fn revalidate_aborts_when_every_dimension_is_removed() {
+    let ctx = MockContext::new(0, 0);
+    let index = Box::leak(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    let index_ptr: *mut SparseVectorIndex = index;
+    index.add(1, &ip(&[(1, 1.0)])).unwrap();
+    index.add(2, &ip(&[(1, 1.0)])).unwrap();
+    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
+    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &ip(&[(1, 1.0)]), 10).unwrap();
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    // SAFETY: as above.
+    run_gc(unsafe { &mut *index_ptr }, &[1, 2]);
+    assert!(matches!(
+        it.revalidate(&ctx.spec_read()).unwrap(),
+        RQEValidateStatus::Aborted
+    ));
+}
+
+/// A GC pass that only shrinks a posting list leaves the parked iterator on
+/// its position, reading the compacted list.
+#[test]
+fn revalidate_follows_a_compacted_posting_list() {
+    let ctx = MockContext::new(0, 0);
+    let index = Box::leak(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    let index_ptr: *mut SparseVectorIndex = index;
+    for doc_id in 1..=6 {
+        index.add(doc_id, &ip(&[(1, doc_id as f32)])).unwrap();
+    }
+    // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
+    let mut it = SparseVectorIterator::new(unsafe { &*index_ptr }, &ip(&[(1, 1.0)]), 10).unwrap();
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+
+    // SAFETY: as above.
+    run_gc(unsafe { &mut *index_ptr }, &[3, 5]);
+    assert!(!matches!(
+        it.revalidate(&ctx.spec_read()).unwrap(),
+        RQEValidateStatus::Aborted
+    ));
+    let rest: Vec<(u64, f64)> = std::iter::from_fn(|| {
+        it.read()
+            .unwrap()
+            .map(|r| (r.doc_id, r.as_numeric().unwrap()))
+    })
+    .collect();
+    assert_eq!(rest, vec![(4, 4.0), (6, 6.0)]);
 }

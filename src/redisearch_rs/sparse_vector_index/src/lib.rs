@@ -33,9 +33,13 @@
 mod query;
 mod vector;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use index_result::RSIndexResult;
-use inverted_index::{EntriesTrackingIndex, numeric::NumericFloatCompression};
+use inverted_index::{
+    DocLiveness, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, numeric::NumericFloatCompression,
+};
 use rustc_hash::FxHashMap;
 
 pub use query::{DimensionIterator, SparseVectorIterator};
@@ -69,14 +73,51 @@ impl TryFrom<u32> for SparseMetric {
     }
 }
 
+/// Source of [`SparseVectorIndex::unique_id`]. Wraps, like the tag index's
+/// counter: it only has to tell a replaced index apart from the one a GC scan
+/// saw at the same field.
+static NEXT_UNIQUE_ID: AtomicU32 = AtomicU32::new(0);
+
+/// What one [`SparseVectorIndex::add`] changed, for the spec's statistics.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SparseVectorAddOutcome {
+    /// Bytes the posting lists grew by.
+    pub bytes: usize,
+    /// `(doc_id, weight)` pairs written.
+    pub records: usize,
+    /// Index blocks created.
+    pub blocks: usize,
+}
+
+/// What one [`SparseVectorIndex::apply_gc`] changed.
+#[derive(Debug)]
+pub struct SparseVectorGcOutcome {
+    /// What the posting list's own GC did.
+    pub info: GcApplyInfo,
+    /// Set when the posting list was left empty and the dimension removed.
+    pub removed: Option<RemovedDimension>,
+}
+
+/// What removing an emptied dimension freed, beyond [`GcApplyInfo`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemovedDimension {
+    /// The bytes the empty posting list still held.
+    pub bytes: usize,
+    /// The blocks it still held.
+    pub blocks: usize,
+}
+
 /// One field's sparse vector index.
 #[derive(Debug)]
 pub struct SparseVectorIndex {
     /// Dimension ID to its posting list.
     ///
     /// Each posting list is boxed so its address survives a rehash: a query
-    /// iterator keeps borrowing it while the spec lock is released, and a
-    /// concurrent write that adds a dimension may grow the map.
+    /// iterator keeps reading it while the spec lock is released, and a
+    /// concurrent write that adds a dimension may grow the map. GC may still
+    /// remove a dimension, so a parked iterator re-resolves its list on
+    /// revalidation (see [`DimensionIterator`]).
     dimensions: FxHashMap<u32, Box<PostingList>>,
     metric: SparseMetric,
     /// Size of the dimension space; valid dimension IDs are `0..dim`.
@@ -85,6 +126,7 @@ pub struct SparseVectorIndex {
     memory_usage: usize,
     /// `(doc_id, weight)` pairs across all posting lists.
     num_entries: usize,
+    unique_id: u32,
 }
 
 impl SparseVectorIndex {
@@ -96,6 +138,7 @@ impl SparseVectorIndex {
             dim,
             memory_usage: 0,
             num_entries: 0,
+            unique_id: NEXT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -109,29 +152,40 @@ impl SparseVectorIndex {
         self.dim
     }
 
+    /// An ID that tells this index apart from one that replaced it at the same
+    /// field, for a GC delta computed against an earlier state.
+    pub const fn unique_id(&self) -> u32 {
+        self.unique_id
+    }
+
     /// Add a document's vector, already checked and normalized by [`prepare`].
     ///
     /// `doc_id` must be greater than every doc ID added before, as for any
     /// inverted index.
-    ///
-    /// Returns the number of bytes the index grew by.
-    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f32)]) -> std::io::Result<usize> {
-        let mut bytes_added = 0;
+    pub fn add(
+        &mut self,
+        doc_id: t_docId,
+        entries: &[(u32, f32)],
+    ) -> std::io::Result<SparseVectorAddOutcome> {
+        let mut outcome = SparseVectorAddOutcome::default();
         for &(dim_id, weight) in entries {
             debug_assert!(u64::from(dim_id) < self.dim, "entries must be prepared");
             let posting_list = self.dimensions.entry(dim_id).or_insert_with(|| {
                 let list = Box::new(PostingList::new(IndexFlags_Index_StoreNumeric));
-                bytes_added += list.memory_usage();
+                outcome.bytes += list.memory_usage();
                 list
             });
             let record = RSIndexResult::build_numeric(f64::from(weight))
                 .doc_id(doc_id)
                 .build();
-            bytes_added += posting_list.add_record(&record)?.mem_growth as usize;
-            self.num_entries += 1;
+            let added = posting_list.add_record(&record)?;
+            outcome.bytes += added.mem_growth as usize;
+            outcome.blocks += added.blocks_added as usize;
+            outcome.records += 1;
         }
-        self.memory_usage += bytes_added;
-        Ok(bytes_added)
+        self.memory_usage += outcome.bytes;
+        self.num_entries += outcome.records;
+        Ok(outcome)
     }
 
     /// The posting list of `dim_id`, or `None` when no document has it.
@@ -154,7 +208,7 @@ impl SparseVectorIndex {
         self.memory_usage
     }
 
-    /// Whether no document has been added.
+    /// Whether the index holds no entry.
     pub const fn is_empty(&self) -> bool {
         self.num_entries == 0
     }
@@ -162,5 +216,56 @@ impl SparseVectorIndex {
     /// The dimension IDs that have a posting list, in no particular order.
     pub fn dimension_ids(&self) -> impl Iterator<Item = u32> + '_ {
         self.dimensions.keys().copied()
+    }
+
+    /// The dimension IDs greater than `after` (all of them for `None`), in
+    /// increasing order, so a GC walk can stop and resume by ID.
+    pub fn dimension_ids_after(&self, after: Option<u32>) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .dimensions
+            .keys()
+            .copied()
+            .filter(|&id| after.is_none_or(|a| id > a))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Apply a GC delta to `dim_id`'s posting list, and remove the dimension if
+    /// that leaves it empty.
+    ///
+    /// Returns `None` without touching anything when the dimension is gone or
+    /// its posting list is not the one `list_unique_id` names, so a delta
+    /// computed against a replaced list is never applied.
+    ///
+    /// `live` is as for [`EntriesTrackingIndex::apply_gc_with`].
+    pub fn apply_gc(
+        &mut self,
+        dim_id: u32,
+        list_unique_id: u32,
+        delta: GcScanDelta,
+        live: Option<&dyn DocLiveness>,
+    ) -> Option<SparseVectorGcOutcome> {
+        let list = self.dimensions.get_mut(&dim_id)?;
+        if u32::from(list.unique_id()) != list_unique_id {
+            return None;
+        }
+        let info = list.apply_gc_with(delta, live);
+        self.num_entries -= info.entries_removed;
+        self.memory_usage =
+            (self.memory_usage + info.bytes_allocated).saturating_sub(info.bytes_freed);
+
+        let emptied = (list.unique_docs() == 0).then(|| RemovedDimension {
+            bytes: list.memory_usage(),
+            blocks: list.number_of_blocks(),
+        });
+        if let Some(removed) = emptied {
+            self.dimensions.remove(&dim_id);
+            self.memory_usage = self.memory_usage.saturating_sub(removed.bytes);
+        }
+        Some(SparseVectorGcOutcome {
+            info,
+            removed: emptied,
+        })
     }
 }

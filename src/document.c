@@ -780,8 +780,11 @@ FIELD_BULK_INDEXER(sparseVectorIndexer) {
   // Posting lists keep their doc IDs increasing, and an update always gets a new doc ID, so the
   // whole vector is written again rather than relabeled.
   SparseVectorIndex *idx = FieldSpec_OpenSparseVectorIndex(&ctx->spec->fields[fs->index], true);
-  size_t sz = SparseVectorIndex_Add(idx, aCtx->doc->docId, fdata->sparseVec);
-  ctx->spec->stats.invertedSize += sz;
+  SparseVectorAddOutcome rv = SparseVectorIndex_Add(idx, aCtx->doc->docId, fdata->sparseVec);
+  // Kept in step with what GC subtracts when it collects these entries.
+  ctx->spec->stats.invertedSize += rv.bytes;
+  ctx->spec->stats.numRecords += rv.records;
+  IndexStats_BlockCountAdd(&ctx->spec->stats, (int64_t)rv.blocks);
   return 0;
 }
 
