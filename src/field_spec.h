@@ -67,6 +67,10 @@ typedef enum {
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
+// Sparse vector metrics, the discriminants of the Rust `SparseMetric`.
+#define SPARSE_METRIC_IP 0
+#define SPARSE_METRIC_COSINE 1
+
 typedef enum {
   FieldSpec_Sortable = 0x01,
   FieldSpec_NoStemming = 0x02,
@@ -138,10 +142,11 @@ typedef struct FieldSpec {
       GeometryIndex *geometryIndex;
     } geometryOpts;
     struct {
-      // Sparse vector index (Rust-based, opaque pointer).
-      // The index is metric-agnostic; similarity metrics (dot product, cosine)
-      // are applied at query time. For cosine similarity, document norms should
-      // be stored in DocumentMetadata.
+      // Size of the dimension space; valid dimension IDs are 0 .. dim-1.
+      uint64_t dim;
+      // One of the SPARSE_METRIC_* values; fixed at creation.
+      uint32_t metric;
+      // The field's posting lists, created on the first write. Opaque Rust object.
       struct SparseVectorIndex *sparseVecIndex;
     } sparseVecOpts;
   };
@@ -180,6 +185,10 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+
+/* The sparse vector field's index, created first if `create_if_missing` and there is none.
+ * Returns NULL only when the index does not exist and `create_if_missing` is false. */
+struct SparseVectorIndex *FieldSpec_OpenSparseVectorIndex(FieldSpec *fs, bool create_if_missing);
 /**
  * Convert field type given by integer to the name type in string form.
  */

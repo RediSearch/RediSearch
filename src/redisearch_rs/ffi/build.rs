@@ -269,6 +269,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryNumericNode",
             "QueryPhraseNode",
             "QueryPrefixNode",
+            "QuerySparseVectorNode",
             "QueryTagNode",
             "QueryTokenNode",
             "QueryVectorNode",

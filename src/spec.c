@@ -1259,9 +1259,9 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
     return false;
   }
   const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
-  static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
-                                       SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
-                                       SPEC_VECTOR_STR};
+  static const char *const starts[] = {SPEC_AS_STR,      SPEC_TEXT_STR,         SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR, SPEC_GEO_STR,          SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR,  SPEC_SPARSE_VECTOR_STR};
   for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
     if (!strcasecmp(next, starts[i])) {
       return true;
@@ -1402,6 +1402,92 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 }
 
+// The largest DIM: dimension IDs are u32, so 2^32 of them.
+#define SPARSE_VECTOR_MAX_DIM (1ULL << 32)
+
+/* Parse `SPARSEVECTOR <nargs> DIM <n> DISTANCE_METRIC <IP|COSINE> [TYPE FLOAT32]`.
+ * Returns 1 on success, 0 on error. */
+static int parseSparseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac,
+                                  QueryError *status) {
+  fs->types |= INDEXFLD_T_SPARSE_VECTOR;
+  sp->flags |= Index_HasSparseVec;
+  fs->sparseVecOpts.dim = 0;
+  fs->sparseVecOpts.metric = SPARSE_METRIC_IP;
+  fs->sparseVecOpts.sparseVecIndex = NULL;
+
+  if (isSpecJson(sp) && !validateJsonFieldPath(sp, fs, status)) {
+    return 0;
+  }
+
+  ArgsCursor attrs = {0};
+  int rc = AC_GetVarArgs(ac, &attrs);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments",
+                                  " for sparse vector attributes: %s", AC_Strerror(rc));
+    return 0;
+  }
+  if (attrs.argc % 2) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Bad number of arguments for sparse vector attributes: expected "
+                        "attribute-value pairs");
+    return 0;
+  }
+
+  bool hasDim = false, hasMetric = false;
+  while (!AC_IsAtEnd(&attrs)) {
+    if (AC_AdvanceIfMatch(&attrs, VECSIM_DIM)) {
+      unsigned long long dim;
+      if (AC_GetUnsignedLongLong(&attrs, &dim, 0) != AC_OK || dim == 0 ||
+          dim > SPARSE_VECTOR_MAX_DIM) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DIM: expected an integer between 1 "
+                            "and 4294967296");
+        return 0;
+      }
+      fs->sparseVecOpts.dim = dim;
+      hasDim = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_DISTANCE_METRIC)) {
+      if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_IP)) {
+        fs->sparseVecOpts.metric = SPARSE_METRIC_IP;
+      } else if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_COSINE)) {
+        fs->sparseVecOpts.metric = SPARSE_METRIC_COSINE;
+      } else {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DISTANCE_METRIC: expected IP or "
+                            "COSINE");
+        return 0;
+      }
+      hasMetric = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_TYPE)) {
+      if (!AC_AdvanceIfMatch(&attrs, VECSIM_TYPE_FLOAT32)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector TYPE: expected FLOAT32");
+        return 0;
+      }
+    } else {
+      const char *attr = AC_StringArg(&attrs, attrs.offset, NULL);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "Bad arguments for sparse vector", ": unknown attribute `%s`",
+                                    attr);
+      return 0;
+    }
+  }
+
+  if (!hasDim) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DIM");
+    return 0;
+  }
+  if (!hasMetric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DISTANCE_METRIC");
+    return 0;
+  }
+  return 1;
+}
+
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
@@ -1435,6 +1521,12 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
+    return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_SPARSE_VECTOR_STR)) {  // sparse vector field
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_SPARSE_VECTOR_STR, fs, status))
+      goto error;
+    if (!parseSparseVectorField(sp, fs, ac, status)) goto error;
+    // Like dense vectors, sparse vectors take no SORTABLE or NOINDEX options.
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
@@ -2776,6 +2868,11 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   }
+  // Only the attributes: the posting lists are rebuilt from the keyspace on load.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.dim);
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.metric);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2966,6 +3063,26 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     }
+  }
+
+  // Load sparse vector attributes. The type bit cannot appear in an older encoding.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    if (encver < INDEX_SPARSE_VECTOR_VERSION) {
+      RedisModule_LogIOError(rdb, "warning", "Sparse vector field in encoding version %d", encver);
+      goto fail;
+    }
+    uint64_t dim = LoadUnsigned_IOError(rdb, goto fail);
+    uint64_t metric = LoadUnsigned_IOError(rdb, goto fail);
+    if (dim == 0 || dim > (1ULL << 32) ||
+        (metric != SPARSE_METRIC_IP && metric != SPARSE_METRIC_COSINE)) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "Invalid sparse vector attributes: dim %llu, metric %llu",
+                             (unsigned long long)dim, (unsigned long long)metric);
+      goto fail;
+    }
+    f->sparseVecOpts.dim = dim;
+    f->sparseVecOpts.metric = (uint32_t)metric;
+    f->sparseVecOpts.sparseVecIndex = NULL;
   }
 
   return REDISMODULE_OK;

@@ -49,6 +49,11 @@ pub const DOCSCORE_SCORER: &str = "DOCSCORE";
 #[cheadergen::config(export)]
 pub const HAMMINGDISTANCE_SCORER: &str = "HAMMING";
 
+/// Sparse-vector scorer (`SPARSE`): the sum of the scores the query's
+/// `SPARSEVECTOR` nodes yield. The default for a query that has such a node.
+#[cheadergen::config(export)]
+pub const SPARSE_SCORER_NAME: &str = "SPARSE";
+
 /// Name of the scorer used when a query does not request one explicitly.
 ///
 /// This is the standard BM25 scorer. It is spelled out as a literal, matching
@@ -87,6 +92,8 @@ pub enum BuiltInScorer {
     DocScore,
     /// Hamming distance ([`HAMMINGDISTANCE_SCORER`]).
     Hamming,
+    /// Sparse-vector score ([`SPARSE_SCORER_NAME`]).
+    Sparse,
 }
 
 impl BuiltInScorer {
@@ -116,6 +123,7 @@ impl BuiltInScorer {
             BuiltInScorer::Bm25StdNorm => BM25_STD_NORMALIZED_MAX_SCORER_NAME,
             BuiltInScorer::DocScore => DOCSCORE_SCORER,
             BuiltInScorer::Hamming => HAMMINGDISTANCE_SCORER,
+            BuiltInScorer::Sparse => SPARSE_SCORER_NAME,
         }
     }
 
@@ -132,7 +140,8 @@ impl BuiltInScorer {
             | BuiltInScorer::Bm25StdNorm
             | BuiltInScorer::DisMax
             | BuiltInScorer::DocScore
-            | BuiltInScorer::Hamming => false,
+            | BuiltInScorer::Hamming
+            | BuiltInScorer::Sparse => false,
             BuiltInScorer::TfIdf | BuiltInScorer::TfIdfDocNorm | BuiltInScorer::Bm25 => true,
         }
     }

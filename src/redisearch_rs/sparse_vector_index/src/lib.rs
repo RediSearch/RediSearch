@@ -7,164 +7,160 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Sparse Vector Index for RediSearch.
+//! Sparse vector index for RediSearch.
 //!
-//! This crate provides the core data structure for sparse vector indexing,
-//! mapping dimension IDs to inverted indexes with numeric encoding.
-//!
-//! # Architecture
-//!
-//! A sparse vector is represented as a set of `(dimension_id, weight)` pairs,
-//! where most dimensions have zero weight and are not stored. This crate
-//! stores these sparse vectors in an inverted index structure:
+//! A sparse vector is a set of `(dimension_id, weight)` pairs. Each field keeps
+//! one posting list per dimension in use, so a query is answered the way a
+//! full-text OR query is: the union of its dimensions' posting lists, with each
+//! matching document scored by a dot product.
 //!
 //! ```text
-//! HashMap<dimension_id, InvertedIndex<Numeric>>
+//! HashMap<dimension_id, InvertedIndex<NumericFloatCompression>>
 //!
 //! dimension_0  ──→ [(doc_1, 0.5), (doc_3, 0.7), (doc_8, 0.2), ...]
 //! dimension_42 ──→ [(doc_1, 0.3), (doc_5, 0.9), ...]
-//! dimension_99 ──→ [(doc_2, 0.1), (doc_3, 0.4), (doc_8, 0.6), ...]
 //! ```
 //!
-//! This structure enables efficient similarity queries by:
-//! 1. Looking up posting lists for each query dimension (O(1) per dimension)
-//! 2. Merging posting lists to accumulate dot product scores
-//! 3. Returning top-K results by score
-//!
-//! # Design Rationale
-//!
-//! - **HashMap over Trie**: Dimension IDs are integers (u32), not strings.
-//!   No prefix matching is needed, so O(1) HashMap lookup is preferred.
-//! - **Numeric encoder reuse**: The existing [`inverted_index::numeric::Numeric`]
-//!   encoder efficiently stores `(doc_id, float)` pairs with delta encoding
-//!   and float compression.
-//! - **EntriesTrackingIndex**: Wraps InvertedIndex to track entry count,
-//!   matching the pattern used by NumericRangeTree.
-//! - **Metric-agnostic storage**: The index stores raw weights only. Similarity
-//!   metrics (dot product, cosine) are applied at query time, not index time.
+//! - Dimension IDs are integers with no prefix queries, so a hashmap replaces
+//!   the trie text terms use, and memory grows with the dimensions in use, not
+//!   with the field's [`dim`](SparseVectorIndex::dim).
+//! - Weights are `f32`. [`NumericFloatCompression`] stores a value that fits an
+//!   `f32` exactly in 4 bytes, so they round-trip losslessly.
+//! - The [`SparseMetric`] is fixed when the field is created. Under
+//!   [`SparseMetric::Cosine`] every vector is L2-normalized before it is
+//!   written, so scoring is always a plain dot product.
 
 mod query;
+mod vector;
 
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use index_result::RSIndexResult;
-use inverted_index::{EntriesTrackingIndex, numeric::Numeric};
+use inverted_index::{EntriesTrackingIndex, numeric::NumericFloatCompression};
 use rustc_hash::FxHashMap;
 
-pub use query::SparseVectorQueryIterator;
+pub use query::{DimensionIterator, SparseVectorIterator};
+pub use vector::{SparseVectorError, parse_blob, prepare};
 
-/// Sparse vector index storing dimension_id -> posting list mappings.
+/// The posting list of one dimension: `(doc_id, weight)` pairs in doc-ID order.
+pub type PostingList = EntriesTrackingIndex<NumericFloatCompression>;
+
+/// The similarity a sparse vector field ranks by, fixed at field creation.
 ///
-/// Each posting list is an [`EntriesTrackingIndex`] with [`Numeric`] encoding,
-/// storing `(doc_id, weight)` pairs. This structure is analogous to how
-/// `TagIndex` maps tag values to InvertedIndex instances, but uses a
-/// HashMap for O(1) dimension lookup instead of a Trie.
-///
-/// # Similarity Metrics
-///
-/// The index itself is metric-agnostic - it stores raw dimension weights.
-/// Similarity metrics (dot product, cosine similarity) are applied at query
-/// time by the query iterator, not at index time. This design allows:
-/// - The same index to be queried with different metrics
-/// - No redundant storage of norms or normalized weights
-/// - Query-time flexibility without re-indexing
-#[derive(Debug, Default)]
+/// Crosses the C boundary as its `u32` discriminant (see [`TryFrom<u32>`]).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SparseMetric {
+    /// Dot product of the raw weights.
+    InnerProduct = 0,
+    /// Dot product of L2-normalized weights; every vector is normalized before
+    /// it is written or queried.
+    Cosine = 1,
+}
+
+impl TryFrom<u32> for SparseMetric {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::InnerProduct),
+            1 => Ok(Self::Cosine),
+            other => Err(other),
+        }
+    }
+}
+
+/// One field's sparse vector index.
+#[derive(Debug)]
 pub struct SparseVectorIndex {
-    /// Mapping from dimension ID to its posting list.
-    /// Uses u32 for dimension IDs (supports vocabularies up to 4B dimensions).
-    dimensions: FxHashMap<u32, EntriesTrackingIndex<Numeric>>,
-
-    /// Total number of unique documents indexed.
-    num_docs: u64,
-
-    /// Total memory used by all posting lists (bytes).
+    /// Dimension ID to its posting list.
+    ///
+    /// Each posting list is boxed so its address survives a rehash: a query
+    /// iterator keeps borrowing it while the spec lock is released, and a
+    /// concurrent write that adds a dimension may grow the map.
+    dimensions: FxHashMap<u32, Box<PostingList>>,
+    metric: SparseMetric,
+    /// Size of the dimension space; valid dimension IDs are `0..dim`.
+    dim: u64,
+    /// Bytes used by all posting lists.
     memory_usage: usize,
+    /// `(doc_id, weight)` pairs across all posting lists.
+    num_entries: usize,
 }
 
 impl SparseVectorIndex {
-    /// Create a new empty sparse vector index.
-    pub fn new() -> Self {
-        Self::default()
+    /// Create an empty index for a field of `dim` dimensions ranked by `metric`.
+    pub fn new(dim: u64, metric: SparseMetric) -> Self {
+        Self {
+            dimensions: FxHashMap::default(),
+            metric,
+            dim,
+            memory_usage: 0,
+            num_entries: 0,
+        }
     }
 
-    /// Add a sparse vector for a document.
+    /// The field's metric.
+    pub const fn metric(&self) -> SparseMetric {
+        self.metric
+    }
+
+    /// The size of the field's dimension space.
+    pub const fn dim(&self) -> u64 {
+        self.dim
+    }
+
+    /// Add a document's vector, already checked and normalized by [`prepare`].
     ///
-    /// # Arguments
-    /// * `doc_id` - The document ID
-    /// * `entries` - Slice of `(dimension_id, weight)` pairs
+    /// `doc_id` must be greater than every doc ID added before, as for any
+    /// inverted index.
     ///
-    /// # Returns
-    /// The number of bytes the index grew by.
-    ///
-    /// # Errors
-    /// Returns an error if writing to the inverted index fails.
-    ///
-    /// # Note on Cosine Similarity
-    /// For cosine similarity queries, the L2 norm of each document's sparse
-    /// vector should be computed at indexing time and stored in the
-    /// DocumentMetadata (DocTable). This keeps the index metric-agnostic
-    /// while still enabling efficient cosine similarity computation at
-    /// query time.
-    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f64)]) -> std::io::Result<usize> {
+    /// Returns the number of bytes the index grew by.
+    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f32)]) -> std::io::Result<usize> {
         let mut bytes_added = 0;
-
-        // Add each dimension entry to its posting list
         for &(dim_id, weight) in entries {
-            let posting_list = self
-                .dimensions
-                .entry(dim_id)
-                .or_insert_with(|| EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric));
-
-            let record = RSIndexResult::build_numeric(weight).doc_id(doc_id).build();
+            debug_assert!(u64::from(dim_id) < self.dim, "entries must be prepared");
+            let posting_list = self.dimensions.entry(dim_id).or_insert_with(|| {
+                let list = Box::new(PostingList::new(IndexFlags_Index_StoreNumeric));
+                bytes_added += list.memory_usage();
+                list
+            });
+            let record = RSIndexResult::build_numeric(f64::from(weight))
+                .doc_id(doc_id)
+                .build();
             bytes_added += posting_list.add_record(&record)?.mem_growth as usize;
+            self.num_entries += 1;
         }
-
-        self.num_docs += 1;
         self.memory_usage += bytes_added;
         Ok(bytes_added)
     }
 
-    /// Get the posting list for a specific dimension.
-    ///
-    /// Returns `None` if the dimension has no indexed documents.
-    pub fn get_dimension(&self, dim_id: u32) -> Option<&EntriesTrackingIndex<Numeric>> {
-        self.dimensions.get(&dim_id)
+    /// The posting list of `dim_id`, or `None` when no document has it.
+    pub fn get_dimension(&self, dim_id: u32) -> Option<&PostingList> {
+        self.dimensions.get(&dim_id).map(Box::as_ref)
     }
 
-    /// Get the number of unique dimensions in the index.
+    /// The number of dimensions that have a posting list.
     pub fn num_dimensions(&self) -> usize {
         self.dimensions.len()
     }
 
-    /// Get the total number of indexed documents.
-    pub const fn num_docs(&self) -> u64 {
-        self.num_docs
+    /// The number of `(doc_id, weight)` pairs across all posting lists.
+    pub const fn num_entries(&self) -> usize {
+        self.num_entries
     }
 
-    /// Get total memory usage in bytes.
-    ///
-    /// This includes the memory used by all posting lists but not
-    /// the overhead of the HashMap structure itself.
+    /// Bytes used by all posting lists, not counting the map itself.
     pub const fn memory_usage(&self) -> usize {
         self.memory_usage
     }
 
-    /// Check if the index is empty.
+    /// Whether no document has been added.
     pub const fn is_empty(&self) -> bool {
-        self.num_docs == 0
+        self.num_entries == 0
     }
 
-    /// Get an iterator over all dimension IDs in the index.
+    /// The dimension IDs that have a posting list, in no particular order.
     pub fn dimension_ids(&self) -> impl Iterator<Item = u32> + '_ {
         self.dimensions.keys().copied()
-    }
-
-    /// Get the total number of entries across all dimensions.
-    ///
-    /// This counts all `(doc_id, weight)` pairs stored in the index.
-    pub fn total_entries(&self) -> usize {
-        self.dimensions
-            .values()
-            .map(|pl| pl.number_of_entries())
-            .sum()
     }
 }

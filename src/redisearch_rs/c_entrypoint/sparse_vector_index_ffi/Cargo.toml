@@ -14,5 +14,6 @@ test = false
 bench = false
 
 [dependencies]
+ffi.workspace = true
 sparse_vector_index.workspace = true
 workspace_hack.workspace = true

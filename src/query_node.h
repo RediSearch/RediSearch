@@ -108,6 +108,15 @@ typedef struct {
                             // pointer captured at parse time may already be freed by then
 } QueryMissingNode;
 
+/* A `@field:[SPARSE $param]` node: the query vector of a sparse vector field. */
+typedef struct {
+  t_fieldIndex fieldIndex;  // stable index of the sparse vector field into IndexSpec.fields;
+                            // re-derive the FieldSpec* from this at evaluation time
+  const char *blob;         // the query vector, as the HASH value encoding; borrowed from the
+                            // request's PARAMS, which outlive the AST
+  size_t blobLen;
+} QuerySparseVectorNode;
+
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
@@ -120,6 +129,7 @@ typedef struct {
 
 /* Define the attributes' names */
 #define YIELD_DISTANCE_ATTR "yield_distance_as"
+#define YIELD_SCORE_ATTR "yield_score_as"
 #define SLOP_ATTR "slop"
 #define INORDER_ATTR "inorder"
 #define WEIGHT_ATTR "weight"
@@ -149,6 +159,7 @@ typedef struct RSQueryNode {
     QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
+    QuerySparseVectorNode svn;
   };
 
   /* The node type, for resolving the union access */

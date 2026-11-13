@@ -459,6 +459,50 @@ static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
 }
+/******************************************************************************************
+ *
+ * SPARSE scorer: the sum of the dot products the query's sparse vector nodes yield
+ *
+ ******************************************************************************************/
+// Only a sparse vector node yields a Metric result outside a dense KNN (which yields a
+// HybridMetric), so every Metric leaf below is a sparse score. Text and tag leaves only filter.
+static double sparseRecursive(const RSIndexResult *r) {
+  switch (r->data.tag) {
+    case RSResultData_Metric:
+      return IndexResult_NumValue(r);
+    case RSResultData_Intersection:
+    case RSResultData_Union: {
+      // SAFETY: We checked the tag above, so r is an aggregate result.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      double ret = 0;
+      for (size_t i = 0; i < children.len; i++) {
+        ret += sparseRecursive(children.ptr[i]);
+      }
+      return ret;
+    }
+    case RSResultData_HybridMetric: {
+      // As for DISMAX: the second child is the filter subtree, the first the vector distance.
+      // SAFETY: We checked the tag above, so r is an aggregate result.
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
+      return AggregateResult_NumChildren(agg) > 1 ? sparseRecursive(AggregateResult_Get(agg, 1))
+                                                  : 0;
+    }
+    case RSResultData_Term:
+    case RSResultData_Numeric:
+    case RSResultData_Virtual:
+      return 0;
+  }
+  return 0;
+}
+
+static double SparseScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                           const RSDocumentMetadata *dmd, double minScore) {
+  double score = sparseRecursive(h);
+  EXPLAIN(ctx->scrExp, "SPARSE %.2f = sum of sparse vector dot products", score);
+  return score;
+}
+
 /* taken from redis - bitops.c */
 static const unsigned char bitsinbyte[256] = {
     0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
@@ -775,6 +819,12 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
   /* Register TFIDF.DOCNORM */
   if (ctx->RegisterScoringFunction(TFIDF_DOCNORM_SCORER_NAME, TFIDFNormDocLenScorer, NULL, NULL) ==
+      REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register the sparse vector scorer */
+  if (ctx->RegisterScoringFunction(SPARSE_SCORER_NAME, SparseScorer, NULL, NULL) ==
       REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }

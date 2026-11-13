@@ -17,6 +17,7 @@
 #include "geometry/geometry_api.h"
 #include "tag_index.h"
 #include "numeric_range_tree_ffi.h"
+#include "sparse_vector_index_ffi.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
@@ -79,12 +80,18 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR)) {
-    if (fs->sparseVecOpts.sparseVecIndex) {
-      // TODO: Call SparseVectorIndex_Free once FFI is implemented
-      // SparseVectorIndex_Free(fs->sparseVecOpts.sparseVecIndex);
-      fs->sparseVecOpts.sparseVecIndex = NULL;
-    }
+    SparseVectorIndex_Free(fs->sparseVecOpts.sparseVecIndex);
+    fs->sparseVecOpts.sparseVecIndex = NULL;
   }
+}
+
+struct SparseVectorIndex *FieldSpec_OpenSparseVectorIndex(FieldSpec *fs, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR));
+  if (!fs->sparseVecOpts.sparseVecIndex && create_if_missing) {
+    fs->sparseVecOpts.sparseVecIndex =
+        SparseVectorIndex_New(fs->sparseVecOpts.dim, fs->sparseVecOpts.metric);
+  }
+  return fs->sparseVecOpts.sparseVecIndex;
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {

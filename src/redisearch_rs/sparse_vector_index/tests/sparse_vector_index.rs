@@ -7,230 +7,262 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for the sparse vector index.
+//! Integration tests for the sparse vector index and its query iterator.
 
-use sparse_vector_index::{SparseVectorIndex, SparseVectorQueryIterator};
+// Mock implementations of C symbols that aren't provided by the static C
+// libraries the build script links.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
 
-#[test]
-fn test_new_index() {
-    let index = SparseVectorIndex::new();
-    assert_eq!(index.num_docs(), 0);
-    assert_eq!(index.num_dimensions(), 0);
-    assert!(index.is_empty());
+use std::collections::BTreeMap;
+
+use proptest::prelude::*;
+use rqe_iterators::{IteratorType, RQEIterator, SkipToOutcome};
+use rqe_iterators_test_utils::ContractChecker;
+use sparse_vector_index::{
+    SparseMetric, SparseVectorError, SparseVectorIndex, SparseVectorIterator, parse_blob, prepare,
+};
+
+const DIM: u64 = 1000;
+
+fn blob(pairs: &[(u32, f32)]) -> Vec<u8> {
+    pairs
+        .iter()
+        .flat_map(|&(id, w)| id.to_le_bytes().into_iter().chain(w.to_le_bytes()))
+        .collect()
+}
+
+fn ip(entries: &[(u32, f32)]) -> Vec<(u32, f32)> {
+    prepare(entries.to_vec(), DIM, SparseMetric::InnerProduct).unwrap()
+}
+
+/// Drain the iterator into `(doc_id, score)` pairs.
+fn collect(it: &mut impl RQEIterator<'static>) -> Vec<(u64, f64)> {
+    let mut out = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        out.push((r.doc_id, r.as_numeric().unwrap()));
+    }
+    out
+}
+
+/// Build a leaked index so its iterators can be `'static` in tests.
+fn index_of(metric: SparseMetric, docs: &[(u64, Vec<(u32, f32)>)]) -> &'static SparseVectorIndex {
+    let mut index = SparseVectorIndex::new(DIM, metric);
+    for (doc_id, entries) in docs {
+        let prepared = prepare(entries.clone(), DIM, metric).unwrap();
+        index.add(*doc_id, &prepared).unwrap();
+    }
+    Box::leak(Box::new(index))
 }
 
 #[test]
-fn test_default_index() {
-    let index = SparseVectorIndex::default();
-    assert_eq!(index.num_docs(), 0);
-    assert_eq!(index.num_dimensions(), 0);
-    assert!(index.is_empty());
+fn parse_blob_decodes_little_endian_pairs() {
+    let pairs = [(3, 0.5), (70000, -1.25)];
+    assert_eq!(parse_blob(&blob(&pairs)).unwrap(), pairs);
+    assert_eq!(parse_blob(&[]).unwrap(), vec![]);
 }
 
 #[test]
-fn test_add_single_document() {
-    let mut index = SparseVectorIndex::new();
+fn parse_blob_rejects_partial_pairs() {
+    assert_eq!(
+        parse_blob(&[0; 12]),
+        Err(SparseVectorError::MalformedBlob { len: 12 })
+    );
+}
 
-    let entries = [(10, 0.5), (20, 0.3), (30, 0.8)];
-    let bytes = index.add(1, &entries).unwrap();
+#[test]
+fn prepare_rejects_invalid_vectors() {
+    let cases = [
+        (
+            vec![(5, 1.0), (5, 2.0)],
+            SparseVectorError::NotIncreasing { dim_id: 5 },
+        ),
+        (
+            vec![(5, 1.0), (4, 2.0)],
+            SparseVectorError::NotIncreasing { dim_id: 4 },
+        ),
+        (
+            vec![(DIM as u32, 1.0)],
+            SparseVectorError::DimensionOutOfRange {
+                dim_id: DIM as u32,
+                dim: DIM,
+            },
+        ),
+        (
+            vec![(1, f32::NAN)],
+            SparseVectorError::NonFinite { dim_id: 1 },
+        ),
+        (
+            vec![(1, f32::INFINITY)],
+            SparseVectorError::NonFinite { dim_id: 1 },
+        ),
+    ];
+    for (entries, expected) in cases {
+        assert_eq!(
+            prepare(entries.clone(), DIM, SparseMetric::InnerProduct),
+            Err(expected),
+            "{entries:?}"
+        );
+    }
+}
 
-    assert!(bytes > 0);
-    assert_eq!(index.num_docs(), 1);
+#[test]
+fn prepare_drops_zero_weights() {
+    assert_eq!(ip(&[(1, 0.0), (2, 3.0), (3, -0.0)]), vec![(2, 3.0)]);
+}
+
+#[test]
+fn prepare_normalizes_under_cosine() {
+    let v = prepare(vec![(1, 3.0), (2, 4.0)], DIM, SparseMetric::Cosine).unwrap();
+    assert_eq!(v, vec![(1, 0.6), (2, 0.8)]);
+}
+
+#[test]
+fn prepare_rejects_zero_norm_under_cosine() {
+    for entries in [vec![], vec![(1, 0.0)]] {
+        assert_eq!(
+            prepare(entries, DIM, SparseMetric::Cosine),
+            Err(SparseVectorError::ZeroNorm)
+        );
+    }
+    // Under IP an empty vector is valid: it indexes nothing.
+    assert_eq!(ip(&[]), vec![]);
+}
+
+#[test]
+fn add_tracks_dimensions_and_entries() {
+    let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
+    assert!(index.is_empty());
+    index.add(1, &ip(&[(10, 0.5), (20, 0.3)])).unwrap();
+    index.add(2, &ip(&[(20, 0.1), (30, 0.2)])).unwrap();
     assert_eq!(index.num_dimensions(), 3);
-    assert!(!index.is_empty());
-
-    // Check that dimensions exist
-    assert!(index.get_dimension(10).is_some());
-    assert!(index.get_dimension(20).is_some());
-    assert!(index.get_dimension(30).is_some());
+    assert_eq!(index.num_entries(), 4);
+    assert!(index.memory_usage() > 0);
+    assert_eq!(index.get_dimension(20).unwrap().unique_docs(), 2);
     assert!(index.get_dimension(40).is_none());
+}
 
-    // Check that dimensions have no entry
-    assert!(index.get_dimension(1).is_none());
-    assert!(index.get_dimension(2).is_none());
-    assert!(index.get_dimension(3).is_none());
+/// A document sharing one query dimension can outrank one sharing all of
+/// them, so the candidate set must be the union.
+#[test]
+fn union_finds_partial_overlap() {
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[
+            (1, vec![(1, 10.0)]),
+            (2, vec![(1, 0.1), (2, 0.1), (3, 0.1)]),
+            (3, vec![(9, 1.0)]),
+        ],
+    );
+    let query = ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]);
+    let mut it = ContractChecker::new(SparseVectorIterator::new(index, &query, 10).unwrap());
+    let got = collect(&mut it);
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0].0, 1);
+    assert!((got[0].1 - 10.0).abs() < 1e-6);
+    assert_eq!(got[1].0, 2);
+    assert!((got[1].1 - 0.3).abs() < 1e-6);
 }
 
 #[test]
-fn test_add_multiple_documents() {
-    let mut index = SparseVectorIndex::new();
-
-    // Doc 1: dimensions 10, 20
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-    // Doc 2: dimensions 20, 30 (shares dimension 20 with doc 1)
-    index.add(2, &[(20, 0.7), (30, 0.4)]).unwrap();
-
-    assert_eq!(index.num_docs(), 2);
-    assert_eq!(index.num_dimensions(), 3);
-
-    // Dimension 20 should have 2 entries
-    let dim_20 = index.get_dimension(20).unwrap();
-    assert_eq!(dim_20.number_of_entries(), 2);
+fn query_with_only_missing_dimensions_matches_nothing() {
+    let index = index_of(SparseMetric::InnerProduct, &[(1, vec![(1, 1.0)])]);
+    assert!(SparseVectorIterator::new(index, &ip(&[(5, 1.0), (6, 1.0)]), 10).is_none());
 }
 
 #[test]
-fn test_total_entries() {
-    let mut index = SparseVectorIndex::new();
+fn skip_to_scores_the_landing_document() {
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[
+            (2, vec![(1, 1.0)]),
+            (5, vec![(1, 2.0), (2, 3.0)]),
+            (9, vec![(2, 1.0)]),
+        ],
+    );
+    let query = ip(&[(1, 1.0), (2, 2.0)]);
+    let mut it = SparseVectorIterator::new(index, &query, 10).unwrap();
+    assert_eq!(it.type_(), IteratorType::SparseVector);
 
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-    index.add(2, &[(20, 0.7), (30, 0.4), (40, 0.1)]).unwrap();
+    match it.skip_to(5).unwrap().unwrap() {
+        SkipToOutcome::Found(r) => {
+            assert_eq!(r.doc_id, 5);
+            assert!((r.as_numeric().unwrap() - 8.0).abs() < 1e-6);
+        }
+        SkipToOutcome::NotFound(_) => panic!("doc 5 is in the union"),
+    }
+    match it.skip_to(6).unwrap().unwrap() {
+        SkipToOutcome::NotFound(r) => {
+            assert_eq!(r.doc_id, 9);
+            assert!((r.as_numeric().unwrap() - 2.0).abs() < 1e-6);
+        }
+        SkipToOutcome::Found(_) => panic!("doc 6 is not in the union"),
+    }
+    assert!(it.skip_to(10).unwrap().is_none());
+    assert!(it.at_eof());
 
-    // Total: 2 + 3 = 5 entries
-    assert_eq!(index.total_entries(), 5);
+    it.rewind();
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
 }
 
 #[test]
-fn test_dimension_ids() {
-    let mut index = SparseVectorIndex::new();
-
-    index.add(1, &[(10, 0.5), (20, 0.3), (30, 0.8)]).unwrap();
-
-    let mut dim_ids: Vec<_> = index.dimension_ids().collect();
-    dim_ids.sort();
-    assert_eq!(dim_ids, vec![10, 20, 30]);
+fn cosine_scores_are_cosine_similarities() {
+    let index = index_of(
+        SparseMetric::Cosine,
+        &[(1, vec![(1, 3.0), (2, 4.0)]), (2, vec![(1, 100.0)])],
+    );
+    let query = prepare(vec![(1, 1.0)], DIM, SparseMetric::Cosine).unwrap();
+    let got = collect(&mut SparseVectorIterator::new(index, &query, 10).unwrap());
+    assert_eq!(got[0].0, 1);
+    assert!((got[0].1 - 0.6).abs() < 1e-6);
+    assert_eq!(got[1].0, 2);
+    assert!((got[1].1 - 1.0).abs() < 1e-6);
 }
 
-#[test]
-fn test_memory_usage_grows() {
-    let mut index = SparseVectorIndex::new();
-
-    let initial_mem = index.memory_usage();
-    assert_eq!(initial_mem, 0);
-
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-    let after_first = index.memory_usage();
-    assert!(after_first > initial_mem);
-
-    index.add(2, &[(10, 0.7), (30, 0.4)]).unwrap();
-    let after_second = index.memory_usage();
-    assert!(after_second > after_first);
+fn sparse_vector() -> impl Strategy<Value = Vec<(u32, f32)>> {
+    prop::collection::btree_map(0u32..40, -4.0f32..4.0, 0..8)
+        .prop_map(|m| m.into_iter().collect::<Vec<_>>())
 }
 
-// ============================================================================
-// Query Tests
-// ============================================================================
+proptest! {
+    /// Every document sharing a dimension with the query is yielded once, in
+    /// doc-ID order, with its exact dot product; the union variant (flat or
+    /// heap) does not change the answer.
+    #[test]
+    fn matches_brute_force_dot_product(
+        docs in prop::collection::vec(sparse_vector(), 0..30),
+        query in sparse_vector(),
+        min_union_iter_heap in 0usize..6,
+    ) {
+        let docs: Vec<(u64, Vec<(u32, f32)>)> = docs
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64 + 1, ip(&v)))
+            .collect();
+        let query = ip(&query);
+        let index = index_of(SparseMetric::InnerProduct, &docs);
 
-#[test]
-fn test_query_empty_index() {
-    let index = SparseVectorIndex::new();
-    let query = [(10, 1.0), (20, 0.5)];
+        let expected: BTreeMap<u64, f64> = docs
+            .iter()
+            .filter_map(|(doc_id, d)| {
+                let d: BTreeMap<u32, f32> = d.iter().copied().collect();
+                let shared: Vec<f64> = query
+                    .iter()
+                    .filter_map(|(i, q)| d.get(i).map(|w| f64::from(*q) * f64::from(*w)))
+                    .collect();
+                (!shared.is_empty()).then(|| (*doc_id, shared.iter().sum()))
+            })
+            .collect();
 
-    // Query on empty index should return None (no dimensions exist)
-    let iter = SparseVectorQueryIterator::new(&index, &query);
-    assert!(iter.is_none());
-}
-
-#[test]
-fn test_query_empty_query() {
-    let mut index = SparseVectorIndex::new();
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-
-    // Empty query should return None
-    let iter = SparseVectorQueryIterator::new(&index, &[]);
-    assert!(iter.is_none());
-}
-
-#[test]
-fn test_query_missing_dimension() {
-    let mut index = SparseVectorIndex::new();
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-
-    // Query with dimension not in index should return None
-    let query = [(10, 1.0), (99, 0.5)]; // dimension 99 doesn't exist
-    let iter = SparseVectorQueryIterator::new(&index, &query);
-    assert!(iter.is_none());
-}
-
-#[test]
-fn test_query_single_document_single_dimension() {
-    let mut index = SparseVectorIndex::new();
-    index.add(1, &[(10, 0.5)]).unwrap();
-
-    let query = [(10, 2.0)];
-    let mut iter = SparseVectorQueryIterator::new(&index, &query).unwrap();
-
-    // Should find doc 1
-    let result = iter.read().unwrap().unwrap();
-    assert_eq!(result.doc_id, 1);
-
-    // No more documents
-    assert!(iter.read().unwrap().is_none());
-}
-
-#[test]
-fn test_query_single_document_multiple_dimensions() {
-    let mut index = SparseVectorIndex::new();
-    index.add(1, &[(10, 0.5), (20, 0.3), (30, 0.8)]).unwrap();
-
-    let query = [(10, 1.0), (20, 2.0), (30, 0.5)];
-    let mut iter = SparseVectorQueryIterator::new(&index, &query).unwrap();
-
-    // Should find doc 1
-    let result = iter.read().unwrap().unwrap();
-    assert_eq!(result.doc_id, 1);
-
-    assert!(iter.read().unwrap().is_none());
-}
-
-#[test]
-fn test_query_multiple_documents_all_match() {
-    let mut index = SparseVectorIndex::new();
-    // Both docs have dimensions 10 and 20
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-    index.add(2, &[(10, 0.2), (20, 0.8)]).unwrap();
-
-    let query = [(10, 1.0), (20, 0.5)];
-    let mut iter = SparseVectorQueryIterator::new(&index, &query).unwrap();
-
-    // Doc 1
-    let result1 = iter.read().unwrap().unwrap();
-    assert_eq!(result1.doc_id, 1);
-
-    // Doc 2
-    let result2 = iter.read().unwrap().unwrap();
-    assert_eq!(result2.doc_id, 2);
-
-    assert!(iter.read().unwrap().is_none());
-}
-
-#[test]
-fn test_query_intersection_filters_documents() {
-    let mut index = SparseVectorIndex::new();
-    // Doc 1: has dimensions 10, 20
-    index.add(1, &[(10, 0.5), (20, 0.3)]).unwrap();
-    // Doc 2: has dimensions 20, 30 (missing dimension 10)
-    index.add(2, &[(20, 0.7), (30, 0.4)]).unwrap();
-    // Doc 3: has dimensions 10, 20, 30
-    index.add(3, &[(10, 0.1), (20, 0.2), (30, 0.9)]).unwrap();
-
-    // Query for dimensions 10 and 20 - only docs 1 and 3 have both
-    let query = [(10, 1.0), (20, 2.0)];
-    let mut iter = SparseVectorQueryIterator::new(&index, &query).unwrap();
-
-    // Doc 1
-    let result1 = iter.read().unwrap().unwrap();
-    assert_eq!(result1.doc_id, 1);
-
-    // Doc 3
-    let result2 = iter.read().unwrap().unwrap();
-    assert_eq!(result2.doc_id, 3);
-
-    // Doc 2 is skipped because it doesn't have dimension 10
-    assert!(iter.read().unwrap().is_none());
-}
-
-#[test]
-fn test_query_partial_dimension_match() {
-    let mut index = SparseVectorIndex::new();
-    // Doc 1: has only dimension 10
-    index.add(1, &[(10, 0.5)]).unwrap();
-    // Doc 2: has only dimension 20
-    index.add(2, &[(20, 0.7)]).unwrap();
-
-    // Query for both dimensions - no document has both
-    let query = [(10, 1.0), (20, 2.0)];
-    let mut iter = SparseVectorQueryIterator::new(&index, &query).unwrap();
-
-    // No documents match (intersection is empty)
-    assert!(iter.read().unwrap().is_none());
+        let got = match SparseVectorIterator::new(index, &query, min_union_iter_heap) {
+            Some(it) => collect(&mut ContractChecker::new(it)),
+            None => vec![],
+        };
+        let got_ids: Vec<u64> = got.iter().map(|(d, _)| *d).collect();
+        let expected_ids: Vec<u64> = expected.keys().copied().collect();
+        prop_assert_eq!(got_ids, expected_ids);
+        for (doc_id, score) in got {
+            prop_assert!((score - expected[&doc_id]).abs() < 1e-4, "doc {doc_id}: {score} vs {}", expected[&doc_id]);
+        }
+    }
 }
