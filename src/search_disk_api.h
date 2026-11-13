@@ -1243,10 +1243,8 @@ typedef struct MetricsDiskAPI {
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context
    * @param textRamMetadataBytes Aggregate TEXT metadata RAM measured by the caller
-   * @param includeIndexMetrics False to emit only shard-wide resource gauges.
    */
-  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx, uint64_t textRamMetadataBytes,
-                            bool includeIndexMetrics);
+  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx, uint64_t textRamMetadataBytes);
 
   /**
    * @brief Get per-field disk metrics for a TEXT field.

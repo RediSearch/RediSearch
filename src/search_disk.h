@@ -856,11 +856,8 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  * to the Redis INFO context.
  *
  * @param ctx Redis module info context
- * @param textRamMetadataBytes Aggregate TEXT metadata RAM measured by the caller
- * @param includeIndexMetrics False to emit only shard-wide resource gauges.
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes,
-                                  bool includeIndexMetrics);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.
