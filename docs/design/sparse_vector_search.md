@@ -256,7 +256,9 @@ Intersection                                   ← only when the query has other
 ### Score
 
 - The `Metric` result is exposed like a vector distance. `=>{$YIELD_SCORE_AS: <name>}` yields it as a field for `RETURN` and `SORTBY`.
-- A built-in `SPARSE` scorer returns the sum of the sparse `Metric` values in a result. It makes the dot product the document score, so the default score ordering with `LIMIT` gives the top K, and `FT.HYBRID`'s `SEARCH` clause (which accepts `SCORER`) can fuse it with other results.
+- **The sparse score is the default document score.** When a query contains a sparse node and no `SCORER` is given, the document score is the sum of the sparse `Metric` values in the result. The default score ordering with `LIMIT` then gives the top K with no extra arguments, in `FT.SEARCH` and in the `SEARCH` clause of `FT.HYBRID`. The scorer needs no configuration: the metric is fixed at field creation and already applied in the computed score.
+- **In a query that mixes a sparse node with other clauses** (e.g. `@title:shoes @splade:[SPARSE $q]`), the default score is the sparse score alone, and the other clauses act as filters. Text and sparse scores are on different scales, so summing them is not meaningful; combining them is what `FT.HYBRID` fusion is for.
+- **An explicit `SCORER` overrides the default**, e.g. `SCORER BM25STD` to rank by the text clauses instead. The sparse score stays available through `$YIELD_SCORE_AS`.
 - The score is a similarity, higher is better: the dot product under `IP`, and the cosine under `COSINE` (pre-normalized weights).
 
 ### Architecture
@@ -323,16 +325,16 @@ The query vector uses the same blob format as the HASH value, passed as a parame
 
 ```
 # Top-10 by dot product
-FT.SEARCH idx "@splade:[SPARSE $q]" SCORER SPARSE LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
+FT.SEARCH idx "@splade:[SPARSE $q]" LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
 
 # Same, returning the score as a field and sorting on it
 FT.SEARCH idx "@splade:[SPARSE $q]=>{$YIELD_SCORE_AS: score}" SORTBY score DESC LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
 
 # Filtered: exact top-10 among footwear documents
-FT.SEARCH idx "@category:{footwear} @splade:[SPARSE $q]" SCORER SPARSE LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
+FT.SEARCH idx "@category:{footwear} @splade:[SPARSE $q]" LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
 
 # Dense + sparse, fused with RRF
-FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" SCORER SPARSE VSIM @embedding $v KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 4 q <sparse_blob> v <dense_blob>
+FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" VSIM @embedding $v KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 4 q <sparse_blob> v <dense_blob>
 ```
 
 `total_results` is the number of documents sharing at least one dimension with the query, as for a full-text OR query, not `K`.
@@ -352,6 +354,7 @@ Range queries (a minimum score) are not part of the first version.
 | Weighted Jaccard | Needs each document's full weight mass, like a norm; no demand identified |
 | Top-K iterator like dense KNN (`TopKIterator` with a sparse `ScoreSource`) | `TopKIterator`'s modes are built around sources that produce results in score order (VecSim batches, the numeric range tree); posting lists are in doc-ID order, so only its plain-union and filter-driven modes would apply, which the ordinary iterator tree already provides. Its heap would still need a per-candidate deleted-document check, as the numeric source does (`DocValidity`), so it saves little over the sorter, and it would not get `LIMIT`/offset, cursors or `FT.AGGREGATE` for free |
 | Summing the dimension children directly in the scorer, as TF-IDF does | In a query that combines the sparse node with text or numeric clauses, the scorer cannot tell the sparse children from the others; reducing in `SparseVectorIterator` keeps the sparse score separate |
+| Requiring an explicit `SCORER SPARSE` | The scorer has nothing to configure, and omitting it would silently rank sparse queries with the text scorer, which scores them as zero |
 | Reusing the `=>[KNN k @field $q]` syntax | Dense KNN returns exactly `k` results and treats the left side as a pre-filter. Sparse retrieval returns the whole union and takes the top from `LIMIT`; a query node states that behaviour and composes with other clauses like a term |
 | Serializing posting lists to RDB | Indexes are rebuilt from the keyspace on load; persisting them adds a format commitment with no benefit |
 
@@ -365,9 +368,9 @@ Each step is roughly one reviewable PR.
 | 1 | Storage crate: `f32` weights, input validation, `COSINE` normalization | `sparse_vector_index/` | Partial: crate with `dim_id → posting list` exists; validation and normalization missing | Rust unit tests + property test against a brute-force dot product |
 | 2 | Schema: field type, parse `SPARSEVECTOR <nargs> …` (`DIM`, `DISTANCE_METRIC`, `TYPE`), `FT.INFO` output, spec RDB save/load of the field attributes, free on drop | `spec.c`, `field_spec.[ch]`, `info/` | Partial: `INDEXFLD_T_SPARSE_VECTOR` and the `FieldSpec` union member exist | Flow tests for create / info / invalid args / RDB reload |
 | 3 | Indexing: HASH blob and JSON parsing, add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Not started | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
-| 4 | Query: `@field:[SPARSE $q]` parser node, iterator tree (dimension `InvIndIterator`s, `Union`, `SparseVectorIterator`), sparse `Metric` kind, `SPARSE` scorer, `$YIELD_SCORE_AS` | `query_parser/v2/`, `query.c`, `rqe_iterators/`, `ext/default.c` | Not started | Top `LIMIT` equals a brute-force reference; filtered, combined-with-text and unfiltered flow tests |
+| 4 | Query: `@field:[SPARSE $q]` parser node, iterator tree (dimension `InvIndIterator`s, `Union`, `SparseVectorIterator`), sparse `Metric` kind, sparse score as the default document score, `$YIELD_SCORE_AS` | `query_parser/v2/`, `query.c`, `rqe_iterators/`, `ext/default.c` | Not started | Top `LIMIT` equals a brute-force reference; filtered, combined-with-text and unfiltered flow tests |
 | 5 | GC scanner | `index_gc/src/scanners/` | Not started | GC flow tests; memory returns after delete |
-| 6 | Cluster and `FT.HYBRID`: coordinator merge, `SEARCH … SCORER SPARSE` fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Not started | Cluster flow tests; dense + sparse RRF/LINEAR tests |
+| 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Not started | Cluster flow tests; dense + sparse RRF/LINEAR tests |
 | 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
 
 Later work: weight quantization, range queries, approximate algorithms, and [disk (Redis Flex) support](#future-work-disk-redis-flex-integration).
