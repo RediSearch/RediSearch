@@ -21,7 +21,26 @@ Arguments provided: `$ARGUMENTS`
 ./build.sh RUN_UNIT_TESTS ENABLE_ASSERT=1
 ```
 
-This builds the project (if needed) and runs all C and C++ unit test binaries.
+This builds the project (if needed) and runs Search's C and C++ unit test binaries.
+VecSim component units use a separate build; run both sequentially when changing
+the vector integration:
+
+```bash
+make vecsim-tests
+make vecsim-tests SAN=address
+```
+
+Use `CTEST_ARGS='-R <regex>'` to select component tests. Use a distinct build
+folder when changing SVS support, for example:
+
+```bash
+make vecsim-tests BINROOT=/tmp/vecsim-no-svs VECSIM_CMAKE_ARGS=-DUSE_SVS=OFF
+```
+
+Check the reported test count; an empty selection is not evidence of coverage.
+`make vecsim-coverage` collects component unit coverage in `bin/vecsim.info`.
+Search flow coverage deliberately excludes VecSim instrumentation because of
+SVS timeouts; Search ASan integration tests still instrument VecSim.
 
 ### Specific C++ Tests (Google Test)
 

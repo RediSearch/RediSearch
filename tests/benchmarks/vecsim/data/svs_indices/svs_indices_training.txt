@@ -1,0 +1,2 @@
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-1M-vectors.raw
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-1M-fp16-vectors.raw

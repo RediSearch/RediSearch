@@ -1,0 +1,58 @@
+name: VecSim static checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: VecSim CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+      - name: Build VecSim for analysis
+        run: make -C src/vecsim build NO_TESTS=1
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          category: vecsim
+
+  formatting:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Check VecSim formatting
+        run: |
+          python -m venv "$RUNNER_TEMP/vecsim-format"
+          "$RUNNER_TEMP/vecsim-format/bin/pip" install clang-format==18.1.8
+          CLANG_FORMAT="$RUNNER_TEMP/vecsim-format/bin/clang-format" make -C src/vecsim check-format
+
+  without-svs:
+    name: VecSim without SVS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build and test without SVS
+        run: make vecsim-tests VECSIM_CMAKE_ARGS=-DUSE_SVS=OFF

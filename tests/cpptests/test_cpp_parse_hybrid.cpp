@@ -22,7 +22,7 @@
 // #include "index.h"
 #include "aggregate/aggregate.h"
 #include "vector_index.h"
-#include "VecSim/query_results.h"
+#include "vecsim/query_results.h"
 #include "info/global_stats.h"
 #include "ext/default.h"
 #include "query_error_ffi.h"

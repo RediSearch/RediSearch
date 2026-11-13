@@ -31,7 +31,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "iterators_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "config.h"
 #include "doc_table.h"
 #include "geo_ffi.h"

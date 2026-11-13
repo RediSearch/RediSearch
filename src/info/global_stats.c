@@ -11,7 +11,7 @@
 #include "rs_wall_clock.h"
 #include "util/workers.h"
 #include "concurrent_ctx.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "query_flags.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)

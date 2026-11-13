@@ -56,8 +56,15 @@ jobs:
       redisearch-repository: ${{ github.repository }}
       redisearch-ref: ${{ github.sha }}
 
+  vecsim:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/task-vecsim-checks.yml
+
   notify-failure:
-    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity]
+    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity, vecsim]
     if: failure()
     runs-on: ubuntu-slim
     permissions:

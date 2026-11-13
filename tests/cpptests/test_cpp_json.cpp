@@ -11,7 +11,7 @@
 #include "json.h"
 #include "document.h"
 #include "field_spec.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include <climits>
 #include <cstring>
 

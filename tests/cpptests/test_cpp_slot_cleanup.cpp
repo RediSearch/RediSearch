@@ -19,7 +19,7 @@
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
 #include "spec.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 extern "C" {
 #include "vector_index.h"

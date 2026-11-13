@@ -31,6 +31,14 @@ Run this skill to check for lint errors and formatting issues.
    The CMake build promotes key warnings to errors (`-Werror=incompatible-pointer-types`,
    `-Werror=implicit-function-declaration`). A successful build confirms these pass.
 
+### VecSim formatting
+
+Preserve the component's scoped `.clang-format` files (four-space indentation),
+including those under the relocated unit and benchmark directories. Use
+`make vecsim-format` to check with clang-format 18.1.8, or `make vecsim-format FIX=1`
+to apply it. `CLANG_FORMAT` may point to a version-18.1.8 executable. Do not apply
+Search's root formatting rules to VecSim or reformat it with a newer formatter.
+
 ### Rust Code
 
 1. Run the lint check:

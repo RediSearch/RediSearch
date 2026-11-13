@@ -12,7 +12,7 @@
 
 #include "redismodule.h"
 #include "gc.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include <poll.h>
 
 #ifdef __cplusplus

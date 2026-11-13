@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus

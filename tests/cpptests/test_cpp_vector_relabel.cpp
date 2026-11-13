@@ -23,7 +23,7 @@
 #include "spec.h"
 #include "indexes.h"
 #include "doc_id_meta.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 // `openVectorIndex` is declared outside vector_index.h's own extern "C" block.
 extern "C" {

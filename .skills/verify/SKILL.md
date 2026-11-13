@@ -31,6 +31,10 @@ Ensure the full project compiles without warnings promoted to errors.
 ```bash
 ./build.sh RUN_UNIT_TESTS ENABLE_ASSERT=1
 ```
+For VecSim changes, also run `make vecsim-tests`; Search units do not invoke the
+component suite locally. When changing optional SVS guards, verify both SVS-enabled
+and `USE_SVS=OFF` builds as described in the unit-test skill.
+
 All unit tests must pass. Use [/run-c-unit-tests](../run-c-unit-tests/SKILL.md) for details
 on running specific tests.
 
