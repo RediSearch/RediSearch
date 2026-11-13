@@ -57,7 +57,13 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
     return RS_RESULT_ERROR;
   }
   QueryError_SetQueryOOMWarning(err);
-  // Not STOPPED: that replies as a timeout, and a cursor would read again into the same stop.
+  // A timeout that also fired outranks the stop: ON_TIMEOUT FAIL replies its error (the OOM
+  // warning is then unused) and RETURN replies both warnings, the timeout one derived from rc.
+  if (QueryRequestLimits_IsTimedOutExact(limits)) {
+    return RS_RESULT_STOPPED;
+  }
+  // Without a timeout, EOF rather than STOPPED: STOPPED replies as a timeout, and a cursor would
+  // read again into the same stop.
   return RS_RESULT_EOF;
 }
 
