@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "navix_query.h"
+#include "doc_table.h"
 #include "numeric_filter.h"
 #include "query_node.h"
 #include "rmalloc.h"
@@ -18,12 +19,16 @@ struct NavixQuery {
   FilterSummaryContext context;
   VecSimNavixStats stats;
   NavixQuery* previous;
+  bool preferOrdinary;
+  bool broadTagUnion;
 };
 
 typedef struct {
   FilterQuickCheckPredicate nodes[256];
   size_t used;
   bool overflow;
+  bool hasTag;
+  bool broadTagUnion;
 } PredicateArena;
 
 static void lower(PredicateArena* arena, FilterQuickCheckPredicate* out, const QueryNode* node,
@@ -54,6 +59,8 @@ static void lower(PredicateArena* arena, FilterQuickCheckPredicate* out, const Q
   if (node->type == QN_TAG) {
     if (node->tag.fieldIndex >= spec->numFields) return;
     tagField = node->tag.fieldIndex;
+    arena->hasTag = true;
+    arena->broadTagUnion |= array_len(node->children) >= 32;
   }
   size_t count = array_len(node->children);
   if (!count) return;
@@ -78,11 +85,36 @@ NavixQuery* NavixQuery_New(IndexSpec* spec, const QueryNode* filter, NavixQuery*
   NavixQuery* query = rm_calloc(1, sizeof(*query));
   query->context = FilterSummary_CreateContext(spec, arena.overflow ? NULL : &arena.nodes[0]);
   query->previous = previous;
+  query->preferOrdinary =
+      arena.hasTag && (filter->type != QN_PHRASE || array_len(filter->children) <= 1);
+  query->broadTagUnion = arena.broadTagUnion;
   *params = (VecSimNavixParams){.mayMatch = FilterSummary_MayMatch,
                                 .context = &query->context,
                                 .stats = &query->stats,
                                 .forceBlind = blind};
   return query;
+}
+
+bool NavixQuery_PreferExactScan(NavixQuery* query) {
+  if (!query || !query->context.spec) return false;
+  const t_docId maxDocId = DocTable_GetMaxDocId(&query->context.spec->docs);
+  if (!maxDocId) return false;
+  size_t maybe = 0;
+  uint64_t state = 0;
+  // A bounded routing sample; unknown summaries count as possible matches.
+  for (size_t i = 0; i < 512; ++i) {
+    state += UINT64_C(0x9e3779b97f4a7c15);
+    uint64_t hash = state;
+    hash = (hash ^ (hash >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94d049bb133111eb);
+    hash ^= hash >> 31;
+    if (FilterSummary_MayMatch(&query->context, 1 + hash % maxDocId) && ++maybe > 8) return false;
+  }
+  return true;
+}
+
+bool NavixQuery_PreferOrdinarySearch(const NavixQuery* query, size_t estimated, size_t size) {
+  return query && (query->preferOrdinary || (query->broadTagUnion && estimated >= size / 2));
 }
 
 void NavixQuery_Free(NavixQuery* query) {

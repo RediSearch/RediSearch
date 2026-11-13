@@ -163,3 +163,135 @@ def test_navix_auto_search_effort_and_cutoff(env):
             env.assertEqual(_profile_value(result[1], 'Vector search mode'), expected_mode)
     finally:
         env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_retains_scan_preference(env):
+    """The second option retains exact scanning where the whole-index heuristic prefers it."""
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    conn = getConnectionByEnv(env)
+    try:
+        for count, expected_mode in [(100, 'HYBRID_ADHOC_BF'), (6000, 'NAVIX_QC')]:
+            index, prefix = f'idx:{count}', f'd{count}:'
+            env.expect('FT.CREATE', index, 'ON', 'HASH', 'PREFIX', 1, prefix, 'SCHEMA',
+                       't', 'TAG', 'body', 'TEXT', 'v', 'VECTOR', 'HNSW', 8,
+                       'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
+                       'EF_CONSTRUCTION', 100).ok()
+            for i in range(count):
+                conn.execute_command('HSET', f'{prefix}{i}',
+                                     't', 'even' if i % 2 == 0 else 'odd',
+                                     'v', struct.pack('<f', i))
+            env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+            query = '(@t:{even})=>[KNN 2 @v $q HYBRID_POLICY NAVIX_AUTO2 EF_RUNTIME 100 AS dist]'
+            args = ['SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                    'PARAMS', 2, 'q', struct.pack('<f', 0)]
+            env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+            for predicate in ['even', 'missing']:
+                env.expect('FT.SEARCH', index, query.replace('{even}', '{' + predicate + '}'),
+                           *args).error().contains('requires CONFIG SET')
+            env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+            result = env.cmd('FT.PROFILE', index, 'SEARCH', 'QUERY', query, *args)
+            env.assertEqual(result[0], [2, f'{prefix}0', f'{prefix}2'])
+            ordinary = env.cmd('FT.PROFILE', index, 'SEARCH', 'QUERY',
+                               query.replace(' HYBRID_POLICY NAVIX_AUTO2', ''), *args)
+            env.assertEqual(result[0], ordinary[0])
+            env.assertEqual(_profile_value(result[1], 'Vector search mode'),
+                            _profile_value(ordinary[1], 'Vector search mode'))
+            control = env.cmd('FT.PROFILE', index, 'SEARCH', 'QUERY',
+                              query.replace('NAVIX_AUTO2', 'NAVIX_AUTO'), *args)
+            env.assertEqual(control[0], result[0])
+            env.assertEqual(_profile_value(control[1], 'Vector search mode'), 'NAVIX_QC')
+            env.assertEqual(_profile_value(result[1], 'NaviX bridge expansions'), None)
+            for predicate in ['-@t:{missing}', '~@body:missing']:
+                wildcard_query = query.replace('@t:{even}', predicate)
+                wildcard_result = env.cmd('FT.PROFILE', index, 'SEARCH', 'QUERY',
+                                          wildcard_query, *args)
+                env.assertEqual(wildcard_result[0], [2, f'{prefix}0', f'{prefix}1'])
+                env.assertEqual(_profile_value(wildcard_result[1], 'Vector search mode'),
+                                expected_mode)
+            env.expect('FT.SEARCH', index, query.replace('(@t:{even})', '*'),
+                       *args).error().contains('requires filtered')
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_samples_sparse_conjunction(env):
+    """Sparse summary samples select exact scanning without changing filter eligibility."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'a', 'NUMERIC', 'b', 'NUMERIC', 'body', 'TEXT',
+               'v', 'VECTOR', 'HNSW', 8, 'TYPE', 'FLOAT32', 'DIM', 1,
+               'DISTANCE_METRIC', 'L2', 'EF_CONSTRUCTION', 100).ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6000):
+        conn.execute_command('HSET', f'd:{i}', 'a', i, 'b', (i + 2998) % 6000,
+                             'v', struct.pack('<f', i))
+    env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    try:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+        for predicate, mode in [('@a:[0 2999] @b:[0 2999]', 'HYBRID_ADHOC_BF'),
+                                ('@a:[0 3120] @b:[0 2999]', 'HYBRID_ADHOC_BF'),
+                                ('@a:[0 3160] @b:[0 2999]', 'NAVIX_QC'),
+                                ('@a:[0 2999] @b:[0 5999]', 'NAVIX_QC'),
+                                ('@a:[0 5999] ~@body:missing', 'NAVIX_QC')]:
+            results = []
+            for policy in ['NAVIX_AUTO', 'NAVIX_AUTO2']:
+                query = f'({predicate})=>[KNN 2 @v $q HYBRID_POLICY {policy} EF_RUNTIME 100 AS dist]'
+                result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                                 'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                                 'PARAMS', 2, 'q', struct.pack('<f', 0))
+                env.assertEqual(result[0], [2, 'd:0', 'd:1'])
+                env.assertEqual(_profile_value(result[1], 'Vector search mode'),
+                                mode if policy == 'NAVIX_AUTO2' else 'NAVIX_QC')
+                results.append(result)
+            if mode == 'HYBRID_ADHOC_BF':
+                env.assertEqual(_profile_value(results[1][1], 'NaviX bridge expansions'), None)
+        conn.execute_command('HSET', 'without-vector', 'a', -1, 'b', -1)
+        query = '(@a:[0 2999] @b:[0 2999])=>[KNN 2 @v $q HYBRID_POLICY NAVIX_AUTO2 EF_RUNTIME 100 AS dist]'
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query,
+                         'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                         'PARAMS', 2, 'q', struct.pack('<f', 0))
+        env.assertEqual(result[0], [2, 'd:0', 'd:1'])
+        env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'NAVIX_QC')
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)
+
+
+@skip(cluster=True)
+def test_navix_auto_routes_tag_predicates(env):
+    """TAG unions retain ordinary search except where conjunction pruning can help."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               't', 'TAG', 'n', 'NUMERIC', 'v', 'VECTOR', 'HNSW', 8,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
+               'EF_CONSTRUCTION', 100).ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6000):
+        conn.execute_command('HSET', f'd:{i}', 't', f'c{i % 64}', 'n', i,
+                             'v', struct.pack('<f', i))
+    env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+    previous = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    try:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
+        narrow = '@t:{' + '|'.join(f'c{i}' for i in range(16)) + '}'
+        broad = '@t:{' + '|'.join(f'c{i}' for i in range(48)) + '}'
+        for predicate, ordinary in [(narrow, True),
+                                    (narrow + ' @n:[0 5998]', False),
+                                    (broad + ' @n:[0 5998]', True),
+                                    ('@n:[0 5998]', False)]:
+            query = f'({predicate})=>[KNN 2 @v $q HYBRID_POLICY NAVIX_AUTO2 EF_RUNTIME 100 AS dist]'
+            args = ['SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2,
+                    'PARAMS', 2, 'q', struct.pack('<f', 0)]
+            result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query, *args)
+            env.assertEqual(result[0], [2, 'd:0', 'd:1'])
+            if ordinary:
+                control = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+                                  query.replace(' HYBRID_POLICY NAVIX_AUTO2', ''), *args)
+                env.assertEqual(result[0], control[0])
+                env.assertEqual(_profile_value(result[1], 'Vector search mode'),
+                                _profile_value(control[1], 'Vector search mode'))
+                env.assertEqual(_profile_value(result[1], 'NaviX bridge expansions'), None)
+            else:
+                env.assertEqual(_profile_value(result[1], 'Vector search mode'), 'NAVIX_QC')
+    finally:
+        env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', previous)

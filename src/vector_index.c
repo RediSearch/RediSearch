@@ -210,8 +210,8 @@ static const char *navixPolicy(const VecSimRawParam *param) {
   if (param->nameLen != strlen("HYBRID_POLICY") ||
       strncasecmp(param->name, "HYBRID_POLICY", param->nameLen))
     return NULL;
-  static const char *policies[] = {"NAVIX",        "NAVIX_BLIND",  "NAVIX_DEDUP",
-                                   "NAVIX_BUDGET", "NAVIX_BRIDGE", "NAVIX_AUTO"};
+  static const char *policies[] = {"NAVIX", "NAVIX_BLIND", "NAVIX_DEDUP", "NAVIX_BUDGET",
+                                   "NAVIX_BRIDGE", "NAVIX_AUTO", "NAVIX_AUTO2"};
   for (size_t i = 0; i < sizeof(policies) / sizeof(*policies); ++i) {
     if (param->valLen == strlen(policies[i]) &&
         !strncasecmp(param->value, policies[i], param->valLen)) return policies[i];
@@ -309,10 +309,25 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           VecSim_ResolveQueryParams(vecsim, resolved, nparams, &qParams, queryType, q->status);
       if (navix) rm_free(resolved);
       if (resolveCode != VecSim_OK) return NULL;
-      if (navix && !strcmp(navix, "NAVIX_AUTO")) {
+      const bool navixAuto =
+          navix && (!strcmp(navix, "NAVIX_AUTO") || !strcmp(navix, "NAVIX_AUTO2"));
+      if (navixAuto) {
         const size_t size = VecSimIndex_IndexSize(vecsim);
         const size_t estimated = MIN(child_it->NumEstimated(child_it), size);
-        if (!size || estimated <= size / 50) {
+        bool preferExact = !size || estimated <= size / 50;
+        bool preferOrdinary = false;
+        if (!preferExact && !strcmp(navix, "NAVIX_AUTO2")) {
+          preferExact = VecSimIndex_PreferAdHocSearch(vecsim, size, vq->knn.k, true);
+          if (!preferExact) {
+            vq->navixQuery =
+                NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, false);
+            if (size == ctx->spec->stats.scoring.numDocuments && filter_node->type == QN_PHRASE &&
+                array_len(filter_node->children) > 1)
+              preferExact = NavixQuery_PreferExactScan(vq->navixQuery);
+            preferOrdinary = NavixQuery_PreferOrdinarySearch(vq->navixQuery, estimated, size);
+          }
+        }
+        if (preferExact) {
           VecSimRawParam exactPolicy = {.name = "HYBRID_POLICY",
                                         .nameLen = strlen("HYBRID_POLICY"),
                                         .value = "ADHOC_BF",
@@ -320,6 +335,17 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           if (VecSim_ResolveQueryParams(vecsim, &exactPolicy, 1, &qParams, queryType, q->status) !=
               VecSim_OK)
             return NULL;
+          if (!strcmp(navix, "NAVIX_AUTO2") && IsWildcardIterator(child_it)) {
+            // Preserve the selected scan through wildcard-child reduction.
+            vq->navixQuery =
+                NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix, false);
+            qParams.navix.stats = NULL;
+          }
+          navix = NULL;
+        } else if (preferOrdinary) {
+          // Restore adaptive batches and the original EF when TAG traversal adds little pruning.
+          qParams.searchMode = EMPTY_MODE;
+          qParams.navix = (VecSimNavixParams){0};
           navix = NULL;
         } else {
           // EF counts summary-MAYBE results here; scale the ordinary search effort.
@@ -332,12 +358,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         }
       }
       if (navix) {
-        vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
-                                        !strcmp(navix, "NAVIX_BLIND"));
+        if (!qParams.navix.context) {
+          vq->navixQuery = NavixQuery_New(ctx->spec, filter_node, vq->navixQuery, &qParams.navix,
+                                          !strcmp(navix, "NAVIX_BLIND"));
+        }
         qParams.navix.skipScanned = !strcmp(navix, "NAVIX_DEDUP") || secondHopBudget;
         qParams.navix.secondHopBudget = secondHopBudget;
-        qParams.navix.bridgeRejected =
-            !strcmp(navix, "NAVIX_BRIDGE") || !strcmp(navix, "NAVIX_AUTO");
+        qParams.navix.bridgeRejected = !strcmp(navix, "NAVIX_BRIDGE") || navixAuto;
         // MAYBE output has a different acceptance rate from the global filter population.
         if (!qParams.batchSize) qParams.batchSize = vq->knn.k ? vq->knn.k : 1;
       }

@@ -88,3 +88,34 @@ index default. The default AUTO policy is unchanged. Estimates are not exact
 selectivities; quality and latency must be measured together. The same stable-data,
 unquantized single-value FLOAT32 RAM HNSW restrictions apply, and RediSearch still
 performs exact filtering and refill. No persistence or concurrent-update claim.
+
+
+### Option 2: retain exact scanning when the index favors it
+
+`HYBRID_POLICY NAVIX_AUTO2` preserves the first option's sparse-filter cutoff and
+scaled bridge effort. It also selects exact scanning when VecSim's existing
+heuristic prefers scanning even with the entire vector index as the estimated
+matching population. This avoids forcing graph traversal for index shapes that
+AUTO already handles with exact scans. The choice uses index metadata and K;
+it does not materialize a membership set or use benchmark query IDs.
+
+`NAVIX_AUTO` remains available as Option 1 for comparisons on the same graph.
+Both experiments retain the same unstable-feature gate, index restrictions,
+and RediSearch exact filtering/refill. Lower EF can reduce latency and recall;
+measure them together. This does not change the default AUTO policy.
+
+
+Option 2 also probes at most 512 deterministic pseudo-random document summaries for
+conjunctions that would otherwise traverse, and only when the queried vector field
+covers every indexed document. It selects exact scanning if at most eight
+probes return MAYBE, and stops probing as soon as a ninth does. Missing or ambiguous
+summaries count as MAYBE. This catches sparse intersections whose min-child estimate
+is large; it does not build a membership set or change the traversal EF estimate.
+The sample only selects the search route. A sampling mistake can make scanning slow,
+but cannot reject a matching document or reduce exact-scan recall.
+
+For TAG predicates, Option 2 restores ordinary AUTO planning for non-conjunctions,
+and for conjunctions containing a TAG union with at least 32 terms when the
+iterator estimate covers at least half the vectors. It keeps the caller's EF
+and adaptive batch-to-scan switching; the sparse probe takes precedence. These
+are experimental routing heuristics, not changes to filter eligibility.
