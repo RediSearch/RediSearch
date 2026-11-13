@@ -526,7 +526,7 @@ fn child_timeout_on_first_read() {
     let mut it = ContractChecker::new(NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker));
     let rc = it.read();
     assert!(
-        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        matches!(rc, Err(RQEIteratorError::Stopped)),
         "Expected timeout on first read, got {rc:?}"
     );
 }
@@ -554,7 +554,7 @@ fn child_timeout_on_subsequent_read() {
         rc = it.read();
     }
     assert!(
-        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        matches!(rc, Err(RQEIteratorError::Stopped)),
         "Expected timeout, got {rc:?}"
     );
 }
@@ -575,7 +575,7 @@ fn child_timeout_on_skip_to() {
 
     let rc = it.skip_to(1);
     assert!(
-        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        matches!(rc, Err(RQEIteratorError::Stopped)),
         "Expected timeout on skip_to, got {rc:?}"
     );
 }
@@ -604,7 +604,7 @@ fn read_timeout_via_timeout_ctx() {
 
     let result = it.read();
     assert!(
-        matches!(result, Err(RQEIteratorError::TimedOut)),
+        matches!(result, Err(RQEIteratorError::Stopped)),
         "expected timeout, got {result:?}"
     );
 }
@@ -1027,7 +1027,7 @@ mod revalidate {
             .revalidate(&*context.spec_read())
             .expect_err("a child that cannot be caught up must reach the caller");
         assert!(
-            matches!(error, RQEIteratorError::TimedOut),
+            matches!(error, RQEIteratorError::Stopped),
             "the child's error must be propagated as it stands, got {error:?}",
         );
     }
@@ -1064,7 +1064,7 @@ mod revalidate {
             .revalidate(&*context.spec_read())
             .expect_err("a failing revalidation scan must reach the caller");
         assert!(
-            matches!(error, RQEIteratorError::TimedOut),
+            matches!(error, RQEIteratorError::Stopped),
             "the child's error must be propagated as it stands, got {error:?}",
         );
 
@@ -1123,7 +1123,7 @@ mod revalidate {
 
             let guard = context.spec_read();
             match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard) {
-                Err(RQEIteratorError::TimedOut) => {}
+                Err(RQEIteratorError::Stopped) => {}
                 Err(other) => {
                     panic!("the child's error must be propagated as it stands: {other:?}")
                 }
@@ -1163,7 +1163,7 @@ mod revalidate {
 
             let guard = context.spec_read();
             match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard) {
-                Err(RQEIteratorError::TimedOut) => {}
+                Err(RQEIteratorError::Stopped) => {}
                 Err(other) => {
                     panic!("the child's error must be propagated as it stands: {other:?}")
                 }
@@ -1559,7 +1559,7 @@ mod resume_over_mocks {
         assert_eq!(doc.doc_id, 1);
 
         assert!(
-            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::Stopped)),
             "a child resume error must propagate out of NotOptimized::resume",
         );
     }
@@ -1581,7 +1581,7 @@ mod resume_over_mocks {
         assert_eq!(doc.doc_id, 1);
 
         assert!(
-            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::Stopped)),
             "a wildcard resume error must propagate out of NotOptimized::resume",
         );
     }

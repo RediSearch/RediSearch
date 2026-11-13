@@ -102,7 +102,7 @@ impl MockIteratorError {
                 if let Some(delay) = opt_delay {
                     std::thread::sleep(delay);
                 }
-                rqe_iterators::RQEIteratorError::TimedOut
+                rqe_iterators::RQEIteratorError::Stopped
             }
         }
     }
@@ -368,7 +368,7 @@ impl MockRevalidateResult {
     /// iterator unusable — so both paths funnel their failing outcomes through here.
     fn as_error(self) -> Option<rqe_iterators::RQEIteratorError> {
         match self {
-            Self::TimedOut => Some(rqe_iterators::RQEIteratorError::TimedOut),
+            Self::TimedOut => Some(rqe_iterators::RQEIteratorError::Stopped),
             Self::IoError => Some(rqe_iterators::RQEIteratorError::IoError(
                 std::io::Error::other("mock revalidation failure"),
             )),

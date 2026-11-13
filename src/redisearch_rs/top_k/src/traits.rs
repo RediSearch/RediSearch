@@ -105,7 +105,7 @@ pub trait ScoreSource {
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
-    /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
+    /// - `Err(RQEIteratorError::Stopped)` — the query time limit was reached.
     ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
@@ -295,7 +295,7 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
-    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// Poll the query deadline, returning [`RQEIteratorError::Stopped`] once
     /// it has been reached.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
 

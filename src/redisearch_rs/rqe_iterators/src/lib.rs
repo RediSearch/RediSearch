@@ -131,9 +131,9 @@ pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, 
 #[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
-    /// The iterator has reached the time limit for execution.
-    #[error("reached time limit")]
-    TimedOut,
+    /// The iterator ended early on a timeout or a requested stop.
+    #[error("iterator stopped")]
+    Stopped,
     /// Iterator failed to read from the inverted index.
     #[error("failed to read from inverted index")]
     IoError(#[from] std::io::Error),
@@ -232,7 +232,7 @@ pub trait RQEIterator<'index> {
     /// # Errors
     ///
     /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
-    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`RQEIteratorError`] — [`Stopped`](RQEIteratorError::Stopped) or
     /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
     /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
     /// may have been repositioned or dropped while the state derived from them was never re-synced.
@@ -240,7 +240,7 @@ pub trait RQEIterator<'index> {
     /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
     /// consumes the iterator and drops it on the same failure.
     ///
-    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// At the FFI boundary the two errors are reported apart: `Stopped` becomes
     /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
     /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
     ///
