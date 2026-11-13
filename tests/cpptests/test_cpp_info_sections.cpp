@@ -322,7 +322,7 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   api.basic.reserveOpenFiles = [](RedisSearchDisk *) { return true; };
   api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
   api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
-                               const char *, size_t, DocumentType, bool, IndexFlags,
+                               const char *, size_t, DocumentType, bool, IndexFlags, bool,
                                const SearchDiskField *, size_t,
                                const SearchDiskCompactionCallbacks *, void *privateData,
                                QueryError *) {
