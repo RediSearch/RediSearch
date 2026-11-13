@@ -103,7 +103,8 @@ pub struct SparseVectorIndex {
     unique_id: u32,
 }
 
-#[repr(C)]
+/// Exported to C by cheadergen as `SparseMetric_InnerProduct` / `SparseMetric_Cosine`.
+#[repr(u32)]
 pub enum SparseMetric {
     InnerProduct = 0,
     /// Weights are L2-normalized before they are written.
