@@ -9,3 +9,4 @@
 
 pub mod counter;
 pub mod crash;
+pub mod pager;
