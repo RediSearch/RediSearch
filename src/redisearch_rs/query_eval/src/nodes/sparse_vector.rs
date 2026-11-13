@@ -19,7 +19,7 @@ use sparse_vector_index::{SparseMetric, SparseVectorIndex, SparseVectorIterator}
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut};
 
 /// `QN_SPARSE_VECTOR` — the union of the query dimensions' posting lists,
-/// reduced to one dot-product [`Metric`](index_result::RSResultKind::Metric)
+/// reduced to one dot-product [`SparseScore`](index_result::RSResultKind::SparseScore)
 /// result per document by a [`SparseVectorIterator`].
 ///
 /// The query vector goes through the same checks as a document's, against the

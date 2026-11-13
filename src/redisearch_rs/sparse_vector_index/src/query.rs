@@ -13,7 +13,7 @@
 //! document sharing at least one dimension with the query has a non-zero dot
 //! product and can rank in the top K. [`SparseVectorIterator`] walks that
 //! union and reduces each document to a single
-//! [`Metric`](index_result::RSResultKind::Metric) result carrying
+//! [`SparseScore`](index_result::RSResultKind::SparseScore) result carrying
 //! `Σ q_i · d_i`. The top K is chosen downstream, by the result-processor
 //! sorter, from the request's `LIMIT`.
 
@@ -174,7 +174,7 @@ fn score(result: &RSIndexResult<'_>) -> f64 {
 /// Iterator for one `@field:[SPARSE $q]` query node.
 ///
 /// Yields every document that shares a dimension with the query, in doc-ID
-/// order, as a [`Metric`](index_result::RSResultKind::Metric) result whose
+/// order, as a [`SparseScore`](index_result::RSResultKind::SparseScore) result whose
 /// value is the document's dot product with the query. Reducing at this node
 /// keeps the sparse score apart from any text or tag clauses the node is
 /// combined with.
@@ -236,7 +236,7 @@ impl<'index> SparseVectorIterator<'index> {
 
         Some(Self {
             union,
-            result: RSIndexResult::build_metric(0.0).build(),
+            result: RSIndexResult::build_sparse_score(0.0).build(),
             num_dimensions,
             own_key: std::ptr::null_mut(),
             key_handle: KeyHandleSlot::new(),
@@ -283,7 +283,7 @@ impl<'index> SparseVectorIterator<'index> {
         result.doc_id = from.doc_id;
         *result
             .as_numeric_mut()
-            .expect("the sparse result is built as a metric") = value;
+            .expect("the sparse result is built as a sparse score") = value;
         let metrics = result.metrics_mut();
         metrics.reset();
         if !key.is_null() {

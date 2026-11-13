@@ -382,6 +382,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
   switch (r->data.tag) {
     case RSResultData_Term:
     case RSResultData_Metric:
+    case RSResultData_SparseScore:
     case RSResultData_Numeric:
     case RSResultData_Virtual:
       ret = r->freq;
@@ -465,11 +466,11 @@ static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *
  * SPARSE scorer: the sum of the dot products the query's sparse vector nodes yield
  *
  ******************************************************************************************/
-// Only a sparse vector node yields a Metric result outside a dense KNN (which yields a
-// HybridMetric), so every Metric leaf below is a sparse score. Text and tag leaves only filter.
+// Sparse vector nodes yield their own result kind, so a dense vector distance (a Metric) in the
+// same query is not mistaken for a sparse score. Text, tag and other leaves only filter.
 static double sparseRecursive(const RSIndexResult *r) {
   switch (r->data.tag) {
-    case RSResultData_Metric:
+    case RSResultData_SparseScore:
       return IndexResult_NumValue(r);
     case RSResultData_Intersection:
     case RSResultData_Union: {
@@ -491,6 +492,7 @@ static double sparseRecursive(const RSIndexResult *r) {
     }
     case RSResultData_Term:
     case RSResultData_Numeric:
+    case RSResultData_Metric:
     case RSResultData_Virtual:
       return 0;
   }

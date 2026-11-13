@@ -388,3 +388,20 @@ def testHybridRejectsSparseQueries(env):
     # The same index still serves FT.HYBRID without a sparse clause.
     res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@emb', '$v', *params)
     env.assertEqual(to_dict(res)['total_results'], 1)
+
+
+def testDenseRangeDistanceIsNotASparseScore(env):
+    """A dense VECTOR_RANGE clause yielding its distance does not change the
+    default sparse score of the documents it also matches."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
+               'r', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'doc:a', 'sp', sparse_blob([(1, 3.0)]), 'r', struct.pack('<2f', 0, 0))
+    conn.execute_command('HSET', 'doc:b', 'sp', sparse_blob([(1, 2.0)]), 'r', struct.pack('<2f', 10, 0))
+    res = env.cmd('FT.SEARCH', 'idx', '@sp:[SPARSE $q] @r:[VECTOR_RANGE 200 $v]=>{$YIELD_DISTANCE_AS: d}',
+                  'WITHSCORES', 'RETURN', 1, 'd',
+                  'PARAMS', 4, 'q', sparse_blob([(1, 1.0)]), 'v', struct.pack('<2f', 0, 0), 'DIALECT', 2)
+    # Scores are the dot products alone (3 and 2), not 3 + 0 and 2 + 100.
+    env.assertEqual(res[0], 2)
+    env.assertEqual([res[1], float(res[2]), res[4], float(res[5])], ['doc:a', 3.0, 'doc:b', 2.0])
+    env.assertEqual([float(res[3][1]), float(res[6][1])], [0.0, 100.0])

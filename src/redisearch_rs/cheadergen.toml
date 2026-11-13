@@ -87,6 +87,7 @@ trailer = """
 #define RSResultData_Numeric      RawResultData_Active_Numeric
 #define RSResultData_Metric       RawResultData_Active_Metric
 #define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+#define RSResultData_SparseScore  RawResultData_Active_SparseScore
 
 #define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
 #define RSAggregateResult_Owned    RawAggregateResult_Active_Owned

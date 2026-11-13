@@ -17,7 +17,7 @@ extern crate redisearch_rs;
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::RepairContext;
 use proptest::prelude::*;
 use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
@@ -198,6 +198,12 @@ fn skip_to_scores_the_landing_document() {
     let query = ip(&[(1, 1.0), (2, 2.0)]);
     let mut it = iter(&index, &query, 10).unwrap();
     assert_eq!(it.type_(), IteratorType::SparseVector);
+    // Its own result kind, so the sparse scorer never takes a dense distance for it.
+    assert_eq!(
+        it.read().unwrap().unwrap().kind(),
+        RSResultKind::SparseScore
+    );
+    it.rewind();
 
     match it.skip_to(5).unwrap().unwrap() {
         SkipToOutcome::Found(r) => {
