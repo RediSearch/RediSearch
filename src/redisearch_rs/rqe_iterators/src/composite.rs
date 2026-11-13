@@ -70,32 +70,126 @@ where
     })
 }
 
+/// A union whose children [`union_read_with_threshold`] inspects to choose its next position.
+pub(crate) trait PivotingUnion<'index>: RQEIterator<'index> {
+    /// The type of the union's children.
+    type Child: RQEIterator<'index>;
+
+    /// Every child that can still yield.
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a Self::Child>
+    where
+        Self::Child: 'a;
+
+    /// The weight that scales the union's score, applied as in [`summed_max_score`].
+    fn score_weight(&self) -> f64;
+}
+
+/// Where a thresholded union read moves next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PivotStep {
+    /// The next document may be competitive: move with a plain [`read`](RQEIterator::read).
+    Read,
+    /// No document before the target can reach the threshold.
+    SkipTo(DocId),
+}
+
+/// Chooses where `union`, searching from `start`, moves next, Block-Max WAND style, from its
+/// children's block bounds alone.
+///
+/// A child can first match at its `from`: its position, or `start` when it stands earlier (a
+/// quick-exit union returns on the first child that matches, leaving the others behind or not
+/// yet positioned). A document `d` is matched only by children whose `from` is at most `d`, so
+/// its score is bounded by the sum of their block maxima, as long as `d` lies inside every one of
+/// their blocks. A child's block bounds it from `from` only when the block reaches `from`;
+/// otherwise the child is unbounded.
+///
+/// The walk visits the children's `from`s in increasing order, adding each child once, when its
+/// `from` is reached. The pivot is the first `from` at which the sum reaches the threshold: no
+/// document before it can. The sum only covers documents up to the earliest block end among the
+/// children added so far, and a `from` past it ends the walk: past that end the earlier children's
+/// next blocks are unknown, so the skip stops there.
+///
+/// Each round rescans the children for the next `from`, so a step costs the number of children
+/// times the number of `from`s visited; in exchange it needs no buffer and no sort.
+fn pivot_step<'index, U>(
+    union: &U,
+    start: DocId,
+    min_competitive_score: MinCompetitiveScore,
+) -> PivotStep
+where
+    U: PivotingUnion<'index>,
+{
+    let scale = union.score_weight().max(1.0);
+    let mut sum = 0.0;
+    let mut window_end = DocId::MAX;
+    // Children whose `from` is in `added_through + 1..=at` are added this round. `start` is
+    // always past a position, so it is at least 1.
+    let mut added_through = start - 1;
+    let mut at = start;
+    loop {
+        let mut next_from = None;
+        for child in union.live_children() {
+            let from = child.last_doc_id().max(start);
+            if from > at {
+                next_from = Some(next_from.map_or(from, |next: DocId| next.min(from)));
+            } else if from > added_through {
+                match child.current_block_bound() {
+                    Some(block) if block.last_doc_id >= from => {
+                        sum += block.max_score;
+                        window_end = window_end.min(block.last_doc_id);
+                    }
+                    _ => sum = f64::INFINITY,
+                }
+            }
+        }
+        if !score_bound::can_drop(sum * scale, min_competitive_score) {
+            return if at > start {
+                PivotStep::SkipTo(at)
+            } else {
+                PivotStep::Read
+            };
+        }
+        match next_from {
+            Some(next) if next <= window_end => {
+                added_through = at;
+                at = next;
+            }
+            _ => break,
+        }
+    }
+    // Nothing up to the window's end can reach the threshold. A window that never closed (no
+    // live child) or that closes at the last id leaves nothing to skip to, and a plain read then
+    // finds what follows.
+    window_end
+        .checked_add(1)
+        .map_or(PivotStep::Read, PivotStep::SkipTo)
+}
+
 /// [`RQEIterator::read_with_threshold`] of a union that yields in doc-id order, built on its own
 /// [`read`](RQEIterator::read) and [`skip_to`](RQEIterator::skip_to).
 ///
-/// The union's [`current_block_bound`](RQEIterator::current_block_bound) must cover every child
-/// that can still yield. When it cannot reach the threshold, no document up to its end can, so
-/// the union skips past it and every child behind it moves on; otherwise it reads. Either way, a
-/// document whose own bound cannot reach the threshold is dropped.
+/// Before each move it chooses a pivot from its children's block bounds ([`pivot_step`]) and
+/// skips straight to it, so the children behind the pivot jump over documents that cannot reach
+/// the threshold without reading them. A document it lands on whose own bound cannot reach the
+/// threshold is dropped.
 pub(crate) fn union_read_with_threshold<'index, U>(
     union: &mut U,
     min_competitive_score: MinCompetitiveScore,
 ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>
 where
-    U: RQEIterator<'index>,
+    U: PivotingUnion<'index>,
 {
     loop {
-        let current = union.last_doc_id();
-        let skip_target = union
-            .current_block_bound()
-            .filter(|window| {
-                window.last_doc_id > current
-                    && score_bound::can_drop(window.max_score, min_competitive_score)
-            })
-            .and_then(|window| window.last_doc_id.checked_add(1));
-        let found = match skip_target {
-            Some(target) => union.skip_to(target)?.is_some(),
-            None => union.read()?.is_some(),
+        if union.at_eof() {
+            return Ok(None);
+        }
+        let step = match union.last_doc_id().checked_add(1) {
+            None => PivotStep::Read,
+            Some(start) => pivot_step(union, start, min_competitive_score),
+        };
+        let found = match step {
+            PivotStep::SkipTo(target) => union.skip_to(target)?.is_some(),
+            PivotStep::Read => union.read()?.is_some(),
         };
         if !found {
             return Ok(None);

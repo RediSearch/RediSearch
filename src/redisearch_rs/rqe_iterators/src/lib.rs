@@ -398,8 +398,9 @@ pub trait RQEIterator<'index> {
     /// The caller passes the threshold its own score is measured against, so a composite must not
     /// hand it to its children, whose scores are only part of its own: [`Intersection`] and
     /// [`Union`] read their children with plain [`read`](Self::read) and
-    /// [`skip_to`](Self::skip_to), and skip windows whose
-    /// [`current_block_bound`](Self::current_block_bound) cannot reach the threshold.
+    /// [`skip_to`](Self::skip_to), and skip documents their children's
+    /// [`current_block_bound`](Self::current_block_bound)s show cannot reach the threshold: the
+    /// intersection whole windows, the union up to a Block-Max WAND pivot.
     /// [`skip_to`](Self::skip_to) has no thresholded form.
     fn read_with_threshold(
         &mut self,

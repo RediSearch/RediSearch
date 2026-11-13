@@ -1013,6 +1013,27 @@ where
     }
 }
 
+impl<'index, I, const QUICK_EXIT: bool> crate::composite::PivotingUnion<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    type Child = I;
+
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a I>
+    where
+        I: 'a,
+    {
+        self.children[..self.num_active]
+            .iter()
+            .map(|child| &child.inner)
+    }
+
+    fn score_weight(&self) -> f64 {
+        self.result.weight
+    }
+}
+
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
     for UnionFlat<'index, I, QUICK_EXIT>
 where

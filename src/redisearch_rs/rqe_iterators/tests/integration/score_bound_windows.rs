@@ -216,8 +216,10 @@ fn unions_skip_windows_whose_block_sum_is_below_the_threshold() {
 }
 
 #[test]
-fn unions_without_a_block_boundary_visit_every_document() {
+fn unions_skip_up_to_a_child_without_a_block_boundary() {
     for case in UNIONS {
+        // `b` reports no block, but it stands at 40 and matches nothing before it, so it does not
+        // hold back the skips through `a`.
         let [(b, _), (a, a_log)] = union_children();
         let mut it = (case.build)(vec![b.without_block_bounds(), a]);
 
@@ -227,7 +229,31 @@ fn unions_without_a_block_boundary_visit_every_document() {
             "{}",
             case.name
         );
-        assert_eq!(visited(&a_log), ids(1..=12), "{}", case.name);
+        assert_eq!(visited(&a_log), [1, 5, 9, 10, 11, 12], "{}", case.name);
+    }
+}
+
+#[test]
+fn full_unions_do_not_skip_past_a_child_without_a_block_boundary() {
+    for case in full_unions() {
+        let [_, (a, a_log)] = union_children();
+        let (c, _) = leaf(vec![Block::uniform([3], 0.0)]);
+        let mut it = (case.build)(vec![c.without_block_bounds(), a]);
+
+        assert_eq!(
+            drain_above(&mut it, min_competitive(3.0)),
+            ids(9..=12),
+            "{}",
+            case.name
+        );
+        // `c` could score anything at 3, so the union stops there, and reads on until `c` runs
+        // out. At 4 `a`'s block ends, so it is unknown from 5 and is read once more.
+        assert_eq!(
+            visited(&a_log),
+            [1, 3, 4, 5, 9, 10, 11, 12],
+            "{}",
+            case.name
+        );
     }
 }
 
@@ -250,21 +276,96 @@ fn full_unions_follow_misaligned_block_boundaries() {
         let [(a, a_log), (b, b_log)] = build();
         let mut it = (case.build)(vec![a, b]);
 
-        // Windows: [2, 4] and [6, 6] both sum to 2; from 7 the window reaches b's strong block.
+        // Windows: [2, 4] and [6, 6] both sum to 2. From 7, `a` alone covers 8, since `b` stands
+        // at 10, past `a`'s block end.
         assert_eq!(
             drain_above(&mut it, min_competitive(4.0)),
             ids(9..=12),
             "{}",
             case.name
         );
+        assert_eq!(visited(&a_log), [1, 5, 7, 9, 10, 11, 12], "{}", case.name);
+        assert_eq!(visited(&b_log), [2, 6, 10, 12], "{}", case.name);
+    }
+}
+
+/// The union variants that aggregate every child on a document. A quick-exit union returns on
+/// the first child that matches, so which children it has positioned, and so where it can pivot,
+/// depends on their order.
+fn full_unions() -> impl Iterator<Item = &'static UnionCase> {
+    UNIONS.iter().filter(|case| !case.name.starts_with("quick"))
+}
+
+#[test]
+fn full_unions_pivot_past_documents_only_earlier_children_match() {
+    for case in full_unions() {
+        // Together the blocks reach 3, so the union's own block bound never lets it skip; but
+        // before 10 only `a` can match, and `a` alone cannot.
+        let (a, a_log) = leaf(vec![Block::uniform(1..=20, 1.0)]);
+        let (b, b_log) = leaf(vec![Block::uniform(10..=20, 2.5)]);
+        let mut it = (case.build)(vec![a, b]);
+
         assert_eq!(
-            visited(&a_log),
-            [1, 5, 7, 8, 9, 10, 11, 12],
+            drain_above(&mut it, min_competitive(3.0)),
+            ids(10..=20),
             "{}",
             case.name
         );
-        assert_eq!(visited(&b_log), [2, 6, 10, 12], "{}", case.name);
+        let mut expected = vec![1];
+        expected.extend(10..=20);
+        assert_eq!(visited(&a_log), expected, "{}", case.name);
+        assert_eq!(visited(&b_log), ids(10..=20), "{}", case.name);
     }
+}
+
+#[test]
+fn full_unions_do_not_pivot_past_the_end_of_an_earlier_block() {
+    for case in full_unions() {
+        // The weak block of `a` ends at 5, before `b` starts: beyond it `a` is unknown, and its
+        // next block alone reaches the threshold.
+        let (a, a_log) = leaf(vec![
+            Block::uniform(1..=5, 1.0),
+            Block::uniform(6..=20, 3.0),
+        ]);
+        let (b, _) = leaf(vec![Block::uniform(12..=20, 2.5)]);
+        let mut it = (case.build)(vec![a, b]);
+
+        assert_eq!(
+            drain_above(&mut it, min_competitive(3.0)),
+            ids(6..=20),
+            "{}",
+            case.name
+        );
+        let mut expected = vec![1];
+        expected.extend(6..=20);
+        assert_eq!(visited(&a_log), expected, "{}", case.name);
+    }
+}
+
+#[test]
+fn quick_flat_union_never_pivots_past_an_unpositioned_child() {
+    // `a` comes first and matches every document, so the quick flat union returns on it each time
+    // and never positions `b`: `b` has no block, and every candidate stays reachable. (The quick
+    // heap union positions every child on its first skip, so it pivots here.)
+    let case = UNIONS
+        .iter()
+        .find(|case| case.name == "quick flat")
+        .expect("a quick flat case");
+    let (a, a_log) = leaf(vec![Block::uniform(1..=20, 1.0)]);
+    let (b, b_log) = leaf(vec![Block::uniform(10..=20, 2.5)]);
+    let mut it = (case.build)(vec![a, b]);
+
+    let mut plain = (case.build)(vec![
+        Blocked::new(vec![Block::uniform(1..=20, 1.0)]),
+        Blocked::new(vec![Block::uniform(10..=20, 2.5)]),
+    ]);
+    let threshold = min_competitive(3.0);
+    assert_eq!(
+        drain_above(&mut it, threshold),
+        plain_survivors(&mut plain, threshold)
+    );
+    assert_eq!(visited(&a_log), ids(1..=20));
+    assert!(visited(&b_log).is_empty());
 }
 
 /****************************** threshold edges ******************************/
