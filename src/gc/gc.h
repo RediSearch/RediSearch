@@ -185,8 +185,8 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalTime += src->totalTime;
 }
 
-// The delay, in ms, before the timer `gc` arms for `interval` fires.
-long long GCContext_NextPeriodMs(const GCContext* gc, struct timespec interval);
+// The delay, in ms, before the timer `gc` arms for `intervalMs` fires.
+long long GCContext_NextPeriodMs(const GCContext* gc, long long intervalMs);
 
 void GC_ThreadPoolStart();
 // Resize a started GC pool to what the policy and search-gc-threads call for.

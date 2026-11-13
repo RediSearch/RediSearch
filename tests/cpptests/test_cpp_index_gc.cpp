@@ -971,14 +971,13 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
 // contexts keep the spread that stops indexes and shards from starting together.
 TEST(GCTimerPeriod, OnlyInMemoryThreadContextsArmWithoutJitter) {
   const GCPolicy savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
-  const struct timespec interval = {.tv_sec = 5, .tv_nsec = 0};
   const long long intervalMs = 5000;
   GCContext inMemory{}, disk{};
   disk.diskGC = true;
   auto range = [&](const GCContext &gc) {
     long long lo = LLONG_MAX, hi = LLONG_MIN;
     for (int i = 0; i < 1000; ++i) {
-      const long long ms = GCContext_NextPeriodMs(&gc, interval);
+      const long long ms = GCContext_NextPeriodMs(&gc, intervalMs);
       lo = std::min(lo, ms);
       hi = std::max(hi, ms);
     }
