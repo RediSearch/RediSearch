@@ -8,8 +8,8 @@
  */
 #include "bm_spaces.h"
 #include <vector>
-#include "VecSim/spaces/computer/preprocessors.h"
-#include "VecSim/types/sq4.h"
+#include "vecsim/spaces/computer/preprocessors.h"
+#include "vecsim/types/sq4.h"
 
 using sq4 = vecsim_types::sq4;
 

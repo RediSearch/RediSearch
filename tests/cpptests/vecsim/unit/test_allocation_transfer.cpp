@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "gtest/gtest.h"
-#include "VecSim/memory/vecsim_malloc.h"
+#include "vecsim/memory/vecsim_malloc.h"
 #include <cstdint>
 #include <cstdlib>
 

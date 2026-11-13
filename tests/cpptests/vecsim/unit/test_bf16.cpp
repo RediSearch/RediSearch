@@ -8,16 +8,16 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/index_factories/hnsw_factory.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/index_factories/hnsw_factory.h"
 #include "unit_test_utils.h"
-#include "VecSim/utils/serializer.h"
+#include "vecsim/utils/serializer.h"
 #include "mock_thread_pool.h"
-#include "VecSim/query_result_definitions.h"
-#include "VecSim/types/bfloat16.h"
-#include "VecSim/vec_sim_debug.h"
-#include "VecSim/spaces/L2/L2.h"
+#include "vecsim/query_result_definitions.h"
+#include "vecsim/types/bfloat16.h"
+#include "vecsim/vec_sim_debug.h"
+#include "vecsim/spaces/L2/L2.h"
 
 #include <random>
 

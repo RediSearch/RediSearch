@@ -12,9 +12,9 @@
 #pragma once
 
 #include "bm_vecsim_general.h"
-#include "VecSim/index_factories/tiered_factory.h"
-#include "VecSim/types/bfloat16.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/index_factories/tiered_factory.h"
+#include "vecsim/types/bfloat16.h"
+#include "vecsim/types/float16.h"
 
 template <typename index_type_t>
 class BM_VecSimIndex : public BM_VecSimGeneral {

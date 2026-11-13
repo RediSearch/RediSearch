@@ -10,8 +10,8 @@
 
 #include "bm_vecsim_general.h"
 #include "bm_training_utils.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
-#include "VecSim/index_factories/tiered_factory.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/index_factories/tiered_factory.h"
 
 template <typename index_type_t>
 class BM_VecSimSQ8Training : public BM_VecSimGeneral {

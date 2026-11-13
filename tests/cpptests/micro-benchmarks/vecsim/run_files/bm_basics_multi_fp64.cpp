@@ -1,6 +1,6 @@
 #include "bm_vecsim_basics.h"
-#include "VecSim/algorithms/brute_force/brute_force_multi.h"
-#include "VecSim/algorithms/hnsw/hnsw_multi.h"
+#include "vecsim/algorithms/brute_force/brute_force_multi.h"
+#include "vecsim/algorithms/hnsw/hnsw_multi.h"
 
 /**************************************
   Basic tests for multi value index.

@@ -8,7 +8,7 @@ Run `make vecsim-tests` from the repository root, or run the commands below from
 `src/vecsim`. Product flow tests live in RediSearch `tests/pytests`.
 Allows creating indices of vectors and searching for top K similar to some vector in two methods: brute force, and by using the hnsw algorithm (probabilistic).
 
-The API header files are `vec_sim.h` and `query_results.h`, which are located in `src/VecSim`.
+The API header files are `vec_sim.h` and `query_results.h`, which are located in `src/vecsim`.
 
 ## Algorithms
 

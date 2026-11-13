@@ -15,9 +15,9 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "VecSim/index_factories/components/components_factory.h"
-#include "VecSim/spaces/L2_space.h"
-#include "VecSim/types/sq4.h"
+#include "vecsim/index_factories/components/components_factory.h"
+#include "vecsim/spaces/L2_space.h"
+#include "vecsim/types/sq4.h"
 
 namespace {
 

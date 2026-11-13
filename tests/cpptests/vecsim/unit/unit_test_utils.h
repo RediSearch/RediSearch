@@ -15,9 +15,9 @@
 #include <exception>
 #include <thread>
 
-#include "VecSim/vec_sim.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
-#include "VecSim/types/sq8.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/types/sq8.h"
 #include "mock_thread_pool.h"
 #include "gtest/gtest.h"
 

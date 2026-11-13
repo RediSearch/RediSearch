@@ -8,14 +8,14 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "unit_test_utils.h"
 #include "tests_utils.h"
-#include "VecSim/algorithms/brute_force/brute_force_multi.h"
-#include "VecSim/algorithms/brute_force/brute_force_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_multi.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/spaces/normalize/normalize_naive.h"
+#include "vecsim/algorithms/brute_force/brute_force_multi.h"
+#include "vecsim/algorithms/brute_force/brute_force_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_multi.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/spaces/normalize/normalize_naive.h"
 #include <cmath>
 
 class IndexTestUtilsTest : public testing::TestWithParam<std::tuple<bool, VecSimMetric>> {

@@ -1,7 +1,7 @@
 #include "bm_vecsim_basics.h"
-#include "VecSim/algorithms/brute_force/brute_force_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/types/bfloat16.h"
+#include "vecsim/algorithms/brute_force/brute_force_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/types/bfloat16.h"
 
 /**************************************
   Basic tests for single value index with bf16 data type.

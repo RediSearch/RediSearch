@@ -11,10 +11,10 @@
 #include "bm_vecsim_general.h"
 #include "bm_training_utils.h"
 #include "bm_macros.h"
-#include "VecSim/algorithms/svs/svs_tiered.h"
-#include "VecSim/index_factories/tiered_factory.h"
+#include "vecsim/algorithms/svs/svs_tiered.h"
+#include "vecsim/index_factories/tiered_factory.h"
 #include "gtest/gtest.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/types/float16.h"
 #include "bm_utils.h"
 
 template <typename index_type_t>

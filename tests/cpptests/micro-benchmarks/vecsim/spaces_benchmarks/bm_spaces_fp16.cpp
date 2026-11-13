@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "VecSim/types/float16.h"
+#include "vecsim/types/float16.h"
 #include "bm_spaces.h"
 
 class BM_VecSimSpaces_FP16 : public BM_VecSimSpaces<vecsim_types::float16> {

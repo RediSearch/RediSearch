@@ -8,9 +8,9 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "unit_test_utils.h"
-#include "VecSim/algorithms/brute_force/brute_force_multi.h"
+#include "vecsim/algorithms/brute_force/brute_force_multi.h"
 #include <cmath>
 
 template <typename index_type_t>

@@ -8,15 +8,15 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_debug.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/index_factories/components/components_factory.h"
-#include "VecSim/index_factories/factory_utils.h"
-#include "VecSim/index_factories/hnsw_factory.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_debug.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/index_factories/components/components_factory.h"
+#include "vecsim/index_factories/factory_utils.h"
+#include "vecsim/index_factories/hnsw_factory.h"
 #include "unit_test_utils.h"
-#include "VecSim/utils/serializer.h"
-#include "VecSim/query_result_definitions.h"
+#include "vecsim/utils/serializer.h"
+#include "vecsim/query_result_definitions.h"
 #include <unistd.h>
 #include <random>
 #include <thread>

@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "VecSim/vec_sim_common.h"
-#include "VecSim/types/bfloat16.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/vec_sim_common.h"
+#include "vecsim/types/bfloat16.h"
+#include "vecsim/types/float16.h"
 template <VecSimType type, typename DataType, typename DistType = DataType>
 struct IndexType {
 

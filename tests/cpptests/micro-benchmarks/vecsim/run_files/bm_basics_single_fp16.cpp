@@ -3,9 +3,9 @@
  * <open-source-office@arm.com>
  */
 #include "bm_vecsim_basics.h"
-#include "VecSim/algorithms/brute_force/brute_force_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/algorithms/brute_force/brute_force_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/types/float16.h"
 
 /**************************************
   Basic tests for single value index with bf16 data type.

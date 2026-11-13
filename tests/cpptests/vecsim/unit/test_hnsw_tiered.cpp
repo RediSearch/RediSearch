@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "VecSim/index_factories/tiered_factory.h"
-#include "VecSim/index_factories/hnsw_factory.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_multi.h"
-#include "VecSim/types/float16.h"
-#include "VecSim/vec_sim_debug.h"
+#include "vecsim/index_factories/tiered_factory.h"
+#include "vecsim/index_factories/hnsw_factory.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_multi.h"
+#include "vecsim/types/float16.h"
+#include "vecsim/vec_sim_debug.h"
 #include <string>
 #include <array>
 #include <cmath>

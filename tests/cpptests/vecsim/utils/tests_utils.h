@@ -11,11 +11,11 @@
 #include <cstring>
 #include <random>
 #include <vector>
-#include "VecSim/spaces/normalize/compute_norm.h"
-#include "VecSim/spaces/spaces.h"
-#include "VecSim/types/float16.h"
-#include "VecSim/types/sq8.h"
-#include "VecSim/utils/alignment.h"
+#include "vecsim/spaces/normalize/compute_norm.h"
+#include "vecsim/spaces/spaces.h"
+#include "vecsim/types/float16.h"
+#include "vecsim/types/sq8.h"
+#include "vecsim/utils/alignment.h"
 
 using sq8 = vecsim_types::sq8;
 

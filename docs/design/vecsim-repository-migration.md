@@ -109,7 +109,9 @@ build and disk-vector tests, with any path adaptations made in the RSE change.
 
 Before retiring feature development in the old repository, owners must inventory
 open PRs, supported branch pins, consumers, release automation, and security work.
-Retain maintenance CI while supported branches depend on it. Archive the old
+Confirm with VecSim maintainers that issue tracking, PR review ownership, and
+release cadence work in Search before merging. Retain maintenance CI while
+supported branches depend on it. Archive the old
 repository only after those branches reach end of support; do not delete it.
 
 ## Release checks
@@ -131,7 +133,9 @@ inferred from a successful local build.
 
 ## Repository layout and benchmarks
 
-- `src/vecsim/`: library, component CMake, and developer Python bindings.
+- `src/vecsim/`: library sources and headers directly, with component CMake.
+  Includes use `vecsim/...` from Search's `src` directory.
+- `src/vecsim/python_bindings/`: developer Python bindings.
 - `tests/cpptests/vecsim/`: component units and shared test utilities.
 - `tests/cpptests/micro-benchmarks/vecsim/`: C++ microbenchmarks.
 - `tests/benchmarks/vecsim/`: dataset manifests, generators, recall tools, and runner.

@@ -8,11 +8,11 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "unit_test_utils.h"
 #include "tests_utils.h"
-#include "VecSim/index_factories/tiered_factory.h"
-#include "VecSim/spaces/IP/IP.h"
+#include "vecsim/index_factories/tiered_factory.h"
+#include "vecsim/spaces/IP/IP.h"
 #include <array>
 #include <cmath>
 #include <random>
@@ -23,9 +23,9 @@ using float16 = vecsim_types::float16;
 #if HAVE_SVS
 #include <sstream>
 #include "spdlog/sinks/ostream_sink.h"
-#include "VecSim/algorithms/svs/svs.h"
-#include "VecSim/spaces/L2/L2.h"
-#include "VecSim/algorithms/svs/svs_tiered.h"
+#include "vecsim/algorithms/svs/svs.h"
+#include "vecsim/spaces/L2/L2.h"
+#include "vecsim/algorithms/svs/svs_tiered.h"
 
 // There are possible cases when SVS Index cannot be created with the requested quantization mode
 // due to platform and/or hardware limitations or combination of requested 'compression' modes.

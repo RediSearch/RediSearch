@@ -21,7 +21,7 @@
 #include <strings.h>
 #include <time.h>
 
-#include "VecSim/query_results.h"
+#include "vecsim/query_results.h"
 #include "iterators_ffi.h"
 #include "query_param.h"
 #include "rdb.h"

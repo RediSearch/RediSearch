@@ -8,14 +8,14 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/memory/vecsim_malloc.h"
-#include "VecSim/memory/vecsim_base.h"
-#include "VecSim/algorithms/brute_force/brute_force_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/memory/vecsim_malloc.h"
+#include "vecsim/memory/vecsim_base.h"
+#include "vecsim/algorithms/brute_force/brute_force_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
 #include "unit_test_utils.h"
-#include "VecSim/utils/serializer.h"
-#include "VecSim/index_factories/hnsw_factory.h"
+#include "vecsim/utils/serializer.h"
+#include "vecsim/index_factories/hnsw_factory.h"
 
 const size_t vecsimAllocationOverhead = VecSimAllocator::getAllocationOverheadSize();
 

@@ -8,9 +8,9 @@
  */
 #pragma once
 
-#include "VecSim/index_factories/tiered_factory.h"
+#include "vecsim/index_factories/tiered_factory.h"
 #include "utils/mock_thread_pool.h"
-#include "VecSim/algorithms/svs/svs_utils.h"
+#include "vecsim/algorithms/svs/svs_utils.h"
 
 namespace test_utils {
 static TieredIndexParams

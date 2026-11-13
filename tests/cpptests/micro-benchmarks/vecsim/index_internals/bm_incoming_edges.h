@@ -11,11 +11,11 @@
 
 #include <benchmark/benchmark.h>
 
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_common.h"
-#include "VecSim/algorithms/hnsw/hnsw.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
-#include "VecSim/index_factories/tiered_factory.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_common.h"
+#include "vecsim/algorithms/hnsw/hnsw.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/index_factories/tiered_factory.h"
 #include "utils/mock_thread_pool.h"
 
 #include <random>

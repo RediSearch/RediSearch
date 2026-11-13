@@ -17,10 +17,10 @@
 
 #include <chrono>
 
-#include "VecSim/algorithms/svs/svs.h"
-#include "VecSim/algorithms/svs/svs_utils.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_interface.h"
+#include "vecsim/algorithms/svs/svs.h"
+#include "vecsim/algorithms/svs/svs_utils.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_interface.h"
 
 // std::latch::wait() blocks indefinitely. Use this to fail with a diagnostic
 // message instead of hanging if a bug causes a deadlock.

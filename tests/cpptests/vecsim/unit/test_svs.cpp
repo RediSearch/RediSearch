@@ -8,8 +8,8 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_index.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_index.h"
 #include "unit_test_utils.h"
 #include <array>
 #include <cmath>
@@ -19,8 +19,8 @@
 #if HAVE_SVS
 #include <sstream>
 #include "spdlog/sinks/ostream_sink.h"
-#include "VecSim/algorithms/svs/svs.h"
-#include "VecSim/index_factories/svs_factory.h"
+#include "vecsim/algorithms/svs/svs.h"
+#include "vecsim/index_factories/svs_factory.h"
 
 // There are possible cases when SVS Index cannot be created with the requested quantization mode
 // due to platform and/or hardware limitations or combination of requested 'compression' modes.

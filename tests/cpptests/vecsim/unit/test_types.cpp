@@ -11,7 +11,7 @@
 #include <array>
 #include <random>
 #include "gtest/gtest.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/types/float16.h"
 
 class FP16TypeCompare : public ::testing::Test {};
 

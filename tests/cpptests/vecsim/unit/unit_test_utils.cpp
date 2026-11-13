@@ -9,12 +9,12 @@
 
 #include "unit_test_utils.h"
 #include "gtest/gtest.h"
-#include "VecSim/utils/vec_utils.h"
-#include "VecSim/memory/vecsim_malloc.h"
-#include "VecSim/utils/vecsim_stl.h"
-#include "VecSim/types/bfloat16.h"
-#include "VecSim/types/float16.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/utils/vec_utils.h"
+#include "vecsim/memory/vecsim_malloc.h"
+#include "vecsim/utils/vecsim_stl.h"
+#include "vecsim/types/bfloat16.h"
+#include "vecsim/types/float16.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
 
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
@@ -179,7 +179,7 @@ void compareSVSInfo(svsInfoStruct info1, svsInfoStruct info2) {
 }
 
 #if HAVE_SVS
-#include "VecSim/algorithms/svs/svs_utils.h"
+#include "vecsim/algorithms/svs/svs_utils.h"
 
 void validateSVSIndexAttributesInfo(svsInfoStruct info, SVSParams params) {
     ASSERT_EQ(info.constructionWindowSize,

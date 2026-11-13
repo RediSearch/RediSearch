@@ -14,7 +14,7 @@
 #include <stddef.h>
 
 #include "rejson_api.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {

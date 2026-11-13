@@ -98,8 +98,6 @@ if(USE_SVS)
         set(SVS_LVQ_HEADER "svs/extensions/vamana/lvq.h")
         set(SVS_LEANVEC_HEADER "svs/extensions/vamana/leanvec.h")
     else()
-        # This file is included from both CMakeLists.txt and python_bindings/CMakeLists.txt
-        # Set `root` relative to this file, regardless of where it is included from.
         get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
         set(SVS_EXPERIMENTAL_CHECK_BOUNDS OFF CACHE BOOL "Disable SVS bounds checking" FORCE)
         add_subdirectory(

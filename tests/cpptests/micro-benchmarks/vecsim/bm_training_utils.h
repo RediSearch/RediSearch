@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "utils/mock_thread_pool.h"
 
 namespace benchmark_utils {

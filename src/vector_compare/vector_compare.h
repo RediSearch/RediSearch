@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 #include <stdbool.h>
 #include <stddef.h>

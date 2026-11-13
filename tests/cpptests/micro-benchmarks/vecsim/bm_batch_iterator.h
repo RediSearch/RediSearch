@@ -12,8 +12,8 @@
 #include <benchmark/benchmark.h>
 #include <random>
 #include <unistd.h>
-#include "VecSim/vec_sim.h"
-#include "VecSim/query_results.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/query_results.h"
 #include "bm_vecsim_index.h"
 
 template <typename index_type_t>

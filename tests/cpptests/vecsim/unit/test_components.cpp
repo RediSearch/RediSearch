@@ -14,14 +14,14 @@
 #include <memory>
 #include <vector>
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/quantization/sq8_training_state.h"
-#include "VecSim/spaces/computer/preprocessor_container.h"
-#include "VecSim/spaces/computer/preprocessors.h"
-#include "VecSim/spaces/computer/calculator.h"
-#include "VecSim/index_factories/components/components_factory.h"
-#include "VecSim/spaces/IP_space.h"
-#include "VecSim/spaces/L2_space.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/quantization/sq8_training_state.h"
+#include "vecsim/spaces/computer/preprocessor_container.h"
+#include "vecsim/spaces/computer/preprocessors.h"
+#include "vecsim/spaces/computer/calculator.h"
+#include "vecsim/index_factories/components/components_factory.h"
+#include "vecsim/spaces/IP_space.h"
+#include "vecsim/spaces/L2_space.h"
 #include "unit_test_utils.h"
 #include "tests_utils.h"
 

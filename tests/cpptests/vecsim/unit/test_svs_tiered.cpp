@@ -1,5 +1,5 @@
-#include "VecSim/index_factories/tiered_factory.h"
-#include "VecSim/vec_sim_debug.h"
+#include "vecsim/index_factories/tiered_factory.h"
+#include "vecsim/vec_sim_debug.h"
 #include <atomic>
 #include <string>
 #include <array>
@@ -24,8 +24,8 @@
 // For getAvailableCPUs():
 #include <sched.h>
 
-#include "VecSim/algorithms/svs/svs.h"
-#include "VecSim/algorithms/svs/svs_tiered.h"
+#include "vecsim/algorithms/svs/svs.h"
+#include "vecsim/algorithms/svs/svs_tiered.h"
 
 // There are possible cases when SVS Index cannot be created with the requested quantization mode
 // due to platform and/or hardware limitations or combination of requested 'compression' modes.

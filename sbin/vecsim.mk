@@ -86,7 +86,7 @@ BINROOT=$(SEARCH_ROOT)/bin/vecsim/$(FULL_VARIANT)
 BINDIR=$(BINROOT)
 TESTDIR=$(BINDIR)/unit_tests
 BENCHMARKDIR=$(BINDIR)/benchmark
-SRCDIR=$(ROOT)/src
+SRCDIR=$(ROOT)
 
 ifeq ($(SLOW),1)
 MAKE_J=
@@ -207,7 +207,7 @@ define COVERAGE_COLLECT
 $(SHOW)set -e ;\
 echo "Collecting coverage data ..." ;\
 lcov --rc branch_coverage=1 --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(COV_INFO);\
-lcov --rc branch_coverage=1 -o $(COV_INFO).1 --extract $(COV_INFO) '$(ROOT)/src/VecSim/*';\
+lcov --rc branch_coverage=1 -o $(COV_INFO).1 --extract $(COV_INFO) '$(ROOT)/*';\
 mv $(COV_INFO).1 $(COV_INFO)
 endef
 

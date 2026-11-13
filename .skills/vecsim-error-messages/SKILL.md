@@ -18,7 +18,7 @@ there.
 
 ## `VecSimIndex_ResolveParams`
 
-Lives in `src/vecsim/src/VecSim/vec_sim.cpp`. Each `_ResolveParams_<Name>` static helper (EFRuntime, Epsilon,
+Lives in `src/vecsim/vec_sim.cpp`. Each `_ResolveParams_<Name>` static helper (EFRuntime, Epsilon,
 SearchWS, SearchBC, UseSearchHistory, BatchSize, Rerank, HybridPolicy) takes a trailing
 `const char **err_msg` and returns via the `SetResolveErr(err_msg, code, fmt, ...)` helper instead
 of a bare `return VecSimParamResolverErr_X;`. `SetResolveErr` printf-formats into a thread-local

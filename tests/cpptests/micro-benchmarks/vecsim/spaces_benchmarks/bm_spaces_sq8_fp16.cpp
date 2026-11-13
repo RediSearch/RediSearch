@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "bm_spaces.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/types/float16.h"
 #include "utils/tests_utils.h"
 
 using sq8 = vecsim_types::sq8;

@@ -8,10 +8,10 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "unit_test_utils.h"
-#include "VecSim/algorithms/brute_force/brute_force.h"
-#include "VecSim/algorithms/brute_force/brute_force_single.h"
+#include "vecsim/algorithms/brute_force/brute_force.h"
+#include "vecsim/algorithms/brute_force/brute_force_single.h"
 #include "cpu_features_macros.h"
 #include <cmath>
 

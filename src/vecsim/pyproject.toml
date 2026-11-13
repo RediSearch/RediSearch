@@ -4,12 +4,14 @@ version = "0.0.1"
 description = "Python library around collection of vector similarity algorithms"
 
 packages = [
-    { include = 'src'}
+    { include = 'python_bindings'}
 ]
 
 authors = ["RedisLabs CTO Team <oss@redislabs.com>"]
 license = "LicenseRef-RSALv2 OR SSPL-1.0 OR AGPL-3.0-only"
-include = ["LICENSE.txt", "license/*.txt"]
+include = ["LICENSE.txt", "license/*.txt", "CMakeLists.txt", "*.h", "*.cpp",
+           "algorithms/**", "containers/**", "index_factories/**", "memory/**", "quantization/**",
+           "spaces/**", "types/**", "utils/**", "cmake/**"]
 
 classifiers = [
     'Topic :: Database',

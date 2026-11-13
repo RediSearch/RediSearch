@@ -8,12 +8,12 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/algorithms/hnsw/hnsw_multi.h"
-#include "VecSim/index_factories/hnsw_factory.h"
-#include "VecSim/types/float16.h"
-#include "VecSim/types/sq8.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_multi.h"
+#include "vecsim/index_factories/hnsw_factory.h"
+#include "vecsim/types/float16.h"
+#include "vecsim/types/sq8.h"
+#include "vecsim/vec_sim.h"
 #include "mock_thread_pool.h"
 #include "unit_test_utils.h"
 

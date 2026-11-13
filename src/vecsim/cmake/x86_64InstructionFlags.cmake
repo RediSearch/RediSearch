@@ -85,7 +85,7 @@ endif()
 #     VEX-encoded, so vcvtph2ps requires AVX state to execute -- emitting it without AVX is
 #     invalid. Defining OPT_F16C therefore implies AVX is present, and the F16C kernels must be
 #     compiled with -mf16c added *on top of* -mavx (see functions/*_F16C.cpp in
-#     src/VecSim/spaces/CMakeLists.txt). The base AVX2.cpp / SSE4.cpp objects stay F16C-free so
+#     src/vecsim/spaces/CMakeLists.txt). The base AVX2.cpp / SSE4.cpp objects stay F16C-free so
 #     they still run on CPUs without F16C.
 #
 #  3. The AVX-512 tier deliberately does NOT use this gate: _mm512_cvtph_ps is part of AVX512F

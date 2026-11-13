@@ -16,8 +16,8 @@
 #include <condition_variable>
 #include <bitset>
 
-#include "VecSim/vec_sim.h"
-#include "VecSim/algorithms/hnsw/hnsw_tiered.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_tiered.h"
 
 // MAX_POOL_SIZE and pool_execution_mask_t to be adjusted to each other.
 static const size_t MAX_POOL_SIZE = 16;

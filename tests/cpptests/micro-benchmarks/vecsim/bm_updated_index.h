@@ -12,10 +12,10 @@
 #include <benchmark/benchmark.h>
 #include <random>
 #include <unistd.h>
-#include "VecSim/vec_sim.h"
-#include "VecSim/query_results.h"
-#include "VecSim/utils/serializer.h"
-#include "VecSim/index_factories/hnsw_factory.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/query_results.h"
+#include "vecsim/utils/serializer.h"
+#include "vecsim/index_factories/hnsw_factory.h"
 #include "bm_common.h"
 
 /**************************************

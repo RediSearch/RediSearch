@@ -12,7 +12,7 @@
 #include "redisearch.h"
 #include "field_spec.h"
 #include "index_flags.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {

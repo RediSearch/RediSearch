@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "gtest/gtest.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/index_factories/hnsw_factory.h"
-#include "VecSim/index_factories/tiered_factory.h"
-#include "VecSim/types/sq4.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/index_factories/hnsw_factory.h"
+#include "vecsim/index_factories/tiered_factory.h"
+#include "vecsim/types/sq4.h"
+#include "vecsim/vec_sim.h"
 #include "unit_test_utils.h"
 #include <algorithm>
 #include <cmath>

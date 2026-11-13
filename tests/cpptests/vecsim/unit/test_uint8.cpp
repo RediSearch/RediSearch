@@ -8,15 +8,15 @@
  */
 
 #include "gtest/gtest.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/algorithms/hnsw/hnsw_single.h"
-#include "VecSim/index_factories/hnsw_factory.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/index_factories/hnsw_factory.h"
 #include "tests_utils.h"
 #include "unit_test_utils.h"
 #include "mock_thread_pool.h"
-#include "VecSim/vec_sim_debug.h"
-#include "VecSim/spaces/L2/L2.h"
-#include "VecSim/spaces/IP/IP.h"
+#include "vecsim/vec_sim_debug.h"
+#include "vecsim/spaces/L2/L2.h"
+#include "vecsim/spaces/IP/IP.h"
 
 class UINT8Test : public ::testing::Test {
 protected:

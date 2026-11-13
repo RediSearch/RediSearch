@@ -9,10 +9,10 @@
 
 #include "vector_compare.h"
 
-#include "VecSim/vec_sim_index.h"
-#include "VecSim/vec_sim_tiered_index.h"
-#include "VecSim/types/bfloat16.h"
-#include "VecSim/types/float16.h"
+#include "vecsim/vec_sim_index.h"
+#include "vecsim/vec_sim_tiered_index.h"
+#include "vecsim/types/bfloat16.h"
+#include "vecsim/types/float16.h"
 
 #include <vector>
 
