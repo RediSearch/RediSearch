@@ -181,7 +181,7 @@ benchmark:
 	@names=$$(bash $(SEARCH_ROOT)/tests/benchmarks/vecsim/benchmarks.sh "$(BM_FILTER)") && \
 		cmake --build $(BINDIR) $(MAKE_J) --target $$(printf "%s\n" "$$names" | sed "s/^/bm_/")
 	$(SEARCH_ROOT)/tests/benchmarks/vecsim/benchmarks.sh $(BM_FILTER) | xargs -I {} bash -lc \
-		"cd $(SEARCH_ROOT) && $(BENCHMARKDIR)/bm_{} --benchmark_out_format=json --benchmark_out=$(BENCHMARKDIR)/{}_results.json $(BENCHMARK_ARGS) || exit 255"
+		"cd $(SEARCH_ROOT) && ROOT=$(SEARCH_ROOT) $(BENCHMARKDIR)/bm_{} --benchmark_out_format=json --benchmark_out=$(BENCHMARKDIR)/{}_results.json $(BENCHMARK_ARGS) || exit 255"
 
 check-format:
 	$(SHOW)$(SEARCH_ROOT)/sbin/format-vecsim

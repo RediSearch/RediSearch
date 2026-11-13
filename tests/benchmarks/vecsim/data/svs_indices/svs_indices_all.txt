@@ -1,10 +1,10 @@
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-8.tar.gz
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-none.tar.gz
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-1M-vectors.raw
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-8.tar.gz
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-none.tar.gz
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-1M-vectors.raw
 
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-none.tar.gz
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-8.tar.gz
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/fashion_images_multi_value-cosine-dim512-test_vectors.raw
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-none.tar.gz
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-8.tar.gz
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/fashion_images_multi_value-cosine-dim512-test_vectors.raw
 
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-test_vectors.raw
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-test_vectors.raw

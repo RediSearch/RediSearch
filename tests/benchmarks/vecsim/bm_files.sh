@@ -4,7 +4,7 @@ set -euo pipefail
 # Download each URL once and suppress noisy progress logs.
 download_indices() {
     cat "$@" | sed '/^[[:space:]]*$/d' | sort -u | \
-        xargs -r -n 1 -P 0 wget --no-check-certificate --no-verbose \
+        xargs -r -n 1 -P 0 wget --no-verbose \
             --timeout=60 --tries=3 --waitretry=5 -P tests/benchmarks/vecsim/data
 }
 

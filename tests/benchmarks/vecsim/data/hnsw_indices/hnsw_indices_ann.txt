@@ -1,6 +1,6 @@
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/glove-cosine-dim25-M16-efc100.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/glove-cosine-dim50-M24-efc150.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/glove-cosine-dim100-M36-efc250.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/glove-cosine-dim200-M48-efc350.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/sift-euclidean-dim128-M32-efc200.hnsw_v3
-https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/mnist-euclidean-dim784-M32-efc150.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/glove-cosine-dim25-M16-efc100.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/glove-cosine-dim50-M24-efc150.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/glove-cosine-dim100-M36-efc250.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/glove-cosine-dim200-M48-efc350.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/sift-euclidean-dim128-M32-efc200.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/mnist-euclidean-dim784-M32-efc150.hnsw_v3
