@@ -371,3 +371,20 @@ def testSchemaFingerprintCoversSparseAttributes(env):
         fingerprints.add(schema_fingerprint(env))
         env.expect('FT.DROPINDEX', 'idx').ok()
     env.assertEqual(len(fingerprints), 3)
+
+
+def testHybridRejectsSparseQueries(env):
+    """Sparse vector queries are not supported in FT.HYBRID yet, in either clause."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
+               'emb', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0)]),
+                         'emb', struct.pack('<2f', 1.0, 1.0))
+    params = ['PARAMS', 4, 'q', sparse_blob([(1, 1.0)]), 'v', struct.pack('<2f', 1.0, 1.0)]
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '@sp:[SPARSE $q]', 'VSIM', '@emb', '$v', *params) \
+        .error().contains('SPARSE vector queries are not supported in FT.HYBRID SEARCH')
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@emb', '$v', 'FILTER', '@sp:[SPARSE $q]',
+               *params).error().contains('SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER')
+    # The same index still serves FT.HYBRID without a sparse clause.
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@emb', '$v', *params)
+    env.assertEqual(to_dict(res)['total_results'], 1)

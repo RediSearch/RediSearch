@@ -256,11 +256,12 @@ Intersection                                   ← only when the query has other
 ### Score
 
 - The `Metric` result is exposed like a vector distance. `=>{$YIELD_SCORE_AS: <name>}` yields it as a field for `RETURN` and `SORTBY`.
-- **The sparse score is the default document score.** When a query contains a sparse node and no `SCORER` is given, the document score is the sum of the sparse `Metric` values in the result. The default score ordering with `LIMIT` then gives the top K with no extra arguments, in `FT.SEARCH` and in the `SEARCH` clause of `FT.HYBRID`. The scorer needs no configuration: the metric is fixed at field creation and already applied in the computed score.
-- **In a query that mixes a sparse node with other clauses** (e.g. `@title:shoes @splade:[SPARSE $q]`), the default score is the sparse score alone, and the other clauses act as filters. Text and sparse scores are on different scales, so summing them is not meaningful; combining them is what `FT.HYBRID` fusion is for.
+- **The sparse score is the default document score.** When a query contains a sparse node and no `SCORER` is given, the document score is the sum of the sparse `Metric` values in the result. The default score ordering with `LIMIT` then gives the top K with no extra arguments, in `FT.SEARCH` and `FT.AGGREGATE`. The scorer needs no configuration: the metric is fixed at field creation and already applied in the computed score.
+- **In a query that mixes a sparse node with other clauses** (e.g. `@title:shoes @splade:[SPARSE $q]`), the default score is the sparse score alone, and the other clauses act as filters. Text and sparse scores are on different scales, so summing them is not meaningful; fusing them is for `FT.HYBRID`, once it supports sparse queries (see [FT.HYBRID](#fthybrid)).
 - **An explicit `SCORER` overrides the default**, e.g. `SCORER BM25STD` to rank by the text clauses instead. The sparse score stays available through `$YIELD_SCORE_AS`.
 - The score is a similarity, higher is better: the dot product under `IP`, and the cosine under `COSINE` (pre-normalized weights).
-- **The node `$weight` attribute is accepted and ignored**, as on dense `VECTOR` nodes: `=>{$weight: w}` does not scale the sparse score. Weighting a sparse score against other scores is done with `FT.HYBRID` `COMBINE LINEAR`.
+- **Known limitation: a dense `VECTOR_RANGE` clause in the same query.** Its yielded distance is a `Metric` result too, so the default `SPARSE` score adds it to the sparse score. Until sparse scores get a distinct result kind, rank such a query explicitly: `$YIELD_SCORE_AS: s` and `SORTBY s DESC`.
+- **The node `$weight` attribute is accepted and ignored**, as on dense `VECTOR` nodes: `=>{$weight: w}` does not scale the sparse score. Weighting a sparse score against other scores is left to `FT.HYBRID` fusion once it supports sparse queries.
 
 ### Architecture
 
@@ -333,14 +334,26 @@ FT.SEARCH idx "@splade:[SPARSE $q]=>{$YIELD_SCORE_AS: score}" SORTBY score DESC 
 
 # Filtered: exact top-10 among footwear documents
 FT.SEARCH idx "@category:{footwear} @splade:[SPARSE $q]" LIMIT 0 10 PARAMS 2 q <blob> DIALECT 2
-
-# Dense + sparse, fused with RRF
-FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" VSIM @embedding $v KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 4 q <sparse_blob> v <dense_blob>
 ```
 
 `total_results` is the number of documents sharing at least one dimension with the query, as for a full-text OR query, not `K`.
 
 Range queries (a minimum score) are not part of the first version.
+
+### FT.HYBRID
+
+Sparse vector queries are **not supported in `FT.HYBRID` in the first version**. A `@field:[SPARSE $q]` node in the `SEARCH` clause or in the `VSIM` `FILTER` is rejected with an error that names it: "SPARSE vector queries are not supported in FT.HYBRID SEARCH" (or "… VSIM FILTER"). `VSIM` itself only takes dense `VECTOR` fields.
+
+Reasons for deferring it:
+- **Scoring needs a distinct result kind first.** The `SPARSE` scorer identifies sparse scores by their `Metric` result kind, which a dense `VECTOR_RANGE` clause with a yielded distance also produces, so such a clause next to a sparse one would add its distance to the sparse score. `FT.HYBRID` does not reliably keep vector clauses out of `SEARCH` (the check is skipped on an index with no `TEXT` or `TAG` field), so fusing on that score could rank on a wrong value.
+- **No cluster coverage yet.** Distributed `FT.HYBRID` has its own execution path (`coord/hybrid/`), not yet tested with sparse queries.
+
+Planned once those are addressed:
+
+```
+# Dense + sparse, fused with RRF (not yet supported)
+FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" VSIM @embedding $v KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 4 q <sparse_blob> v <dense_blob>
+```
 
 ## Alternatives Considered
 
@@ -371,10 +384,10 @@ Each step is roughly one reviewable PR.
 | 3 | Indexing: HASH blob and JSON parsing, add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Done | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
 | 4 | Query: `@field:[SPARSE $q]` parser node, iterator tree (dimension `InvIndIterator`s, `Union`, `SparseVectorIterator`), sparse `Metric` kind, sparse score as the default document score, `$YIELD_SCORE_AS` | `query_parser/v2/`, `query.c`, `sparse_vector_index/`, `query_eval/`, `ext/default.c` | Done | Top `LIMIT` equals a brute-force reference; filtered, combined-with-text and unfiltered flow tests |
 | 5 | GC scanner | `index_gc/src/scanners/` | Done (fork and thread policies; emptied dimensions are removed) | GC flow tests; memory returns after delete |
-| 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Partial: `FT.HYBRID` and `FT.PROFILE` work standalone; cluster merge not yet tested | Cluster flow tests; dense + sparse RRF/LINEAR tests |
+| 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Partial: `FT.PROFILE` done; `FT.HYBRID` rejects sparse queries for now (see [FT.HYBRID](#fthybrid)); cluster merge not yet tested | Cluster flow tests; dense + sparse RRF/LINEAR tests |
 | 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
 
-Later work: weight quantization, range queries, approximate algorithms, and [disk (Redis Flex) support](#future-work-disk-redis-flex-integration).
+Later work: `FT.HYBRID` support (a distinct result kind for sparse scores, then cluster coverage; see [FT.HYBRID](#fthybrid)), weight quantization, range queries, approximate algorithms, and [disk (Redis Flex) support](#future-work-disk-redis-flex-integration).
 
 ## Future Work: Disk (Redis Flex) Integration
 

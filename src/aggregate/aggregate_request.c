@@ -1789,6 +1789,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // Not yet supported in FT.HYBRID, in the SEARCH clause or the VSIM FILTER. Not reported as
+  // VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a generic vector-expression error. Checked
+  // here, after the vector query joined the tree, rather than through the QAST validation flags,
+  // which an index with no TEXT or TAG field skips.
+  if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && ast->root &&
+      hasSparseVectorNode(ast->root)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        IsHybridSearchSubquery(req)
+                            ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH"
+                            : "SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER");
+    return REDISMODULE_ERR;
+  }
+
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
