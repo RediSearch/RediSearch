@@ -170,7 +170,6 @@ as production code.
 - `src/field_spec.c` — field type definitions and schema
 - `src/spec.c` — index spec lifecycle (create, drop, alter)
 - `src/document.c`, `src/document_add.c` — document add/update/delete pipeline
-- `src/rdb.c` — RDB serialization/deserialization for all index types
 - `src/notifications.c` — keyspace notification callbacks (index/update documents on hash/JSON writes)
 
 ### Query Engine
