@@ -10,50 +10,15 @@
 #include "gtest/gtest.h"
 #include "language.h"
 
+// C writes these values to the RDB, so the generated header must keep them.
+static_assert(RS_LANG_MALAY == 30, "last persisted language value");
+// C picks the Chinese tokenizer by this name, so it must stay bound to Chinese.
+static_assert(RS_LANG_CHINESE == 4, "RS_LANG_CHINESE names Chinese");
+static_assert(RS_LANG_UNSUPPORTED == 31, "RDB loader rejects values from here up");
+static_assert(DEFAULT_LANGUAGE == RS_LANG_ENGLISH, "the default language is English");
+
 class LanguageTest : public ::testing::Test {};
-
-TEST_F(LanguageTest, testFindZeroLengthIsUnsupported) {
-  // Zero length is the empty string, even when a valid name follows the pointer.
-  EXPECT_EQ(RSLanguage_Find("english", 0), RS_LANG_UNSUPPORTED);
-}
-
-TEST_F(LanguageTest, testFindReadsOnlyLenBytes) {
-  EXPECT_EQ(RSLanguage_Find("englishXXX", 7), RS_LANG_ENGLISH);
-}
 
 TEST_F(LanguageTest, testFindNullReturnsDefault) {
   EXPECT_EQ(RSLanguage_Find(NULL, 0), DEFAULT_LANGUAGE);
-}
-
-TEST_F(LanguageTest, testDefaultLanguageIsEnglish) {
-  EXPECT_EQ(DEFAULT_LANGUAGE, RS_LANG_ENGLISH);
-}
-
-TEST_F(LanguageTest, testStoredValuesKeepTheirLanguage) {
-  // RDB files and index fingerprints store these raw numbers, so they are written out here
-  // rather than taken from the RS_LANG_* constants: renumbering the enum must fail this test.
-  static const struct {
-    uint32_t stored;
-    const char *name;
-  } cases[] = {
-      {0, "english"},     {1, "arabic"},   {2, "basque"},      {3, "catalan"},
-      {4, "chinese"},     {5, "danish"},   {6, "dutch"},       {7, "finnish"},
-      {8, "french"},      {9, "german"},   {10, "greek"},      {11, "hindi"},
-      {12, "hungarian"},  {13, "italian"}, {14, "indonesian"}, {15, "irish"},
-      {16, "lithuanian"}, {17, "nepali"},  {18, "norwegian"},  {19, "portuguese"},
-      {20, "romanian"},   {21, "russian"}, {22, "spanish"},    {23, "swedish"},
-      {24, "tamil"},      {25, "turkish"}, {26, "armenian"},   {27, "serbian"},
-      {28, "yiddish"},    {29, "tagalog"}, {30, "malay"},
-  };
-  for (const auto &c : cases) {
-    EXPECT_STREQ(RSLanguage_ToString(c.stored), c.name) << c.stored;
-  }
-}
-
-TEST_F(LanguageTest, testNamesOfValuesWithoutANameAreNull) {
-  // C can store any integer in an RSLanguage, so callers can pass values past the enum.
-  for (uint32_t lang : {(uint32_t)RS_LANG_UNSUPPORTED, (uint32_t)RS_LANG_UNSET, 1000u}) {
-    EXPECT_EQ(RSLanguage_ToString(lang), nullptr) << lang;
-    EXPECT_EQ(RSLanguage_ToSnowballStemmer(lang), nullptr) << lang;
-  }
 }

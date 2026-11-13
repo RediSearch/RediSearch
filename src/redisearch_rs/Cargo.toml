@@ -140,6 +140,7 @@ index_spec = { path = "./c_wrappers/index_spec" }
 index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+language = { path = "./language" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }
@@ -158,7 +159,6 @@ reducers = { path = "./reducers" }
 ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
-language = { path = "./language" }
 rm_array = { path = "./c_wrappers/rm_array" }
 rs_token = { path = "./c_wrappers/rs_token" }
 query_types = { path = "./query_types" }

@@ -45,14 +45,6 @@ pub mod context;
 // name these Rust-defined types. Consumers import them from their owning crate
 // directly rather than through this crate.
 use document::DocumentType;
-// Bindgen structs that embed an `RSLanguage` (`SchemaRule::lang_default`,
-// `RSSearchOptions::language`, ...) hold it as this Rust enum. That is sound
-// only because C stores nothing but valid `RSLanguage` values in those fields:
-// the language comes from `RSLanguage_Find`, is a `RS_LANG_*` constant, or is
-// range-checked by `SchemaRule_RdbLoad` in `src/rules.c` before the cast. A C
-// path that stores an unchecked integer there would make reading the field
-// from Rust undefined behavior.
-use language::Language as RSLanguage;
 use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;

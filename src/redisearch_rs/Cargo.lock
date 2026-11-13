@@ -719,7 +719,6 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
- "language",
  "libc",
  "query_term",
  "query_types",
@@ -1348,7 +1347,6 @@ dependencies = [
 name = "language"
 version = "0.0.1"
 dependencies = [
- "cheadergen",
  "strum",
  "workspace_hack",
 ]
@@ -1357,7 +1355,9 @@ dependencies = [
 name = "language_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "language",
+ "strum",
  "workspace_hack",
 ]
 

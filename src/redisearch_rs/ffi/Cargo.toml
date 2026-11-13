@@ -31,7 +31,6 @@ workspace = true
 
 [dependencies]
 document.workspace = true
-language.workspace = true
 libc.workspace = true
 query_types.workspace = true
 query_term.workspace = true
