@@ -14,11 +14,14 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
+// Only the proptest, which miri cannot run, uses these.
+#[cfg(not(miri))]
 use std::collections::BTreeMap;
 use std::ptr::NonNull;
 
 use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::RepairContext;
+#[cfg(not(miri))]
 use proptest::prelude::*;
 use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::{ContractChecker, MockContext};
@@ -240,6 +243,7 @@ fn cosine_scores_are_cosine_similarities() {
     assert!((got[1].1 - 1.0).abs() < 1e-6);
 }
 
+#[cfg(not(miri))]
 fn sparse_vector() -> impl Strategy<Value = Vec<(u32, f32)>> {
     prop::collection::btree_map(0u32..40, -4.0f32..4.0, 0..8)
         .prop_map(|m| m.into_iter().collect::<Vec<_>>())

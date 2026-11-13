@@ -163,8 +163,9 @@ def testYieldScoreAs(env):
     res = env.cmd('FT.AGGREGATE', 'idx', '@sp:[SPARSE $q]=>{$YIELD_SCORE_AS: s}',
                   'LOAD', 1, '@title', 'SORTBY', 2, '@s', 'DESC',
                   'PARAMS', 2, 'q', sparse_blob(q), 'DIALECT', 2)
-    env.assertEqual(res[1:], [['s', '6', 'title', 'a'], ['s', '4', 'title', 'c'],
-                              ['s', '2', 'title', 'b']])
+    # Rows in score order; the field order within a row differs in cluster mode.
+    env.assertEqual([to_dict(row) for row in res[1:]],
+                    [{'s': '6', 'title': 'a'}, {'s': '4', 'title': 'c'}, {'s': '2', 'title': 'b'}])
 
     # A query that matches nothing still knows the score's name, so SORTBY on it
     # returns an empty result instead of an unknown-property error.

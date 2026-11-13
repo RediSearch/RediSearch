@@ -102,7 +102,7 @@ def test_json_type_validation_errors(env):
     error_dict = {errors[i]: errors[i+1] for i in range(0, len(errors), 2)}
     env.assertTrue(error_dict['indexing failures'] > 0)
     error_message = error_dict['last indexing error']
-    env.assertIn('Invalid JSON type: Object type can represent only GEOMETRY field', error_message)
+    env.assertIn('Invalid JSON type: Object type can represent only GEOMETRY or SPARSEVECTOR fields', error_message)
 
     # Check that the error key is recorded
     env.assertIn('last indexing error key', error_dict)

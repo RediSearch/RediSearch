@@ -46,6 +46,8 @@ struct TestSpec {
     field_specs: Vec<ffi::FieldSpec>,
     _keys_dict: OwnedDict<KeysDictType>,
     _missing_dict: OwnedDict<MissingFieldDictType>,
+    /// Indexes `replace_index` swapped out, kept so they are freed with the fixture.
+    replaced: Vec<Box<SparseVectorIndex>>,
 }
 
 impl TestSpec {
@@ -97,6 +99,7 @@ impl TestSpec {
             field_specs,
             _keys_dict: keys_dict,
             _missing_dict: missing_dict,
+            replaced: Vec::new(),
         }
     }
 
@@ -113,16 +116,18 @@ impl TestSpec {
     }
 
     /// Swap field `field`'s index for an empty one, as recreating it would.
-    /// The old one is leaked: the tests only compare IDs afterwards.
+    /// The old one stays owned by the fixture until it is dropped.
     fn replace_index(&mut self, field: usize) {
-        self.field_specs[field]
-            .__bindgen_anon_1
-            .sparseVecOpts
-            .sparseVecIndex = Box::into_raw(Box::new(SparseVectorIndex::new(
-            DIM,
-            SparseMetric::InnerProduct,
-        )))
-        .cast();
+        let fs = &mut self.field_specs[field];
+        // SAFETY: `create` made `field` a sparse field, so `sparseVecOpts` is the
+        // active member.
+        let old = unsafe { fs.__bindgen_anon_1.sparseVecOpts.sparseVecIndex };
+        let new = Box::new(SparseVectorIndex::new(DIM, SparseMetric::InnerProduct));
+        fs.__bindgen_anon_1.sparseVecOpts.sparseVecIndex = Box::into_raw(new).cast();
+        // SAFETY: `create` or an earlier `replace_index` boxed `old`, and the
+        // field no longer points at it.
+        self.replaced
+            .push(unsafe { Box::from_raw(old.cast::<SparseVectorIndex>()) });
     }
 
     fn read_guard(&self) -> ManuallyDrop<IndexSpecReadGuard<'_>> {
