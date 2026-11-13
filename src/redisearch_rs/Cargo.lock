@@ -719,6 +719,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "language",
  "libc",
  "query_term",
  "query_types",
@@ -1341,6 +1342,23 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "language"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "language_ffi"
+version = "0.0.1"
+dependencies = [
+ "language",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2251,6 +2269,7 @@ dependencies = [
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
@@ -2634,6 +2653,7 @@ dependencies = [
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "memchr",
  "metrics_ffi",
  "module_init_ffi",

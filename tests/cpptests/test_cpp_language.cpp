@@ -24,3 +24,15 @@ TEST_F(LanguageTest, testFindReadsOnlyLenBytes) {
 TEST_F(LanguageTest, testFindNullReturnsDefault) {
   EXPECT_EQ(RSLanguage_Find(NULL, 0), DEFAULT_LANGUAGE);
 }
+
+TEST_F(LanguageTest, testDefaultLanguageIsEnglish) {
+  EXPECT_EQ(DEFAULT_LANGUAGE, RS_LANG_ENGLISH);
+}
+
+TEST_F(LanguageTest, testNamesOfValuesWithoutANameAreNull) {
+  // RSLanguage is a uint32_t in C, so callers can pass values past the enum.
+  for (uint32_t lang : {(uint32_t)RS_LANG_UNSUPPORTED, (uint32_t)RS_LANG_UNSET, 1000u}) {
+    EXPECT_EQ(RSLanguage_ToString(lang), nullptr) << lang;
+    EXPECT_EQ(RSLanguage_ToSnowballStemmer(lang), nullptr) << lang;
+  }
+}

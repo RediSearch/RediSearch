@@ -21,6 +21,7 @@ extern crate idf_ffi as _;
 extern crate index_gc_ffi as _;
 extern crate inverted_index_ffi as _;
 extern crate iterators_ffi as _;
+extern crate language_ffi as _;
 extern crate metrics_ffi as _;
 extern crate module_init_ffi as _;
 extern crate numeric_range_tree_ffi as _;

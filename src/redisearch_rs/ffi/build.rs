@@ -599,6 +599,12 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `src/stemmer.h` includes `language.h`, which carries the `RSLanguage_*`
+    // declarations and includes `language_rs.h` for the `RSLanguage` enum.
+    // The enum is embedded by value in `Stemmer`, `Document` and
+    // `RSSearchOptions`, so its full definition is required.
+    "language.h",
+    "language_rs.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
@@ -663,6 +669,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
     "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
+    "RSLanguage",
     "RedisModuleString",
     "RSQueryTerm",
     "RSTokenFlags",
@@ -672,6 +679,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
 /// Rust crate via `pub use` in `ffi/src/lib.rs`, not from bindgen's output.
 const BLOCKLIST_FILES: &[&str] = &[
     ".*/document_rs.h",
+    ".*/language_rs.h",
     ".*/numeric_range_tree.h",
     ".*/query_types.h",
     ".*/query_term.h",

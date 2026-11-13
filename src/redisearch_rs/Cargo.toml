@@ -15,6 +15,7 @@ members = [
     "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "language",
     "nul_terminated_bytes",
     "over_aligned_alloc",
     "numeric_range_tree",
@@ -157,6 +158,7 @@ reducers = { path = "./reducers" }
 ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
+language = { path = "./language" }
 rm_array = { path = "./c_wrappers/rm_array" }
 rs_token = { path = "./c_wrappers/rs_token" }
 query_types = { path = "./query_types" }

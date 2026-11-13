@@ -91,6 +91,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" \
     --package=index_result \
     --package=query_term \
     --package=inverted_index \
+    --package=language \
     --package=rlookup \
     --package=rqe_core \
     --package=rqe_iterator_type \
