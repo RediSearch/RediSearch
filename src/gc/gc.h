@@ -128,8 +128,8 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
+  GCCallbacks callbacks;
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
-  bool enabled;                // periodic collection wanted. Guarded by the GIL
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
   // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
   long long pendingIntervalMs;
@@ -137,8 +137,8 @@ typedef struct GCContext {
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
-  GCCallbacks callbacks;
-  bool diskGC;  // a disk index's context, whatever GC_POLICY says
+  bool enabled;  // periodic collection wanted. Guarded by the GIL
+  bool diskGC;   // a disk index's context, whatever GC_POLICY says
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
