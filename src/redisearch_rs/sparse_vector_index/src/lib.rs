@@ -50,9 +50,12 @@ pub type PostingList = EntriesTrackingIndex<NumericFloatCompression>;
 
 /// The similarity a sparse vector field ranks by, fixed at field creation.
 ///
-/// Crosses the C boundary as its `u32` discriminant (see [`TryFrom<u32>`]).
-#[repr(C)]
+/// The single source of its discriminants: cheadergen exports it to C as
+/// `SparseMetric_InnerProduct` and `SparseMetric_Cosine`, which the field
+/// stores. It crosses the FFI as a `u32`, converted back with [`TryFrom<u32>`].
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cheadergen::config(export, prefix_with_name)]
 pub enum SparseMetric {
     /// Dot product of the raw weights.
     InnerProduct = 0,
@@ -65,11 +68,10 @@ impl TryFrom<u32> for SparseMetric {
     type Error = u32;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::InnerProduct),
-            1 => Ok(Self::Cosine),
-            other => Err(other),
-        }
+        [Self::InnerProduct, Self::Cosine]
+            .into_iter()
+            .find(|metric| *metric as u32 == value)
+            .ok_or(value)
     }
 }
 

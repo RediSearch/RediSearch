@@ -3048,6 +3048,7 @@ name = "sparse_vector_index"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "cheadergen",
  "ffi",
  "index_result",
  "index_spec",

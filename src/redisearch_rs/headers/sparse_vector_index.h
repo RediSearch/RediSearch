@@ -9,6 +9,32 @@
 #include <stdlib.h>
 
 /**
+ * The similarity a sparse vector field ranks by, fixed at field creation.
+ *
+ * The single source of its discriminants: cheadergen exports it to C as
+ * `SparseMetric_InnerProduct` and `SparseMetric_Cosine`, which the field
+ * stores. It crosses the FFI as a `u32`, converted back with [`TryFrom<u32>`].
+ */
+enum SparseMetric
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  /**
+   * Dot product of the raw weights.
+   */
+  SparseMetric_InnerProduct = 0,
+  /**
+   * Dot product of L2-normalized weights; every vector is normalized before
+   * it is written or queried.
+   */
+  SparseMetric_Cosine = 1,
+};
+#ifndef __cplusplus
+typedef uint32_t SparseMetric;
+#endif // __cplusplus
+
+/**
  * One field's sparse vector index.
  */
 typedef struct SparseVectorIndex SparseVectorIndex;

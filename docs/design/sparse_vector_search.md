@@ -136,7 +136,7 @@ typedef enum {
 ```c
 struct {
   uint64_t dim;     // valid dimension IDs are 0 .. dim-1
-  uint32_t metric;  // SPARSE_METRIC_IP (0) or SPARSE_METRIC_COSINE (1), the SparseMetric discriminants
+  SparseMetric metric;  // SparseMetric_InnerProduct or SparseMetric_Cosine, exported from Rust
   struct SparseVectorIndex *sparseVecIndex;  // created on the first write
 } sparseVecOpts;
 ```

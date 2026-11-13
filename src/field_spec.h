@@ -16,6 +16,7 @@
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
 #include "rejson_api.h"
+#include "sparse_vector_index.h"
 
 struct TagIndex;
 struct NumericRangeTree;
@@ -67,9 +68,6 @@ typedef enum {
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
-// Sparse vector metrics, the discriminants of the Rust `SparseMetric`.
-#define SPARSE_METRIC_IP 0
-#define SPARSE_METRIC_COSINE 1
 
 typedef enum {
   FieldSpec_Sortable = 0x01,
@@ -144,8 +142,8 @@ typedef struct FieldSpec {
     struct {
       // Size of the dimension space; valid dimension IDs are 0 .. dim-1.
       uint64_t dim;
-      // One of the SPARSE_METRIC_* values; fixed at creation.
-      uint32_t metric;
+      // Fixed at creation.
+      SparseMetric metric;
       // The field's posting lists, created on the first write. Opaque Rust object.
       struct SparseVectorIndex *sparseVecIndex;
     } sparseVecOpts;

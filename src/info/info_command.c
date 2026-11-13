@@ -209,7 +209,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       REPLY_KVSTR("data_type", "FLOAT32");
       REPLY_KVINT("dim", fs->sparseVecOpts.dim);
       REPLY_KVSTR("distance_metric",
-                  fs->sparseVecOpts.metric == SPARSE_METRIC_COSINE ? "COSINE" : "IP");
+                  fs->sparseVecOpts.metric == SparseMetric_Cosine ? "COSINE" : "IP");
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {

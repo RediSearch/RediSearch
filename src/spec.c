@@ -1412,7 +1412,7 @@ static int parseSparseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac,
   fs->types |= INDEXFLD_T_SPARSE_VECTOR;
   sp->flags |= Index_HasSparseVec;
   fs->sparseVecOpts.dim = 0;
-  fs->sparseVecOpts.metric = SPARSE_METRIC_IP;
+  fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
   fs->sparseVecOpts.sparseVecIndex = NULL;
 
   if (isSpecJson(sp) && !validateJsonFieldPath(sp, fs, status)) {
@@ -1448,9 +1448,9 @@ static int parseSparseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac,
       hasDim = true;
     } else if (AC_AdvanceIfMatch(&attrs, VECSIM_DISTANCE_METRIC)) {
       if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_IP)) {
-        fs->sparseVecOpts.metric = SPARSE_METRIC_IP;
+        fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
       } else if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_COSINE)) {
-        fs->sparseVecOpts.metric = SPARSE_METRIC_COSINE;
+        fs->sparseVecOpts.metric = SparseMetric_Cosine;
       } else {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                             "Bad arguments for sparse vector DISTANCE_METRIC: expected IP or "
@@ -3074,14 +3074,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     uint64_t dim = LoadUnsigned_IOError(rdb, goto fail);
     uint64_t metric = LoadUnsigned_IOError(rdb, goto fail);
     if (dim == 0 || dim > (1ULL << 32) ||
-        (metric != SPARSE_METRIC_IP && metric != SPARSE_METRIC_COSINE)) {
+        (metric != SparseMetric_InnerProduct && metric != SparseMetric_Cosine)) {
       RedisModule_LogIOError(rdb, "warning",
                              "Invalid sparse vector attributes: dim %llu, metric %llu",
                              (unsigned long long)dim, (unsigned long long)metric);
       goto fail;
     }
     f->sparseVecOpts.dim = dim;
-    f->sparseVecOpts.metric = (uint32_t)metric;
+    f->sparseVecOpts.metric = (SparseMetric)metric;
     f->sparseVecOpts.sparseVecIndex = NULL;
   }
 
