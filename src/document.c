@@ -644,13 +644,11 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                                    const FieldSpec *fs, const FieldIndexerData *fdata,
                                    QueryError *status) {
   const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
-  const uint32_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
-  for (uint32_t i = 0; i < count; ++i) {
-    if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
-                                 aCtx->doc->docId, values[i], fs->index)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
-      return -1;
-    }
+  const size_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
+  if (!SearchDisk_IndexNumerics(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch, values, count,
+                                aCtx->doc->docId, fs->index)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
+    return -1;
   }
   return 0;
 }

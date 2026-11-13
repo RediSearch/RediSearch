@@ -278,24 +278,15 @@ QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
                                              QueryError *status);
 
 /**
- * @brief Stage a numeric value for a document on a write batch.
+ * @brief Stage every numeric value of a document's field on a write batch.
  *
- * Called once per `(doc, value)`. Multi-value numeric fields loop in the
- * OSS bulk indexer. The write is not durable until `batch` is committed via
- * `SearchDisk_CommitWriteBatch`.
- *
- * The CF is created and registered with Redis BigModule via `ctx` on the
- * first call per field, mirroring `SearchDisk_IndexTags`.
- *
- * @param ctx Redis module context for BigModule APIs (used to register new CFs)
- * @param index Pointer to the index
- * @param batch Open write batch the numeric write is staged into
- * @param docId Document ID to index
- * @param value Numeric value to associate with the document
- * @param fieldIndex Field index for the numeric field
- * @return true if successful, false otherwise
+ * The contract, including what a `false` return leaves staged, is
+ * `IndexDiskAPI.indexNumerics`. The writes are not durable until `batch` is
+ * committed via `SearchDisk_CommitWriteBatch`.
  */
-bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexNumerics(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                              SearchDiskWriteBatchHandle *batch, const double *values,
+                              size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.

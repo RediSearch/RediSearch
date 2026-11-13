@@ -544,30 +544,34 @@ typedef struct IndexDiskAPI {
   bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
-   * @brief Stages a numeric value for a document on a write batch.
+   * @brief Stages every numeric value of a document's field on a write batch.
    *
-   * Routes the value to the tightest-upper-bound bucket in the field's in-memory
-   * ordered map and appends a single-entry Merge operand to `batch` at the
-   * corresponding key. The write is not durable until the batch is committed
-   * via `commitWriteBatch`.
+   * Called once per field: with one value for a single-value field, or with
+   * every value a multi-value JSON field yields. The values may come in any
+   * order and may repeat; a document matches a range if any of them falls in
+   * it, and repeated values count once. The writes are not durable until the
+   * batch is committed via `commitWriteBatch`.
    *
    * Creates a new column family the first time `fieldIndex` is indexed and
    * registers it with Redis BigModule via `ctx`, matching the tag-indexing
    * lifecycle — so dynamically-added CFs are visible to checkpoint/SST
    * replication without waiting for a reopen.
    *
-   * Called once per `(doc, value)` — the OSS bulk indexer loops over multi-value
-   * numeric fields.
+   * On `false` (a NaN value, or more values than one entry can hold), nothing
+   * from this call is staged, but earlier fields of the document may be; the
+   * caller is expected to surface the failure so the OSS indexing flow aborts
+   * the batch.
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the writes to (must have been returned by `createWriteBatch(index)`)
+   * @param values The field's numeric values. May be NULL only when `numValues` is 0.
+   * @param numValues Number of values in the array; 0 stages nothing and returns true
    * @param docId Document ID to index
-   * @param value Numeric value to associate with the document
    * @param fieldIndex Field index for the numeric field
-   * @return true if the write was staged successfully, false if the input was rejected
+   * @return true if the writes were staged successfully, false if the input was rejected
    */
-  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+  bool (*indexNumerics)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const double *values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
