@@ -71,6 +71,13 @@ const char *OomPolicy_ToString(RSOomPolicy);
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
+// The values `search-gc-policy` accepts; GCPolicy_Disk is chosen by the disk mode, not by name.
+static const int gc_policy_enums[2] = {GCPolicy_Fork, GCPolicy_Thread};
+static const char *gc_policy_vals[2] = {"fork", "thread"};
+
+// The policy when none is set: FORK on Redis Enterprise, which has not adopted THREAD yet.
+GCPolicy GCPolicy_Default(void);
+
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:

@@ -2658,3 +2658,19 @@ def testGcConfigAliases():
             env.expect('CONFIG', 'GET', alias).equal([alias, '7'])
         finally:
             env.expect('CONFIG', 'SET', name, original).ok()
+
+
+def testGcPolicyConfig():
+    # OSS defaults to THREAD; the Enterprise default (FORK) needs a Redis Enterprise server.
+    env = Env()
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'thread'])
+    env.expect('CONFIG', 'SET', 'search-gc-policy', 'fork').error().contains('CONFIG SET failed')
+
+    env = Env(moduleArgs='GC_POLICY FORK', freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'fork'])
+    env.stop()
+
+    env = Env(redisConfigFile=redis_config_file({'search-gc-policy': 'fork'}), freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'fork'])
+    env.expect(config_cmd(), 'GET', 'GC_POLICY').equal([['GC_POLICY', 'fork']])
+    env.stop()
