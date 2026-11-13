@@ -4,22 +4,21 @@ description: >-
   Use when adding, changing, or reviewing a rejection branch in VecSimIndex_ResolveParams's
   _ResolveParams_* helpers and the caller needs to know *why* a query param was rejected, not
   just that it was. Covers the SetResolveErr mechanism, how to phrase messages consistently,
-  and how RediSearch currently consumes them (as of MOD-11888).
+  and how RediSearch currently consumes them.
 ---
 
 # VecSim descriptive error messages (query-time)
 
 `VecSimIndex_ResolveParams` used to return only a `VecSimResolveCode` with no specifics — callers
 got a generic canned message regardless of which parameter or constraint actually failed.
-MOD-11888 added a way to surface the specific reason for this path.
+The API now surfaces the specific reason for this path.
 
-Index-creation-time errors (`VecSimIndex_New` returning `NULL`) were considered under the same
-ticket but descoped — that path still has no descriptive-error mechanism; don't assume one exists
+Index-creation-time errors (`VecSimIndex_New` returning `NULL`) were considered separately and are outside this mechanism — that path still has no descriptive-error mechanism; don't assume one exists
 there.
 
 ## `VecSimIndex_ResolveParams`
 
-Lives in `src/VecSim/vec_sim.cpp`. Each `_ResolveParams_<Name>` static helper (EFRuntime, Epsilon,
+Lives in `src/vecsim/src/VecSim/vec_sim.cpp`. Each `_ResolveParams_<Name>` static helper (EFRuntime, Epsilon,
 SearchWS, SearchBC, UseSearchHistory, BatchSize, Rerank, HybridPolicy) takes a trailing
 `const char **err_msg` and returns via the `SetResolveErr(err_msg, code, fmt, ...)` helper instead
 of a bare `return VecSimParamResolverErr_X;`. `SetResolveErr` printf-formats into a thread-local
@@ -41,8 +40,9 @@ When adding a new rejection branch here:
 
 ## Downstream: RediSearch
 
-RediSearch (`src/vector_index.c`, `VecSim_ResolveQueryParams`) currently maps `VecSimResolveCode`
-to one of its own fixed `QueryErrorCode`s and always uses that code's canned default message —
-it does not yet forward VecSim's new `err_msg` text into the client-facing error. Wiring that up
-(and updating RediSearch's error-message tests to match) is the next step of MOD-11888 and is
-tracked separately; don't assume it's done just because the VecSim side is.
+RediSearch (`src/vector_index.c`, `VecSim_ResolveQueryParams`) maps the return code
+to its own `QueryErrorCode` and forwards the detail with `QueryError_SetWithUserDataFmt`.
+The detail can contain user-supplied names and values: keep it in the user-data
+argument so obfuscated errors do not disclose it. Do not concatenate it into the
+safe default message. Test both the detailed client error and its obfuscated form
+when changing this boundary.

@@ -117,11 +117,12 @@ jobs:
     if: github.event.number
     runs-on: ubuntu-latest
     env:
-      PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - name: Configure Tracebit canary credentials
         uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
         with:
@@ -135,6 +136,14 @@ jobs:
           # Then install Python dependencies
           sudo apt install python3-pip -y
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
+      - name: Generate benchmark comment token
+        id: comparison-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
       - name: Compare benchmark results
         # The baseline branch is decided by the caller (benchmark-trigger.yml):
         # normally the PR base branch, or master when the 'bench:vs-master'
@@ -145,6 +154,7 @@ jobs:
         # script: a PR author controls their own branch name, so interpolating it
         # into a shell command lets them inject arbitrary code.
         env:
+          PERFORMANCE_GH_TOKEN: ${{ steps.comparison-token.outputs.token }}
           COMPARISON_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
           BASELINE_BRANCH: ${{ inputs.base_branch || github.event.pull_request.base.ref }}
           PULL_REQUEST: ${{ github.event.number }}

@@ -87,6 +87,8 @@ class CMakeBuild(build_ext):
 setup(
     name="VecSim",
     version="0.0.1",
+    license="LicenseRef-RSALv2 OR SSPL-1.0 OR AGPL-3.0-only",
+    license_files=["LICENSE.txt", "license/*.txt"],
     author="Redis, Inc. CTO Team",
     author_email="oss@redis.com",
     description="Python library around collection of vector similarity algorithm",

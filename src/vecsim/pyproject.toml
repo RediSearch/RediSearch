@@ -8,7 +8,8 @@ packages = [
 ]
 
 authors = ["RedisLabs CTO Team <oss@redislabs.com>"]
-license = "BSD-3-Clause"
+license = "LicenseRef-RSALv2 OR SSPL-1.0 OR AGPL-3.0-only"
+include = ["LICENSE.txt", "license/*.txt"]
 
 classifiers = [
     'Topic :: Database',
@@ -21,7 +22,6 @@ classifiers = [
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: 3.14',
-    'License :: OSI Approved :: BSD License',
     'Development Status :: 3 - Alpha',
 ]
 

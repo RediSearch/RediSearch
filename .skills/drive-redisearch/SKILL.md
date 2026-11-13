@@ -21,7 +21,7 @@ All instance work goes through `.skills/drive-redisearch/rsv.sh` (reachable as `
    ./build.sh DEBUG=1 2>&1 | tee "$LOG" | tail -20
    ```
 
-   Output: `bin/linux-x64-debug/search-community/redisearch.so` (`linux-aarch64-debug` on ARM). The debug build is about 200 MB and has assertions on, which is what you want for verification. If bindgen fails with `unknown type name 'VecSimQuantType'` (or similar errors in `deps/` headers), a submodule is not at its pinned commit. Check `git submodule status`: a leading `+` means it has drifted. Fix it with `git submodule update --init --recursive deps/<name>`.
+   Output: `bin/linux-x64-debug/search-community/redisearch.so` (`linux-aarch64-debug` on ARM). The debug build is about 200 MB and has assertions on, which is what you want for verification. VecSim headers are in-tree under `src/vecsim/src`; bindgen errors involving them require checking the include paths and rebuilding stale artifacts. For actual submodule dependencies, check `git submodule status` before updating the affected dependency.
 
 2. **Pick a redis-server new enough for HEAD.** The module refuses to load on servers that lack the key-metadata module API, and `start` then prints `<search> DocIdMeta requires the Redis key metadata API (Redis 8.6.0 or newer)`. A server built from `redis/redis` `unstable` works. Point the script at it:
 

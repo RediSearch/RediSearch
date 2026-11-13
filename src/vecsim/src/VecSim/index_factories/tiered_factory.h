@@ -15,7 +15,9 @@
 #include "VecSim/memory/vecsim_malloc.h"
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/algorithms/hnsw/hnsw_tiered.h"
+#if HAVE_SVS
 #include "VecSim/algorithms/svs/svs_tiered.h"
+#endif
 #include "VecSim/algorithms/brute_force/brute_force.h"
 #include "VecSim/index_factories/factory_utils.h"
 

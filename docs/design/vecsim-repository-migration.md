@@ -58,9 +58,9 @@ delete `.git/modules` or force-clean an existing submodule to switch layouts.
 
 VecSim units run unconditionally with Search units in PR and merge-queue jobs.
 The shared PR unit pipelines run even for drafts and documentation changes;
-master MQ runs release, coverage, and sanitizer variants. Coverage includes
-Search flows because Codecov has no carryforward; this adds queue runtime that
-must be measured before landing. Units also inherit Search's nightly OS and
+master MQ retains Search's existing basic-test lane, including VecSim units.
+This migration does not expand MQ coverage/sanitizer lanes or change its existing
+QUICK and flaky-test filtering. Units also inherit Search's nightly OS and
 architecture matrix. A separate
 component build keeps its test-only compile definitions out of the shipped
 module, while using Search's provisioning, compilers, and GoogleTest dependency.
@@ -153,7 +153,13 @@ this branch does not rewrite backend records or recreate old GitHub labels.
 Benchmark execution also depends on the existing hosted dataset URLs and Search
 performance credentials. Validate both in CI before declaring migration complete.
 
-The optional `USE_SVS=OFF` configuration has unconditional SVS includes in the
-pinned implementation and fails to compile. The migration retains that flag's
-existing behavior; repairing an SVS-free library build is separate work. Search
-and the migrated component CI use SVS, with source-built SVS in sanitizer jobs.
+The optional `USE_SVS=OFF` build had unconditional SVS header and thread-pool
+references in the imported revision. These are now guarded; the non-SVS API
+reports zero shared memory and retains the factory's unsupported-index behavior.
+The default Search build continues to use SVS.
+
+VecSim retains its clang-format 18 style. Its error-message skill is now in
+`.skills/vecsim-error-messages`, with component commands integrated into Search's
+build, unit-test, verification, and lint skills. Python metadata and bundled
+license texts match Search's tri-license; SVS source and binary licenses remain
+separate, as recorded in `THIRD_PARTY_NOTICES.md`.

@@ -1266,7 +1266,6 @@ TYPED_TEST(SVSMultiTest, rangeQuery) {
     VecSimIndex_Free(index);
 }
 
-#endif // HAVE_SVS
 
 #if HAVE_SVS_REPLACE_EXTERNAL_ID
 
@@ -1425,3 +1424,5 @@ TYPED_TEST(SVSMultiTest, updateVectorsMulti) {
 
     VecSimIndex_Free(index);
 }
+
+#endif // HAVE_SVS

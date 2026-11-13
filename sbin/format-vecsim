@@ -1,11 +1,22 @@
 #!/bin/bash
 set -euo pipefail
+if [[ -z ${CLANG_FORMAT:-} ]]; then
+    if command -v clang-format-18 >/dev/null 2>&1; then
+        CLANG_FORMAT=clang-format-18
+    else
+        CLANG_FORMAT=clang-format
+    fi
+fi
+if ! "$CLANG_FORMAT" --version | grep -Eq 'version 18\.'; then
+    echo "VecSim formatting requires clang-format 18 (set CLANG_FORMAT to its path)." >&2
+    exit 1
+fi
 cd "$(dirname "$0")/../src/vecsim"
 CLANG_FMT_SRCS=$(find ./src/ \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' \))
 CLANG_FMT_TESTS="$(find ../../tests/cpptests/vecsim ../../tests/cpptests/micro-benchmarks/vecsim  \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' \))"
 
 if [[ ${FIX:-0} == 1 ]]; then
-    clang-format --verbose -style=file -i $CLANG_FMT_SRCS $CLANG_FMT_TESTS
+    "$CLANG_FORMAT" --verbose -style=file -i $CLANG_FMT_SRCS $CLANG_FMT_TESTS
 else
-    clang-format -style=file -Werror --dry-run $CLANG_FMT_SRCS $CLANG_FMT_TESTS
+    "$CLANG_FORMAT" -style=file -Werror --dry-run $CLANG_FMT_SRCS $CLANG_FMT_TESTS
 fi

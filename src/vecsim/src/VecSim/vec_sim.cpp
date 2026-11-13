@@ -15,7 +15,9 @@
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/vec_sim_adhoc_bf_ctx.h"
 #include "VecSim/types/bfloat16.h"
+#if HAVE_SVS
 #include "VecSim/algorithms/svs/svs_utils.h"
+#endif
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -43,10 +45,12 @@ extern "C" void VecSim_UpdateThreadPoolSize(size_t new_size) {
     } else {
         VecSimIndex::setWriteMode(VecSim_WriteAsync);
     }
+#if HAVE_SVS
     // Resize the shared SVS pool. Clamped to a minimum of 1. OS threads are spawned
     // lazily on first SVS index creation; once an index exists this resizes the
     // shared pool immediately (cooperating with the deferred-shrink protocol).
     VecSimSVSThreadPool::resize(new_size);
+#endif
 }
 
 namespace {
@@ -492,7 +496,11 @@ extern "C" VecSimDebugInfoIterator *VecSimIndex_DebugInfoIterator(VecSimIndex *i
 }
 
 extern "C" size_t VecSim_GetSharedMemory(void) {
+#if HAVE_SVS
     return VecSimSVSThreadPool::getSharedAllocationSize();
+#else
+    return 0;
+#endif
 }
 
 extern "C" VecSimIndexBasicInfo VecSimIndex_BasicInfo(VecSimIndex *index) {

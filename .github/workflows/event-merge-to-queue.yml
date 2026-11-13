@@ -84,16 +84,10 @@ jobs:
       packages: write
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-pr-pipeline.yml)
       actions: write  # Swatinem/rust-cache read/write of GH cache (used inside flow-pr-pipeline.yml)
-    strategy:
-      fail-fast: false
-      matrix:
-        job-type: ${{ fromJSON(vars.ENABLE_CODE_COVERAGE == 'false' && '["basic-test","sanitize"]' || '["basic-test","coverage","sanitize"]') }}
     uses: ./.github/workflows/flow-pr-pipeline.yml
     secrets: inherit
     with:
-      job-type: ${{ matrix.job-type }}
-      # Coverage needs every report because Codecov has no carryforward.
-      skip-flow-tests: ${{ matrix.job-type == 'sanitize' }}
+      job-type: basic-test
       platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}

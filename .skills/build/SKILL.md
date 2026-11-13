@@ -120,3 +120,13 @@ For Rust only:
 ```bash
 (cd src/redisearch_rs && cargo clean && cargo build)   # subshell keeps clean+build co-located
 ```
+
+### VecSim component tooling
+
+VecSim is in-tree under `src/vecsim`; build the Search module normally to verify
+its integration. Component units are covered by
+[/run-c-unit-tests](../run-c-unit-tests/SKILL.md). `make vecsim-python` builds the
+optional developer bindings; it is not required for the shipped module or C++
+benchmarks. Dataset-backed benchmarks use `make vecsim-benchmark-data
+BM_FILTER=<suite>` followed by `make vecsim-benchmarks BM_FILTER=<suite>`;
+see [the benchmark guide](../../docs/vecsim/benchmarks.md).

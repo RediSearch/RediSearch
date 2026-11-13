@@ -44,6 +44,24 @@
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
 
+#if !HAVE_SVS
+TEST(CommonTest, WithoutSVS) {
+    VecSim_UpdateThreadPoolSize(4);
+    EXPECT_EQ(VecSim_GetSharedMemory(), 0);
+    VecSim_UpdateThreadPoolSize(0);
+    EXPECT_EQ(VecSim_GetSharedMemory(), 0);
+
+    VecSimParams params{};
+    params.algo = VecSimAlgo_SVS;
+    EXPECT_EQ(VecSimIndex_New(&params), nullptr);
+
+    VecSimParams tiered{};
+    tiered.algo = VecSimAlgo_TIERED;
+    tiered.algoParams.tieredParams.primaryIndexParams = &params;
+    EXPECT_EQ(VecSimIndex_New(&tiered), nullptr);
+}
+#endif
+
 template <typename index_type_t>
 class CommonIndexTest : public ::testing::Test {};
 
