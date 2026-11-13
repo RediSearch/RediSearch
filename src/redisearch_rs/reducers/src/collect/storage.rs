@@ -35,9 +35,11 @@ use super::ranking::{RankedEntry, RankingKey};
 /// implementation's `DEFAULT_LIMIT`.
 pub const DEFAULT_LIMIT: u64 = 10;
 
-/// Caps only the up-front `with_capacity`, not the retained-row count, so a huge
-/// `offset + count` doesn't force a huge initial allocation.
-const INITIAL_CAPACITY_CAP: usize = 16_384;
+/// Caps only the up-front `with_capacity`, not the retained-row count: storage
+/// is built once per group, and the no-LIMIT unranked default (see
+/// [`Storage::new`]) can be huge, so presizing to it would allocate for rows most
+/// groups never receive. The containers grow on demand past this.
+pub const INITIAL_CAPACITY_CAP: usize = 16;
 
 /// The projected (collected) fields, in a type distinct from [`RankingKey`] so
 /// the ranking axis (order) and the value axis (content, and the DISTINCT
