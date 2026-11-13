@@ -186,9 +186,17 @@ jobs:
       platform: ubuntu:resolute
       architecture: x86_64
 
+  vecsim:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/task-vecsim-tests.yml
+
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
+      - vecsim
       - get-latest-redis-tag
       - check-what-changed
       - spellcheck
@@ -210,5 +218,5 @@ jobs:
           profile: administrator
           profile-region: us-east-1
           async: true
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: needs.vecsim.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1

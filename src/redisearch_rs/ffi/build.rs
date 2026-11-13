@@ -30,7 +30,7 @@ struct HeaderAllowlist {
 const HEADERS: &[HeaderAllowlist] = &[
     // `c_wrappers/vecsim`: query replies and their iterators.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        path: "src/vecsim/src/VecSim/query_results.h",
         fns: &[
             "VecSimBatchIterator_Free",
             "VecSimBatchIterator_HasNext",
@@ -54,7 +54,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     // `c_wrappers/vecsim`: index handle + adhoc-BF / batch-iterator entry points.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        path: "src/vecsim/src/VecSim/vec_sim.h",
         fns: &[
             "VecSimBatchIterator_New",
             "VecSimIndex_AddVector",
@@ -81,7 +81,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
     // vector-index API exposed through `src/search_disk_api.h`.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
+        path: "src/vecsim/src/VecSim/vec_sim_common.h",
         fns: &[],
         types: &[
             "ThrottleCB",
@@ -715,7 +715,7 @@ fn main() {
         deps.clone(),
         permitted_dir.clone(),
         src.join("inverted_index"),
-        deps.join("VectorSimilarity").join("src"),
+        src.join("vecsim").join("src"),
         src.join("buffer"),
         src.join("ttl_table"),
         src.join("trie"),

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Safe wrappers around the `VecSim*` C API exposed by `deps/VectorSimilarity`.
+//! Safe wrappers around the `VecSim*` C API exposed by `src/vecsim`.
 //!
 //! The wrappers cover the surface needed by the top-K hybrid query source and
 //! the lazy range iterator: single-shot top-K and range queries, batch

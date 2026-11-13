@@ -372,7 +372,7 @@ include_directories(
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
-    ${root}/deps/VectorSimilarity/src
+    ${root}/src/vecsim/src
     ${root}/deps/rmalloc
     ${BOOST_DIR}
     ${root})

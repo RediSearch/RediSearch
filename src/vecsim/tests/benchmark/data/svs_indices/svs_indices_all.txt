@@ -1,0 +1,10 @@
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-8.tar.gz
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs-dbpedia-cosine-dim768-quant-none.tar.gz
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-1M-vectors.raw
+
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-none.tar.gz
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/svs_fashion_images_multi_value-cosine-dim512-quant-8.tar.gz
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/fashion_images_multi_value-cosine-dim512-test_vectors.raw
+
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512.hnsw_v3
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-test_vectors.raw

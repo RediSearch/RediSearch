@@ -1,0 +1,81 @@
+name: VecSim tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: VecSim CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+      - name: Build VecSim for analysis
+        run: make -C src/vecsim build NO_TESTS=1
+      - uses: github/codeql-action/analyze@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
+        with:
+          category: vecsim
+
+  unit:
+    name: VecSim (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [release, address, coverage]
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+        working-directory: src/vecsim
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install component build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake build-essential clang-18 clang-format-18 lcov libomp-18-dev libnuma-dev unzip
+      - name: Check formatting
+        if: matrix.variant == 'release'
+        run: |
+          mkdir -p "$RUNNER_TEMP/vecsim-tools"
+          ln -s /usr/bin/clang-format-18 "$RUNNER_TEMP/vecsim-tools/clang-format"
+          PATH="$RUNNER_TEMP/vecsim-tools:$PATH" make check-format
+      - name: Unit tests
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          case "$VARIANT" in
+            release) make unit_test ;;
+            address)
+              export CC=clang-18 CXX=clang++-18
+              make unit_test SAN=address ;;
+            coverage) make coverage ;;
+            *) exit 1 ;;
+          esac
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vecsim-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            src/vecsim/bin/**/Testing/Temporary/
+            src/vecsim/bin/**/cov.info
+            src/vecsim/bin/**/cov/
+          if-no-files-found: warn

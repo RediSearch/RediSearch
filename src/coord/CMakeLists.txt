@@ -34,7 +34,7 @@ include_directories(
 	${root}/deps/RedisModulesSDK
 	${root}/src
 	${root}
-	${root}/deps/VectorSimilarity/src)
+	${root}/src/vecsim/src)
 
 add_subdirectory(rmr)
 

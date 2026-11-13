@@ -54,7 +54,7 @@ set(SAVED_C_FLAGS "${CMAKE_C_FLAGS}")
 set(SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 string(REPLACE "--coverage" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 string(REPLACE "--coverage" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
+add_subdirectory(${root}/src/vecsim ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
 set(CMAKE_C_FLAGS "${SAVED_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${SAVED_CXX_FLAGS}")
 

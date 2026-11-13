@@ -492,3 +492,8 @@ test-linkcheck:
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
+
+# VecSim stays independently testable without building the Redis module.
+.PHONY: vecsim-tests
+vecsim-tests:
+	@$(MAKE) -C $(ROOT)/src/vecsim unit_test

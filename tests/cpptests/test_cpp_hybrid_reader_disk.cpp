@@ -8,9 +8,9 @@
 */
 
 // Include C++ VecSim headers before any C headers to get full class definitions.
-#include "VectorSimilarity/src/VecSim/vec_sim_interface.h"
-#include "VectorSimilarity/src/VecSim/vec_sim_adhoc_bf_ctx.h"
-#include "VectorSimilarity/src/VecSim/memory/vecsim_malloc.h"
+#include "VecSim/vec_sim_interface.h"
+#include "VecSim/vec_sim_adhoc_bf_ctx.h"
+#include "VecSim/memory/vecsim_malloc.h"
 
 #include "gtest/gtest.h"
 #include "index_utils.h"

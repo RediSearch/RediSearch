@@ -228,7 +228,7 @@ as production code.
 - `src/buffer/buffer.c` — Redis String DMA buffer implementation
 
 ### Key Dependencies
-- `deps/VectorSimilarity/` — vector index backends (HNSW, flat, etc.)
+- `src/vecsim/` — vector index backends (HNSW, flat, etc.)
 - `deps/snowball/` — stemming algorithms (git submodule)
 - `deps/friso/` — Chinese tokenization
 - `deps/phonetics/` — phonetic matching

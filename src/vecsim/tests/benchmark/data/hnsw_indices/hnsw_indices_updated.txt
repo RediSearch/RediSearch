@@ -1,0 +1,3 @@
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-M65-efc512-n500k.hnsw_v3
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-M65-efc512-n500k-updated.hnsw_v3
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-test_vectors.raw

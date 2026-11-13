@@ -1,0 +1,5 @@
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512-bf16.hnsw_v3
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/dbpedia-cosine-dim768-bf16-test_vectors.raw
+
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/fashion_images_multi_value-cosine-dim512-M64-efc512-bf16.hnsw_v3
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/fashion_images_multi_value-cosine-dim512-bf16-test_vectors.raw

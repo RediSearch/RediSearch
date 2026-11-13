@@ -72,7 +72,7 @@ fn c_include_roots(root: &Path) -> Vec<PathBuf> {
         root.join("src"),
         root.join("deps"),
         root.join("src").join("redisearch_rs").join("headers"),
-        root.join("deps").join("VectorSimilarity").join("src"),
+        root.join("src").join("vecsim").join("src"),
         root.join("src").join("buffer"),
         root.join("src").join("ttl_table"),
     ]

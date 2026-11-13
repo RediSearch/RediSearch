@@ -53,7 +53,7 @@ jobs:
           # job red on the PR that bumps it, not on an unrelated PR.
           version: 1.28.0
           # Explicit paths. The action's default of "." would also collect the
-          # workflows vendored under deps/VectorSimilarity, deps/libuv,
+          # workflows vendored under deps/libuv,
           # deps/hiredis and friends.
           inputs: .github/workflows .github/actions .github/dependabot.yml
           # Only fail on findings we have actually triaged to zero. The tiers

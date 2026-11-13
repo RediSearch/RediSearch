@@ -28,10 +28,9 @@ what this skill exists to prevent.
 jj does not support git submodules — the
 [docs](https://docs.jj-vcs.dev/latest/git-compatibility/) say so outright: *"Submodules:
 No. They will not show up in the working copy, but they will not be lost either."* This
-repository has five (`deps/VectorSimilarity`, `deps/googletest`, `deps/hiredis`,
-`deps/libuv`, `deps/snowball`, plus `deps/VectorSimilarity/deps/ScalableVectorSearch`
-nested beneath the first), and the build needs them. So each workspace needs a working git
-of its own, to run `git submodule` in.
+repository has five (`deps/googletest`, `deps/hiredis`, `deps/libuv`,
+`deps/snowball`, and `src/vecsim/deps/ScalableVectorSearch`), and the build needs
+them. So each workspace needs a working git of its own, to run `git submodule` in.
 
 A **git worktree** is the right shape: it has its own HEAD, its own index, and its own
 `modules/` tree under `.git/worktrees/<name>/`, so submodules initialised in one workspace
@@ -140,7 +139,7 @@ missing sources or `deps/*` — and everything downstream assumes a full checkou
 name="RediSearch-<name>"
 ws_path="$(jj workspace root --name "$name")" || exit 1
 (cd "$ws_path" && git submodule update --init --recursive -- \
-    deps/VectorSimilarity deps/googletest deps/hiredis deps/libuv deps/snowball)
+    src/vecsim/deps/ScalableVectorSearch deps/googletest deps/hiredis deps/libuv deps/snowball)
 ```
 
 This takes a while and must succeed. It writes only to this worktree's own `modules/` tree.
@@ -173,7 +172,7 @@ workspace must have an **empty** working-copy commit, no submodule may report `-
 `U`, **and the checkout you started from must still be healthy**. `jj status` reports
 changes but exits 0, so the emptiness has to be tested rather than read.
 
-Verify with `submodule status`, not `ls deps/VectorSimilarity`: `ls` succeeds on an empty
+Verify with `submodule status`, not `ls src/vecsim/deps/ScalableVectorSearch`: `ls` succeeds on an empty
 directory, so it passes for a submodule that was never initialised. `+` matters as much as
 `-`, because configuration such as `submodule.<name>.update=none` makes step 2 exit 0 while
 leaving a submodule at its *previous* commit. Checked-out submodules never appear as
@@ -203,7 +202,7 @@ changes its working-copy commit — `jj new`, `jj commit`, `jj edit`, `jj rebase
 Two gaps remain, and both are silent:
 
 - **Submodules are never updated by jj.** When the new `@-` pins a different
-  `deps/VectorSimilarity` (or any other submodule), the checked-out directory stays at the
+  `src/vecsim/deps/ScalableVectorSearch` (or any other submodule), the checked-out directory stays at the
   old commit: you build the old one while stamping the new commit. `git submodule status`
   shows it as `+`. Nothing else closes this gap — `make build` does not depend on
   `make fetch`.
@@ -220,7 +219,7 @@ reported commit or submodule revisions you intend to trust:
 # from inside the workspace
 jj new && jj edit @-
 git submodule update --init --recursive -- \
-    deps/VectorSimilarity deps/googletest deps/hiredis deps/libuv deps/snowball
+    src/vecsim/deps/ScalableVectorSearch deps/googletest deps/hiredis deps/libuv deps/snowball
 ```
 
 `jj new && jj edit @-` steps onto an empty child and straight back. The two checkouts are

@@ -7,9 +7,9 @@
 [submodule "deps/libuv"]
 	path = deps/libuv
 	url = https://github.com/libuv/libuv.git
-[submodule "deps/VectorSimilarity"]
-	path = deps/VectorSimilarity
-	url = https://github.com/RedisAI/VectorSimilarity.git
+[submodule "src/vecsim/deps/ScalableVectorSearch"]
+	path = src/vecsim/deps/ScalableVectorSearch
+	url = https://github.com/intel/ScalableVectorSearch.git
 [submodule "deps/snowball"]
 	path = deps/snowball
 	url = https://github.com/snowballstem/snowball.git
