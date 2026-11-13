@@ -608,6 +608,56 @@ TEST_F(RdbMockTest, testFailedDiskOpenUnpublishesSpec) {
     ExpectFailedLoadUnpublishes();
 }
 
+// Leaves stack slots that, read as an uninitialized QueryError, carry an OK code and non-null
+// message pointers — the state in which QueryError_SetError frees garbage.
+static void __attribute__((noinline)) dirtyStackForUninitializedQueryError() {
+  volatile uint64_t slots[8192];
+  for (size_t i = 0; i < std::size(slots); i++) {
+    slots[i] = 0xdeadbe00;
+  }
+}
+
+// Aux data replayed from several source shards loads the same index repeatedly; every load after
+// the first meets aliases that are already registered.
+TEST_F(RdbMockTest, testDuplicateIndexRdbLoadWithRegisteredAlias) {
+  const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
+  QueryError err = QueryError_Default();
+  StrongRef spec_ref = IndexSpec_ParseC(NULL, "dup_alias_idx", args, std::size(args), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
+  Spec_AddToDict(spec_ref.rm);
+
+  HiddenString *alias = NewHiddenString("dup_alias", strlen("dup_alias"), false);
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(alias, spec_ref, 0, &err));
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *io) { RMCK_FreeRdbIO(io); });
+  const size_t nCopies = 3;
+  RMCK_SaveUnsigned(io, nCopies);
+  for (size_t i = 0; i < nCopies; i++) {
+    IndexSpec_RdbSave(io, spec, 0);
+  }
+  io->read_pos = 0;
+
+  dirtyStackForUninitializedQueryError();
+  ASSERT_EQ(REDISMODULE_OK, Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB));
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // The registered spec and its alias are untouched by the discarded duplicates.
+  EXPECT_EQ(1, Indexes_Count());
+  EXPECT_EQ(spec_ref.rm, Indexes_LoadIndexSpecUnsafe("dup_alias_idx").rm);
+  EXPECT_EQ(spec_ref.rm, IndexAlias_Get(alias).rm);
+  ASSERT_EQ(1, array_len(spec->aliases));
+
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Del(alias, spec_ref, 0, &err));
+  EXPECT_EQ(NULL, IndexAlias_Get(alias).rm);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  HiddenString_Free(alias, false);
+  Indexes_RemoveSpecFromGlobals(spec_ref, false);
+}
+
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     // Create a SynonymMap and add some terms
     SynonymMap *smap = SynonymMap_New(false);
