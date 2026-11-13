@@ -148,7 +148,7 @@ class InfoSectionsTest : public ::testing::Test {
     api.metrics.getInvertedIndexTotalBlocks = [](RedisSearchDiskIndexSpec *) -> uint64_t {
       return 7;
     };
-    api.metrics.outputInfoMetrics = [](RedisSearchDisk *, RedisModuleInfoCtx *ctx, uint64_t) {
+    api.metrics.outputInfoMetrics = [](RedisSearchDisk *, RedisModuleInfoCtx *ctx, uint64_t, bool) {
       ++diskOutputs;
       EXPECT_EQ(collections + cachedCollections, 1);
       EXPECT_EQ(InfoCapture::get(ctx).sections.back(), "disk");
