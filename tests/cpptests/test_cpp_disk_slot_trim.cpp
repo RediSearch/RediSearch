@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <future>
@@ -1521,11 +1522,14 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
         RedisModule_GetBlockedClientPrivateData;
     decltype(RedisModule_ReplyWithSimpleString) simple = RedisModule_ReplyWithSimpleString;
     decltype(RedisModule_ReplyWithError) error = RedisModule_ReplyWithError;
+    // The pool is global: hand later tests back the one they would have found.
+    bool hadPool = GC_ThreadPoolNumThreads() > 0;
     RestoreHooks() {
       RedisModule_ThreadSafeContextLock(RSDummyContext);
     }
     ~RestoreHooks() {
       GC_ThreadPoolDestroy();
+      if (hadPool) GC_ThreadPoolStart();
       RedisModule_ThreadSafeContextUnlock(RSDummyContext);
       if (replyData) GCForcedRunOutcomeFree(RSDummyContext, replyData);
       RedisModule_CreateSubcommand = create;
@@ -1612,6 +1616,12 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
   EXPECT_NE(invoke(false, true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
+  // A forced run that finds its index dropped terminates and frees the context, as a scheduled
+  // run does, so it needs one from the heap rather than the fixture's.
+  auto *owned = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
+  memcpy(owned, &gc, sizeof(GCContext));
+  gc.gcCtx = nullptr;
+  spec->gc = owned;
   EXPECT_NE(invoke(true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);

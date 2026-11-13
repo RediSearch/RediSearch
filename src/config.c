@@ -26,6 +26,7 @@
 #include "search_disk.h"
 #include "aggregate/reducer.h"
 #include "doc_table.h"
+#include "gc/gc.h"
 #include "obfuscation/hidden.h"
 #include "query_error_ffi.h"
 #include "query_types.h"
@@ -768,6 +769,15 @@ CONFIG_SETTER(setMinOperationWorkers) {
 CONFIG_GETTER(getMinOperationWorkers) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->minOperationWorkers);
+}
+
+// search-gc-threads takes effect at once on a running GC pool. Redis bounds it to
+// [1, MAX_GC_THREADS], so it fits the byte it is kept in.
+static int set_gc_threads(const char *name, long long val, void *privdata,
+                          RedisModuleString **err) {
+  int rc = set_uint8_numeric_config(name, val, privdata, err);
+  GC_ThreadPoolSetSize();
+  return rc;
 }
 
 // Shared by search-min-operation-workers and search-min-maintenance-workers.
@@ -2359,6 +2369,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       MAX_WORKER_THREADS, get_min_workers,
       set_min_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-gc-threads", 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_GC_THREADS, get_uint8_numeric_config, set_gc_threads, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcThreads)
     )
   )
 
