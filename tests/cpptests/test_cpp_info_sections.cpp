@@ -135,9 +135,9 @@ class InfoSectionsTest : public ::testing::Test {
       ++collections;
       return 1234;
     };
-    api.metrics.readCachedIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
+    api.metrics.collectInfoIndexMetrics = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
       ++cachedCollections;
-      return CachedIndexMetrics{4321, 55, 9};
+      return CachedIndexMetrics{4321, 55, 9, {0, 0}};
     };
     api.metrics.stopMetrics = [](RedisSearchDisk *) {};
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
@@ -148,7 +148,7 @@ class InfoSectionsTest : public ::testing::Test {
     api.metrics.getInvertedIndexTotalBlocks = [](RedisSearchDiskIndexSpec *) -> uint64_t {
       return 7;
     };
-    api.metrics.outputInfoMetrics = [](RedisSearchDisk *, RedisModuleInfoCtx *ctx) {
+    api.metrics.outputInfoMetrics = [](RedisSearchDisk *, RedisModuleInfoCtx *ctx, uint64_t) {
       ++diskOutputs;
       EXPECT_EQ(collections + cachedCollections, 1);
       EXPECT_EQ(InfoCapture::get(ctx).sections.back(), "disk");
