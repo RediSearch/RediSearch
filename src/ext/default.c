@@ -459,6 +459,7 @@ static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
 }
+
 /******************************************************************************************
  *
  * SPARSE scorer: the sum of the dot products the query's sparse vector nodes yield
