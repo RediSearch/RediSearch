@@ -391,6 +391,42 @@ FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" VSIM @embedding $v KNN 2 K 10 COMBINE
 | Reusing the `=>[KNN k @field $q]` syntax | Dense KNN returns exactly `k` results and treats the left side as a pre-filter. Sparse retrieval returns the whole union and takes the top from `LIMIT`; a query node states that behaviour and composes with other clauses like a term |
 | Serializing posting lists to RDB | Indexes are rebuilt from the keyspace on load; persisting them adds a format commitment with no benefit |
 
+## Open Design Questions
+
+### Should We Support Dimension Pruning?
+
+**Status:** open, for the team to decide.
+
+**Question.** Should RediSearch drop low-value dimensions from sparse vectors, at query time, at indexing time, or both? Learned sparse models emit many low-weight dimensions, and the most common of them (stopword-like tokens) have the longest posting lists. Dropping them shortens the union a query walks and shrinks the index, at a small loss in ranking quality.
+
+Dimension pruning changes the vectors, so results become approximate. It is a different technique from dynamic pruning (WAND, MaxScore), which skips documents during traversal and keeps the top K exact; that is not covered here.
+
+**What other engines do.**
+
+| Engine | Query-side | Index-side |
+|--------|------------|------------|
+| Elasticsearch `sparse_vector` | Token pruning: a query token is dropped only if it is both frequent (more than `tokens_freq_ratio_threshold` × the field's average token frequency, default 5) and low-weight (below `tokens_weight_threshold`, default 0.4). Set per field in `index_options` (on by default for indexes created on 9.1+) or per query. A rescore query can score the dropped tokens on the top hits (`only_score_pruned_tokens`). Frequencies are per shard, so shards may prune differently | — |
+| OpenSearch neural sparse | Two-phase search pipeline: high-weight tokens select the top documents, then the low-weight tokens rescore a window of `expansion_rate` × size (`prune_type` defaults to `max_ratio`, `prune_ratio` 0.4) | `sparse_encoding` ingest processor: `prune_type` `max_ratio`, `alpha_mass`, `top_k` or `abs_value`. Docs report about 40% less storage for under 1% relevance loss with `max_ratio` 0.1 |
+| Milvus | `drop_ratio_search`: drops the given fraction of the smallest query weights | `drop_ratio_build` (documented in 2.4; not confirmed for current versions) |
+| Qdrant, Vespa, Pinecone | None found | None found |
+
+**Options.**
+
+1. **No server-side pruning (current design).** Clients prune before they send vectors. Index-side pruning needs nothing from the server, since the client produces the document vectors. Query-side pruning by weight is equally possible on the client.
+2. **Query-side, by weight.** A query attribute such as `=>{$PRUNE_RATIO: 0.2}` drops the smallest query weights before the iterator tree is built. Cheap: it only shortens the list of `DimensionIterator`s. It adds little over the client doing the same.
+3. **Query-side, by weight and frequency** (Elasticsearch style). Only the server knows the posting-list lengths. The length per dimension is already tracked (`EntriesTrackingIndex`), but an average token frequency per field would need a new counter. Optionally, a second pass rescores the top window with the dropped dimensions, through `skip_to` on their posting lists; that adds a rescoring stage to the pipeline. Stats are per shard, as in Elasticsearch.
+4. **Index-side, as a field attribute** (e.g. `PRUNE_RATIO`, `PRUNE_TOP_K`). Saves memory, but it is fixed for the life of the index, and clients can already do it. Under `COSINE` it must be specified whether the norm is taken before or after pruning.
+
+**Proposal.** Ship option 1 and document client-side pruning. Revisit option 3 after the step 7 benchmarks in the [implementation plan](#implementation-plan): it is the only option clients cannot do themselves.
+
+**Questions for the team.**
+
+1. Is approximate retrieval through dimension pruning in scope, given that the scope currently excludes approximate algorithms?
+2. If it is, query-side, index-side, or both?
+3. For query-side pruning, by weight only, or also by dimension frequency, which needs index statistics?
+4. Should the dimensions a query drops be rescored on the top hits, as Elasticsearch and OpenSearch allow?
+5. Should pruning be off by default?
+
 ## Implementation Plan
 
 Each step is roughly one reviewable PR.
