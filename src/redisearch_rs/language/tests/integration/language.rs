@@ -8,6 +8,7 @@
 */
 
 use language::Language;
+use strum::IntoEnumIterator;
 
 /// The expected name of every supported language, written out independently of
 /// [`Language::name`] so a typo there cannot make a round-trip test pass.
@@ -109,5 +110,18 @@ fn other_languages_are_stemmed_under_their_own_name() {
     // no stemmer rather than a substitute one.
     for (lang, _) in NAMES.into_iter().filter(|&(l, _)| l != Language::Malay) {
         assert_eq!(lang.snowball_stemmer(), lang.name(), "{lang:?}");
+    }
+}
+
+#[test]
+fn only_values_below_unsupported_have_names() {
+    // The RDB loader rejects stored languages from `Unsupported` up, so a named
+    // language numbered there could be set on an index that then fails to reload.
+    for lang in Language::iter() {
+        assert_eq!(
+            lang.name().is_some(),
+            (lang as u32) < Language::Unsupported as u32,
+            "{lang:?}"
+        );
     }
 }
