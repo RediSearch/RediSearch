@@ -182,7 +182,24 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * `Next`, told that no result scoring below `minCompetitiveScore` can be kept downstream, so the
+   * processor may drop such candidates without producing them. A processor passes the threshold
+   * on only if every result it produces keeps the score of the upstream result it came from.
+   * `minCompetitiveScore` is always positive (see `ScoreBound_MinCompetitive`): a caller without
+   * a threshold calls `Next`. NULL means plain `Next`, which drops the threshold and is always
+   * correct; use `RP_NextWithThreshold`.
+   */
+  int (*NextWithThreshold)(struct ResultProcessor *self, SearchResult *res,
+                           double minCompetitiveScore);
 } ResultProcessor;
+
+static inline int RP_NextWithThreshold(ResultProcessor *rp, SearchResult *res,
+                                       double minCompetitiveScore) {
+  return rp->NextWithThreshold ? rp->NextWithThreshold(rp, res, minCompetitiveScore)
+                               : rp->Next(rp, res);
+}
 
 /** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
  * `itr` visits every docId in ascending order, which a profile wrapper hides. */
@@ -233,6 +250,9 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
  */
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+
+/** Whether `rp` is a sorter created by `RPSorter_NewByScore`. */
+bool RPSorter_IsByScore(const ResultProcessor *rp);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

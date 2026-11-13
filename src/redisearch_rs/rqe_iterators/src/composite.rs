@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Machinery shared by the `Box<Self>` [`resume`](crate::RQESuspendedIterator::resume)
-//! of composite iterators — the unions and the intersection — which transition
-//! a `Vec` of children in place and re-narrow an aggregate that borrows from
-//! them.
+//! Machinery shared by composite iterators — the unions and the intersection: the
+//! composition of the score-bound hooks, and the `Box<Self>`
+//! [`resume`](crate::RQESuspendedIterator::resume), which transitions a `Vec` of children in
+//! place and re-narrows an aggregate that borrows from them.
 
 use std::marker::PhantomData;
 
@@ -18,7 +18,199 @@ use index_result::{RSIndexResult, RawBorrowedAggregateResult};
 use ref_mode::Suspended;
 use rqe_core::{DocId, FieldMask};
 
-use crate::RQEIterator;
+use crate::{
+    RQEIterator, RQEIteratorError,
+    score_bound::{self, BlockBound, MinCompetitiveScore},
+};
+
+/// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
+/// the scores of `children`.
+///
+/// Scaling by `max(weight, 1)` rather than `weight` keeps the bound valid for scorers that ignore
+/// the query tree (`DOCSCORE`), for which every child's bound is already a bound on the whole
+/// score.
+pub(crate) fn summed_max_score<'index, 'c, I>(
+    children: impl IntoIterator<Item = &'c I>,
+    weight: f64,
+) -> f64
+where
+    I: RQEIterator<'index> + 'c,
+{
+    let sum: f64 = children
+        .into_iter()
+        .map(|child| child.current_max_score())
+        .sum();
+    sum * weight.max(1.0)
+}
+
+/// [`RQEIterator::current_block_bound`] of a composite whose score is `weight` times the sum of
+/// the scores of `children`, scaled as in [`summed_max_score`]: `None` unless there is a child
+/// and every one reports a block.
+pub(crate) fn summed_block_bound<'index, 'c, I>(
+    children: impl IntoIterator<Item = &'c I>,
+    weight: f64,
+) -> Option<BlockBound>
+where
+    I: RQEIterator<'index> + 'c,
+{
+    let mut window: Option<BlockBound> = None;
+    for child in children {
+        let block = child.current_block_bound()?;
+        window = Some(match window {
+            None => block,
+            Some(window) => BlockBound {
+                last_doc_id: window.last_doc_id.min(block.last_doc_id),
+                max_score: window.max_score + block.max_score,
+            },
+        });
+    }
+    window.map(|window| BlockBound {
+        max_score: window.max_score * weight.max(1.0),
+        ..window
+    })
+}
+
+/// A union whose children [`union_read_with_threshold`] inspects to choose its next position.
+pub(crate) trait PivotingUnion<'index>: RQEIterator<'index> {
+    /// The type of the union's children.
+    type Child: RQEIterator<'index>;
+
+    /// Every child that can still yield.
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a Self::Child>
+    where
+        Self::Child: 'a;
+
+    /// The weight that scales the union's score, applied as in [`summed_max_score`].
+    fn score_weight(&self) -> f64;
+}
+
+/// Where a thresholded union read moves next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PivotStep {
+    /// The next document may be competitive: move with a plain [`read`](RQEIterator::read).
+    Read,
+    /// No document before the target can reach the threshold.
+    SkipTo(DocId),
+}
+
+/// Chooses where `union`, searching from `start`, moves next, Block-Max WAND style, from its
+/// children's block bounds alone.
+///
+/// A child can first match at its `from`: its position, or `start` when it stands earlier (a
+/// quick-exit union returns on the first child that matches, leaving the others behind or not
+/// yet positioned). A document `d` is matched only by children whose `from` is at most `d`, so
+/// its score is bounded by the sum of their block maxima, as long as `d` lies inside every one of
+/// their blocks. A child's block bounds it from `from` only when the block reaches `from`;
+/// otherwise the child is unbounded.
+///
+/// The walk visits the children's `from`s in increasing order, adding each child once, when its
+/// `from` is reached. The pivot is the first `from` at which the sum reaches the threshold: no
+/// document before it can. The sum only covers documents up to the earliest block end among the
+/// children added so far, and a `from` past it ends the walk: past that end the earlier children's
+/// next blocks are unknown, so the skip stops there.
+///
+/// Each round rescans the children for the next `from`, so a step costs the number of children
+/// times the number of `from`s visited; in exchange it needs no buffer and no sort.
+fn pivot_step<'index, U>(
+    union: &U,
+    start: DocId,
+    min_competitive_score: MinCompetitiveScore,
+) -> PivotStep
+where
+    U: PivotingUnion<'index>,
+{
+    let scale = union.score_weight().max(1.0);
+    let mut sum = 0.0;
+    let mut window_end = DocId::MAX;
+    // Children whose `from` is in `added_through + 1..=at` are added this round. `start` is
+    // always past a position, so it is at least 1.
+    let mut added_through = start - 1;
+    let mut at = start;
+    loop {
+        let mut next_from = None;
+        for child in union.live_children() {
+            let from = child.last_doc_id().max(start);
+            if from > at {
+                next_from = Some(next_from.map_or(from, |next: DocId| next.min(from)));
+            } else if from > added_through {
+                match child.current_block_bound() {
+                    Some(block) if block.last_doc_id >= from => {
+                        sum += block.max_score;
+                        window_end = window_end.min(block.last_doc_id);
+                    }
+                    _ => sum = f64::INFINITY,
+                }
+            }
+        }
+        if !score_bound::can_drop(sum * scale, min_competitive_score) {
+            return if at > start {
+                PivotStep::SkipTo(at)
+            } else {
+                PivotStep::Read
+            };
+        }
+        match next_from {
+            Some(next) if next <= window_end => {
+                added_through = at;
+                at = next;
+            }
+            _ => break,
+        }
+    }
+    // Nothing up to the window's end can reach the threshold. A window that never closed (no
+    // live child) or that closes at the last id leaves nothing to skip to, and a plain read then
+    // finds what follows.
+    window_end
+        .checked_add(1)
+        .map_or(PivotStep::Read, PivotStep::SkipTo)
+}
+
+/// [`RQEIterator::read_with_threshold`] of a union that yields in doc-id order, built on its own
+/// [`read`](RQEIterator::read) and [`skip_to`](RQEIterator::skip_to).
+///
+/// Before each move it chooses a pivot from its children's block bounds ([`pivot_step`]) and
+/// skips straight to it, so the children behind the pivot jump over documents that cannot reach
+/// the threshold without reading them. A document it lands on whose own bound cannot reach the
+/// threshold is dropped.
+pub(crate) fn union_read_with_threshold<'index, U>(
+    union: &mut U,
+    min_competitive_score: MinCompetitiveScore,
+) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>
+where
+    U: PivotingUnion<'index>,
+{
+    loop {
+        if union.at_eof() {
+            return Ok(None);
+        }
+        let step = match union.last_doc_id().checked_add(1) {
+            None => PivotStep::Read,
+            Some(start) => pivot_step(union, start, min_competitive_score),
+        };
+        let found = match step {
+            PivotStep::SkipTo(target) => union.skip_to(target)?.is_some(),
+            PivotStep::Read => union.read()?.is_some(),
+        };
+        if !found {
+            return Ok(None);
+        }
+        if !score_bound::can_drop(union.current_max_score(), min_competitive_score) {
+            return Ok(union.current());
+        }
+    }
+}
+
+/// [`RQEIterator::reports_score_bounds`] of a composite that sums the scores of `children`: only
+/// when there is a child and every child reports bounds.
+pub(crate) fn all_report_score_bounds<'index, 'c, I>(
+    children: impl IntoIterator<Item = &'c I>,
+) -> bool
+where
+    I: RQEIterator<'index> + 'c,
+{
+    let mut children = children.into_iter().peekable();
+    children.peek().is_some() && children.all(|child| child.reports_score_bounds())
+}
 
 /// RAII guard owning a suspended composite's shell while its children buffer
 /// is part-resumed and part-suspended.

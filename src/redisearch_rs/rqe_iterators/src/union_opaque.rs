@@ -290,6 +290,25 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        delegate_variant_ref!(self, reports_score_bounds)
+    }
+
+    fn current_max_score(&self) -> f64 {
+        delegate_variant_ref!(self, current_max_score)
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        delegate_variant_ref!(self, current_block_bound)
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        delegate_variant_ref_mut!(self, read_with_threshold, min_competitive_score)
+    }
 }
 
 impl<'index, I> ProfilePrint for UnionOpaque<'index, I>

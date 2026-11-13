@@ -972,6 +972,66 @@ where
             1.0
         }
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        crate::composite::all_report_score_bounds(self.children.iter().map(|child| &child.inner))
+    }
+
+    fn current_max_score(&self) -> f64 {
+        if self.is_eof {
+            return f64::INFINITY;
+        }
+        // A superset of the children in the aggregate result: a quick-exit union keeps only the
+        // first one, and the bound only loosens.
+        let doc_id = self.last_doc_id();
+        crate::composite::summed_max_score(
+            self.children
+                .iter()
+                .map(|child| &child.inner)
+                .filter(|child| child.last_doc_id() == doc_id),
+            self.result.weight,
+        )
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        if self.is_eof || self.last_doc_id() == 0 {
+            return None;
+        }
+        crate::composite::summed_block_bound(
+            self.children[..self.num_active]
+                .iter()
+                .map(|child| &child.inner),
+            self.result.weight,
+        )
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        crate::composite::union_read_with_threshold(self, min_competitive_score)
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> crate::composite::PivotingUnion<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    type Child = I;
+
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a I>
+    where
+        I: 'a,
+    {
+        self.children[..self.num_active]
+            .iter()
+            .map(|child| &child.inner)
+    }
+
+    fn score_weight(&self) -> f64 {
+        self.result.weight
+    }
 }
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>

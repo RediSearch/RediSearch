@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub(crate) mod blocked;
 mod mock_enterprise_iterators;
 mod mock_iterator;
 mod wildcard_helper;

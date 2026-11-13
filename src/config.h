@@ -255,6 +255,9 @@ typedef struct {
   // Collect storage-engine statistics for disk indexes, reported by FT.DEBUG DISK_STATS.
   // Load-time only: statistics must be attached before each index database opens.
   bool diskStatistics;
+  // Query-side kill switch for score-bound candidate filtering on disk indexes. Ignoring the
+  // bounds is always correct, so it can be flipped at any time; it affects reads only.
+  bool diskScoreSkippingQuery;
   // Admit new disk SQ8 fields only after every node has upgraded; existing indexes still load.
   bool diskSq8Enabled;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
@@ -531,6 +534,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskStatistics = false,                                                   \
+    .diskScoreSkippingQuery = true,                                            \
     .diskSq8Enabled = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
