@@ -195,6 +195,9 @@ COV_INFO=$(BINROOT)/cov.info
 COV_DIR=$(BINROOT)/cov
 COV_PROFDATA=$(COV_DIR)/cov.profdata
 
+# Match build.sh handling of GCC/gcov metadata inconsistencies.
+COV_LCOV_ERROR_ARGS=--ignore-errors inconsistent,corrupt,mismatch,negative
+
 define COVERAGE_RESET
 $(SHOW)set -e ;\
 echo "Starting coverage analysis." ;\
@@ -206,8 +209,8 @@ endef
 define COVERAGE_COLLECT
 $(SHOW)set -e ;\
 echo "Collecting coverage data ..." ;\
-lcov --rc branch_coverage=1 --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(COV_INFO);\
-lcov --rc branch_coverage=1 -o $(COV_INFO).1 --extract $(COV_INFO) '$(ROOT)/*';\
+lcov --rc branch_coverage=1 --rc geninfo_unexecuted_blocks=1 $(COV_LCOV_ERROR_ARGS) --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(COV_INFO);\
+lcov --rc branch_coverage=1 $(COV_LCOV_ERROR_ARGS) -o $(COV_INFO).1 --extract $(COV_INFO) '$(ROOT)/*';\
 mv $(COV_INFO).1 $(COV_INFO)
 endef
 
