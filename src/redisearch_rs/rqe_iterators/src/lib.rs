@@ -481,12 +481,22 @@ pub trait SearchEnterpriseIterators: Send + Sync {
 
     /// Iterate over the entries of the numeric index at the given field index whose value
     /// matches `filter`.
+    ///
+    /// Building opens one reader per matching bucket, so the implementation may poll `limits`
+    /// (the query's request limits) while it builds. If it abandons the build on a stop, it
+    /// returns an iterator whose first read fails with [`RQEIteratorError::TimedOut`] whatever
+    /// the stop's reason: the error does not carry it, the query's limits do.
+    ///
+    /// `limits` must stay valid for the call, and its kind and source must not change during
+    /// it. The blocked-client flag and the memory-stop flag may change concurrently, so read
+    /// them only through the limits API, which accesses them atomically.
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -498,11 +508,14 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// stores them in `gf.numericFilters` (owned by `*gf`, freed by `GeoFilter_Free`).
     /// The disk path then runs each range through the numeric machinery and
     /// post-filters survivors by true great-circle distance.
+    ///
+    /// `limits` is polled while building, as for [`Self::new_numeric_on_disk`].
     fn new_geo_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
