@@ -1266,7 +1266,6 @@ TYPED_TEST(SVSMultiTest, rangeQuery) {
     VecSimIndex_Free(index);
 }
 
-
 #if HAVE_SVS_REPLACE_EXTERNAL_ID
 
 // A multi-value label is where a move that handles only the label's first id still looks correct

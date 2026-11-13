@@ -6,11 +6,13 @@ boundary, exported names, algorithms, and persistence behavior are unchanged.
 
 ## Provenance and landing
 
-The import starts from the VecSim commit already pinned by Search:
+The import follows the VecSim commits pinned by Search:
 
 - Repository: <https://github.com/RedisAI/VectorSimilarity>
-- VecSim commit: `eefc4e7a0feb608f3e2e50e7e5050d1f44bdec9e`
-- Search parent: `8751678feddc78eb5ca7651883234f6d10158f00`
+- Initial VecSim import: `001f0b0df1cac1fff87f502548b1c205f061f242`
+- Initial Search parent: `8751678feddc78eb5ca7651883234f6d10158f00`
+- Updated VecSim pin: `eefc4e7a0feb608f3e2e50e7e5050d1f44bdec9e`
+- Updated Search parent: `33d90342bc9c601d904fb58446f8bda4eaba5011`
 - SVS commit: `919925a56218da10ee4ae0cb8a2124ee96fdf3fd`
 
 The import merge retains the original VecSim commit graph as its second-parent
