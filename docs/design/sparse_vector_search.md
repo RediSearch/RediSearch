@@ -260,6 +260,7 @@ Intersection                                   ← only when the query has other
 - **In a query that mixes a sparse node with other clauses** (e.g. `@title:shoes @splade:[SPARSE $q]`), the default score is the sparse score alone, and the other clauses act as filters. Text and sparse scores are on different scales, so summing them is not meaningful; combining them is what `FT.HYBRID` fusion is for.
 - **An explicit `SCORER` overrides the default**, e.g. `SCORER BM25STD` to rank by the text clauses instead. The sparse score stays available through `$YIELD_SCORE_AS`.
 - The score is a similarity, higher is better: the dot product under `IP`, and the cosine under `COSINE` (pre-normalized weights).
+- **The node `$weight` attribute is accepted and ignored**, as on dense `VECTOR` nodes: `=>{$weight: w}` does not scale the sparse score. Weighting a sparse score against other scores is done with `FT.HYBRID` `COMBINE LINEAR`.
 
 ### Architecture
 
