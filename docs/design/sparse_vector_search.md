@@ -347,4 +347,45 @@ Each step is roughly one reviewable PR.
 | 6 | Cluster and `FT.HYBRID`: coordinator merge, `VSIM` on a sparse field, `FT.PROFILE` output | `coord/`, `hybrid/` | Not started | Cluster flow tests; hybrid RRF/LINEAR tests |
 | 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
 
-Later work: weight quantization, range queries, dense + sparse in one `FT.HYBRID`, approximate algorithms.
+Later work: weight quantization, range queries, dense + sparse in one `FT.HYBRID`, approximate algorithms, and [disk (Redis Flex) support](#future-work-disk-redis-flex-integration).
+
+## Future Work: Disk (Redis Flex) Integration
+
+In the first version, sparse vector fields are RAM-only. `FT.CREATE` on a Flex index rejects `SPARSEVECTOR` through `SearchDisk_MarkUnsupportedFieldIfDiskEnabled`, as it does for `GEOSHAPE`. Disk support lives in RediSearchDisk (`redisearch_disk/`, Rust over SpeedB) and follows the pattern its tag and numeric indexes already use.
+
+### Storage
+
+- **One column family per sparse field**, named like the tag families (`tag_<field_index>`), e.g. `sparse_<field_index>`. It gets the shared block cache and the per-index column-family sizing.
+- **Key**: `[dim_id: u32 BE][block_max_doc_id: u64 BE]`. All blocks of a dimension are contiguous and ordered by doc ID, so a prefix extractor on `dim_id` gives one prefix scan per query dimension. This mirrors numeric, whose keys carry the bucket prefix and the `block_max_doc_id` suffix (`InvertedIndexKey`).
+- **Value**: a structure-of-arrays block, with all doc IDs first and then all `f32` weights, little-endian. This is the numeric block layout (`index_spec/inverted_index/numeric/block.rs`) with `f32` in place of `f64`, so the generic block traits, binary search by doc ID and archive format can be reused.
+- **Appends** go through a merge operator built on `GenericMergeOperator`, as for tags and numerics.
+
+### Write Path
+
+- New `IndexDiskAPI` entry: `indexSparseVector(index, batch, docId, fieldIndex, dims, weights, n)`. It writes every entry of one document into the same `SearchDiskWriteBatchHandle` as the document's doc-table record, so a document's postings commit atomically with it. Validation and `COSINE` normalization stay on the C/RediSearch side and are shared with RAM mode.
+- `SearchDisk_DescribeFields` passes the sparse field's attributes, at least `DIM` and the metric, to `openIndexSpec` so the column family can be opened with the right options.
+
+### Query Path
+
+- New `IndexDiskAPI` entry: `newSparseVectorIterator(index, fieldIndex, dims, weights, n, k, snapshot, status)`. It returns a `QueryIterator*` and reads under a `RedisSearchDiskSnapshot`, like `newTermIterator`/`newTagIterator`.
+- Each query dimension becomes a disk posting-list reader with `next`/`skip_to`. The union, dot-product accumulation and top-K heap are the same `SparseScoreSource` as in RAM mode, parameterized over the reader type, so the scoring code exists once.
+- With a filter, the adhoc mode's forward-only `skip_to` maps onto key seeks within each dimension's prefix.
+- **Cost.** The exhaustive union reads every block of every query dimension. On disk that is I/O proportional to the total posting length of the query's dimensions, served by the block cache when hot. It needs to be measured on a SPLADE-scale corpus before it ships.
+
+### GC, Counters and Persistence
+
+- **GC** runs in compaction, as for tags: a compaction filter drops entries whose doc ID is in `DeletedIds` and removes emptied blocks. No sparse scanner from `index_gc` runs in disk mode.
+- **Counters** (entries per field, dimensions in use) are kept through a compaction-counter factory like `TagCompactionCounterFactory`, so `FT.INFO` stays correct as compaction removes entries.
+- **Persistence differs from RAM mode.** Posting lists live in SpeedB and are not rebuilt from the keyspace. The spec RDB carries only the field attributes, and the disk-only state (`max_doc_id`, deleted IDs, record counts) travels in `IndexSpecRdbState`, which needs no sparse-specific additions beyond any new counters.
+- **Disk usage and metrics**: register the column family with the disk-usage callback registry so `FT.INFO` and the Flex metrics report it.
+
+### Plan
+
+| # | Step | Location |
+|---|------|----------|
+| D1 | Reject `SPARSEVECTOR` on Flex indexes until disk support lands | RediSearch `spec.c` |
+| D2 | Column family, key and block format, merge operator, compaction filter and counters | RediSearchDisk `index_spec/inverted_index/sparse*` |
+| D3 | `indexSparseVector` and `newSparseVectorIterator` in `IndexDiskAPI`, wired from the C dispatch | RediSearch `search_disk_api.h`, `search_disk.c`; RediSearchDisk `lib.rs` |
+| D4 | Make `SparseScoreSource` generic over the posting-list reader so RAM and disk share it | RediSearch `sparse_vector_index/` |
+| D5 | Flow tests on Flex: index, query, filter, delete + compaction, restart and RDB reload, replication | RediSearchDisk `flow-tests/` |
+| D6 | Benchmarks: latency and I/O per query against RAM mode | RediSearchDisk `benchmarks/` |
