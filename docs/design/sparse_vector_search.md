@@ -2,21 +2,20 @@
 
 ## Scope
 
-This document focuses exclusively on the **core indexing and search components** for sparse vector search:
+This document covers sparse vector search end to end:
 - Index data structures (inverted index, posting lists)
-- Similarity computation (dot product scoring)
-- Query processing (iterator merging, score accumulation)
+- Similarity metrics and normalization
+- Query processing (candidate generation, scoring, top-K selection)
+- Field creation and query syntax
+- Implementation plan
 
 **Out of scope:**
-- How sparse vectors are stored in the keyspace (HASH fields, JSON paths, etc.)
-- Query syntax and command API (e.g., `FT.SEARCH` extensions)
 - Client library integration
-
-These topics will be addressed in separate design documents.
+- Approximate (non-exact) sparse retrieval algorithms
 
 ## Overview
 
-This document explores the feasibility of implementing sparse vector search in RediSearch by leveraging existing Full-Text Search (FTS) infrastructure. The core idea is to repurpose inverted index structures—replacing the Trie-based term lookup with a hashmap of `dimension_id -> posting list (InvertedIndex)`—and to use scoring mechanisms analogous to TF-IDF for computing similarity (e.g., cosine similarity or dot product).
+Sparse vector search reuses RediSearch's full-text search (FTS) infrastructure. Each field keeps a hashmap of `dimension_id → posting list (InvertedIndex)`, in place of the trie used for text terms. A query is the union of its dimensions' posting lists, scored by dot product inside a top-K iterator. This is the same computational pattern as TF-IDF over an OR query.
 
 ## Background
 
@@ -49,249 +48,68 @@ sparse = {331: 0.5, 14136: 0.7}     # Only non-zero dimensions
 4. **Exact term matching**: Guaranteeing results contain specific keywords
 5. **Recommendation systems**: User preferences and item attributes can be represented as sparse vectors (e.g., user-item interaction matrices, feature-based item representations), enabling efficient similarity-based recommendations
 
-## Industry Approaches to Sparse Vector Search
-
-### Common Implementation: Inverted Index
-
-The industry-standard approach for sparse vector search uses **inverted indexes**, which is essentially what the proposal suggests. This is a **well-established and validated pattern**.
-
-**How it works:**
-- Each non-zero dimension ID acts as a "term"
-- For each dimension, maintain a posting list of documents containing that dimension, along with their weights
-- Similarity computation (dot product) is performed by intersecting posting lists and summing `query_weight × doc_weight`
-
 ### Learned Sparse Representations (SPLADE)
 
 Modern sparse vector search often uses **learned sparse embeddings** like SPLADE (Sparse Lexical and Expansion Model):
 
 - Trained neural models that produce sparse vectors from text
 - Enable **term expansion**: adding semantically related terms not in the original text
-- Weights are learned importance scores, not just term frequencies
-- Still indexed using inverted indexes, but with richer representations
+- Weights are learned importance scores, not just term frequencies, and are non-negative
+- Trained for dot-product similarity
+- Indexed with inverted indexes, like text terms
 
-## Critical Analysis of the Proposed Approach
+### Industry Practice
 
-### ✓ What Makes Sense
+Sparse vector search is commonly implemented with an **inverted index**: each non-zero dimension acts as a term, and its posting list holds `(doc_id, weight)` pairs. A query scores every document that shares at least one dimension with it. Systems differ in whether retrieval is exact or approximate (e.g., dropping low-weight query dimensions or posting entries). This design is exact and exhaustive: every document in the union is scored.
 
-1. **Inverted index structure is correct**: The proposal to use `dimension_id -> posting list` mirrors the industry-standard approach. This is fundamentally sound.
+## Index Structure
 
-2. **Reusing existing infrastructure**: RediSearch's `InvertedIndex` implementation is mature and optimized. Leveraging it reduces development effort and inherits existing optimizations (block-based storage, compression, delta encoding).
+### Inverted Index per Field
 
-3. **Hashmap vs Trie**: Using a hashmap for dimension lookup instead of a Trie is appropriate because:
-   - Dimension IDs are integers, not strings requiring prefix matching
-   - O(1) lookup is preferable to O(k) Trie traversal
-   - No autocomplete/prefix-search requirements for dimension IDs
-
-### ⚠️ Points Requiring Clarification
-
-#### 1. Computational Pattern: TF-IDF Analogy
-
-The proposal draws an analogy between TF-IDF scoring and sparse vector similarity computation. This analogy is **conceptually accurate** in terms of the computational pattern:
-
-**TF-IDF scoring pattern:**
-```
-score(q, d) = Σ TF(t,d) × IDF(t)  for each query term t in document d
-```
-
-**Sparse vector dot product pattern:**
-```
-similarity(q, d) = Σ q[i] × d[i]  for each dimension i where both are non-zero
-```
-
-**Why the analogy holds:**
-- Both iterate through an inverted index (terms or dimensions)
-- Both accumulate per-document scores by multiplying query-side and document-side weights
-- Both benefit from the same optimizations (early termination, score upper bounds, WAND)
-
-**Key difference:** TF-IDF weights are derived from term frequency statistics, while sparse vector weights come from the vector representation itself (either learned via SPLADE or computed via other methods).
-
-**Recommendation:** The similarity metric for sparse vectors is dot product. The TF-IDF analogy correctly identifies that the **scoring infrastructure** (iterators, accumulators, top-K selection) can be reused.
-
-#### 2. Handling of Vector Weights
-
-RediSearch's current FTS inverted index stores term frequencies (integers), but sparse vectors need float weights. Fortunately, the **Numeric encoder already exists** and stores `(doc_id, float)` pairs efficiently. This encoder can be reused directly for sparse vector dimensions.
-
-#### 3. Normalization Considerations
-
-For cosine similarity, vectors must be normalized (unit length). Options:
-- **Pre-normalize at indexing time**: Store normalized vectors, compute dot product at query time
-- **Store norms separately**: Store unnormalized vectors, divide by norms during scoring
-- **Support multiple metrics**: Dot product (no normalization) and cosine (with normalization)
-
-### ⚠️ Potential Challenges
-
-#### 1. Vocabulary Size / Dimension Space
-
-- SPLADE uses BERT vocabulary (~30,522 dimensions)
-- Custom sparse representations might have larger dimension spaces
-- The hashmap approach handles this well, but memory for the hashmap itself should be considered
-
-#### 2. Query-Time Efficiency
-
-Sparse queries typically have 10-100 non-zero dimensions. For each:
-- Look up the posting list (O(1) with hashmap)
-- Iterate through matching documents
-- Accumulate similarity scores
-
-This is efficient, but for very common dimensions (high document frequency), posting lists can be large. Consider:
-- Block-max WAND (Weak AND) for early termination
-- Score upper-bound pruning
-
-## Proposed Architecture
+- **Dimension space**: the field declares its dimensionality `DIM` at creation, as dense vector fields do. Valid dimension IDs are `0 … DIM−1`, stored as `u32`, so `DIM` is at most 2³². For learned models `DIM` is the model's vocabulary size (e.g., 30522 for BERT-based SPLADE); for hashed vocabularies it is the hash space.
+- **Hashmap over trie**: dimension IDs are integers, not strings. No prefix matching is needed, so O(1) hashmap lookup is preferred to O(k) trie traversal.
+- **Hashmap over an array of size `DIM`**: memory grows with the dimensions that actually occur, not with `DIM`. That keeps a large hash space (e.g., 2³²) cheap, and costs little for small vocabularies.
+- **Numeric encoder reuse**: the existing `Numeric` encoder (`src/redisearch_rs/inverted_index/src/codec/numeric.rs`) stores `(doc_id, float)` pairs with delta-encoded doc IDs. Weights are converted to `f32` before encoding, so the float-compressing variant stores each one losslessly in 4 bytes.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     Sparse Vector Field                              │
-├─────────────────────────────────────────────────────────────────────┤
-│  HashMap<dimension_id, InvertedIndex>                               │
-│                                                                      │
-│  dimension_0 ──→ [doc_1: 0.5, doc_3: 0.7, doc_8: 0.2, ...]         │
-│  dimension_42 ─→ [doc_1: 0.3, doc_5: 0.9, ...]                      │
-│  dimension_99 ─→ [doc_2: 0.1, doc_3: 0.4, doc_8: 0.6, ...]         │
-│  ...                                                                 │
-├─────────────────────────────────────────────────────────────────────┤
-│  Metadata:                                                           │
-│  - Total documents indexed                                           │
-│  - Optional: per-document norms (for cosine similarity)             │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          Sparse Vector Field                             │
+├──────────────────────────────────────────────────────────────────────────┤
+│  HashMap<dimension_id, InvertedIndex<Numeric>>                           │
+│                                                                          │
+│  dimension_0  ─→ [doc_1: 0.5, doc_3: 0.7, doc_8: 0.2]                    │
+│  dimension_42 ─→ [doc_1: 0.3, doc_5: 0.9]                                │
+│  dimension_99 ─→ [doc_2: 0.1, doc_3: 0.4, doc_8: 0.6]                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Field attributes: DIM, metric                                           │
+│  Stats: documents, dimensions, entries, memory                           │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Query Processing
+### Rust Data Model
 
-```
-Query: {dim_5: 0.8, dim_42: 0.3, dim_99: 0.5}
-                │
-                ▼
-┌───────────────────────────────────┐
-│  1. For each query dimension:     │
-│     - Lookup posting list         │
-│     - Create iterator             │
-└───────────────────────────────────┘
-                │
-                ▼
-┌───────────────────────────────────┐
-│  2. Merge iterators (DAAT/TAAT)   │
-│     - Document-at-a-time: process │
-│       all dims for each doc       │
-│     - Term-at-a-time: process all │
-│       docs for each dim           │
-└───────────────────────────────────┘
-                │
-                ▼
-┌───────────────────────────────────┐
-│  3. Score accumulation            │
-│     score[doc] += q[dim] × d[dim] │
-└───────────────────────────────────┘
-                │
-                ▼
-┌───────────────────────────────────┐
-│  4. Top-K selection               │
-│     - Heap-based selection        │
-│     - Optional: early termination │
-└───────────────────────────────────┘
+Crate: `src/redisearch_rs/sparse_vector_index/`; C ABI in `src/redisearch_rs/c_entrypoint/sparse_vector_index_ffi/`.
+
+```rust
+/// One field's sparse vector index.
+pub struct SparseVectorIndex {
+    dimensions: FxHashMap<u32, EntriesTrackingIndex<NumericFloatCompression>>,
+    metric: SparseMetric,
+    dim: u32,
+    num_docs: u64,
+    memory_usage: usize,
+}
+
+pub enum SparseMetric {
+    InnerProduct,
+    /// Weights are L2-normalized before they are written.
+    Cosine,
+}
 ```
 
-## Implementation Considerations
+### C Integration
 
-### Reusing InvertedIndex with Numeric Encoder
-
-The existing `InvertedIndex` already supports a `Numeric` encoder (see `src/redisearch_rs/inverted_index/src/numeric.rs`) that stores `(doc_id, float_value)` pairs with efficient encoding:
-
-- **Compact encoding**: Uses 1-16 bytes per entry depending on delta and value size
-- **Integer optimization**: Small integers (0-7) encoded in header byte only
-- **Float compression**: Supports f32/f64 with optional lossy f32 compression
-- **Delta encoding**: Document IDs stored as deltas for compression
-
-This encoder is **exactly what sparse vectors need** for storing dimension weights per document.
-
-### What Already Exists
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Numeric encoder/decoder | ✓ Exists | Stores `(doc_id, float)` pairs efficiently |
-| InvertedIndex structure | ✓ Exists | Block-based storage, GC, compression |
-| Index iterators | ✓ Exists | Can iterate through posting lists |
-| Score accumulation | ✓ Exists | TF-IDF scoring infrastructure |
-
-### New Components Needed
-
-1. **SparseVectorIndex structure**: HashMap wrapper around `dimension_id → InvertedIndex` mapping. This replaces the Trie used for text terms.
-
-2. **Query iterator for sparse vectors**: A new iterator type that:
-   - Takes a sparse query vector as input
-   - Creates sub-iterators for each query dimension
-   - Accumulates dot product scores across dimensions
-   - Returns top-K results
-
-3. **Sparse vector field type**: New field type in schema definition (similar to VECTOR but for sparse representation).
-
-### Similarity Metrics
-
-| Metric | Formula | Use Case |
-|--------|---------|----------|
-| Dot Product | `Σ q[i] × d[i]` | Default; works with any sparse representation |
-| Cosine | `(Σ q[i] × d[i]) / (‖q‖ × ‖d‖)` | When magnitude shouldn't affect similarity |
-
-## Comparison with Existing Solutions
-
-### RediSearch FTS vs Sparse Vector Search
-
-| Aspect | FTS | Sparse Vectors |
-|--------|-----|----------------|
-| Term lookup | Trie (prefix support) | HashMap (O(1) lookup) |
-| Values stored | Frequencies (int) | Weights (float) |
-| Scoring | TF-IDF, BM25 | Dot product, Cosine |
-| Query type | Boolean (AND/OR) | Vector similarity (top-K) |
-| Use case | Keyword search | Learned representations |
-
-### Industry Sparse Vector Implementation
-
-Industry approach aligns with this proposal:
-- Uses inverted index structure
-- Exact search (no approximation)
-- Dot product as primary similarity metric
-
-## Recommendations
-
-1. **Proceed with the inverted index approach**: It's industry-validated and leverages RediSearch's existing strengths.
-
-2. **Use HashMap for dimension lookup**: More appropriate than Trie for integer dimension IDs.
-
-3. **Leverage Numeric encoder path**: Reuse existing float storage infrastructure in InvertedIndex.
-
-4. **Support dot product as primary metric**: This is the standard for sparse vectors.
-
-5. **Plan for hybrid search**: Enable combining sparse and dense vector results (e.g., via RRF fusion).
-
-## Implementation Plan
-
-### Phase 1: Core Data Structures ✅ IMPLEMENTED
-
-**Status:** Complete
-
-This phase establishes the foundational types and structures for sparse vector indexing.
-
-**Implementation Summary:**
-- ✅ 1.1 New field type `INDEXFLD_T_SPARSE_VECTOR = 0x40` added to `src/field_spec.h`
-- ✅ 1.2 `sparse_vector_index` Rust crate created at `src/redisearch_rs/sparse_vector_index/`
-- ✅ 1.3 `Index_HasSparseVec = 0x80000` flag added to `src/spec.h`
-- ✅ `sparseVecOpts` union member added to FieldSpec
-- ✅ Unit tests passing for the Rust crate (7 tests)
-
-**Design Decision: Metric-Agnostic Index**
-
-The index stores raw dimension weights only. Similarity metrics (dot product, cosine) are applied at **query time**, not at index time. This design allows:
-- The same index to be queried with different metrics
-- No redundant storage of norms or normalized weights
-- Query-time flexibility without re-indexing
-
-For cosine similarity, document L2 norms should be computed at indexing time and stored in the **DocumentMetadata** (DocTable), keeping the index structure simple.
-
-#### 1.1 New Field Type
-
-**File: `src/field_spec.h`**
-
-Add a new field type to the `FieldType` enum:
+New field type in `src/field_spec.h`:
 
 ```c
 typedef enum {
@@ -301,381 +119,143 @@ typedef enum {
   INDEXFLD_T_TAG = 0x08,
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
-  INDEXFLD_T_SPARSE_VECTOR = 0x40,  // NEW
+  INDEXFLD_T_SPARSE_VECTOR = 0x40,
 } FieldType;
 ```
 
-Update `INDEXFLD_NUM_TYPES` to 7.
-
-Add sparse vector options to the `FieldSpec` union:
+`INDEXFLD_NUM_TYPES` is 7. The `FieldSpec` union holds the opaque Rust index:
 
 ```c
-// In FieldSpec struct, add to the union:
 struct {
-  // Sparse vector index (Rust-based, opaque pointer).
-  // The index is metric-agnostic; similarity metrics (dot product, cosine)
-  // are applied at query time. For cosine similarity, document norms should
-  // be stored in DocumentMetadata.
   struct SparseVectorIndex *sparseVecIndex;
 } sparseVecOpts;
 ```
 
-#### 1.2 Sparse Vector Index Structure (Rust)
-
-**New crate: `src/redisearch_rs/sparse_vector_index/`**
-
-This is the core data structure mapping dimension IDs to inverted indexes.
-
-**Crate structure:**
-```
-src/redisearch_rs/sparse_vector_index/
-├── Cargo.toml
-├── src/
-│   ├── lib.rs           # Main module, SparseVectorIndex struct
-│   ├── rdb.rs           # RDB serialization (Phase 4)
-│   └── gc.rs            # Garbage collection (Phase 5)
-```
-
-**Core implementation (`src/lib.rs`):**
-
-```rust
-use rustc_hash::FxHashMap;
-use ffi::t_docId;
-use inverted_index::{EntriesTrackingIndex, numeric::Numeric};
-
-/// Sparse vector index storing dimension_id -> posting list mappings.
-///
-/// Each posting list is an InvertedIndex with Numeric encoding,
-/// storing (doc_id, weight) pairs. The index is metric-agnostic:
-/// similarity metrics (dot product, cosine) are applied at query time.
-///
-/// # Design Rationale
-///
-/// - **HashMap over Trie**: Dimension IDs are integers (u32), not strings.
-///   No prefix matching is needed, so O(1) HashMap lookup is preferred.
-/// - **Numeric encoder reuse**: The existing Numeric encoder efficiently
-///   stores (doc_id, float) pairs with delta encoding and float compression.
-/// - **Metric-agnostic**: The index stores raw weights only. For cosine
-///   similarity, document norms should be stored in DocumentMetadata.
-#[derive(Debug, Default)]
-pub struct SparseVectorIndex {
-    /// Mapping from dimension ID to its posting list.
-    dimensions: FxHashMap<u32, EntriesTrackingIndex<Numeric>>,
-
-    /// Total number of unique documents indexed.
-    num_docs: u64,
-
-    /// Total memory used by all posting lists (bytes).
-    memory_usage: usize,
-}
-
-impl SparseVectorIndex {
-    /// Create a new empty sparse vector index.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Add a sparse vector for a document.
-    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f64)]) -> io::Result<usize> {
-        // Add each dimension entry to its posting list
-        for &(dim_id, weight) in entries {
-            let posting_list = self.dimensions.entry(dim_id).or_insert_with(|| {
-                EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric)
-            });
-            bytes_added += posting_list.add_record(&record)?;
-        }
-        self.num_docs += 1;
-        Ok(bytes_added)
-    }
-
-    /// Get the posting list for a specific dimension.
-    pub fn get_dimension(&self, dim_id: u32) -> Option<&EntriesTrackingIndex<Numeric>> {
-        self.dimensions.get(&dim_id)
-    }
-
-    // ... additional accessor methods
-}
-```
-
-**Cargo.toml:**
-
-```toml
-[package]
-name = "sparse_vector_index"
-version = "0.1.0"
-edition = "2024"
-license = "RSALv2 OR SSPLv1 OR AGPL-3.0"
-
-[dependencies]
-ffi = { path = "../ffi" }
-inverted_index = { path = "../inverted_index" }
-
-[lints]
-workspace = true
-```
-
-#### 1.3 Open/Create Index Function
-
-**Pattern follows existing code like `TagIndex_Open` and `openNumericOrGeoIndex`.**
-
-This function will be exposed via FFI for C code to call:
-
-```rust
-// In sparse_vector_index/src/lib.rs
-
-impl SparseVectorIndex {
-    /// Open or create a sparse vector index for a field.
-    ///
-    /// This is the Rust-side implementation. The C-callable wrapper
-    /// is in the sparse_vector_ffi crate.
-    pub fn open_or_create(
-        existing: Option<&mut Self>,
-        create_if_missing: bool,
-        metric: SparseVecMetric,
-    ) -> Option<&mut Self> {
-        match existing {
-            Some(idx) => Some(idx),
-            None if create_if_missing => {
-                // Caller is responsible for storing the new index
-                None // Signal that a new index should be created
-            }
-            None => None,
-        }
-    }
-}
-```
-
-**C-side wrapper (to be implemented in Phase 6 FFI layer):**
+C-side accessors (`src/sparse_vector_index.h`), following `TagIndex_Open` and `openNumericOrGeoIndex`:
 
 ```c
-// src/sparse_vector_index.h (new file)
-
-#pragma once
-
-#include "field_spec.h"
-
-// Opaque pointer to Rust SparseVectorIndex
 typedef struct SparseVectorIndex SparseVectorIndex;
 
-// Open or create a sparse vector index for a field
 SparseVectorIndex *openSparseVectorIndex(FieldSpec *fs, bool create_if_missing);
-
-// Free a sparse vector index
 void SparseVectorIndex_Free(SparseVectorIndex *idx);
 
-// Get statistics
 size_t SparseVectorIndex_NumDocs(const SparseVectorIndex *idx);
 size_t SparseVectorIndex_NumDimensions(const SparseVectorIndex *idx);
 size_t SparseVectorIndex_MemoryUsage(const SparseVectorIndex *idx);
 ```
 
-**Implementation:**
+`FieldSpec_Cleanup` calls `SparseVectorIndex_Free`. `IndexSpec` gets an `Index_HasSparseVec` flag, set when a sparse vector field is added.
 
-```c
-// src/sparse_vector_index.c (new file)
+### Input Validation
 
-#include "sparse_vector_index.h"
-#include "field_spec.h"
+Applied at indexing time to every vector. A vector that fails is counted as an indexing failure for that document:
+- Dimension IDs must be strictly increasing (which also rules out duplicates).
+- Weights must be finite (no NaN or infinity).
+- Zero weights are dropped, not stored.
+- Every dimension ID must be below the field's `DIM`. With strictly increasing IDs, this also caps the number of non-zero entries per vector at `DIM`.
+- Under `COSINE`, a vector whose norm is zero is rejected.
 
-SparseVectorIndex *openSparseVectorIndex(FieldSpec *fs, bool create_if_missing) {
-    RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR));
+Query vectors go through the same checks, and a failing query vector is a query error. This includes a dimension ID at or above `DIM`, and a zero norm under `COSINE`.
 
-    if (!fs->sparseVecOpts.sparseVecIndex && create_if_missing) {
-        fs->sparseVecOpts.sparseVecIndex = SparseVectorIndex_New();
-    }
-    return fs->sparseVecOpts.sparseVecIndex;
-}
-```
+## Similarity Metrics
 
-#### 1.4 Integration with IndexSpec
+| Metric | Formula | Use case |
+|--------|---------|----------|
+| `IP` (dot product) | `Σ q[i] × d[i]` | Default; what SPLADE-style models are trained for |
+| `COSINE` | `(Σ q[i] × d[i]) / (‖q‖ × ‖d‖)` | When vector magnitude should not affect similarity |
 
-**File: `src/spec.h`**
+L2 (Euclidean) distance is not supported; see [Alternatives Considered](#alternatives-considered).
 
-Add flag for sparse vector support:
+### The Metric Is Fixed at Schema Time
 
-```c
-// In IndexFlags enum, add:
-Index_HasSparseVec = 0x80000,  // Index has sparse vector fields
-```
+Sparse fields follow the same contract as dense `VECTOR` fields:
 
-**File: `src/spec.c`**
+- For dense vectors, `DISTANCE_METRIC` is a **mandatory** attribute for every algorithm (`FLAT`, `HNSW`, `SVS-VAMANA`) in `FT.CREATE` (`src/spec.c`). The `KNN` query clause has no metric parameter, so the metric **cannot be overridden at query time**.
+- Dense `COSINE` is not a separate scoring kernel. For float types VecSim maps `VecSimMetric_Cosine` to the inner-product distance function (`spaces/spaces.cpp`). Its `CosinePreprocessor` normalizes every vector at **insertion** and every query vector at **query time** (`spaces/computer/preprocessors.h`), and the stored blob is the normalized vector.
+- The reported score is a distance, `1 − ⟨q, d⟩`, for both `IP` and `COSINE`.
 
-Update `IndexSpec_AddField` to handle sparse vector fields and set the flag when a sparse vector field is added.
+For sparse fields, `DISTANCE_METRIC IP | COSINE` is declared on the field. Under `COSINE`, each weight is divided by the document's L2 norm before it is written to the posting lists, and the query weights are divided by the query norm. Scoring is then always a plain dot product.
 
-#### 1.5 Summary of Phase 1 Deliverables
+### How Norms Affect Scores
 
-| Component | Location | Description |
-|-----------|----------|-------------|
-| `INDEXFLD_T_SPARSE_VECTOR` | `src/field_spec.h` | New field type enum value |
-| `sparseVecOpts` | `src/field_spec.h` | FieldSpec union member |
-| `sparse_vector_index` crate | `src/redisearch_rs/sparse_vector_index/` | Core Rust implementation |
-| `SparseVectorIndex` struct | Rust crate | Metric-agnostic HashMap-based index structure |
-| `openSparseVectorIndex()` | `src/sparse_vector_index.c` | C accessor function (Phase 6) |
-| `Index_HasSparseVec` | `src/spec.h` | IndexSpec flag |
+Write `cos(q, d) = ⟨q, d⟩ / (‖q‖ · ‖d‖)`.
 
-**Note:** Similarity metrics (dot product, cosine) are query-time concerns. For cosine similarity, document L2 norms should be stored in `DocumentMetadata` (DocTable).
+| Norm | Effect on ranking | Effect on score value |
+|------|-------------------|-----------------------|
+| Query norm `‖q‖` | **None**: it is the same constant for every document, under both `IP` and `COSINE` | Scales every score. This matters when the score is combined linearly with another score (e.g., hybrid `LINEAR` fusion), not for rank-based fusion such as RRF |
+| Document norm `‖d‖`, under `IP` | Documents with larger-magnitude vectors are favoured, all else equal. For SPLADE this is intended: the model is trained with dot product, so the magnitude carries relevance signal | Unbounded |
+| Document norm `‖d‖`, under `COSINE` | Magnitude is removed, so only the direction counts. Applying cosine to SPLADE-style vectors generally *hurts* quality, because it discards a signal the model learned | Bounded to `[−1, 1]` (`[0, 1]` with non-negative weights) |
 
-#### 1.6 Dependencies
+Consequences:
 
-Phase 1 depends on:
-- Existing `inverted_index` crate (for `EntriesTrackingIndex<Numeric>`)
-- Existing `ffi` crate (for `t_docId` and other types)
+1. **The document norm needs the whole vector.** `‖d‖` sums over *all* non-zero dimensions of `d`, including those not in the query, so it cannot be recovered from the posting lists a query touches. It is computed at indexing time and used once, at write time.
+2. **The metric is fixed at creation.** Raw weights are not kept under `COSINE`, so switching between `IP` and `COSINE` means creating a new index. That is the same trade-off dense vectors make.
+3. **Updates cannot leave a stale norm.** An update gets a new doc ID and is normalized from scratch.
 
-Phase 1 enables:
-- Phase 2 (Indexing Pipeline) - uses `SparseVectorIndex::add()`
-- Phase 3 (Query Iterator) - uses `SparseVectorIndex::get_dimension()`
-- Phase 4 (RDB Serialization) - serializes `SparseVectorIndex`
+## Query Processing
 
----
+### Candidate Set: Union of the Query Dimensions
 
-### Phase 2: Query Processing (Intersection-Based) ✅ IMPLEMENTED
-
-**Status:** Complete
-
-This phase implements the query processing logic for sparse vector search using intersection-based iteration.
-
-#### 2.1 Query Processing Strategy
-
-For sparse vector queries, we use an **Intersection-based** approach:
-
-1. **Query representation**: A query is a sparse vector `{dim_id: weight, ...}`
-2. **Iterator creation**: For each query dimension, create an `InvIndIterator` over the corresponding posting list
-3. **Intersection**: Use `Intersection<InvIndIterator>` to find documents that contain **all** query dimensions
-
-**Note:** Scoring (dot product computation) is a separate concern handled by a higher layer, not by the iterator itself.
+Per document, the dot product `Σ q[i] · d[i]` has non-zero terms only for `i ∈ supp(q) ∩ supp(d)`; a dimension the document lacks contributes 0. Across documents, every document that shares **at least one** dimension with the query has a non-zero score and can be in the top-K. The exact candidate set is therefore the **union** of the query dimensions' posting lists:
 
 ```
-Query: {dim_5: 0.8, dim_42: 0.3, dim_99: 0.5}
-              │
-              ▼
-┌─────────────────────────────────────────────────────────┐
-│  Create InvIndIterator for each query dimension:        │
-│    - iter_5  = InvIndIterator(posting_list[dim_5])     │
-│    - iter_42 = InvIndIterator(posting_list[dim_42])    │
-│    - iter_99 = InvIndIterator(posting_list[dim_99])    │
-└─────────────────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────┐
-│  Intersection Iterator                                  │
-│    - Only yields docs present in ALL child iterators   │
-│    - Children sorted by estimated count (smallest first)│
-└─────────────────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────┐
-│  SparseVectorQueryIterator                              │
-│    - Wraps Intersection                                 │
-│    - Returns matching documents with per-dimension      │
-│      weights accessible via aggregate children          │
-└─────────────────────────────────────────────────────────┘
+Query: {a: 1.0, b: 1.0, c: 1.0}
+Doc 1: {a: 10.0}                    # dot = 10.0  ← top-1
+Doc 2: {a: 0.1, b: 0.1, c: 0.1}     # dot = 0.3
 ```
 
-#### 2.2 SparseVectorQueryIterator Design
+Doc 1 has only one of the three query dimensions and is still the best match.
 
-**New file: `src/redisearch_rs/sparse_vector_index/src/query.rs`**
+| Metric | Score for a candidate | Exact top-K candidate set | Notes |
+|--------|-----------------------|---------------------------|-------|
+| `IP` | `Σ q_i d_i` over `supp(q) ∩ supp(d)` | Union of the query dimensions' posting lists | Docs with no overlap score 0 and are skipped |
+| `COSINE` | Dot product over the overlap, with pre-normalized weights | Union | Identical to `IP` after normalization |
 
-```rust
-use inverted_index::{IndexReaderCore, RSIndexResult, numeric::Numeric};
-use rqe_iterators::{Intersection, NoOpChecker, RQEIterator, inverted_index::InvIndIterator};
+### Mapping onto the Existing Iterators and Scorers
 
-/// Iterator for sparse vector queries.
-///
-/// Uses an intersection of per-dimension inverted index iterators to find
-/// documents that contain ALL query dimensions.
-pub struct SparseVectorQueryIterator<'index> {
-    /// The intersection iterator over dimension posting lists.
-    intersection: Intersection<'index, DimensionIterator<'index>>,
-}
+| Concept | Full-text search today | Sparse vector search |
+|---------|------------------------|----------------------|
+| Term → posting list | Trie lookup → `InvertedIndex<FreqsOffsets…>` | Hashmap lookup → `InvertedIndex<Numeric>` |
+| Merge operator for "any term matches" | `Union` of term iterators (`a \| b \| c`) | `Union` of dimension iterators |
+| Per-child payload | Term frequency | Document weight `d_i` |
+| Per-child query-side weight | Term IDF × query weight | Query weight `q_i` |
+| Per-document score | Scorer walks the aggregate result's children: `Σ tf · idf` (TF-IDF) | `Σ q_i · d_i` over the children present at that doc |
+| When the score is computed | After iteration, in the scorer result processor | **Inside the iterator**, which keeps only the top K in a bounded heap |
+| Extra filter (`@tag:{x}`) | `Intersection(filter, union)` | Same: the filter restricts candidates; only the sparse child contributes score |
 
-/// Type alias for dimension posting list iterator.
-type DimensionIterator<'index> = InvIndIterator<'index, IndexReaderCore<'index, Numeric>, NoOpChecker>;
+A plain `Union<InvIndIterator<Numeric>>` followed by a dot-product scorer computes the same results. Scoring and top-K selection still live inside the iterator, for two reasons. Only K results leave it, instead of every document in the union flowing through the result-processor pipeline. And it takes the same top-K path as dense KNN, so filters, `FT.HYBRID` and the coordinator treat both field types the same way.
 
-impl<'index> SparseVectorQueryIterator<'index> {
-    /// Create a query iterator from a sparse vector index and query.
-    ///
-    /// # Arguments
-    /// * `index` - The sparse vector index to query
-    /// * `query` - Query as `(dimension_id, weight)` pairs. Weights are stored
-    ///   in the query but not used by the iterator (scoring is a separate concern).
-    ///
-    /// # Returns
-    /// A query iterator, or `None` if any query dimension doesn't exist in the index.
-    pub fn new(
-        index: &'index SparseVectorIndex,
-        query: &[(u32, f64)],
-    ) -> Option<Self>;
+### Architecture
 
-    /// Read the next matching document.
-    ///
-    /// Returns the intersection result (containing doc_id and aggregate children
-    /// with per-dimension weights from the index).
-    pub fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>;
-}
+```
+FT.SEARCH / FT.HYBRID ── query parser (KNN on a SPARSEVECTOR field)
+          │
+          ▼
+  TopKIterator<SparseScoreSource>          (existing top_k crate: modes, heap, timeout,
+          │                                 suspend/resume, profile)
+          ├─ Unfiltered:  union + dot product + heap → one batch of top-K
+          └─ Adhoc:       filter child drives; lookup_score(doc) = Σ q_i · skip_to(doc) on each dimension
+          │
+          ▼
+  SparseVectorIndex  (per field)
 ```
 
-#### 2.3 Implementation Details
+1. **Indexing.** The document value is parsed and [validated](#input-validation), normalized under `COSINE`, and its entries are added to the posting lists. This happens under the spec write lock, like the other field types.
+2. **Query: `SparseScoreSource` implementing `top_k::ScoreSource`.** This reuses the orchestration of the dense vector path:
+   - `all_results_unfiltered_batch`: traverse the union of the query dimensions, accumulating the dot product per document into a `TopKHeap(k)`, and return the top-K as an owned batch sorted by doc ID. Owning the batch satisfies the `ScoreBatch` rule that a batch holds no reference into the index.
+   - `lookup_score`: the adhoc scan visits doc IDs in increasing order, so each dimension reader only moves forward with `skip_to`. This gives an exact filtered search, with no recall loss from post-filtering.
+   - `batch_strategy`: with a filter, switch to adhoc immediately. A heuristic choice between pushing the filter into the union traversal and adhoc scanning is later work.
+   - Revalidation: dimension readers follow the existing inverted-index iterator revalidation contract when the lock is released and GC runs.
+3. **Score reporting.** The score is reported as the distance `1 − ⟨q, d⟩`, consistent with dense `IP`/`COSINE`, so `AS <name>`/`YIELD_SCORE_AS`, `SORTBY` and hybrid fusion behave the same for dense and sparse fields.
+4. **FFI.** `sparse_vector_index_ffi` exposes create/free/add/stats and an iterator constructor returning a `QueryIterator*`. The C side calls it from the field-type dispatch in indexing and in query evaluation.
+5. **GC.** A scanner under `src/redisearch_rs/index_gc/src/scanners/` removes deleted doc IDs from each dimension and drops empty dimensions.
+6. **Persistence.** Only the field attributes are saved in the spec RDB. Posting lists are rebuilt from the keyspace on load, as for tag, numeric and dense fields. A new field type in the spec RDB is a persistence-format change, so this feature goes through the full spec-driven review rather than the unstable-features gate.
+7. **Cluster.** Each shard returns its top-K and the coordinator merges them by score, the existing dense KNN path. Ties are broken by key.
 
-**Query with Non-Existent Dimensions:**
+### Query Edge Cases
 
-If any query dimension doesn't exist in the index, the intersection will be empty (no documents can match all dimensions). The constructor returns `None` in this case to signal that no results are possible.
+**Missing dimensions in documents** contribute 0 to the score:
 
-**Accessing Per-Dimension Weights:**
-
-The returned `RSIndexResult` is an aggregate result containing child results for each query dimension. Each child's numeric value can be accessed via `result.get(i).and_then(|c| c.as_numeric())` to retrieve the document's weight for that dimension.
-
-#### 2.4 Usage Example
-
-```rust
-let mut index = SparseVectorIndex::new();
-
-// Index documents
-index.add(1, &[(10, 0.5), (20, 0.3), (30, 0.8)])?;
-index.add(2, &[(10, 0.2), (20, 0.9), (30, 0.1)])?;
-index.add(3, &[(10, 0.7), (20, 0.4)])?;  // Missing dim 30
-
-// Query: find docs with all dimensions 10, 20, 30
-let query = [(10, 1.0), (20, 0.5), (30, 0.2)];
-let mut iter = SparseVectorQueryIterator::new(&index, &query)?;
-
-// Only docs 1 and 2 will match (doc 3 is missing dim 30)
-while let Some(result) = iter.read()? {
-    let doc_id = result.doc_id;
-    // Access per-dimension weights via result.get(i).as_numeric()
-}
-```
-
-#### 2.5 Deliverables
-
-| Component | Location | Description |
-|-----------|----------|-------------|
-| `query.rs` | `src/redisearch_rs/sparse_vector_index/src/` | Query iterator implementation |
-| `SparseVectorQueryIterator` | `query.rs` | Intersection-based query iterator |
-| Unit tests | `tests/sparse_vector_index.rs` | Query functionality tests (8 tests) |
-
-#### 2.6 Future Considerations
-
-**Union-Based Queries:**
-
-The current intersection-based approach requires documents to have ALL query dimensions. A future enhancement could add a union-based iterator for "best match" queries where documents are matched on any query dimensions. This would use `Union<InvIndIterator>` instead of `Intersection`.
-
-**Scoring Layer:**
-
-Dot product computation (`Σ q[dim] × d[dim]`) will be handled by a separate scoring layer that wraps the iterator and computes scores using both query weights and document weights from the iterator results.
-
-**Top-K Selection:**
-
-Score-based top-K selection with early termination (e.g., WAND algorithm) is planned for a future phase.
-
----
-
-## Annex A: Missing Dimensions and Scoring Behavior
-
-### Missing Dimensions in Documents
-
-When computing similarity scores (dot product or cosine), dimensions that are missing from a document are treated as **implicitly zero**. This is the natural behavior of sparse vector math.
-
-**Example:**
 ```
 Query: {dim_10: 0.5, dim_20: 0.3, dim_999: 0.8}
 Doc A: {dim_10: 1.0, dim_20: 0.5}  # No dim_999
@@ -686,30 +266,85 @@ Dot product scores:
 - Doc B: 0.5×0.2 + 0.3×0   + 0.8×0 = 0.10
 ```
 
-Missing dimensions contribute **0** to the score. No special handling is needed.
+**Query dimensions not in the index** have no posting list and contribute 0 to every score. The ranking is determined by the dimensions that do exist.
 
-### Query Dimensions Not in Index
+**A query with only non-existent dimensions** has no posting list to iterate and returns an empty result. This matches text search, where a term that occurs in no document returns no results.
 
-If a query contains dimensions that don't exist in any indexed document, those dimensions simply contribute **0** to all document scores. The ranking is determined by the dimensions that do match.
+**Ties** are broken by document ID within a shard (lower ID first), and by key when the coordinator merges shard results, because doc IDs are local to each shard.
 
-### Query with ONLY Non-Existent Dimensions
+## Syntax
 
-**Edge case:** If the query contains *only* dimensions that don't exist in the index:
+### Field Creation
+
+Attributes follow a count of arguments, as for dense `VECTOR` fields: `SPARSEVECTOR <nargs> <attribute> <value> …`.
 
 ```
-Query: {dim_999: 0.8}
-Index dimensions: {dim_1, dim_2, dim_10, dim_20}  # dim_999 doesn't exist
-
-Result: [] (empty)
+FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA
+    title    TEXT
+    category TAG
+    splade   SPARSEVECTOR 4 DIM 30522 DISTANCE_METRIC IP
 ```
 
-In this case, there are **no posting lists to iterate** for any query dimension. The result is an **empty result set** - no documents are returned.
+| Attribute | Required | Values | Meaning |
+|-----------|----------|--------|---------|
+| `DIM` | Yes | Integer, 1 to 2³² | Size of the dimension space; valid dimension IDs are `0 … DIM−1`. Fixed at creation, as for dense vectors |
+| `DISTANCE_METRIC` | Yes | `IP` \| `COSINE` | Fixed at creation, as for dense vectors |
+| `TYPE` | No | `FLOAT32` (default) | Weight type; room for `FLOAT16`/`UINT8` quantization |
 
-This behavior is consistent with:
-1. **Inverted index semantics**: We only have posting lists for dimensions that exist in at least one document
-2. **Text search analogy**: Searching for a term that doesn't exist in any document returns 0 results
-3. **Industry practice**: Other vector databases all return empty results when no query dimensions match indexed dimensions (To be reviewed)
+### Document Value
 
-### Tie-Breaking for Equal Scores
+- **HASH**: a binary blob of little-endian `(u32 dim_id, f32 weight)` pairs with strictly increasing `dim_id`. Binary like dense vectors, with no text parsing on the write path.
+- **JSON**: `{"indices": [331, 14136], "values": [0.5, 0.7]}`, the shape most sparse-vector clients produce.
 
-When multiple documents have identical scores, tie-breaking is resolved by **document ID** (lower ID wins). This provides deterministic, consistent ordering.
+```
+HSET doc:1 title "running shoes" category footwear splade <blob>
+JSON.SET doc:2 $ '{"splade": {"indices": [331, 14136], "values": [0.5, 0.7]}}'
+```
+
+### Query
+
+The query vector uses the same blob format as the HASH value, passed as a parameter.
+
+```
+# Top-10 by dot product
+FT.SEARCH idx "*=>[KNN 10 @splade $q AS dist]" PARAMS 2 q <blob> SORTBY dist DIALECT 2
+
+# Filtered: exact top-10 among footwear documents
+FT.SEARCH idx "(@category:{footwear})=>[KNN 10 @splade $q AS dist]" PARAMS 2 q <blob> DIALECT 2
+
+# Hybrid: full-text + sparse, fused with RRF
+FT.HYBRID idx SEARCH "@title:shoes" VSIM @splade $q KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 2 q <blob>
+```
+
+Range queries (`VECTOR_RANGE`) and dense + sparse fusion in a single `FT.HYBRID` are not part of the first version. The latter needs a decision on how `FT.HYBRID` composes two vector clauses.
+
+## Alternatives Considered
+
+| Alternative | Why rejected |
+|-------------|--------------|
+| Trie for dimension lookup | Dimension IDs are integers with no prefix queries; a hashmap is O(1) |
+| Array of posting lists indexed by dimension ID | Memory grows with `DIM` rather than with the dimensions in use, which is prohibitive for large hash spaces |
+| A cap on non-zero entries per vector instead of `DIM` | `DIM` matches how sparse models are described (vocabulary size), catches vectors from the wrong model, and already bounds the vector size |
+| Intersection of the query dimensions as the candidate set | Misses documents that lack some query dimension but still score highest (see [Candidate Set](#candidate-set-union-of-the-query-dimensions)) |
+| Metric-agnostic index, metric chosen per query, norms stored in DocumentMetadata | DocumentMetadata is per document, not per field, so it cannot hold a norm for each sparse field, and it adds memory to every document of every index. Dense vectors already fix the metric at creation |
+| L2 (Euclidean) distance | `‖q‖² + ‖d‖² − 2⟨q, d⟩` is finite for documents with no overlapping dimension, which can rank first, so the candidate set is the whole corpus and posting lists alone cannot answer the query |
+| Weighted Jaccard | Needs each document's full weight mass, like a norm; no demand identified |
+| Scoring in the result-processor scorer, as for TF-IDF | Every document in the union would flow through the result-processor pipeline instead of only the top K, and the query would not share the dense KNN top-K path |
+| Serializing posting lists to RDB | Indexes are rebuilt from the keyspace on load; persisting them adds a format commitment with no benefit |
+
+## Implementation Plan
+
+Each step is roughly one reviewable PR.
+
+| # | Step | Main locations | Status | Done when |
+|---|------|----------------|--------|-----------|
+| 0 | Proposal and design review, spec delta for the new field type and query semantics | `docs/design/`, GitHub issue | In progress | Maintainer agreement on metrics, syntax, union semantics |
+| 1 | Storage crate: `f32` weights, input validation, `COSINE` normalization | `sparse_vector_index/` | Partial: crate with `dim_id → posting list` exists; validation and normalization missing | Rust unit tests + property test against a brute-force dot product |
+| 2 | Schema: field type, parse `SPARSEVECTOR <nargs> …` (`DIM`, `DISTANCE_METRIC`, `TYPE`), `FT.INFO` output, spec RDB save/load of the field attributes, free on drop | `spec.c`, `field_spec.[ch]`, `info/` | Partial: `INDEXFLD_T_SPARSE_VECTOR` and the `FieldSpec` union member exist | Flow tests for create / info / invalid args / RDB reload |
+| 3 | Indexing: HASH blob and JSON parsing, add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Not started | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
+| 4 | Query: `SparseScoreSource` over the union, wired into `TopKIterator`, parser dispatch for `KNN` on a sparse field, `AS` score | `top_k`, `query.c`, `iterators_ffi` | Not started | Results equal a brute-force reference; filtered and unfiltered flow tests |
+| 5 | GC scanner | `index_gc/src/scanners/` | Not started | GC flow tests; memory returns after delete |
+| 6 | Cluster and `FT.HYBRID`: coordinator merge, `VSIM` on a sparse field, `FT.PROFILE` output | `coord/`, `hybrid/` | Not started | Cluster flow tests; hybrid RRF/LINEAR tests |
+| 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
+
+Later work: weight quantization, range queries, dense + sparse in one `FT.HYBRID`, approximate algorithms.
