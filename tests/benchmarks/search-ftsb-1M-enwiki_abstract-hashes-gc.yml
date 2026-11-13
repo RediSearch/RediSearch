@@ -12,6 +12,9 @@ dbconfig:
       - oss-standalone
   - configuration-parameters:
     - save: '""'
+  - module-configuration-parameters:
+      redisearch:
+        GC_POLICY: FORK
   - init_commands:
       - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
       - '"_FT.DEBUG" "GC_STOP_SCHEDULE" "benchIndex"'
