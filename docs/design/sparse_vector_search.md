@@ -42,11 +42,8 @@ sparse = {331: 0.5, 14136: 0.7}     # Only non-zero dimensions
 
 ### Use Cases for Sparse Vectors
 
-1. **Hybrid search**: Combining keyword matching (sparse) with semantic search (dense)
-2. **Domain-specific search**: Medical, legal, or technical domains with specialized terminology
-3. **Interpretable retrieval**: Understanding why documents match queries
-4. **Exact term matching**: Guaranteeing results contain specific keywords
-5. **Recommendation systems**: User preferences and item attributes can be represented as sparse vectors (e.g., user-item interaction matrices, feature-based item representations), enabling efficient similarity-based recommendations
+1. **Learned sparse retrieval**: Indexing and querying the output of learned sparse models such as SPLADE (see [Learned Sparse Representations](#learned-sparse-representations-splade)). Their weights and term expansion cannot be expressed through full-text search, which derives weights from term frequencies.
+2. **Recommendation systems**: User preferences and item attributes can be represented as sparse vectors (e.g., user-item interaction matrices, feature-based item representations), enabling efficient similarity-based recommendations
 
 ### Learned Sparse Representations (SPLADE)
 
