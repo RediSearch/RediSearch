@@ -262,7 +262,6 @@ fn applying_drops_an_emptied_dimension_and_reports_what_it_freed() {
     }
     let index = test.index(0);
     assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
-    assert_eq!(index.num_entries(), 3);
     assert_eq!(total.records_removed, 2);
     assert_eq!(
         memory_before + total.bytes_allocated,
@@ -318,7 +317,7 @@ fn a_thread_gc_cycle_collects_every_sparse_field() {
         let index = test.index(field);
         assert_eq!(index.dimension_ids_after(None), vec![1], "field {field}");
         assert_eq!(
-            index.num_entries(),
+            index.get_dimension(1).unwrap().unique_docs(),
             1,
             "only doc 3 remains in field {field}"
         );

@@ -110,15 +110,6 @@ struct SparseVectorIndex *SparseVectorIndex_New(uint64_t dim, uint32_t metric);
  */
 size_t SparseVectorIndex_NumDimensions(const struct SparseVectorIndex *index);
 
-/**
- * The number of `(doc_id, weight)` pairs stored.
- *
- * # Safety
- *
- * `index` is a valid pointer returned by [`SparseVectorIndex_New`].
- */
-size_t SparseVectorIndex_NumEntries(const struct SparseVectorIndex *index);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

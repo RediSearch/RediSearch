@@ -148,13 +148,11 @@ fn prepare_rejects_zero_norm_under_cosine() {
 #[test]
 fn add_tracks_dimensions_and_entries() {
     let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
-    assert!(index.is_empty());
     let first = index.add(1, &ip(&[(10, 0.5), (20, 0.3)])).unwrap();
     assert_eq!(first.records, 2);
     assert!(first.bytes > 0);
     index.add(2, &ip(&[(20, 0.1), (30, 0.2)])).unwrap();
     assert_eq!(index.num_dimensions(), 3);
-    assert_eq!(index.num_entries(), 4);
     assert!(index.memory_usage() > 0);
     assert_eq!(index.get_dimension(20).unwrap().unique_docs(), 2);
     assert!(index.get_dimension(40).is_none());
@@ -320,11 +318,9 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
     index.add(2, &ip(&[(2, 1.0), (3, 1.0)])).unwrap();
     index.add(3, &ip(&[(1, 1.0)])).unwrap();
     let memory_before = index.memory_usage();
-    assert_eq!(index.num_entries(), 5);
 
     // Doc 2 is the only one with dimension 3, so that dimension goes.
     assert_eq!(run_gc(&mut index, &[2]), 1);
-    assert_eq!(index.num_entries(), 3);
     assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
     assert!(index.memory_usage() < memory_before);
 
@@ -334,7 +330,6 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
 
     // Collecting everything leaves an empty index with no dimension.
     run_gc(&mut index, &[1, 3]);
-    assert!(index.is_empty());
     assert_eq!(index.num_dimensions(), 0);
     assert_eq!(index.memory_usage(), 0);
 }
@@ -355,7 +350,7 @@ fn gc_ignores_a_delta_for_a_replaced_posting_list() {
     let wrong_id = u32::from(list.unique_id()).wrapping_add(1);
     let delta = list.scan_gc(|id: u64| id != 1, NO_REPAIR).unwrap().unwrap();
     assert!(index.apply_gc(1, wrong_id, delta, None).is_none());
-    assert_eq!(index.num_entries(), 2);
+    assert_eq!(index.get_dimension(1).unwrap().unique_docs(), 2);
 
     let delta = index
         .get_dimension(1)

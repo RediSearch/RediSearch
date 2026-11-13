@@ -69,19 +69,6 @@ pub unsafe extern "C" fn SparseVectorIndex_NumDimensions(index: *const SparseVec
     unsafe { &*index }.num_dimensions()
 }
 
-/// The number of `(doc_id, weight)` pairs stored.
-///
-/// # Safety
-///
-/// `index` is a valid pointer returned by [`SparseVectorIndex_New`].
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SparseVectorIndex_NumEntries(
-    index: *const SparseVectorIndex,
-) -> usize {
-    // SAFETY: guaranteed by the caller.
-    unsafe { &*index }.num_entries()
-}
-
 /// Bytes used by the posting lists.
 ///
 /// # Safety

@@ -126,8 +126,6 @@ pub struct SparseVectorIndex {
     dim: u64,
     /// Bytes used by all posting lists.
     memory_usage: usize,
-    /// `(doc_id, weight)` pairs across all posting lists.
-    num_entries: usize,
     unique_id: u32,
 }
 
@@ -139,7 +137,6 @@ impl SparseVectorIndex {
             metric,
             dim,
             memory_usage: 0,
-            num_entries: 0,
             unique_id: NEXT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -186,7 +183,6 @@ impl SparseVectorIndex {
             outcome.records += 1;
         }
         self.memory_usage += outcome.bytes;
-        self.num_entries += outcome.records;
         Ok(outcome)
     }
 
@@ -200,19 +196,9 @@ impl SparseVectorIndex {
         self.dimensions.len()
     }
 
-    /// The number of `(doc_id, weight)` pairs across all posting lists.
-    pub const fn num_entries(&self) -> usize {
-        self.num_entries
-    }
-
     /// Bytes used by all posting lists, not counting the map itself.
     pub const fn memory_usage(&self) -> usize {
         self.memory_usage
-    }
-
-    /// Whether the index holds no entry.
-    pub const fn is_empty(&self) -> bool {
-        self.num_entries == 0
     }
 
     /// The dimension IDs that have a posting list, in no particular order.
@@ -253,7 +239,6 @@ impl SparseVectorIndex {
             return None;
         }
         let info = list.apply_gc_with(delta, live);
-        self.num_entries -= info.entries_removed;
         self.memory_usage =
             (self.memory_usage + info.bytes_allocated).saturating_sub(info.bytes_freed);
 

@@ -79,7 +79,7 @@ Sparse vector search is commonly implemented with an **inverted index**: each no
 │  dimension_99 ─→ [doc_2: 0.1, doc_3: 0.4, doc_8: 0.6]                    │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Field attributes: DIM, metric                                           │
-│  Stats: dimensions, entries, memory                                      │
+│  Stats: dimensions, memory                                               │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,7 +98,6 @@ pub struct SparseVectorIndex {
     /// Valid dimension IDs are `0..dim`; up to 2³², hence `u64`.
     dim: u64,
     memory_usage: usize,
-    num_entries: usize,
     /// Tells a replaced index apart from the one a GC scan saw.
     unique_id: u32,
 }
@@ -158,7 +157,6 @@ SparseVectorAddOutcome SparseVectorIndex_Add(SparseVectorIndex *index, t_docId d
                                              const PreparedSparseVector *vector);
 
 size_t SparseVectorIndex_NumDimensions(const SparseVectorIndex *index);
-size_t SparseVectorIndex_NumEntries(const SparseVectorIndex *index);
 size_t SparseVectorIndex_MemoryUsage(const SparseVectorIndex *index);
 ```
 
@@ -436,7 +434,7 @@ In the first version, sparse vector fields are RAM-only. `FT.CREATE` on a Flex i
 ### GC, Counters and Persistence
 
 - **GC** runs in compaction, as for tags: a compaction filter drops entries whose doc ID is in `DeletedIds` and removes emptied blocks. No sparse scanner from `index_gc` runs in disk mode.
-- **Counters** (entries per field, dimensions in use) are kept through a compaction-counter factory like `TagCompactionCounterFactory`, so `FT.INFO` stays correct as compaction removes entries.
+- **Counters** (dimensions in use) are kept through a compaction-counter factory like `TagCompactionCounterFactory`, so `FT.INFO` stays correct as compaction removes entries.
 - **Persistence differs from RAM mode.** Posting lists live in SpeedB and are not rebuilt from the keyspace. The spec RDB carries only the field attributes, and the disk-only state (`max_doc_id`, deleted IDs, record counts) travels in `IndexSpecRdbState`, which needs no sparse-specific additions beyond any new counters.
 - **Disk usage and metrics**: register the column family with the disk-usage callback registry so `FT.INFO` and the Flex metrics report it.
 
