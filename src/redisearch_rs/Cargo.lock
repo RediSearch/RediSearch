@@ -1132,6 +1132,7 @@ dependencies = [
  "rqe_core",
  "serde",
  "serde_bytes",
+ "sparse_vector_index",
  "string_utils",
  "thiserror",
  "tracing",
@@ -1961,6 +1962,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "sparse_vector_index",
  "string_utils",
  "thiserror",
  "trie_rs",
@@ -2266,6 +2268,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "sparse_vector_index_ffi",
  "spellcheck_dictionary_ffi",
  "string_utils_ffi",
  "syn 2.0.118",
@@ -2650,6 +2653,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "sparse_vector_index_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3036,6 +3040,38 @@ dependencies = [
  "thin_vec",
  "value",
  "value_ffi",
+ "workspace_hack",
+]
+
+[[package]]
+name = "sparse_vector_index"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "ffi",
+ "index_result",
+ "index_spec",
+ "inverted_index",
+ "proptest",
+ "redis_mock",
+ "redis_reply",
+ "redisearch_rs",
+ "rlookup",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "rustc-hash",
+ "sparse_vector_index",
+ "workspace_hack",
+]
+
+[[package]]
+name = "sparse_vector_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "sparse_vector_index",
  "workspace_hack",
 ]
 

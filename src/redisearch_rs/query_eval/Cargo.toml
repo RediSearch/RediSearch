@@ -34,6 +34,7 @@ rqe_core.workspace = true
 rqe_iterators.workspace = true
 rs_token.workspace = true
 search_disk.workspace = true
+sparse_vector_index.workspace = true
 string_utils.workspace = true
 thiserror.workspace = true
 trie_rs.workspace = true

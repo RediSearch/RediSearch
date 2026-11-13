@@ -25,6 +25,7 @@ pub(crate) mod numeric;
 pub(crate) mod optional;
 pub(crate) mod phrase;
 pub(crate) mod prefix;
+pub(crate) mod sparse_vector;
 pub(crate) mod tag;
 pub(crate) mod token;
 pub(crate) mod union;

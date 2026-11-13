@@ -64,6 +64,10 @@ use crate::{
         NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with, compact_tree,
         numeric_tree_keys, ranges_of_nodes_added_since, snapshot_numeric_node,
     },
+    scanners::sparse_vectors::{
+        SparseVectorSnapshot, SparseVectorsCursor, apply_sparse_vector_entry_with,
+        scan_sparse_vectors_after,
+    },
     scanners::tags::{TagSnapshot, TagsCursor, apply_tag_entry_with, scan_tags_after},
     scanners::terms::{TermsCursor, apply_terms_with, scan_terms_after},
     spec_access::SpecWriteAccess,
@@ -465,6 +469,34 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         Ok(())
     }
 
+    fn sparse_vectors(&mut self) -> Result<(), GcError> {
+        let mut cursor = SparseVectorsCursor::default();
+        let live = self.deleted;
+        let snapshot_chunk =
+            |guard: &IndexSpecReadGuard<'_>, should_stop: StopCheck<'_>, snapshots: &mut Vec<_>| {
+                scan_sparse_vectors_after(guard, &mut cursor, live, should_stop, snapshots)
+            };
+        let scan_snapshot = |snapshot: SparseVectorSnapshot| {
+            let tail = snapshot.snapshot.last_block_doc_id_range();
+            let span = snapshot.snapshot.doc_id_range();
+            Ok(snapshot
+                .scan(live)
+                .map_err(|e| (e, span))?
+                .map(|delta| (delta, tail)))
+        };
+        let apply_delta = |delta, guard: &mut IndexSpecWriteGuard<'_>| {
+            apply_sparse_vector_entry_with(delta, Some(&live), guard)
+        };
+        self.run(
+            "sparse vectors",
+            &mut Buffers::new(),
+            snapshot_chunk,
+            scan_snapshot,
+            apply_delta,
+        )?;
+        Ok(())
+    }
+
     fn missing_docs(&mut self) -> Result<(), GcError> {
         // One entry per INDEXMISSING field, so the list is short.
         let keys: Vec<FieldIndex> = self.read(missing_field_indexes)?;
@@ -564,6 +596,7 @@ pub fn run_cycle(
         .numeric(clean_numeric_empty_nodes)
         .map_err(|e| ("numeric", e))?;
     driver.tags().map_err(|e| ("tags", e))?;
+    driver.sparse_vectors().map_err(|e| ("sparse vectors", e))?;
     driver.missing_docs().map_err(|e| ("missing docs", e))?;
     driver.existing_docs().map_err(|e| ("existing docs", e))?;
 

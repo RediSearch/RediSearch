@@ -18,6 +18,7 @@ members = [
     "nul_terminated_bytes",
     "over_aligned_alloc",
     "numeric_range_tree",
+    "sparse_vector_index",
     "thin_vec",
     "qint",
     "query_error",
@@ -143,6 +144,7 @@ nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
+sparse_vector_index = { path = "./sparse_vector_index" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }

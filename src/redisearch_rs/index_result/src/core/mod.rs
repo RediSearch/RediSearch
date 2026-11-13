@@ -121,6 +121,18 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
         }
     }
 
+    /// Create a builder for a sparse vector score result with the given number
+    const fn sparse_score(num: f64) -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: RS_FIELDMASK_ALL,
+            freq: 0,
+            data: RawResultData::SparseScore(num),
+            weight: 1.0,
+            has_field_expiration: false,
+        }
+    }
+
     /// Create a builder for an intersection index result with the given capacity
     fn intersect(cap: usize) -> Self {
         Self {
@@ -563,6 +575,11 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         RawIndexResultBuilder::metric(num)
     }
 
+    /// Create a builder for a sparse vector score result with the given number
+    pub const fn build_sparse_score(num: f64) -> RawIndexResultBuilder<'query, R> {
+        RawIndexResultBuilder::sparse_score(num)
+    }
+
     /// Create a builder for an intersection index result with the given capacity
     pub fn build_intersect(cap: usize) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::intersect(cap)
@@ -601,7 +618,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {}
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {}
         }
         self.metrics.reset();
     }
@@ -621,7 +639,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         );
 
         match &self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => *numeric,
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => *numeric,
             RawResultData::Union(_)
             | RawResultData::Intersection(_)
             | RawResultData::Term(_)
@@ -649,7 +669,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         );
 
         match &mut self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => numeric,
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => numeric,
             RawResultData::Union(_)
             | RawResultData::Intersection(_)
             | RawResultData::Term(_)
@@ -665,7 +687,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// `None`.
     pub const fn as_numeric(&self) -> Option<f64> {
         match &self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(*numeric),
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => Some(*numeric),
             RawResultData::HybridMetric(_)
             | RawResultData::Union(_)
             | RawResultData::Intersection(_)
@@ -678,7 +702,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// returns `None`.
     pub const fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(numeric),
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => Some(numeric),
             RawResultData::HybridMetric(_)
             | RawResultData::Union(_)
             | RawResultData::Intersection(_)
@@ -709,6 +735,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => {
                 // SAFETY: unreachable because of safety condition 1
                 unsafe { std::hint::unreachable_unchecked() }
@@ -726,6 +753,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => None,
         }
     }
@@ -740,6 +768,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => None,
         }
     }
@@ -764,7 +793,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -782,7 +812,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
@@ -796,7 +827,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
@@ -822,7 +854,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -844,7 +877,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     const fn is_numeric(&self) -> bool {
         matches!(
             self.data,
-            RawResultData::Numeric(_) | RawResultData::Metric(_)
+            RawResultData::Numeric(_) | RawResultData::Metric(_) | RawResultData::SparseScore(_)
         )
     }
 
@@ -876,7 +909,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Term(RawTermRecord::Borrowed { .. })
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => false,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => false,
         }
     }
 }
@@ -972,7 +1006,8 @@ impl<'a> RSIndexResult<'a> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
@@ -1052,7 +1087,8 @@ impl<'a> RSIndexResult<'a> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 }

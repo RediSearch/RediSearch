@@ -75,6 +75,7 @@ fn non_proximity_scorers_skip_offsets() {
         BuiltInScorer::DisMax,
         BuiltInScorer::DocScore,
         BuiltInScorer::Hamming,
+        BuiltInScorer::Sparse,
         BuiltInScorer::Bm25Std,
         BuiltInScorer::Bm25StdTanh,
         BuiltInScorer::Bm25StdNorm,

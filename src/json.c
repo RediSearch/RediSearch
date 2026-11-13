@@ -27,6 +27,7 @@
 #include "search_ctx.h"
 #include "search_disk_api.h"
 #include "util/arr/arr.h"
+#include "util/strconv.h"
 
 struct RedisModuleCtx;
 
@@ -132,12 +133,14 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     }
     break;
   case JSONType_Object:
-    if (fieldType == INDEXFLD_T_GEOMETRY) {
-      // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
+    if (fieldType == INDEXFLD_T_GEOMETRY || fieldType == INDEXFLD_T_SPARSE_VECTOR) {
+      // A GEOSHAPE field can be represented as GEOJSON "geoshape" object, and a SPARSEVECTOR
+      // field as an {"indices": [...], "values": [...]} object
       rv = REDISMODULE_OK;
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                         "Invalid JSON type: Object type can represent only GEOMETRY fields");
+                          "Invalid JSON type: Object type can represent only GEOMETRY or "
+                          "SPARSEVECTOR fields");
     }
     break;
   // null type is not supported
@@ -675,6 +678,112 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
   }
 }
 
+/* Read one of the two arrays of a sparse vector object into the `(u32, f32)` pairs of `blob`,
+ * at `offset` (0 for the dimension ID, 4 for the weight) of each 8-byte pair. Allocates `*blob`
+ * for `len` pairs on first use, and checks every array has the same length. */
+static int JSON_ReadSparseVectorArray(RedisJSON arr, bool isIndices, char **blob, size_t *numPairs,
+                                      QueryError *status) {
+  if (japi->getType(arr) != JSONType_Array) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                        "Invalid JSON type: sparse vector indices and values must be arrays");
+    return REDISMODULE_ERR;
+  }
+  size_t len;
+  japi->getLen(arr, &len);
+  if (*blob && len != *numPairs) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL,
+                        "Sparse vector indices and values must have the same length");
+    return REDISMODULE_ERR;
+  }
+  if (!*blob) {
+    *numPairs = len;
+    // At least one byte, so an empty vector still has a buffer to mark its array as read.
+    *blob = rm_calloc(1, len * 8 + 1);
+  }
+
+  int rv = REDISMODULE_OK;
+  RedisJSONPtr element = japi->allocJson();
+  for (size_t i = 0; i < len && rv == REDISMODULE_OK; ++i) {
+    char *slot = *blob + i * 8 + (isIndices ? 0 : 4);
+    if (japi->getAt(arr, i, element) != REDISMODULE_OK) {
+      rv = REDISMODULE_ERR;
+    } else if (isIndices) {
+      long long id;
+      if (japi->getType(*element) != JSONType_Int ||
+          japi->getInt(*element, &id) != REDISMODULE_OK || id < 0 || id > UINT32_MAX) {
+        rv = REDISMODULE_ERR;
+      } else {
+        uint32_t v = (uint32_t)id;
+        memcpy(slot, &v, sizeof(v));  // the blob is little-endian, as is every supported target
+      }
+    } else {
+      double d;
+      if (japi->getDouble(*element, &d) != REDISMODULE_OK) {
+        long long ll;
+        if (japi->getInt(*element, &ll) != REDISMODULE_OK) {
+          rv = REDISMODULE_ERR;
+        } else {
+          d = (double)ll;
+        }
+      }
+      if (rv == REDISMODULE_OK) {
+        float f = (float)d;
+        memcpy(slot, &f, sizeof(f));
+      }
+    }
+    if (rv != REDISMODULE_OK) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                       "Invalid sparse vector %s at index %zu",
+                                       isIndices ? "index" : "value", i);
+    }
+  }
+  japi->freeJson(element);
+  return rv;
+}
+
+/* Store a JSON sparse vector, `{"indices": [...], "values": [...]}`, in the HASH value encoding:
+ * little-endian `(u32 dim_id, f32 weight)` pairs. The values themselves are checked when the
+ * field is indexed, as for HASH. */
+static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
+                                            QueryError *status) {
+  char *blob = NULL;
+  size_t numPairs = 0;
+  bool hasIndices = false, hasValues = false;
+  int rv = REDISMODULE_OK;
+
+  JSONKeyValuesIterator iter = japi->getKeyValues(obj);
+  RedisModuleString *keyName;
+  RedisJSONPtr value_ptr = japi->allocJson();
+  while (rv == REDISMODULE_OK && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
+    size_t klen;
+    const char *key = RedisModule_StringPtrLen(keyName, &klen);
+    if (STR_EQ(key, klen, "indices")) {
+      hasIndices = true;
+      rv = JSON_ReadSparseVectorArray(*value_ptr, true, &blob, &numPairs, status);
+    } else if (STR_EQ(key, klen, "values")) {
+      hasValues = true;
+      rv = JSON_ReadSparseVectorArray(*value_ptr, false, &blob, &numPairs, status);
+    }
+    RedisModule_FreeString(NULL, keyName);
+  }
+  japi->freeJson(value_ptr);
+  japi->freeKeyValuesIter(iter);
+
+  if (rv == REDISMODULE_OK && !(hasIndices && hasValues)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL,
+                        "Sparse vector object must have `indices` and `values` arrays");
+    rv = REDISMODULE_ERR;
+  }
+  if (rv != REDISMODULE_OK) {
+    rm_free(blob);
+    return REDISMODULE_ERR;
+  }
+  df->strval = blob;
+  df->strlen = numPairs * 8;
+  df->unionType = FLD_VAR_T_CSTR;
+  return REDISMODULE_OK;
+}
+
 RedisJSON JSONIterable_Next(JSONIterable *iterable) {
   switch (iterable->type) {
     case ITERABLE_ITER:
@@ -880,8 +989,12 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       }
       break;
     case JSONType_Object:
-      rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
+      if (fs->types == INDEXFLD_T_SPARSE_VECTOR) {
+        rv = JSON_StoreSparseVectorInDocField(json, df, status);
+      } else {
+        rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
+      }
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");

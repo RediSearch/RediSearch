@@ -147,6 +147,7 @@ void QueryNode_Free(QueryNode *n) {
         n->fn.docIds = NULL;
       }
       break;
+    case QN_SPARSE_VECTOR:  // the blob is borrowed from the request's PARAMS
     case QN_MISSING:
     case QN_WILDCARD:
     case QN_TAG:
@@ -344,6 +345,16 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->gf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewSparseVectorNode_WithParams(QueryParseCtx *q, const FieldSpec *field,
+                                          QueryToken *vec) {
+  QueryNode *ret = NewQueryNode(QN_SPARSE_VECTOR);
+  ret->svn.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
+  vec->type = QT_PARAM_VEC;
+  QueryNode_InitParams(ret, 1);
+  QueryNode_SetParam(q, &ret->params[0], &ret->svn.blob, &ret->svn.blobLen, vec);
   return ret;
 }
 
@@ -726,6 +737,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
     case QN_GEOMETRY:
+    case QN_SPARSE_VECTOR:
       res = QueryNode_EvalParamsCommon(params, n, dialectVersion, status);
       break;
     case QN_UNION:
@@ -900,6 +912,9 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_IDS:
     case QN_WILDCARD:
     case QN_GEOMETRY:
+      break;
+    case QN_SPARSE_VECTOR:
+      withChildren = false;
       break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
@@ -1205,6 +1220,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       const FieldSpec *missFs = spec->fields + qs->miss.fieldIndex;
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(missFs->fieldName, NULL));
     } break;
+    case QN_SPARSE_VECTOR: {
+      const FieldSpec *svFs = spec->fields + qs->svn.fieldIndex;
+      s = sdscatprintf(s, "SPARSE_VECTOR{@%s: %zu dimensions}",
+                       HiddenString_GetUnsafe(svFs->fieldName, NULL), qs->svn.blobLen / 8);
+      if (qs->opts.distField) {
+        s = sdscatprintf(s, " => {$YIELD_SCORE_AS: %s}", qs->opts.distField);
+      }
+    } break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1372,7 +1395,16 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     // qn->opts.noPhonetic = PHONETIC_DEFAULT -> means no special asks regarding phonetics
     //                                          will be enable if field was declared phonetic
 
-  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
+  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_SCORE_ATTR) &&
+             qn->type == QN_SPARSE_VECTOR) {
+    // The sparse score is a similarity, so it is yielded as a score rather than a distance.
+    rm_free(qn->opts.distField);
+    qn->opts.distField = (char *)attr->value;
+    attr->value = NULL;
+    res = 1;
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) &&
+             qn->opts.flags & QueryNode_YieldsDistance) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     qn->opts.distField = (char *)attr->value;
     attr->value = NULL;
