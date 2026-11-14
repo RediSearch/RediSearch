@@ -58,6 +58,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline std::vector<std::vector<Desc>> openCalls;
   // The schema must be complete before the database is opened.
   static inline std::vector<size_t> numFieldsAtOpen;
+  static inline std::vector<IndexFlags> flagsAtOpen;
   static inline bool openResult = true;
   // When set, the mock refuses the open and reports this reason through `status`.
   static inline const char *openError = nullptr;
@@ -66,10 +67,11 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
 
-  static bool recordSchema(RedisModuleCtx *ctx, void *privateData, const SearchDiskField *fields,
-                           size_t n) {
+  static bool recordSchema(RedisModuleCtx *ctx, void *privateData, IndexFlags flags,
+                           const SearchDiskField *fields, size_t n) {
     auto *index = reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
     EXPECT_EQ(ctx, RSDummyContext);
+    flagsAtOpen.push_back(flags);
     numFieldsAtOpen.push_back(reinterpret_cast<IndexSpec *>(index)->numFields);
     std::vector<Desc> descs;
     bool indexMissing = false;
@@ -105,6 +107,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     events.clear();
     openCalls.clear();
     numFieldsAtOpen.clear();
+    flagsAtOpen.clear();
     openResult = true;
     openError = nullptr;
     initMissingResult = true;
@@ -115,7 +118,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
     // The mock uses the C spec as an opaque disk handle.
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
-                                 const char *, size_t, DocumentType, bool,
+                                 const char *, size_t, DocumentType, bool, IndexFlags flags,
                                  const SearchDiskField *fields, size_t n,
                                  const SearchDiskCompactionCallbacks *, void *privateData,
                                  QueryError *status) {
@@ -124,17 +127,18 @@ class DiskSchemaOpenTest : public ::testing::Test {
         QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, openError);
         return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
       }
-      return recordSchema(ctx, privateData, fields, n)
+      return recordSchema(ctx, privateData, flags, fields, n)
                  ? reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData)
                  : nullptr;
     };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *state, const SearchDiskField *fields, size_t n,
-           const SearchDiskCompactionCallbacks *, void *privateData) {
+           DocumentType, RedisSearchDiskRdbState *state, IndexFlags flags,
+           const SearchDiskField *fields, size_t n, const SearchDiskCompactionCallbacks *,
+           void *privateData) {
           EXPECT_EQ(state, reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken));
           events.emplace_back("openIndexWithRdbState");
-          return recordSchema(ctx, privateData, fields, n)
+          return recordSchema(ctx, privateData, flags, fields, n)
                      ? reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData)
                      : nullptr;
         };
@@ -178,9 +182,12 @@ class DiskSchemaOpenTest : public ::testing::Test {
     ConcurrentSearch_ThreadPoolDestroy();
   }
 
-  // FT.CREATE <name> SKIPINITIALSCAN SCHEMA <schema...>
-  IndexSpec *create(const char *name, std::vector<const char *> schema, QueryError *err) {
-    std::vector<const char *> argv = {"FT.CREATE", name, "SKIPINITIALSCAN", "SCHEMA"};
+  // FT.CREATE <name> SKIPINITIALSCAN <options...> SCHEMA <schema...>
+  IndexSpec *create(const char *name, std::vector<const char *> schema, QueryError *err,
+                    std::vector<const char *> options = {}) {
+    std::vector<const char *> argv = {"FT.CREATE", name, "SKIPINITIALSCAN"};
+    argv.insert(argv.end(), options.begin(), options.end());
+    argv.push_back("SCHEMA");
     argv.insert(argv.end(), schema.begin(), schema.end());
     RMCK::ArgvList args(RSDummyContext, argv.data(), argv.size());
     IndexSpec *sp = Indexes_CreateNewSpec(RSDummyContext, args, args.size(), err);
@@ -221,6 +228,16 @@ TEST_F(DiskSchemaOpenTest, CreateOpensAllFieldsOnceAfterParsing) {
   EXPECT_TRUE(sp->fields[4].vectorOpts.diskCtx.rerank);
   EXPECT_FALSE(sp->fields[5].vectorOpts.diskCtx.rerank);
   EXPECT_NE(sp->fields[1].tagOpts.tagIndex, nullptr);
+}
+
+TEST_F(DiskSchemaOpenTest, CreateForwardsIndexFlags) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("open_fields_flags", {"title", "TEXT"}, &err, {"NOOFFSETS", "NOFIELDS"});
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+
+  EXPECT_EQ(flagsAtOpen, std::vector<IndexFlags>{sp->flags});
+  EXPECT_FALSE(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets));
+  EXPECT_FALSE(sp->flags & Index_StoreFieldFlags);
 }
 
 TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
@@ -349,9 +366,10 @@ class DiskSchemaOpenLoadTest : public DiskSchemaOpenTest {
   IndexSpec *loaded = nullptr;
 
   // Saves a disk index created from `schema` and loads it back without opening its disk index.
-  void saveAndLoad(const char *name, std::vector<const char *> schema) {
+  void saveAndLoad(const char *name, std::vector<const char *> schema,
+                   std::vector<const char *> options = {}) {
     QueryError err = QueryError_Default();
-    IndexSpec *sp = create(name, schema, &err);
+    IndexSpec *sp = create(name, schema, &err, options);
     ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
     io = RMCK_CreateRdbIO();
     IndexSpec_RdbSave(io, sp, 0);
@@ -364,6 +382,7 @@ class DiskSchemaOpenLoadTest : public DiskSchemaOpenTest {
     ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
     events.clear();
     openCalls.clear();
+    flagsAtOpen.clear();
     closeOnMainThreadCalls = closeIndexSpecCalls = 0;
   }
 
@@ -412,6 +431,17 @@ TEST_F(DiskSchemaOpenLoadTest, RdbLoadFailsWhenOpeningFieldsFails) {
   EXPECT_EQ(closeOnMainThreadCalls, 0);
 }
 
+TEST_F(DiskSchemaOpenLoadTest, RdbLoadForwardsIndexFlags) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_rdb_flags", {"title", "TEXT"}, {"NOOFFSETS"}));
+
+  QueryError err = QueryError_Default();
+  ASSERT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_OK)
+      << QueryError_GetUserError(&err);
+
+  EXPECT_EQ(flagsAtOpen, std::vector<IndexFlags>{loaded->flags});
+  EXPECT_FALSE(loaded->flags & Index_StoreTermOffsets);
+}
+
 TEST_F(DiskSchemaOpenLoadTest, RdbLoadReportsTheDiskLayersReason) {
   ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_rdb_reason", {"title", "TEXT"}));
 
@@ -437,6 +467,16 @@ TEST_F(DiskSchemaOpenLoadTest, SstOpenOpensNonVectorFieldsOnce) {
   EXPECT_EQ(events, (std::vector<std::string>{"openIndexWithRdbState"}));
   ASSERT_EQ(openCalls.size(), 1u);
   EXPECT_EQ(openCalls[0], (std::vector<Desc>(kLoadedFields.begin(), kLoadedFields.end() - 1)));
+}
+
+TEST_F(DiskSchemaOpenLoadTest, SstOpenForwardsIndexFlags) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_sst_flags", {"title", "TEXT"}, {"NOFIELDS"}));
+  loaded->pendingDiskRdbState = reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken);
+
+  ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
+
+  EXPECT_EQ(flagsAtOpen, std::vector<IndexFlags>{loaded->flags});
+  EXPECT_FALSE(loaded->flags & Index_StoreFieldFlags);
 }
 
 TEST_F(DiskSchemaOpenLoadTest, SstOpenPassesVectorSchemaBeforeCreatingVector) {

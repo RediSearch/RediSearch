@@ -24,8 +24,9 @@ pub enum HandleOutcome {
 ///
 /// Every way the child's frame stream can fail us is a [`GcError::Codec`].
 /// [`GcError::SpecDeleted`] covers the index being dropped before the parent
-/// could apply the delta. Scanner-specific apply failures are represented by
-/// [`GcError::ApplyError`].
+/// could apply the delta, [`GcError::TargetGone`] the index a delta was for
+/// being removed or replaced since its scan. Other scanner-specific apply
+/// failures are [`GcError::ApplyError`].
 #[derive(Debug, thiserror::Error)]
 pub enum GcError {
     /// The child's frame stream could not be read or decoded; the child likely
@@ -43,9 +44,23 @@ pub enum GcError {
     #[error("the index spec was deleted before the delta could be applied")]
     SpecDeleted,
 
+    /// The index a delta was for was removed, or replaced by a new one, between the
+    /// scan and the apply.
+    ///
+    /// The only error a caller may skip a delta on and still count its deleted IDs
+    /// collected: a removed index's entries went with it, and a replacement holds
+    /// none of the IDs deleted before the scan, since an ID is never reused.
+    #[error("{0}")]
+    TargetGone(&'static str),
+
     /// A scanner-specific failure while applying a delta.
     #[error("{0}")]
     ApplyError(&'static str),
+
+    /// The doc table does not track deleted documents, so an in-process cycle has
+    /// nothing to find garbage with.
+    #[error("the document table does not track deleted documents")]
+    DeletionsUntracked,
 }
 
 impl GcError {

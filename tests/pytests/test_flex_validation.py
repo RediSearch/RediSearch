@@ -116,17 +116,26 @@ def test_valid_flex_arguments(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_storage_flag_arguments(env):
+    """NOOFFSETS and NOFIELDS are accepted in Flex mode and reported by FT.INFO"""
+    # NOOFFSETS also drops byte offsets, so FT.INFO reports NOHL with it, as in RAM.
+    for name, args, expected in [
+            ('idx_nooffsets', ['NOOFFSETS'], ['NOOFFSETS', 'NOHL']),
+            ('idx_nofields', ['NOFIELDS'], ['NOFIELDS']),
+            ('idx_both', ['NOOFFSETS', 'NOFIELDS'], ['NOFIELDS', 'NOOFFSETS', 'NOHL'])]:
+        env.expect('FT.CREATE', name, 'ON', 'HASH', 'SKIPINITIALSCAN', *args,
+                   'SCHEMA', 'field', 'TEXT').ok()
+        options = to_dict(env.cmd('FT.INFO', name))['index_options']
+        env.assertEqual(sorted(options), sorted(expected), message=name)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_unsupported_flex_arguments(env):
     """Test that unsupported FT.CREATE arguments fail in Flex mode"""
     # Test unsupported arguments that are valid in regular mode
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOOFFSETS', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Unsupported argument for Flex index: `NOOFFSETS`')
-
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOHL', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOHL`')
-
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOFIELDS', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Unsupported argument for Flex index: `NOFIELDS`')
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'NOFREQS', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `NOFREQS`')

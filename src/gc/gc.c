@@ -81,32 +81,28 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(struct timespec interval) {
-  long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
-
+static long long getNextPeriod(long long intervalMs) {
   // add randomness to avoid congestion by multiple GCs from different shards
-  ms += (rand() % interval.tv_sec) * 1000;
-
-  return ms;
+  return intervalMs > 0 ? intervalMs + rand() % intervalMs : intervalMs;
 }
 
-static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval) {
+static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(interval), timerCallback, gc);
+  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(intervalMs), timerCallback, gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
 // the no-timer-while-a-run-is-pending invariant comes from QueueRun declining and timerCallback
 // zeroing timerID, not from the RunPending check here. A spec paused for a consistency window
 // arms nothing; the window's resume re-arms it.
-static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
+static bool GCContext_ArmTimerIn(GCContext* gc, long long intervalMs) {
   if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
       GCContext_IsSchedulingPaused(gc)) {
     return false;
   }
-  gc->timerID = scheduleNextIn(gc, interval);
+  gc->timerID = scheduleNextIn(gc, intervalMs);
   if (gc->timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
     return false;
@@ -115,7 +111,7 @@ static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
 }
 
 static void GCContext_ArmTimer(GCContext* gc) {
-  GCContext_ArmTimerIn(gc, gc->callbacks.getInterval(gc->gcCtx));
+  GCContext_ArmTimerIn(gc, gc->callbacks.getIntervalMs(gc->gcCtx));
 }
 
 static void GCContext_DisarmTimer(GCContext* gc) {
@@ -145,7 +141,7 @@ static void GCContext_QueueRun(GCContext* gc) {
 static void rearmOneShotCb(void* data) {
   GCContext* gc = data;
   RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
-  if (GCContext_ArmTimerIn(gc, gc->pendingInterval)) {
+  if (GCContext_ArmTimerIn(gc, gc->pendingIntervalMs)) {
     IncrementGCTimerArmFromOneShot();
   }
 }
@@ -168,7 +164,7 @@ static void taskCallback(void* data) {
       RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
       return;
     }
-    gc->pendingInterval = gc->callbacks.getInterval(gc->gcCtx);
+    gc->pendingIntervalMs = gc->callbacks.getIntervalMs(gc->gcCtx);
 
     // Test hook (ENABLE_ASSERT): park with the pass over but the re-arm not yet posted -- the
     // window a drop can overtake, where RUN_PENDING is held by a run that no longer exists.
