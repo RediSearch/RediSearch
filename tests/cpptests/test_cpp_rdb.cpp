@@ -340,17 +340,35 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadRejectsNumericStorageFlag) {
   }
 }
 
-TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
-  const auto originalGetKeyName = RedisModule_GetKeyNameFromIO;
-  const bool originalLoading = g_isLoading;
+// Sets up the globals IndexSpec_LegacyRdbLoad requires, as an RDB load does, and restores them.
+class LegacyLoadScope {
+ public:
+  LegacyLoadScope() {
+    RedisModule_GetKeyNameFromIO = [](RedisModuleIO *) -> const RedisModuleString * {
+      return nullptr;
+    };
+    g_isLoading = true;
+    legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+    legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+  }
+  ~LegacyLoadScope() {
+    dictRelease(legacySpecRules);
+    dictRelease(legacySpecDict);
+    legacySpecRules = originalRules;
+    legacySpecDict = originalSpecs;
+    g_isLoading = originalLoading;
+    RedisModule_GetKeyNameFromIO = originalGetKeyName;
+  }
+
+ private:
+  decltype(RedisModule_GetKeyNameFromIO) originalGetKeyName = RedisModule_GetKeyNameFromIO;
+  bool originalLoading = g_isLoading;
   dict *originalRules = legacySpecRules;
   dict *originalSpecs = legacySpecDict;
-  RedisModule_GetKeyNameFromIO = [](RedisModuleIO *) -> const RedisModuleString * {
-    return nullptr;
-  };
-  g_isLoading = true;
-  legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
-  legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+};
+
+TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
+  LegacyLoadScope legacyLoad;
 
   for (int encver = LEGACY_INDEX_MIN_VERSION; encver <= LEGACY_INDEX_MAX_VERSION; ++encver) {
     for (bool numericStorage : {false, true}) {
@@ -369,13 +387,6 @@ TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
       EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
     }
   }
-
-  dictRelease(legacySpecRules);
-  dictRelease(legacySpecDict);
-  legacySpecRules = originalRules;
-  legacySpecDict = originalSpecs;
-  g_isLoading = originalLoading;
-  RedisModule_GetKeyNameFromIO = originalGetKeyName;
 }
 
 // Parses `args` into a spec, saves it and loads it back with `encver`, then
@@ -606,6 +617,145 @@ TEST_F(RdbMockTest, testFailedRestoreCapacityUnpublishesSpec) {
 TEST_F(RdbMockTest, testFailedDiskOpenUnpublishesSpec) {
     ScopedMockDisk mockDisk;
     ExpectFailedLoadUnpublishes();
+}
+
+// Leaves stack slots that, read as an uninitialized QueryError, carry an OK code and non-null
+// message pointers — the state in which QueryError_SetError frees garbage.
+// Leaves stack memory that an uninitialized QueryError in a later frame reads as an OK code with
+// non-null messages, so setting an error on it frees garbage instead of passing by chance.
+static void __attribute__((noinline)) dirtyStackForUninitializedQueryError() {
+  volatile uint64_t slots[8192];
+  for (size_t i = 0; i < std::size(slots); i++) {
+    slots[i] = 0xdeadbe00;
+  }
+}
+
+TEST_F(RdbMockTest, testDuplicateIndexRdbLoadWithRegisteredAlias) {
+  const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
+  QueryError err = QueryError_Default();
+  HiddenString *alias = NewHiddenString("dup_alias", strlen("dup_alias"), false);
+  std::unique_ptr<HiddenString, void (*)(HiddenString *)> aliasGuard(
+      alias, [](HiddenString *a) { HiddenString_Free(a, false); });
+  StrongRef spec_ref = IndexSpec_ParseC(NULL, "dup_alias_idx", args, std::size(args), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
+  Spec_AddToDict(spec_ref.rm);
+  std::unique_ptr<IndexSpec, void (*)(IndexSpec *)> specGuard(
+      spec, [](IndexSpec *s) { Indexes_RemoveSpecFromGlobals(s->own_ref, false); });
+
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(alias, spec_ref, 0, &err));
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *io) { RMCK_FreeRdbIO(io); });
+  const size_t nCopies = 3;
+  RMCK_SaveUnsigned(io, nCopies);
+  for (size_t i = 0; i < nCopies; i++) {
+    IndexSpec_RdbSave(io, spec, 0);
+  }
+  io->read_pos = 0;
+
+  dirtyStackForUninitializedQueryError();
+  ASSERT_EQ(REDISMODULE_OK, Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB));
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // The registered spec and its alias are untouched by the discarded duplicates.
+  EXPECT_EQ(1, Indexes_Count());
+  EXPECT_EQ(spec_ref.rm, Indexes_LoadIndexSpecUnsafe("dup_alias_idx").rm);
+  EXPECT_EQ(spec_ref.rm, IndexAlias_Get(alias).rm);
+  ASSERT_EQ(1, array_len(spec->aliases));
+
+  ASSERT_EQ(REDISMODULE_OK, IndexAlias_Del(alias, spec_ref, 0, &err));
+  EXPECT_EQ(NULL, IndexAlias_Get(alias).rm);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+}
+
+// The oldest layout that IndexSpec_LegacyRdbLoad reads aliases from, compacted doc table included.
+static constexpr int kLegacyAliasEncver = LEGACY_INDEX_MAX_VERSION;
+static_assert(kLegacyAliasEncver >= INDEX_MIN_ALIAS_VERSION &&
+              kLegacyAliasEncver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION &&
+              kLegacyAliasEncver < INDEX_DISK_VERSION);
+
+// Writes a kLegacyAliasEncver spec with no fields, documents or terms, and one alias.
+static void saveLegacySpecWithAlias(RedisModuleIO *io, const char *name, const char *alias) {
+  RMCK_SaveStringBuffer(io, name, strlen(name) + 1);
+  RMCK_SaveUnsigned(io, INDEX_DEFAULT_FLAGS);
+  RMCK_SaveUnsigned(io, 0);  // fields
+  for (int i = 0; i < 10; i++) {
+    RMCK_SaveUnsigned(io, 0);  // stats
+  }
+  RMCK_SaveUnsigned(io, 1);  // doc table size, which counts the unused doc id 0
+  RMCK_SaveUnsigned(io, 0);  // doc table max doc id
+  RMCK_SaveUnsigned(io, 0);  // doc table max size
+  RMCK_SaveUnsigned(io, 0);  // terms
+  RMCK_SaveUnsigned(io, 0);  // timeout
+  RMCK_SaveUnsigned(io, 1);  // aliases
+  RMCK_SaveStringBuffer(io, alias, strlen(alias) + 1);
+}
+
+// The upgrade definition that FT.CONFIG's UPGRADE_INDEX would register for `name`.
+static void addLegacyRule(const char *name, const char *scoreDefault) {
+  SchemaRuleArgs *rule = (SchemaRuleArgs *)rm_calloc(1, sizeof(*rule));
+  rule->type = rm_strdup(RULE_TYPE_HASH);
+  rule->nprefixes = 1;
+  rule->prefixes = (const char **)rm_malloc(sizeof(*rule->prefixes));
+  rule->prefixes[0] = rm_strdup("legacy:");
+  rule->score_default = scoreDefault ? rm_strdup(scoreDefault) : nullptr;
+  HiddenString *key = NewHiddenString(name, strlen(name), false);
+  dictAdd(legacySpecRules, key, rule);
+  HiddenString_Free(key, false);
+}
+
+TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRegistersAlias) {
+  LegacyLoadScope legacyLoad;
+  HiddenString *alias = NewHiddenString("legacy_alias", strlen("legacy_alias"), false);
+  std::unique_ptr<HiddenString, void (*)(HiddenString *)> aliasGuard(
+      alias, [](HiddenString *a) { HiddenString_Free(a, false); });
+  addLegacyRule("legacy_alias_idx", nullptr);
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  saveLegacySpecWithAlias(io.get(), "legacy_alias_idx", "legacy_alias");
+
+  dirtyStackForUninitializedQueryError();
+  StrongRef loaded = {(RefManager *)IndexSpec_LegacyRdbLoad(io.get(), kLegacyAliasEncver)};
+  ASSERT_NE(loaded.rm, nullptr);
+  std::unique_ptr<RefManager, void (*)(RefManager *)> loadedGuard(loaded.rm, [](RefManager *rm) {
+    IndexSpec *sp = (IndexSpec *)StrongRef_Get({rm});
+    dictDelete(legacySpecDict, sp->specName);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
+  });
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+  EXPECT_EQ(IndexAlias_Get(alias).rm, loaded.rm);
+  EXPECT_EQ(array_len(((IndexSpec *)StrongRef_Get(loaded))->aliases), 1);
+}
+
+// The aliases load before the upgrade definition is looked up, so a spec that fails after them
+// must not stay reachable through them once it is freed.
+TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadFailureUnregistersAlias) {
+  enum class Rule { Missing, InvalidScore };
+  for (Rule rule : {Rule::Missing, Rule::InvalidScore}) {
+    SCOPED_TRACE(::testing::Message()
+                 << "rule=" << (rule == Rule::Missing ? "missing" : "invalid"));
+    LegacyLoadScope legacyLoad;
+    HiddenString *alias = NewHiddenString("legacy_alias", strlen("legacy_alias"), false);
+    std::unique_ptr<HiddenString, void (*)(HiddenString *)> aliasGuard(
+        alias, [](HiddenString *a) { HiddenString_Free(a, false); });
+    if (rule == Rule::InvalidScore) {
+      addLegacyRule("legacy_alias_idx", "2");
+    }
+    std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                 RMCK_FreeRdbIO);
+    saveLegacySpecWithAlias(io.get(), "legacy_alias_idx", "legacy_alias");
+
+    dirtyStackForUninitializedQueryError();
+    EXPECT_EQ(IndexSpec_LegacyRdbLoad(io.get(), kLegacyAliasEncver), nullptr);
+    EXPECT_EQ(dictSize(legacySpecDict), 0);
+    EXPECT_EQ(IndexAlias_Get(alias).rm, nullptr);
+    if (IndexAlias_Get(alias).rm) {
+      // Keep the dangling entry away from later tests.
+      dictDelete(AliasTable_g->d, alias);
+    }
+  }
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
