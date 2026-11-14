@@ -136,6 +136,24 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   return RS_RESULT_OK;
 }
 
+static bool profileTimedOutResp2(MRReply *profile) {
+  MRReply *shards = MRReply_ArrayElement(profile, 1);
+  MRReply *shard = MRReply_ArrayElement(shards, 0);
+  for (size_t i = 0; i + 1 < MRReply_Length(shard); i += 2) {
+    if (!MRReply_StringEquals(MRReply_ArrayElement(shard, i), "Warning", 1)) {
+      continue;
+    }
+    MRReply *warnings = MRReply_ArrayElement(shard, i + 1);
+    for (size_t j = 0; j < MRReply_Length(warnings); ++j) {
+      if (MRReply_StringEquals(MRReply_ArrayElement(warnings, j),
+                               QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), 1)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
@@ -184,6 +202,7 @@ int getNextReply(RPNet *nc) {
     return RS_RESULT_OK;
   }
 
+  bool shardTimedOut = false;
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
     // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
@@ -209,6 +228,11 @@ int getNextReply(RPNet *nc) {
         // ]
         RS_ASSERT(MRReply_Length(root) == 3);
         profile_data = MRReply_TakeArrayElement(root, 2);
+        // RESP2 has no result warnings; a cooperative shard timeout is only
+        // visible in its profile. FAIL must discard buffered rows in this case.
+        shardTimedOut = nc->areq && IsAggregate(nc->areq) &&
+                        nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+                        profileTimedOutResp2(profile_data);
       }
       array_append(nc->shardsProfile, profile_data);
     }
@@ -229,6 +253,11 @@ int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
   nc->current.meta = meta;
+
+  if (shardTimedOut) {
+    nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
+    return RS_RESULT_TIMEDOUT;
+  }
 
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
