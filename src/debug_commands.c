@@ -4085,6 +4085,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
                                {"DISK_LIVE_QUERY_VIEWS", DiskLiveQueryViews},
+                               {"DISK_LIVE_SNAPSHOTS", DiskLiveQueryViews}, // Former name, kept for existing diagnostic scripts.
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
