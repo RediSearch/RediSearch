@@ -132,6 +132,25 @@ fn intersection_drops_agreed_documents_below_the_threshold() {
     assert_eq!(drain_above(&mut it, min_competitive(4.0)), [4, 5, 6]);
 }
 
+#[test]
+fn intersection_passes_over_a_target_its_aligned_children_rule_out() {
+    // Together the blocks reach 4.0, so no window is skipped; but at 4 and 8 the lead `a` scores
+    // only 1.0, and with `b`'s block maximum the target cannot reach 3.5.
+    let (a, _) = leaf(vec![Block::tight(&[
+        (2, 1.0),
+        (4, 1.0),
+        (6, 3.0),
+        (8, 1.0),
+    ])]);
+    let (b, b_log) = leaf(vec![Block::uniform(1..=10, 1.0)]);
+    let mut it = Intersection::new(vec![a, b], 1.0, false);
+
+    assert_eq!(drain_above(&mut it, min_competitive(3.5)), [6]);
+    // `b` is moved onto 2, before it stands in a block, and onto 6; never onto 4 or 8.
+    assert_eq!(visited(&b_log), [2, 6]);
+    assert_eq!(b_log.borrow().skip_tos, 2);
+}
+
 /****************************** unions ******************************/
 
 /// Builds a union over leaves, under the name of its variant.

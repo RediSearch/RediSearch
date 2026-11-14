@@ -445,14 +445,49 @@ where
         }
     }
 
+    /// Upper bound on the score of `target`, should every child match it, from what the children
+    /// already hold: a child on `target` contributes its own
+    /// [`current_max_score`](RQEIterator::current_max_score), one behind it the maximum of the
+    /// block it stands in, provided that block reaches `target`. A child whose block does not
+    /// reach `target`, or that reports none, makes the bound infinite. Scaled as in
+    /// [`summed_max_score`].
+    ///
+    /// `target` must be the furthest any child stands, as in
+    /// [`read_above_threshold`](Self::read_above_threshold).
+    fn target_bound(&self, target: DocId) -> f64 {
+        let sum: f64 = self
+            .children
+            .iter()
+            .map(|child| {
+                debug_assert!(
+                    child.last_doc_id() <= target,
+                    "no child stands past the alignment target",
+                );
+                if child.last_doc_id() == target {
+                    return child.current_max_score();
+                }
+                match child.current_block_bound() {
+                    Some(block) if block.last_doc_id >= target => block.max_score,
+                    _ => f64::INFINITY,
+                }
+            })
+            .sum();
+        sum * self.result.weight.max(1.0)
+    }
+
     /// Reads the next document that can reach `min_competitive_score`, as
     /// [`read_with_threshold`](RQEIterator::read_with_threshold) does.
     ///
     /// Aligns the children as [`find_consensus`](Self::find_consensus) does, except that before
-    /// each step it checks the window from the alignment target up to the earliest end among the
-    /// children's blocks: every document there that all children can match is bounded by the sum of
-    /// their block bounds, so when that sum cannot reach the threshold the first child jumps past
-    /// the window. An agreed document whose own bound cannot reach it is dropped.
+    /// each step it runs two checks, each of which moves only the first child:
+    /// - The window from the alignment target up to the earliest end among the children's blocks:
+    ///   every document there that all children can match is bounded by the sum of their block
+    ///   bounds, so when that sum cannot reach the threshold the first child jumps past the window.
+    /// - The target itself, by [`target_bound`](Self::target_bound): when the children already on
+    ///   it and the blocks of the others cannot reach the threshold, the first child moves past it
+    ///   and the others are not moved onto it.
+    ///
+    /// An agreed document whose own bound cannot reach the threshold is dropped.
     fn read_above_threshold(
         &mut self,
         min_competitive_score: MinCompetitiveScore,
@@ -471,6 +506,22 @@ where
                 && let Some(past_window) = last_doc_id.checked_add(1)
             {
                 match self.children[0].skip_to(past_window)? {
+                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
+                        target = r.doc_id;
+                    }
+                    None => {
+                        self.is_eof = true;
+                        return Ok(None);
+                    }
+                }
+                continue;
+            }
+            if score_bound::can_drop(self.target_bound(target), min_competitive_score) {
+                let Some(past_target) = target.checked_add(1) else {
+                    self.is_eof = true;
+                    return Ok(None);
+                };
+                match self.children[0].skip_to(past_target)? {
                     Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
                         target = r.doc_id;
                     }
