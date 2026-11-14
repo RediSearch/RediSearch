@@ -92,7 +92,7 @@ pub fn apply_existing_docs(
 /// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
 /// [`GcApplyStats::apply`].
 ///
-/// Returns [`GcError::ApplyError`] when the spec has no `existingDocs`
+/// Returns [`GcError::TargetGone`] when the spec has no `existingDocs`
 /// index, or has one other than the index scanned: it can be removed, and
 /// recreated, between the scan and the apply.
 ///
@@ -105,12 +105,12 @@ pub fn apply_existing_docs_with(
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, GcError> {
     let Some(ii) = guard.existing_docs_mut() else {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the existingDocs inverted index was removed before the delta could be applied",
         ));
     };
     if u32::from(ii.unique_id()) != entry.unique_id {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the existingDocs inverted index is not the one scanned",
         ));
     }

@@ -53,6 +53,11 @@ impl DeletedDocs {
         self.ids -= collected;
     }
 
+    /// The IDs the set holds, in increasing order.
+    pub fn iter(&self) -> impl Iterator<Item = DocId> + '_ {
+        self.ids.iter()
+    }
+
     /// How many IDs the set holds.
     pub fn len(&self) -> u64 {
         self.ids.len()
@@ -61,5 +66,16 @@ impl DeletedDocs {
     /// Whether the set holds no ID.
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
+    }
+
+    /// An estimate of the bytes the set holds: the size of its serialized form,
+    /// which follows its containers closely, as the set exposes no allocation size.
+    /// Zero while the set is empty, which allocates nothing.
+    pub fn memory_usage(&self) -> usize {
+        if self.ids.is_empty() {
+            0
+        } else {
+            self.ids.serialized_size()
+        }
     }
 }

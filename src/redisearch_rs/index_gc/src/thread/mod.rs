@@ -43,7 +43,7 @@
 //! index is only removed by this GC, and a replacement cannot hold an ID that
 //! was deleted before the cycle began.
 
-use std::{collections::HashSet, ops::RangeInclusive, time::Instant};
+use std::{ops::RangeInclusive, time::Instant};
 
 use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
@@ -125,9 +125,9 @@ impl SpecLockAccess for IndexSpecWeakRef {
     }
 }
 
-/// How one cycle used the spec lock.
+/// What one cycle did: how it used the spec lock, and what it left for a later one.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct LockReport {
+pub struct CycleReport {
     /// Read-lock holds: one that copies the deleted set, one per scanner that
     /// lists its keys up front (numeric nodes, missing fields, the existing-docs
     /// index), one per scan chunk, and one per numeric tree that checks for
@@ -140,9 +140,14 @@ pub struct LockReport {
     pub max_read_hold: std::time::Duration,
     /// The longest single write-lock hold.
     pub max_write_hold: std::time::Duration,
+    /// Deleted IDs the cycle left in the set because it could not collect all their
+    /// entries.
+    pub retained: u64,
+    /// Deleted IDs the cycle collected and pruned from the set.
+    pub pruned: u64,
 }
 
-impl LockReport {
+impl CycleReport {
     /// Run `scan` under one read hold of `spec`, and count the hold.
     fn read<T>(
         &mut self,
@@ -181,10 +186,14 @@ impl LockReport {
 /// denied delta leaves uncollected.
 type Tail = Option<RangeInclusive<DocId>>;
 
+/// The doc IDs a whole scanned index spanned when it was copied: what a copy that
+/// would not decode leaves uncollected.
+type Span = Option<RangeInclusive<DocId>>;
+
 struct Driver<'a, 'd, S, G> {
     spec: &'a mut S,
     sink: &'a mut G,
-    report: LockReport,
+    report: CycleReport,
     /// The documents deleted before the cycle began, copied from the doc table's set,
     /// so a check needs no doc table and no lock. This rests on two facts about doc
     /// IDs: one is never reused, and a document's entries are all written before its
@@ -273,7 +282,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         scanner: &'static str,
         buffers: &mut Buffers<F, E>,
         mut snapshot_chunk: impl FnMut(&IndexSpecReadGuard<'_>, StopCheck<'_>, &mut Vec<F>) -> bool,
-        mut scan_snapshot: impl FnMut(F) -> Result<Option<(E, Tail)>, (std::io::Error, Tail)>,
+        mut scan_snapshot: impl FnMut(F) -> Result<Option<(E, Tail)>, (std::io::Error, Span)>,
         mut apply_delta: impl FnMut(E, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, GcError>,
     ) -> Result<bool, GcError> {
         let Buffers {
@@ -321,7 +330,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                                 }
                                 stats.record(delta_stats);
                             }
-                            Err(GcError::ApplyError(reason)) => {
+                            Err(GcError::TargetGone(reason)) => {
                                 tracing::debug!(scanner, reason, "thread GC skipped a stale delta");
                             }
                             Err(error) => return Err(error),
@@ -374,7 +383,6 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         let trees = self.read(numeric_tree_keys)?;
         let live = self.deleted;
         let mut buffers = Buffers::new();
-        let mut listed = HashSet::new();
         for tree in &trees {
             let id = tree.id;
             let snapshot_chunk = keyed(&tree.nodes, |guard, &node_idx: &NodeIndex| {
@@ -409,7 +417,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
 
             // A leaf split since the nodes were listed copied its entries, deleted ones
             // included, into leaves this cycle never scanned; their IDs stay in the set.
-            for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree, &mut listed))? {
+            for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree))? {
                 self.deleted.insert_gone_in(range, &mut self.retained);
             }
 
@@ -417,7 +425,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 self.write(|guard, stats| {
                     match compact_tree(guard, id) {
                         Ok(compacted) => stats.record(compacted),
-                        Err(GcError::ApplyError(reason)) => {
+                        Err(GcError::TargetGone(reason)) => {
                             tracing::debug!(reason, "thread GC skipped compacting a numeric tree");
                         }
                         Err(error) => return Err(error),
@@ -523,8 +531,8 @@ pub fn run_cycle(
     spec: &mut impl SpecLockAccess,
     sink: &mut impl GcStatsSink,
     clean_numeric_empty_nodes: bool,
-) -> Result<LockReport, (&'static str, GcError)> {
-    let mut report = LockReport::default();
+) -> Result<CycleReport, (&'static str, GcError)> {
+    let mut report = CycleReport::default();
     let dead = report
         .read(spec, |guard| {
             guard.deleted_docs().map(DeletedDocs::snapshot)
@@ -535,10 +543,7 @@ pub fn run_cycle(
         // A table that does not track deletions gives this GC nothing to find garbage with;
         // reporting success would leave its stale postings in place silently.
         None => {
-            return Err((
-                "deleted docs",
-                GcError::ApplyError("the document table does not track deleted documents"),
-            ));
+            return Err(("deleted docs", GcError::DeletionsUntracked));
         }
         // Nothing to collect, and nothing to tell the doc table.
         Some(dead) if dead.is_empty() => return Ok(report),
@@ -569,7 +574,9 @@ pub fn run_cycle(
         ..
     } = driver;
     let mut collected = gone.into_set();
+    let listed = collected.len();
     collected -= retained;
+    report.retained = listed - collected.len();
     report
         .write(spec, |guard| {
             if let Some(set) = guard.deleted_docs_mut() {
@@ -577,5 +584,6 @@ pub fn run_cycle(
             }
         })
         .map_err(|e| ("deleted docs", e))?;
+    report.pruned = collected.len();
     Ok(report)
 }
