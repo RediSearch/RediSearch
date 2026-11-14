@@ -74,18 +74,6 @@ extern "C" {
 void ForkGC_childScanIndexes(IndexGC *gc, IndexSpec *spec);
 
 /**
- * Free a buffer previously returned by [`ForkGC_recvBuffer`] or [`recvFieldHeader`].
- *
- * No-ops for null pointers (returned for both the terminator and empty-frame cases).
- *
- * # Safety
- *
- * 1. `buf` and `len` must be the pointer and length returned by a prior call to
- *    [`ForkGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
- */
-void ForkGC_freeBuffer(void *buf, size_t len);
-
-/**
  * Consume every Fork GC scanner stream and apply its deltas in the parent.
  *
  * # Safety
@@ -94,90 +82,6 @@ void ForkGC_freeBuffer(void *buf, size_t len);
  *    alive for the duration of this call.
  */
 enum ForkGCError ForkGC_parentHandleFromChild(IndexGC *gc);
-
-/**
- * Read a length-prefixed buffer frame from the FGC pipe.
- *
- * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
- * `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
- * end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
- * writes `0` and a null pointer. Otherwise allocates a payload buffer,
- * writing its pointer and length to `*buf` / `*len`; the caller is
- * responsible for releasing it with [`ForkGC_freeBuffer`]. The payload is
- * NUL-terminated (one byte past `*len`).
- *
- * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
- * and leaves `*buf` / `*len` unchanged.
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an
- *    open, readable file descriptor.
- * 2. `buf` and `len` must point to writable `void*` and `size_t`
- *    locations respectively.
- */
-int ForkGC_recvBuffer(IndexGC *fgc, void * *buf, size_t *len);
-
-/**
- * Read exactly `len` bytes from the FGC pipe into `buf`.
- *
- * Polls the pipe fd with a 3-minute timeout and retries on `EINTR`. On
- * timeout, read error, or unexpected EOF, logs a detailed warning
- * (matching the original C format) and returns `REDISMODULE_ERR`.
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an open,
- *    readable file descriptor.
- * 2. `buf` must point to a writable region of at least `len` bytes.
- */
-int ForkGC_recvFixed(IndexGC *fgc, void *buf, size_t len);
-
-/**
- * Write a length-prefixed buffer frame: a native-endian `size_t` header
- * followed by `len` payload bytes.
- *
- * On error, logs the failure and terminates the child process via
- * `RedisModule_ExitFromChild(1)`.
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
- *    writable file descriptor.
- * 2. If `len > 0`, `buff` must point to a readable region of at least
- *    `len` bytes. When `len == 0`, `buff` is unused and may be anything
- *    (including NULL).
- */
-void ForkGC_sendBuffer(IndexGC *fgc, const void *buff, size_t len);
-
-/**
- * Write exactly `len` bytes from `buff` to the FGC pipe.
- *
- * On error, logs the failure and terminates the child process via
- * `RedisModule_ExitFromChild(1)`.
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
- *    writable file descriptor.
- * 2. `buff` must point to a readable region of at least `len` bytes.
- * 3. `len` must be greater than zero.
- */
-void ForkGC_sendFixed(IndexGC *fgc, const void *buff, size_t len);
-
-/**
- * Write the end-of-stream sentinel, signalling to the parent reader
- * that no more buffers will follow.
- *
- * On error, logs the failure and terminates the child process via
- * `RedisModule_ExitFromChild(1)`.
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
- *    writable file descriptor.
- */
-void ForkGC_sendTerminator(IndexGC *fgc);
 
 /**
  * Run every GC scanner over `gc`'s index on the calling thread, under the
@@ -197,24 +101,6 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  * 3. `pruned` must point to a writable `u64`.
  */
 enum ThreadGCResult ThreadGC_RunScanners(IndexGC *gc, uint64_t *pruned);
-
-/**
- * Receive a field header (field name + unique id).
- *
- * Returns `FORK_GC_COLLECTED` on success, `FORK_GC_DONE` when no more fields remain,
- * or an error variant on pipe failure. On success, the field name written to
- * `*field_name` is NUL-terminated (one byte past `*field_name_len`).
- * Release it with [`ForkGC_freeBuffer`].
- *
- * # Safety
- *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an open,
- *    readable file descriptor.
- * 2. `field_name` and `field_name_len` must point to writable `char*` and
- *    `size_t` locations respectively.
- * 3. `id_ptr` must point to a writable `uint64_t` location.
- */
-enum ForkGCError recvFieldHeader(IndexGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
 
 #ifdef __cplusplus
 }  // extern "C"

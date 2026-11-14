@@ -1147,8 +1147,6 @@ dependencies = [
  "ffi",
  "index_gc",
  "index_spec",
- "nul_terminated_bytes",
- "redis-module",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
