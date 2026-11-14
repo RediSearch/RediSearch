@@ -205,6 +205,10 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.num_estimated()
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.child.estimated_matches(total_docs)
+    }
+
     fn last_doc_id(&self) -> DocId {
         self.child.last_doc_id()
     }
@@ -387,5 +391,9 @@ where
 
     fn num_estimated(&self) -> usize {
         S::num_estimated(&self.child)
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        S::estimated_matches(&self.child, total_docs)
     }
 }

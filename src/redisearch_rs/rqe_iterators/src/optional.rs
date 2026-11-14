@@ -359,6 +359,10 @@ where
         self.max_doc_id as usize
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        total_docs.min(self.max_doc_id as usize) as f64
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.result.doc_id
@@ -561,6 +565,10 @@ where
 
     fn num_estimated(&self) -> usize {
         self.max_doc_id as usize
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        total_docs.min(self.max_doc_id as usize) as f64
     }
 }
 impl<'index> crate::interop::ProfileChildren<'index>

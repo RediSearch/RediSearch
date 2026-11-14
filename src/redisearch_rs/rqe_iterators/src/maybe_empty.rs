@@ -176,6 +176,13 @@ where
         }
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => RQEIterator::estimated_matches(empty, total_docs),
+            MaybeEmptyOption::Some(it) => it.estimated_matches(total_docs),
+        }
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         match &self.0 {
@@ -359,6 +366,15 @@ where
             // `RQEIterator::num_estimated`.
             MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
             MaybeEmptyOption::Some(child) => S::num_estimated(child),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => {
+                RQESuspendedIterator::estimated_matches(empty, total_docs)
+            }
+            MaybeEmptyOption::Some(child) => S::estimated_matches(child, total_docs),
         }
     }
 }

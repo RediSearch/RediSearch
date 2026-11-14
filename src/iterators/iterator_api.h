@@ -148,7 +148,22 @@ typedef struct QueryIterator {
    * Set by Rust iterators at construction time. C iterators set this to a
    * Rust-exported function. */
   void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
+
+  /** Advisory total-match prediction for an indexed-document population of totalDocs.
+   * May underestimate: never use it to establish EOF or prune results. Like the Rust
+   * RQEIterator::estimated_matches contract, it is finite and between zero and the lesser
+   * of totalDocs and NumEstimated. NULL uses the existing bound as a fallback.
+   * Call only while the iterator is active and the index spec is locked. */
+  double (*EstimatedMatches)(const struct QueryIterator *self, size_t totalDocs);
 } QueryIterator;
+
+static inline double QueryIterator_EstimatedMatches(const QueryIterator *self, size_t totalDocs) {
+  if (self->EstimatedMatches) {
+    return self->EstimatedMatches(self, totalDocs);
+  }
+  size_t upperBound = self->NumEstimated(self);
+  return (double)(upperBound < totalDocs ? upperBound : totalDocs);
+}
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.

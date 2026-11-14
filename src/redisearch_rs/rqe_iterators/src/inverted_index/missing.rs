@@ -253,6 +253,10 @@ where
         self.it.num_estimated()
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.it.estimated_matches(total_docs)
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
@@ -439,5 +443,9 @@ where
 
     fn num_estimated(&self) -> usize {
         self.it.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.it.estimated_matches(total_docs)
     }
 }

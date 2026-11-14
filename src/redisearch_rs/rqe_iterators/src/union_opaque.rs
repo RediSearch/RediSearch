@@ -272,6 +272,18 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
         delegate_variant_ref!(self, num_estimated)
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        if self.query_node_type == QueryNodeType::Numeric {
+            // Numeric ranges partition values. Their documents are disjoint for single-valued
+            // fields; without overlap statistics a sum remains conservative for multi-valued ones.
+            delegate_variant_ref!(self, sum_estimated_matches, total_docs, |child: &I| {
+                child.estimated_matches(total_docs)
+            })
+        } else {
+            delegate_variant_ref!(self, estimated_matches, total_docs)
+        }
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         delegate_variant_ref!(self, last_doc_id)
@@ -701,6 +713,27 @@ where
             RawUnionVariant::HeapQuick(it) => {
                 <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::num_estimated(it)
             }
+            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        macro_rules! estimate {
+            ($it:expr) => {
+                if self.query_node_type == QueryNodeType::Numeric {
+                    $it.sum_estimated_matches(total_docs, |child: &S| {
+                        child.estimated_matches(total_docs)
+                    })
+                } else {
+                    RQESuspendedIterator::estimated_matches($it, total_docs)
+                }
+            };
+        }
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => estimate!(it),
+            RawUnionVariant::FlatQuick(it) => estimate!(it),
+            RawUnionVariant::HeapFull(it) => estimate!(it),
+            RawUnionVariant::HeapQuick(it) => estimate!(it),
             RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
         }
     }

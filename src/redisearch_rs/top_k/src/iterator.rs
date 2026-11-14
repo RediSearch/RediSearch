@@ -914,6 +914,14 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         }
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        let estimate = self.num_estimated().min(total_docs) as f64;
+        match self.child.as_ref() {
+            Some(child) => estimate.min(child.estimated_matches(total_docs)),
+            None => estimate,
+        }
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id
@@ -1134,6 +1142,14 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
         let estimate = self.suspended_estimate;
         match self.child.as_ref() {
             Some(child) => estimate.min(child.num_estimated()),
+            None => estimate,
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        let estimate = self.num_estimated().min(total_docs) as f64;
+        match self.child.as_ref() {
+            Some(child) => estimate.min(child.estimated_matches(total_docs)),
             None => estimate,
         }
     }
@@ -1578,6 +1594,11 @@ mod tests {
         ));
         let suspended = it.suspend();
         assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 1);
+        assert_eq!(
+            RQESuspendedIterator::estimated_matches(&*suspended, 100),
+            1.0
+        );
+        assert_eq!(RQESuspendedIterator::estimated_matches(&*suspended, 0), 0.0);
     }
 
     /// A parked record that borrows index data must abort the resume.

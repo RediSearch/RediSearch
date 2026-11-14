@@ -56,6 +56,7 @@ where
                 lastDocId: inner.last_doc_id(),
                 current: std::ptr::null_mut(),
                 NumEstimated: Some(num_estimated::<I>),
+                EstimatedMatches: Some(estimated_matches::<I>),
                 Read: Some(read::<I>),
                 SkipTo: Some(skip_to::<I>),
                 Revalidate: Some(revalidate::<I>),
@@ -399,6 +400,20 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
         )
     };
     wrapper.inner.num_estimated()
+}
+
+extern "C" fn estimated_matches<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    total_docs: usize,
+) -> f64 {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in `RQEIteratorWrapper`.
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper.inner.estimated_matches(total_docs)
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in

@@ -47,6 +47,7 @@ private:
       base.lastDocId = 0;
       base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);
       base.NumEstimated = MockIterator_NumEstimated;
+      base.EstimatedMatches = nullptr;
       base.Free = MockIterator_Free;
       base.Read = MockIterator_Read;
       base.SkipTo = MockIterator_SkipTo;

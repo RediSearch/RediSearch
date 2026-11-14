@@ -660,6 +660,14 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         self.assert_estimate_bounds_yields("num_estimated")
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.assert_usable("estimated_matches");
+        let estimate = self.inner.estimated_matches(total_docs);
+        assert!(estimate.is_finite() && estimate >= 0.0);
+        assert!(estimate <= self.inner.num_estimated().min(total_docs) as f64);
+        estimate
+    }
+
     #[track_caller]
     fn last_doc_id(&self) -> DocId {
         self.assert_usable("last_doc_id");

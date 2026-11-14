@@ -381,6 +381,10 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
         delegate_rqe_iterator!(self, num_estimated)
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        delegate_rqe_iterator!(self, estimated_matches, total_docs)
+    }
+
     fn last_doc_id(&self) -> DocId {
         delegate_rqe_iterator!(self, last_doc_id)
     }
@@ -594,6 +598,17 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
             RawOptimizedWildcard::RawDocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
         }
     }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            RawOptimizedWildcard::DocIdsOnly(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
+            RawOptimizedWildcard::RawDocIdsOnly(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
+        }
+    }
 }
 
 /// Delegates each [`RQEIterator`] method to the active variant.
@@ -637,6 +652,15 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
             Self::Optimized(it) => RQEIterator::num_estimated(it),
             Self::Empty(it) => RQEIterator::num_estimated(it),
             Self::Disk(it) => RQEIterator::num_estimated(it),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            Self::NotOptimized(it) => RQEIterator::estimated_matches(it, total_docs),
+            Self::Optimized(it) => RQEIterator::estimated_matches(it, total_docs),
+            Self::Empty(it) => RQEIterator::estimated_matches(it, total_docs),
+            Self::Disk(it) => RQEIterator::estimated_matches(it, total_docs),
         }
     }
 
@@ -834,6 +858,23 @@ impl<'query> RQESuspendedIterator<'query> for NewWildcardSuspended<'query> {
             NewWildcardSuspended::Optimized(it) => RQESuspendedIterator::num_estimated(it),
             NewWildcardSuspended::Empty(it) => RQESuspendedIterator::num_estimated(it),
             NewWildcardSuspended::Disk(it) => RQESuspendedIterator::num_estimated(it),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            NewWildcardSuspended::NotOptimized(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
+            NewWildcardSuspended::Optimized(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
+            NewWildcardSuspended::Empty(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
+            NewWildcardSuspended::Disk(it) => {
+                RQESuspendedIterator::estimated_matches(it, total_docs)
+            }
         }
     }
 }
