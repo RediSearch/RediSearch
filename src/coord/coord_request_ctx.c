@@ -80,6 +80,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     AREQ *areq = (AREQ *)req;
     areq->useReplyCallback = ctx->useReplyCallback;
     areq->encodeReplyInBackground = ctx->timeoutPolicy == TimeoutPolicy_Fail;
+    if (ctx->profileTimedOut) AREQ_ProfileTimeout(areq);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
@@ -122,6 +123,14 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
+}
+
+void CoordRequestCtx_ProfileTimeout(void *data) {
+  CoordRequestCtx *ctx = data;
+  CoordRequestCtx_LockSetRequest(ctx);
+  ctx->profileTimedOut = true;
+  if (ctx->areq) AREQ_ProfileTimeout(ctx->areq);
+  CoordRequestCtx_UnlockSetRequest(ctx);
 }
 
 void CoordRequestCtx_Disconnect(RedisModuleCtx *redisCtx, RedisModuleBlockedClient *bc) {

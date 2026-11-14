@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "cursor.h"
+#include "util/profile_timeout.h"
 
 typedef struct QueryError QueryError;
 
@@ -35,6 +36,8 @@ typedef struct CoordRequestCtx {
     AREQ *areq;
     HybridRequest *hreq;
   };
+  ProfileTimeout profileTimeout;
+  bool profileTimedOut;         // Protected by setReqLock.
   _Atomic(bool) timedOut;       // Coordinator-level timeout flag
   pthread_mutex_t setReqLock;   // Lock for request creation/setting
   // Error that occurred before AREQ/HREQ was created (e.g., index not found).
@@ -104,6 +107,7 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
  * Also propagates to the underlying request if set.
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
+void CoordRequestCtx_ProfileTimeout(void *data);
 
 /**
  * Cancel coordinator AGGREGATE (including CURSOR READ) and HYBRID requests.

@@ -662,16 +662,22 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
+  rpnet->collectingProfile = true;
+  if (rpnet->it && AREQ_ExecutionTimedOut(req)) {
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(rpnet->it));
+  }
   // Timeout can finish the pipeline before rpnetNext_Start creates the iterator.
   if (rpnet->it && (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it))) {
     while (!profileShouldStopCollectingReplies(req)) {
       MRReply_Free(rpnet->current.root);
+      RPNet_resetCurrent(rpnet);
       if (getNextReply(rpnet) == RS_RESULT_EOF) {
         break;
       }
     }
   }
 
+  rpnet->collectingProfile = false;
   size_t num_shards = rpnet->it ? MRIterator_GetNumShards(rpnet->it) : 0;
   size_t profile_count = array_len(rpnet->shardsProfile);
 
@@ -823,6 +829,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // AREQ_Compile set req->skipTimeoutChecks before sctx existed, so the flag
   // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
   r->sctx->time.skipTimeoutChecks = r->skipTimeoutChecks;
+  r->sctx->time.timedOutFlag = &r->syncCtx.executionTimedOut;
   // r->sctx->expanded should be received from shards
 
   AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));

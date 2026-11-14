@@ -143,9 +143,8 @@ int getNextReply(RPNet *nc) {
       return RS_RESULT_EOF;
     }
   }
-  // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
-  // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
-  // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+  // After execution stops, profile collection may still wait for shard replies.
+  // Only cancellation aborts that wait; both signals wake the registered channel.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
@@ -155,9 +154,12 @@ int getNextReply(RPNet *nc) {
   }
 #endif
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                  : nc->areq
-                      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
-                      : MRIterator_Next(nc->it);
+                  : nc->areq    ? MRIterator_NextWithTimeout(
+                                   nc->it, NULL,
+                                   nc->collectingProfile ? &nc->areq->syncCtx.timedOut
+                                                            : &nc->areq->syncCtx.executionTimedOut,
+                                   NULL)
+                             : MRIterator_Next(nc->it);
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
@@ -166,7 +168,8 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+    if (nc->areq &&
+        (nc->collectingProfile ? AREQ_TimedOut(nc->areq) : AREQ_ExecutionTimedOut(nc->areq))) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -360,10 +363,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   }
 #endif
 
-  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
-  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
-  // and we'd silently return rows). Skipped during the timer's own drain.
-  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+  // Buffered replies must not hide an execution deadline. STRICT drains remain allowed.
+  if (areq && !nc->drainOnly && AREQ_ExecutionTimedOut(areq)) {
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
     return RS_RESULT_TIMEDOUT;
   }
 

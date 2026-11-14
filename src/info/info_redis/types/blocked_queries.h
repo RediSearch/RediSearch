@@ -13,6 +13,7 @@
 
 #include "util/dllist.h"
 #include "util/references.h"
+#include "util/profile_timeout.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +33,7 @@ typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
   StrongRef spec;     // IndexSpec strong ref
   time_t start;       // Time node was added into list
+  ProfileTimeout profileTimeout;
   void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
   BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
 } BlockedQueryNode;
@@ -42,6 +44,7 @@ typedef struct {
   uint64_t cursorId;  // cursor id
   size_t count;       // cursor count
   time_t start;       // Time node was added into list
+  ProfileTimeout profileTimeout;
   void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
   BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
 } BlockedCursorNode;

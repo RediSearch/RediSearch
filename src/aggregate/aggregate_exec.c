@@ -365,7 +365,7 @@ static size_t getResultsFactor(AREQ *req) {
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback.
 bool areq_timed_out(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg);
+  return AREQ_ExecutionTimedOut((AREQ *)arg);
 }
 
 // SyncPoint stop predicate: break out of a sync-point wait when a writer is
@@ -1272,6 +1272,17 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 // Callback-based paths store the error for QueryReplyCallback.
 // RETURN and selected FAIL workers reply with the error directly.
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+  if (!req->useReplyCallback && IsProfile(req) && !IsHybrid(req) && !IsCoordinator(req) &&
+      req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !AREQ_TimedOut(req) &&
+      QueryError_GetCode(status) == QUERY_ERROR_CODE_TIMED_OUT) {
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    QueryError *previousError = qctx->err;
+    qctx->err = status;
+    sendChunk_ReplyOnly_EmptyResults(ctx, req);
+    qctx->err = previousError;
+    QueryError_ClearError(status);
+    return;
+  }
   if (req->useReplyCallback) {
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
@@ -1624,8 +1635,14 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
-// Disconnect only publishes cancellation. The blocked node keeps the request alive until
-// the worker unblocks the client and the free-data callback releases its reference.
+// PROFILE retains reply ownership after execution stops.
+void AREQ_ProfileTimeout(void *data) {
+  AREQ *req = data;
+  RS_AtomicBoolStoreRelaxed(&req->syncCtx.executionTimedOut, true);
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+}
+
+// The blocked node retains the request until the worker unblocks the client.
 static void QueryDisconnectCallback(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
   UNUSED(ctx);
   BlockedQueryNode *node = RedisModule_BlockClientGetPrivateData(bc);
@@ -2014,6 +2031,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       r->useReplyCallback = !r->encodeReplyInBackground;
       blockClientCtx.replyCallback = r->useReplyCallback ? QueryReplyCallback : NULL;
       blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
+      if (policy == TimeoutPolicy_Fail && IsProfile(r) && !IsHybrid(r)) {
+        blockClientCtx.profileTimeoutSignal = AREQ_ProfileTimeout;
+      }
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
@@ -2552,6 +2572,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
           cursor->queryTimeoutPolicy == TimeoutPolicy_Fail ? CursorReadTimeoutFailCallback
                                                            : CursorReadTimeoutReturnStrictCallback;
       blockClientCtx.timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
+      if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail && IsProfile(req) && !IsHybrid(req)) {
+        RS_AtomicBoolStoreRelaxed(&req->syncCtx.executionTimedOut, AREQ_TimedOut(req));
+        blockClientCtx.profileTimeoutSignal = AREQ_ProfileTimeout;
+      }
     } else {
       // RETURN: reply written inline; clear any stale useReplyCallback
       // from a prior callback-based cursor read so runCursor doesn't park the cursor.
