@@ -98,7 +98,7 @@ def testMultipleIndexes(env):
     env.assertEqual(['f1', 'hello'], last1)
     env.assertEqual(['f1', 'goodbye'], last2)
 
-@skip(cluster=True, enterprise=True)
+@skip(cluster=True)
 def testCapacities(env):
     loadDocs(env, idx='idx1')
     loadDocs(env, idx='idx2')
@@ -207,7 +207,6 @@ def testCursorDifferentConnections(env: Env):
     env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('Cursor not found')
 
 def testIndexDropWhileIdle(env: Env):
-    skipTest(enterprise=True)
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE idx SCHEMA t numeric').ok()
@@ -254,11 +253,11 @@ def exceedCursorCapacity(env):
     # Trying to create another cursor should fail
     env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1).error().contains('INDEX_CURSOR_LIMIT')
 
-@skip(cluster=True, enterprise=True)
+@skip(cluster=True)
 def testExceedCursorCapacity(env):
     exceedCursorCapacity(env)
 
-@skip(cluster=True, noWorkers=True, enterprise=True)
+@skip(cluster=True, noWorkers=True)
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
@@ -552,7 +551,7 @@ def test_cursor_profile(env):
     env.assertNotEqual(cursor, 0)
     env.expect('FT.CURSOR', 'PROFILE', 'idx', cursor).error().contains('cursor request is not profile')
 
-@skip(cluster=True, enterprise=True)
+@skip(cluster=True)
 def test_mod_6597(env):
     """Tests that we update the numeric index appropriately upon deleting
     documents from a numeric index, and are able to query an invalid cursor in

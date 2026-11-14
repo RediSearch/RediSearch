@@ -288,7 +288,6 @@ def test_redis_info_errors_json():
   validate_info_output(message='drop one index')
 
 #ensure update with alter and drop index
-@skip(enterprise=True)
 def test_redis_info():
   """Tests that the Redis `INFO` command works as expected"""
 
@@ -660,7 +659,6 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # Test syntax errors
-    skipTest(enterprise=True)
     self.env.expect('FT.SEARCH', 'idx', 'hello world:').error().contains('Syntax error at offset')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
@@ -681,7 +679,6 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # Test args errors
-    skipTest(enterprise=True)
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 0, 0, 'MEOW').error().contains('Unknown argument')
     # Test counter
     info_dict = info_modules_to_dict(self.env)
@@ -702,7 +699,6 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # ---------- Timeout Errors ----------
-    skipTest(enterprise=True)
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
     before_info_dict_err = info_modules_to_dict(self.env)
     base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
@@ -745,7 +741,6 @@ class testWarningsAndErrorsStandalone:
 
     # ---------- Max Prefix Expansions Warnings ----------
     # Save original config
-    skipTest(enterprise=True)
     original_max_prefix_expansions = self.env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
 
     # Add more documents with different words starting with "hell" to trigger prefix expansion

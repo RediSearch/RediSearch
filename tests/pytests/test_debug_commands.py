@@ -23,7 +23,6 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
     def testDebugHelp(self):
-        skipTest(enterprise=True)
         err_msg = 'wrong number of arguments'
         help_list = [
             "DUMP_INVIDX",
@@ -254,7 +253,6 @@ class TestDebugCommands(object):
                 pass
 
     def testStopAndResumeWorkersPool(self):
-        skipTest(enterprise=True)
         if not MT_BUILD:
             self.env.skip()
         self.env.expect('FT.DEBUG', 'WORKERS').error().contains(
@@ -305,7 +303,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'WORKERS', 'n_threads').equal(self.workers_count)
 
 
-@skip(cluster=True, enterprise=True)
+@skip(cluster=True)
 def testDumpHNSW(env):
     # Note that this test has its own env as it relies on the specific doc ids in the index created.
     # Had we used this test in the TestDebugCommands env, a background indexing would have been triggered, and
@@ -1401,7 +1399,6 @@ class ProfileDebugSA:
 
 class TestProfileDebugSAResp2(object):
     def __init__(self):
-        skipTest(enterprise=True)
         env = Env(protocol=2)
         ProfileDebugSA.createIndex(env)
         self.env = env
@@ -1413,7 +1410,6 @@ class TestProfileDebugSAResp2(object):
 
 class TestProfileDebugSAResp3(object):
     def __init__(self):
-        skipTest(enterprise=True)
         env = Env(protocol=3)
         ProfileDebugSA.createIndex(env)
         self.env = env

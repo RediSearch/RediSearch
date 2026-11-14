@@ -82,60 +82,7 @@ def wait_for_condition(check_fn, message, timeout=120):
         log = f"{message}: {timeout_msg}"
         raise Exception(f'Error: {e}, log: {log}')
 
-class RediSearchEnterpriseStandaloneEnv(Env):
-    """Standalone-only Env: re-seeds the single-shard coordinator topology
-    (see _seed_single_shard_topology further below) after every (re)start,
-    since the enterprise build otherwise leaves the coordinator
-    uninitialized until SEARCH.CLUSTERSET arrives."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._seed_topology()
-
-    def start(self, *args, **kwargs):
-        super().start(*args, **kwargs)
-        self._seed_topology()
-
-    def dumpAndReload(self, restart=False, shardId=None, timeout_sec=40):
-        super().dumpAndReload(restart=restart, shardId=shardId, timeout_sec=timeout_sec)
-        if restart:
-            self._seed_topology()
-
-    def _seed_topology(self):
-        # 'existing' (external) servers set up their own topology.
-        try:
-            if 'existing' in self.env:
-                return
-        except Exception:
-            return
-        if self.isCluster():
-            raise RuntimeError("RediSearchEnterpriseStandaloneEnv is standalone-only; do not use with a cluster env")
-        conn = self.getConnection()
-        port = conn.connection_pool.connection_kwargs.get('port')
-        try:
-            _seed_single_shard_topology(conn, port)
-        except Exception:
-            pass
-        # Also seed the slave, if any (useSlaves=True).
-        try:
-            slave_conn = self.getSlaveConnection()
-            slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
-            _seed_single_shard_topology(slave_conn, slave_port)
-        except Exception:
-            pass
-
-
-# Activate the seeding subclass for bare Env(...) construction, but only under
-# enterprise (read by RLTest's Env.__new__ hook). In OSS the class above stays
-# defined but unused, so setting env_class here would be a no-op at best.
-if RS_TEST_ENTERPRISE:
-    Defaults.env_class = RediSearchEnterpriseStandaloneEnv
-
-# Base for suite-defined Env subclasses so they inherit enterprise seeding
-# (the Env.__new__ hook only redirects bare Env(), not subclasses).
-EnterpriseStandaloneEnvBase = RediSearchEnterpriseStandaloneEnv if RS_TEST_ENTERPRISE else Env
-
-class DialectEnv(EnterpriseStandaloneEnvBase):
+class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dialect = None
@@ -472,6 +419,27 @@ def is_enterprise_server(env):
     return 'rlec_version' in env.cmd('INFO', 'SERVER')
 
 
+# The enterprise build registers the shard's own read commands under its `_FT`
+# read prefix (RS_CMD_READ_PREFIX in src/commands.h), and its coordinator under
+# `FT`. The suite tests a standalone shard, so these go to the `_FT` names.
+_SHARD_READ_COMMANDS = frozenset((
+    'FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE', 'FT.CURSOR', 'FT.INFO',
+    'FT.MGET', 'FT.TAGVALS', 'FT.SPELLCHECK', 'FT.DEBUG', 'FT.CONFIG'))
+# FT.DEBUG's query subcommands carry the shard command's name, and the
+# coordinator adds its own under the `FT` names (src/debug_commands.c).
+_SHARD_DEBUG_QUERY_SUBCOMMANDS = frozenset(('FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE'))
+
+def _route_to_shard(args):
+    head = str(args[0]).split(' ')
+    rest = list(args[1:])
+    if head[0].upper() == 'FT.DEBUG':
+        words, i = (head, 1) if len(head) > 1 else (rest, 0)
+        if len(words) > i and isinstance(words[i], str) and words[i].upper() in _SHARD_DEBUG_QUERY_SUBCOMMANDS:
+            words[i] = '_' + words[i]
+    head[0] = '_' + head[0]
+    return (' '.join(head),) + tuple(rest)
+
+
 if RS_TEST_ENTERPRISE:
     _orig_execute_command = redis.client.Redis.execute_command
 
@@ -483,14 +451,15 @@ if RS_TEST_ENTERPRISE:
     # level -- exactly the call site the SAVE-collision handling below
     # exists to protect. A connection subclass would miss it.
     def _enterprise_execute_command(self, *args, **kwargs):
-        """Intercept command rewrites for enterprise/OSS compat:
-        - FT.CONFIG / FT.DEBUG -> _FT.CONFIG / _FT.DEBUG: the enterprise build
-          registers both with its `_FT` read prefix only (src/commands.h)
-        """
+        """Route the suite's read commands to the shard (_route_to_shard),
+        and name the commands it sent in their errors as the suite does."""
         # redis-py splits a command name holding spaces ('ft.config get *').
         name = str(args[0]).split(' ', 1)[0].upper() if args else ''
-        if name in ('FT.CONFIG', 'FT.DEBUG'):
-            args = ('_' + str(args[0]),) + tuple(args[1:])
+        if name in _SHARD_READ_COMMANDS:
+            try:
+                return _orig_execute_command(self, *_route_to_shard(args), **kwargs)
+            except redis_exceptions.ResponseError as e:
+                raise type(e)(str(e).replace("'_FT.", "'FT.")) from None
         # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
         # Enterprise servers background-save on their own, whatever the
         # build; OSS tests that call SAVE directly would race and get
@@ -509,41 +478,6 @@ if RS_TEST_ENTERPRISE:
         return _orig_execute_command(self, *args, **kwargs)
 
     redis.client.Redis.execute_command = _enterprise_execute_command
-
-# Unlike OSS, the enterprise build doesn't auto-seed a single-shard topology
-# at module init: coordinator-gated commands (FT.SEARCH / FT.AGGREGATE /
-# FT.INFO / FT.MGET ...) reply "ERRCLUSTER Uninitialized cluster state" until
-# a SEARCH.CLUSTERSET arrives. RediSearchEnterpriseStandaloneEnv (above)
-# sends one covering all slots so standalone enterprise envs behave like OSS.
-
-def _seed_single_shard_topology(conn, port, attempts=50, sleep_interval=0.1):
-    """Send SEARCH.CLUSTERSET to seed a single-shard (all slots) topology on
-    `conn`, addressed at `port`. Callers wrap this in their own exception
-    handling since tolerance for 'command absent' vs. transient errors
-    differs by call site.
-
-    Retries on ConnectionError (server still coming up) up to `attempts`
-    times, sleeping `sleep_interval` seconds between tries; the last
-    ConnectionError is re-raised. ResponseError (e.g. command unsupported)
-    propagates immediately for callers to handle."""
-    password = conn.connection_pool.connection_kwargs.get('password')
-    addr = f'{password}@127.0.0.1:{port}' if password else f'127.0.0.1:{port}'
-    for attempt in range(attempts):
-        try:
-            return conn.execute_command(
-                'SEARCH.CLUSTERSET',
-                'MYID', '1',
-                'RANGES', '1',
-                'SHARD', '1',
-                'SLOTRANGE', '0', '16383',
-                'ADDR', addr,
-                'MASTER',
-            )
-        except redis.exceptions.ConnectionError:
-            if attempt >= attempts - 1:
-                raise
-            time.sleep(sleep_interval)
-
 
 # ---------------------------------------------------------------------------
 
@@ -755,10 +689,6 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if no_json and not has_json_api_v2(Env()):
                 raise SkipTest()
-            # The enterprise build answers FT.SEARCH, FT.AGGREGATE, FT.PROFILE and
-            # FT.CURSOR through its coordinator even standalone, so tests of a
-            # shard's own replies (result order, profile shape, RESP3 types,
-            # cursor and error accounting) take enterprise=True.
             if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:

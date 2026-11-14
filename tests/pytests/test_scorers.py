@@ -355,7 +355,7 @@ def testScoreDecimal(env):
     res = env.cmd('ft.search idx hello withscores nocontent')
     env.assertLess(float(res[2]), 1)
 
-@skip(cluster=True, enterprise=True)
+@skip(cluster=True)
 def testScoreError(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
     waitForIndex(env, 'idx')
