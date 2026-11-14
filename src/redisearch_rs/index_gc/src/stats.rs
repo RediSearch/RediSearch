@@ -9,6 +9,8 @@
 
 //! Statistics accumulated by a fork-GC scanner while applying collected deltas.
 
+use std::ptr::NonNull;
+
 use index_spec::IndexSpecWriteGuard;
 
 use crate::ForkPipe;
@@ -61,6 +63,12 @@ impl GcApplyStats {
     /// Combines the spec stats update (done under the write lock) and the GC
     /// stats update that always go together after applying a GC delta.
     pub fn apply(&self, fgc: &mut ForkPipe, guard: &mut IndexSpecWriteGuard<'_>) {
+        self.apply_to_spec(guard);
+        fgc.record(self);
+    }
+
+    /// Apply the spec-level half of this delta, under the spec's write lock.
+    pub fn apply_to_spec(&self, guard: &mut IndexSpecWriteGuard<'_>) {
         guard.update_gc_stats(
             self.records_removed,
             self.bytes_collected,
@@ -69,11 +77,58 @@ impl GcApplyStats {
             self.terms_removed,
         );
         guard.add_block_count(self.block_count_delta);
-        fgc.update_gc_stats(
-            self.bytes_collected,
-            self.bytes_allocated,
-            self.blocks_denied,
-            self.numeric_nodes_missed,
-        );
     }
+}
+
+/// Receives the GC-level half of each [`GcApplyStats`] a cycle produces.
+///
+/// The spec-level half goes through [`GcApplyStats::apply_to_spec`] under the
+/// write lock; this half only touches the GC's own counters.
+pub trait GcStatsSink {
+    /// Fold `stats` into the GC's counters.
+    fn record(&mut self, stats: &GcApplyStats);
+}
+
+impl GcStatsSink for ForkPipe {
+    fn record(&mut self, stats: &GcApplyStats) {
+        add_to_counters(self.stats_mut(), stats);
+    }
+}
+
+/// A GC context's counters, updated through a raw pointer: `FT.INFO` reads them
+/// between an in-process cycle's lock holds, so no reference to them may be held
+/// across a cycle.
+pub struct GcCounters(NonNull<ffi::IndexGCStats>);
+
+impl GcCounters {
+    /// # Safety
+    ///
+    /// 1. `stats` points to a GC context's counters, valid for as long as the result
+    ///    lives.
+    /// 2. [`record`](GcStatsSink::record) is called only under the spec's write
+    ///    lock, which serializes it with `FT.INFO`.
+    pub const unsafe fn new(stats: *mut ffi::IndexGCStats) -> Self {
+        // SAFETY: 1. guarantees `stats` is valid, so not null.
+        Self(unsafe { NonNull::new_unchecked(stats) })
+    }
+}
+
+impl GcStatsSink for GcCounters {
+    fn record(&mut self, stats: &GcApplyStats) {
+        // SAFETY: (`new`) the counters are valid, and the spec's write lock keeps
+        // `FT.INFO` from reading them meanwhile.
+        add_to_counters(unsafe { self.0.as_mut() }, stats);
+    }
+}
+
+/// Fold `stats` into a GC context's `counters`.
+///
+/// `numeric_nodes_missed` is a count rather than a single increment because the
+/// numeric scanner tallies misses across a whole node stream and flushes them
+/// together with the rest of the field's counters.
+const fn add_to_counters(counters: &mut ffi::IndexGCStats, stats: &GcApplyStats) {
+    counters.totalCollected += stats.bytes_collected as isize;
+    counters.totalCollected -= stats.bytes_allocated as isize;
+    counters.gcBlocksDenied += stats.blocks_denied;
+    counters.gcNumericNodesMissed += stats.numeric_nodes_missed;
 }

@@ -258,73 +258,78 @@ impl NumericRange {
     /// Reset the statistics derived from the entries after garbage collection.
     ///
     /// Takes the HLL registers and value bounds that the GC scan computed over the
-    /// surviving entries, then folds in the entries added since the fork.
+    /// surviving entries, then folds in every entry the scan did not account for.
     ///
     /// # Arguments
     ///
-    /// * `ignored_last_block` - Whether the last block was ignored during GC scan (from
+    /// * `without_last_block` - Whether the scan's statistics are taken without its
+    ///   last block, because the apply denied or rescanned it (from
     ///   [`GcApplyInfo`](inverted_index::GcApplyInfo))
-    /// * `blocks_since_fork` - Number of new blocks added since the fork
+    /// * `fold_from` - The first document ID the scan did not account for, if any
+    ///   entry may follow it: the scanned last block's first ID when it is left out,
+    ///   otherwise the first ID of the first block added since the scan
     /// * `registers` - HLL registers `(with, without)` the last scanned block
     /// * `bounds` - Survivor bounds `(with, without)` the last scanned block
     pub(crate) fn reset_stats_after_gc(
         &mut self,
-        ignored_last_block: bool,
-        blocks_since_fork: usize,
+        without_last_block: bool,
+        fold_from: Option<DocId>,
         registers: (&[u8; Hll::size()], &[u8; Hll::size()]),
         bounds: (ValueBounds, ValueBounds),
     ) {
-        let mut blocks_to_rescan = blocks_since_fork;
-        let (registers, bounds) = if ignored_last_block {
-            blocks_to_rescan += 1; // The last block was ignored, so re-add it too
+        let (registers, bounds) = if without_last_block {
             (registers.1, bounds.1)
         } else {
             (registers.0, bounds.0)
         };
         self.hll.set_registers(*registers);
-        self.fold_entries_since_fork(blocks_to_rescan, bounds);
+        self.fold_entries_from(fold_from, bounds);
     }
 
-    /// Add the entries of the last `blocks_to_rescan` blocks to the HLL and to
-    /// `bounds`, then make `bounds` the range's bounds.
-    fn fold_entries_since_fork(&mut self, blocks_to_rescan: usize, mut bounds: ValueBounds) {
-        if blocks_to_rescan > 0 {
-            let num_blocks = self.entries.num_blocks();
-            debug_assert!(
-                blocks_to_rescan <= num_blocks,
-                "The number of blocks should never decrease in between two GC runs, \
-                therefore the number of blocks to rescan can never be greater than the current number of blocks"
-            );
-            // Unreachable while the assertion above holds. In release builds, keep the
-            // current bounds: they cover every stored entry, where `bounds` would miss
-            // the entries left unread.
-            let Some(start_id) = num_blocks
-                .checked_sub(blocks_to_rescan)
-                .and_then(|start_idx| self.entries.block_first_id(start_idx))
-            else {
-                return;
-            };
+    /// Widen the range's bounds to include every value in `bounds`.
+    pub(crate) const fn cover(&mut self, bounds: ValueBounds) {
+        let mut own = ValueBounds {
+            min: self.min_val,
+            max: self.max_val,
+        };
+        own.merge(bounds);
+        self.min_val = own.min;
+        self.max_val = own.max;
+    }
 
+    /// Add the entries with an ID of at least `from` to the HLL and to `bounds`,
+    /// then make `bounds` the range's bounds.
+    ///
+    /// Found by ID rather than by block position, because the apply may have
+    /// removed the block `from` was taken from, or blocks before it.
+    fn fold_entries_from(&mut self, from: Option<DocId>, mut bounds: ValueBounds) {
+        if let Some(from) = from {
             let mut reader = self.entries.reader();
-            reader.skip_to(start_id);
-            let mut result = RSIndexResult::build_numeric(0.0).build();
-            loop {
-                let read = reader.next_record(&mut result);
-                debug_assert!(
-                    read.is_ok(),
-                    "decoding an in-memory numeric block failed: {read:?}"
-                );
-                match read {
-                    Ok(true) => {}
-                    Ok(false) => break,
-                    // Same fallback as above.
-                    Err(_) => return,
+            if reader.skip_to(from) {
+                let mut result = RSIndexResult::build_numeric(0.0).build();
+                loop {
+                    let read = reader.next_record(&mut result);
+                    debug_assert!(
+                        read.is_ok(),
+                        "decoding an in-memory numeric block failed: {read:?}"
+                    );
+                    match read {
+                        Ok(true) => {}
+                        Ok(false) => break,
+                        // In release builds, keep the current bounds: they cover every
+                        // stored entry, where `bounds` would miss the entries left unread.
+                        Err(_) => return,
+                    }
+                    // The skip lands on the start of the block holding `from`.
+                    if result.doc_id < from {
+                        continue;
+                    }
+                    // SAFETY: We know the result contains numeric data
+                    let value = unsafe { result.as_numeric_unchecked() };
+                    // Read back out of the index, so already in stored form.
+                    self.hll.add(&StoredValue::from_decoded(value).into());
+                    bounds.include(value);
                 }
-                // SAFETY: We know the result contains numeric data
-                let value = unsafe { result.as_numeric_unchecked() };
-                // Read back out of the index, so already in stored form.
-                self.hll.add(&StoredValue::from_decoded(value).into());
-                bounds.include(value);
             }
         }
         self.min_val = bounds.min;

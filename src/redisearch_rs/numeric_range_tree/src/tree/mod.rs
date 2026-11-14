@@ -26,7 +26,7 @@ mod util;
 
 pub(crate) use util::CheckedCount;
 
-pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
+pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult, scan_range_index_gc};
 
 use rqe_core::DocId;
 

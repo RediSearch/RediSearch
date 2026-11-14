@@ -12,7 +12,7 @@
 
 use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
 use index_gc::{
-    DocExistence, ForkPipe, Frame, GcError, HandleOutcome,
+    ForkPipe, Frame, GcError, HandleOutcome,
     fork::cycle::{collect_scanners, handle_scanners},
 };
 use index_spec::IndexSpecReadGuard;
@@ -131,7 +131,7 @@ fn child_writes_empty_scanner_streams_in_protocol_order() {
     let spec = EmptySpec::new();
     let guard = spec.read_guard();
 
-    collect_scanners(&mut fgc, &guard, &DocExistence::snapshot(&guard));
+    collect_scanners(&mut fgc, &guard, |id| guard.doc_exists(id));
 
     let mut expected = empty_scanner_streams();
     Frame::Terminator.encode(&mut expected).unwrap();

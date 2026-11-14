@@ -45,6 +45,39 @@ fn bitset_set_and_get() {
     assert!(!bits.contains(1000));
 }
 
+/// A prefix keeps exactly the ordinals below its length, and allocates nothing when none is left.
+#[test]
+fn bitset_prefix() {
+    let mut bits = ExpirationBits::new();
+    for ordinal in [3, 10, 15, 16] {
+        bits.insert(ordinal);
+    }
+    let held = |set: &ExpirationBits| (0..32u16).filter(|&o| set.contains(o)).collect::<Vec<_>>();
+    assert_eq!(held(&bits.prefix(17)), vec![3, 10, 15, 16]);
+    assert_eq!(held(&bits.prefix(16)), vec![3, 10, 15]);
+    assert_eq!(held(&bits.prefix(11)), vec![3, 10]);
+    assert_eq!(held(&bits.prefix(10)), vec![3]);
+    assert_eq!(held(&bits.prefix(100)), vec![3, 10, 15, 16]);
+    for entries in [0, 3] {
+        let prefix = bits.prefix(entries);
+        assert!(prefix.is_empty(), "prefix({entries})");
+        assert_eq!(prefix.mem_usage(), 0, "prefix({entries})");
+    }
+
+    // A set shorter than the cut keeps every bit it has: its last byte lies wholly below it.
+    let mut short = ExpirationBits::new();
+    for ordinal in [3, 5] {
+        short.insert(ordinal);
+    }
+    for entries in [16, 20] {
+        assert_eq!(
+            held(&short.prefix(entries)),
+            vec![3, 5],
+            "prefix({entries})"
+        );
+    }
+}
+
 /// An index whose entries never carry a field-level expiration never allocates the per-block
 /// bitsets, whatever its number of blocks.
 #[test]
@@ -280,6 +313,90 @@ fn expiration_bit_survives_gc() {
             result.has_field_expiration, has_exp,
             "GC must preserve the expiration bit for doc {doc_id}"
         );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+#[test]
+fn expiration_bits_survive_in_the_copied_prefix() {
+    // The entries before the first dead one are copied as bytes rather than
+    // re-encoded, so their bits must be copied too, at the same ordinals.
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let entries: &[(DocId, bool)] = &[
+        (10, true),
+        (11, false),
+        (12, true),
+        (13, false),
+        (14, true),
+        (15, false),
+    ];
+    for &(doc_id, has_exp) in entries {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+
+    // Only 13 is gone: 10, 11 and 12 form the copied prefix, 14 and 15 follow it.
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id != 13,
+            None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+        )
+        .expect("scan_gc ok")
+        .expect("scan_gc found an entry to remove");
+    ii.apply_gc(delta);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for &(doc_id, has_exp) in &[
+        (10u64, true),
+        (11, false),
+        (12, true),
+        (14, true),
+        (15, false),
+    ] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(
+            result.has_field_expiration, has_exp,
+            "GC must preserve the expiration bit for doc {doc_id}"
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+/// A scan of a GC snapshot carries the bits onto the survivors too, both the ones copied
+/// before the first dead entry and the ones re-encoded after it.
+#[test]
+fn expiration_bit_survives_a_snapshot_scan() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let entries: &[(DocId, bool)] = &[(10, true), (11, false), (12, true), (13, true), (14, true)];
+    for &(doc_id, has_exp) in entries {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+
+    let live = |doc_id: DocId| doc_id != 13;
+    let snapshot = ii
+        .gc_snapshot(&live, crate::GcSnapshotScope::DirtyBlocks)
+        .expect("doc 13 is gone");
+    let delta = snapshot
+        .scan_gc(live, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+        .expect("scan_gc ok")
+        .expect("scan_gc found entries to remove");
+    ii.apply_gc(delta);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for &(doc_id, has_exp) in &[(10u64, true), (11, false), (12, true), (14, true)] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(result.has_field_expiration, has_exp, "doc {doc_id}");
     }
     assert!(!reader.next_record(&mut result).unwrap());
 }

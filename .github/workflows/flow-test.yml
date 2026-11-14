@@ -53,19 +53,14 @@ on:
           - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
-          - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
           - rockylinux:10
           - debian:bookworm
           - debian:trixie
-          - amazonlinux:2023
-          - azurelinux:3
           - alpine:3.23
-          - macos-14
           - macos-15
           - macos-26
-          - intel
           - archlinux:latest
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all

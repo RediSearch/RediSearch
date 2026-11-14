@@ -41,6 +41,15 @@ typedef rune (*runeTransform)(rune r);
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 
+/* The most bytes runesToStrInto writes for one rune. */
+#define RUNE_MAX_UTF8_LEN 3
+
+/* Encode `in` as utf-8 into `out`, stopping at the first zero rune, and return
+ * the number of bytes written. Each rune is encoded by its own value, so a
+ * surrogate becomes a three-byte sequence of its own. `out` must hold
+ * RUNE_MAX_UTF8_LEN bytes per rune of `in`; nothing is NUL-terminated. */
+size_t runesToStrInto(const rune *in, size_t len, char *out);
+
 /* Convert a rune string to utf-8 characters. The caller owns the returned
  * buffer. Returns NULL for an input longer than MAX_RUNE_STR_LEN runes.
  * Parameters:

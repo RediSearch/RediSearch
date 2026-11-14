@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 c_trie.workspace = true
+deleted_docs.workspace = true
 dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true

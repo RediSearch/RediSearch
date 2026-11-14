@@ -41,6 +41,7 @@ struct Restore {
 // private data / returns as its handle.
 std::map<void *, int> opens;
 std::map<void *, int> activations;
+std::map<void *, int> trimRestores;
 
 class SSTFinishReplicationTestBase : public ::testing::Test {
  protected:
@@ -55,6 +56,7 @@ class SSTFinishReplicationTestBase : public ::testing::Test {
   void SetUp() override {
     opens.clear();
     activations.clear();
+    trimRestores.clear();
     RSGlobalConfig.gcConfigParams.enableGC = false;
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
     api.basic.openIndexSpecWithRdbState =
@@ -65,6 +67,9 @@ class SSTFinishReplicationTestBase : public ::testing::Test {
           return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
         };
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *index) { ++activations[index]; };
+    api.slotMigration.forEachPendingTrim = [](RedisSearchDiskIndexSpec *index,
+                                              SearchDiskPendingSlotTrimCallback,
+                                              void *) { ++trimRestores[index]; };
   }
 
   void TearDown() override {
@@ -136,7 +141,32 @@ TEST_P(SSTFinishReplicationTest, OpensEveryStagedSpecExactlyOnce) {
   for (IndexSpec *sp : specs) {
     EXPECT_EQ(opens[sp], 1) << HiddenString_GetUnsafe(sp->specName, nullptr);
     EXPECT_EQ(activations[sp], 1) << HiddenString_GetUnsafe(sp->specName, nullptr);
+    EXPECT_EQ(trimRestores[sp], 1) << HiddenString_GetUnsafe(sp->specName, nullptr);
     EXPECT_EQ(sp->diskSpec, reinterpret_cast<RedisSearchDiskIndexSpec *>(sp));
+  }
+}
+
+TEST_P(SSTFinishReplicationTest, CreatesGcBeforeResumingCleanup) {
+  RSGlobalConfig.gcConfigParams.enableGC = true;
+  api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{0}; };
+  api.slotMigration.forEachPendingTrim = [](RedisSearchDiskIndexSpec *index,
+                                            SearchDiskPendingSlotTrimCallback, void *) {
+    auto *spec = reinterpret_cast<IndexSpec *>(index);
+    EXPECT_NE(spec->gc, nullptr);
+    ++trimRestores[index];
+  };
+  std::vector<IndexSpec *> specs;
+  for (size_t i = 0; i < GetParam(); ++i) {
+    specs.push_back(stageSpec("sst_cleanup_gc_" + std::to_string(i)));
+  }
+  disk = &api;
+  disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
+  isFlex = true;
+
+  Indexes_FinishSSTReplication(RSDummyContext);
+
+  for (IndexSpec *spec : specs) {
+    EXPECT_EQ(trimRestores[spec], 1);
   }
 }
 

@@ -23,16 +23,22 @@ use std::io::{self, Cursor, Read, Write};
 use std::mem::{self, ManuallyDrop};
 use std::os::fd::AsRawFd;
 
+use deleted_docs::DeletedDocs;
+use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use index_gc::fork::wire::{deserialize, serialize};
 use index_gc::scanners::tags::{
-    TagEntry, TagsCursor, apply_tag_entry, collect_tags, handle_tags, scan_tags_after,
+    TagEntry, TagsCursor, apply_tag_entry, apply_tag_entry_with, collect_tags, handle_tags,
+    scan_tags_after,
 };
-use index_gc::{DocExistence, ForkPipe, GcError, HandleOutcome};
+use index_gc::spec_access::SpecWriteAccess;
+use index_gc::stats::GcStatsSink;
+use index_gc::thread::{SpecLockAccess, run_cycle};
+use index_gc::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::reader::IndexReader;
-use inverted_index::{DocId, opaque::InvertedIndex};
+use inverted_index::{DocId, DocLiveness, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
 use rqe_core::FieldIndex;
 use trie_rs::TrieMapOpaque;
@@ -72,6 +78,32 @@ impl TestTagIndex {
         unsafe { &*self.0 }
     }
 
+    /// Index `doc_id` under `tag`, as a writer would between a scan and its apply.
+    fn add_doc(&self, tag: &[u8], doc_id: DocId) {
+        // SAFETY: all-zero is valid for IndexStats; the C path only updates its counters.
+        let mut stats: ffi::IndexStats = unsafe { mem::zeroed() };
+        let tag = CString::new(tag).expect("test tag is NUL-free");
+        let mut tag_ptr = tag.as_ptr();
+        let index_ctx = ffi::TagIndexIndexCtx {
+            batch: std::ptr::null_mut(),
+            values: &mut tag_ptr,
+            n: 1,
+            docId: doc_id,
+            hasFieldExpiration: false,
+            stats: &mut stats,
+        };
+        // SAFETY: the helper owns a live memory-mode C tag index and the context points
+        // to the live, NUL-terminated test tag; stats is exclusively owned here.
+        unsafe {
+            assert!(ffi::TagIndex_Index(
+                std::ptr::null_mut(),
+                self.0,
+                &index_ctx
+            ));
+            ffi::TagIndex_Commit(self.0, &mut tag_ptr, 1, &mut stats);
+        }
+    }
+
     /// Populate this memory-mode index through the production C indexing API.
     fn populate(&self, tags: &[&[u8]], docs: DocId, with_suffix: bool) {
         // Discarded: the fixture only needs postings and trie entries, not the
@@ -81,24 +113,11 @@ impl TestTagIndex {
         let mut stats: ffi::IndexStats = unsafe { mem::zeroed() };
 
         for &tag in tags {
+            for doc_id in 1..=docs {
+                self.add_doc(tag, doc_id);
+            }
             let tag = CString::new(tag).expect("test tag is NUL-free");
             let mut tag_ptr = tag.as_ptr();
-            for doc_id in 1..=docs {
-                let index_ctx = ffi::TagIndexIndexCtx {
-                    batch: std::ptr::null_mut(),
-                    values: &mut tag_ptr,
-                    n: 1,
-                    docId: doc_id,
-                    hasFieldExpiration: false,
-                    stats: &mut stats,
-                };
-                // SAFETY: the helper owns a live memory-mode C tag index and
-                // the context points to the live, NUL-terminated test tag.
-                assert!(unsafe { ffi::TagIndex_Index(std::ptr::null_mut(), self.0, &index_ctx) });
-                // SAFETY: the tag index and tag pointer are still live; stats
-                // is exclusively owned by this fixture.
-                unsafe { ffi::TagIndex_Commit(self.0, &mut tag_ptr, 1, &mut stats) };
-            }
 
             if docs == 0 {
                 let mut size = 0;
@@ -201,6 +220,9 @@ struct TestSpec {
     tag_indexes: Vec<TestTagIndex>,
     documents: Vec<ffi::RSDocumentMetadata>,
     buckets: Vec<ffi::DMDChain>,
+    // An empty terms trie and dicts, so a full GC cycle can run over the spec.
+    _keys_dict: OwnedDict<KeysDictType>,
+    _missing_dict: OwnedDict<MissingFieldDictType>,
 }
 
 impl TestSpec {
@@ -227,12 +249,24 @@ impl TestSpec {
         spec.stats.numRecords = 1_000_000;
         spec.stats.invertedSize = 1_000_000;
 
+        let keys_dict = OwnedDict::<KeysDictType>::create();
+        let missing_dict = OwnedDict::<MissingFieldDictType>::create();
+        spec.keysDict = keys_dict.as_mut_ptr();
+        spec.missing.indexes = missing_dict.as_mut_ptr();
+        // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie with no payloads.
+        spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
+        // Every doc this fixture indexes is deleted: the whole ID range is in the set the
+        // thread GC consults instead of the zeroed doc table.
+        spec.docs.deletedDocs = Box::into_raw(Box::new(DeletedDocs::from_ids(1..=1024))).cast();
+
         TestSpec {
             spec,
             field_specs,
             tag_indexes,
             documents: Vec::new(),
             buckets: Vec::new(),
+            _keys_dict: keys_dict,
+            _missing_dict: missing_dict,
         }
     }
 
@@ -365,8 +399,34 @@ impl TestSpec {
     }
 }
 
+impl SpecWriteAccess for TestSpec {
+    fn with_write<T>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, GcError>,
+    ) -> Result<T, GcError> {
+        apply(&mut self.write_guard())
+    }
+}
+
+impl SpecLockAccess for TestSpec {
+    fn with_read<T>(
+        &mut self,
+        scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T,
+    ) -> Result<T, GcError> {
+        Ok(scan(&self.read_guard()))
+    }
+}
+
 impl Drop for TestSpec {
     fn drop(&mut self) {
+        // SAFETY: `create` made this trie, and nothing else frees it.
+        unsafe { ffi::TrieType_Free(self.spec.terms.cast()) };
+        // SAFETY: `create` boxed this set, and nothing else frees it.
+        unsafe {
+            drop(Box::from_raw(
+                self.spec.docs.deletedDocs.cast::<DeletedDocs>(),
+            ))
+        };
         // Free the `HiddenString` allocated by `NewHiddenString` for each field.
         // `FieldSpecBuilder::new` sets `fieldName == fieldPath` (a single
         // allocation, taking ownership of the name), so free it exactly once per
@@ -382,11 +442,9 @@ impl Drop for TestSpec {
 /// Run the child-side tag collector and return its complete output.
 fn collect_tags_from(spec: &TestSpec) -> Vec<u8> {
     let mut buf = Vec::new();
-    collect_tags(
-        &mut buf,
-        &spec.read_guard(),
-        &DocExistence::snapshot(&spec.read_guard()),
-    )
+    collect_tags(&mut buf, &spec.read_guard(), |id| {
+        spec.read_guard().doc_exists(id)
+    })
     .expect("writing to a Vec cannot fail");
     buf
 }
@@ -871,11 +929,9 @@ fn failed_writes_are_propagated() {
     for len in 0..collect_tags_from(&test).len() {
         let mut bytes = vec![0; len];
         assert!(
-            collect_tags(
-                &mut bytes.as_mut_slice(),
-                &test.read_guard(),
-                &DocExistence::snapshot(&test.read_guard())
-            )
+            collect_tags(&mut bytes.as_mut_slice(), &test.read_guard(), |id| test
+                .read_guard()
+                .doc_exists(id))
             .is_err()
         );
     }
@@ -912,11 +968,16 @@ fn an_uninterrupted_tag_scan_matches_the_collected_entries() {
     let stopped = scan_tags_after(
         &test.read_guard(),
         &mut TagsCursor::default(),
+        |id| test.read_guard().doc_exists(id),
         || false,
         &mut found,
     );
 
     assert!(!stopped);
+    let found: Vec<TagEntry> = found
+        .into_iter()
+        .filter_map(|s| s.scan(|id| test.read_guard().doc_exists(id)).unwrap())
+        .collect();
     assert_eq!(
         found.iter().map(entry_key).collect::<Vec<_>>(),
         collected.iter().map(entry_key).collect::<Vec<_>>()
@@ -936,11 +997,21 @@ fn a_tag_scan_resumes_after_the_last_value_visited() {
     let mut cursor = TagsCursor::default();
     let mut found = Vec::new();
     let mut calls = 0;
-    while scan_tags_after(&test.read_guard(), &mut cursor, || true, &mut found) {
+    while scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        |id| test.read_guard().doc_exists(id),
+        || true,
+        &mut found,
+    ) {
         calls += 1;
         assert!(calls <= collected.len(), "the scan must make progress");
     }
 
+    let found: Vec<TagEntry> = found
+        .into_iter()
+        .filter_map(|s| s.scan(|id| test.read_guard().doc_exists(id)).unwrap())
+        .collect();
     assert_eq!(
         found.iter().map(entry_key).collect::<Vec<_>>(),
         collected.iter().map(entry_key).collect::<Vec<_>>()
@@ -960,6 +1031,7 @@ fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
     assert!(scan_tags_after(
         &test.read_guard(),
         &mut cursor,
+        |id| test.read_guard().doc_exists(id),
         || true,
         &mut found
     ));
@@ -969,6 +1041,7 @@ fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
     assert!(!scan_tags_after(
         &test.read_guard(),
         &mut cursor,
+        |id| test.read_guard().doc_exists(id),
         || false,
         &mut found
     ));
@@ -992,6 +1065,7 @@ fn a_tag_scan_resumes_in_a_tag_index_replaced_between_chunks() {
     assert!(scan_tags_after(
         &test.read_guard(),
         &mut cursor,
+        |id| test.read_guard().doc_exists(id),
         || true,
         &mut found
     ));
@@ -1004,6 +1078,7 @@ fn a_tag_scan_resumes_in_a_tag_index_replaced_between_chunks() {
     assert!(!scan_tags_after(
         &test.read_guard(),
         &mut cursor,
+        |id| test.read_guard().doc_exists(id),
         || false,
         &mut found
     ));
@@ -1022,17 +1097,6 @@ fn a_tag_scan_resumes_in_a_tag_index_replaced_between_chunks() {
     );
 }
 
-/// Reports every doc id the fixtures use as present, whatever the spec's
-/// document table says, as a snapshot taken before those docs were deleted.
-fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    const WORDS: usize = 1 << 14;
-    DocExistence::with_bitmap(
-        guard,
-        vec![u64::MAX; WORDS].into_boxed_slice(),
-        (WORDS * 64 - 1) as u64,
-    )
-}
-
 /// The scanner must answer existence from `docs`: the fixture's document table
 /// is empty, so a scanner that looked docs up itself would collect them all.
 #[test]
@@ -1040,6 +1104,71 @@ fn docs_live_in_the_snapshot_are_kept() {
     let test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let guard = test.read_guard();
     let mut buf = Vec::new();
-    collect_tags(&mut buf, &guard, &all_live(&guard)).unwrap();
+    collect_tags(&mut buf, &guard, |_| true).unwrap();
     assert!(receive_all(&buf).is_empty());
+}
+
+/// A delta whose last block grew since the scan is rescanned when the apply has a
+/// liveness source, and denied when it has none.
+#[test]
+fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
+    // Docs 1 and 2 are gone; the one the writer appends is live.
+    let exists = |id: DocId| id > 2;
+    for (live, denied, removed) in [(Some(&exists as &dyn DocLiveness), 0, 2), (None, 1, 0)] {
+        let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 2, false)]);
+        let mut found = Vec::new();
+        scan_tags_after(
+            &test.read_guard(),
+            &mut TagsCursor::default(),
+            exists,
+            || false,
+            &mut found,
+        );
+        let entry = found
+            .pop()
+            .expect("red has gone docs")
+            .scan(exists)
+            .unwrap()
+            .expect("red has gone docs");
+        test.tag_indexes[0].add_doc(b"red", 3);
+
+        let stats = apply_tag_entry_with(entry, live, &mut test.write_guard()).unwrap();
+
+        assert_eq!(stats.blocks_denied, denied);
+        assert_eq!(stats.records_removed, removed);
+        assert!(
+            test.posting_list(0, b"red").is_some(),
+            "doc 3 is live, so the tag stays"
+        );
+    }
+}
+
+/// Collects the GC-level stats of every flush.
+#[derive(Default)]
+struct Recorder(GcApplyStats);
+
+impl GcStatsSink for Recorder {
+    fn record(&mut self, stats: &GcApplyStats) {
+        self.0.record(*stats);
+    }
+}
+
+/// A full in-process cycle collects every tag field and drops the values it
+/// emptied.
+#[test]
+fn a_thread_gc_cycle_collects_every_tag_value() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"red", b"blue"], 3, false),
+        Field::tag(c"sizes", &[b"", b"xl"], 3, true),
+    ]);
+    let mut recorder = Recorder::default();
+
+    let report = run_cycle(&mut test, &mut recorder, true).unwrap();
+
+    for (field, tag) in [(0, &b"red"[..]), (0, b"blue"), (1, b""), (1, b"xl")] {
+        assert!(test.posting_list(field, tag).is_none(), "{tag:?} survived");
+    }
+    assert_eq!(recorder.0.records_removed, 4 * 3);
+    // The four values fit one chunk: one write lock applies them, one prunes the deleted set.
+    assert_eq!(report.write_locks, 1 + 1);
 }

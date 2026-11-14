@@ -19,6 +19,7 @@ use std::{
 };
 
 use c_trie::{SuffixTrie, TermsTrie};
+use deleted_docs::DeletedDocs;
 use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
@@ -49,6 +50,16 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
                 decr as usize,
             )
         }
+    }
+
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// prune after a cycle; `None` for a table that does not track deletions.
+    /// See [`DeletedDocs`].
+    pub const fn deleted_docs_mut(&mut self) -> Option<&mut DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `DeletedDocs_New`, the table owns it until
+        // `DocTable_Free`, and the write lock makes this borrow unique.
+        unsafe { docs.as_mut() }
     }
 
     /// Creates a guard from an already-locked IndexSpec without acquiring the lock.
@@ -183,6 +194,18 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { Dict::from_raw_mut(self.0.missing.indexes) }
     }
 
+    /// The spec's fields alongside its `missing.indexes`, so a field's name can key
+    /// the dict while the dict is borrowed mutably.
+    pub fn field_specs_and_missing_field_dict_mut(
+        &mut self,
+    ) -> (&[FieldSpec], &mut Dict<MissingFieldDictType>) {
+        let fields: *const [FieldSpec] = self.field_specs();
+        // SAFETY: `fields` points at the spec's field array and the dict borrow at the
+        // `dict` struct, two separate allocations; the dict reaches its keys only through
+        // raw pointers. The pair keeps the guard borrowed while either lives.
+        (unsafe { &*fields }, self.missing_field_dict_mut())
+    }
+
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
     ///
     /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
@@ -275,27 +298,20 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         std::mem::ManuallyDrop::new(Self(index_spec))
     }
 
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// take its snapshot from; `None` for a table that does not track deletions.
+    /// See [`DeletedDocs`].
+    pub const fn deleted_docs(&self) -> Option<&DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `DeletedDocs_New`, the table owns it until
+        // `DocTable_Free`, and the read lock keeps writers out.
+        unsafe { docs.as_ref() }
+    }
+
     /// Check whether the document with the given id exists in this spec's document table.
     pub fn doc_exists(&self, id: rqe_core::DocId) -> bool {
         // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
         unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
-    }
-
-    /// Snapshot which documents exist, as a bitmap indexed by document id, or [`None`] when
-    /// the table's maximum document id makes the bitmap too large to allocate.
-    ///
-    /// Within the table's current maximum document id, bit `id` agrees with
-    /// [`doc_exists`](Self::doc_exists) until the table next changes.
-    pub fn live_doc_bitmap(&self) -> Option<Box<[u64]>> {
-        // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
-        let words = unsafe { ffi::DocTable_LiveBitmapWords(&self.0.docs) };
-        if words == 0 {
-            return None;
-        }
-        let mut live = vec![0; words].into_boxed_slice();
-        // SAFETY: docs is a valid DocTable as above, and `live` holds `words` writable words.
-        unsafe { ffi::DocTable_FillLiveBitmap(&self.0.docs, live.as_mut_ptr(), words) };
-        Some(live)
     }
 
     /// Call `f` once with the id of every document [`doc_exists`](Self::doc_exists)

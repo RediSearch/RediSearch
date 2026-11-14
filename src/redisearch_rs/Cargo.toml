@@ -3,6 +3,7 @@ members = [
     "build_utils",
     "c_entrypoint/*",
     "c_wrappers/*",
+    "deleted_docs",
     "document",
     "ffi",
     "field",
@@ -122,6 +123,7 @@ document = { path = "./document" }
 dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
 fat_array = { path = "./c_wrappers/fat_array" }
+deleted_docs = { path = "./deleted_docs" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }

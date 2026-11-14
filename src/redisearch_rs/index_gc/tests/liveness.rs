@@ -1,0 +1,319 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+use std::mem;
+
+use index_gc::liveness::{GoneIds, MAX_BITMAP_BYTES};
+use index_spec::IndexSpecReadGuard;
+use inverted_index::DocLiveness;
+use rqe_core::DocId;
+
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
+/// A spec whose document table holds `docs` (id, deleted) chained into
+/// `buckets` buckets, laid out the way `DocTable_Put` would place them.
+struct TestTable {
+    spec: ffi::IndexSpec,
+    _documents: Box<[ffi::RSDocumentMetadata]>,
+    _buckets: Box<[ffi::DMDChain]>,
+}
+
+impl TestTable {
+    fn new(buckets: usize, docs: impl IntoIterator<Item = (DocId, bool)>) -> Self {
+        let mut documents: Box<[ffi::RSDocumentMetadata]> = docs
+            .into_iter()
+            .map(|(id, deleted)| {
+                // SAFETY: zero is valid for the scalar fields and nullable pointers.
+                let mut document: ffi::RSDocumentMetadata = unsafe { mem::zeroed() };
+                document.id = id;
+                if deleted {
+                    document.set_flags(ffi::RSDocumentFlags_Document_Deleted);
+                }
+                document
+            })
+            .collect();
+        let mut chains: Box<[ffi::DMDChain]> = (0..buckets)
+            .map(|_| ffi::DMDChain {
+                root: std::ptr::null_mut(),
+            })
+            .collect();
+        for document in documents.iter_mut() {
+            let chain = &mut chains[document.id as usize % buckets];
+            document.nextInChain = chain.root;
+            chain.root = document;
+        }
+
+        // SAFETY: a zeroed IndexSpec is valid for the document-table reads under test.
+        let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
+        spec.docs.maxDocId = documents.iter().map(|d| d.id).max().unwrap_or(0);
+        spec.docs.size = documents.iter().filter(|d| d.flags() == 0).count();
+        spec.docs.maxSize = buckets as DocId;
+        spec.docs.cap = buckets;
+        spec.docs.buckets = chains.as_mut_ptr();
+        Self {
+            spec,
+            _documents: documents,
+            _buckets: chains,
+        }
+    }
+
+    const fn guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
+        // SAFETY: the table owns `spec` and does not change it while the guard lives.
+        unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
+    }
+}
+
+/// `exists` and `any_gone` on every ID and range of `ids` agree with `gone`, a
+/// set the caller says is exact there.
+fn assert_matches(
+    set: &GoneIds,
+    ids: std::ops::RangeInclusive<DocId>,
+    gone: impl Fn(DocId) -> bool,
+) {
+    for id in ids.clone() {
+        assert_eq!((&set).exists(id), !gone(id), "doc id {id}");
+    }
+    for first in ids.clone() {
+        for last in first..=*ids.end() {
+            let expected = (first..=last).any(&gone);
+            assert_eq!(
+                (&set).any_gone(first, last),
+                expected,
+                "range {first}..={last}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_set_answers_like_its_ids_as_bits_or_as_a_set() {
+    let ids = [3, 4, 10, 63, 64, 65, 130];
+    for (max_bitmap_bytes, bits) in [(0, false), (1 << 10, true)] {
+        let set = GoneIds::from_set_with_cap(ids.into_iter().collect(), max_bitmap_bytes);
+        assert_eq!(matches!(set, GoneIds::Bitset(_)), bits);
+        // Every range is checked, so Miri covers only the boundary between the first two
+        // words to finish in time.
+        let span = if cfg!(miri) { 56..=70 } else { 0..=140 };
+        assert_matches(&set, span, |id| ids.contains(&id));
+        assert_eq!(set.into_set().into_iter().collect::<Vec<_>>(), ids);
+    }
+}
+
+#[test]
+fn ids_outside_a_sets_window_are_live() {
+    let set = GoneIds::from_set([7, 9].into_iter().collect());
+    assert!(matches!(set, GoneIds::Bitset(_)));
+    assert!((&set).exists(6));
+    assert!(!(&set).exists(7));
+    assert!((&set).exists(10));
+    assert!((&set).exists(DocId::MAX));
+    assert!(!(&set).any_gone(0, 6));
+    assert!(!(&set).any_gone(10, DocId::MAX));
+    assert!((&set).any_gone(0, DocId::MAX));
+}
+
+#[test]
+fn a_window_too_wide_for_the_cap_is_kept_as_a_set() {
+    let set = GoneIds::from_set([1, 1 << 40].into_iter().collect());
+    assert!(matches!(set, GoneIds::DeadSet(_)));
+    assert!(!(&set).exists(1));
+    assert!((&set).exists((1 << 40) - 1));
+    assert!(!(&set).exists(1 << 40));
+}
+
+/// A table's gone IDs are its gaps: the prefix below the first live doc, and the
+/// deleted docs above it, as bits or, past the cap, as a set.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_table_is_gone_below_its_first_live_doc_and_in_its_gaps() {
+    // Ten buckets chain ten docs each; the first 70 and every third are deleted, so
+    // the first live doc sits past the first bitmap word.
+    let table = TestTable::new(10, (1..=100).map(|id| (id, id <= 70 || id % 3 == 0)));
+    let guard = table.guard();
+
+    for (max_bitmap_bytes, bits) in [(MAX_BITMAP_BYTES, true), (0, false)] {
+        let set = GoneIds::of_table_with_cap(&guard, max_bitmap_bytes);
+        assert_eq!(matches!(set, GoneIds::Bitset(_)), bits);
+        assert_matches(&set, 0..=100, |id| !guard.doc_exists(id));
+        assert!((&set).exists(101), "the table holds nothing newer");
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_table_with_a_maximum_past_the_bitmap_window_is_kept_as_its_live_ids() {
+    // A window past the bitmap's cap, with a deleted doc chained among the live ones.
+    const FAR: DocId = 600_000_000;
+    let ids = [7, 11, 12, FAR - 10, FAR];
+    let table = TestTable::new(10, ids.map(|id| (id, id == 11)));
+    let guard = table.guard();
+
+    let set = GoneIds::of_table(&guard);
+    assert!(matches!(set, GoneIds::LiveSet(_)));
+    let near = [0, 1, 6, 7, 11, 12, 13];
+    let far = [FAR - 11, FAR - 10, FAR - 1, FAR];
+    for id in near.into_iter().chain(far) {
+        assert_eq!((&set).exists(id), guard.doc_exists(id), "doc id {id}");
+    }
+    assert!((&set).any_gone(11, 11));
+    assert!(!(&set).any_gone(FAR - 10, FAR - 10));
+}
+
+/// `insert_gone_in` adds exactly the gone IDs inside the range, from bits, from a
+/// set, and from a table's live IDs.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn insert_gone_in_adds_the_gone_ids_inside_the_range() {
+    let gone_ids = [3, 64, 65, 130, 1 << 20];
+    let ranges = [
+        0..=2,
+        0..=3,
+        3..=3,
+        4..=63,
+        60..=130,
+        66..=129,
+        131..=(1 << 20) - 1,
+        0..=DocId::MAX,
+        (1 << 20) + 1..=DocId::MAX,
+    ];
+    for cap in [MAX_BITMAP_BYTES, 0] {
+        let set = GoneIds::from_set_with_cap(gone_ids.into_iter().collect(), cap);
+        for range in ranges.clone() {
+            let mut into = roaring::RoaringTreemap::new();
+            set.insert_gone_in(range.clone(), &mut into);
+            let expected: Vec<DocId> = gone_ids
+                .into_iter()
+                .filter(|id| range.contains(id))
+                .collect();
+            assert_eq!(
+                into.iter().collect::<Vec<_>>(),
+                expected,
+                "cap {cap}, range {range:?}"
+            );
+        }
+    }
+
+    const FAR: DocId = 1 << 40;
+    let table = TestTable::new(8, [(5, false), (7, true), (FAR, false)]);
+    let set = GoneIds::of_table(&table.guard());
+    assert!(matches!(set, GoneIds::LiveSet(_)));
+    let mut into = roaring::RoaringTreemap::new();
+    set.insert_gone_in(4..=9, &mut into);
+    assert_eq!(into.iter().collect::<Vec<_>>(), [4, 6, 7, 8, 9]);
+    into.clear();
+    set.insert_gone_in(FAR..=DocId::MAX, &mut into);
+    assert!(
+        into.is_empty(),
+        "the maximum is live and nothing above it is gone"
+    );
+}
+
+/// A table with widely separated 64-bit IDs and few live ones is kept as its live
+/// IDs, whose size follows the index rather than its largest ID.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_sparse_table_with_widely_separated_ids_is_kept_as_its_live_ids() {
+    const FAR: DocId = 1 << 40;
+    const FARTHER: DocId = 1 << 50;
+    let table = TestTable::new(
+        8,
+        [(5, false), (FAR, true), (FAR + 1, false), (FARTHER, false)],
+    );
+    let guard = table.guard();
+
+    let set = GoneIds::of_table(&guard);
+    assert!(matches!(set, GoneIds::LiveSet(_)));
+    for id in [
+        0,
+        4,
+        5,
+        6,
+        FAR - 1,
+        FAR,
+        FAR + 1,
+        FAR + 2,
+        FARTHER - 1,
+        FARTHER,
+    ] {
+        assert_eq!((&set).exists(id), guard.doc_exists(id), "doc id {id}");
+    }
+    assert!(
+        (&set).exists(FARTHER + 1),
+        "an ID above the maximum is live"
+    );
+    assert!((&set).any_gone(FAR, FAR));
+    assert!((&set).any_gone(6, FAR - 1));
+    assert!(!(&set).any_gone(FAR + 1, FAR + 1));
+    assert!(!(&set).any_gone(FARTHER, DocId::MAX));
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn an_empty_table_has_every_id_up_to_its_max_gone() {
+    let table = TestTable::new(4, (1..=8).map(|id| (id, true)));
+    let set = GoneIds::of_table(&table.guard());
+    assert!(!(&set).exists(8));
+    assert!((&set).exists(9));
+    assert!((&set).any_gone(1, 1));
+    assert!(!(&set).any_gone(9, 100));
+}
+
+/// A sparse table too wide for bits keeps its live IDs, the smaller set, answers
+/// every ID the way the table does, and its gone IDs come back as the complement up
+/// to the table's maximum.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_sparse_table_kept_as_its_live_ids_matches_the_table() {
+    const LAST: DocId = 1 << 20;
+    let table = TestTable::new(10, [(3, false), (64, false), (65, true), (LAST, false)]);
+    let guard = table.guard();
+    let set = GoneIds::of_table_with_cap(&guard, 0);
+    assert!(matches!(set, GoneIds::LiveSet(_)));
+    for id in [0, 2, 3, 4, 63, 64, 65, 66, 1000, LAST - 1, LAST, LAST + 1] {
+        assert_eq!(
+            (&set).exists(id),
+            guard.doc_exists(id) || id > LAST,
+            "doc id {id}"
+        );
+    }
+    assert!((&set).any_gone(66, LAST - 1));
+    assert!(!(&set).any_gone(LAST, LAST));
+    assert_eq!(set.into_set().len(), LAST + 1 - 3);
+}
+
+/// A dense table too wide for bits keeps its gone IDs, the smaller set, and answers
+/// every ID the way the table does, across a mixed container, an all-live one, one
+/// with no doc at all, and a last one cut short at the table's maximum.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_dense_table_kept_as_its_gone_ids_matches_the_table() {
+    const CONTAINER: DocId = 1 << 16;
+    const LAST: DocId = 3 * CONTAINER + 1000;
+    let docs = (1..=LAST)
+        .filter(|id| !(2 * CONTAINER..3 * CONTAINER).contains(id))
+        .map(|id| {
+            (
+                id,
+                id < CONTAINER && id % 3 == 0 || id > 3 * CONTAINER && id % 5 == 0,
+            )
+        });
+    let table = TestTable::new(1024, docs);
+    let guard = table.guard();
+    let set = GoneIds::of_table_with_cap(&guard, 0);
+    assert!(matches!(set, GoneIds::DeadSet(_)));
+    for id in 0..=LAST + 70 {
+        assert_eq!(
+            (&set).exists(id),
+            guard.doc_exists(id) || id > LAST,
+            "doc id {id}"
+        );
+    }
+}

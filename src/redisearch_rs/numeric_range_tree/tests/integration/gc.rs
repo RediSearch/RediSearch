@@ -9,7 +9,7 @@
 
 //! Tests for garbage collection in the numeric range tree.
 
-use numeric_range_tree::{NodeGcDelta, NumericRangeTree};
+use numeric_range_tree::{NodeGcDelta, NumericRangeTree, scan_range_index_gc};
 use rstest::rstest;
 
 use numeric_range_tree::test_utils::{
@@ -143,6 +143,196 @@ fn apply_gc_to_node_with_blocks_since_fork(#[values(false, true)] compress_float
     // With a single value (42.0), cardinality should be exactly 1 after rescan.
     let cardinality_after = tree.root().range().unwrap().cardinality();
     assert_eq!(cardinality_after, 1);
+}
+
+/// A last block that grew since the scan is rescanned in place when the apply has a
+/// liveness source, and denied without one; after a rescan the cardinality and bounds
+/// come from the block as it is now, so they are exact either way.
+#[rstest]
+fn apply_gc_to_node_with_a_liveness_source_rescans_a_grown_last_block(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let n = ENTRIES_PER_BLOCK / 2;
+    let live = |doc_id: u64| doc_id > n / 2;
+    for (with_live, denied, removed) in [(true, false, n / 2), (false, true, 0)] {
+        let mut tree = NumericRangeTree::new(compress_floats);
+        for i in 1..=n {
+            tree.add(i, 42.0, false, false, 0);
+        }
+        let delta =
+            scan_node_delta(&tree, tree.root_index(), &live).expect("half the docs are gone");
+        // The writer appends to the leaf's only block, which the scan read as it was.
+        tree.add(n + 1, 7.0, false, false, 0);
+
+        let live_dyn: &dyn inverted_index::DocLiveness = &live;
+        let result = tree
+            .apply_gc_to_node_with(tree.root_index(), delta, with_live.then_some(live_dyn))
+            .unwrap();
+
+        assert_eq!(result.index_gc_info.ignored_last_block, denied);
+        assert_eq!(result.index_gc_info.rescanned_last_block, with_live);
+        assert_eq!(result.index_gc_info.entries_removed, removed as usize);
+        let range = tree.root().range().unwrap();
+        assert_eq!(range.cardinality(), 2, "42.0 and the appended 7.0");
+        assert_eq!(range.entries().num_docs() as u64, n + 1 - removed);
+    }
+}
+
+/// A leaf that split since it was scanned keeps its range as an internal node, and its
+/// children hold copies of the entries a rescan would remove. Its grown last block is
+/// denied instead, so its bounds still cover its children until a later cycle, which
+/// lists the children, collects them first.
+#[rstest]
+fn a_leaf_that_split_since_its_scan_is_denied_not_rescanned(
+    #[values(false, true)] compress_floats: bool,
+) {
+    const MAX_DEPTH_RANGE: usize = 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=4 {
+        tree.add(i, 42.0, false, false, MAX_DEPTH_RANGE);
+    }
+    let live = |doc_id: u64| doc_id > 2;
+    let delta = scan_node_delta(&tree, tree.root_index(), &live).expect("docs 1 and 2 are gone");
+    // Distinct values split the leaf; the root keeps its range and its last block grows.
+    let last = 4 + SPLIT_TRIGGER;
+    for i in 5..=last {
+        tree.add(i, i as f64, false, false, MAX_DEPTH_RANGE);
+    }
+    assert!(!tree.root().is_leaf(), "the leaf split");
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &live;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.ignored_last_block);
+    assert!(!result.index_gc_info.rescanned_last_block);
+    let range = tree.root().range().expect("the root retains its range");
+    assert!(range.min_val() <= 5.0, "min {}", range.min_val());
+    assert!(range.max_val() >= last as f64, "max {}", range.max_val());
+}
+
+/// An internal node keeps bounds over the entries its children still hold, as the
+/// unlisted children of a leaf that split since the scan do: their copies of the
+/// entries its delta removes are collected only by a later cycle.
+#[rstest]
+fn an_internal_node_keeps_bounds_over_uncollected_children(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Distinct values split the leaf once; the root keeps its range.
+    let tree_entries = SPLIT_TRIGGER;
+    let mut tree = build_tree(tree_entries, compress_floats, 2);
+    let root = tree.root_index();
+    assert!(!tree.root().is_leaf(), "the leaf split");
+    let live = |doc_id: u64| doc_id > 1;
+    let delta = scan_node_delta(&tree, root, &live).expect("doc 1 is gone");
+
+    let result = tree.apply_gc_to_node(root, delta).unwrap();
+
+    assert_eq!(result.index_gc_info.entries_removed, 1);
+    let range = tree.root().range().expect("the root retains its range");
+    assert_eq!(range.min_val(), 1.0, "a child still holds doc 1's value");
+}
+
+/// A leaf whose last block was full when scanned splits by appending a new block, so
+/// the scanned last block does not change and the delta's own staleness check passes.
+/// The delta is denied whole anyway: the node is internal now, and its children hold
+/// copies of the entries the delta would remove.
+#[rstest]
+fn a_leaf_that_split_past_a_full_last_block_is_denied(
+    #[values(false, true)] compress_floats: bool,
+) {
+    const MAX_DEPTH_RANGE: usize = 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    // One value, so the leaf fills its block without splitting.
+    for i in 1..=ENTRIES_PER_BLOCK {
+        tree.add(i, 42.0, false, false, MAX_DEPTH_RANGE);
+    }
+    let live = |doc_id: u64| doc_id > 2;
+    let delta = scan_node_delta(&tree, tree.root_index(), &live).expect("docs 1 and 2 are gone");
+    assert!(delta.scanned_leaf);
+    let last = ENTRIES_PER_BLOCK + SPLIT_TRIGGER;
+    for i in ENTRIES_PER_BLOCK + 1..=last {
+        tree.add(i, i as f64, false, false, MAX_DEPTH_RANGE);
+    }
+    assert!(!tree.root().is_leaf(), "the leaf split");
+    let entries_before = tree.root().range().unwrap().entries().num_docs();
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &live;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.ignored_last_block);
+    assert_eq!(result.index_gc_info.entries_removed, 0);
+    assert_eq!(
+        tree.root().range().unwrap().entries().num_docs(),
+        entries_before
+    );
+}
+
+/// A rescan can delete the grown last block outright. The statistics are then
+/// rebuilt from whatever follows it, found by document ID, not from a block count
+/// the delete made stale: here the only block goes, and nothing is folded back.
+#[rstest]
+fn a_rescan_that_deletes_the_only_block_leaves_an_empty_range(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let n = ENTRIES_PER_BLOCK / 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        tree.add(i, 42.0, false, false, 0);
+    }
+    let gone = |_: u64| false;
+    let delta = scan_node_delta(&tree, tree.root_index(), &gone).expect("every doc is gone");
+    tree.add(n + 1, 7.0, false, false, 0);
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &gone;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.rescanned_last_block);
+    assert!(result.became_empty);
+    let range = tree.root().range().unwrap();
+    assert_eq!(range.entries().num_docs(), 0);
+    assert_eq!(range.cardinality(), 0);
+}
+
+/// The same, with a block added after the scan: only that block's values are
+/// folded back in.
+#[rstest]
+fn a_rescan_that_deletes_the_scanned_last_block_folds_back_only_the_new_block(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let scanned = ENTRIES_PER_BLOCK / 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=scanned {
+        tree.add(i, 42.0, false, false, 0);
+    }
+    // Only the docs of the block added after the scan survive.
+    let live = |doc_id: u64| doc_id > ENTRIES_PER_BLOCK;
+    let delta = scan_node_delta(&tree, tree.root_index(), &live).expect("every doc is gone");
+    // Fill the scanned block, then start a new one.
+    for i in scanned + 1..=ENTRIES_PER_BLOCK {
+        tree.add(i, 7.0, false, false, 0);
+    }
+    for i in ENTRIES_PER_BLOCK + 1..=ENTRIES_PER_BLOCK + 5 {
+        tree.add(i, 9.0, false, false, 0);
+    }
+    assert_eq!(tree.root().range().unwrap().entries().num_blocks(), 2);
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &live;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.rescanned_last_block);
+    let range = tree.root().range().unwrap();
+    assert_eq!(range.entries().num_blocks(), 1);
+    assert_eq!(range.entries().num_docs(), 5);
+    assert_eq!(range.cardinality(), 1, "only 9.0 is left");
+    assert_eq!((range.min_val(), range.max_val()), (9.0, 9.0));
 }
 
 #[rstest]
@@ -610,6 +800,7 @@ fn gc_on_node_without_range() {
                 registers_without_last_block: delta.registers_without_last_block,
                 bounds_with_last_block: delta.bounds_with_last_block,
                 bounds_without_last_block: delta.bounds_without_last_block,
+                scanned_leaf: delta.scanned_leaf,
             },
         )
         .unwrap();
@@ -1006,4 +1197,25 @@ fn gc_tightens_retained_internal_range() {
         leftmost = left;
     }
     assert_eq!(bounds_of(&tree, leftmost).0, 2.0);
+}
+
+/// A scan of a snapshot taken with a liveness source finds exactly what a scan of
+/// the live range finds with it.
+#[rstest]
+fn scanning_a_snapshot_matches_scanning_the_live_range(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let tree = build_single_leaf_tree(ENTRIES_PER_BLOCK * 3, compress_floats);
+    let entries = tree.root().range().expect("a leaf has a range").entries();
+    let live = |doc_id: u64| doc_id % 3 != 0;
+
+    let on_live = scan_range_index_gc(entries, live, true)
+        .unwrap()
+        .expect("every third doc is gone");
+    let snapshot = entries.gc_snapshot(&live).expect("every third doc is gone");
+
+    assert_eq!(
+        scan_range_index_gc(&snapshot, live, true).unwrap(),
+        Some(on_live)
+    );
 }

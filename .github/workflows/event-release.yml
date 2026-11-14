@@ -206,7 +206,7 @@ jobs:
     secrets:
       SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
-      platform: all,!intel
+      platform: all
       architecture: all
 
   set-artifacts:
