@@ -1261,6 +1261,9 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     blockClientCtx.freePrivData = HybridQueryFreePrivData;
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
 
+    if (IsProfile(hreq)) {
+      blockClientCtx.disconnectCallback = HybridQueryDisconnectCallback;
+    }
     if (timeoutPolicy != TimeoutPolicy_Return) {
       blockClientCtx.disconnectCallback = HybridQueryDisconnectCallback;
       // Standalone FAIL serializes on the worker while the deadline remains active.
@@ -1443,6 +1446,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (parseHybridCommand(ctx, &ac, sctx, &cmd, &status, internal, profileOptions) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
+  }
+  if (profileOptions & EXEC_WITH_PROFILE) {
+    hybridRequest->tailPipeline->qctx.timeoutPolicy = hybridRequest->reqConfig.timeoutPolicy;
   }
 
   if (internal) {

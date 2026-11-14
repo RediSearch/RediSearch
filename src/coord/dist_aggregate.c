@@ -649,8 +649,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 static bool profileShouldStopCollectingReplies(AREQ *req) {
-  // A cancelled FAIL reply is discarded, so there is no need to collect more shard profiles.
-  return req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && AREQ_TimedOut(req);
+  // A disconnected profile no longer needs diagnostics. Cooperative deadlines do not set this flag.
+  return req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict && AREQ_TimedOut(req);
 }
 
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
@@ -735,6 +735,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   int rc = ParseProfile(&ac, status, &profileOptions);
   if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
   ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
+  r->reqConfig.timeoutPolicy = Profile_ResolveTimeoutPolicy(requestTimeoutPolicy, IsProfile(r));
 
   // For non-profile commands, skip past command name (FT.AGGREGATE) and index name
   if (profileOptions == EXEC_NO_FLAGS) {

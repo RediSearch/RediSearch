@@ -620,6 +620,9 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   subqueryRequest->maxAggregateResults = maxHybridResults;
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(subqueryRequest);
+  if (profileOptions & EXEC_WITH_PROFILE) {
+    qctx->timeoutPolicy = subqueryRequest->reqConfig.timeoutPolicy;
+  }
   ApplyProfileOptions(qctx, &subqueryRequest->reqflags, profileOptions);
 }
 
@@ -788,6 +791,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   RS_ASSERT(*mergeReqflags == 0);
   ApplyProfileFlags(mergeReqflags, profileOptions);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+  parsedCmdCtx->reqConfig->timeoutPolicy = Profile_ResolveTimeoutPolicy(
+      parsedCmdCtx->reqConfig->timeoutPolicy, profileOptions & EXEC_WITH_PROFILE);
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
