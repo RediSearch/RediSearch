@@ -76,7 +76,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     double deltaTime = totalRPTime - upstreamTime;
     printProfileTime(deltaTime);
   }
-  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  uint64_t count = RPProfile_GetCount(rp);
+  printProfileRPCounter(count ? count - 1 : 0);
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }

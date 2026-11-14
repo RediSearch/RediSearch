@@ -1869,6 +1869,7 @@ static void AREQ_Free(AREQ *req) {
   rm_free(req->args);
 
   RequestSyncCtx_Destroy(&req->syncCtx);
+  ProfilePreparation_Free(req->profilePreparation);
 
   rm_free(req);
 }
