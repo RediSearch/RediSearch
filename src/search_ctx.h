@@ -46,7 +46,7 @@ typedef struct RedisSearchCtx {
   // component). Every disk iterator and disk metadata read built from this context passes
   // it, so they agree on which documents the query can see. Owned by the query setup that
   // opened it; iterators borrow it.
-  RedisSearchDiskSnapshot *diskSnapshot;
+  RedisSearchDiskQueryView *diskQueryView;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -67,7 +67,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .limits = NULL,
-                          .diskSnapshot = NULL,};
+                          .diskQueryView = NULL,};
   return sctx;
 }
 
@@ -86,9 +86,9 @@ typedef struct QueryError QueryError;
 //   - the index has no disk component (no view needed), or
 //   - the disk read view was successfully opened.
 // Returns REDISMODULE_ERR and sets `status` if the index is disk-backed but
-// the underlying `SearchDisk_CreateSnapshot` returned NULL. Callers must abort
+// the underlying `SearchDisk_CreateQueryView` returned NULL. Callers must abort
 // the query in that case rather than read the disk index without a view.
-int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
+int SearchCtx_OpenDiskQueryView(RedisSearchCtx *sctx, QueryError *status);
 
 // Context destruction never releases a spec lock: a cursor sweep can destroy
 // an idle request while the same thread holds a different request's lock.

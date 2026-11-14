@@ -404,9 +404,9 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 /// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
 /// implementation will provide iterators `rqe_iterators` does not know about.
 ///
-/// Each iterator constructor requires a `snapshot` handle: the query's disk read view, a
-/// [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) returned from the disk API's
-/// `createSnapshot` for the same `index`, which must remain valid for the lifetime of the
+/// Each iterator constructor requires a `view` handle: the query's disk read view, a
+/// [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) returned from the disk API's
+/// `createQueryView` for the same `index`, which must remain valid for the lifetime of the
 /// returned iterator. It is what makes every iterator created for one query agree on which
 /// documents the query can see; there is no fallback for reading without one.
 pub trait SearchEnterpriseIterators: Send + Sync {
@@ -424,7 +424,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
         status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -440,7 +440,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
@@ -455,7 +455,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
@@ -466,7 +466,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over documents missing the given schema field.
@@ -476,7 +476,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
@@ -486,7 +486,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -503,6 +503,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

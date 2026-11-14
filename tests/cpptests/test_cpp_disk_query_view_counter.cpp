@@ -24,7 +24,7 @@ int HybridRequest_StartCursors(HybridRequest* req, RedisModuleCtx* replyCtx, Que
                                bool backgroundDepletion);
 }
 
-class DiskSnapshotCounterTest : public ::testing::Test {
+class DiskQueryViewCounterTest : public ::testing::Test {
  protected:
   static bool failNextCreate;
   static int sentinel;
@@ -35,13 +35,13 @@ class DiskSnapshotCounterTest : public ::testing::Test {
 
   void SetUp() override {
     failNextCreate = false;
-    api.index.createSnapshot = [](RedisSearchDiskIndexSpec*) -> RedisSearchDiskSnapshot* {
-      return failNextCreate ? nullptr : reinterpret_cast<RedisSearchDiskSnapshot*>(&sentinel);
+    api.index.createQueryView = [](RedisSearchDiskIndexSpec*) -> RedisSearchDiskQueryView* {
+      return failNextCreate ? nullptr : reinterpret_cast<RedisSearchDiskQueryView*>(&sentinel);
     };
-    api.index.freeSnapshot = [](RedisSearchDiskSnapshot*) {};
+    api.index.freeQueryView = [](RedisSearchDiskQueryView*) {};
     savedDisk = disk;
     disk = &api;
-    ASSERT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+    ASSERT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
   }
 
   void TearDown() override {
@@ -49,40 +49,40 @@ class DiskSnapshotCounterTest : public ::testing::Test {
   }
 };
 
-bool DiskSnapshotCounterTest::failNextCreate = false;
-int DiskSnapshotCounterTest::sentinel = 0;
+bool DiskQueryViewCounterTest::failNextCreate = false;
+int DiskQueryViewCounterTest::sentinel = 0;
 
-TEST_F(DiskSnapshotCounterTest, CountsCreatedAndFreedSnapshots) {
-  RedisSearchDiskSnapshot* a = SearchDisk_CreateSnapshot(index);
-  RedisSearchDiskSnapshot* b = SearchDisk_CreateSnapshot(index);
+TEST_F(DiskQueryViewCounterTest, CountsCreatedAndFreedQueryViews) {
+  RedisSearchDiskQueryView* a = SearchDisk_CreateQueryView(index);
+  RedisSearchDiskQueryView* b = SearchDisk_CreateQueryView(index);
   ASSERT_NE(a, nullptr);
   ASSERT_NE(b, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 2u);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 2u);
 
-  SearchDisk_FreeSnapshot(a);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  SearchDisk_FreeSnapshot(b);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  SearchDisk_FreeQueryView(a);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 1u);
+  SearchDisk_FreeQueryView(b);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
 }
 
-TEST_F(DiskSnapshotCounterTest, FailedCreateIsNotCounted) {
+TEST_F(DiskQueryViewCounterTest, FailedCreateIsNotCounted) {
   failNextCreate = true;
-  EXPECT_EQ(SearchDisk_CreateSnapshot(index), nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  EXPECT_EQ(SearchDisk_CreateQueryView(index), nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
 }
 
-TEST_F(DiskSnapshotCounterTest, FreeingNullIsNotCounted) {
-  RedisSearchDiskSnapshot* snapshot = SearchDisk_CreateSnapshot(index);
-  SearchDisk_FreeSnapshot(nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  SearchDisk_FreeSnapshot(snapshot);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+TEST_F(DiskQueryViewCounterTest, FreeingNullIsNotCounted) {
+  RedisSearchDiskQueryView* view = SearchDisk_CreateQueryView(index);
+  SearchDisk_FreeQueryView(nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 1u);
+  SearchDisk_FreeQueryView(view);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
 }
 
 // A two-subquery hybrid request on a disk-backed index, with just enough state to take each
 // subquery's own read view as HybridRequest_BuildDepletionPipeline does: a lockable spec, since
-// SearchCtx_TakeDiskSnapshot asserts the spec read lock.
-class HybridSnapshotTest : public DiskSnapshotCounterTest {
+// SearchCtx_OpenDiskQueryView asserts the spec read lock.
+class HybridQueryViewTest : public DiskQueryViewCounterTest {
  protected:
   bool savedFlex = false;
   RedisSearchDisk* savedDiskDb = nullptr;
@@ -96,7 +96,7 @@ class HybridSnapshotTest : public DiskSnapshotCounterTest {
   HybridRequest hybrid{};
 
   void SetUp() override {
-    DiskSnapshotCounterTest::SetUp();
+    DiskQueryViewCounterTest::SetUp();
     savedFlex = isFlex;
     savedDiskDb = disk_db;
     isFlex = true;
@@ -113,11 +113,11 @@ class HybridSnapshotTest : public DiskSnapshotCounterTest {
     hybrid.nrequests = 2;
   }
 
-  int takeSnapshots() {
+  int openQueryViews() {
     int rc = REDISMODULE_OK;
     IndexSpec_LockRead(&spec);
     for (AREQ* sub : subqueries) {
-      if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(sub), &sub->base.reply.err) !=
+      if (SearchCtx_OpenDiskQueryView(AREQ_SearchCtx(sub), &sub->base.reply.err) !=
           REDISMODULE_OK) {
         rc = REDISMODULE_ERR;
         break;
@@ -136,32 +136,32 @@ class HybridSnapshotTest : public DiskSnapshotCounterTest {
     EXPECT_EQ(pthread_rwlock_destroy(&spec.rwlock), 0);
     isFlex = savedFlex;
     disk_db = savedDiskDb;
-    DiskSnapshotCounterTest::TearDown();
+    DiskQueryViewCounterTest::TearDown();
   }
 };
 
-// Stand-in result processors that record when they are freed and how many snapshots were still
+// Stand-in result processors that record when they are freed and how many views were still
 // alive at that moment, to pin the order the teardown must keep.
 struct FakeRP {
   ResultProcessor base;
   int id;
 };
 static std::vector<int> freedIds;
-static std::vector<size_t> liveSnapshotsWhenFreed;
+static std::vector<size_t> liveViewsWhenFreed;
 
 static void fakeRPFree(ResultProcessor* rp) {
   freedIds.push_back(reinterpret_cast<FakeRP*>(rp)->id);
-  liveSnapshotsWhenFreed.push_back(SearchDisk_GetLiveSnapshotCount());
+  liveViewsWhenFreed.push_back(SearchDisk_GetLiveQueryViewCount());
 }
 
-class HybridReleaseUpstreamTest : public HybridSnapshotTest {
+class HybridReleaseUpstreamTest : public HybridQueryViewTest {
  protected:
   FakeRP chains[2][3]{};  // per subquery: [0] root, [1] middle, [2] depleter
 
   void SetUp() override {
-    HybridSnapshotTest::SetUp();
+    HybridQueryViewTest::SetUp();
     freedIds.clear();
-    liveSnapshotsWhenFreed.clear();
+    liveViewsWhenFreed.clear();
     AREQ* subs[2] = {&first, &second};
     for (int q = 0; q < 2; q++) {
       QueryProcessingCtx* qctx = &subs[q]->pipeline.qctx;
@@ -176,18 +176,18 @@ class HybridReleaseUpstreamTest : public HybridSnapshotTest {
   }
 };
 
-TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheSnapshotAndKeepsTheDepleter) {
-  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
+TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheQueryViewAndKeepsTheDepleter) {
+  ASSERT_EQ(openQueryViews(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
-  // The middle and root processors go, downstream first, while the snapshot is still alive.
-  // Each subquery frees its own snapshot, so the other one is still alive while the first
+  // The middle and root processors go, downstream first, while the view is still alive.
+  // Each subquery frees its own view, so the other one is still alive while the first
   // subquery's chain is freed.
   EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
-  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(liveViewsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
+  EXPECT_EQ(firstCtx.diskQueryView, nullptr);
+  EXPECT_EQ(secondCtx.diskQueryView, nullptr);
 
   // What is left is the depleter alone, so the request's own teardown frees just that.
   for (AREQ* sub : {&first, &second}) {
@@ -202,14 +202,14 @@ TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheSnapshotAndKeepsTheDeple
   EXPECT_EQ(freedIds, (std::vector<int>{2, 12}));
 }
 
-TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheSnapshot) {
+TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheQueryView) {
   hybrid.reqflags |= QEXEC_F_PROFILE;
-  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
+  ASSERT_EQ(openQueryViews(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
   EXPECT_TRUE(freedIds.empty());
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 2u);
-  EXPECT_NE(firstCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 2u);
+  EXPECT_NE(firstCtx.diskQueryView, nullptr);
   EXPECT_NE(first.pipeline.qctx.endProc->upstream, nullptr);
 
   SearchCtx_CleanUp(&firstCtx);
@@ -218,7 +218,7 @@ TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheSnapshot) {
 
 TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
   spec.diskSpec = nullptr;
-  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
+  ASSERT_EQ(openQueryViews(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
   EXPECT_TRUE(freedIds.empty());
@@ -226,8 +226,8 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 }
 
 // Drives HybridRequest_StartCursors with real foreground depleters over stand-in upstreams, to
-// pin which outcomes of depletion release the snapshot and which leave it for the teardown.
-class HybridStartCursorsTest : public HybridSnapshotTest {
+// pin which outcomes of depletion release the view and which leave it for the teardown.
+class HybridStartCursorsTest : public HybridQueryViewTest {
  protected:
   static int upstreamRc;
   static QueryRequestLimits* timeoutToTrip;  // marked timed out from inside the upstream read
@@ -242,9 +242,9 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
   }
 
   void SetUp() override {
-    HybridSnapshotTest::SetUp();
+    HybridQueryViewTest::SetUp();
     freedIds.clear();
-    liveSnapshotsWhenFreed.clear();
+    liveViewsWhenFreed.clear();
     upstreamRc = RS_RESULT_EOF;
     timeoutToTrip = nullptr;
     TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
@@ -266,7 +266,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
       QITR_PushRP(qctx, RPDepleter_New());
       qctx->timeoutPolicy = TimeoutPolicy_Fail;
     }
-    ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
+    ASSERT_EQ(openQueryViews(), REDISMODULE_OK);
   }
 
   void TearDown() override {
@@ -276,23 +276,23 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
     SearchCtx_CleanUp(&firstCtx);
     SearchCtx_CleanUp(&secondCtx);
     QueryError_ClearError(&status);
-    EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-    HybridSnapshotTest::TearDown();
+    EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
+    HybridQueryViewTest::TearDown();
   }
 
   bool released() const {
-    return firstCtx.diskSnapshot == nullptr && secondCtx.diskSnapshot == nullptr;
+    return firstCtx.diskQueryView == nullptr && secondCtx.diskQueryView == nullptr;
   }
 };
 int HybridStartCursorsTest::upstreamRc = RS_RESULT_EOF;
 QueryRequestLimits* HybridStartCursorsTest::timeoutToTrip = nullptr;
 
-TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBeforePublishing) {
+TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndQueryViewBeforePublishing) {
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
   EXPECT_TRUE(released());
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
   EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
-  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
+  EXPECT_EQ(liveViewsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
   EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
   EXPECT_EQ(second.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
 }
@@ -333,7 +333,7 @@ TEST_F(HybridStartCursorsTest, TimeoutAfterDepletionLeavesATrimmedChainThatTears
   // TearDown frees only the depleters left behind; each must be freed exactly once.
 }
 
-// Rows buffered by the depleters must stay readable after the iterators and the snapshot they were
+// Rows buffered by the depleters must stay readable after the iterators and the view they were
 // read from are gone: they own their document metadata and carry no borrowed index result.
 TEST_F(HybridStartCursorsTest, BufferedRowsAreReadableAfterTheEarlyRelease) {
   static int rowsLeft;
@@ -358,7 +358,7 @@ TEST_F(HybridStartCursorsTest, BufferedRowsAreReadableAfterTheEarlyRelease) {
   }
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
   ASSERT_TRUE(released());
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  EXPECT_EQ(SearchDisk_GetLiveQueryViewCount(), 0u);
 
   ResultProcessor* depleter = first.pipeline.qctx.endProc;
   for (t_docId expected : {3, 2, 1}) {

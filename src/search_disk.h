@@ -384,13 +384,13 @@ DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
- * and handles cleanup on failure. The per-query read view is taken from `sctx->diskSnapshot`
+ * and handles cleanup on failure. The per-query read view is taken from `sctx->diskQueryView`
  * (which must be non-NULL), so every iterator created during one query shares it without
  * having to thread it through each call site.
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field carries the query's read view. The
- *             `diskSnapshot` field is required to be non-NULL.
+ * @param sctx Search context whose `diskQueryView` field carries the query's read view. The
+ *             `diskQueryView` field is required to be non-NULL.
  * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
  * @param tokenId Token ID for the term
  * @param fieldMask Field mask indicating which fields are present
@@ -408,11 +408,11 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  *
  * This function creates a tag IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines. The per-query read view is taken from
- * `sctx->diskSnapshot` (which must be non-NULL).
+ * `sctx->diskQueryView` (which must be non-NULL).
  *
  * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field carries the query's read view. The
- *             `diskSnapshot` field is required to be non-NULL.
+ * @param sctx Search context whose `diskQueryView` field carries the query's read view. The
+ *             `diskQueryView` field is required to be non-NULL.
  * @param tok Pointer to the token (contains tag value string)
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
@@ -426,28 +426,28 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  *
  * The returned handle is stored on the query's search context and passed to the
  * iterator-creation and metadata-read wrappers, so they all agree on which documents the
- * query can see. Must be released by `SearchDisk_FreeSnapshot` according to the lifetime
- * contract in `IndexDiskAPI.createSnapshot`.
+ * query can see. Must be released by `SearchDisk_FreeQueryView` according to the lifetime
+ * contract in `IndexDiskAPI.createQueryView`.
  *
  * @param index Pointer to the index spec
  * @return View handle, or NULL on error
  */
-RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index);
+RedisSearchDiskQueryView* SearchDisk_CreateQueryView(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Release a read view previously returned by `SearchDisk_CreateSnapshot`.
+ * @brief Release a read view previously returned by `SearchDisk_CreateQueryView`.
  *
  * Safe to call with NULL (no-op). After this call, the handle must not be used.
  *
- * @param snapshot View handle returned by `SearchDisk_CreateSnapshot`
+ * @param view View handle returned by `SearchDisk_CreateQueryView`
  */
-void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
+void SearchDisk_FreeQueryView(RedisSearchDiskQueryView *view);
 
 /**
- * @brief Number of read views opened by `SearchDisk_CreateSnapshot` and not yet released
- * by `SearchDisk_FreeSnapshot`, across all indexes.
+ * @brief Number of read views opened by `SearchDisk_CreateQueryView` and not yet released
+ * by `SearchDisk_FreeQueryView`, across all indexes.
  */
-size_t SearchDisk_GetLiveSnapshotCount(void);
+size_t SearchDisk_GetLiveQueryViewCount(void);
 
 // DocTable API wrappers
 
@@ -478,7 +478,7 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
  * (debug commands and other out-of-query paths).
  *
  * @param handle Handle to the document table
- * @param sctx Search context whose `diskSnapshot` carries the query's read view (may be NULL).
+ * @param sctx Search context whose `diskQueryView` carries the query's read view (may be NULL).
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
  * @param current_time Current time for expiration check.
@@ -492,7 +492,7 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
  *
  * The storage layer tracks deletions outside the per-query read view, so this
  * check always reflects the current state; it cannot be pinned to a query's
- * `sctx->diskSnapshot`.
+ * `sctx->diskQueryView`.
  *
  * @param handle Handle to the document table
  * @param docId Document ID
@@ -571,7 +571,7 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
  * can return. Pass `sctx == NULL` to read outside any query.
  *
  * @param handle Handle to the index
- * @param sctx Search context whose `diskSnapshot` carries the pool's read view (may be NULL).
+ * @param sctx Search context whose `diskQueryView` carries the pool's read view (may be NULL).
  *             The view must outlive the pool.
  * @param max_concurrent Maximum number of concurrent pending reads
  * @return Opaque handle to the pool, or NULL on error

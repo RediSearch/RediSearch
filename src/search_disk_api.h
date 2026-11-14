@@ -51,15 +51,15 @@ typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
 // Opaque handle for a per-query read view of a disk index.
 //
-// Created via `IndexDiskAPI.createSnapshot` while the spec read lock is held, released via
-// `IndexDiskAPI.freeSnapshot`. Pass the same handle to `newTermIterator` / `newTagIterator`
+// Created via `IndexDiskAPI.createQueryView` while the spec read lock is held, released via
+// `IndexDiskAPI.freeQueryView`. Pass the same handle to `newTermIterator` / `newTagIterator`
 // / `newMissingIterator`, to the Rust-side numeric/wildcard iterator entry points and to the
 // document-metadata reads of one query. The storage layer defines what the view admits:
 // documents whose indexing committed after the view was opened stay invisible to every
 // reader that carries the handle, while deletions are tracked outside the view and always
 // reflect the current state. The handle must outlive every iterator and in-flight read
 // created from it, and must not outlive the originating index spec.
-typedef const void* RedisSearchDiskSnapshot;
+typedef const void* RedisSearchDiskQueryView;
 
 // Opaque handle for the underlying storage-layer write batch.
 //
@@ -591,12 +591,12 @@ typedef struct IndexDiskAPI {
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
-   * @param snapshot Required per-query read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   * @param view Required per-query read view. Must have been returned by
+   *                 `createQueryView(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskQueryView *view, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index
@@ -605,12 +605,12 @@ typedef struct IndexDiskAPI {
    * @param tok Pointer to the token (contains tag string and length)
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
-   * @param snapshot Required per-query read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
+   * @param view Required per-query read view. Must have been returned by
+   *                 `createQueryView(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskQueryView *view, QueryError* status);
 
   /**
    * @brief Open a per-query read view of this index.
@@ -618,7 +618,7 @@ typedef struct IndexDiskAPI {
    * The returned handle is passed to `newTermIterator`, `newTagIterator`,
    * `newMissingIterator`, the Rust-side numeric/wildcard iterator entry points and the
    * document-metadata reads of one query, so they all agree on which documents the query
-   * can see (see `RedisSearchDiskSnapshot`). Call it while holding the spec read lock and
+   * can see (see `RedisSearchDiskQueryView`). Call it while holding the spec read lock and
    * open the query's iterators before releasing it, so the view and the iterators match
    * the in-memory index state the query planner consults. The handle must remain alive
    * until its iterators and outstanding metadata reads have finished.
@@ -626,16 +626,16 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index spec
    * @return View handle, or NULL on error (e.g. index is NULL)
    */
-  RedisSearchDiskSnapshot *(*createSnapshot)(RedisSearchDiskIndexSpec *index);
+  RedisSearchDiskQueryView *(*createQueryView)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Release a read view previously returned by `createSnapshot`.
+   * @brief Release a read view previously returned by `createQueryView`.
    *
    * Safe to call with NULL (no-op). After this call, the handle must not be used.
    *
-   * @param snapshot View handle returned by `createSnapshot`
+   * @param view View handle returned by `createQueryView`
    */
-  void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
+  void (*freeQueryView)(RedisSearchDiskQueryView *view);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -789,12 +789,12 @@ typedef struct IndexDiskAPI {
 
   /**
    * Open the missing postings for a global schema field index through the query's
-   * read view (from createSnapshot(index), valid until the iterator is freed).
+   * read view (from createQueryView(index), valid until the iterator is freed).
    * An unwritten field produces an empty iterator. On failure, return NULL and
    * populate status. The iterator reports InvIdxMissing / MISSING in profiles.
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
-                                       RedisSearchDiskSnapshot *snapshot, QueryError *status);
+                                       RedisSearchDiskQueryView *view, QueryError *status);
 } IndexDiskAPI;
 
 /** Disk index operations supporting slot migration. */
@@ -881,14 +881,14 @@ typedef struct DocTableDiskAPI {
    * @param dmd Pointer to the document metadata structure to populate
    * @param allocate_key Callback to allocate memory for the key
    * @param expiration_point Current time for expiration check, or NULL to skip expiration check.
-   * @param snapshot Optional per-query read view, or NULL to read outside any query.
-   *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
+   * @param view Optional per-query read view, or NULL to read outside any query.
+   *                 When non-NULL, must have been returned by `IndexDiskAPI.createQueryView(index)`
    *                 (where `index` is the same index this `handle` belongs to) and must remain
    *                 valid for the duration of this call.
    * @param failure_reason Required output written when the read fails.
    * @return true if found and visible, false if missing, expired, deleted, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot, DiskReadFailureReason *failure_reason);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskQueryView *view, DiskReadFailureReason *failure_reason);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -925,9 +925,8 @@ typedef struct DocTableDiskAPI {
    * The pool allows adding async read requests up to a maximum concurrency limit,
    * and polling for completed results. This enables I/O parallelism for query processing.
    *
-   * The `snapshot` is the query's read view: every read issued through this pool (via
-   * `addAsyncRead` / `pollAsyncReads`) observes the documents the iterators built from
-   * the same view can return.
+   * Every read issued through this pool (via `addAsyncRead` / `pollAsyncReads`) observes
+   * the documents the iterators built from the same `view` can return.
    *
    * The view must outlive every async read issued through the pool, not just the pool
    * handle itself: the storage layer may hold on to it until the I/O completion fires,
@@ -937,16 +936,16 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the index
    * @param max_concurrent Maximum number of concurrent pending reads
-   * @param snapshot Per-query read view the pool reads through. Must have been returned by
-   *                 `IndexDiskAPI.createSnapshot(index)` (where `index` is the same index
+   * @param view Per-query read view the pool reads through. Must have been returned by
+   *                 `IndexDiskAPI.createQueryView(index)` (where `index` is the same index
    *                 this `handle` belongs to) and must remain valid for the lifetime of
    *                 every in-flight read, as described above. A NULL handle is rejected:
    *                 the function returns NULL and no pool is created (the caller is expected
    *                 to fall back to synchronous reads).
-   * @return Opaque handle to the pool, or NULL on error or when `snapshot` is NULL. Must be
+   * @return Opaque handle to the pool, or NULL on error or when `view` is NULL. Must be
    *         freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskQueryView *view);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID

@@ -492,8 +492,8 @@ bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
                                              const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                              QueryError *status) {
-  RS_ASSERT(disk && index && sctx && sctx->diskSnapshot);
-  return disk->index.newMissingIterator(index, fieldIndex, sctx->diskSnapshot, status);
+  RS_ASSERT(disk && index && sctx && sctx->diskQueryView);
+  return disk->index.newMissingIterator(index, fieldIndex, sctx->diskQueryView, status);
 }
 
 bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex) {
@@ -502,42 +502,42 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
+    RS_ASSERT(disk && index && sctx && sctx->diskQueryView && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
-    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, sctx->diskSnapshot, status);
+    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, sctx->diskQueryView, status);
 }
 
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
-    return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot, status);
+    RS_ASSERT(disk && index && sctx && sctx->diskQueryView && tok);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskQueryView, status);
 }
 
 // Read views pin storage resources until freed, so tests need to see whether any outlived their query.
-static atomic_size_t liveSnapshots = 0;
+static atomic_size_t liveQueryViews = 0;
 
-RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index) {
+RedisSearchDiskQueryView* SearchDisk_CreateQueryView(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    RedisSearchDiskSnapshot *snapshot = disk->index.createSnapshot(index);
-    if (snapshot) {
-        atomic_fetch_add(&liveSnapshots, 1);
+    RedisSearchDiskQueryView *view = disk->index.createQueryView(index);
+    if (view) {
+        atomic_fetch_add(&liveQueryViews, 1);
     }
-    return snapshot;
+    return view;
 }
 
-void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
-    if (!snapshot) {
+void SearchDisk_FreeQueryView(RedisSearchDiskQueryView *view) {
+    if (!view) {
         return;
     }
     RS_ASSERT(disk);
-    disk->index.freeSnapshot(snapshot);
-    const size_t prev = atomic_fetch_sub(&liveSnapshots, 1);
+    disk->index.freeQueryView(view);
+    const size_t prev = atomic_fetch_sub(&liveQueryViews, 1);
     RS_ASSERT(prev > 0);
 }
 
-size_t SearchDisk_GetLiveSnapshotCount(void) {
-    return atomic_load(&liveSnapshots);
+size_t SearchDisk_GetLiveQueryViewCount(void) {
+    return atomic_load(&liveQueryViews);
 }
 
 DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
@@ -552,12 +552,12 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time, DiskReadFailureReason *failure_reason) {
     RS_ASSERT(disk && handle);
-    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    RedisSearchDiskQueryView *view = sctx ? sctx->diskQueryView : NULL;
     // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
     // adds them must decide how to provide it (stored on disk, or computed from the key).
     DiskReadFailureReason ignored = DISK_READ_ERROR;
     if (!failure_reason) failure_reason = &ignored;
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot, failure_reason);
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, view, failure_reason);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -597,8 +597,8 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
 
 RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent) {
     RS_ASSERT(disk && handle);
-    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
-    return disk->docTable.createAsyncReadPool(handle, max_concurrent, snapshot);
+    RedisSearchDiskQueryView *view = sctx ? sctx->diskQueryView : NULL;
+    return disk->docTable.createAsyncReadPool(handle, max_concurrent, view);
 }
 
 bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data) {

@@ -107,12 +107,12 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
-int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
+int SearchCtx_OpenDiskQueryView(RedisSearchCtx *sctx, QueryError *status) {
   // One read view per sctx lifetime. Every caller funnels through this at
   // iterator-construction time; reaching it twice on the same sctx would mean
   // a second caller is silently reusing the first one's view, which is a
   // programming bug rather than something to paper over.
-  RS_ASSERT(sctx && !sctx->diskSnapshot);
+  RS_ASSERT(sctx && !sctx->diskQueryView);
   IndexSpec *sp = sctx->spec;
   // Read views only exist in Flex/disk deployments. Gate on SearchDisk_IsEnabled()
   // to match how the rest of the module guards disk-only paths; a non-disk index
@@ -124,10 +124,10 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   RS_ASSERT(SearchDisk_IsInitialized());
   // The view is only meaningful against the index state the caller is holding stable.
   RS_ASSERT(IndexSpec_IsReadLocked(sp));
-  sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
-  if (!sctx->diskSnapshot) {
+  sctx->diskQueryView = SearchDisk_CreateQueryView(sp->diskSpec);
+  if (!sctx->diskQueryView) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
-                                     "Failed to create disk snapshot for index '%s'",
+                                     "Failed to open the disk query view for index '%s'",
                                      IndexSpec_FormatName(sp, false));
     return REDISMODULE_ERR;
   }
@@ -147,9 +147,9 @@ void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
   // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
   // fully depleted, so a parked cursor does not keep the view's resources alive.
-  if (sctx->diskSnapshot) {
-    SearchDisk_FreeSnapshot(sctx->diskSnapshot);
-    sctx->diskSnapshot = NULL;
+  if (sctx->diskQueryView) {
+    SearchDisk_FreeQueryView(sctx->diskQueryView);
+    sctx->diskQueryView = NULL;
   }
 }
 
