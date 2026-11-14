@@ -474,8 +474,8 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
  *
  * Reads through the query's read view stored on `sctx` (if any), so the documents
  * observed here are the ones the iterators built from the same `sctx` can return.
- * Pass `sctx == NULL` to read outside any query (used by debug commands and other
- * out-of-query paths).
+ * An `sctx` that has not opened a view, or `sctx == NULL`, reads outside any query
+ * (debug commands and other out-of-query paths).
  *
  * @param handle Handle to the document table
  * @param sctx Search context whose `diskSnapshot` carries the query's read view (may be NULL).

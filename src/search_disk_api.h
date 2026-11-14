@@ -618,9 +618,10 @@ typedef struct IndexDiskAPI {
    * The returned handle is passed to `newTermIterator`, `newTagIterator`,
    * `newMissingIterator`, the Rust-side numeric/wildcard iterator entry points and the
    * document-metadata reads of one query, so they all agree on which documents the query
-   * can see (see `RedisSearchDiskSnapshot`). Call it while holding the spec read lock, so
-   * the view matches the in-memory index state the query planner consults. The handle must
-   * remain alive until its iterators and outstanding metadata reads have finished.
+   * can see (see `RedisSearchDiskSnapshot`). Call it while holding the spec read lock and
+   * open the query's iterators before releasing it, so the view and the iterators match
+   * the in-memory index state the query planner consults. The handle must remain alive
+   * until its iterators and outstanding metadata reads have finished.
    *
    * @param index Pointer to the index spec
    * @return View handle, or NULL on error (e.g. index is NULL)
