@@ -3762,7 +3762,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", formattedIndexName);
-    StrongRef_Release(spec_ref);
+    IndexSpec_RdbLoadDiscard(spec_ref);
     return NULL;
   }
 
@@ -3776,7 +3776,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     QueryError_ClearError(&status);
-    StrongRef_Release(spec_ref);
+    IndexSpec_RdbLoadDiscard(spec_ref);
     return NULL;
   }
   if (isSpecJson(sp)) {
