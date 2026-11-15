@@ -116,6 +116,9 @@ repository only after those branches reach end of support; do not delete it.
 
 ## Release checks
 
+The current evidence and remaining landing requirements are tracked in
+[the rollout checklist](vecsim-migration-rollout.md).
+
 - Confirm source equivalence for the imported production code and dependency pins.
 - Validate clean-checkout Search and VecSim builds, unit tests, and Search flow tests.
 - Validate the PR and merge-queue jobs on the final revision, including failure propagation.
