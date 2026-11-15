@@ -328,9 +328,19 @@ int SetFtInfoInfo(RedisModuleCommand *cmd) {
         .type = REDISMODULE_ARG_TYPE_ONEOF,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
-          {.name = "prefix", .token = "PREFIX", .type = REDISMODULE_ARG_TYPE_STRING},
-          {.name = "field", .token = "FIELDS", .type = REDISMODULE_ARG_TYPE_STRING,
-           .flags = REDISMODULE_CMD_ARG_MULTIPLE},
+          {
+            .name = "prefix",
+            .token = "PREFIX",
+            .summary = "Returns rows whose top-level names start with this case-sensitive prefix.",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "field",
+            .token = "FIELDS",
+            .summary = "Returns only the named top-level rows. Unknown or unavailable names are errors.",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+          },
           {0}
         },
       },

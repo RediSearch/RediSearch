@@ -305,6 +305,26 @@
         "name": "index",
         "type": "string",
         "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+      },
+      {
+        "name": "selection",
+        "type": "oneof",
+        "optional": true,
+        "arguments": [
+          {
+            "name": "prefix",
+            "type": "string",
+            "token": "PREFIX",
+            "summary": "Returns rows whose top-level names start with this case-sensitive prefix."
+          },
+          {
+            "name": "field",
+            "type": "string",
+            "token": "FIELDS",
+            "multiple": true,
+            "summary": "Returns only the named top-level rows. Unknown or unavailable names are errors."
+          }
+        ]
       }
     ],
     "since": "1.0.0",
