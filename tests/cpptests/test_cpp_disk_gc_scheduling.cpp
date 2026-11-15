@@ -137,6 +137,24 @@ TEST_F(DiskGCSchedulingTest, LegacyModeUsesNotificationThresholdAndNeverProbesL0
   EXPECT_EQ(callbacks.getIntervalMs(gc), 300000);
 }
 
+TEST_F(DiskGCSchedulingTest, MissingPressureCallbackPreservesDeletionAndAgeTriggers) {
+  api.index.gcL0Pressure = nullptr;
+  check();
+  EXPECT_EQ(runs, 0u);
+  callbacks.onDelete(gc);
+  callbacks.onDelete(gc);
+  check();
+  EXPECT_EQ(runs, 0u);
+  callbacks.onDelete(gc);
+  check();
+  EXPECT_EQ(runs, 1u);
+  settings().forkGcRunIntervalSec = 0;
+  callbacks.onWrite(gc);
+  check();
+  EXPECT_EQ(runs, 2u);
+  EXPECT_EQ(probes, 0u);
+}
+
 TEST_F(DiskGCSchedulingTest, ExpensiveCycleExtendsCooldownBeyondConfiguredMinimum) {
   settings().diskGcMinIntervalSec = 0;
   pressure = true;
