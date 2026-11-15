@@ -111,7 +111,7 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/common_installations.sh sudo
           github_token: ${{ github.token }}

@@ -105,7 +105,7 @@ jobs:
         # `Stale headers check` step below needs. The cached container image
         # already runs this script in its Dockerfile.
         if: needs.build-image.outputs.succeeded != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
           github_token: ${{ github.token }}

@@ -165,7 +165,9 @@ jobs:
         if: inputs.image-built != 'true' && inputs.setup-script
         env:
           SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: eval "$SETUP_SCRIPT"
 
       - name: Post-setup
         if: inputs.post-setup-script
