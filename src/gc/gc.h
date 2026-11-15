@@ -80,16 +80,20 @@ typedef struct {
   GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
+// The longest GC interval a timer can be armed with. The jitter can double a period, and Redis
+// arms a module timer at its monotonic clock plus the period in microseconds, so this keeps that
+// sum in range while the clock reads below LLONG_MAX / 2 microseconds.
+#define GC_MAX_INTERVAL_SEC (LLONG_MAX / 4 / 1000 / 1000)
+
+// Interval configs may accept more than GC_MAX_INTERVAL_SEC, which is where this caps them.
+static inline long long GC_IntervalSecToMs(size_t sec) {
+  return (long long)(sec < GC_MAX_INTERVAL_SEC ? sec : GC_MAX_INTERVAL_SEC) * 1000;
+}
+
 // Builds a forced run with its deadline stamped from now, which is why callers use this rather
 // than filling the struct themselves: a forkWaitMs without a matching deadline reads as a budget
 // that expired before the first attempt. Call it on the thread asking for the collection, so the
 // budget runs from there rather than from whenever the GC worker picks the job up.
-// Interval configs accept up to LLONG_MAX seconds. Capping at half the range keeps both the
-// conversion and the timer's jitter (which can double the period) from overflowing.
-static inline long long GC_IntervalSecToMs(size_t sec) {
-  const size_t maxSec = LLONG_MAX / 2 / 1000;
-  return (long long)(sec < maxSec ? sec : maxSec) * 1000;
-}
 
 static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryIntervalMs) {
   GCForcedRun forced;
@@ -128,8 +132,8 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
+  GCCallbacks callbacks;
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
-  bool enabled;                // periodic collection wanted. Guarded by the GIL
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
   // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
   long long pendingIntervalMs;
@@ -137,7 +141,8 @@ typedef struct GCContext {
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
-  GCCallbacks callbacks;
+  bool enabled;  // periodic collection wanted. Guarded by the GIL
+  bool diskGC;   // a disk index's context, whatever GC_POLICY says
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
@@ -183,6 +188,9 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalCycles += src->totalCycles;
   dst->totalTime += src->totalTime;
 }
+
+// The delay, in ms, before the timer `gc` arms for `intervalMs` fires.
+long long GCContext_NextPeriodMs(const GCContext* gc, long long intervalMs);
 
 void GC_ThreadPoolStart();
 // Resize a started GC pool to what the policy and search-gc-threads call for.
