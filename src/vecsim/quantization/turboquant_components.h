@@ -139,10 +139,13 @@ inline size_t EstimateTurboQuantComponentsMemory(size_t dim, unsigned bits) {
     }
     const size_t overhead = VecSimAllocator::getAllocationOverheadSize();
     // Calculator, container and preprocessor objects; the shared codec block (object plus
-    // control block); and its four float buffers.
+    // control block); its three float buffers; and the rotation's buffers. Sized for the
+    // rotation a new codec builds at this dimension. A test-only reload of a legacy dense
+    // (schema 1) state at a block Hadamard dimension allocates the d x d matrix.
     return sizeof(TurboQuantCalculator) + sizeof(MultiPreprocessorsContainer<float, 1>) +
            sizeof(TurboQuantPreprocessor) + sizeof(TurboQuant) +
-           sizeof(VecsimSTLAllocator<TurboQuant>) + 4 * sizeof(void *) + 8 * overhead +
+           sizeof(VecsimSTLAllocator<TurboQuant>) + 4 * sizeof(void *) +
+           (7 + TurboQuantRotation::allocationsFor(dim)) * overhead +
            TurboQuant::sharedDataBytes(dim, bits);
 }
 
