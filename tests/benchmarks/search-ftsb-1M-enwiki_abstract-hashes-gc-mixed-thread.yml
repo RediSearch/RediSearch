@@ -20,9 +20,7 @@ dbconfig:
     - search-gc-clean-ratio-ppm: 0
     - search-thread-gc-run-interval: 1
     - search-thread-gc-clean-threshold: 1
-  - module-configuration-parameters:
-      redisearch:
-        GC_POLICY: THREAD
+    - search-gc-policy: thread
   - init_commands:
       - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "INDEXALL" "ENABLE" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
   - tool: ftsb_redisearch
