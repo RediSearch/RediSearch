@@ -27,7 +27,10 @@ bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref) {
   // is dropped meanwhile.
   CurrentThread_ClearIndexSpec();
 
-  gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+  // No fork, so nothing to retry: a failed fork left by a FORK-policy cycle is cleared here.
+  if (!forced) {
+    gc->schedState = INDEX_GC_SCHED_OK;
+  }
   gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
 
   IndexSpec_AssertLockNotHeld();  // the driver takes the spec locks itself

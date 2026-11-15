@@ -63,6 +63,9 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+    // Nothing is left to retry: without this, a threshold raised after a failed fork would
+    // keep the index on the retry interval until enough changes accumulate.
+    gc->schedState = INDEX_GC_SCHED_OK;
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -127,9 +130,15 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
-static long long getIntervalMsCb(void *ctx) {
-  IndexGC *gc = ctx;
-  return gc->retryIntervalMs;
+static GCTimerPlan nextTimerCb(void *ctx) {
+  const IndexGC *gc = ctx;
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  if (gc->schedState == INDEX_GC_SCHED_FORK_FAILED) {
+    return (GCTimerPlan){.kind = GC_TIMER_RETRY,
+                         .intervalMs = GC_IntervalSecToMs(settings->forkGcRetryInterval)};
+  }
+  return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL,
+                       .intervalMs = GC_IntervalSecToMs(settings->forkGcRunIntervalSec)};
 }
 
 static bool indexExistsCb(void *ctx) {
@@ -146,9 +155,9 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   IndexGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (IndexGC){
       .index = StrongRef_Demote(spec_ref),
+      .schedState = INDEX_GC_SCHED_OK,
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -157,7 +166,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getIntervalMs = getIntervalMsCb;
+  callbacks->nextTimer = nextTimerCb;
   callbacks->indexExists = indexExistsCb;
   callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
