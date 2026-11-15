@@ -94,8 +94,10 @@ typedef struct {
 typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
-  size_t gcScanSize;
+  // GC pool threads under GCPolicy_Thread, at most MAX_GC_THREADS; other policies always use one.
+  uint8_t gcThreads;
   GCPolicy gcPolicy;
+  size_t gcScanSize;
   GCSettings gcSettings;
 } GCConfig;
 
@@ -389,6 +391,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define MAX_GC_THREADS 64
+static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte");
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
@@ -488,6 +492,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
+    .gcConfigParams.gcThreads = 1,                                             \
     .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\

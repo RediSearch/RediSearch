@@ -867,6 +867,32 @@ class ThreadGCTest : public IndexGCTestTag {
   }
 };
 
+// A pool reduction is a job, which a paused queue cannot take, so lowering the GC threads during
+// a consistency window waits for the resume instead.
+TEST_F(ThreadGCTest, testShrinkingThePausedPoolWaitsForTheResume) {
+  // Restored on every exit path, so a failed ASSERT does not leave the pool paused or resized
+  // for the tests after this one.
+  struct Cleanup {
+    uint8_t threads = RSGlobalConfig.gcConfigParams.gcThreads;
+    ~Cleanup() {
+      GC_ThreadPoolResume();
+      RSGlobalConfig.gcConfigParams.gcThreads = threads;
+      GC_ThreadPoolSetSize();
+    }
+  } cleanup;
+  RSGlobalConfig.gcConfigParams.gcThreads = 2;
+  GC_ThreadPoolSetSize();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 2);
+
+  GC_ThreadPoolPause();
+  RSGlobalConfig.gcConfigParams.gcThreads = 1;
+  GC_ThreadPoolSetSize();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 2);
+
+  GC_ThreadPoolResume();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 1);
+}
+
 TEST_F(ThreadGCTest, testRunScannersCollectsTheTrackedDeletions) {
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
   ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));

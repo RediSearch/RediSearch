@@ -24,7 +24,6 @@
 extern "C" {
 #endif
 
-#define GC_THREAD_POOL_SIZE 1
 
 // Bits of GCContext.schedFlags.
 typedef enum {
@@ -65,6 +64,8 @@ typedef enum {
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
   // The cycle stopped on an error, logged as a warning, and collected only what it applied first.
   GC_FORCED_RUN_FAILED,
+  // Another run of the index was in flight, so this one did not start.
+  GC_FORCED_RUN_BUSY,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a
@@ -155,7 +156,8 @@ void GCContext_OnUpdate(GCContext* gc);
 // keeps no ownership. With a blocked client, the outcome reaches its reply as unblock privdata,
 // freed by GCForcedRunOutcomeFree.
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
-void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
+// OK once the run is queued; BUSY or FAILED when it never will be.
+GCForcedRunOutcome GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
 void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
@@ -183,6 +185,8 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 }
 
 void GC_ThreadPoolStart();
+// Resize a started GC pool to what the policy and search-gc-threads call for.
+void GC_ThreadPoolSetSize(void);
 void GC_ThreadPoolDestroy();
 // Gate through which GC jobs take the GIL, so GC_ThreadPoolDestroy can join them while holding it.
 extern GilGate gcGilGate_g;
@@ -195,8 +199,13 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs);
 // GC jobs currently executing. For diagnosing a GC_ThreadPoolWaitForPause timeout; stale the
 // moment it is read anywhere else.
 size_t GC_ThreadPoolJobsInProgress(void);
-// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause.
+// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause, and apply a size change
+// made while it was paused.
 void GC_ThreadPoolResume(void);
+// The GC pool's threads, a requested reduction counted as done; 0 before the pool exists.
+size_t GC_ThreadPoolNumThreads(void);
+// The GC pool's threads still running, which a reduction lowers only once its threads exit.
+size_t GC_ThreadPoolThreadsAlive(void);
 // Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
 // progress across a drain, which no ordinary entry point can do -- a real cycle returns
 // long before GC_ThreadPoolWaitForPause could observe it.

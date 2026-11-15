@@ -1797,6 +1797,7 @@ def testConfigAPIConfigOnlyBooleanParams():
 configOnlyNumericConfigs = [
     # configName, defaultValue, minValue, maxValue, legacyName
     ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
+    ('search-gc-threads', 1, 1, 64, '_GC_THREADS'),
 ]
 
 @skip(redis_less_than='7.9.227')
