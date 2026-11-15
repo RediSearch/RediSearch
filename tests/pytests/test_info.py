@@ -293,3 +293,11 @@ def test_info_selection_rejects_incomplete_shard_replies(env):
       env.expect('FT.INFO', 'idx', *selector).error().contains('Incomplete FT.INFO shard replies')
     finally:
       env.cmd(debug_cmd(), 'SEND_ERROR', 0)
+
+
+def test_info_fields_gc_disabled():
+  """NOGC removes the local gc_stats row, including on every cluster shard."""
+  env = Env(moduleArgs='NOGC')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.INFO', 'idx', 'FIELDS', 'gc_stats').error().contains(
+    'Unavailable FT.INFO field: gc_stats')
