@@ -79,6 +79,11 @@ typedef struct IndexGC {
   // counts the doc table's deleted set, and a cycle subtracts the IDs it prunes from it.
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
+  // The index's effective clean threshold, copied by the GCCallbacks.onQueueRun hook. The only
+  // threshold a scheduled cycle checks. Written on the main thread; the GC pool's queue lock
+  // publishes it to the run.
+  size_t cleanThreshold;
+
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
@@ -89,6 +94,11 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 // Run one full GC cycle. In production, called via the GCCallbacks with hooks=NULL.
 // Tests call this directly with hooks to inject mutations at specific lifecycle points.
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook);
+
+// The run interval `gc`'s index uses, or the global one once the index is unlinked: an
+// unlinked index must still arm, since that timer's run is what finds the drop and frees the
+// GC (see GCContext_BeginDrop). Main thread only.
+size_t IndexGC_RunIntervalSec(IndexGC *gc);
 
 // Move the deletions `sp` deferred (made where the GC could not be called) into `gc`'s count.
 struct IndexSpec;

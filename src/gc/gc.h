@@ -143,6 +143,10 @@ typedef struct GCCallbacks {
   // deadline can hand a drop to a run now rather than at that deadline.
   bool (*indexExists)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
+  // Optional. Called on the main thread each time a scheduled run is queued, once the run holds
+  // the context and before the GC pool can start it, so the run sees the settings as they were
+  // when it was queued. Not called for forced runs.
+  void (*onQueueRun)(void* gcCtx);
 } GCCallbacks;
 
 typedef struct GCContext {

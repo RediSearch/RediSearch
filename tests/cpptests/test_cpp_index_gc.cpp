@@ -77,11 +77,16 @@ class IndexGCTest : public ::testing::Test {
     RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     fgc = reinterpret_cast<IndexGC *>(get_spec(ism)->gc->gcCtx);
+    copyThresholdAtQueueTime();
   }
 
   void TearDown() override {
     freeSpec(ism);
   }
+
+  // What GCContext_QueueRun does before handing the GC a scheduled run: a scheduled cycle checks
+  // the threshold copied then, not the global one.
+  void copyThresholdAtQueueTime() { get_spec(ism)->gc->callbacks.onQueueRun(fgc); }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
     return ::addDocumentWrapper(ctx, ism, docid, field, value);
@@ -1323,6 +1328,7 @@ TEST_F(IndexGCTest, testThresholdSkipAfterAFailedForkArmsTheRunInterval) {
   EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(settings->forkGcRetryInterval));
 
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 100;
+  copyThresholdAtQueueTime();
   const bool rescheduled = IndexGC_RunCycle(fgc, nullptr, nullptr);
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   ASSERT_TRUE(rescheduled);
@@ -1352,7 +1358,201 @@ TEST_F(IndexGCTest, testNextTimerReadsTheCurrentInterval) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Per-index GC settings.
+// Per-index GC settings, and the clean threshold the GC copies when it queues a run.
+
+namespace {
+// Returns once every job queued on the GC pool before this call has finished. The pool has one
+// worker and runs jobs of one priority in order, so a job queued last finishes last.
+void drainGCPool() {
+  std::atomic<bool> done{false};
+  GC_ThreadPoolAddJobForTests([](void *p) { static_cast<std::atomic<bool> *>(p)->store(true); },
+                              &done);
+  while (!done) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
+
+// Keeps the GC pool paused for the scope, so a queued run stays queued, and lets every queued
+// job finish when the scope ends, however the test exits.
+struct PausedGCPool {
+  PausedGCPool() { GC_ThreadPoolPause(); }
+  ~PausedGCPool() {
+    GC_ThreadPoolResume();
+    drainGCPool();
+  }
+};
+}  // namespace
+
+class IndexGCSettingsTest : public IndexGCTestTag {
+ protected:
+  const GCSettings savedGlobals = RSGlobalConfig.gcConfigParams.gcSettings;
+
+  void TearDown() override {
+    IndexGCTestTag::TearDown();
+    RSGlobalConfig.gcConfigParams.gcSettings = savedGlobals;
+  }
+
+  IndexGCSettings &settings() { return get_spec(ism)->gcSettings; }
+  size_t &globalThreshold() { return RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold; }
+  size_t &globalInterval() { return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec; }
+
+  // Runs a scheduled cycle, and returns whether it got past the clean threshold.
+  bool scheduledCycleCollects() {
+    const size_t before = fgc->stats.numCycles;
+    EXPECT_TRUE(IndexGC_RunCycle(fgc, nullptr, nullptr));
+    return fgc->stats.numCycles != before;
+  }
+
+  void addAndDelete(size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+      const std::string key = "deleted" + std::to_string(i);
+      ASSERT_TRUE(RS::addDocument(ctx, ism, key.c_str(), tag_field_name, "hello"));
+      ASSERT_TRUE(RS::deleteDocument(ctx, ism, key.c_str()));
+    }
+  }
+
+  // A second GC for the fixture's spec whose index reference is already dropped, as for a GC
+  // whose run discovers the drop. `threshold` is the override the spec had when it was created.
+  GCContext *createGCForDroppedIndex(size_t threshold) {
+    settings().cleanThreshold = {true, threshold};
+    StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+    GCContext *gc = GCContext_CreateGC(strong, GCPolicy_Fork);
+    StrongRef_Invalidate(strong);
+    StrongRef_Release(strong);
+    return gc;
+  }
+
+  static void keepObject(void *) {}
+};
+
+class IndexGCSettingsPolicyTest : public IndexGCSettingsTest,
+                                  public ::testing::WithParamInterface<GCPolicy> {
+ protected:
+  void SetUp() override {
+    RSGlobalConfig.gcConfigParams.gcPolicy = GetParam();
+    IndexGCSettingsTest::SetUp();
+  }
+
+  void TearDown() override {
+    IndexGCSettingsTest::TearDown();
+    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  }
+};
+
+TEST_P(IndexGCSettingsPolicyTest, testScheduledCycleUsesTheIndexThreshold) {
+  globalThreshold() = 0;
+  addAndDelete(2);
+
+  settings().cleanThreshold = {true, 3};
+  copyThresholdAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  settings().cleanThreshold = {true, 2};
+  copyThresholdAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+
+  // 0 collects with nothing to collect.
+  settings().cleanThreshold = {true, 0};
+  globalThreshold() = 100;
+  copyThresholdAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testUnsetThresholdFollowsTheGlobal) {
+  globalThreshold() = 5;
+  copyThresholdAtQueueTime();
+  addAndDelete(1);
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  // A change reaches the next queued run, not the one already queued.
+  globalThreshold() = 1;
+  EXPECT_FALSE(scheduledCycleCollects());
+  copyThresholdAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testQueuedRunKeepsItsThreshold) {
+  settings().cleanThreshold = {true, 0};
+  copyThresholdAtQueueTime();
+  settings().cleanThreshold = {true, 1000};
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testForcedCycleIgnoresTheThreshold) {
+  settings().cleanThreshold = {true, 1000};
+  copyThresholdAtQueueTime();
+  const size_t before = fgc->stats.numCycles;
+  runGC();
+  EXPECT_EQ(fgc->stats.numCycles, before + 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(Policies, IndexGCSettingsPolicyTest,
+                         ::testing::Values(GCPolicy_Fork, GCPolicy_Thread),
+                         [](const ::testing::TestParamInfo<GCPolicy> &info) {
+                           return info.param == GCPolicy_Fork ? "Fork" : "Thread";
+                         });
+
+TEST_F(IndexGCSettingsTest, testCreatedWithTheIndexThreshold) {
+  settings().cleanThreshold = {true, 42};
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  GCContext *gc = GCContext_CreateGC(strong, GCPolicy_Fork);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
+  GCContext_StopMock(gc);
+  StrongRef_Release(strong);
+}
+
+TEST_F(IndexGCSettingsTest, testQueueRunCopiesTheThreshold) {
+  GCContext *gc = get_spec(ism)->gc;
+  GCContext_StopFutureRuns(gc);  // StartNow requires a stopped GC
+  settings().cleanThreshold = {true, 1000};
+  {
+    PausedGCPool paused;
+    GCContext_StartNow(gc);
+    ASSERT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
+    EXPECT_EQ(fgc->cleanThreshold, 1000);
+
+    // While that run holds the context, queueing again changes nothing: the run may already be
+    // reading the copy.
+    settings().cleanThreshold = {true, 7};
+    GCContext_StopFutureRuns(gc);
+    GCContext_StartNow(gc);
+    EXPECT_EQ(fgc->cleanThreshold, 1000);
+  }
+  EXPECT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);  // the run finished
+}
+
+// GCContext_FinishDrop and a timer that fires after the drop both queue the run through
+// GCContext_QueueRun, which finds the index gone; the run then frees the GC.
+TEST_F(IndexGCSettingsTest, testQueueRunAfterTheDropKeepsTheCopy) {
+  GCContext *gc = createGCForDroppedIndex(42);
+  settings().cleanThreshold = {true, 9};
+  PausedGCPool paused;
+  GCContext_FinishDrop(gc);
+  EXPECT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
+}
+
+TEST_F(IndexGCSettingsTest, testRunIntervalHelper) {
+  globalInterval() = 30;
+  EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 30);
+
+  settings().runIntervalSec = {true, 5};
+  globalInterval() = 60;
+  EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 5);
+
+  settings().runIntervalSec = {false, 0};
+  EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 60);
+}
+
+TEST_F(IndexGCSettingsTest, testRunIntervalHelperAfterTheDrop) {
+  settings().runIntervalSec = {true, 5};
+  globalInterval() = 60;
+  GCContext *gc = createGCForDroppedIndex(0);
+  // An unlinked index still arms, with the global interval.
+  EXPECT_EQ(IndexGC_RunIntervalSec(static_cast<IndexGC *>(gc->gcCtx)), 60);
+  GCContext_StopMock(gc);
+}
 
 TEST(IndexGCSettingsHelpers, testEffectiveValues) {
   const GCSettings saved = RSGlobalConfig.gcConfigParams.gcSettings;

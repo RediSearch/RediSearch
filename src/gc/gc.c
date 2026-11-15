@@ -156,6 +156,10 @@ static void GCContext_QueueRun(GCContext* gc) {
   if (RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_RUN_PENDING) & GC_SCHED_RUN_PENDING) {
     return;  // that run's tail re-arms
   }
+  // Only after the claim: a run that already holds the context may be reading what this writes.
+  if (gc->callbacks.onQueueRun) {
+    gc->callbacks.onQueueRun(gc->gcCtx);
+  }
   if (redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH) != 0) {
     // Nothing else would clear the bit, and no run is coming to re-arm -- so without both of
     // these this index loses collection for the life of the process.

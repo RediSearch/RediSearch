@@ -62,7 +62,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < gc->cleanThreshold) {
     // Nothing is left to retry: without this, a threshold raised after a failed fork would
     // keep the index on the retry interval until enough changes accumulate.
     gc->schedState = INDEX_GC_SCHED_OK;
@@ -151,6 +151,30 @@ static bool indexExistsCb(void *ctx) {
   return true;
 }
 
+// The promotes here use the plain reference API, not IndexSpecRef_Promote: they run on the main
+// thread, possibly inside a command, whose crash-report slot they must not clear.
+size_t IndexGC_RunIntervalSec(IndexGC *gc) {
+  StrongRef ref = WeakRef_Promote(gc->index);
+  const IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  }
+  const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
+  StrongRef_Release(ref);
+  return sec;
+}
+
+static void onQueueRunCb(void *ctx) {
+  IndexGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  const IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return;  // the run finds the drop; the threshold no longer matters
+  }
+  gc->cleanThreshold = IndexGCSettings_CleanThreshold(&sp->gcSettings);
+  StrongRef_Release(ref);
+}
+
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   IndexGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (IndexGC){
@@ -158,6 +182,8 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .schedState = INDEX_GC_SCHED_OK,
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
+  const IndexSpec *sp = StrongRef_Get(spec_ref);
+  forkGc->cleanThreshold = IndexGCSettings_CleanThreshold(&sp->gcSettings);
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -172,6 +198,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;
   callbacks->getStats = getStatsCb;
+  callbacks->onQueueRun = onQueueRunCb;
 
   return forkGc;
 }
