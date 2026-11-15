@@ -20,6 +20,7 @@ struct MRCtx;
 typedef struct {
   RedisModuleString **args;
   int count;
+  int expectedShards;
   bool prefix;
 } InfoSelection;
 

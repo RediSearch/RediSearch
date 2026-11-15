@@ -154,6 +154,7 @@ struct MRCtx *InfoSelection_CreateRequest(RedisModuleCtx *ctx, const InfoSelecti
                                           int numShards) {
   InfoSelection *copy = rm_malloc(sizeof(*copy));
   *copy = *selection;
+  copy->expectedShards = numShards;
   copy->args = rm_calloc(copy->count, sizeof(*copy->args));
   for (int i = 0; i < copy->count; ++i) {
     copy->args[i] = RedisModule_CreateStringFromString(NULL, selection->args[i]);

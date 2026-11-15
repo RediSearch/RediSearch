@@ -496,6 +496,10 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_CLUSTER_NO_RESPONSES));
   }
 
+  if (selection && selection->count && count != selection->expectedShards) {
+    return RedisModule_ReplyWithError(ctx, "Incomplete FT.INFO shard replies");
+  }
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
@@ -507,6 +511,10 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
 
     if (type != MR_REPLY_ARRAY && type != MR_REPLY_MAP) {
+      if (selection && selection->count) {
+        QueryError_SetError(&error, QUERY_ERROR_CODE_BAD_VAL, "Invalid FT.INFO shard reply");
+        break;
+      }
       continue;  // Ooops!
     }
 

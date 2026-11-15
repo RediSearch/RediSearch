@@ -279,3 +279,17 @@ def test_info_fields_missing_on_one_shard(env):
     env.expect('FT.INFO', index, 'FIELDS', 'index_name', 'stopwords_list').error().contains(
       'Unavailable FT.INFO field: stopwords_list')
     env.expect('FT.DROPINDEX', index).ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+@require_enable_assert
+def test_info_selection_rejects_incomplete_shard_replies(env):
+  """A failed shard dispatch must not yield partial selected observations."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  for selector in [('FIELDS', 'num_docs', 'indexing', 'percent_indexed'), ('PREFIX', 'num_')]:
+    try:
+      env.expect(debug_cmd(), 'SEND_ERROR', 1).ok()
+      env.expect('FT.INFO', 'idx', *selector).error().contains('Incomplete FT.INFO shard replies')
+    finally:
+      env.cmd(debug_cmd(), 'SEND_ERROR', 0)

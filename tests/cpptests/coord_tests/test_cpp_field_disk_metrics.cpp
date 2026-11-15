@@ -24,6 +24,7 @@
 #include "redismock/redismock.h"
 extern "C" {
 #include "coord/info_command.h"
+#include "info/info_command.h"
 }
 
 #include <algorithm>
@@ -236,6 +237,11 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
 
   auto savedString = RedisModule_ReplyWithSimpleString;
   auto savedInteger = RedisModule_ReplyWithLongLong;
+  auto savedError = RedisModule_ReplyWithError;
+  RedisModule_ReplyWithError = [](RedisModuleCtx *ctx, const char *value) {
+    RMCK_GetReplyLog(ctx).push_back("error:" + std::string(value));
+    return REDISMODULE_OK;
+  };
   RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
     RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
     return REDISMODULE_OK;
@@ -245,8 +251,6 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
     return REDISMODULE_OK;
   };
   EXPECT_EQ(InfoReplyReducer(mr, 2, replies), REDISMODULE_OK);
-  RedisModule_ReplyWithSimpleString = savedString;
-  RedisModule_ReplyWithLongLong = savedInteger;
 
   const std::vector<std::string> expected = {
       "string:column_families", "map:postponed", "string:text", "map:postponed",
@@ -254,6 +258,49 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
       "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
   const auto &output = RMCK_GetReplyLog(ctx);
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
+
+  for (bool prefix : {false, true}) {
+    RedisModuleString *name = RedisModule_CreateString(nullptr, "column_families", 15);
+    InfoSelection selection = {};
+    selection.args = &name;
+    selection.count = 1;
+    selection.prefix = prefix;
+    MRCtx *selected = InfoSelection_CreateRequest(ctx, &selection, 2);
+    RedisModule_FreeString(nullptr, name);
+    RMCK_GetReplyLog(ctx).clear();
+    EXPECT_EQ(InfoReplyReducer(selected, 2, replies), REDISMODULE_OK);
+    auto selectedExpected = expected;
+    selectedExpected.insert(selectedExpected.begin(), "map:postponed");
+    selectedExpected.push_back("setmap:1");
+    EXPECT_EQ(RMCK_GetReplyLog(ctx), selectedExpected);
+    RMCK_GetReplyLog(ctx).clear();
+    EXPECT_EQ(InfoReplyReducer(selected, 1, replies), REDISMODULE_OK);
+    EXPECT_EQ(RMCK_GetReplyLog(ctx),
+              (std::vector<std::string>{"error:Incomplete FT.INFO shard replies"}));
+    RMCK_GetReplyLog(ctx).clear();
+    MRReply *invalid = parseReply("$-1\r\n");
+    MRReply *invalidReplies[] = {replies[0], invalid};
+    EXPECT_EQ(InfoReplyReducer(selected, 2, invalidReplies), REDISMODULE_OK);
+    ASSERT_EQ(RMCK_GetReplyLog(ctx).size(), 1u);
+    EXPECT_NE(RMCK_GetReplyLog(ctx)[0].find("Invalid FT.INFO shard reply"), std::string::npos);
+    MRReply_Free(invalid);
+    MRCtx_DecrRef(selected);
+  }
+  RedisModuleString *unavailable = RedisModule_CreateString(nullptr, "text_overhead_sz_mb", 19);
+  InfoSelection missing = {};
+  missing.args = &unavailable;
+  missing.count = 1;
+  MRCtx *missingRequest = InfoSelection_CreateRequest(ctx, &missing, 2);
+  RedisModule_FreeString(nullptr, unavailable);
+  RMCK_GetReplyLog(ctx).clear();
+  EXPECT_EQ(InfoReplyReducer(missingRequest, 2, replies), REDISMODULE_OK);
+  ASSERT_EQ(RMCK_GetReplyLog(ctx).size(), 1u);
+  EXPECT_NE(RMCK_GetReplyLog(ctx)[0].find("Unavailable FT.INFO field: text_overhead_sz_mb"),
+            std::string::npos);
+  MRCtx_DecrRef(missingRequest);
+  RedisModule_ReplyWithSimpleString = savedString;
+  RedisModule_ReplyWithLongLong = savedInteger;
+  RedisModule_ReplyWithError = savedError;
 
   for (auto *reply : replies) MRReply_Free(reply);
   MRCtx_DecrRef(mr);
