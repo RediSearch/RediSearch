@@ -148,6 +148,7 @@ TEST_F(DiskGCSchedulingTest, MissingPressureCallbackPreservesDeletionAndAgeTrigg
   callbacks.onDelete(gc);
   check();
   EXPECT_EQ(runs, 1u);
+  settings().forkGcCleanThreshold = 100;
   settings().forkGcRunIntervalSec = 0;
   callbacks.onWrite(gc);
   check();
