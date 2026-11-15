@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "gtest/gtest.h"
+// Before common.h, which reaches dict.h through spec.h with C++ linkage otherwise.
+extern "C" {
+#include "util/dict.h"
+}
 #include "common.h"
 #include <vector>
 extern "C" {
-#include "util/dict.h"
 #include "hybrid/hybrid_request.h"
 #include "obfuscation/hidden.h"
 #include "result_processor.h"
