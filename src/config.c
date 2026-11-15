@@ -2201,6 +2201,33 @@ size_t GetDefaultWorkerThreads(void) {
 }
 
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-gc-check-interval", DEFAULT_DISK_GC_CHECK_INTERVAL,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcCheckIntervalSec)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-gc-min-interval", DEFAULT_DISK_GC_MIN_INTERVAL,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcMinIntervalSec)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-gc-l0-file-threshold", DEFAULT_DISK_GC_L0_FILE_THRESHOLD,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcL0FileThreshold)
+    )
+  )
+
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
@@ -2832,3 +2859,4 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   return REDISMODULE_OK;
 }
+

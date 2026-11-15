@@ -88,6 +88,9 @@ typedef struct {
   size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
+  size_t diskGcCheckIntervalSec;
+  size_t diskGcMinIntervalSec;
+  size_t diskGcL0FileThreshold;
   int forkGCCleanNumericEmptyNodes;
 } GCSettings;
 
@@ -391,6 +394,9 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
+#define DEFAULT_DISK_GC_CHECK_INTERVAL 0
+#define DEFAULT_DISK_GC_MIN_INTERVAL 30
+#define DEFAULT_DISK_GC_L0_FILE_THRESHOLD 4
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -490,6 +496,9 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
     .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
+    .gcConfigParams.gcSettings.diskGcCheckIntervalSec = DEFAULT_DISK_GC_CHECK_INTERVAL, \
+    .gcConfigParams.gcSettings.diskGcMinIntervalSec = DEFAULT_DISK_GC_MIN_INTERVAL, \
+    .gcConfigParams.gcSettings.diskGcL0FileThreshold = DEFAULT_DISK_GC_L0_FILE_THRESHOLD, \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
@@ -567,3 +576,4 @@ bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS);
 #ifdef __cplusplus
 }
 #endif
+

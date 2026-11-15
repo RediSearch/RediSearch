@@ -79,6 +79,12 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   retireLogicalDeletes(gc, stats->num_cleaned_docs);
 }
 
+static uint64_t monotonicMs(void) {
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -99,16 +105,37 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   // overlap; it is teardown's write lock that makes this run exclusive with teardown.
   pthread_rwlock_rdlock(&g_diskGcRunLock);
 
-  // Run GC only when teardown has not disabled it, the index is still disk-backed,
-  // background work is not paused, and enough changes accumulated since the last run
-  // (unless forced). The pause check is required:
-  // compaction waits on a memtable flush that only a resume can schedule.
+  // Compaction can wait for a flush that only a resume can schedule.
+  // Keep eligibility checks under the same teardown/pause gates as the run.
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
-  size_t num_changes = num_writes + num_deletes + num_updates;
-  if (!g_diskGcDisabled && sp->diskSpec && !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec) &&
-      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+  const GCSettings settings = RSGlobalConfig.gcConfigParams.gcSettings;
+  const bool can_run = !g_diskGcDisabled && sp->diskSpec &&
+                       !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec);
+  bool eligible = forced != NULL;
+  if (can_run && !forced) {
+    if (settings.diskGcCheckIntervalSec == 0) {
+      eligible = DiskGC_CountReached(num_writes, num_deletes, num_updates,
+                                     settings.forkGcCleanThreshold);
+    } else {
+      const uint64_t now = monotonicMs();
+      const size_t pending_deletes = atomic_load(&gc->logicallyDeleted);
+      const bool dirty = num_writes || num_deletes || num_updates || pending_deletes;
+      DiskGCPolicy_Observe(&gc->policy, dirty, now);
+      uint64_t cooldown_ms = (uint64_t)GC_IntervalSecToMs(settings.diskGcMinIntervalSec);
+      const uint64_t last_duration_ms = atomic_load(&gc->lastRunTimeMs);
+      if (last_duration_ms > cooldown_ms) cooldown_ms = last_duration_ms;
+      const uint64_t max_age_ms = (uint64_t)GC_IntervalSecToMs(settings.forkGcRunIntervalSec);
+      eligible = DiskGCPolicy_Due(&gc->policy, now, cooldown_ms, max_age_ms,
+                                 pending_deletes, settings.forkGcCleanThreshold, false);
+      if (!eligible && DiskGCPolicy_CooledDown(&gc->policy, now, cooldown_ms) &&
+          settings.diskGcL0FileThreshold) {
+        eligible = SearchDisk_GCL0Pressure(sp->diskSpec, settings.diskGcL0FileThreshold);
+      }
+    }
+  }
+  if (can_run && eligible) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
@@ -138,7 +165,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
       }
     }
 
-    gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+    DiskGCPolicy_Completed(&gc->policy, monotonicMs(), result == DISK_GC_RUN_OK);
   } else if (forced && forced->compactAll) {
     forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
   }
@@ -237,8 +264,13 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 }
 
 static long long getIntervalMsCb(void *ctx) {
-  const DiskGC *gc = ctx;
-  return GC_IntervalSecToMs(gc->intervalSec);
+  (void)ctx;
+  const GCSettings settings = RSGlobalConfig.gcConfigParams.gcSettings;
+  size_t interval = settings.forkGcRunIntervalSec;
+  if (settings.diskGcCheckIntervalSec && settings.diskGcCheckIntervalSec < interval) {
+    interval = settings.diskGcCheckIntervalSec;
+  }
+  return GC_IntervalSecToMs(interval);
 }
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -259,7 +291,6 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .logicallyDeleted = 0,
   };
   recordLogicalDeletes(gc, (size_t)restoredDeletes);
-  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
@@ -273,3 +304,4 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
 
   return gc;
 }
+
