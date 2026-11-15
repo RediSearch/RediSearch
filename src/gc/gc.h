@@ -80,16 +80,20 @@ typedef struct {
   GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
+// The longest GC interval a timer can be armed with. The jitter can double a period, and Redis
+// arms a module timer at its monotonic clock plus the period in microseconds, so this keeps that
+// sum in range while the clock reads below LLONG_MAX / 2 microseconds.
+#define GC_MAX_INTERVAL_SEC (LLONG_MAX / 4 / 1000 / 1000)
+
+// Interval configs may accept more than GC_MAX_INTERVAL_SEC, which is where this caps them.
+static inline long long GC_IntervalSecToMs(size_t sec) {
+  return (long long)(sec < GC_MAX_INTERVAL_SEC ? sec : GC_MAX_INTERVAL_SEC) * 1000;
+}
+
 // Builds a forced run with its deadline stamped from now, which is why callers use this rather
 // than filling the struct themselves: a forkWaitMs without a matching deadline reads as a budget
 // that expired before the first attempt. Call it on the thread asking for the collection, so the
 // budget runs from there rather than from whenever the GC worker picks the job up.
-// Interval configs accept up to LLONG_MAX seconds. Capping at half the range keeps both the
-// conversion and the timer's jitter (which can double the period) from overflowing.
-static inline long long GC_IntervalSecToMs(size_t sec) {
-  const size_t maxSec = LLONG_MAX / 2 / 1000;
-  return (long long)(sec < maxSec ? sec : maxSec) * 1000;
-}
 
 static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryIntervalMs) {
   GCForcedRun forced;

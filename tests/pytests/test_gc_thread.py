@@ -532,3 +532,31 @@ def testThreadGCSettingsBounds():
     for threads in [0, 65]:
         env.expect('CONFIG', 'SET', name, threads).error().contains('CONFIG SET failed')
     env.expect(config_cmd(), 'GET', '_GC_THREADS').equal([])
+
+@skip(cluster=True)
+def testThreadGCLongestIntervalArmsALongWait():
+    """The longest search-thread-gc-run-interval still arms a timer far ahead: Redis converts the
+    period to microseconds and adds its clock, and an overflow there would fire the timer at once
+    and keep re-arming it."""
+    longest = (2**63 - 1) // 4 // 1000 // 1000  # GC_MAX_INTERVAL_SEC
+    env = thread_gc_env(run_interval=longest, fresh=True)
+    name = 'search-thread-gc-run-interval'
+    env.expect('CONFIG', 'GET', name).equal([name, str(longest)])
+    env.expect('CONFIG', 'SET', name, longest + 1).error().contains('CONFIG SET failed')
+
+    conn = getConnectionByEnv(env)
+    arms = lambda: env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL')
+    armed = arms()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.assertEqual(arms(), armed + 1)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+        conn.execute_command('DEL', f'doc:{i}')
+
+    # An overflowed period is already due, and Redis runs due timers on every pass of its event
+    # loop, so it would fire within the first few of these round trips.
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        env.assertEqual(arms(), armed + 1)
+        env.assertEqual(int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles']), 0)
+        time.sleep(0.05)

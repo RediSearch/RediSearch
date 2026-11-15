@@ -847,14 +847,15 @@ TEST_F(IndexGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
 }
 
-TEST(GCInterval, SecondsToMsClampsSoJitterCannotOverflow) {
+TEST(GCInterval, SecondsToMsClampsSoTheTimerCannotOverflow) {
   EXPECT_EQ(GC_IntervalSecToMs(0), 0);
   EXPECT_EQ(GC_IntervalSecToMs(1), 1000);
   EXPECT_EQ(GC_IntervalSecToMs(30), 30000);
   for (size_t sec : {(size_t)LLONG_MAX / 1000, (size_t)LLONG_MAX, SIZE_MAX}) {
     long long ms = GC_IntervalSecToMs(sec);
     EXPECT_GT(ms, 0);
-    EXPECT_LE(ms, LLONG_MAX / 2);  // the jitter may add up to ms - 1
+    // The jitter may add up to ms - 1, and Redis converts the period to microseconds.
+    EXPECT_LE(ms, LLONG_MAX / 2 / 1000 / 2);
   }
 }
 

@@ -405,8 +405,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 // A THREAD cycle needs no fork, so it can run more often.
 #define DEFAULT_THREAD_GC_RUN_INTERVAL 7
 #define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
-// The GC timer is armed in milliseconds with up to as much again of jitter.
-#define MAX_THREAD_GC_RUN_INTERVAL (LLONG_MAX / 2000)
+#define MAX_THREAD_GC_RUN_INTERVAL GC_MAX_INTERVAL_SEC  // gc/gc.h
 #define DEFAULT_GC_CLEAN_RATIO_PPM 1000
 // search-gc-clean-ratio-ppm is in parts per million of the live documents.
 #define GC_CLEAN_RATIO_PPM_SCALE 1000000
