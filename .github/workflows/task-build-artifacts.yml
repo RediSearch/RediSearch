@@ -131,7 +131,9 @@ jobs:
           echo "HOME=$h" >> "$GITHUB_ENV"
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: ${{ needs.get-config.outputs.setup_script }}
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -157,24 +159,24 @@ jobs:
           s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Install aws cli
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
         # github_token (scoped to this step) lets cargo-binstall, invoked via
         # common_installations.sh, use authenticated GitHub API calls
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
           github_token: ${{ github.token }}
       - name: install build artifacts req
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: uv pip install -q -r .install/build_package_requirements.txt
 
