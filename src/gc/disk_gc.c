@@ -85,6 +85,17 @@ static uint64_t monotonicMs(void) {
   return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
+static GCSettings schedulingSettings(void) {
+  const GCSettings* settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return (GCSettings){
+      .forkGcRunIntervalSec = __atomic_load_n(&settings->forkGcRunIntervalSec, __ATOMIC_RELAXED),
+      .forkGcCleanThreshold = __atomic_load_n(&settings->forkGcCleanThreshold, __ATOMIC_RELAXED),
+      .diskGcCheckIntervalSec = __atomic_load_n(&settings->diskGcCheckIntervalSec, __ATOMIC_RELAXED),
+      .diskGcMinIntervalSec = __atomic_load_n(&settings->diskGcMinIntervalSec, __ATOMIC_RELAXED),
+      .diskGcL0FileThreshold = __atomic_load_n(&settings->diskGcL0FileThreshold, __ATOMIC_RELAXED),
+  };
+}
+
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -110,7 +121,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
-  const GCSettings settings = RSGlobalConfig.gcConfigParams.gcSettings;
+  const GCSettings settings = schedulingSettings();
   const bool can_run = !g_diskGcDisabled && sp->diskSpec &&
                        !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec);
   bool eligible = forced != NULL;
@@ -265,7 +276,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 
 static long long getIntervalMsCb(void *ctx) {
   (void)ctx;
-  const GCSettings settings = RSGlobalConfig.gcConfigParams.gcSettings;
+  const GCSettings settings = schedulingSettings();
   size_t interval = settings.forkGcRunIntervalSec;
   if (settings.diskGcCheckIntervalSec && settings.diskGcCheckIntervalSec < interval) {
     interval = settings.diskGcCheckIntervalSec;

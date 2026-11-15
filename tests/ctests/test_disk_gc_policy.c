@@ -46,6 +46,16 @@ int main(void) {
   CHECK(DiskGC_CountReached(0, 0, 0, 0));
   CHECK(DiskGC_CountReached(SIZE_MAX - 2, 2, 1, SIZE_MAX));
   CHECK(!DiskGC_CountReached(SIZE_MAX - 2, 0, 1, SIZE_MAX));
+  // A restored L0-only pass can lose its pressure signal before a later CF cancels.
+  state = (DiskGCPolicyState){0};
+  CHECK(DiskGCPolicy_Due(&state, 1000, 30000, 300000, 0, 10000, true));
+  DiskGCPolicy_Completed(&state, 2000, false);
+  DiskGCPolicy_Observe(&state, false, 3000);
+  CHECK(!DiskGCPolicy_Due(&state, 31999, 30000, 300000, 0, 10000, false));
+  CHECK(DiskGCPolicy_Due(&state, 32000, 30000, 300000, 0, 10000, false));
+  DiskGCPolicy_Completed(&state, 40000, true);
+  DiskGCPolicy_Observe(&state, false, 80000);
+  CHECK(!DiskGCPolicy_Due(&state, 80000, 30000, 300000, 0, 10000, false));
   puts("disk GC policy: all checks passed");
   return 0;
 }

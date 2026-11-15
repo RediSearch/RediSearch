@@ -166,6 +166,19 @@ static long long get_long_numeric_config(const char *name, void *privdata) {
   return *(long long *)privdata;
 }
 
+static int set_gc_numeric_config(const char* name, long long val, void* privdata,
+                                 RedisModuleString** err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  __atomic_store_n((size_t*)privdata, (size_t)val, __ATOMIC_RELAXED);
+  return REDISMODULE_OK;
+}
+
+static long long get_gc_numeric_config(const char* name, void* privdata) {
+  REDISMODULE_NOT_USED(name);
+  return (long long)__atomic_load_n((size_t*)privdata, __ATOMIC_RELAXED);
+}
+
 static int set_size_t_numeric_config(const char *name, long long val, void *privdata,
                            RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -1074,24 +1087,32 @@ CONFIG_GETTER(getGcScanSize) {
 
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRunIntervalSec, AC_F_GE1);
+  size_t value;
+  int acrc = AC_GetSize(ac, &value, AC_F_GE1);
+  if (acrc == AC_OK) {
+    __atomic_store_n(&config->gcConfigParams.gcSettings.forkGcRunIntervalSec, value, __ATOMIC_RELAXED);
+  }
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", __atomic_load_n(&config->gcConfigParams.gcSettings.forkGcRunIntervalSec, __ATOMIC_RELAXED));
 }
 
 // FORK_GC_CLEAN_THRESHOLD
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcCleanThreshold, 0);
+  size_t value;
+  int acrc = AC_GetSize(ac, &value, 0);
+  if (acrc == AC_OK) {
+    __atomic_store_n(&config->gcConfigParams.gcSettings.forkGcCleanThreshold, value, __ATOMIC_RELAXED);
+  }
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
+  return sdscatprintf(ss, "%lu", __atomic_load_n(&config->gcConfigParams.gcSettings.forkGcCleanThreshold, __ATOMIC_RELAXED));
 }
 
 // FORK_GC_RETRY_INTERVAL
@@ -2205,7 +2226,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-gc-check-interval", DEFAULT_DISK_GC_CHECK_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
-      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      get_gc_numeric_config, set_gc_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcCheckIntervalSec)
     )
   )
@@ -2214,7 +2235,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-gc-min-interval", DEFAULT_DISK_GC_MIN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
-      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      get_gc_numeric_config, set_gc_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcMinIntervalSec)
     )
   )
@@ -2223,7 +2244,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-gc-l0-file-threshold", DEFAULT_DISK_GC_L0_FILE_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
-      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      get_gc_numeric_config, set_gc_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.diskGcL0FileThreshold)
     )
   )
@@ -2263,7 +2284,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-clean-threshold",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      LLONG_MAX, get_gc_numeric_config, set_gc_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
   )
@@ -2282,7 +2303,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-run-interval",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      LLONG_MAX, get_gc_numeric_config, set_gc_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)
     )
   )

@@ -18,6 +18,7 @@ typedef struct {
   uint64_t lastAttemptEndMs;
   bool dirty;
   bool attempted;
+  bool retryPending;
 } DiskGCPolicyState;
 
 static inline bool DiskGC_CountReached(size_t writes, size_t deletes, size_t updates,
@@ -29,6 +30,7 @@ static inline bool DiskGC_CountReached(size_t writes, size_t deletes, size_t upd
 }
 
 static inline void DiskGCPolicy_Observe(DiskGCPolicyState* state, bool dirty, uint64_t nowMs) {
+  dirty = dirty || state->retryPending;
   if (dirty && !state->dirty) state->dirtySinceMs = nowMs;
   state->dirty = dirty;
 }
@@ -43,13 +45,14 @@ static inline bool DiskGCPolicy_Due(const DiskGCPolicyState* state, uint64_t now
                                    uint64_t cooldownMs, uint64_t maxAgeMs, size_t deleted,
                                    size_t deleteThreshold, bool l0Pressure) {
   if (!DiskGCPolicy_CooledDown(state, nowMs, cooldownMs)) return false;
-  return l0Pressure || (deleted && deleted >= deleteThreshold) ||
+  return state->retryPending || l0Pressure || (deleted && deleted >= deleteThreshold) ||
          (state->dirty && nowMs >= state->dirtySinceMs && nowMs - state->dirtySinceMs >= maxAgeMs);
 }
 
 static inline void DiskGCPolicy_Completed(DiskGCPolicyState* state, uint64_t nowMs, bool success) {
   state->lastAttemptEndMs = nowMs;
   state->attempted = true;
+  state->retryPending = !success;
   if (success) state->dirty = false;
 }
 
