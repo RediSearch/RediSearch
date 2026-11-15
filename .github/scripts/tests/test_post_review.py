@@ -78,6 +78,12 @@ class PostReviewTests(unittest.TestCase):
         self.assertIn("`src/a.c:40`", review["body"])
         self.assertIn("`old.txt:1`", review["body"])
 
+    def test_oversized_body_is_truncated(self) -> None:
+        output = {"summary": "x" * 100000, "comments": []}
+        body = post_review.build_review(output, DIFF, "c")["body"]
+        self.assertEqual(len(body), post_review.MAX_BODY)
+        self.assertTrue(body.endswith(post_review.TRUNCATED))
+
     def test_no_comments(self) -> None:
         review = post_review.build_review({"summary": "ok", "comments": []}, DIFF, "c")
         self.assertEqual(review["comments"], [])

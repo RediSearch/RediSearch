@@ -24,6 +24,11 @@ from pathlib import Path
 
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
+# GitHub rejects a review body over 65536 characters, which loses the whole
+# review; stay well under it.
+MAX_BODY = 60000
+TRUNCATED = "\n\n*Truncated: the review exceeded GitHub's size limit.*"
+
 
 def commentable_lines(diff: str) -> set[tuple[str, int]]:
     """Return the `(path, line)` pairs a RIGHT-side review comment may target."""
@@ -67,6 +72,8 @@ def build_review(output: dict, diff: str, commit_id: str) -> dict:
         body += "\n\n### Findings outside the diff\n"
         for c in outside:
             body += f"\n**`{c['path']}:{c['line']}`**\n\n{c['body'].strip()}\n"
+    if len(body) > MAX_BODY:
+        body = body[: MAX_BODY - len(TRUNCATED)] + TRUNCATED
     return {"commit_id": commit_id, "event": "COMMENT", "body": body, "comments": inline}
 
 
