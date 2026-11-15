@@ -70,7 +70,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Comments from anyone else are left out: the session reading them holds
           # the OAuth token, and on a public repo anyone can comment.
@@ -81,8 +80,11 @@ jobs:
           mkdir -p .ci/review
           gh pr view "$PR" --repo "$REPO" --json number,title,body,baseRefName > .ci/review/pr.json
           # Diff the checked-out head locally, so the files, the diff and the
-          # commit the review is posted on all agree even if the PR moves on.
-          git diff --no-color --no-ext-diff "$BASE_SHA...$HEAD_SHA" > .ci/review/pr.diff
+          # commit the review is posted on all agree even if the PR moves on. The
+          # merge base comes from the live base branch, as GitHub's diff does; the
+          # event's base.sha can be older.
+          base=$(git merge-base "origin/$(jq -r .baseRefName .ci/review/pr.json)" "$HEAD_SHA")
+          git diff --no-color --no-ext-diff "$base" "$HEAD_SHA" > .ci/review/pr.diff
           gh api --paginate "repos/$REPO/issues/$PR/comments" \
             --jq ".[] | $TRUSTED | {author: .user.login, created_at, body}" > .ci/review/comments.jsonl
           gh api --paginate "repos/$REPO/pulls/$PR/comments" \
@@ -154,16 +156,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          REVIEW: ${{ steps.claude.outputs.structured_output }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Read from the file, not an env var: Linux caps one at 128 KiB.
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
-          printf '%s' "$REVIEW" > .ci/review/output.json
-          python3 .github/scripts/post_review.py --output .ci/review/output.json \
-            --diff .ci/review/pr.diff --commit "$HEAD_SHA" \
-            > .ci/review/payload.json
-          jq '{inline: (.comments | length)}' .ci/review/payload.json
-          gh api --method POST "repos/$REPO/pulls/$PR/reviews" --input .ci/review/payload.json \
-            --jq .html_url
+          jq '[.[] | select(.type=="result")][-1].structured_output' "$EXECUTION_FILE" \
+            > .ci/review/output.json
+          post() {
+            python3 .github/scripts/post_review.py --output .ci/review/output.json \
+              --diff .ci/review/pr.diff --commit "$HEAD_SHA" "$@" > .ci/review/payload.json
+            jq '{inline: (.comments | length)}' .ci/review/payload.json
+            gh api --method POST "repos/$REPO/pulls/$PR/reviews" \
+              --input .ci/review/payload.json --jq .html_url
+          }
+          # GitHub rejects the whole review if it disagrees with one anchor.
+          post || { echo "::warning::review rejected; reposting with every comment in the body"; post --no-inline; }
 
       - name: Remove the trigger label
         if: always()

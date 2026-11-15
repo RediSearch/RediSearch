@@ -72,24 +72,30 @@ def truncate(text: str) -> str:
     return text[: MAX_BODY - len(TRUNCATED)] + TRUNCATED
 
 
-def build_review(output: dict, diff: str, commit_id: str) -> dict:
-    allowed = commentable_lines(diff)
-    inline, outside = [], []
-    for c in output.get("comments", []):
-        key = (c["path"], int(c["line"]))
-        if key in allowed:
-            inline.append(
-                {"path": c["path"], "line": key[1], "side": "RIGHT", "body": truncate(c["body"])}
+def build_review(output: dict, diff: str, commit_id: str, inline: bool = True) -> dict:
+    """Build the review; with `inline=False`, every comment goes in the body."""
+    allowed = commentable_lines(diff) if inline else set()
+    comments, outside = [], []
+    for c in output["comments"]:
+        if (c["path"], c["line"]) in allowed:
+            comments.append(
+                {"path": c["path"], "line": c["line"], "side": "RIGHT", "body": truncate(c["body"])}
             )
         else:
             outside.append(c)
 
-    body = output["summary"].strip()
+    section = ""
     if outside:
-        body += "\n\n### Findings outside the diff\n"
+        section = "\n\n### Findings outside the diff\n"
         for c in outside:
-            body += f"\n**`{c['path']}:{c['line']}`**\n\n{c['body'].strip()}\n"
-    return {"commit_id": commit_id, "event": "COMMENT", "body": truncate(body), "comments": inline}
+            section += f"\n**`{c['path']}:{c['line']}`**\n\n{c['body'].strip()}\n"
+    # Cut the summary before the findings: they exist nowhere else.
+    summary = output["summary"].strip()
+    room = MAX_BODY - len(section) - len(TRUNCATED)
+    if len(summary) + len(section) > MAX_BODY and room > 0:
+        summary = summary[:room] + TRUNCATED
+    body = truncate(summary + section)
+    return {"commit_id": commit_id, "event": "COMMENT", "body": body, "comments": comments}
 
 
 def main() -> int:
@@ -97,10 +103,17 @@ def main() -> int:
     ap.add_argument("--output", required=True, help="structured output JSON file")
     ap.add_argument("--diff", required=True, help="the PR diff")
     ap.add_argument("--commit", required=True, help="head commit the review targets")
+    ap.add_argument(
+        "--no-inline",
+        action="store_true",
+        help="put every comment in the body, for when GitHub rejects an anchor",
+    )
     args = ap.parse_args()
 
     output = json.loads(Path(args.output).read_text())
-    review = build_review(output, Path(args.diff).read_text(), args.commit)
+    review = build_review(
+        output, Path(args.diff).read_text(), args.commit, inline=not args.no_inline
+    )
     json.dump(review, sys.stdout)
     return 0
 

@@ -103,6 +103,27 @@ class PostReviewTests(unittest.TestCase):
         }
         comment = post_review.build_review(output, DIFF, "c")["comments"][0]
         self.assertEqual(len(comment["body"]), post_review.MAX_BODY)
+        self.assertTrue(comment["body"].endswith(post_review.TRUNCATED))
+
+    def test_truncation_keeps_the_findings_outside_the_diff(self) -> None:
+        output = {
+            "summary": "x" * post_review.MAX_BODY,
+            "comments": [{"path": "src/a.c", "line": 40, "body": "far away"}],
+        }
+        body = post_review.build_review(output, DIFF, "c")["body"]
+        self.assertLessEqual(len(body), post_review.MAX_BODY)
+        self.assertIn("`src/a.c:40`", body)
+        self.assertIn("far away", body)
+        self.assertIn(post_review.TRUNCATED, body)
+
+    def test_no_inline_moves_every_comment_into_the_body(self) -> None:
+        output = {
+            "summary": "s",
+            "comments": [{"path": "src/a.c", "line": 12, "body": "z is unused"}],
+        }
+        review = post_review.build_review(output, DIFF, "c", inline=False)
+        self.assertEqual(review["comments"], [])
+        self.assertIn("`src/a.c:12`", review["body"])
 
     def test_comments_outside_the_diff_move_into_the_body(self) -> None:
         output = {
