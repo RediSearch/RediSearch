@@ -408,7 +408,9 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 // The GC timer is armed in milliseconds with up to as much again of jitter.
 #define MAX_THREAD_GC_RUN_INTERVAL (LLONG_MAX / 2000)
 #define DEFAULT_GC_CLEAN_RATIO_PPM 1000
-#define MAX_GC_CLEAN_RATIO_PPM 1000000
+// search-gc-clean-ratio-ppm is in parts per million of the live documents.
+#define GC_CLEAN_RATIO_PPM_SCALE 1000000
+#define MAX_GC_CLEAN_RATIO_PPM GC_CLEAN_RATIO_PPM_SCALE
 #define MAX_GC_THREADS 64
 static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte");
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300

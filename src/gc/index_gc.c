@@ -63,7 +63,8 @@ static bool belowCleanThreshold(IndexSpec *sp, size_t deleted) {
   const size_t docs = sp->stats.scoring.numDocuments;
   IndexSpec_Unlock(sp);
   // Split so the product cannot overflow.
-  return deleted < docs / 1000000 * ppm + docs % 1000000 * ppm / 1000000;
+  const size_t scale = GC_CLEAN_RATIO_PPM_SCALE;
+  return deleted < docs / scale * ppm + docs % scale * ppm / scale;
 }
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
