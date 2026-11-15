@@ -1545,6 +1545,30 @@ TEST_F(IndexGCSettingsTest, testRunIntervalHelper) {
   EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 60);
 }
 
+TEST_F(IndexGCSettingsTest, testRunIntervalTimerArmsWithTheIndexInterval) {
+  globalInterval() = 30;
+  GCTimerPlan next = nextForkGCTimer(ism);
+  EXPECT_EQ(next.kind, GC_TIMER_RUN_INTERVAL);
+  EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(30));
+
+  settings().runIntervalSec = {true, 5};
+  globalInterval() = 60;
+  next = nextForkGCTimer(ism);
+  EXPECT_EQ(next.kind, GC_TIMER_RUN_INTERVAL);
+  EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(5));
+
+  // A retry after a failed fork keeps the global retry interval.
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  next = nextForkGCTimer(ism);
+  fgc->schedState = INDEX_GC_SCHED_OK;
+  EXPECT_EQ(next.kind, GC_TIMER_RETRY);
+  EXPECT_EQ(next.intervalMs,
+            GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval));
+
+  settings().runIntervalSec = {false, 0};
+  EXPECT_EQ(nextForkGCTimer(ism).intervalMs, GC_IntervalSecToMs(60));
+}
+
 TEST_F(IndexGCSettingsTest, testRunIntervalHelperAfterTheDrop) {
   settings().runIntervalSec = {true, 5};
   globalInterval() = 60;

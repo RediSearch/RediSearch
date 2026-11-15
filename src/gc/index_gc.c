@@ -130,15 +130,28 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
+// This and onQueueRunCb promote with the plain reference API, not IndexSpecRef_Promote: they run
+// on the main thread, possibly inside a command, whose crash-report slot they must not clear.
+size_t IndexGC_RunIntervalSec(const IndexGC *gc) {
+  StrongRef ref = WeakRef_Promote(gc->index);
+  const IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  }
+  const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
+  StrongRef_Release(ref);
+  return sec;
+}
+
+// The retry interval stays global: only the run interval can be set per index.
 static GCTimerPlan nextTimerCb(void *ctx) {
   const IndexGC *gc = ctx;
-  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
   if (gc->schedState == INDEX_GC_SCHED_FORK_FAILED) {
-    return (GCTimerPlan){.kind = GC_TIMER_RETRY,
-                         .intervalMs = GC_IntervalSecToMs(settings->forkGcRetryInterval)};
+    const size_t retrySec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
+    return (GCTimerPlan){.kind = GC_TIMER_RETRY, .intervalMs = GC_IntervalSecToMs(retrySec)};
   }
   return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL,
-                       .intervalMs = GC_IntervalSecToMs(settings->forkGcRunIntervalSec)};
+                       .intervalMs = GC_IntervalSecToMs(IndexGC_RunIntervalSec(gc))};
 }
 
 static bool indexExistsCb(void *ctx) {
@@ -149,19 +162,6 @@ static bool indexExistsCb(void *ctx) {
   }
   StrongRef_Release(ref);
   return true;
-}
-
-// The promotes here use the plain reference API, not IndexSpecRef_Promote: they run on the main
-// thread, possibly inside a command, whose crash-report slot they must not clear.
-size_t IndexGC_RunIntervalSec(IndexGC *gc) {
-  StrongRef ref = WeakRef_Promote(gc->index);
-  const IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp) {
-    return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
-  }
-  const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
-  StrongRef_Release(ref);
-  return sec;
 }
 
 static void onQueueRunCb(void *ctx) {
