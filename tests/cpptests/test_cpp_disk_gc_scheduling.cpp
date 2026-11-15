@@ -32,6 +32,7 @@ class DiskGCSchedulingTest : public ::testing::Test {
   GCCallbacks callbacks{};
   DiskGC* gc = nullptr;
   size_t runs = 0, probes = 0;
+  size_t cycleDurationMs = 0;
   bool pressure = false, paused = false, writeDuringRun = false;
   DiskGCRunResult outcome = DISK_GC_RUN_OK;
 
@@ -58,8 +59,9 @@ class DiskGCSchedulingTest : public ::testing::Test {
       ++active->probes;
       return active->pressure;
     };
-    api.index.runGC = [](RedisSearchDiskIndexSpec*, DiskGCRunStats*) {
+    api.index.runGC = [](RedisSearchDiskIndexSpec*, DiskGCRunStats* stats) {
       ++active->runs;
+      stats->cycle_time_ms = active->cycleDurationMs;
       if (active->writeDuringRun) active->callbacks.onWrite(active->gc);
       return active->outcome;
     };
@@ -133,6 +135,21 @@ TEST_F(DiskGCSchedulingTest, LegacyModeUsesNotificationThresholdAndNeverProbesL0
   EXPECT_EQ(runs, 1u);
   EXPECT_EQ(probes, 0u);
   EXPECT_EQ(callbacks.getIntervalMs(gc), 300000);
+}
+
+TEST_F(DiskGCSchedulingTest, ExpensiveCycleExtendsCooldownBeyondConfiguredMinimum) {
+  settings().diskGcMinIntervalSec = 0;
+  pressure = true;
+  cycleDurationMs = 3600000;
+  check();
+  ASSERT_EQ(runs, 1u);
+  const size_t initialProbes = probes;
+  check();
+  EXPECT_EQ(runs, 1u);
+  EXPECT_EQ(probes, initialProbes);
+  GCForcedRun forced{};
+  check(&forced);
+  EXPECT_EQ(runs, 2u);
 }
 
 TEST_F(DiskGCSchedulingTest, DisablingPressureChecksDoesNotForgetAnIncompleteCycle) {
