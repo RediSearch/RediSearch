@@ -57,6 +57,53 @@ class PostReviewTests(unittest.TestCase):
             },
         )
 
+    def test_hunk_content_that_looks_like_headers(self) -> None:
+        # Two hunks; an added line whose content starts with "++ ", a removed
+        # line whose content starts with "-- a/", and a form feed in content.
+        diff = (
+            "diff --git a/x.txt b/x.txt\n"
+            "--- a/x.txt\n"
+            "+++ b/x.txt\n"
+            "@@ -1,2 +1,3 @@\n"
+            " one\n"
+            "+++ b/not-a-header\n"
+            "--- a/not-a-header\n"
+            "+two\x0cstill two\n"
+            "@@ -20 +21 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        self.assertEqual(
+            post_review.commentable_lines(diff),
+            {("x.txt", 1), ("x.txt", 2), ("x.txt", 3), ("x.txt", 21)},
+        )
+
+    def test_renamed_file_uses_the_new_path(self) -> None:
+        diff = (
+            "diff --git a/old name.c b/new name.c\n"
+            "similarity index 90%\n"
+            "rename from old name.c\n"
+            "rename to new name.c\n"
+            "--- a/old name.c\t\n"
+            "+++ b/new name.c\t\n"
+            "@@ -1,2 +1,2 @@\n"
+            " keep\n"
+            "-a\n"
+            "+b\n"
+        )
+        self.assertEqual(
+            post_review.commentable_lines(diff),
+            {("new name.c", 1), ("new name.c", 2)},
+        )
+
+    def test_oversized_inline_comment_is_truncated(self) -> None:
+        output = {
+            "summary": "s",
+            "comments": [{"path": "src/a.c", "line": 12, "body": "y" * 100000}],
+        }
+        comment = post_review.build_review(output, DIFF, "c")["comments"][0]
+        self.assertEqual(len(comment["body"]), post_review.MAX_BODY)
+
     def test_comments_outside_the_diff_move_into_the_body(self) -> None:
         output = {
             "summary": "Verdict: fine.",

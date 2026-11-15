@@ -22,37 +22,54 @@ import re
 import sys
 from pathlib import Path
 
-HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
-# GitHub rejects a review body over 65536 characters, which loses the whole
-# review; stay well under it.
+# GitHub rejects a review body or comment over 65536 characters, which loses
+# the whole review; stay well under it.
 MAX_BODY = 60000
 TRUNCATED = "\n\n*Truncated: the review exceeded GitHub's size limit.*"
 
 
 def commentable_lines(diff: str) -> set[tuple[str, int]]:
-    """Return the `(path, line)` pairs a RIGHT-side review comment may target."""
+    """Return the `(path, line)` pairs a RIGHT-side review comment may target.
+
+    Each hunk is walked by the line counts in its `@@` header, so hunk content
+    is never mistaken for a file header. Paths git quotes (non-ASCII names) are
+    not decoded; comments on them land in the review body.
+    """
     lines: set[tuple[str, int]] = set()
     path: str | None = None
-    line = 0
-    in_hunk = False
-    for text in diff.splitlines():
-        if text.startswith("diff --git "):
-            path, in_hunk = None, False
-        elif not in_hunk and text.startswith("+++ "):
-            target = text[4:]
+    line = old_left = new_left = 0
+    # Only "\n" ends a diff line; str.splitlines() also splits on form feeds
+    # and other separators that can appear inside a line's content.
+    for text in diff.split("\n"):
+        if old_left > 0 or new_left > 0:
+            if text.startswith("\\"):
+                continue
+            if text.startswith(("+", " ")):
+                if path is not None:
+                    lines.add((path, line))
+                line, new_left = line + 1, new_left - 1
+            if text.startswith(("-", " ")):
+                old_left -= 1
+        elif text.startswith("diff --git "):
+            path = None
+        elif text.startswith("+++ "):
+            # Git appends a tab to a name containing a space.
+            target = text[4:].rstrip("\t")
             path = target[2:] if target.startswith("b/") else None
         elif m := HUNK.match(text):
-            line, in_hunk = int(m.group(1)), True
-        elif in_hunk and path is not None:
-            if text.startswith((" ", "+")) or text == "":
-                lines.add((path, line))
-                line += 1
-            elif text.startswith("-") or text.startswith("\\"):
-                pass
-            else:
-                in_hunk = False
+            old_count, start, new_count = m.groups()
+            old_left = 1 if old_count is None else int(old_count)
+            new_left = 1 if new_count is None else int(new_count)
+            line = int(start)
     return lines
+
+
+def truncate(text: str) -> str:
+    if len(text) <= MAX_BODY:
+        return text
+    return text[: MAX_BODY - len(TRUNCATED)] + TRUNCATED
 
 
 def build_review(output: dict, diff: str, commit_id: str) -> dict:
@@ -62,7 +79,7 @@ def build_review(output: dict, diff: str, commit_id: str) -> dict:
         key = (c["path"], int(c["line"]))
         if key in allowed:
             inline.append(
-                {"path": c["path"], "line": key[1], "side": "RIGHT", "body": c["body"]}
+                {"path": c["path"], "line": key[1], "side": "RIGHT", "body": truncate(c["body"])}
             )
         else:
             outside.append(c)
@@ -72,9 +89,7 @@ def build_review(output: dict, diff: str, commit_id: str) -> dict:
         body += "\n\n### Findings outside the diff\n"
         for c in outside:
             body += f"\n**`{c['path']}:{c['line']}`**\n\n{c['body'].strip()}\n"
-    if len(body) > MAX_BODY:
-        body = body[: MAX_BODY - len(TRUNCATED)] + TRUNCATED
-    return {"commit_id": commit_id, "event": "COMMENT", "body": body, "comments": inline}
+    return {"commit_id": commit_id, "event": "COMMENT", "body": truncate(body), "comments": inline}
 
 
 def main() -> int:

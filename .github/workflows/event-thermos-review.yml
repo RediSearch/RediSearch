@@ -70,14 +70,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Comments from anyone else are left out: the session reading them holds
+          # the OAuth token, and on a public repo anyone can comment.
+          TRUSTED: >-
+            select((.author_association | IN("OWNER", "MEMBER", "COLLABORATOR"))
+            or .user.login == "github-actions[bot]")
         run: |
           mkdir -p .ci/review
-          gh pr view "$PR" --repo "$REPO" --json number,title,body,baseRefName,headRefOid,files > .ci/review/pr.json
-          gh pr diff "$PR" --repo "$REPO" > .ci/review/pr.diff
+          gh pr view "$PR" --repo "$REPO" --json number,title,body,baseRefName > .ci/review/pr.json
+          # Diff the checked-out head locally, so the files, the diff and the
+          # commit the review is posted on all agree even if the PR moves on.
+          git diff --no-color --no-ext-diff "$BASE_SHA...$HEAD_SHA" > .ci/review/pr.diff
           gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq '.[] | {author: .user.login, created_at, body}' > .ci/review/comments.jsonl
+            --jq ".[] | $TRUSTED | {author: .user.login, created_at, body}" > .ci/review/comments.jsonl
           gh api --paginate "repos/$REPO/pulls/$PR/comments" \
-            --jq '.[] | {author: .user.login, path, line: (.line // .original_line), commit: .original_commit_id[0:12], body}' \
+            --jq ".[] | $TRUSTED | {author: .user.login, path, line: (.line // .original_line), commit: .original_commit_id[0:12], body}" \
             > .ci/review/review-comments.jsonl
           wc -l .ci/review/*
 
@@ -99,7 +108,7 @@ jobs:
               session ends as soon as you stop, and background agents would be lost.
             - Read files with the Read, Grep and Glob tools; Bash is unavailable.
             - The PR is already fetched; you have no `gh`, cannot write files, and cannot
-              post anything. Read `.ci/review/pr.json` (metadata, changed files),
+              post anything. Read `.ci/review/pr.json` (title, description, base),
               `.ci/review/pr.diff`, and the full files in the checkout. Existing comments
               are in `.ci/review/comments.jsonl` and inline review comments in
               `.ci/review/review-comments.jsonl`: do not repeat findings already raised
@@ -125,6 +134,7 @@ jobs:
       # session's outcome as annotations on the run.
       - name: Report the review session
         if: always() && steps.claude.outputs.execution_file != ''
+        continue-on-error: true # diagnostics only; never block posting the review
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
@@ -139,16 +149,17 @@ jobs:
           [ "$errors" = "[]" ] || note warning "tool errors" "$errors"
 
       - name: Post the review
-        if: steps.claude.outputs.structured_output != ''
+        if: ${{ !cancelled() && steps.claude.outputs.structured_output != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           REVIEW: ${{ steps.claude.outputs.structured_output }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           printf '%s' "$REVIEW" > .ci/review/output.json
           python3 .github/scripts/post_review.py --output .ci/review/output.json \
-            --diff .ci/review/pr.diff --commit "$(jq -r .headRefOid .ci/review/pr.json)" \
+            --diff .ci/review/pr.diff --commit "$HEAD_SHA" \
             > .ci/review/payload.json
           jq '{inline: (.comments | length)}' .ci/review/payload.json
           gh api --method POST "repos/$REPO/pulls/$PR/reviews" --input .ci/review/payload.json \
