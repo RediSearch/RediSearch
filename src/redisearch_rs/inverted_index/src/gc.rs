@@ -228,72 +228,28 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
     expiration: &[ExpirationBits],
     first_block_idx: usize,
     doc_exist: impl Fn(DocId) -> bool,
-    mut repair: Option<impl FnMut(&RSIndexResult<'blocks>, &RepairContext<'blocks>)>,
+    repair: Option<impl FnMut(&RSIndexResult<'blocks>, &RepairContext<'blocks>)>,
     _encoder: PhantomData<E>,
 ) -> std::io::Result<Option<RepairType>> {
-    let mut unique_read = 0;
-    let mut unique_write = 0;
-    let mut last_read_doc_id: Option<DocId> = None;
-
-    // Decode `block`, the run's `offset`th, handing each live entry to `repair` and to
-    // `survivors` once it exists, and creating it at the first dead entry.
-    let mut read_block = |block: &'blocks IndexBlock,
-                          offset: usize,
-                          survivors: &mut Option<InvertedIndex<E>>|
-     -> std::io::Result<()> {
-        debug_assert!(block.has_data(), "a repaired block carries its data");
-        let bits = expiration.get(offset);
-        let mut cursor = std::io::Cursor::new(&block.buffer[..]);
-        let mut last_in_block = None;
-        let mut result = D::base_result();
-        // Ordinal of the entry being read, used to carry its field-expiration bit (kept in
-        // `expiration`, not the encoded buffer) onto the re-encoded survivor so
-        // `add_record` re-propagates it into the new block.
-        let mut ordinal: u16 = 0;
-        while block.buffer.len() as u64 > cursor.position() {
-            let entry_start = cursor.position() as usize;
-            let base = D::base_id(block, last_in_block.unwrap_or(block.first_doc_id));
-            D::decode(&mut cursor, base, &mut result)?;
-            result.has_field_expiration = bits.is_some_and(|bits| bits.contains(ordinal));
-            let new_doc = last_read_doc_id != Some(result.doc_id);
-
-            if doc_exist(result.doc_id) {
-                if let Some(repair) = repair.as_mut() {
-                    let ctx = RepairContext {
-                        block,
-                        block_idx: first_block_idx + offset,
-                    };
-                    repair(&result, &ctx);
-                }
-                if let Some(survivors) = survivors.as_mut() {
-                    survivors.add_record(&result)?;
-                }
-                if new_doc {
-                    unique_write += 1;
-                }
-            } else if survivors.is_none() {
-                *survivors =
-                    Some(block.survivors_up_to::<E>(bits, entry_start, ordinal, last_in_block));
-            }
-            if new_doc {
-                unique_read += 1;
-            }
-            ordinal += 1;
-            last_in_block = Some(result.doc_id);
-            last_read_doc_id = Some(result.doc_id);
-        }
-        Ok(())
-    };
-
     let (first, rest) = blocks
         .split_first()
         .expect("a run holds at least one block");
-    let mut survivors = None;
-    read_block(first, 0, &mut survivors)?;
+    let mut run = RunRepair::<E, _, _> {
+        expiration,
+        first_block_idx,
+        doc_exist,
+        repair,
+        unique_read: 0,
+        unique_write: 0,
+        last_read_doc_id: None,
+        survivors: None,
+        _blocks: PhantomData,
+    };
+    run.read_block::<D>(first, 0)?;
     if !rest.is_empty() {
         // The rest of the run is packed after the first block's survivors, so they must
         // be in place even when none of its entries is gone.
-        survivors.get_or_insert_with(|| {
+        run.survivors.get_or_insert_with(|| {
             first.survivors_up_to::<E>(
                 expiration.first(),
                 first.buffer.len(),
@@ -302,9 +258,15 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
             )
         });
         for (offset, block) in rest.iter().enumerate() {
-            read_block(block, offset + 1, &mut survivors)?;
+            run.read_block::<D>(block, offset + 1)?;
         }
     }
+    let RunRepair {
+        unique_read,
+        unique_write,
+        survivors,
+        ..
+    } = run;
 
     let Some(mut survivors) = survivors else {
         return Ok(None);
@@ -331,6 +293,79 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
         blocks,
         n_unique_docs_removed: unique_read - unique_write,
     }))
+}
+
+/// The state [`repair_run`] carries across the blocks of one run.
+struct RunRepair<'run, 'blocks, E, F, R> {
+    expiration: &'run [ExpirationBits],
+    first_block_idx: usize,
+    doc_exist: F,
+    repair: Option<R>,
+    unique_read: u32,
+    unique_write: u32,
+    last_read_doc_id: Option<DocId>,
+    /// The replacement, created at the first dead entry, or before the second block when
+    /// none is gone in the first. `None` while the run still reads as unchanged.
+    survivors: Option<InvertedIndex<E>>,
+    _blocks: PhantomData<&'blocks IndexBlock>,
+}
+
+impl<'blocks, E, F, R> RunRepair<'_, 'blocks, E, F, R>
+where
+    E: Encoder,
+    F: Fn(DocId) -> bool,
+    R: FnMut(&RSIndexResult<'blocks>, &RepairContext<'blocks>),
+{
+    /// Decode `block`, the run's `offset`th, handing each live entry to `repair` and to
+    /// the replacement once it exists.
+    fn read_block<D: Decoder>(
+        &mut self,
+        block: &'blocks IndexBlock,
+        offset: usize,
+    ) -> std::io::Result<()> {
+        debug_assert!(block.has_data(), "a repaired block carries its data");
+        let bits = self.expiration.get(offset);
+        let mut cursor = std::io::Cursor::new(&block.buffer[..]);
+        let mut last_in_block = None;
+        let mut result = D::base_result();
+        // Ordinal of the entry being read, used to carry its field-expiration bit (kept in
+        // `expiration`, not the encoded buffer) onto the re-encoded survivor so
+        // `add_record` re-propagates it into the new block.
+        let mut ordinal: u16 = 0;
+        while block.buffer.len() as u64 > cursor.position() {
+            let entry_start = cursor.position() as usize;
+            let base = D::base_id(block, last_in_block.unwrap_or(block.first_doc_id));
+            D::decode(&mut cursor, base, &mut result)?;
+            result.has_field_expiration = bits.is_some_and(|bits| bits.contains(ordinal));
+            let new_doc = self.last_read_doc_id != Some(result.doc_id);
+
+            if (self.doc_exist)(result.doc_id) {
+                if let Some(repair) = self.repair.as_mut() {
+                    let ctx = RepairContext {
+                        block,
+                        block_idx: self.first_block_idx + offset,
+                    };
+                    repair(&result, &ctx);
+                }
+                if let Some(survivors) = self.survivors.as_mut() {
+                    survivors.add_record(&result)?;
+                }
+                if new_doc {
+                    self.unique_write += 1;
+                }
+            } else if self.survivors.is_none() {
+                self.survivors =
+                    Some(block.survivors_up_to::<E>(bits, entry_start, ordinal, last_in_block));
+            }
+            if new_doc {
+                self.unique_read += 1;
+            }
+            ordinal += 1;
+            last_in_block = Some(result.doc_id);
+            self.last_read_doc_id = Some(result.doc_id);
+        }
+        Ok(())
+    }
 }
 
 /// Which blocks [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot) copies

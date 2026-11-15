@@ -1387,38 +1387,104 @@ fn the_last_block_never_joins_a_run() {
 }
 
 /// A run packed during the scan reaches the repair callback once per surviving entry,
-/// with no second pass over its blocks.
+/// with no second pass over its blocks, and each with the block it was read from rather
+/// than the one it is packed into.
 #[test]
 fn a_packed_run_repairs_each_survivor_once() {
-    // Three one-entry blocks before the last fit one block (see `Dummy`).
+    // The first block packs with neither neighbour (see `Dummy`), so the run starts at
+    // the second.
     let ii = InvertedIndex::<Dummy>::from_blocks(
         IndexFlags_Index_DocIdsOnly,
-        medium_thin_vec![block(&[10]), block(&[11]), block(&[12]), block(&[20, 21])],
+        medium_thin_vec![
+            block(&[1, 2]),
+            block(&[4, 5]),
+            block(&[10]),
+            block(&[20, 21])
+        ],
     );
     assert!(ii.has_compactable_run());
 
     let mut seen = Vec::new();
     let delta = ii
         .scan_gc(
-            |id: DocId| id != 11,
-            Some(|res: &RSIndexResult, _: &crate::RepairContext<'_>| seen.push(res.doc_id)),
+            |id: DocId| id != 4,
+            Some(|res: &RSIndexResult, ctx: &crate::RepairContext<'_>| {
+                seen.push((res.doc_id, ctx.block_idx, ctx.block.first_doc_id))
+            }),
         )
         .unwrap()
         .unwrap();
 
     seen.sort_unstable();
-    assert_eq!(seen, vec![10, 12, 20, 21]);
+    assert_eq!(
+        seen,
+        vec![
+            (1, 0, 1),
+            (2, 0, 1),
+            (5, 1, 4),
+            (10, 2, 10),
+            (20, 3, 20),
+            (21, 3, 20)
+        ]
+    );
     assert_eq!(
         delta.deltas,
         vec![BlockGcScanResult {
-            index: 0,
-            span: 3,
+            index: 1,
+            span: 2,
             repair: RepairType::Replace {
-                blocks: without_ttls([block(&[10, 12])]),
+                blocks: without_ttls([block(&[5, 10])]),
                 n_unique_docs_removed: 1,
             },
         }]
     );
+}
+
+/// A run whose first block is all gone is replaced by the later blocks' survivors alone,
+/// and one with no survivor is deleted along with all its blocks.
+#[test]
+fn a_packed_run_whose_first_block_is_gone() {
+    let blocks = || medium_thin_vec![block(&[1, 2]), block(&[5]), block(&[20])];
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks());
+    let delta = ii
+        .scan_gc(Gone(vec![1, 2]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 2,
+            repair: RepairType::Replace {
+                blocks: without_ttls([block(&[5])]),
+                n_unique_docs_removed: 2,
+            },
+        }]
+    );
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[5]), block(&[20])]);
+    assert_eq!(info.entries_removed, 2);
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks());
+    let delta = ii
+        .scan_gc(Gone(vec![1, 2, 5]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 2,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 3,
+            },
+        }]
+    );
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20])]);
+    assert_eq!(info.entries_removed, 3);
+    assert_eq!(info.block_count_delta, -2);
 }
 
 /// A packed run starts with its first block's entries before the first dead one, copied
