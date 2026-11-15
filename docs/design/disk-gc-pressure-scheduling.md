@@ -31,8 +31,10 @@ On the GC worker, after the existing teardown and pause checks:
    merely because time passes. L0 pressure is checked even without notifications,
    which covers an index reopened with existing SSTs.
 4. Reset notification counters using the existing capture/subtract protocol.
-   Concurrent writes remain pending. A retry restores captured counters and keeps
-   the age of pending work; a successful run starts a new observation window.
+   Concurrent writes remain pending. A retry restores captured counters, keeps
+   the age of pending work and sets an explicit retry flag, even for an L0-only
+   cycle with no notifications. That flag survives disabling pressure checks.
+   A successful run clears it and starts a new observation window.
 
 Forced requests bypass admission and cooldown but retain teardown/pause gates.
 The worker reads CF metadata only after releasing schema-map locks. No new

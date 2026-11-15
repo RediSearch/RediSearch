@@ -135,6 +135,20 @@ TEST_F(DiskGCSchedulingTest, LegacyModeUsesNotificationThresholdAndNeverProbesL0
   EXPECT_EQ(callbacks.getIntervalMs(gc), 300000);
 }
 
+TEST_F(DiskGCSchedulingTest, DisablingPressureChecksDoesNotForgetAnIncompleteCycle) {
+  pressure = true;
+  outcome = DISK_GC_RUN_RETRY_REQUIRED;
+  check();
+  settings().diskGcCheckIntervalSec = 0;
+  pressure = false;
+  outcome = DISK_GC_RUN_OK;
+  check();
+  EXPECT_EQ(runs, 2u);
+  EXPECT_EQ(probes, 1u);
+  check();
+  EXPECT_EQ(runs, 2u);
+}
+
 TEST_F(DiskGCSchedulingTest, DeletedIdsTriggerBeforeAgeDeadlineAndRetryPreservesNewWrites) {
   callbacks.onDelete(gc);
   callbacks.onUpdate(gc);

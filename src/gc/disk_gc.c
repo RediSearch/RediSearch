@@ -127,7 +127,8 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   bool eligible = forced != NULL;
   if (can_run && !forced) {
     if (settings.diskGcCheckIntervalSec == 0) {
-      eligible = DiskGC_CountReached(num_writes, num_deletes, num_updates,
+      eligible = gc->policy.retryPending ||
+                 DiskGC_CountReached(num_writes, num_deletes, num_updates,
                                      settings.forkGcCleanThreshold);
     } else {
       const uint64_t now = monotonicMs();
