@@ -123,6 +123,9 @@ typedef struct GCCallbacks {
   void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
   long long (*getIntervalMs)(void* ctx);
+  // Main thread only. Whether the index is still there, so a timer stepping toward a far
+  // deadline can hand a drop to a run now rather than at that deadline.
+  bool (*indexExists)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
@@ -133,6 +136,11 @@ typedef struct GCContext {
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
   // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
   long long pendingIntervalMs;
+  // A delay past RS_MAX_TIMER_DELAY_MS is armed in steps of at most that. While the live timer
+  // is a step short of its deadline, this holds the deadline in monotonic ms, and the step's
+  // callback arms the next step instead of running; 0 once the live timer fires at the
+  // deadline. Guarded by the GIL
+  uint64_t stepDeadlineMs;
   // Main thread only in the real path; the atomic covers the RS_IsMock fallback, where the GC
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
@@ -174,9 +182,13 @@ void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
 // The delay of a timer armed for `intervalMs`: the interval plus a jitter of
 // `draw % intervalMs`, so it runs from the interval to almost twice it, or 0 for an interval
-// that is not positive. Saturates, and never exceeds RS_MAX_TIMER_DELAY_MS. `draw` is a random
-// value; a parameter so tests can pin it.
+// that is not positive. An interval past GC_IntervalSecToMs's bound is taken at that bound, so
+// the sum cannot overflow; GCContext arms a delay past RS_MAX_TIMER_DELAY_MS in steps. `draw`
+// is a random value; a parameter so tests can pin it.
 long long GC_TimerDelayMs(long long intervalMs, unsigned long draw);
+// The monotonic clock, in ms, that timer deadlines are kept on. A variable so tests can move
+// time forward between fake timer expiries.
+extern uint64_t (*GC_NowMs)(void);
 // Suspend/resume scheduling for a disk consistency window, leaving `enabled` untouched so a
 // GC stopped by a debug command stays stopped across one. Both require the GIL.
 void GCContext_PauseScheduling(GCContext* gc);
