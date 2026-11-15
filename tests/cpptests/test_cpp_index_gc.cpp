@@ -939,3 +939,38 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
   ASSERT_EQ(0, pruned);
 }
+
+TEST(GCTimerDelayTest, testJitterRange) {
+  EXPECT_EQ(GC_TimerDelayMs(0, 12345), 0);
+  EXPECT_EQ(GC_TimerDelayMs(-1000, 12345), 0);  // not a config value, but never a negative delay
+  EXPECT_EQ(GC_TimerDelayMs(10000, 0), 10000);
+  EXPECT_EQ(GC_TimerDelayMs(10000, 7), 10007);
+  EXPECT_EQ(GC_TimerDelayMs(10000, 19999), 19999);  // almost twice the interval, never twice
+  EXPECT_EQ(GC_TimerDelayMs(10000, 20000), 10000);
+}
+
+TEST(GCTimerDelayTest, testSaturatesAtTheCap) {
+  const long long cap = GC_MAX_TIMER_DELAY_MS;
+  // The largest interval the config converts to, with the largest draw.
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(SIZE_MAX), ULONG_MAX), cap);
+  EXPECT_EQ(GC_TimerDelayMs(LLONG_MAX, ULONG_MAX), cap);
+  EXPECT_EQ(GC_TimerDelayMs(cap, 0), cap);
+  // Just below the cap the interval passes through, and the jitter is what saturates.
+  EXPECT_EQ(GC_TimerDelayMs(cap - 1, 0), cap - 1);
+  EXPECT_EQ(GC_TimerDelayMs(cap - 1, 1), cap);
+  EXPECT_EQ(GC_TimerDelayMs(cap / 2, cap / 2 - 1), cap - 2);
+  EXPECT_EQ(GC_TimerDelayMs(cap / 2 + 1, cap / 2), cap);
+}
+
+// Redis truncates a module timer's remaining delay to `int` (MOD-21060), so the cap must fit one.
+TEST(GCTimerDelayTest, testFitsTheEventLoopInt) {
+  static_assert(GC_MAX_TIMER_DELAY_MS <= INT_MAX);
+  // Intervals that made Redis spin before the cap: the delay of 2147484s always landed in
+  // (2^31, 2^32) ms, and that of 30 days could also pass 2^32 ms.
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2147484), 0), GC_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2592000), 2591999999UL), GC_MAX_TIMER_DELAY_MS);
+  // 1073742s (about 12.4 days) is the shortest whole-second interval whose jitter can pass the cap.
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073741), 1073740999), 2147481999LL);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 0), 1073742000LL);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 1073741999), GC_MAX_TIMER_DELAY_MS);
+}

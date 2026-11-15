@@ -81,16 +81,28 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(long long intervalMs) {
-  // add randomness to avoid congestion by multiple GCs from different shards
-  return intervalMs > 0 ? intervalMs + rand() % intervalMs : intervalMs;
+long long GC_TimerDelayMs(long long intervalMs, unsigned long draw) {
+  if (intervalMs <= 0) {
+    return 0;
+  }
+  if (intervalMs >= GC_MAX_TIMER_DELAY_MS) {
+    return GC_MAX_TIMER_DELAY_MS;
+  }
+  // Randomness avoids congestion by GCs from different shards. Below the cap, both terms are
+  // under INT_MAX, so the sum cannot overflow.
+  const long long delayMs = intervalMs + (long long)(draw % (unsigned long)intervalMs);
+  return delayMs < GC_MAX_TIMER_DELAY_MS ? delayMs : GC_MAX_TIMER_DELAY_MS;
 }
 
 static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(intervalMs), timerCallback, gc);
+  // The jitter needs no strong randomness; Redis's generator is just the one at hand.
+  unsigned long draw;
+  RedisModule_GetRandomBytes((unsigned char*)&draw, sizeof(draw));
+  return RedisModule_CreateTimer(RSDummyContext, GC_TimerDelayMs(intervalMs, draw), timerCallback,
+                                 gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
