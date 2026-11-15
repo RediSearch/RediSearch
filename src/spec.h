@@ -78,8 +78,8 @@ struct IndexesScanner;
 
 #define DEFAULT_SCORE 1.0
 
-#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
-  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule, prefixes)                                     \
+  {.name = "PREFIX", .target = (prefixes), .type = AC_ARGTYPE_SUBARGS}, \
       {.name = "FILTER",                                                    \
        .target = &(rule)->filter_exp_str,                                   \
        .len = &dummy2,                                                      \
@@ -515,6 +515,26 @@ uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp);
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
+
+/** Parsed CREATE options. Strings and cursor slices borrow the input arguments and
+ * remain valid only while those arguments live. No cleanup is needed. Copy the
+ * prefix/stopword cursors before consuming them to retain the parsed result.
+ * An empty prefix slice uses the default empty prefix; uninitialized stopwords
+ * use the default stopword list. */
+typedef struct {
+  IndexFlags flags;
+  long long timeout;  // Milliseconds; -1000 represents the omitted/-1 sentinel.
+  SchemaRuleArgs rule;
+  ArgsCursor prefixes;
+  ArgsCursor stopwords;
+} IndexSpecOptions;
+
+/** Parse options without constructing an index. Returns REDISMODULE_OK or ERR.
+ * Leaves ac at the first unrecognized token (normally SCHEMA), or at the end.
+ * Does not report missing SCHEMA or unrecognized-option errors.
+ * On error, only flags and the cursor position are meaningful. */
+int IndexSpec_ParseOptions(ArgsCursor *ac, IndexSpecOptions *options,
+                           QueryError *status);
 
 /* Parse index spec from ordinary C strings. Intended for unit tests only. */
 StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
