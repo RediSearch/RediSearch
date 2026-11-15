@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import skip, config_cmd
+from common import skip, config_cmd, is_enterprise_server
 import math
 
 not_modifiable = 'Not modifiable at runtime'
@@ -173,7 +173,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if is_enterprise_server(env) else '0')
 
 @skip(cluster=True)
 def testInitConfig():

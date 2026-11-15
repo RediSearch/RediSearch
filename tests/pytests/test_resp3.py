@@ -431,7 +431,8 @@ def test_cursor():
     env.assertEqual(res, exp)
     env.assertEqual(cursor, 0)
 
-@skip(redis_less_than="7.0.0")
+# RESP3 sets arrive as arrays on the enterprise build (MOD 21265).
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_list():
     env = Env(protocol=3)
 
@@ -516,7 +517,8 @@ def test_info():
     res.pop('total_indexing_time', None)
     env.assertEqual(order_dict(res), order_dict(exp))
 
-@skip(redis_less_than="7.0.0")
+# FT.CONFIG GET * TIMEOUT differs on the enterprise build (MOD 21265).
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_config():
     env = Env(protocol=3)
 
@@ -544,7 +546,8 @@ def test_config():
     res = env.cmd("FT.CONFIG", "HELP", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': {'Description': 'Query (search) timeout', 'Value': '501'}})
 
-@skip(redis_less_than="7.0.0")
+# RESP3 sets arrive as arrays on the enterprise build (MOD 21265).
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_dictdump():
     env = Env(protocol=3)
 
@@ -611,7 +614,8 @@ def test_syndump():
       'tree': ['id3'], 'child': ['id1', 'id2'], 'offspring': ['id1']}
     env.expect('ft.syndump', 'idx').equal(exp)
 
-@skip(redis_less_than="7.0.0")
+# RESP3 sets arrive as arrays on the enterprise build (MOD 21265).
+@skip(redis_less_than="7.0.0", enterprise=True)
 def test_tagvals():
     env = Env(protocol=3)
 

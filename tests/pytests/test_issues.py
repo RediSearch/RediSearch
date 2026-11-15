@@ -1165,7 +1165,11 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  index_list = env.cmd('FT._LIST')
+  if is_enterprise_server(env):
+    # Redis Enterprise's server sends a module's RESP3 set as an array.
+    index_list = set(index_list)
+  env.assertEqual(index_list, {escape(unsafe_index)})
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])

@@ -23,6 +23,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
     def testDebugHelp(self):
+        skipTest(enterprise=True)  # The HELP list differs on the enterprise build (MOD 21265).
         err_msg = 'wrong number of arguments'
         help_list = [
             "DUMP_INVIDX",
@@ -718,6 +719,11 @@ class TestQueryDebugCommands(object):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
+    # 'hide-user-data-from-log' is not a RediSearch-owned config: notifications.c
+    # only reads the server's own config (getRedisConfigValue), so whether it's
+    # registered at all depends on the enterprise server build, not on this module.
+    if is_enterprise_server(env):
+        env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
