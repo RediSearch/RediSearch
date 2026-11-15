@@ -16,7 +16,6 @@
 #include "spec.h"
 #include "info_command.h"
 #include "rmutil/strings.h"
-#include "coord/rmr/rmr.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
 #include "vector_index.h"
@@ -54,115 +53,6 @@
 #include "util/arr/arr.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
-
-static const char *infoFields[] = {
-    "index_name",
-    "index_options",
-    "index_definition",
-    "attributes",
-    "num_docs",
-    "max_doc_id",
-    "num_terms",
-    "num_records",
-    "inverted_sz_mb",
-    "vector_index_sz_mb",
-    "total_inverted_index_blocks",
-    "offset_vectors_sz_mb",
-    "doc_table_size_mb",
-    "sortable_values_size_mb",
-    "key_table_size_mb",
-    "tag_overhead_sz_mb",
-    "text_overhead_sz_mb",
-    "column_families",
-    "total_index_memory_sz_mb",
-    "geoshapes_sz_mb",
-    "records_per_doc_avg",
-    "bytes_per_record_avg",
-    "offsets_per_term_avg",
-    "offset_bits_per_record_avg",
-    "hash_indexing_failures",
-    "total_indexing_time",
-    "indexing",
-    "percent_indexed",
-    "number_of_uses",
-    "number_of_admin_ops",
-    "cleaning",
-    "gc_stats",
-    "cursor_stats",
-    "stopwords_list",
-    "dialect_stats",
-    "Index Errors",
-    "field statistics",
-};
-
-bool InfoSelection_Matches(const InfoSelection *selection, const char *key) {
-  if (!selection || !selection->count) return true;
-  size_t keyLen = strlen(key);
-  for (int i = 0; i < selection->count; ++i) {
-    size_t len;
-    const char *arg = RedisModule_StringPtrLen(selection->args[i], &len);
-    if ((selection->prefix ? len <= keyLen : len == keyLen) && !memcmp(arg, key, len)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-int InfoSelection_Parse(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                        InfoSelection *selection) {
-  *selection = (InfoSelection){0};
-  if (argc == 2) return REDISMODULE_OK;
-  if (argc < 4) {
-    RedisModule_WrongArity(ctx);
-    return REDISMODULE_ERR;
-  }
-  bool prefix = RMUtil_StringEqualsCaseC(argv[2], "PREFIX");
-  if ((!prefix && !RMUtil_StringEqualsCaseC(argv[2], "FIELDS")) || (prefix && argc != 4)) {
-    RedisModule_ReplyWithError(
-        ctx, "Invalid FT.INFO option: use PREFIX <prefix> or FIELDS <field> [field ...]");
-    return REDISMODULE_ERR;
-  }
-  *selection = (InfoSelection){.args = argv + 3, .count = argc - 3, .prefix = prefix};
-  if (!prefix) {
-    for (int i = 0; i < selection->count; ++i) {
-      InfoSelection field = {.args = selection->args + i, .count = 1};
-      bool found = false;
-      for (size_t j = 0; j < sizeof(infoFields) / sizeof(*infoFields); ++j) {
-        if (InfoSelection_Matches(&field, infoFields[j])) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        RedisModule_ReplyWithErrorFormat(ctx, "Unknown FT.INFO field: %s",
-                                         RedisModule_StringPtrLen(selection->args[i], NULL));
-        return REDISMODULE_ERR;
-      }
-    }
-  }
-  return REDISMODULE_OK;
-}
-
-static void InfoSelection_Free(struct MRCtx *ctx) {
-  InfoSelection *selection = MRCtx_GetPrivData(ctx);
-  for (int i = 0; i < selection->count; ++i) RedisModule_FreeString(NULL, selection->args[i]);
-  rm_free(selection->args);
-  rm_free(selection);
-}
-
-struct MRCtx *InfoSelection_CreateRequest(RedisModuleCtx *ctx, const InfoSelection *selection,
-                                          int numShards) {
-  InfoSelection *copy = rm_malloc(sizeof(*copy));
-  *copy = *selection;
-  copy->expectedShards = numShards;
-  copy->args = rm_calloc(copy->count, sizeof(*copy->args));
-  for (int i = 0; i < copy->count; ++i) {
-    copy->args[i] = RedisModule_CreateStringFromString(NULL, selection->args[i]);
-  }
-  struct MRCtx *mc = MR_CreateCtx(ctx, NULL, copy, numShards);
-  MRCtx_SetFreePrivDataCB(mc, InfoSelection_Free);
-  return mc;
-}
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -240,194 +130,192 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
     REPLY_KVSTR_SAFE("indexes_all", "false");
   }
 
-  RedisModule_Reply_MapEnd(reply);  // index_definition
+  RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
-void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool obfuscate,
-                            bool withTimes, const InfoSelection *selection) {
+#define INFO_KVINT(key, value)                   \
+  do {                                           \
+    if (InfoSelection_Matches(selection, key)) { \
+      REPLY_KVINT(key, value);                   \
+    }                                            \
+  } while (0)
+#define INFO_KVNUM(key, value)                   \
+  do {                                           \
+    if (InfoSelection_Matches(selection, key)) { \
+      REPLY_KVNUM(key, value);                   \
+    }                                            \
+  } while (0)
+
+void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes,
+                            const InfoSelection *selection) {
   const bool has_map = RedisModule_IsRESP3(reply);
 
-  RedisModule_Reply_Map(reply);  // top
+  RedisModule_Reply_Map(reply); // top
 
-  // Safe to access the spec directly since it is was already validated as a strong reference by the
-  // caller
+  // Safe to access the spec directly since it is was already validated as a strong reference by the caller
   const IndexSpec *sp = sctx->spec;
 
   // Lock the spec
   IndexSpec_LockRead(sctx->spec);
 
   IndexSpec *specForOpeningIndexes = sctx->spec;
-  const char *specName = IndexSpec_FormatName(sp, obfuscate);
+  const char* specName = IndexSpec_FormatName(sp, obfuscate);
   if (InfoSelection_Matches(selection, "index_name")) {
     REPLY_KVSTR_SAFE("index_name", specName);
   }
 
   if (InfoSelection_Matches(selection, "index_options")) renderIndexOptions(reply, sp);
-  if (InfoSelection_Matches(selection, "index_definition"))
-    renderIndexDefinitions(reply, sp, obfuscate);
+  if (InfoSelection_Matches(selection, "index_definition")) renderIndexDefinitions(reply, sp, obfuscate);
 
+  const bool withAttributes = InfoSelection_Matches(selection, "attributes");
+  if (withAttributes) RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
-  if (InfoSelection_Matches(selection, "attributes")) {
-    RedisModule_ReplyKV_Array(reply, "attributes");  // >attributes
 
-    for (int i = 0; i < sp->numFields; i++) {
-      RedisModule_Reply_MapOrArray(reply);  // >>field: RESP2 appends the flags as bare strings
 
-      const FieldSpec *fs = &sp->fields[i];
-      char *path = FieldSpec_FormatPath(fs, obfuscate);
-      char *name = FieldSpec_FormatName(fs, obfuscate);
-      REPLY_KVSTR("identifier", path);
-      REPLY_KVSTR("attribute", name);
-      rm_free(path);
-      rm_free(name);
+  for (int i = 0; i < sp->numFields; i++) {
+    const FieldSpec *fs = &sp->fields[i];
+    if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+      // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
+      const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
+      if (idx) {
+        const GeometryApi *api = GeometryApi_Get(idx);
+        geom_idx_sz += api->report(idx);
+      }
+    }
+    if (!withAttributes) continue;
+    RedisModule_Reply_MapOrArray(reply); // >>field: RESP2 appends the flags as bare strings
+    char *path = FieldSpec_FormatPath(fs, obfuscate);
+    char *name = FieldSpec_FormatName(fs, obfuscate);
+    REPLY_KVSTR("identifier", path);
+    REPLY_KVSTR("attribute", name);
+    rm_free(path);
+    rm_free(name);
 
-      // RediSearch_api - No coverage
-      if (fs->options & FieldSpec_Dynamic) {
-        REPLY_KVSTR("type", "<DYNAMIC>");
-        size_t ntypes = 0;
+    // RediSearch_api - No coverage
+    if (fs->options & FieldSpec_Dynamic) {
+      REPLY_KVSTR("type", "<DYNAMIC>");
+      size_t ntypes = 0;
 
-        RedisModule_ReplyKV_Array(reply, "types");  // >>>types
-        for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
-          if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
-            ntypes++;
-            RedisModule_Reply_SimpleString(reply, FieldSpec_GetTypeNames(jj));
+      RedisModule_ReplyKV_Array(reply, "types"); // >>>types
+      for (size_t jj = 0; jj < INDEXFLD_NUM_TYPES; ++jj) {
+        if (FIELD_IS(fs, INDEXTYPE_FROM_POS(jj))) {
+          ntypes++;
+          RedisModule_Reply_SimpleString(reply, FieldSpec_GetTypeNames(jj));
+        }
+      }
+      RedisModule_Reply_ArrayEnd(reply); // >>>types
+    } else {
+      REPLY_KVSTR("type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+    }
+
+    if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+      REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
+    }
+
+    bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      char buf[2] = {fs->tagOpts.tagSep, 0}; // Convert the separator to a C string
+      REPLY_KVSTR_SAFE(SPEC_TAG_SEPARATOR_STR, buf);
+
+      if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
+        reply_SPEC_TAG_CASE_SENSITIVE_STR = true;
+      }
+    }
+
+    if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+      REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
+    }
+
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      VecSimParams vec_params = fs->vectorOpts.vecSimParams;
+      VecSimAlgo field_algo = vec_params.algo;
+      AlgoParams algo_params = vec_params.algoParams;
+
+      if (field_algo == VecSimAlgo_TIERED) {
+        VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+        if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+          REPLY_KVSTR("data_type", VecSimType_ToString(hnsw_params.type));
+          REPLY_KVINT("dim", hnsw_params.dim);
+          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
+          REPLY_KVINT("M", hnsw_params.M);
+          REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+          REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
+          if (hnsw_params.quantType != VecSimQuant_NONE) {
+            REPLY_KVSTR("compression", VecSimHnswCompression_ToString(hnsw_params.quantType));
+            REPLY_KVINT(
+                "training_threshold",
+                algo_params.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+          }
+          if (fs->vectorOpts.diskCtx.indexName) {
+            REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
+          }
+        } else if (primary_params->algo == VecSimAlgo_SVS) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          SVSParams svs_params = primary_params->algoParams.svsParams;
+          REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
+          REPLY_KVINT("dim", svs_params.dim);
+          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
+          REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
+          REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
+          REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
+          if (svs_params.quantBits != VecSimSvsQuant_NONE) {
+            REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+            if (isLVQSupported() && VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
+              REPLY_KVINT("reduced_dim", svs_params.leanvec_dim);
+            }
           }
         }
-        RedisModule_Reply_ArrayEnd(reply);  // >>>types
-      } else {
-        REPLY_KVSTR("type", FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
+      } else if (field_algo == VecSimAlgo_BF) {
+        REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
+        REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.bfParams.type));
+        REPLY_KVINT("dim", algo_params.bfParams.dim);
+        REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
+    }
+    if (has_map) {
+      RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
+    }
 
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
-        REPLY_KVNUM(SPEC_WEIGHT_STR, fs->ftWeight);
-      }
-
-      bool reply_SPEC_TAG_CASE_SENSITIVE_STR = false;
-      if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-        char buf[2] = {fs->tagOpts.tagSep, 0};  // Convert the separator to a C string
-        REPLY_KVSTR_SAFE(SPEC_TAG_SEPARATOR_STR, buf);
-
-        if (fs->tagOpts.tagFlags & TagField_CaseSensitive) {
-          reply_SPEC_TAG_CASE_SENSITIVE_STR = true;
-        }
-      }
-
-      if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
-        REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-        // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
-        const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
-        if (idx) {
-          const GeometryApi *api = GeometryApi_Get(idx);
-          geom_idx_sz += api->report(idx);
-        }
-      }
-
-      if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-        VecSimParams vec_params = fs->vectorOpts.vecSimParams;
-        VecSimAlgo field_algo = vec_params.algo;
-        AlgoParams algo_params = vec_params.algoParams;
-
-        if (field_algo == VecSimAlgo_TIERED) {
-          VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
-          if (primary_params->algo == VecSimAlgo_HNSWLIB) {
-            REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
-            HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
-            REPLY_KVSTR("data_type", VecSimType_ToString(hnsw_params.type));
-            REPLY_KVINT("dim", hnsw_params.dim);
-            REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
-            REPLY_KVINT("M", hnsw_params.M);
-            REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
-            REPLY_KVINT("ef_runtime", hnsw_params.efRuntime);
-            if (hnsw_params.quantType != VecSimQuant_NONE) {
-              REPLY_KVSTR("compression", VecSimHnswCompression_ToString(hnsw_params.quantType));
-              REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams
-                                                    .tieredHnswParams.QuantNormalizationSetSize);
-            }
-            if (fs->vectorOpts.diskCtx.indexName) {
-              REPLY_KVSTR("rerank", fs->vectorOpts.diskCtx.rerank ? "true" : "false");
-            }
-          } else if (primary_params->algo == VecSimAlgo_SVS) {
-            REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
-            SVSParams svs_params = primary_params->algoParams.svsParams;
-            REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
-            REPLY_KVINT("dim", svs_params.dim);
-            REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
-            REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
-            REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
-            REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
-            if (svs_params.quantBits != VecSimSvsQuant_NONE) {
-              REPLY_KVINT(
-                  "training_threshold",
-                  algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
-              if (isLVQSupported() && VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
-                REPLY_KVINT("reduced_dim", svs_params.leanvec_dim);
-              }
-            }
-          }
-        } else if (field_algo == VecSimAlgo_BF) {
-          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
-          REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.bfParams.type));
-          REPLY_KVINT("dim", algo_params.bfParams.dim);
-          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
-        }
-      }
-      if (has_map) {
-        RedisModule_ReplyKV_Array(reply, "flags");  // >>>flags
-      }
-
-      if (reply_SPEC_TAG_CASE_SENSITIVE_STR) {
+    if (reply_SPEC_TAG_CASE_SENSITIVE_STR) {
         RedisModule_Reply_SimpleString(reply, SPEC_TAG_CASE_SENSITIVE_STR);
-      }
-      if (FieldSpec_IsSortable(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_SORTABLE_STR);
-      }
-      if (FieldSpec_IsUnf(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_UNF_STR);
-      }
-      if (FieldSpec_IsNoStem(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_NOSTEM_STR);
-      }
-      if (!FieldSpec_IsIndexable(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_NOINDEX_STR);
-      }
-      if (FieldSpec_HasSuffixTrie(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
-      }
-      if (FieldSpec_IndexesEmpty(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_INDEXEMPTY_STR);
-      }
-      if (FieldSpec_IndexesMissing(fs)) {
-        RedisModule_Reply_SimpleString(reply, SPEC_INDEXMISSING_STR);
-      }
-
-      if (has_map) {
-        RedisModule_Reply_ArrayEnd(reply);  // >>>flags
-      }
-      RedisModule_Reply_MapOrArrayEnd(reply);  // >>field
+    }
+    if (FieldSpec_IsSortable(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_SORTABLE_STR);
+    }
+    if (FieldSpec_IsUnf(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_UNF_STR);
+    }
+    if (FieldSpec_IsNoStem(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_NOSTEM_STR);
+    }
+    if (!FieldSpec_IsIndexable(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_NOINDEX_STR);
+    }
+    if (FieldSpec_HasSuffixTrie(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_WITHSUFFIXTRIE_STR);
+    }
+    if (FieldSpec_IndexesEmpty(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXEMPTY_STR);
+    }
+    if (FieldSpec_IndexesMissing(fs)) {
+      RedisModule_Reply_SimpleString(reply, SPEC_INDEXMISSING_STR);
     }
 
-    RedisModule_Reply_ArrayEnd(reply);  // >attributes
-
-  } else {
-    for (int i = 0; i < sp->numFields; i++) {
-      const FieldSpec *fs = &sp->fields[i];
-      if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
-        const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
-        if (idx) geom_idx_sz += GeometryApi_Get(idx)->report(idx);
-      }
+    if (has_map) {
+      RedisModule_Reply_ArrayEnd(reply); // >>>flags
     }
+    RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
-  if (InfoSelection_Matches(selection, "num_docs")) {
-    REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
-  }
+  if (withAttributes) RedisModule_Reply_ArrayEnd(reply); // >attributes
+
+
+  INFO_KVINT("num_docs", sp->stats.scoring.numDocuments);
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
-  if (InfoSelection_Matches(selection, "max_doc_id")) {
-    REPLY_KVINT("max_doc_id", maxDocId);
-  }
-  if (InfoSelection_Matches(selection, "num_terms")) {
-    REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
-  }
+  INFO_KVINT("max_doc_id", maxDocId);
+  INFO_KVINT("num_terms", sp->stats.scoring.numTerms);
 
   const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
@@ -435,8 +323,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool
   // index is stored on disk, so their memory must always be reported.
   // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
   // tied to any single index (e.g. the shared SVS thread pool singleton).
-  size_t vector_indexes_size =
-      IndexSpec_VectorIndexesSize(specForOpeningIndexes) + VecSim_GetSharedMemory();
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
   // FT.INFO reports the per-spec block count. `INFO modules` aggregates the same per-spec
   // counter across all specs in `IndexesInfo_TotalInfo`.
   size_t total_ii_blocks = IndexSpec_TotalBlockCount(sp);
@@ -444,42 +332,24 @@ void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead, text_overhead,
-                                                vector_indexes_size);
-  size_t inverted_size =
-      isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) : sp->stats.invertedSize;
-  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec)
-                                 : sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead,
+    text_overhead, vector_indexes_size);
+  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
+    sp->stats.invertedSize;
+  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
+    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
-  if (InfoSelection_Matches(selection, "num_records")) {
-    REPLY_KVINT("num_records", num_records);
-  }
-  if (InfoSelection_Matches(selection, "inverted_sz_mb")) {
-    REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "vector_index_sz_mb")) {
-    REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "total_inverted_index_blocks")) {
-    REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
-  }
-  if (InfoSelection_Matches(selection, "offset_vectors_sz_mb")) {
-    REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "doc_table_size_mb")) {
-    REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "sortable_values_size_mb")) {
-    REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "key_table_size_mb")) {
-    REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "tag_overhead_sz_mb")) {
-    REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
-  }
+  INFO_KVINT("num_records", num_records);
+  INFO_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
+  INFO_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
+  INFO_KVINT("total_inverted_index_blocks", total_ii_blocks);
+  INFO_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
+  INFO_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
+  INFO_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
+  INFO_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
+  INFO_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
     TextResourceMetrics text = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec).text;
     if (InfoSelection_Matches(selection, "column_families")) {
@@ -492,65 +362,38 @@ void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool
       REPLY_MAP_END;
     }
   } else {
-    if (InfoSelection_Matches(selection, "text_overhead_sz_mb")) {
-      REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
-    }
+    INFO_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   }
-  if (InfoSelection_Matches(selection, "total_index_memory_sz_mb")) {
-    REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "geoshapes_sz_mb")) {
-    REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
-  }
-  if (InfoSelection_Matches(selection, "records_per_doc_avg")) {
-    REPLY_KVNUM("records_per_doc_avg", (float)num_records / (float)sp->stats.scoring.numDocuments);
-  }
-  double bytes_per_record_avg = num_records ? (float)inverted_size / (float)num_records : NAN;
-  if (InfoSelection_Matches(selection, "bytes_per_record_avg")) {
-    REPLY_KVNUM("bytes_per_record_avg", bytes_per_record_avg);
-  }
+  INFO_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
+  INFO_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
+  INFO_KVNUM("records_per_doc_avg",
+              (float)num_records / (float)sp->stats.scoring.numDocuments);
+  double bytes_per_record_avg = num_records ?
+    (float)inverted_size / (float)num_records : NAN;
+  INFO_KVNUM("bytes_per_record_avg",
+              bytes_per_record_avg);
   // Disk indexes don't track offset record counts; report NaN rather than 0
   // (which would falsely imply the metric is meaningful).
-  double offsets_per_term_avg =
-      (isDisk || !num_records) ? NAN : (float)offset_vec_records / (float)num_records;
-  if (InfoSelection_Matches(selection, "offsets_per_term_avg")) {
-    REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
-  }
-  double offset_bits_per_record_avg =
-      (isDisk || !offset_vec_records)
-          ? NAN
-          : (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
-  if (InfoSelection_Matches(selection, "offset_bits_per_record_avg")) {
-    REPLY_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
-  }
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  INFO_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  INFO_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
-  if (InfoSelection_Matches(selection, "hash_indexing_failures")) {
-    REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
-  }
-  if (InfoSelection_Matches(selection, "total_indexing_time")) {
-    REPLY_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
-  }
-  if (InfoSelection_Matches(selection, "indexing")) {
-    REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
-  }
+  INFO_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
+  INFO_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
+  INFO_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
-  if (InfoSelection_Matches(selection, "percent_indexed")) {
-    REPLY_KVNUM("percent_indexed", percent_indexed);
-  }
+  INFO_KVNUM("percent_indexed", percent_indexed);
 
-  if (InfoSelection_Matches(selection, "number_of_uses")) {
-    REPLY_KVINT("number_of_uses", IndexSpec_GetQueryCounter(sp));
-  }
-  if (InfoSelection_Matches(selection, "number_of_admin_ops")) {
-    REPLY_KVINT("number_of_admin_ops", IndexSpec_GetAdminCounter(sp));
-  }
+  INFO_KVINT("number_of_uses", IndexSpec_GetQueryCounter(sp));
+  INFO_KVINT("number_of_admin_ops", IndexSpec_GetAdminCounter(sp));
 
-  if (InfoSelection_Matches(selection, "cleaning")) {
-    REPLY_KVINT("cleaning", CleanInProgressOrPending());
-  }
+  INFO_KVINT("cleaning", CleanInProgressOrPending());
 
   if (sp->gc && InfoSelection_Matches(selection, "gc_stats")) {
     RedisModule_ReplyKV_Map(reply, "gc_stats");
@@ -565,8 +408,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool
   // Unlock spec
   IndexSpec_Unlock(sctx->spec);
 
-  if ((sp->flags & Index_HasCustomStopwords) &&
-      InfoSelection_Matches(selection, "stopwords_list")) {
+  if ((sp->flags & Index_HasCustomStopwords) && InfoSelection_Matches(selection, "stopwords_list")) {
     ReplyWithStopWordsList(reply, sp->stopwords);
   }
 
@@ -584,23 +426,25 @@ void fillReplyWithIndexInfo(RedisSearchCtx *sctx, RedisModule_Reply *reply, bool
   // Global index error stats
   if (InfoSelection_Matches(selection, "Index Errors")) {
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate,
-                     INDEX_ERROR_WITH_OOM_STATUS);
+    IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
   }
 
   if (InfoSelection_Matches(selection, "field statistics")) {
-    REPLY_KVARRAY("field statistics");  // Field statistics
+    REPLY_KVARRAY("field statistics"); // Field statistics
     for (int i = 0; i < sp->numFields; i++) {
       FieldSpec *fs = &sp->fields[i];
       FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
       FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
       FieldSpecInfo_Clear(&info);
     }
-    REPLY_ARRAY_END;  // >Field statistics
+    REPLY_ARRAY_END; // >Field statistics
   }
 
-  RedisModule_Reply_MapEnd(reply);  // top
+  RedisModule_Reply_MapEnd(reply); // top
 }
+
+#undef INFO_KVINT
+#undef INFO_KVNUM
 
 /* FT.INFO {index}
  *  Provide info and stats about an index
