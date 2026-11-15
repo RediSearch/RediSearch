@@ -66,14 +66,19 @@ def commentable_lines(diff: str) -> set[tuple[str, int]]:
     return lines
 
 
-def truncate(text: str) -> str:
-    if len(text) <= MAX_BODY:
+def truncate(text: str, limit: int = MAX_BODY) -> str:
+    if len(text) <= limit:
         return text
-    return text[: MAX_BODY - len(TRUNCATED)] + TRUNCATED
+    return text[: max(0, limit - len(TRUNCATED))] + TRUNCATED
 
 
 def build_review(output: dict, diff: str, commit_id: str, inline: bool = True) -> dict:
-    """Build the review; with `inline=False`, every comment goes in the body."""
+    """Build the review; with `inline=False`, every comment goes in the body.
+
+    The `inline=False` form is the fallback for a review GitHub rejected, so it
+    leaves out `commit_id` (GitHub then uses the PR's current head, which still
+    exists after a force-push) and names the reviewed commit in the body.
+    """
     allowed = commentable_lines(diff) if inline else set()
     comments, outside = [], []
     for c in output["comments"]:
@@ -86,16 +91,18 @@ def build_review(output: dict, diff: str, commit_id: str, inline: bool = True) -
 
     section = ""
     if outside:
-        section = "\n\n### Findings outside the diff\n"
+        heading = "Findings outside the diff" if inline else "Findings (inline posting was rejected)"
+        section = f"\n\n### {heading}\n"
         for c in outside:
             section += f"\n**`{c['path']}:{c['line']}`**\n\n{c['body'].strip()}\n"
+    if not inline:
+        section += f"\n*Reviewed commit `{commit_id}`.*\n"
     # Cut the summary before the findings: they exist nowhere else.
-    summary = output["summary"].strip()
-    room = MAX_BODY - len(section) - len(TRUNCATED)
-    if len(summary) + len(section) > MAX_BODY and room > 0:
-        summary = summary[:room] + TRUNCATED
-    body = truncate(summary + section)
-    return {"commit_id": commit_id, "event": "COMMENT", "body": body, "comments": comments}
+    summary = truncate(output["summary"].strip(), MAX_BODY - len(section))
+    review = {"event": "COMMENT", "body": truncate(summary + section), "comments": comments}
+    if inline:
+        review["commit_id"] = commit_id
+    return review
 
 
 def main() -> int:

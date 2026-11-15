@@ -121,9 +121,24 @@ class PostReviewTests(unittest.TestCase):
             "summary": "s",
             "comments": [{"path": "src/a.c", "line": 12, "body": "z is unused"}],
         }
-        review = post_review.build_review(output, DIFF, "c", inline=False)
+        review = post_review.build_review(output, DIFF, "abc123", inline=False)
         self.assertEqual(review["comments"], [])
+        self.assertNotIn("commit_id", review)
         self.assertIn("`src/a.c:12`", review["body"])
+        self.assertIn("inline posting was rejected", review["body"])
+        self.assertIn("`abc123`", review["body"])
+
+    def test_findings_filling_the_body_drop_the_summary_first(self) -> None:
+        output = {
+            "summary": "SUMMARY" * 10000,
+            "comments": [
+                {"path": "src/a.c", "line": 40 + i, "body": "f" * 1000} for i in range(59)
+            ],
+        }
+        body = post_review.build_review(output, DIFF, "c")["body"]
+        self.assertLessEqual(len(body), post_review.MAX_BODY)
+        self.assertNotIn("SUMMARY", body)
+        self.assertIn("`src/a.c:40`", body)
 
     def test_comments_outside_the_diff_move_into_the_body(self) -> None:
         output = {
