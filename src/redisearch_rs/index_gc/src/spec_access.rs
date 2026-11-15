@@ -14,9 +14,8 @@ use index_spec::{IndexSpecWeakRef, IndexSpecWriteGuard};
 
 use crate::GcError;
 
-/// The closure prevents the [`IndexSpecWriteGuard`] from outliving the strong
-/// reference that keeps the spec alive. Test implementations can provide the
-/// same scope over an exclusively owned synthetic spec.
+/// A seam over [`IndexSpecWeakRef::with_write_lock`], so tests can provide the same
+/// scope over an exclusively owned synthetic spec.
 pub trait SpecWriteAccess {
     /// Promote and write-lock the spec, then run `apply` under the lock.
     fn with_write<T>(
@@ -30,9 +29,7 @@ impl SpecWriteAccess for IndexSpecWeakRef {
         &mut self,
         apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, GcError>,
     ) -> Result<T, GcError> {
-        let spec_ref = self.promote().ok_or(GcError::SpecDeleted)?;
-        let mut lock = spec_ref.write();
-        let mut guard = lock.guard();
-        apply(&mut guard)
+        self.with_write_lock(apply)
+            .unwrap_or(Err(GcError::SpecDeleted))
     }
 }
