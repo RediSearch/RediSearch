@@ -1255,10 +1255,6 @@ CONFIG_GETTER(getMultiTextOffsetDelta) {
   return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
 }
 
-GCPolicy GCPolicy_Default(void) {
-  return RS_IsEnterpriseServer() ? GCPolicy_Fork : GCPolicy_Thread;
-}
-
 static int set_gc_policy(const char *name, int val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -1276,7 +1272,7 @@ CONFIG_SETTER(setGcPolicy) {
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT")) {
-    config->gcConfigParams.gcPolicy = GCPolicy_Default();
+    config->gcConfigParams.gcPolicy = GCPolicy_Thread;
   } else if (!strcasecmp(policy, "THREAD")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Thread;
   } else if (!strcasecmp(policy, "FORK")) {
@@ -1794,7 +1790,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is FORK on Redis Enterprise, THREAD otherwise",
+         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is THREAD",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2660,7 +2656,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-gc-policy", GCPolicy_Default(),
+      ctx, "search-gc-policy", GCPolicy_Thread,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       gc_policy_vals, gc_policy_enums, 2,
       get_gc_policy, set_gc_policy, NULL,

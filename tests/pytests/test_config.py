@@ -2661,7 +2661,6 @@ def testGcConfigAliases():
 
 
 def testGcPolicyConfig():
-    # OSS defaults to THREAD; the Enterprise default (FORK) needs a Redis Enterprise server.
     env = Env()
     env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'thread'])
     env.expect('CONFIG', 'SET', 'search-gc-policy', 'fork').error().contains('CONFIG SET failed')
