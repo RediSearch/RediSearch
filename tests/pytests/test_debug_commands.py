@@ -70,7 +70,11 @@ class TestDebugCommands(object):
         if MT_BUILD:
             help_list.append('WORKERS')
 
-        self.env.expect(debug_cmd(), 'help').equal(help_list)
+        res = self.env.cmd(debug_cmd(), 'help')
+        if RS_TEST_ENTERPRISE:
+            # The enterprise build also lists its coordinator's subcommands.
+            res = [name for name in res if name in help_list]
+        self.env.assertEqual(res, help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']

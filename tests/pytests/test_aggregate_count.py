@@ -747,6 +747,10 @@ def test_withcursor(env):
         ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 10, 'WITHCOUNT'],
         ['FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'WITHCOUNT'],
     ]
+    if RS_TEST_ENTERPRISE:
+        # WITHCOUNT after WITHCURSOR is rejected only in user queries, and the
+        # enterprise build's `_FT.AGGREGATE` is an internal one.
+        invalid_queries = invalid_queries[:2]
     error_message = 'FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together'
     for query in invalid_queries:
         env.expect(*query).error().contains(error_message)
