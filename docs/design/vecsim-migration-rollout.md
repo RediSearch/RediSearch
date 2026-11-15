@@ -33,10 +33,10 @@ Recheck remote heads and required checks immediately before landing.
   metadata. Both current agreement responses have update timestamp
   `2022-09-21T17:26:50Z` and identical rendered-text SHA-256
   `bc0b5785c4e338001e111eed5383abbb5432dfc8a7cd34f85649d8c9f3ecd35b`.
-  A CLA administrator must confirm historical signature applicability
-  or the contributor can sign for Search. Do not manufacture a
-  signature or remove the required check.
-- [ ] Approve and execute a history-preserving landing exception. Effective master
+  The agreed route is for the contributor to sign for Search. Keep the required
+  check; no signature sharing or administrative signature transfer is planned.
+- [ ] A repository maintainer must handle the history-preserving landing
+  exception. Effective master
   rules require one approval, last-push approval, `pr-validation`, `license/cla`,
   squash-only PR merges, and a squash merge queue. There are no configured bypass
   actors. Repository-level merge-commit availability does not override these rules.
@@ -108,9 +108,15 @@ Advance validation of the RSE main candidate completed locally:
   including serialization and big-endian variants.
 - Five selected product flows passed: KNN, delete/requery, hybrid batches, and
   save/RDB reload with reranking enabled and disabled.
-- Product flows used local Flex `7200aae1cca9`, older than the current CI pin
-  `61974430b3b7`; this does not replace validation on the CI-pinned runtime.
-
+- A separately built pre-migration module (RSE `27b4d496`, Search `33d90342`)
+  produced disk-vector data for a hot-restart upgrade to the adoption module.
+  The new module reused 14 old SST files and the RAM-only restart RDB, preserving
+  KNN IDs/scores and range results with reranking enabled and disabled. Queued
+  flat-buffer inserts, a backend deletion, and post-upgrade inserts were checked.
+  Both processes used the same SpeedB library; binary and snapshot hashes were
+  captured. This is a focused upgrade test, not release-scale certification.
+- Product flows and the upgrade test used local Flex `7200aae1cca9`, older than
+  the current CI pin `61974430b3b7`; this does not replace validation on that runtime.
 
 1. Land Search with preserved history and verify the original VecSim commit is
    an ancestor of the resulting master commit.
@@ -120,8 +126,11 @@ Advance validation of the RSE main candidate completed locally:
 3. Validate RSE compilation, security patch application, disk-vector units,
    persisted-index behavior, and relevant product flows on the candidate.
 4. Align public Search `8.10-rse` with the selected migration-containing release
-   baseline. Inventory and preserve release-only changes before replacing any
-   branch. RSE's scheduled bump map uses `8.10 -> public 8.10-rse`; leaving the
+   baseline. The prepared two-parent merge retains both histories and differs
+   from the migration tree only in the 8.10.0 version file. Its submodule-delete
+   and backported-source conflicts resolve to the validated migration baseline.
+   Release rules also require squash, so this merge needs a history-preserving
+   exception. RSE's scheduled bump map uses `8.10 -> public 8.10-rse`; leaving the
    latter behind would allow a subsequent bump PR to propose reverting migration.
 5. Prepare the new RSE `8.10` from the validated RSE main commit, retaining the
    release version `8.10.0` in `src/version.h` and release submodule branch metadata.
@@ -137,7 +146,7 @@ Search `8.10-rse` has five commits absent by SHA from master: its version
 commit and four cherry-picks. The originals of all four cherry-picks are
 ancestors of the migration revision, so preserve the 8.10.0 version without
 reapplying those fixes. No open Search PR targeted `8.10-rse` at this snapshot.
-RSE has an older [bump PR #1457](https://github.com/redislabsdev/RediSearchEnterprise/pull/1457)
+RSE has an older private bump PR, `RediSearchEnterprise#1457`,
 targeting `8.10`; reconcile or supersede it during cutover so it cannot restore
 an obsolete Search pin.
 
@@ -158,8 +167,11 @@ Snapshot for that comparison:
   `45daaf32031021eebee81d6df753e911083bd45f` and the migration's two-file
   `USE_SVS=OFF` fix. The mechanically remapped patch conflicted in `vec_sim.cpp`;
   adapting the older include/function context made `git apply --check` and
-  application succeed. No maintenance branch was changed or branch tests run;
-  the patch-plus-pin product validation remains outstanding.
+  application succeed. The local component backport built with SVS disabled;
+  all 406 selected CTest cases passed across the initial run and a rerun of three
+  fixture cases with the legacy runner's required `ROOT` environment. A paired
+  local Search pin-update commit was prepared. No remote maintenance branch was
+  changed; Search 8.8 product validation of that pin remains outstanding.
 - [ ] Establish the first Search benchmark baseline. Existing comparison jobs
   succeeded but reported no comparison points; that is not a performance result.
 - [ ] Verify Grafana queries include repository `RediSearch/RediSearch` and
