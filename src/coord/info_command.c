@@ -487,7 +487,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
-  InfoFields fields = { .indexError = IndexError_Init() };
   MRReply *firstError = NULL;
   const InfoSelection *selection = MRCtx_GetPrivData(mc);
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
@@ -500,6 +499,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     return RedisModule_ReplyWithError(ctx, "Incomplete FT.INFO shard replies");
   }
 
+  InfoFields fields = { .indexError = IndexError_Init() };
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
