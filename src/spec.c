@@ -1580,9 +1580,52 @@ uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask 
   return count;
 }
 
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
+int IndexSpec_ParseOptions(ArgsCursor *ac, IndexSpecOptions *options,
+                           QueryError *status) {
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1};
+  int dummy;
+  size_t dummy2;
+  int rc = AC_OK;
+  ACArgSpec *errarg = NULL;
+  ACArgSpec argopts[] = {
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
+    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
+    {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+
+    // For compatibility
+    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&options->rule, &options->prefixes)
+    {.name = SPEC_TEMPORARY_STR, .target = &options->timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
+  rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  if (rc != AC_OK) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
+      return REDISMODULE_ERR;
+    }
+  }
+  if ((options->flags & Index_WideSchema) && !(options->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_EINVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    return REDISMODULE_ERR;
+  }
+
+  if (options->timeout != -1) {
+    options->flags |= Index_Temporary;
+  }
+  options->timeout *= 1000;  // convert to ms
+
+  return REDISMODULE_OK;
+}
+
 static StrongRef IndexSpec_ParseFromArgCursor(const HiddenString *name, ArgsCursor *ac,
                                               QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
@@ -1591,68 +1634,34 @@ static StrongRef IndexSpec_ParseFromArgCursor(const HiddenString *name, ArgsCurs
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor acStopwords = {0};
-
-  long long timeout = -1;
-  int dummy;
-  size_t dummy2;
-  SchemaRuleArgs rule_args = {0};
-  ArgsCursor rule_prefixes = {0};
-
-  ACArgSpec argopts[] = {
-      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                   Index_StoreTermOffsets | Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-      {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-
-      // For compatibility
-      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = NULL}};
-
-  ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
-  if (rc != AC_OK) {
-    if (rc != AC_ERR_ENOENT) {
-      QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
-    }
-  }
-  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
-    QueryError_SetError(status, QUERY_EINVAL,
-                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+  IndexSpecOptions options;
+  int rc = IndexSpec_ParseOptions(ac, &options, status);
+  spec->flags = options.flags;
+  SchemaRuleArgs *rule_args = &options.rule;
+  ArgsCursor *rule_prefixes = &options.prefixes;
+  ArgsCursor *acStopwords = &options.stopwords;
+  if (rc != REDISMODULE_OK) {
     goto failure;
   }
+  spec->timeout = options.timeout;
 
-  if (timeout != -1) {
-    spec->flags |= Index_Temporary;
-  }
-  spec->timeout = timeout * 1000;  // convert to ms
-
-  if (rule_prefixes.argc > 0) {
-    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
+  if (rule_prefixes->argc > 0) {
+    spec->rule = SchemaRule_CreateWithPrefixesAC(rule_args, rule_prefixes, spec_ref, status);
   } else {
-    rule_args.nprefixes = 1;
+    rule_args->nprefixes = 1;
     static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
-    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
+    rule_args->prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(rule_args, spec_ref, status);
   }
   if (!spec->rule) {
     goto failure;
   }
 
-  if (AC_IsInitialized(&acStopwords)) {
+  if (AC_IsInitialized(acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListAC(&acStopwords);
+    spec->stopwords = NewStopWordListAC(acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
