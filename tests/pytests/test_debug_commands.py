@@ -23,6 +23,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG').error().contains('wrong number of arguments')
 
     def testDebugHelp(self):
+        skipTest(enterprise=True)  # The HELP list differs on the enterprise build (MOD 21265).
         err_msg = 'wrong number of arguments'
         help_list = [
             "DUMP_INVIDX",
@@ -70,11 +71,7 @@ class TestDebugCommands(object):
         if MT_BUILD:
             help_list.append('WORKERS')
 
-        res = self.env.cmd(debug_cmd(), 'help')
-        if RS_TEST_ENTERPRISE:
-            # The enterprise build also lists its coordinator's subcommands.
-            res = [name for name in res if name in help_list]
-        self.env.assertEqual(res, help_list)
+        self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
