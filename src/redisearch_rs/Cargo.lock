@@ -1107,6 +1107,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "criterion",
  "deleted_docs",
  "dict",
  "document",
