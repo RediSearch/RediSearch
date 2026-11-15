@@ -25,7 +25,17 @@ Recheck remote heads and required checks immediately before landing.
   was dispatched against the revision above. Dispatch is not a passing result.
 - [ ] Obtain human review of the final revision and the one-time coverage baseline.
 - [ ] Complete Sonar analysis disposition; see below. No issues were suppressed.
-- [ ] Complete CLA for `razdoburdin`; the CLA bot reports six of seven signed.
+- [ ] Resolve CLA association for `razdoburdin`; Search reports six of seven
+  signed, while the contributor's [original VecSim PR #1058](https://github.com/RedisAI/VectorSimilarity/pull/1058#issuecomment-5791831501)
+  reports all signed. Both repositories reference the same
+  [CLA gist](https://gist.github.com/gkorland/effb0c93889899c51aa9b6ac5c32dba3),
+  but both return `sharedGist: false` from CLA Assistant's public linked-item
+  metadata. Both current agreement responses have update timestamp
+  `2022-09-21T17:26:50Z` and identical rendered-text SHA-256
+  `bc0b5785c4e338001e111eed5383abbb5432dfc8a7cd34f85649d8c9f3ecd35b`.
+  A CLA administrator must confirm historical signature applicability
+  or the contributor can sign for Search. Do not manufacture a
+  signature or remove the required check.
 - [ ] Approve and execute a history-preserving landing exception. Effective master
   rules require one approval, last-push approval, `pr-validation`, `license/cla`,
   squash-only PR merges, and a squash merge queue. There are no configured bypass
@@ -90,6 +100,18 @@ marked resolved as part of this migration.
 
 ## Enterprise adoption and 8.10 rebranch
 
+Advance validation of the RSE main candidate completed locally:
+
+- Full Debug module build with SVS enabled passed; all 13 Enterprise security
+  patches applied to the migration revision.
+- Disk-vector units: 572 passed, six async-dispatch cases skipped, 578 registered,
+  including serialization and big-endian variants.
+- Five selected product flows passed: KNN, delete/requery, hybrid batches, and
+  save/RDB reload with reranking enabled and disabled.
+- Product flows used local Flex `7200aae1cca9`, older than the current CI pin
+  `61974430b3b7`; this does not replace validation on the CI-pinned runtime.
+
+
 1. Land Search with preserved history and verify the original VecSim commit is
    an ancestor of the resulting master commit.
 2. Bump RSE main to that landed Search commit together with the include/build
@@ -131,7 +153,13 @@ Snapshot for that comparison:
 ## Remaining release validation
 
 - [ ] Rehearse a fix through a legacy VecSim branch and a maintained Search
-  submodule-pin update; retain branch-specific product tests.
+  submodule-pin update; retain branch-specific product tests. A local path/context
+  rehearsal used Search 8.8's actual VecSim pin
+  `45daaf32031021eebee81d6df753e911083bd45f` and the migration's two-file
+  `USE_SVS=OFF` fix. The mechanically remapped patch conflicted in `vec_sim.cpp`;
+  adapting the older include/function context made `git apply --check` and
+  application succeed. No maintenance branch was changed or branch tests run;
+  the patch-plus-pin product validation remains outstanding.
 - [ ] Establish the first Search benchmark baseline. Existing comparison jobs
   succeeded but reported no comparison points; that is not a performance result.
 - [ ] Verify Grafana queries include repository `RediSearch/RediSearch` and
