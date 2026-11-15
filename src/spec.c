@@ -2607,6 +2607,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
                                RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
+  IndexGCSettings_Init(&sp->gcSettings);
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
@@ -3410,6 +3411,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
+  // Written for every index, disk or not, so the load finds it right after its own disk-block
+  // condition. Not schema-defining (see IndexSpec.gcSettings).
+  IndexGCSettings_RdbSave(rdb, &sp->gcSettings);
+
   if (needLock) {
     IndexSpec_Unlock(sctx.spec);
   }
@@ -3593,6 +3598,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
   }
 
+  // Older encodings have no block, and load with every override unset.
+  if (encver >= INDEX_GC_SETTINGS_VERSION &&
+      IndexGCSettings_RdbLoad(rdb, &sp->gcSettings) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid GC settings");
+    goto cleanup;
+  }
+
   return sp;
 
 cleanup:
@@ -3684,6 +3696,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   // IndexSpec_Free clears it, so it must be valid before the first failed read below.
   sp->stats.indexError = IndexError_Init();
+  IndexGCSettings_Init(&sp->gcSettings);
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);

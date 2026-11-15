@@ -1350,3 +1350,35 @@ TEST_F(IndexGCTest, testNextTimerReadsTheCurrentInterval) {
   EXPECT_EQ(run.intervalMs, GC_IntervalSecToMs(savedRun + 7));
   EXPECT_EQ(retry.intervalMs, GC_IntervalSecToMs(savedRetry + 3));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Per-index GC settings.
+
+TEST(IndexGCSettingsHelpers, testEffectiveValues) {
+  const GCSettings saved = RSGlobalConfig.gcConfigParams.gcSettings;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = 30;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 100;
+
+  IndexGCSettings s;
+  IndexGCSettings_Init(&s);
+  EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 30);
+  EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 100);
+
+  s.runIntervalSec = {true, 1};
+  s.cleanThreshold = {true, 0};
+  EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
+  EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+
+  RSGlobalConfig.gcConfigParams.gcSettings = saved;
+}
+
+TEST(IndexGCSettingsHelpers, testValueRanges) {
+  EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_RUN_INTERVAL, 0));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_RUN_INTERVAL, 1));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_RUN_INTERVAL, LLONG_MAX));
+  EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_RUN_INTERVAL, (size_t)LLONG_MAX + 1));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, 0));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, LLONG_MAX));
+  EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, (size_t)LLONG_MAX + 1));
+  EXPECT_FALSE(IndexGCSettings_IsValid((IndexGCSettingId)99, 1));
+}
