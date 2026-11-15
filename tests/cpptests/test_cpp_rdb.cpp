@@ -21,6 +21,7 @@ extern "C" {
 #include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 #include <iterator>  // For std::size
+#include <string>
 #include <vector>
 
 extern "C" {
@@ -677,8 +678,9 @@ static_assert(kLegacyAliasEncver >= INDEX_MIN_ALIAS_VERSION &&
               kLegacyAliasEncver < INDEX_DISK_VERSION);
 
 // Writes a kLegacyAliasEncver spec with no fields, documents or terms, and one alias.
-static void saveLegacySpecWithAlias(RedisModuleIO *io, const char *name, const char *alias) {
-  RMCK_SaveStringBuffer(io, name, strlen(name) + 1);
+static void saveLegacySpecWithAlias(RedisModuleIO *io, const std::string &name,
+                                    const std::string &alias) {
+  RMCK_SaveStringBuffer(io, name.c_str(), name.size() + 1);
   RMCK_SaveUnsigned(io, INDEX_DEFAULT_FLAGS);
   RMCK_SaveUnsigned(io, 0);  // fields
   for (int i = 0; i < 10; i++) {
@@ -690,18 +692,18 @@ static void saveLegacySpecWithAlias(RedisModuleIO *io, const char *name, const c
   RMCK_SaveUnsigned(io, 0);  // terms
   RMCK_SaveUnsigned(io, 0);  // timeout
   RMCK_SaveUnsigned(io, 1);  // aliases
-  RMCK_SaveStringBuffer(io, alias, strlen(alias) + 1);
+  RMCK_SaveStringBuffer(io, alias.c_str(), alias.size() + 1);
 }
 
 // The upgrade definition that FT.CONFIG's UPGRADE_INDEX would register for `name`.
-static void addLegacyRule(const char *name, const char *scoreDefault) {
+static void addLegacyRule(const std::string &name, const char *scoreDefault) {
   SchemaRuleArgs *rule = (SchemaRuleArgs *)rm_calloc(1, sizeof(*rule));
   rule->type = rm_strdup(RULE_TYPE_HASH);
   rule->nprefixes = 1;
   rule->prefixes = (const char **)rm_malloc(sizeof(*rule->prefixes));
   rule->prefixes[0] = rm_strdup("legacy:");
   rule->score_default = scoreDefault ? rm_strdup(scoreDefault) : nullptr;
-  HiddenString *key = NewHiddenString(name, strlen(name), false);
+  HiddenString *key = NewHiddenString(name.c_str(), name.size(), false);
   dictAdd(legacySpecRules, key, rule);
   HiddenString_Free(key, false);
 }
