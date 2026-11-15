@@ -2647,19 +2647,6 @@ def testForkGcSettingsDoNotTuneTheThreadPolicy():
     env.stop()
 
 
-def testGcConfigAliases():
-    env = Env()
-    for name, alias in [('search-thread-gc-run-interval', 'search-gc-run-interval'),
-                        ('search-thread-gc-clean-threshold', 'search-gc-clean-threshold')]:
-        original = env.cmd('CONFIG', 'GET', name)[1]
-        try:
-            env.expect('CONFIG', 'SET', alias, 7).ok()
-            env.expect('CONFIG', 'GET', name).equal([name, '7'])
-            env.expect('CONFIG', 'GET', alias).equal([alias, '7'])
-        finally:
-            env.expect('CONFIG', 'SET', name, original).ok()
-
-
 def testGcPolicyConfig():
     env = Env()
     env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'thread'])

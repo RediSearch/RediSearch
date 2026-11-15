@@ -2267,7 +2267,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-thread-gc-clean-threshold|search-gc-clean-threshold",
+      ctx, "search-thread-gc-clean-threshold",
       DEFAULT_THREAD_GC_CLEAN_THRESHOLD, REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold)
@@ -2276,7 +2276,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-thread-gc-run-interval|search-gc-run-interval",
+      ctx, "search-thread-gc-run-interval",
       DEFAULT_THREAD_GC_RUN_INTERVAL, REDISMODULE_CONFIG_UNPREFIXED, 1,
       MAX_THREAD_GC_RUN_INTERVAL, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcRunIntervalSec)
