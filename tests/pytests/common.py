@@ -26,6 +26,12 @@ import RLTest
 from typing import Any, Callable, List, Dict
 from RLTest import Env, env_spec
 from RLTest.env import Query
+
+# RLTest reuses a running server for an Env whose parameters match it, but does not count the
+# startup config file among them, so an Env asking for other startup settings would get a server
+# that never loaded them.
+if 'redisConfigFile' not in Env.EnvCompareParams:
+    Env.EnvCompareParams = Env.EnvCompareParams + ['redisConfigFile']
 import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
