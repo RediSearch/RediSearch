@@ -25,6 +25,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'unknown').raiseError().equal('subcommand was not found')
 
     def testDebugHelp(self):
+        skipTest(enterprise=True)  # The HELP list differs on the enterprise build (MOD 21265).
         err_msg = 'wrong number of arguments'
         help_list = [
             "DUMP_INVIDX",

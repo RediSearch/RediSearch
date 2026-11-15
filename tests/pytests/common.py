@@ -12,6 +12,7 @@ import platform
 import itertools
 import threading
 from redis.client import NEVER_DECODE
+from redis import exceptions as redis_exceptions
 import RLTest
 from typing import Any, Callable, List
 from RLTest import Env
@@ -25,6 +26,7 @@ from unittest import SkipTest
 import inspect
 import math
 import tempfile
+import redis.client
 
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
@@ -311,20 +313,63 @@ def skipOnDialect(env, dialect):
     if dialect == server_dialect:
         env.skip()
 
-def waitForRdbSaveToFinish(env):
+def waitForRdbSaveToFinish(env_or_check, attempts=None, sleep_interval=0.1, stop_on_error=False):
+    """Wait for RDB bgsave to go idle.
+
+    env_or_check: either an Env (poll every master, or every shard if
+    clustered), or a zero-arg callable returning an INFO persistence reply
+    (a dict, or a raw RESP2 string) -- e.g. for polling a single connection.
+
+    attempts=None (default): busy-wait with no cap, for callers where a
+    bgsave is expected to finish quickly (e.g. right after DEBUG RELOAD).
+    attempts=<N>: bounded poll, up to N tries `sleep_interval` apart;
+    returns the final in-progress state instead of blocking indefinitely.
+
+    stop_on_error: if a poll raises, treat it as idle and return False
+    instead of propagating (used where a stale/closing connection means
+    there's nothing left to wait for).
+    """
+    if callable(env_or_check):
+        get_info = env_or_check
+        if attempts is None:
+            attempts = 50
+        in_progress = True
+        for _ in range(attempts):
+            try:
+                info = get_info()
+            except Exception:
+                if stop_on_error:
+                    return False
+                raise
+            if isinstance(info, dict):
+                in_progress = bool(info.get('rdb_bgsave_in_progress', 0))
+            else:
+                in_progress = 'rdb_bgsave_in_progress:1' in str(info)
+            if not in_progress:
+                break
+            time.sleep(sleep_interval)
+        return in_progress
+
+    env = env_or_check
     if env.isCluster():
         conns = env.getOSSMasterNodesConnectionList()
     else:
         conns = [env.getConnection()]
 
-    # Busy wait until all connection are done rdb bgsave
+    # Busy wait until all connections are done with rdb bgsave.
     check_bgsave = True
-    while check_bgsave:
+    tries = itertools.count() if attempts is None else range(attempts)
+    for _ in tries:
         check_bgsave = False
         for conn in conns:
             if conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
                 check_bgsave = True
                 break
+        if not check_bgsave:
+            break
+        if attempts is not None:
+            time.sleep(sleep_interval)
+    return check_bgsave
 
 
 def countKeys(env, pattern='*'):
@@ -344,6 +389,77 @@ def collectKeys(env, pattern='*'):
         conn = env.getConnection(shard)
         keys.extend(conn.keys(pattern))
     return sorted(keys)
+
+
+# ---------------------------------------------------------------------------
+# Enterprise test-compatibility helpers
+# Gated by RS_TEST_ENTERPRISE=1; default=0 → zero behavior change on OSS CI.
+# ---------------------------------------------------------------------------
+
+def is_enterprise_server(env):
+    """Whether the server is Redis Enterprise's, which changes some module
+    defaults whatever the build (IsEnterprise() in module.c reads the same
+    INFO field)."""
+    return 'rlec_version' in env.cmd('INFO', 'SERVER')
+
+
+# The enterprise build registers the shard's own read commands under its `_FT`
+# read prefix (RS_CMD_READ_PREFIX in src/commands.h), and its coordinator under
+# `FT`. The suite tests a standalone shard, so these go to the `_FT` names.
+_SHARD_READ_COMMANDS = frozenset((
+    'FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE', 'FT.CURSOR', 'FT.INFO',
+    'FT.EXPLAIN', 'FT.EXPLAINCLI', 'FT.GET', 'FT.MGET', 'FT.TAGVALS',
+    'FT.SUGADD', 'FT.SUGGET', 'FT.SUGDEL', 'FT.SUGLEN', 'FT.SPELLCHECK',
+    'FT.DICTDUMP', 'FT.SYNDUMP', 'FT._LIST', 'FT.DEBUG', 'FT.CONFIG'))
+# On 2.8, FT.DEBUG's query subcommands keep their `FT` names on every build
+# (src/debug_commands.c), so only the command name is routed.
+def _route_to_shard(args):
+    head = str(args[0]).split(' ')
+    rest = list(args[1:])
+    head[0] = '_' + head[0]
+    return (' '.join(head),) + tuple(rest)
+
+
+if RS_TEST_ENTERPRISE:
+    _orig_execute_command = redis.client.Redis.execute_command
+
+    # NOTE: command routing stays on this process-global patch
+    # rather than a per-connection subclass because RLTest's own
+    # envRunner.dumpAndReload() (used by Env.dumpAndReload(), i.e. most
+    # DEBUG RELOAD flows) issues `conn.save()` on a connection it obtains
+    # internally, bypassing any wrapping done at the Env.getConnection()
+    # level -- exactly the call site the SAVE-collision handling below
+    # exists to protect. A connection subclass would miss it.
+    def _enterprise_execute_command(self, *args, **kwargs):
+        """Route the suite's read commands to the shard (_route_to_shard),
+        and name the commands it sent in their errors as the suite does."""
+        # redis-py splits a command name holding spaces ('ft.config get *').
+        name = str(args[0]).split(' ', 1)[0].upper() if args else ''
+        if name in _SHARD_READ_COMMANDS:
+            try:
+                return _orig_execute_command(self, *_route_to_shard(args), **kwargs)
+            except redis_exceptions.ResponseError as e:
+                raise type(e)(str(e).replace("'_FT.", "'FT.")) from None
+        # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
+        # Enterprise servers background-save on their own, whatever the
+        # build; OSS tests that call SAVE directly would race and get
+        # 'Background save already in progress'.
+        if name == 'SAVE':
+            waitForRdbSaveToFinish(lambda: _orig_execute_command(self, 'INFO', 'persistence'), stop_on_error=True)
+            # Now issue SAVE and retry once if still racing
+            for _attempt in range(3):
+                try:
+                    return _orig_execute_command(self, *args, **kwargs)
+                except Exception as _exc:
+                    if 'Background save already in progress' in str(_exc) and _attempt < 2:
+                        time.sleep(0.2)
+                        continue
+                    raise
+        return _orig_execute_command(self, *args, **kwargs)
+
+    redis.client.Redis.execute_command = _enterprise_execute_command
+
+# ---------------------------------------------------------------------------
 
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
@@ -434,10 +550,10 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
-def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None):
+def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, enterprise=None):
     def decorate(f):
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards):
+            if not ((cluster is not None) or macos or asan or msan or noWorkers or redis_less_than or redis_greater_equal or min_shards or (enterprise is not None)):
                 raise SkipTest()
             if cluster == COORD:
                 raise SkipTest()
@@ -459,6 +575,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, noWorkers=False, red
                 raise SkipTest()
             if gc_no_fork and Env().cmd('FT.CONFIG', 'GET', 'GC_POLICY')[0][1] != 'fork':
                raise SkipTest()
+            if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
+                raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
                 env = Env()
                 return f(env)

@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import skip
+from common import skip, is_enterprise_server
 
 @skip(cluster=True)
 def testConfig(env):
@@ -157,7 +157,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if is_enterprise_server(env) else '0')
 
 @skip(cluster=True)
 def testInitConfig(env):
