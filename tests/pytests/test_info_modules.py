@@ -350,6 +350,9 @@ def test_redis_info():
 
 
 def test_counting_queries(env: Env):
+  # The query counters leave out internal queries, which the enterprise build's
+  # `_FT` commands are.
+  skipTest(enterprise=True)
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
   # Add some data

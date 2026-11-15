@@ -286,8 +286,10 @@ def is_enterprise_server(env):
 # read prefix (RS_CMD_READ_PREFIX in src/commands.h), and its coordinator under
 # `FT`. The suite tests a standalone shard, so these go to the `_FT` names.
 _SHARD_READ_COMMANDS = frozenset((
-    'FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE', 'FT.CURSOR', 'FT.INFO',
-    'FT.MGET', 'FT.TAGVALS', 'FT.SPELLCHECK', 'FT.DEBUG', 'FT.CONFIG'))
+    'FT._LIST', 'FT.INFO', 'FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE', 'FT.EXPLAIN',
+    'FT.EXPLAINCLI', 'FT.GET', 'FT.MGET', 'FT.TAGVALS', 'FT.SUGADD', 'FT.SUGGET',
+    'FT.SUGDEL', 'FT.SUGLEN', 'FT.CURSOR', 'FT.DEBUG', 'FT.SPELLCHECK', 'FT.DICTDUMP',
+    'FT.CONFIG', 'FT.SYNDUMP'))
 # FT.DEBUG's query subcommands carry the shard command's name, and the
 # coordinator adds its own under the `FT` names (src/debug_commands.c).
 _SHARD_DEBUG_QUERY_SUBCOMMANDS = frozenset(('FT.SEARCH', 'FT.AGGREGATE', 'FT.PROFILE'))
