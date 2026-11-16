@@ -2319,13 +2319,14 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
-    QueryError _status;
+    QueryError _status = {0};
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     int rc = IndexAlias_Add(s, sp, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(NULL, "notice", "Loading existing alias failed");
     }
+    QueryError_ClearError(&_status);
   }
 
   sp->indexer = NewIndexer(sp);
@@ -2446,12 +2447,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= INDEX_MIN_ALIAS_VERSION) {
     size_t narr = RedisModule_LoadUnsigned(rdb);
     for (size_t ii = 0; ii < narr; ++ii) {
-      QueryError status;
+      QueryError status = {0};
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
       RedisModule_Free(s);
       RS_ASSERT(rc == REDISMODULE_OK);
+      QueryError_ClearError(&status);
     }
   }
   sp->indexer = NewIndexer(sp);
@@ -2464,7 +2466,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  QueryError status;
+  QueryError status = {0};
   sp->rule = SchemaRule_Create(rule_args, sp, &status);
 
   dictDelete(legacySpecRules, sp->name);
@@ -2473,6 +2475,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            sp->name, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
     IndexSpec_Free(sp);
     return NULL;
   }
