@@ -248,10 +248,41 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   }
 }
 
+
+/* DO NOT MERGE: perf-fixture sink. A volatile store keeps the deliberately redundant
+ * work below observable, so the optimiser cannot delete the very cost this fixture
+ * exists to inject. See PERF-GATE-FIXTURES.md. */
+static volatile uint64_t perfFixtureSink;
+
 static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   uint64_t hval = 0;
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
+
+  /* DO NOT MERGE: perf-fixture/aggregate-groupby-obvious. Eleven extra passes over the
+   * group-key build, so each row pays for it twelve times. Reads only; the reducers are
+   * still invoked once, from the single real pass below.
+   *
+   * Why twelve and not three, when the other `obvious` fixtures use three: those triple
+   * the dominant per-unit cost of their case, whereas the group-key build is a minority of
+   * this one's per-row cost -- the LOAD 5 loader upstream dominates. Tripling a minority
+   * term would not land in the `obvious` band. Twelve is a judgement call, not a measured
+   * figure; the campaign reports what it is actually worth.
+   *
+   * No `black_box` equivalent is needed: RLookupRow_Get and RSValue_Hash are Rust
+   * extern "C" symbols, opaque to this translation unit and to any C-side LTO, so the
+   * calls cannot be folded. The volatile store is belt and braces. */
+  for (int rep = 0; rep < 11; ++rep) {
+    uint64_t repHash = 0;
+    for (size_t ii = 0; ii < nkeys; ++ii) {
+      RSValue *v = RLookupRow_Get(g->srckeys[ii], srcrow);
+      if (v == NULL) {
+        v = RSValue_NullStatic();
+      }
+      repHash = RSValue_Hash(v, repHash);
+    }
+    perfFixtureSink = repHash;
+  }
 
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = g->srckeys[ii];
