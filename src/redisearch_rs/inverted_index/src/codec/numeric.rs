@@ -562,7 +562,29 @@ impl Decoder for NumericFloatCompression {
     }
 }
 
+/// DO NOT MERGE: perf-fixture/numeric-range-small. A peek pass that decodes the record
+/// and rewinds, followed by the real decode -- the shape a peek-then-read refactor leaves
+/// behind. Same surviving result, same final cursor position, twice the decode cost per
+/// numeric entry.
+///
+/// Anchoring matters here. A `black_box` on the *output* alone is not enough: measured on
+/// this exact pattern, LLVM keeps one copy of the arithmetic and just repeats the stores
+/// (7 multiplies for one pass, still 7 for three). Making each pass start from a
+/// `black_box`'d read position makes the passes not provably identical, which restores the
+/// full multiplier (21 multiplies for three passes).
 fn decode<'index>(
+    cursor: &mut Cursor<&'index [u8]>,
+    base: DocId,
+    result: &mut RSIndexResult<'index>,
+) -> Result<(), std::io::Error> {
+    let peek_from = cursor.position();
+    decode_inner(cursor, base, result)?;
+    std::hint::black_box(&*result);
+    cursor.set_position(std::hint::black_box(peek_from));
+    decode_inner(cursor, base, result)
+}
+
+fn decode_inner<'index>(
     cursor: &mut Cursor<&'index [u8]>,
     base: DocId,
     result: &mut RSIndexResult<'index>,
