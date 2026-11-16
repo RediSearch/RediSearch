@@ -37,10 +37,12 @@ CreateIndexComponents(std::shared_ptr<VecSimAllocator> allocator, VecSimMetric m
 // dispatcher for the query allocation alignment. FP64 quantized queries require no alignment.
 template <typename DataType, typename DistType = float>
 [[nodiscard]] unsigned char GetQueryAlignment(VecSimMetric metric, size_t dim) {
-    unsigned char alignment = 0;
-    if constexpr (!std::same_as<DistType, double>) {
-        spaces::GetDistFunc<DataType, DistType>(metric, dim, &alignment);
+    if constexpr (std::same_as<DistType, double>) {
+        return 0;
     }
+
+    unsigned char alignment = 0;
+    spaces::GetDistFunc<DataType, DistType>(metric, dim, &alignment);
     return alignment;
 }
 
@@ -89,7 +91,7 @@ CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator
         calc = new (allocator) DistanceCalculatorCommon<DistType>(allocator, sym_func, asym_func);
     }
 
-    auto *const container = new (allocator)
+    auto *container = new (allocator)
         MultiPreprocessorsContainer<DataType, 1>(allocator, query_alignment, storage_alignment);
     [[maybe_unused]] const int ret = container->addPreprocessor(pp);
     assert(ret != -1 && "Quantization preprocessor was not added correctly");
@@ -100,10 +102,10 @@ CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator
 // Run-time overload: selects WithMean from whether mean_ptr is set.
 template <typename DataType, VecSimMetric Metric, typename StorageType>
     requires QuantPreprocessorInput<DataType, StorageType, false>
-IndexComponents<DataType, typename StorageType::metadata_type>
-CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size_t dim,
-                               const float *mean_ptr) {
-    if constexpr (QuantInput<DataType>) {
+auto CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size_t dim,
+                                    const float *mean_ptr) {
+    constexpr bool supports_training = QuantPreprocessorInput<DataType, StorageType, true>;
+    if constexpr (supports_training) {
         if (mean_ptr) {
             return CreateQuantizedIndexComponents<DataType, Metric, true, StorageType>(
                 allocator, dim, mean_ptr);

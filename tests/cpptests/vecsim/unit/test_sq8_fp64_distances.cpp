@@ -21,7 +21,7 @@ namespace {
 using vecsim_types::sq8_fp64;
 
 std::vector<double> reconstruct(const void *blob, size_t dim, double &delta) {
-    const auto *const bytes = static_cast<const uint8_t *>(blob);
+    const auto *bytes = static_cast<const uint8_t *>(blob);
     double minimum;
     std::memcpy(&minimum, bytes + dim, sizeof(double));
     std::memcpy(&delta, bytes + dim + sizeof(double), sizeof(double));

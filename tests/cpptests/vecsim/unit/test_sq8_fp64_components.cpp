@@ -111,7 +111,7 @@ TEST(SQ8FP64Components, DoublePrecisionRangeAndMetadata) {
         std::memcpy(inplace.data(), input, sizeof(input));
         preprocessor.preprocessStorageInPlace(inplace.data(), inplace.size() * sizeof(double));
         EXPECT_EQ(std::memcmp(inplace.data(), storage, size), 0);
-        const auto *const codes = static_cast<const uint8_t *>(storage);
+        const auto *codes = static_cast<const uint8_t *>(storage);
         EXPECT_EQ(codes[0], 0);
         EXPECT_EQ(codes[1], 64);
         EXPECT_EQ(codes[2], 255);
@@ -132,7 +132,7 @@ TEST(SQ8FP64Components, DefinedConversionOutsideRepresentableDeltaDomain) {
         void *storage = nullptr;
         size_t size = input.size() * sizeof(double);
         preprocessor.preprocessForStorage(input.data(), storage, size, 0);
-        const auto *const codes = static_cast<const uint8_t *>(storage);
+        const auto *codes = static_cast<const uint8_t *>(storage);
         EXPECT_EQ(codes[0], 0);
         EXPECT_EQ(codes[1], input[0] == 0.0 ? 255 : 0);
         allocator->free_allocation(storage);
@@ -280,7 +280,7 @@ TEST(SQ8FP64Components, TinyDeltaUsesDirectDivision) {
     void *storage = nullptr;
     size_t size = sizeof(input);
     preprocessor.preprocessForStorage(input, storage, size, 0);
-    const auto *const codes = static_cast<const uint8_t *>(storage);
+    const auto *codes = static_cast<const uint8_t *>(storage);
     EXPECT_EQ(size, 3 + 2 * sizeof(double));
     EXPECT_EQ(codes[0], 0);
     EXPECT_EQ(codes[1], 64);

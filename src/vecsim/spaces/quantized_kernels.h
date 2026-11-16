@@ -72,10 +72,10 @@ static inline typename StorageType::metadata_type StoredQueryL2(const void *stor
                                                                 const void *query, size_t dim) {
     using Real = typename StorageType::metadata_type;
     // Storage metadata follows a byte payload and is not necessarily aligned.
-    const auto *const pVect1 = static_cast<const uint8_t *>(stored);
-    const auto *const pVect2 = static_cast<const uint8_t *>(query);
+    const auto *pVect1 = static_cast<const uint8_t *>(stored);
+    const auto *pVect2 = static_cast<const uint8_t *>(query);
 
-    const auto *const params1 = pVect1 + StorageType::data_bytes_count(dim);
+    const auto *params1 = pVect1 + StorageType::data_bytes_count(dim);
     const Real min_val = load_unaligned<Real>(params1 + StorageType::MIN_VAL * sizeof(Real));
     const Real delta = load_unaligned<Real>(params1 + StorageType::DELTA * sizeof(Real));
 

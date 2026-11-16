@@ -24,8 +24,8 @@ double storedL2(const void *left, const void *right, size_t dim) {
     const double right_delta = metadata(right, dim, vecsim_types::sq8_fp64::DELTA);
     // Put the larger delta first so a constant vector's delta cannot erase a smaller step.
     const bool reverse = left_delta < right_delta;
-    const auto *const a = static_cast<const uint8_t *>(reverse ? right : left);
-    const auto *const b = static_cast<const uint8_t *>(reverse ? left : right);
+    const auto *a = static_cast<const uint8_t *>(reverse ? right : left);
+    const auto *b = static_cast<const uint8_t *>(reverse ? left : right);
     const double min_a = metadata(a, dim, vecsim_types::sq8_fp64::MIN_VAL);
     const double delta_a = reverse ? right_delta : left_delta;
     const double min_b = metadata(b, dim, vecsim_types::sq8_fp64::MIN_VAL);
@@ -41,8 +41,8 @@ double storedL2(const void *left, const void *right, size_t dim) {
 
 template <bool Asymmetric>
 double innerProduct(const void *left, const void *right, size_t dim) {
-    const auto *const a = static_cast<const uint8_t *>(left);
-    const auto *const b = static_cast<const uint8_t *>(right);
+    const auto *a = static_cast<const uint8_t *>(left);
+    const auto *b = static_cast<const uint8_t *>(right);
     const double min_a = metadata(left, dim, vecsim_types::sq8_fp64::MIN_VAL);
     const double delta_a = metadata(left, dim, vecsim_types::sq8_fp64::DELTA);
     const double min_b = Asymmetric ? 0.0 : metadata(right, dim, vecsim_types::sq8_fp64::MIN_VAL);

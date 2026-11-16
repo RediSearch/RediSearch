@@ -264,12 +264,24 @@ static inline T from_fp32(float x) {
     }
 }
 
+template <typename DataType, typename StorageType>
+concept QuantInputFP16 =
+    std::same_as<DataType, vecsim_types::float16> &&
+    (std::same_as<StorageType, vecsim_types::sq8> || std::same_as<StorageType, vecsim_types::sq4>);
+
+template <typename DataType, typename StorageType>
+concept QuantInputFP32 =
+    std::same_as<DataType, float> &&
+    (std::same_as<StorageType, vecsim_types::sq8> || std::same_as<StorageType, vecsim_types::sq4>);
+
+template <typename DataType, typename StorageType, bool WithNorm>
+concept QuantInputUntrainedFP64 = std::same_as<DataType, double> &&
+                                  std::same_as<StorageType, vecsim_types::sq8_fp64> && !WithNorm;
+
 template <typename DataType, typename StorageType, bool WithNorm>
 concept QuantPreprocessorInput =
-    (QuantInput<DataType> && (std::same_as<StorageType, vecsim_types::sq8> ||
-                              std::same_as<StorageType, vecsim_types::sq4>)) ||
-    (std::same_as<DataType, double> && std::same_as<StorageType, vecsim_types::sq8_fp64> &&
-     !WithNorm);
+    QuantInputFP16<DataType, StorageType> || QuantInputFP32<DataType, StorageType> ||
+    QuantInputUntrainedFP64<DataType, StorageType, WithNorm>;
 
 template <typename DataType, VecSimMetric Metric, bool WithNorm = false,
           typename StorageType = vecsim_types::sq8>
@@ -658,7 +670,7 @@ void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::assign_storage_
             static_cast<MetadataType>(d_dim * d_min * d_min + 2.0 * d_min * d_delta * sums.sum +
                                       d_delta * d_delta * sums.squares);
     }
-    void *const meta_dst = quantized + StorageType::data_bytes_count(this->dim);
+    void *meta_dst = quantized + StorageType::data_bytes_count(this->dim);
     MetadataType metadata[5] = {minimum, delta, sum};
     size_t n = 3;
     if constexpr (Metric == VecSimMetric_L2) {
@@ -694,8 +706,8 @@ void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::preprocessQuery
 
     blob = this->allocator->allocate_aligned(this->query_bytes_count, alignment);
     const size_t body_bytes = this->dim * sizeof(QueryType);
-    const DataType *const input = static_cast<const DataType *>(original_blob);
-    QueryType *const query_values = static_cast<QueryType *>(blob);
+    const DataType *input = static_cast<const DataType *>(original_blob);
+    QueryType *query_values = static_cast<QueryType *>(blob);
     if constexpr (WithNorm && Metric == VecSimMetric_L2) {
         for (size_t i = 0; i < this->dim; ++i) {
             query_values[i] = to_fp32<DataType>(input[i]) - this->mean[i];
@@ -705,7 +717,7 @@ void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::preprocessQuery
     }
 
     if constexpr (StorageType::template query_metadata_count<Metric, WithNorm>() > 0) {
-        void *const metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
+        void *metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
         if constexpr (std::is_same_v<StorageType, vecsim_types::sq4> && Metric == VecSimMetric_L2) {
             const MetadataType padding[2] = {};
             memcpy(metadata_dst, padding, sizeof(padding));
