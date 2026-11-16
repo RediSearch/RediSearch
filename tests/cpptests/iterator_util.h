@@ -42,6 +42,7 @@ public:
 
 private:
     void Init() {
+      base = QueryIterator{};
       base.type = MAX_ITERATOR;
       base.atEOF = false;
       base.lastDocId = 0;

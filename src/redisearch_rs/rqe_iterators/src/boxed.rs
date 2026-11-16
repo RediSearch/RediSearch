@@ -633,6 +633,26 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.0.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.0.current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.0.current_block_bound()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.0.read_with_threshold(min_competitive_score)
+    }
 }
 
 /// Forwarding [`RQEIteratorBoxed`] impl so [`TypeErasedRQEIterator`] also

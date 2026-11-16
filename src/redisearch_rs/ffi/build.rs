@@ -314,6 +314,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["SchemaPrefixes_g"],
     },
     HeaderAllowlist {
+        path: "src/score_bound.h",
+        fns: &[],
+        types: &[],
+        vars: &["SCORE_BOUND_REL_EPSILON"],
+    },
+    HeaderAllowlist {
         path: "src/score_explain.h",
         fns: &["SEDestroy"],
         types: &[],
