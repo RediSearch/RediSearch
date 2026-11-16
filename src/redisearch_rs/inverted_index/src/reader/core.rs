@@ -260,10 +260,11 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let ii = self.ii.get();
         let block = &ii.blocks[self.current_block_idx];
         let base = D::base_id(block, self.last_doc_id);
-        let mut cursor = Cursor::new(self.buf.get());
-        cursor.set_position(self.buf_pos);
-        D::decode(&mut cursor, base, result)?;
-        self.buf_pos = cursor.position();
+        // DO NOT MERGE: perf-fixture/fulltext-term-noop. Renamed local only.
+        let mut record_cursor = Cursor::new(self.buf.get());
+        record_cursor.set_position(self.buf_pos);
+        D::decode(&mut record_cursor, base, result)?;
+        self.buf_pos = record_cursor.position();
 
         // The codec does not carry the field-expiration flag; it lives in the
         // block's side bitset, indexed by entry ordinal.
