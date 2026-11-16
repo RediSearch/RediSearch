@@ -1328,12 +1328,13 @@ def test_hexpire_on_second_field_is_respected_by_search(env):
 
 
 @skip(cluster=True, redis_less_than='8.0')
-def test_field_expiration_survives_fork_gc(env):
+def test_field_expiration_survives_fork_gc():
     """The fork GC rewrites inverted-index blocks, and each block's field-expiration bits must
     move with it: a bit lost in the rewrite makes the reader skip the TTL check, so a document
     whose field expired is returned again. Covers blocks the GC deletes outright, blocks it
     re-encodes, and the blocks that shift down behind them, for text, tag and numeric postings
     (their blocks hold 100 or 1000 entries)."""
+    env = Env(moduleArgs='GC_POLICY FORK')
     conn = getConnectionByEnv(env)
     # Expired fields must stay in the hash, so that only the TTL table hides them.
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')

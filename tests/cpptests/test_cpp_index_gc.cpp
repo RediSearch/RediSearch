@@ -11,7 +11,13 @@
 #include "spec.h"
 #include "common.h"
 #include "llapi_test_helpers.h"
+#include "gc/gc.h"
 #include "gc/index_gc.h"
+#include "gc/gc.h"
+#include "index_gc_ffi.h"
+#include "deleted_docs_ffi.h"
+#include "config.h"
+#include "util/references.h"
 #include "tag_index.h"
 #include "rules.h"
 #include "query_error_ffi.h"
@@ -24,6 +30,7 @@ extern "C" {
 #include "util/dict.h"
 }
 
+#include <climits>
 #include <iterator>
 #include <set>
 #include <random>
@@ -31,6 +38,7 @@ extern "C" {
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <climits>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -62,8 +70,14 @@ class IndexGCTest : public ::testing::Test {
   RMCK::Context ctx;
   RefManager *ism;
   IndexGC *fgc;
+  GCPolicy savedPolicy;
+
+  // The policy the spec is created under; most of these tests drive the fork cycle.
+  virtual GCPolicy policy() const { return GCPolicy_Fork; }
 
   void SetUp() override {
+    savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
+    RSGlobalConfig.gcConfigParams.gcPolicy = policy();
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
@@ -73,6 +87,7 @@ class IndexGCTest : public ::testing::Test {
 
   void TearDown() override {
     freeSpec(ism);
+    RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
   }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
@@ -830,4 +845,158 @@ TEST_F(IndexGCTest, testWaitForPauseTimesOutWhileAJobRuns) {
   job.hold = false;
   ASSERT_TRUE(GC_ThreadPoolWaitForPause(5000));
   ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
+}
+
+TEST(GCInterval, SecondsToMsClampsSoTheTimerCannotOverflow) {
+  EXPECT_EQ(GC_IntervalSecToMs(0), 0);
+  EXPECT_EQ(GC_IntervalSecToMs(1), 1000);
+  EXPECT_EQ(GC_IntervalSecToMs(30), 30000);
+  for (size_t sec : {(size_t)LLONG_MAX / 1000, (size_t)LLONG_MAX, SIZE_MAX}) {
+    long long ms = GC_IntervalSecToMs(sec);
+    EXPECT_GT(ms, 0);
+    // The jitter may add up to ms - 1, and Redis converts the period to microseconds.
+    EXPECT_LE(ms, LLONG_MAX / 2 / 1000 / 2);
+  }
+}
+
+/** A spec made under the THREAD policy, whose doc table tracks its deleted IDs. */
+class ThreadGCTest : public IndexGCTestTag {
+ protected:
+  GCPolicy policy() const override { return GCPolicy_Thread; }
+
+  uint64_t trackedDeletions() {
+    return DeletedDocs_Len(get_spec(ism)->docs.deletedDocs);
+  }
+};
+
+// A pool reduction is a job, which a paused queue cannot take, so lowering the GC threads during
+// a consistency window waits for the resume instead.
+TEST_F(ThreadGCTest, testShrinkingThePausedPoolWaitsForTheResume) {
+  // Restored on every exit path, so a failed ASSERT does not leave the pool paused or resized
+  // for the tests after this one.
+  struct Cleanup {
+    uint8_t threads = RSGlobalConfig.gcConfigParams.gcThreads;
+    ~Cleanup() {
+      GC_ThreadPoolResume();
+      RSGlobalConfig.gcConfigParams.gcThreads = threads;
+      GC_ThreadPoolSetSize();
+    }
+  } cleanup;
+  RSGlobalConfig.gcConfigParams.gcThreads = 2;
+  GC_ThreadPoolSetSize();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 2);
+
+  GC_ThreadPoolPause();
+  RSGlobalConfig.gcConfigParams.gcThreads = 1;
+  GC_ThreadPoolSetSize();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 2);
+
+  GC_ThreadPoolResume();
+  ASSERT_EQ(GC_ThreadPoolNumThreads(), 1);
+}
+
+TEST_F(ThreadGCTest, testRunScannersCollectsTheTrackedDeletions) {
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  ASSERT_EQ(1, trackedDeletions());
+
+  uint64_t pruned = UINT64_MAX;
+  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_RunScanners(fgc, &pruned));
+  ASSERT_EQ(1, pruned);
+
+  ASSERT_EQ(0, trackedDeletions());
+  ASSERT_EQ(1, get_spec(ism)->stats.numRecords);
+  ASSERT_GT(fgc->stats.totalCollected, 0);
+}
+
+TEST_F(ThreadGCTest, testRunTakesOffWhatItPrunes) {
+  for (const char *key : {"doc1", "doc2", "doc3"}) {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, key, "f1", "hello"));
+  }
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  // Deleted the way slot cleanup does: the count reaches the GC only through the spec.
+  IndexSpec *spec = get_spec(ism);
+  IndexSpec_LockWrite(spec);
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2));
+  IndexSpec_DeferGCDeletes(spec, 1);
+  IndexSpec_Unlock(spec);
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 1);
+  ASSERT_EQ(2, trackedDeletions());
+
+  runGC();
+
+  EXPECT_EQ(0, trackedDeletions());
+  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 0);
+  EXPECT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+}
+
+TEST_F(ThreadGCTest, testDeletedIdsCountInTheDocTableMemory) {
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, ("doc" + std::to_string(i)).c_str(), "f1", "hello"));
+  }
+  const DocTable *docs = &get_spec(ism)->docs;
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0) << "an empty set counts for nothing";
+  for (int i = 0; i < 100; i += 3) {
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, ("doc" + std::to_string(i)).c_str()));
+  }
+  EXPECT_GT(DocTable_DeletedDocsMemoryUsage(docs), 0);
+
+  runGC();
+
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0);
+}
+
+static void keepObject(void *) {}
+
+TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
+  // Point the GC at an index reference that outlived its object, as after a drop.
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = fgc->index;
+  fgc->index = dropped;
+
+  uint64_t pruned = UINT64_MAX;
+  ThreadGCResult result = ThreadGC_RunScanners(fgc, &pruned);
+
+  fgc->index = index;
+  WeakRef_Release(dropped);
+  ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
+  ASSERT_EQ(0, pruned);
+}
+
+// In-memory THREAD cycles fork nothing, so their timers fire on the interval; FORK and disk
+// contexts keep the spread that stops indexes and shards from starting together.
+TEST(GCTimerPeriod, OnlyInMemoryThreadContextsArmWithoutJitter) {
+  const GCPolicy savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
+  const long long intervalMs = 5000;
+  GCContext inMemory{}, disk{};
+  disk.diskGC = true;
+  auto range = [&](const GCContext &gc) {
+    long long lo = LLONG_MAX, hi = LLONG_MIN;
+    for (int i = 0; i < 1000; ++i) {
+      const long long ms = GCContext_NextPeriodMs(&gc, intervalMs);
+      lo = std::min(lo, ms);
+      hi = std::max(hi, ms);
+    }
+    return std::make_pair(lo, hi);
+  };
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
+  EXPECT_EQ(range(inMemory), std::make_pair(intervalMs, intervalMs));
+  auto [diskLo, diskHi] = range(disk);
+  EXPECT_GE(diskLo, intervalMs);
+  EXPECT_LT(diskHi, 2 * intervalMs);
+  EXPECT_GT(diskHi, diskLo);  // 1000 draws over 5 seconds all landing on one is no spread
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  auto [forkLo, forkHi] = range(inMemory);
+  EXPECT_GE(forkLo, intervalMs);
+  EXPECT_LT(forkHi, 2 * intervalMs);
+  EXPECT_GT(forkHi, forkLo);
+
+  RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
 }

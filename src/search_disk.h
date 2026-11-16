@@ -233,6 +233,9 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
  */
 void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
 
+/** See BasicDiskAPI.asyncLoaderGetAsyncWaitTime. */
+uint64_t SearchDisk_AsyncLoader_GetAsyncWaitTime(ResultProcessor *rp);
+
 // Index API wrappers
 
 /**
@@ -564,9 +567,10 @@ bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, cons
  * @param sctx Search context whose `diskSnapshot` pins the pool's read view (may be NULL).
  *             The snapshot must outlive the pool.
  * @param max_concurrent Maximum number of concurrent pending reads
+ * @param isProfiled Enable completion-wait timing for FT.PROFILE
  * @return Opaque handle to the pool, or NULL on error
  */
-RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent);
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, uint16_t max_concurrent, bool isProfiled);
 
 /**
  * @brief Add an async read request to the pool
@@ -592,6 +596,9 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
  * @return Number of pending reads after the poll
  */
 uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(AsyncReadFailure) failed_reads, const t_expirationTimePoint *expiration_point);
+
+/** See DocTableDiskAPI.asyncReadPoolGetAsyncWaitTime. */
+uint64_t SearchDisk_AsyncReadPool_GetAsyncWaitTime(RedisSearchDiskAsyncReadPool pool);
 
 /**
  * @brief Free the async read pool
@@ -770,7 +777,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  */
 
 void SearchDisk_ActivateUsage(IndexSpec *spec);
-CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
+CachedIndexMetrics SearchDisk_CollectInfoIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Collect metrics for an index and store them in the disk context
@@ -841,7 +848,7 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  *
  * @param ctx Redis module info context
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.

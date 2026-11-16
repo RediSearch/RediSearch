@@ -168,7 +168,7 @@ runs:
       if: ${{ inputs.install-script == 'true' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: ./install_script.sh $INSTALL_MODE
         working_directory: .install
@@ -199,7 +199,7 @@ runs:
       if: ${{ inputs.rust-test-deps == 'true' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: .install/test_deps/install_rust_deps.sh $INSTALL_MODE
         github_token: ${{ inputs.github-token }}
@@ -208,7 +208,7 @@ runs:
       if: ${{ inputs.python-test-deps == 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
 
@@ -216,7 +216,7 @@ runs:
       if: ${{ inputs.sanitizer-setup == 'true' && inputs.san == 'address' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: ./install_llvm.sh $INSTALL_MODE
         working_directory: .install

@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// Coordinator FT.INFO reducer: aggregation of per-field disk metrics.
+// Coordinator FT.INFO reducer: aggregation of disk metrics.
 //
 // The shard emits per-field `disk_*` keys inside each `field statistics` entry
 // (see src/info/field_spec_info.c). The coordinator deserializes each shard's
 // entry into an AggregatedFieldSpecInfo and folds them together with
-// AggregatedFieldSpecInfo_Combine. These tests drive that deserialize/combine
+// AggregatedFieldSpecInfo_Combine. Per-field tests drive that deserialize/combine
 // path with synthetic shard replies, since a real disk backend is not present
 // in the OSS build.
 
@@ -21,8 +21,14 @@
 #include "info/field_spec_info.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
+#include "redismock/redismock.h"
+extern "C" {
+#include "coord/info_command.h"
+}
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 // Minimal RESP2 serializer used to hand-build shard replies. RESP2 arrays are
 // fine: AggregatedFieldSpecInfo_Deserialize reinterprets even-length arrays as
@@ -210,4 +216,49 @@ TEST_F(FieldDiskMetricsTest, NoDiskMetricsAcrossShards) {
   EXPECT_FALSE(agg.stats.textDisk.available);
   EXPECT_FALSE(agg.stats.cfDisk.available);
   AggregatedFieldSpecInfo_Clear(&agg);
+}
+
+
+TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
+  auto shardReply = [](long long metadata, long long memtable, long long storage) {
+    Resp r;
+    r.arr(2).str("column_families").arr(2).str("text").arr(6)
+        .str("ram_metadata_bytes").integer(metadata)
+        .str("memtable_bytes").integer(memtable)
+        .str("storage_bytes").integer(storage);
+    return parseReply(r.s);
+  };
+  MRReply *replies[] = {shardReply(100, 20, 1000), shardReply(200, 50, 4000)};
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  MR_Init(1, 1);
+  MR_InitLocalNodeId();
+  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, 2);
+
+  auto savedString = RedisModule_ReplyWithSimpleString;
+  auto savedInteger = RedisModule_ReplyWithLongLong;
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
+    RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *ctx, long long value) {
+    RMCK_GetReplyLog(ctx).push_back("integer:" + std::to_string(value));
+    return REDISMODULE_OK;
+  };
+  EXPECT_EQ(InfoReplyReducer(mr, 2, replies), REDISMODULE_OK);
+  RedisModule_ReplyWithSimpleString = savedString;
+  RedisModule_ReplyWithLongLong = savedInteger;
+
+  const std::vector<std::string> expected = {
+      "string:column_families", "map:postponed", "string:text", "map:postponed",
+      "string:ram_metadata_bytes", "integer:300", "string:memtable_bytes", "integer:70",
+      "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
+  const auto &output = RMCK_GetReplyLog(ctx);
+  EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
+
+  for (auto *reply : replies) MRReply_Free(reply);
+  MRCtx_DecrRef(mr);
+  RedisModule_ThreadSafeContextLock(ctx);
+  MR_FreeCluster();
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
 }

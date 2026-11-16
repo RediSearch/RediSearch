@@ -18,7 +18,29 @@ use index_spec::IndexSpecReadGuard;
 use tracing::Level;
 use tracing_log_error::log_error;
 
-use crate::{ForkGCError, util::borrow_fork_pipe};
+use crate::util::borrow_fork_pipe;
+
+/// Status code returned by Fork GC parent-side pipe-receive operations.
+#[cheadergen::config(export)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkGCError {
+    /// Data has been collected; more may follow.
+    #[cheadergen(rename = "FORK_GC_COLLECTED")]
+    Collected = 0,
+    /// No more data remains; iteration is complete.
+    #[cheadergen(rename = "FORK_GC_DONE")]
+    Done = 1,
+    /// Pipe error — the child process likely crashed.
+    #[cheadergen(rename = "FORK_GC_CHILD_ERROR")]
+    ChildError = 2,
+    /// Error on the parent side.
+    #[cheadergen(rename = "FORK_GC_PARENT_ERROR")]
+    ParentError = 3,
+    /// The index spec was deleted.
+    #[cheadergen(rename = "FORK_GC_SPEC_DELETED")]
+    SpecDeleted = 4,
+}
 
 /// Scan every Fork GC index kind and send its deltas to the parent process.
 ///
@@ -69,7 +91,10 @@ pub unsafe extern "C" fn ForkGC_parentHandleFromChild(gc: *mut ffi::IndexGC) -> 
             log_error!(error, level: Level::WARN, "ForkPipe: {scanner}: index spec deleted");
             ForkGCError::SpecDeleted
         }
-        Err((scanner, error @ GcError::ApplyError(_))) => {
+        Err((
+            scanner,
+            error @ (GcError::TargetGone(_) | GcError::ApplyError(_) | GcError::DeletionsUntracked),
+        )) => {
             log_error!(error, level: Level::WARN, "ForkPipe: {scanner}: apply error");
             ForkGCError::ParentError
         }
