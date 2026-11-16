@@ -20,7 +20,7 @@ use ffi::{
     VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
-use rlookup::{RLookupKey, RLookupKeyHandle};
+use rlookup::{KeyHandleSlot, RLookupKey};
 use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -128,25 +128,11 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// [`interop::own_key_ref`]: crate::interop::own_key_ref
     pub own_key: Box<*mut RLookupKey<'index>>,
     /// Back-reference to the handle that points to [`own_key`](Self::own_key),
-    /// so dropping this source can mark the key slot dead. [`None`] until
-    /// [`interop::set_key_handle`] installs one.
+    /// so dropping this source, or replacing the handle, marks the key slot
+    /// dead. Empty until [`interop::set_key_handle`] installs one.
     ///
     /// [`interop::set_key_handle`]: crate::interop::set_key_handle
-    pub key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
-}
-
-impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
-    fn drop(&mut self) {
-        if let Some(key_handle) = self.key_handle {
-            // SAFETY: a present `key_handle` is one the setter's contract
-            // requires to outlive this source. Writing through a raw place
-            // touches only `is_valid`, without asserting exclusive access to
-            // the rest of the C-owned handle.
-            unsafe {
-                (*key_handle.as_ptr()).is_valid = false;
-            }
-        }
-    }
+    pub key_handle: KeyHandleSlot<'index>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -219,7 +205,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             expiration,
             unfiltered_consumed: false,
             own_key: Box::new(ptr::null_mut()),
-            key_handle: None,
+            key_handle: KeyHandleSlot::new(),
         }
     }
 

@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize};
+use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -985,7 +985,7 @@ impl<'index, S: ScoreSource + 'index, I: RQEIteratorBoxed<'index>, O: ScoreOrder
             //
             // SAFETY: `child` is a valid, exclusively-owned `I`; the helper
             // leaves the slot holding a valid `I::Suspended`.
-            unsafe { suspend_child_slot_in_place(child as *mut I) };
+            unsafe { suspend_child_slot_in_place(NonNull::from(child)) };
         }
         // SAFETY: the child slot (if occupied) now holds `I::Suspended` and
         // `TopKChild::Absent` is `I`-free, so the allocation is a valid
@@ -1058,7 +1058,7 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
                 // child. On Unchanged/Moved the helper rewrites the slot as a
                 // valid `IS::Resumed<'index>`; on Aborted/Err it consumes the
                 // child, leaving the slot uninitialised (handled below).
-                match unsafe { resume_child_slot_in_place(child as *mut IS, guard) } {
+                match unsafe { resume_child_slot_in_place(NonNull::from(child), guard) } {
                     // A moved child does not move *our* cursor — see the outcome
                     // note below — so `Unchanged` and `Moved` are the same to us.
                     Ok(ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved) => {

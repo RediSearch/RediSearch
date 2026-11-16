@@ -37,8 +37,6 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 
 void freeSpec(RefManager *ism);
 
-NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
-
 class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;

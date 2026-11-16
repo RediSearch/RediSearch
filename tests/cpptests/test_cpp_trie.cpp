@@ -373,6 +373,33 @@ bool trieContains(Trie *t, const char *s) {
   return node != NULL;
 }
 
+// Trie_InsertRuneNoSize does not cap a key's length, so the walk must reach a key longer than
+// TRIE_INITIAL_STRING_LEN runes, both from the start and resuming before it.
+TEST_F(TrieTest, testVisitAfterReachesUncappedKeys) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  std::vector<rune> longKey(3 * TRIE_INITIAL_STRING_LEN, 'a');
+  longKey.back() = 'b';
+  ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRuneNoSize(t, longKey.data(), longKey.size(), 1, 0, NULL, 0));
+  rune shortKey[] = {'a'};
+  ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRuneNoSize(t, shortKey, 1, 1, 0, NULL, 0));
+
+  auto collect = [](const rune *key, size_t len, void *ctx) {
+    static_cast<std::vector<std::vector<rune>> *>(ctx)->emplace_back(key, key + len);
+    return 0;
+  };
+  std::vector<std::vector<rune>> visited;
+  Trie_VisitAfter(t, NULL, 0, collect, &visited);
+  ASSERT_EQ(2, visited.size());
+  ASSERT_EQ(std::vector<rune>(shortKey, shortKey + 1), visited[0]);
+  ASSERT_EQ(longKey, visited[1]);
+
+  visited.clear();
+  Trie_VisitAfter(t, shortKey, 1, collect, &visited);
+  ASSERT_EQ(1, visited.size());
+  ASSERT_EQ(longKey, visited[0]);
+  TrieType_Free(t);
+}
+
 TEST_F(TrieTest, testScoreOrder) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Score);
 

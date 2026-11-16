@@ -52,6 +52,8 @@
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
 //! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
+use std::ptr::NonNull;
+
 use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -286,15 +288,13 @@ pub const fn assert_layout_compatible<A, B>() {
 /// if it did, unwinding past the uninitialised slot would let the owner drop a
 /// moved-from value (double drop). To keep the window sound, a panic from
 /// `suspend` is converted into a process abort rather than an unwind.
-pub unsafe fn suspend_child_slot_in_place<'index, I>(slot: *mut I)
+pub unsafe fn suspend_child_slot_in_place<'index, I>(slot: NonNull<I>)
 where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     // Statically enforce the size/alignment invariant the `ptr::write` cast
     // below relies on: a mismatched-layout implementer fails to compile here.
     const { assert_layout_compatible::<I, I::Suspended>() };
-
-    debug_assert!(!slot.is_null(), "slot must not be null");
 
     /// Aborts the process if dropped during unwinding through the
     /// uninitialised-slot window. Disarmed with [`std::mem::forget`] once the
@@ -309,7 +309,7 @@ where
     // SAFETY: caller guarantees `slot` is exclusively owned and points to a
     // valid `I` value. `ptr::read` moves the value out; the slot bytes are
     // typed-but-moved-from until the matching `ptr::write` below.
-    let active = unsafe { std::ptr::read(slot) };
+    let active = unsafe { std::ptr::read(slot.as_ptr()) };
     // Armed across the uninitialised-slot window: if `suspend` panics, drop
     // aborts instead of unwinding through the moved-from slot.
     let bomb = AbortOnUnwind;
@@ -324,7 +324,7 @@ where
     // `assert_layout_compatible` guard at the top of the body). The slot is
     // uninitialised after the earlier `ptr::read`; writing a valid `I::Suspended`
     // reinitialises it.
-    unsafe { std::ptr::write(slot as *mut I::Suspended, suspended) };
+    unsafe { std::ptr::write(slot.cast::<I::Suspended>().as_ptr(), suspended) };
     // Slot reinitialised — disarm the abort guard.
     std::mem::forget(bomb);
 }
@@ -380,7 +380,7 @@ pub enum ResumeSlotOutcome {
 /// panic is converted into a process abort rather than an unwind through the
 /// uninitialised slot.
 pub unsafe fn resume_child_slot_in_place<'query, 'a, S>(
-    slot: *mut S,
+    slot: NonNull<S>,
     guard: &IndexSpecReadGuard<'a>,
 ) -> Result<ResumeSlotOutcome, RQEIteratorError>
 where
@@ -390,8 +390,6 @@ where
     // Statically enforce the size/alignment invariant the `ptr::write` cast
     // below relies on: a mismatched-layout implementer fails to compile here.
     const { assert_layout_compatible::<S, S::Resumed<'a>>() };
-
-    debug_assert!(!slot.is_null(), "slot must not be null");
 
     /// Aborts the process if dropped during unwinding through the
     /// uninitialised-slot window. Disarmed with [`std::mem::forget`] once
@@ -406,7 +404,7 @@ where
     // SAFETY: caller guarantees `slot` is exclusively owned and points to a
     // valid `S` value. `ptr::read` moves the value out; the slot bytes are
     // typed-but-moved-from until the matching `ptr::write` (or teardown) below.
-    let suspended = unsafe { std::ptr::read(slot) };
+    let suspended = unsafe { std::ptr::read(slot.as_ptr()) };
     // Armed across the uninitialised-slot window: if `resume` panics, drop
     // aborts instead of unwinding through the moved-from slot.
     let bomb = AbortOnUnwind;
@@ -425,7 +423,7 @@ where
     // the `assert_layout_compatible` guard at the top of the body). The slot is
     // uninitialised after the earlier `ptr::read`; writing a valid
     // `S::Resumed<'a>` reinitialises it.
-    unsafe { std::ptr::write(slot as *mut S::Resumed<'a>, *active) };
+    unsafe { std::ptr::write(slot.cast::<S::Resumed<'a>>().as_ptr(), *active) };
     Ok(if moved {
         ResumeSlotOutcome::Moved
     } else {

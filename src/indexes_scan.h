@@ -46,6 +46,7 @@ void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 
 // Expose reindexpool for debug
 void ReindexPool_ThreadPoolDestroy();
+void ReindexPool_ThreadPoolDrain();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

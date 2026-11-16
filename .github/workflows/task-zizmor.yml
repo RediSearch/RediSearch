@@ -10,7 +10,12 @@ name: Zizmor GitHub Actions Audit
 # Policy (which refs may stay on a tag, which audits are suppressed and why)
 # lives in .github/zizmor.yml, which zizmor discovers on its own.
 
-on: [workflow_call]
+on:
+  workflow_call:
+    secrets:
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
 
 jobs:
   zizmor:
@@ -31,6 +36,15 @@ jobs:
           # Nothing here pushes, and a persisted credential in .git/config is
           # exactly what zizmor's own artipacked audit warns about.
           persist-credentials: false
+
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
 
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1

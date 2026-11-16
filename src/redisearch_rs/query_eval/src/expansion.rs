@@ -48,9 +48,8 @@ fn open_expanded_term_reader_disk(
 
     let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, needs_offsets)?;
     let ptr = RQEIteratorWrapper::boxed_new(it);
-    let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
-    // SAFETY: `nn` is a valid, owning C `QueryIterator`.
-    Some(unsafe { CRQEIterator::new(nn) })
+    // SAFETY: `ptr` is a valid, owning C `QueryIterator`.
+    Some(unsafe { CRQEIterator::new(ptr) })
 }
 
 /// An [`ffi::RSToken`] naming a borrowed byte slice, for the C lookups that read
@@ -163,7 +162,7 @@ fn open_expanded_term_reader(
     // ownership transfers to the iterator.
     let iter = unsafe {
         build_term_iterator(
-            idx.as_ptr(),
+            idx,
             sctx,
             FieldMaskOrIndex::Mask(field_mask),
             term,
@@ -171,10 +170,9 @@ fn open_expanded_term_reader(
         )
     };
     let ptr = RQEIteratorWrapper::boxed_new(iter);
-    let nn = NonNull::new(ptr).expect("term iterator must not be null");
-    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // SAFETY: `ptr` is a valid, owning C `QueryIterator` with all callbacks
     // populated — exactly the precondition of `CRQEIterator::new`.
-    Some(unsafe { CRQEIterator::new(nn) })
+    Some(unsafe { CRQEIterator::new(ptr) })
 }
 
 /// A single pattern expansion in progress: the inputs every walk shares, the

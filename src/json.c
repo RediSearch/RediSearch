@@ -1086,8 +1086,10 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
 
     JSONType jsonType = japi->getType(json);
     if (rejectMultiValue && jsonType == JSONType_Array && fs->types != INDEXFLD_T_VECTOR) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                          "Disk JSON index supports JSON array values only for VECTOR fields");
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_INVAL,
+          "Disk JSON index does not support JSON array values for %s fields",
+          FieldSpec_GetTypeNames(INDEXTYPE_TO_POS(fs->types)));
       return REDISMODULE_ERR;
     }
     if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {

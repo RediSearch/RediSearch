@@ -31,6 +31,6 @@ pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
-pub use metric_request::{MetricRequest, RLookupKeyHandle};
+pub use metric_request::{KeyHandleSlot, MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

@@ -89,6 +89,10 @@ typedef struct {
   // Owned by the table. Nodes are never moved, so a cleanup task can hold a node pointer
   // while it holds a reference to the owning spec.
   PendingSlotDeletion *pendingSlotDeletions;
+  // IDs removed from the table whose index entries the in-process GC has not collected yet;
+  // owned by the table, fed under the spec write lock. NULL unless the table was created to
+  // track deletions (the THREAD GC policy). See `deleted_docs_ffi.h`.
+  struct DeletedDocs *deletedDocs;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -99,8 +103,11 @@ typedef struct {
     }                                                                        \
   }
 
-/* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t max_size);
+/* Creates a new DocTable with a given capacity. `track_deleted` gives it a `deletedDocs` set. */
+DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted);
+
+/* Free the `deletedDocs` set, if any, and record no further deletions. */
+void DocTable_StopTrackingDeleted(DocTable *t);
 
 typedef enum {
   DocKeyMapActivation_Unchanged,
@@ -135,7 +142,11 @@ bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t l
 /* Key-map allocation, including unused capacity; zero when disabled. */
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
+/* An estimate of the `deletedDocs` set's memory; zero when the table tracks no deletions. */
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t);
+
+#define DocTable_New(cap) \
+  NewDocTable(cap, RSGlobalConfig.maxDocTableSize, RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -197,13 +208,6 @@ void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 // deletions: GC and the indexer must keep treating those docs as present until the cleanup task
 // deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
-
-/* Number of 64-bit words in a bitmap of `t`'s docIds, or 0 when `t`'s maxDocId makes the bitmap
- * too large to allocate. */
-size_t DocTable_LiveBitmapWords(const DocTable *t);
-
-/* Set bit `docId` of `live` for every docId DocTable_Exists reports, up to `words * 64`. */
-void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words);
 
 typedef void (*DocTable_LiveIdCallback)(void *ctx, t_docId docId);
 

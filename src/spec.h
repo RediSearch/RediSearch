@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "index_flags.h"
 #include "search_disk_api.h"
 #include "rs_wall_clock.h"
 
@@ -171,34 +172,6 @@ static inline void IndexStats_BlockCountAdd(IndexStats *stats, int64_t delta) {
                        (size_t)delta, __ATOMIC_RELAXED);
   }
 }
-
-typedef enum {
-  Index_StoreTermOffsets = 0x01,
-  Index_StoreFieldFlags = 0x02,
-  Index_HasMultiValue = 0x04,
-  Index_HasCustomStopwords = 0x08,
-  Index_StoreFreqs = 0x010,
-  Index_StoreNumeric = 0x020,
-  Index_StoreByteOffsets = 0x40,
-  Index_WideSchema = 0x080,
-  Index_HasSmap = 0x100,
-  Index_Temporary = 0x200,
-  Index_DocIdsOnly = 0x00,
-
-  // If any of the fields has phonetics. This is just a cache for quick lookup
-  Index_HasPhonetic = 0x400,
-  Index_Async = 0x800,
-  Index_SkipInitialScan = 0x1000,
-  Index_HasFieldAlias = 0x4000,
-  Index_HasVecSim = 0x8000,
-  Index_HasSuffixTrie = 0x10000,
-  // If any of the fields has undefined order. This is just a cache for quick lookup
-  Index_HasUndefinedOrder = 0x20000,
-
-  Index_HasGeometry = 0x40000,
-
-  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-} IndexFlags;
 
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)
@@ -676,6 +649,30 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey);
 
+typedef enum {
+  INDEX_DISK_TRIM_RETRY,
+  INDEX_DISK_TRIM_MORE,
+  INDEX_DISK_TRIM_FINISHED,
+  INDEX_DISK_TRIM_CANCELLED,
+} IndexSpecDiskSlotTrimResult;
+
+typedef struct IndexSpecSlotTrimJob IndexSpecSlotTrimJob;
+
+// Main thread: register RAM-only trim intent and hide its slots at the returned cutoff.
+// The returned job is caller-owned; scheduling is separate. NULL leaves the index unchanged.
+IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
+                                                   const SearchDiskSlotRange *ranges,
+                                                   size_t numRanges);
+// Worker, without the GIL: scan and apply one bounded batch. Free the job on completion.
+// Run on cleanPool so checkpoint pause and shutdown drain cover the complete turn.
+IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job);
+// Release only after worker calls stop. Unfinished intent and query hiding remain for resumption.
+void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job);
+// Main thread, after disk restore: schedule unfinished backend jobs.
+void IndexSpec_ResumeDiskSlotTrims(IndexSpec *spec);
+// Caller holds the spec write lock.
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
+
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
 // NOT clean up DocIdMeta on the key. No-op if the docId is not present.
@@ -927,6 +924,9 @@ void CleanPool_ThreadPoolDestroy();
 int CleanPool_AddWork(void (*work)(void *), void *arg);
 // Block until every queued clean-pool job has finished.
 void CleanPool_Wait();
+void CleanPool_Pause(void);
+void CleanPool_Resume(void);
+bool CleanPool_IsPaused(void);
 size_t CleanInProgressOrPending();
 
 

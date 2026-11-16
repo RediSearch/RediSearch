@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "gc.h"
 #include "index_gc_ffi.h"
 #include "time_sample.h"
 #include "module.h"
@@ -131,7 +132,7 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
     struct timespec delay = {.tv_sec = delay_ms / 1000,
                              .tv_nsec = (delay_ms % 1000) * 1000000};
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
 
     // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
 #ifdef ENABLE_ASSERT
@@ -139,7 +140,7 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
 #endif
 
     nanosleep(&delay, NULL);
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&gcGilGate_g, ctx);
   }
 }
 
@@ -172,15 +173,15 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
 #endif
 
   // We need to acquire the GIL to use the fork api
-  RedisModule_ThreadSafeContextLock(ctx);
+  GilGate_Lock(&gcGilGate_g, ctx);
 
   cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
+    gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval);
     IndexSpecRef_Release(early_check);
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
 
     close(gc->pipe_read_fd);
     close(gc->pipe_write_fd);
@@ -188,14 +189,13 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     return true;
   }
 
-  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
-  size_t num_docs_to_clean = gc->deletedOrUpdatedDocsFromLastRun;
-  gc->deletedOrUpdatedDocsFromLastRun = 0;
+  // Under the GIL the main thread deletes nothing until the fork, so this is the number of documents
+  // the child cleans. Updates can still be counted from the reindexing pool, hence one exchange.
+  size_t num_docs_to_clean = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
 
-  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  GilGate_Unlock(&gcGilGate_g, ctx);
 
 
   if (cpid == 0) {
@@ -230,9 +230,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&gcGilGate_g, ctx);
     int kill_rv = RedisModule_KillForkChild(cpid);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&gcGilGate_g, ctx);
     if (kill_rv != REDISMODULE_OK) {
       reap_child_blocking(ctx, cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
     }

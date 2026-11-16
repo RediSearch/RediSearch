@@ -17,6 +17,10 @@ name: Common Flow for Building RedisJSON
 
 on:
   workflow_call:
+    secrets:
+      SECURITY_API_TOKEN:
+        description: Tracebit API token for CI canary credentials
+        required: false
     inputs:
       platform:
         description: 'Platform name (e.g., ubuntu:noble, macos-15). Part of the build cache key.'
@@ -158,6 +162,11 @@ jobs:
           fi
           echo "HOME=$HOME was broken. Setting it to $h"
           echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env

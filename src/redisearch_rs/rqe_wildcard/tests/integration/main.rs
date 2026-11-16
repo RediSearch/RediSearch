@@ -13,6 +13,7 @@
 // wildcard.c.o's RS_ABORT macro (in debug builds) pulls in RSDummyContext,
 // which cascades through most of the archive.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate deleted_docs_ffi as _;
 extern crate doc_key_map_ffi as _;
 extern crate fnv_ffi as _;
 extern crate geo_ffi as _;

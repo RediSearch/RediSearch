@@ -36,7 +36,7 @@ fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let mock = Mock::new([1, 2, 3]);
     mock.data().set_revalidate_result(outcome);
 
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+    let it = RQEIteratorWrapper::boxed_new(mock).as_ptr();
     // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
     // spec the iterator is revalidated against. `boxed_new` populates every callback.
     let status = unsafe {
@@ -325,7 +325,7 @@ fn a_suspended_iterator_serves_a_snapshot_rather_than_calling_into_c() {
     // Calling into C while suspended may read freed index memory; a counter is easier to observe.
     // SAFETY: `suspended` owns the header and no reference into it is live across this call.
     unsafe {
-        rqe_iterators::interop::patch_vtable(suspended.as_raw().as_ptr(), |h| {
+        rqe_iterators::interop::patch_vtable(suspended.as_raw(), |h| {
             h.NumEstimated = Some(count_num_estimated_calls)
         })
     };
@@ -501,7 +501,7 @@ fn suspending_an_intersection_snapshots_each_c_childs_estimate() {
         // SAFETY: the intersection owns the header and no reference into it is live across this
         // call.
         unsafe {
-            rqe_iterators::interop::patch_vtable(header.as_ptr(), |h| {
+            rqe_iterators::interop::patch_vtable(header, |h| {
                 h.NumEstimated = Some(count_child_num_estimated_calls)
             })
         };
@@ -600,7 +600,7 @@ fn a_child_timeout_reaches_c_as_a_timeout_through_a_composite() {
         1.0,
         false,
     );
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new_compound(intersection);
+    let it = RQEIteratorWrapper::boxed_new_compound(intersection).as_ptr();
 
     // SAFETY: as in `revalidate_through_c_abi`.
     let status = unsafe {
@@ -625,7 +625,7 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
     let ctx = MockContext::new(100, 10);
     let mock = Mock::new([1, 2, 3]);
     let data = mock.data();
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+    let it = RQEIteratorWrapper::boxed_new(mock).as_ptr();
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     // SAFETY: as in `revalidate_through_c_abi`.

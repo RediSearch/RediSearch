@@ -20,7 +20,7 @@ class DocTablePrefetchTest : public ::testing::Test {
  protected:
   // A small maxSize, so docIds past it share buckets and form chains.
   static constexpr t_docId MAX_SIZE = 8;
-  DocTable dt = NewDocTable(2, MAX_SIZE);
+  DocTable dt = NewDocTable(2, MAX_SIZE, false);
 
   void TearDown() override { DocTable_Free(&dt); }
 

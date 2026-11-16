@@ -98,6 +98,11 @@ impl NodeArena {
         self.nodes.capacity() as u32
     }
 
+    /// Get a shared reference to a node in the arena, if it exists.
+    pub fn get(&self, idx: NodeIndex) -> Option<&NumericRangeNode> {
+        self.nodes.get(idx.key())
+    }
+
     /// Get a mutable reference to a node in the arena, if it exists.
     pub fn get_mut(&mut self, idx: NodeIndex) -> Option<&mut NumericRangeNode> {
         self.nodes.get_mut(idx.key())

@@ -16,6 +16,7 @@
 use std::io::Read as _;
 
 use index_spec::IndexSpecReadGuard;
+use inverted_index::DocLiveness;
 
 use super::{frame::TERMINATOR, io_result_ext::IoResultExt};
 use crate::scanners::{
@@ -25,7 +26,7 @@ use crate::scanners::{
     tags::{collect_tags, handle_tags},
     terms::{collect_terms, handle_terms},
 };
-use crate::{DocExistence, ForkPipe, Frame, GcError, HandleOutcome};
+use crate::{ForkPipe, Frame, GcError, HandleOutcome};
 
 unsafe extern "C" {
     static mut RedisModule_SendChildHeartbeat: Option<unsafe extern "C" fn(f64)>;
@@ -37,7 +38,11 @@ unsafe extern "C" {
 /// this function reports the child's final heartbeat and writes a completion
 /// marker before returning to the C caller. `docs` answers every scanner's
 /// existence checks.
-pub fn collect_scanners(fgc: &mut ForkPipe, spec: &IndexSpecReadGuard<'_>, docs: &DocExistence) {
+pub fn collect_scanners(
+    fgc: &mut ForkPipe,
+    spec: &IndexSpecReadGuard<'_>,
+    docs: impl DocLiveness + Copy,
+) {
     let index_name = spec
         .display_name(global_config::hide_user_data_from_log())
         .to_string_lossy();

@@ -132,7 +132,7 @@ fn replace_root_hands_back_previous_root() {
 
     let mut tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
     let previous = tree.root_ptr();
-    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
+    let new_root = RQEIteratorWrapper::boxed_new(Empty);
 
     // SAFETY: `new_root` is a freshly boxed, valid iterator that nothing else owns.
     let returned = tree.replace_root(unsafe { CRQEIterator::new(new_root) });
@@ -180,7 +180,7 @@ fn doc_id_coverage_across_replace_root(
 
 #[test]
 fn replace_root_with_a_non_wildcard_makes_coverage_selective() {
-    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
+    let new_root = RQEIteratorWrapper::boxed_new(Empty);
     assert_eq!(
         doc_id_coverage_across_replace_root(QueryNodeType::Wildcard, new_root),
         (DocIdCoverage::Dense, DocIdCoverage::Selective)
@@ -197,7 +197,7 @@ fn replace_root_with_an_inverted_index_wildcard_makes_coverage_dense() {
     }
     let wildcard = InvIdxWildcard::new(ii.reader(), 1.0);
     assert_eq!(wildcard.type_(), IteratorType::InvIdxWildcard);
-    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(wildcard)).unwrap();
+    let new_root = RQEIteratorWrapper::boxed_new(wildcard);
 
     assert_eq!(
         doc_id_coverage_across_replace_root(QueryNodeType::Null, new_root),

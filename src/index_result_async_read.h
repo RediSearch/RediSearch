@@ -61,7 +61,7 @@ typedef struct IndexResultAsyncReadState {
   uint16_t readyResultsIndex;              // Next index to consume from readyResults
 
   // Failed reads tracking
-  arrayof(uint64_t) failedUserData;        // user_data from failed async reads
+  arrayof(AsyncReadFailure) failedReads;        // Request identifiers and failure reasons
 
   // Memory management
   RSIndexResult *lastReturnedIndexResult;  // Last returned result (freed on next call)
@@ -113,7 +113,7 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  *
  * Polls the async pool for completed reads and updates the ready results.
  * Resets the readyResultsIndex to start consuming from the beginning.
- * Cleans up any failed reads (not found/error).
+ * Releases failed reads.
  *
  * @param state Async read state structure
  * @param timeout_ms Timeout in milliseconds for the poll operation

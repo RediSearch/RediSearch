@@ -102,7 +102,7 @@ fn open_term_reader<'index>(
     // heap-allocated query term whose ownership transfers to the iterator.
     let iter = unsafe {
         build_term_iterator(
-            idx.as_ptr(),
+            idx,
             sctx,
             FieldMaskOrIndex::Mask(effective_field_mask),
             term,

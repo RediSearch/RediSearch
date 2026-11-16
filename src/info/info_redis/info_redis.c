@@ -152,7 +152,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (SearchDisk_IsEnabled() &&
       AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
-    SearchDisk_OutputInfoMetrics(ctx, total_info.total_num_docs_in_indexes);
+    SearchDisk_OutputInfoMetrics(ctx, total_info.text_ram_metadata_bytes,
+                                 total_info.total_num_docs_in_indexes);
   }
 
   // Active operations
@@ -284,14 +285,18 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", Indexes_Count());
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing",
+                                    total_info->num_active_indexes_indexing);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads",
+                                    total_info->total_active_write_threads);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time",
+                                 rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
   if (!SearchDisk_IsEnabled()) {
     RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes",
                                       total_info->total_num_docs_in_indexes);
   }
-  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", total_info->total_inverted_index_blocks);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks",
+                                    total_info->total_inverted_index_blocks);
 }
 
 static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {

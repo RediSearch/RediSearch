@@ -23,10 +23,13 @@ use thin_vec::ThinVec;
 ///
 /// The set reaches only as far as the highest ordinal inserted; ordinals past its end are absent.
 /// An empty set does not allocate.
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct ExpirationBits(ThinVec<u8, u16>);
 
 impl ExpirationBits {
+    /// How many ordinals one byte of the set holds, one bit each.
+    const ORDINALS_PER_BYTE: u16 = u8::BITS as u16;
+
     /// The empty set. Does not allocate.
     pub(crate) const fn new() -> Self {
         Self(ThinVec::new())
@@ -39,6 +42,37 @@ impl ExpirationBits {
             self.0.resize(byte + 1, 0);
         }
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
+    }
+
+    /// The ordinals below `entries`: a copy of the bytes that hold them, with the bits past them
+    /// masked off. Trailing bytes with no bit left are not copied, so a prefix that holds no
+    /// ordinal does not allocate.
+    pub(crate) fn prefix(&self, entries: u16) -> Self {
+        let len = usize::from(entries.div_ceil(Self::ORDINALS_PER_BYTE));
+        let bytes = &self.0.as_slice()[..len.min(self.0.len())];
+        // Only the byte holding ordinal `entries` has bits past the cut, if the set reaches it.
+        let cut =
+            !entries.is_multiple_of(Self::ORDINALS_PER_BYTE) && bytes.len() > Self::byte(entries);
+        let Some((&last, head)) = bytes.split_last() else {
+            return Self::new();
+        };
+        let last = if cut {
+            last & (Self::mask(entries) - 1)
+        } else {
+            last
+        };
+        let prefix = if last != 0 {
+            let mut prefix = ThinVec::from(bytes);
+            prefix.as_mut_slice()[bytes.len() - 1] = last;
+            prefix
+        } else {
+            let len = head
+                .iter()
+                .rposition(|&byte| byte != 0)
+                .map_or(0, |i| i + 1);
+            ThinVec::from(&head[..len])
+        };
+        Self(prefix)
     }
 
     /// Whether the set holds no ordinal.
@@ -63,12 +97,12 @@ impl ExpirationBits {
 
     /// Index of the byte holding `ordinal`'s bit.
     const fn byte(ordinal: u16) -> usize {
-        ordinal as usize / 8
+        (ordinal / Self::ORDINALS_PER_BYTE) as usize
     }
 
     /// Mask selecting `ordinal`'s bit within its byte.
     const fn mask(ordinal: u16) -> u8 {
-        1 << (ordinal % 8)
+        1 << (ordinal % Self::ORDINALS_PER_BYTE)
     }
 }
 

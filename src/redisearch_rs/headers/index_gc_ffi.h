@@ -36,6 +36,24 @@ typedef enum ForkGCError {
   FORK_GC_SPEC_DELETED = 4,
 } ForkGCError;
 
+/**
+ * How a THREAD GC cycle ended.
+ */
+typedef enum ThreadGCResult {
+  /**
+   * The cycle ran to the end.
+   */
+  THREAD_GC_DONE = 0,
+  /**
+   * The index was dropped during the cycle.
+   */
+  THREAD_GC_SPEC_DELETED = 1,
+  /**
+   * Any other failure.
+   */
+  THREAD_GC_FAILED = 2,
+} ThreadGCResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -51,7 +69,7 @@ extern "C" {
  * 3. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  * 4. This function must only be called in a forked GC child, where the spec's
  *    document table never changes again: the scanners answer existence checks
- *    from a [`DocExistence::snapshot`] of it.
+ *    from a [`GoneIds::of_table`] of it.
  */
 void ForkGC_childScanIndexes(IndexGC *gc, IndexSpec *spec);
 
@@ -160,6 +178,25 @@ void ForkGC_sendFixed(IndexGC *fgc, const void *buff, size_t len);
  *    writable file descriptor.
  */
 void ForkGC_sendTerminator(IndexGC *fgc);
+
+/**
+ * Run every GC scanner over `gc`'s index on the calling thread, under the
+ * spec's read/write lock, a bounded number of keys per hold.
+ *
+ * Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
+ * before an early end are kept. `pruned` is set to the number of deleted IDs
+ * the cycle collected and pruned from the doc table's set, 0 unless it returns
+ * [`ThreadGCResult::Done`].
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::IndexGC`] on which no other GC cycle runs
+ *    for the duration of this call. The main thread may update its deletion
+ *    counter and read its stats meanwhile, so this call borrows no part of it.
+ * 2. The calling thread must not hold any spec lock.
+ * 3. `pruned` must point to a writable `u64`.
+ */
+enum ThreadGCResult ThreadGC_RunScanners(IndexGC *gc, uint64_t *pruned);
 
 /**
  * Receive a field header (field name + unique id).

@@ -288,7 +288,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
-  RedisModule_Reply_ArrayEnd(reply); // >attributes
+  RedisModule_Reply_ArrayEnd(reply);  // >attributes
 
   const bool isDisk = sp->diskSpec != NULL;
   if (!isDisk) {
@@ -314,10 +314,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead,
-    text_overhead, vector_indexes_size);
-  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
-    sp->stats.invertedSize;
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead, text_overhead,
+                                                vector_indexes_size);
+  size_t inverted_size =
+      isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) : sp->stats.invertedSize;
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -327,13 +327,14 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   if (!isDisk) {
-    REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
+    REPLY_KVNUM("doc_table_size_mb",
+                (sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs)) / (float)0x100000);
     REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
     REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   }
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
-    CachedIndexMetrics resources = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead);
+    CachedIndexMetrics resources = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec);
     TextResourceMetrics text = resources.text;
     REPLY_KVMAP("column_families");
     REPLY_KVMAP("doc_table");

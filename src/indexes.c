@@ -29,6 +29,7 @@
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"
+#include "slot_cleanup.h"
 #include "document.h"
 #include "util/likely.h"
 #include "util/misc.h"
@@ -381,6 +382,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
     } else if (sp->diskSpec) {
       RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
       IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+      IndexSpec_ResumeDiskSlotTrims(sp);
     }
     // See the call in the create path above.
     quiesceSpecIfWindowOpen(sp);
@@ -1384,6 +1386,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+    IndexSpec_ResumeDiskSlotTrims(sp);
 
     // If the source node was still background-indexing when the snapshot was
     // taken, the on-disk index is only partially populated. Restart the async

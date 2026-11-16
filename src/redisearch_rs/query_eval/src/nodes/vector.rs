@@ -69,23 +69,29 @@ pub(crate) fn eval<'index>(
         "a vector node has at most one (filter) child"
     );
     let child = if node.num_children() == 0 {
-        std::ptr::null_mut()
+        None
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing. The offset requirement is
         // not inherited; see `OffsetRequirement`.
-        eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
+        Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
-    // valid `VectorQuery`, and `child` is either null or an owning iterator that
-    // `NewVectorIterator` takes over on success.
-    let it = unsafe { ffi::NewVectorIterator(ctx.as_non_null().as_ptr(), vq, child) };
+    // valid `VectorQuery`, and `child` is either absent (null) or an owning
+    // iterator that `NewVectorIterator` takes over on success.
+    let it = unsafe {
+        ffi::NewVectorIterator(
+            ctx.as_non_null().as_ptr(),
+            vq,
+            child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+        )
+    };
 
     let Some(it) = NonNull::new(it) else {
         // `NewVectorIterator` does not take ownership of the child on its
         // failure paths, so the child is ours to release.
-        if let Some(child) = NonNull::new(child) {
+        if let Some(child) = child {
             // SAFETY: `child` is an owning `QueryIterator` handle with all its
             // callbacks populated, and nothing else holds it.
             drop(unsafe { CRQEIterator::new(child) });
@@ -250,7 +256,7 @@ fn bind_metric_request(
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
             // long as the AST.
-            unsafe { vector_score_source::interop::set_key_handle(it, NonNull::new(handle)) };
+            unsafe { vector_score_source::interop::set_key_handle(it, Some(handle)) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore
@@ -262,9 +268,9 @@ fn bind_metric_request(
             // than relied upon, as above.
             let own_key = unsafe { metric::own_key_ref(it) };
             // SAFETY: as above.
-            let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
+            let handle = unsafe { ctx.bind_metric_request_key(id, own_key.as_ptr()) };
             // SAFETY: as above.
-            unsafe { metric::set_key_handle(it, handle) };
+            unsafe { metric::set_key_handle(it, Some(handle)) };
         }
         // Every other type yields no metric to bind.
         _ => {}

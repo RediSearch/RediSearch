@@ -27,6 +27,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+#include "query_memory.h"
 
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
@@ -163,9 +164,10 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
+    DiskReadFailureReason failureReason = DISK_READ_ERROR;
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime);
+                                                   diskDmd, &sctx->currentTime, &failureReason);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -517,8 +519,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
       // until a completion lands instead of making progress.
       index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
     }
-    const size_t pendingCount =
-        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
+    const size_t pendingCount = IndexResultAsyncRead_Poll(
+        &self->async, index_poll_timeout_ms, &sctx->currentTime);
 
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
@@ -594,28 +596,34 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
-  // Determine which Next function to use based on disk configuration
-  if (sctx->spec->diskSpec &&
-      SearchDisk_IsAsyncIOSupported() &&
-      SearchDisk_GetAsyncIOEnabled()) {
-    // Create async pool and setup async I/O
-    RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, sctx, asyncPoolSize);
+  ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+  return &ret->base;
+}
 
-    if (asyncPool) {
-      // Async disk flow with buffering
-      IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
-      ret->base.Next = isProfiled ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
-    } else {
-      ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
-    }
-  } else {
-    // Sync disk or regular in-memory flow (both use getDocumentMetadata)
-    ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent);
+  RPQueryIterator *self = (RPQueryIterator *)rp;
+  RS_ASSERT(!self->async.asyncPool);
+  RedisSearchCtx *sctx = self->sctx;
+  if (!sctx->spec->diskSpec || !SearchDisk_IsAsyncIOSupported() ||
+      !SearchDisk_GetAsyncIOEnabled()) {
+    return;
   }
 
+  RedisSearchDiskAsyncReadPool pool = SearchDisk_CreateAsyncReadPool(
+      sctx->spec->diskSpec, sctx, self->async.poolSize, rp->parent->isProfile);
+  if (pool) {
+    IndexResultAsyncRead_SetupAsyncPool(&self->async, pool);
+    rp->Next = rp->parent->isProfile ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
+  }
+}
 
-  return &ret->base;
+bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
+  RPQueryIterator *self = (RPQueryIterator *)rp;
+  if (!self->async.asyncPool) return false;
+  *out_ns = SearchDisk_AsyncReadPool_GetAsyncWaitTime(self->async.asyncPool);
+  return true;
 }
 
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,

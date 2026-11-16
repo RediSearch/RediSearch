@@ -30,6 +30,7 @@
 #include "redismodule.h"
 #include "rqe_core.h"
 #include "util/redis_mem_info.h"
+#include "util/gil_gate.h"
 #include "util/references.h"
 
 #ifdef __cplusplus
@@ -166,6 +167,11 @@ typedef enum {
 // does not consult indexingMemoryLimit: each budget is tested against itself.
 // GIL must be held before calling this function.
 BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx);
+
+// GIL for reindex jobs, so ReindexPool_ThreadPoolDestroy can join them while holding it. Use
+// instead of RedisModule_ThreadSafeContextLock/Unlock on the reindex pool's threads.
+void ReindexPool_LockGIL(RedisModuleCtx *ctx);
+void ReindexPool_UnlockGIL(RedisModuleCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
