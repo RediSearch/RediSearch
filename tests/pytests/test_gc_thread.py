@@ -28,8 +28,11 @@ def thread_gc_env(run_interval=None, fresh=False):
                freshEnv=fresh)
 
 
-def total_forks(env):
-    return int(env.cmd('INFO', 'stats')['total_forks'])
+def gc_forks(env):
+    # Forks other than Redis's own saves and rewrites: a server may snapshot on its own schedule
+    # (Redis Enterprise's builds do), and those forks are not the GC's.
+    info = env.cmd('INFO', 'all')
+    return int(info['total_forks']) - int(info['rdb_saves']) - int(info['aof_rewrites'])
 
 
 def add_docs(conn, prefix, count):
@@ -62,10 +65,10 @@ def testThreadGCCollectsEveryIndexKindWithoutForking():
     for i in range(0, 300, 2):
         conn.execute_command('DEL', f'doc:{i}')
 
-    forks_before = total_forks(env)
+    forks_before = gc_forks(env)
     forceInvokeGC(env, 'idx')
 
-    env.assertEqual(total_forks(env), forks_before)
+    env.assertEqual(gc_forks(env), forks_before)
     env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'), list(range(2, 301, 2)))
     env.assertGreater(int(to_dict(index_info(env, 'idx')['gc_stats'])['bytes_collected']), 0)
     assert_matches_fresh_index(env, 'idx', 'doc:')
@@ -159,10 +162,10 @@ def testThreadPolicyIsTakenAtLoad():
     add_docs(conn, 'doc:', 10)
     conn.execute_command('DEL', 'doc:0')
 
-    forks_before = total_forks(env)
+    forks_before = gc_forks(env)
     forceInvokeGC(env, 'idx')
 
-    env.assertEqual(total_forks(env), forks_before)
+    env.assertEqual(gc_forks(env), forks_before)
     env.assertEqual(int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles']), 1)
 
 def threshold_env(policy, ratio_ppm):
@@ -426,10 +429,10 @@ def testThreadGCCleansSeveralIndexesConcurrently():
     skipIfNoEnableAssert(env)
     create_indexes_with_garbage(env)
 
-    forks_before = total_forks(env)
+    forks_before = gc_forks(env)
     park_forced_runs_on_every_index(env, parked=2)
     release_parked_runs(env)
-    env.assertEqual(total_forks(env), forks_before)
+    env.assertEqual(gc_forks(env), forks_before)
 
 
 @skip(cluster=True)
@@ -495,7 +498,7 @@ def testScheduledThreadGCCollectsWithoutForking():
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
     add_docs(conn, 'doc:', 50)
-    forks_before = total_forks(env)
+    forks_before = gc_forks(env)
     for i in range(0, 50, 2):
         conn.execute_command('DEL', f'doc:{i}')
 
@@ -503,7 +506,7 @@ def testScheduledThreadGCCollectsWithoutForking():
         lambda: (len(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')) == 25, {}),
         'the scheduled thread GC did not collect')
 
-    env.assertEqual(total_forks(env), forks_before)
+    env.assertEqual(gc_forks(env), forks_before)
 
 
 @skip(cluster=True)
