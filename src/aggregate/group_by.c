@@ -248,11 +248,10 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   }
 }
 
-static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
-  uint64_t hval = 0;
-  size_t nkeys = GROUPER_NSRCKEYS(g);
-  const RSValue *groupvals[nkeys];
-
+/* DO NOT MERGE: perf-fixture/aggregate-groupby-noop. The body is the group-key fill
+ * loop lifted verbatim out of invokeGroupReducers. Cosmetic by construction. */
+static inline void fillGroupValues(const Grouper *g, RLookupRow *srcrow,
+                                   const RSValue **groupvals, size_t nkeys) {
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = g->srckeys[ii];
     RSValue *v = RLookupRow_Get(srckey, srcrow);
@@ -261,6 +260,14 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     }
     groupvals[ii] = v;
   }
+}
+
+static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
+  uint64_t hval = 0;
+  size_t nkeys = GROUPER_NSRCKEYS(g);
+  const RSValue *groupvals[nkeys];
+
+  fillGroupValues(g, srcrow, groupvals, nkeys);
   return extractGroups(g, groupvals, 0, nkeys, hval, srcrow, 1, docId);
 }
 
