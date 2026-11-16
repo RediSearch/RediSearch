@@ -1961,3 +1961,332 @@ TEST_F(RdbMockTest, testLegacyFieldTypeMapping) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Per-index GC settings: the override block at the end of the spec record.
+
+namespace {
+
+using GCSpecPtr = std::unique_ptr<IndexSpec, void (*)(IndexSpec *)>;
+using GCIOPtr = std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)>;
+
+// Parsing and loading both publish the spec in the global prefix trie; a spec released without
+// unregistering stays there, and the next matching write in any later test dereferences it.
+void releaseGCSpec(IndexSpec *sp) {
+  if (sp) IndexSpec_RdbLoadDiscard(sp->own_ref);
+}
+
+GCSpecPtr parseGCSpec(const char *name) {
+  const char *args[] = {"SCHEMA", "title", "TEXT"};
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(nullptr, name, args, std::size(args), &err);
+  EXPECT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  QueryError_ClearError(&err);
+  return GCSpecPtr(static_cast<IndexSpec *>(StrongRef_Get(ref)), releaseGCSpec);
+}
+
+GCIOPtr saveGCSpec(IndexSpec *sp) {
+  GCIOPtr io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  IndexSpec_RdbSave(io.get(), sp, 0);
+  EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+  return io;
+}
+
+// Saves a spec with no overrides and drops its empty block (the count), so the caller can write
+// a block of its own, or load the record as an encoding without one.
+GCIOPtr saveGCSpecWithoutBlock(const char *name) {
+  GCSpecPtr sp = parseGCSpec(name);
+  GCIOPtr io = saveGCSpec(sp.get());
+  uint64_t count;
+  memcpy(&count, io->buffer.data() + io->buffer.size() - sizeof(count), sizeof(count));
+  EXPECT_EQ(count, 0u) << "an index without overrides saves only the count";
+  io->buffer.resize(io->buffer.size() - sizeof(count));
+  return io;
+}
+
+GCSpecPtr loadGCSpec(RedisModuleIO *io, int encver = INDEX_CURRENT_VERSION) {
+  io->read_pos = 0;
+  QueryError status = QueryError_Default();
+  IndexSpec *sp = IndexSpec_RdbLoad(io, encver, false, &status);
+  EXPECT_EQ(sp == nullptr, QueryError_HasError(&status));
+  QueryError_ClearError(&status);
+  return GCSpecPtr(sp, releaseGCSpec);
+}
+
+void expectUnset(const IndexGCSettings &s) {
+  EXPECT_FALSE(s.runIntervalSec.isSet);
+  EXPECT_FALSE(s.cleanThreshold.isSet);
+}
+
+void expectSame(const IndexGCOverride &expected, const IndexGCOverride &actual) {
+  EXPECT_EQ(expected.isSet, actual.isSet);
+  if (expected.isSet) EXPECT_EQ(expected.value, actual.value);
+}
+
+}  // namespace
+
+TEST_F(RdbMockTest, testGCSettingsRoundTrip) {
+  const IndexGCOverride unset = {false, 0};
+  const struct {
+    const char *what;
+    IndexGCOverride interval, threshold;
+  } cases[] = {
+      {"none", unset, unset},
+      {"interval", {true, 100}, unset},
+      {"threshold", unset, {true, 500}},
+      {"both", {true, 100}, {true, 500}},
+      {"threshold 0", unset, {true, 0}},
+      {"largest values", {true, (size_t)GC_MAX_INTERVAL_SEC}, {true, (size_t)LLONG_MAX}},
+  };
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.what);
+    GCSpecPtr sp = parseGCSpec("gc_settings_round_trip");
+    sp->gcSettings.runIntervalSec = c.interval;
+    sp->gcSettings.cleanThreshold = c.threshold;
+    GCIOPtr io = saveGCSpec(sp.get());
+
+    GCSpecPtr loaded = loadGCSpec(io.get());
+    ASSERT_NE(loaded, nullptr);
+    EXPECT_EQ(io->read_pos, io->buffer.size());
+    expectSame(c.interval, loaded->gcSettings.runIntervalSec);
+    expectSame(c.threshold, loaded->gcSettings.cleanThreshold);
+  }
+}
+
+TEST_F(RdbMockTest, testGCSettingsRoundTripWithoutGCContext) {
+  GCSpecPtr sp = parseGCSpec("gc_settings_no_gc");
+  ASSERT_EQ(sp->gc, nullptr);  // the parser builds the spec only; nothing started its GC
+  sp->gcSettings.runIntervalSec = {true, 7};
+  sp->gcSettings.cleanThreshold = {true, 0};
+  GCIOPtr io = saveGCSpec(sp.get());
+
+  GCSpecPtr loaded = loadGCSpec(io.get());
+  ASSERT_NE(loaded, nullptr);
+  expectSame({true, 7}, loaded->gcSettings.runIntervalSec);
+  expectSame({true, 0}, loaded->gcSettings.cleanThreshold);
+}
+
+TEST_F(RdbMockTest, testGCSettingsAbsentBeforeTheirEncoding) {
+  GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_v29");
+  GCSpecPtr loaded = loadGCSpec(io.get(), INDEX_GC_SETTINGS_VERSION - 1);
+  ASSERT_NE(loaded, nullptr);
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  expectUnset(loaded->gcSettings);
+}
+
+namespace {
+
+// One setting as the override block stores it: the id, then the value as a string buffer.
+void saveRawGCSetting(RedisModuleIO *io, uint64_t id, const std::string &value) {
+  RMCK_SaveUnsigned(io, id);
+  RMCK_SaveStringBuffer(io, value.data(), value.size());
+}
+
+// A numeric value: an unsigned 64-bit number, little-endian.
+std::string numericGCValue(uint64_t value) {
+  std::string bytes(8, '\0');
+  for (size_t i = 0; i < bytes.size(); ++i) {
+    bytes[i] = static_cast<char>(value >> (8 * i));
+  }
+  return bytes;
+}
+
+}  // namespace
+
+TEST_F(RdbMockTest, testGCSettingsUnknownIdIsSkipped) {
+  GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_unknown_id");
+  RMCK_SaveUnsigned(io.get(), 4);
+  // Settings from a later version, whose values are not one unsigned number.
+  saveRawGCSetting(io.get(), 99, "FORK");
+  saveRawGCSetting(io.get(), INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(50));
+  saveRawGCSetting(io.get(), 0, std::string(20, '\x7f'));  // 0 is never assigned either
+  saveRawGCSetting(io.get(), 100, "");
+
+  GCSpecPtr loaded = loadGCSpec(io.get());
+  IndexGCSettings_ReportSkipped();
+  ASSERT_NE(loaded, nullptr);
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  expectSame({true, 50}, loaded->gcSettings.runIntervalSec);
+  EXPECT_FALSE(loaded->gcSettings.cleanThreshold.isSet);
+}
+
+TEST_F(RdbMockTest, testGCSettingsUnknownIdsAreReportedOncePerLoad) {
+  const char *names[] = {"gc_settings_report_a", "gc_settings_report_b", "gc_settings_report_c"};
+  GCIOPtr io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  RMCK_SaveUnsigned(io.get(), std::size(names));
+  for (const char *name : names) {
+    GCIOPtr spec = saveGCSpecWithoutBlock(name);
+    io->buffer.insert(io->buffer.end(), spec->buffer.begin(), spec->buffer.end());
+    RMCK_SaveUnsigned(io.get(), 1);
+    saveRawGCSetting(io.get(), 99, "FORK");
+  }
+
+  IndexGCSettings_ReportSkipped();  // nothing left over from an earlier test
+  testing::internal::CaptureStderr();
+  const int rc = Indexes_RdbLoad(io.get(), INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB);
+  const std::string log = testing::internal::GetCapturedStderr();
+  for (const char *name : names) {
+    StrongRef ref = Indexes_LoadIndexSpecUnsafe(name);
+    EXPECT_NE(ref.rm, nullptr) << name;
+    if (ref.rm) Indexes_RemoveSpecFromGlobals(ref, false);
+  }
+
+  ASSERT_EQ(rc, REDISMODULE_OK);
+  const std::string line = "ignored 3 GC setting(s) unknown to this version";
+  EXPECT_NE(log.find(line), std::string::npos) << log;
+  size_t mentions = 0;
+  for (size_t at = log.find("unknown to this version"); at != std::string::npos;
+       at = log.find("unknown to this version", at + 1)) {
+    ++mentions;
+  }
+  EXPECT_EQ(mentions, 1u) << log;
+}
+
+TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
+  const uint64_t tooLarge = (uint64_t)LLONG_MAX + 1;
+  const std::string runInterval5 = numericGCValue(5);
+  const struct {
+    const char *what;
+    std::vector<std::pair<uint64_t, std::string>> pairs;
+    bool loads;
+  } cases[] = {
+      {"run interval 1", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(1)}}, true},
+      {"run interval 0", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(0)}}, false},
+      {"run interval above GC_MAX_INTERVAL_SEC",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(GC_MAX_INTERVAL_SEC + 1)}},
+       false},
+      {"run interval above 2^63-1",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(tooLarge)}},
+       false},
+      {"threshold above 2^63-1",
+       {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(tooLarge)}},
+       false},
+      {"a setting given twice",
+       {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(5)},
+        {INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(6)}},
+       false},
+      {"a numeric value that is too short",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, runInterval5.substr(0, 4)}},
+       false},
+      {"a numeric value that is too long",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, runInterval5 + '\0'}},
+       false},
+  };
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.what);
+    GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_validation");
+    RMCK_SaveUnsigned(io.get(), c.pairs.size());
+    for (const auto &[id, value] : c.pairs) {
+      saveRawGCSetting(io.get(), id, value);
+    }
+    GCSpecPtr loaded = loadGCSpec(io.get());
+    EXPECT_EQ(loaded != nullptr, c.loads);
+  }
+}
+
+TEST_F(RdbMockTest, testGCSettingsTruncatedBlockFailsTheLoad) {
+  {
+    GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_truncated");
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveUnsigned(io.get(), INDEX_GC_SETTING_RUN_INTERVAL);  // no value follows
+    EXPECT_EQ(loadGCSpec(io.get()), nullptr);
+  }
+  {
+    GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_truncated");
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveUnsigned(io.get(), 99);
+    RMCK_SaveUnsigned(io.get(), 16);  // a value length past the end of the stream
+    EXPECT_EQ(loadGCSpec(io.get()), nullptr);
+  }
+}
+
+TEST_F(RdbMockTest, testGCSettingsUnsetOnCreate) {
+  expectUnset(parseGCSpec("gc_settings_parsed")->gcSettings);
+
+  HiddenString *name = NewHiddenString("gc_settings_new", strlen("gc_settings_new"), true);
+  IndexSpec *sp = NewIndexSpec(name);
+  expectUnset(sp->gcSettings);
+  StrongRef ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = ref;
+  StrongRef_Release(ref);
+}
+
+TEST_F(RdbMockTest, testGCSettingsSurviveSerialization) {
+  for (bool withOverrides : {false, true}) {
+    SCOPED_TRACE(withOverrides);
+    const char *name = "gc_settings_serialize";
+    GCSpecPtr sp = parseGCSpec(name);
+    if (withOverrides) {
+      sp->gcSettings.runIntervalSec = {true, 30};
+      sp->gcSettings.cleanThreshold = {true, 0};
+    }
+    RedisModuleString *serialized = IndexSpec_Serialize(sp.get());
+    ASSERT_NE(serialized, nullptr);
+    sp.reset();
+
+    IndexSpec *deserialized = IndexSpec_Deserialize(serialized, INDEX_CURRENT_VERSION);
+    RedisModule_FreeString(nullptr, serialized);
+    ASSERT_NE(deserialized, nullptr);
+    ASSERT_EQ(REDISMODULE_OK, Indexes_StoreSpecAfterRdbLoad(deserialized));
+    StrongRef ref = Indexes_LoadIndexSpecUnsafe(name);
+    const IndexSpec *loaded = static_cast<IndexSpec *>(StrongRef_Get(ref));
+    ASSERT_NE(loaded, nullptr);
+    if (withOverrides) {
+      expectSame({true, 30}, loaded->gcSettings.runIntervalSec);
+      expectSame({true, 0}, loaded->gcSettings.cleanThreshold);
+    } else {
+      expectUnset(loaded->gcSettings);
+    }
+    Indexes_RemoveSpecFromGlobals(ref, false);
+  }
+}
+
+TEST_F(RdbMockTest, testGCSettingsUnsetOnLegacyLoad) {
+  const auto originalGetKeyName = RedisModule_GetKeyNameFromIO;
+  const bool originalLoading = g_isLoading;
+  dict *originalRules = legacySpecRules;
+  dict *originalSpecs = legacySpecDict;
+  RedisModule_GetKeyNameFromIO = [](RedisModuleIO *) -> const RedisModuleString * {
+    return nullptr;
+  };
+  g_isLoading = true;
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+  legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+
+  static constexpr char name[] = "gc_settings_legacy";
+  SchemaRuleArgs *ruleArgs = static_cast<SchemaRuleArgs *>(rm_calloc(1, sizeof(*ruleArgs)));
+  ruleArgs->type = rm_strdup("HASH");
+  ruleArgs->prefixes = static_cast<const char **>(rm_malloc(sizeof(*ruleArgs->prefixes)));
+  ruleArgs->prefixes[0] = rm_strdup("");
+  ruleArgs->nprefixes = 1;
+  HiddenString *key = NewHiddenString(name, sizeof(name) - 1, true);
+  dictAdd(legacySpecRules, key, ruleArgs);  // the dict copies the key
+  HiddenString_Free(key, true);
+
+  // The oldest legacy encoding: no fields, no terms trie, timeout or aliases.
+  GCIOPtr io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  RMCK_SaveStringBuffer(io.get(), name, sizeof(name));
+  RMCK_SaveUnsigned(io.get(), INDEX_DEFAULT_FLAGS);
+  RMCK_SaveUnsigned(io.get(), 0);  // Fields.
+  for (int i = 0; i < 10; ++i) {
+    RMCK_SaveUnsigned(io.get(), 0);  // Index stats.
+  }
+  RMCK_SaveUnsigned(io.get(), 1);  // Doc table size, counting the unused doc ID zero.
+  RMCK_SaveUnsigned(io.get(), 0);  // Max doc ID.
+
+  RefManager *rm =
+      static_cast<RefManager *>(IndexSpec_LegacyRdbLoad(io.get(), LEGACY_INDEX_MIN_VERSION));
+  ASSERT_NE(rm, nullptr);
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  StrongRef ref = {rm};
+  expectUnset(static_cast<IndexSpec *>(StrongRef_Get(ref))->gcSettings);
+
+  dictDelete(legacySpecDict, static_cast<IndexSpec *>(StrongRef_Get(ref))->specName);
+  IndexSpec_RdbLoadDiscard(ref);
+  dictRelease(legacySpecRules);
+  dictRelease(legacySpecDict);
+  legacySpecRules = originalRules;
+  legacySpecDict = originalSpecs;
+  g_isLoading = originalLoading;
+  RedisModule_GetKeyNameFromIO = originalGetKeyName;
+}

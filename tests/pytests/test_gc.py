@@ -950,6 +950,49 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     env.expect('PING').equal(True)
 
 
+def queuedRunKeepsItsCleanThreshold(env, raiseThreshold):
+    """A run checks the clean threshold the index had when the run was queued. Raising it while
+    the run waits reaches only the runs queued after the change. `env` runs the GC every second
+    with a threshold of 0; `raiseThreshold` raises it to 1000."""
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    def oneShotArms():
+        return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'FROM_ONESHOT'))
+
+    armParkedGCRun(env)  # queued with threshold 0
+    before = gcCycles(env, 'idx')
+    raiseThreshold()
+    arms = oneShotArms()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+
+    # Nothing was deleted, so only a threshold of 0 lets the parked run collect.
+    collected = waitForGCCycles(env, 'idx', before, timeout=30)
+    env.assertEqual(collected, before + 1)
+
+    # Each finished run re-arms once, so two more arms mean a run queued after the change has
+    # finished too -- and it skipped, under the new threshold.
+    wait_for_condition(lambda: (oneShotArms() >= arms + 2, {'arms': oneShotArms()}),
+                       'GC stopped rescheduling itself', timeout=60)
+    env.assertEqual(gcCycles(env, 'idx'), collected,
+                    message='a run queued after the change collected below the new threshold')
+
+
+@skip(cluster=True)
+def testGCQueuedRunKeepsItsCleanThresholdFork():
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    queuedRunKeepsItsCleanThreshold(
+        env, lambda: env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 1000).ok())
+
+
+@skip(cluster=True)
+def testGCQueuedRunKeepsItsCleanThresholdThread():
+    env = Env(moduleArgs='GC_POLICY THREAD',
+              redisConfigFile=thread_gc_conf(run_interval=1, clean_threshold=0))
+    queuedRunKeepsItsCleanThreshold(
+        env, lambda: env.expect('CONFIG', 'SET', 'search-thread-gc-clean-threshold', 1000).ok())
+
+
 @skip(cluster=True)
 def testGCTerminatesAfterDropWhileStopped(env):
     """A GC stopped by GC_STOP_SCHEDULE still has to terminate when its index is dropped.

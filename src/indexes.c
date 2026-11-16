@@ -328,9 +328,11 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
+      IndexGCSettings_ReportSkipped();
       return REDISMODULE_ERR;
     }
   }
+  IndexGCSettings_ReportSkipped();
 
   // If we have indexes in the auxiliary data, we need to subscribe to the
   // keyspace notifications
@@ -439,6 +441,7 @@ static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
   }
   QueryError status = QueryError_Default();
   IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
+  IndexGCSettings_ReportSkipped();
   if (!sp) {
     RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     QueryError_ClearError(&status);
