@@ -16,7 +16,7 @@
 #include "search_disk.h"
 #include "indexes.h"
 #include "field_spec_info.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "config.h"
 #include "info/vector_index_stats.h"
 #include "redismodule.h"

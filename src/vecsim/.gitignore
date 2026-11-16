@@ -1,0 +1,58 @@
+**/logs/
+
+/.tox/
+/bin/
+/build/
+/dist/
+/venv/
+/1/
+**/build/
+
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+**/CMakeFiles
+**/cmake_install.cmake
+**/CMakeCache.txt
+
+# Python
+*.egg*
+dist/**
+poetry.lock
+*.pyc
+__pycache__/
+
+.vscode
+**/.ipynb_checkpoints
+
+# spelling artifact, locally
+wordlist.dic

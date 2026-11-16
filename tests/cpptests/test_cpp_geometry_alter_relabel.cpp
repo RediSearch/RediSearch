@@ -14,7 +14,7 @@
 #include "spec.h"
 #include "indexes.h"
 #include "doc_id_meta.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "geometry/geometry_api.h"
 
 // geometry_index.h has no extern "C" guard, and openVectorIndex is outside vector_index.h's.
