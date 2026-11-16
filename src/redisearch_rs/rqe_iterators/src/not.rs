@@ -304,6 +304,11 @@ where
         self.max_doc_id as usize
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        let population = total_docs.min(self.max_doc_id as usize) as f64;
+        (population - RQEIterator::estimated_matches(&self.child, total_docs)).max(0.0)
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.result.doc_id
@@ -515,6 +520,11 @@ where
     fn num_estimated(&self) -> usize {
         // Mode-independent — mirrors the active `num_estimated`.
         self.max_doc_id as usize
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        let population = total_docs.min(self.max_doc_id as usize) as f64;
+        (population - RQESuspendedIterator::estimated_matches(&self.child, total_docs)).max(0.0)
     }
 }
 

@@ -821,6 +821,222 @@ mod variant {
     }
 }
 
+mod match_estimates {
+    use std::ptr::NonNull;
+
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::{NumericIndex, NumericRangeTree};
+    use rqe_iterators::{
+        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+        SkipToOutcome,
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    use super::variant::make_expiration_checker;
+
+    fn filter(min: f64, max: f64) -> NumericFilter {
+        NumericFilter {
+            min,
+            max,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        }
+    }
+
+    fn tree_iterator<'index>(
+        tree: &'index NumericRangeTree,
+        ctx: &'index MockContext,
+        filter: &'index NumericFilter,
+    ) -> NumericIteratorVariant<'index> {
+        // SAFETY: 1. `ctx` outlives the iterator. 2. The field is an index.
+        // 3. `tree` is immutably borrowed throughout the iterator's lifetime.
+        let mut iterators = unsafe {
+            NumericIteratorVariant::from_tree(
+                NonNull::from(tree),
+                ctx.sctx(),
+                filter,
+                &FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(0),
+                    predicate: FieldExpirationPredicate::Default,
+                },
+            )
+        };
+        assert_eq!(iterators.len(), 1);
+        iterators.pop().unwrap()
+    }
+
+    #[test]
+    fn finite_overlap_and_unknown_distributions_have_bounded_estimates() {
+        let cases = [
+            (
+                "unknown NaN bounds",
+                (0.0, 10.0),
+                filter(f64::NAN, f64::NAN),
+                2.0,
+            ),
+            (
+                "unknown NaN lower bound",
+                (0.0, 10.0),
+                filter(f64::NAN, 5.0),
+                2.0,
+            ),
+            (
+                "unknown NaN upper bound",
+                (0.0, 10.0),
+                filter(5.0, f64::NAN),
+                2.0,
+            ),
+            ("partial interval", (-10.0, 10.0), filter(0.0, 10.0), 1.0),
+            ("contained point", (5.0, 5.0), filter(5.0, 5.0), 2.0),
+            ("disjoint point", (5.0, 5.0), filter(6.0, 10.0), 0.0),
+            (
+                "unknown unbounded distribution",
+                (f64::NEG_INFINITY, f64::INFINITY),
+                filter(0.0, 10.0),
+                2.0,
+            ),
+            (
+                "finite span exceeds float maximum",
+                (-f64::MAX, f64::MAX),
+                filter(0.0, f64::INFINITY),
+                1.0,
+            ),
+            (
+                "unknown point frequency",
+                (0.0, 10.0),
+                filter(5.0, 5.0),
+                2.0,
+            ),
+            (
+                "excluded point",
+                (0.0, 10.0),
+                NumericFilter {
+                    max_inclusive: false,
+                    ..filter(10.0, 10.0)
+                },
+                0.0,
+            ),
+        ];
+        for (name, (min, max), filter, expected) in cases {
+            let ctx = MockContext::new(0, 0);
+            let mut index = NumericIndex::new(false);
+            index.add_record(&RSIndexResult::build_numeric(min).doc_id(1).build());
+            index.add_record(&RSIndexResult::build_numeric(max).doc_id(2).build());
+            // SAFETY: 1. No range source is supplied and the index remains immutable while the iterator lives.
+            let iterator = unsafe {
+                NumericIteratorVariant::new(
+                    index.reader(),
+                    Some(&filter),
+                    make_expiration_checker(&ctx),
+                    None,
+                    min,
+                    max,
+                )
+            };
+            assert_eq!(iterator.num_estimated(), 2, "{name}: unchanged upper bound");
+            assert!(
+                (iterator.estimated_matches(100) - expected).abs() < 1e-12,
+                "{name}"
+            );
+            for population in [0, 1, 100] {
+                let estimate = iterator.estimated_matches(population);
+                assert!(estimate.is_finite(), "{name}");
+                assert!(
+                    (0.0..=population.min(iterator.num_estimated()) as f64).contains(&estimate),
+                    "{name}: {estimate}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn point_filter_uses_distinct_value_statistics() {
+        let ctx = MockContext::new(0, 0);
+        let mut tree = NumericRangeTree::new(false);
+        for (doc_id, value) in [(1, 1.0), (2, 5.0), (3, 10.0)] {
+            tree.add(doc_id, value, false, false, 0);
+        }
+        let filter = filter(5.0, 5.0);
+        let mut iterator = tree_iterator(&tree, &ctx, &filter);
+        let estimate = iterator.estimated_matches(3);
+        assert!((estimate - 1.0).abs() < 0.5, "estimate: {estimate}");
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 2);
+        assert!(iterator.read().unwrap().is_none());
+    }
+
+    #[test]
+    fn multiple_values_increase_document_match_probability() {
+        let ctx = MockContext::new(0, 0);
+        let mut tree = NumericRangeTree::new(false);
+        for doc_id in 1..=2 {
+            tree.add(doc_id, 0.0, false, true, 0);
+            tree.add(doc_id, 10.0, false, true, 0);
+        }
+        let filter = filter(0.0, 5.0);
+        let iterator = tree_iterator(&tree, &ctx, &filter);
+        assert_eq!(iterator.num_estimated(), 2);
+        assert!((iterator.estimated_matches(2) - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn unknown_value_multiplicity_retains_upper_bound() {
+        let ctx = MockContext::new(0, 0);
+        let mut index = NumericIndex::new(false);
+        index.add_record(&RSIndexResult::build_numeric(0.0).doc_id(1).build());
+        index.add_record(&RSIndexResult::build_numeric(10.0).doc_id(1).build());
+        let filter = filter(0.0, 5.0);
+        // SAFETY: 1. No range source is supplied and the index remains immutable while the iterator lives.
+        let iterator = unsafe {
+            NumericIteratorVariant::new(
+                index.reader(),
+                Some(&filter),
+                make_expiration_checker(&ctx),
+                None,
+                0.0,
+                10.0,
+            )
+        };
+        assert_eq!(iterator.estimated_matches(1), 1.0);
+    }
+
+    #[test]
+    fn estimated_matches_survive_iteration_rewind_and_suspension() {
+        let ctx = MockContext::new(0, 0);
+        let mut tree = NumericRangeTree::new(false);
+        for (doc_id, value) in [(1, 0.0), (2, 5.0), (3, 10.0)] {
+            tree.add(doc_id, value, false, false, 0);
+        }
+        let filter = filter(4.0, 6.0);
+        let mut iterator = tree_iterator(&tree, &ctx, &filter);
+        let estimate = iterator.estimated_matches(3);
+        assert!((estimate - 0.6).abs() < 1e-12);
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 2);
+        assert!(iterator.read().unwrap().is_none());
+        assert_eq!(iterator.estimated_matches(3), estimate);
+        iterator.rewind();
+        assert!(matches!(
+            iterator.skip_to(2).unwrap().unwrap(),
+            SkipToOutcome::Found(result) if result.doc_id == 2
+        ));
+        assert_eq!(iterator.estimated_matches(3), estimate);
+
+        let suspended = Box::new(iterator).suspend();
+        assert_eq!(
+            RQESuspendedIterator::estimated_matches(&*suspended, 3),
+            estimate
+        );
+        let guard = ctx.spec_read();
+        let active = match suspended.resume(&guard).unwrap() {
+            ResumeOutcome::Ok(active) => active,
+            ResumeOutcome::Moved(_) | ResumeOutcome::Aborted => panic!("unchanged range"),
+        };
+        assert_eq!(active.estimated_matches(3), estimate);
+    }
+}
+
 /// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIteratorBoxed`
 /// and `RQESuspendedIterator` impls on the variant enum itself, as opposed to the
 /// `Numeric` leaf instantiation that `NumericBuilder` produces.

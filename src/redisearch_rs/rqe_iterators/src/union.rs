@@ -30,6 +30,34 @@ pub use crate::union_flat::UnionFlat;
 pub use crate::union_heap::UnionHeap;
 pub use crate::union_trimmed::UnionTrimmed;
 
+/// Estimates a union under independent membership, bounded by its population and upper bound.
+pub(crate) fn estimate_union(
+    total_docs: usize,
+    upper_bound: usize,
+    children: impl Iterator<Item = f64>,
+) -> f64 {
+    if total_docs == 0 {
+        return 0.0;
+    }
+    let population = total_docs as f64;
+    children
+        .fold(0.0, |estimate, child| {
+            estimate + (population - estimate) * (child.clamp(0.0, population) / population)
+        })
+        .min(upper_bound.min(total_docs) as f64)
+}
+
+/// Adds estimates for disjoint ranges, retaining a conservative sum for multi-valued documents.
+pub(crate) fn estimate_sum(
+    total_docs: usize,
+    upper_bound: usize,
+    children: impl Iterator<Item = f64>,
+) -> f64 {
+    children
+        .sum::<f64>()
+        .min(upper_bound.min(total_docs) as f64)
+}
+
 /// Where settling left a union, after its children moved underneath it.
 ///
 /// Both union variants settle through a single decision point, shared by the

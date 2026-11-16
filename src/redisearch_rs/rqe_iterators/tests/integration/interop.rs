@@ -30,6 +30,42 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, drain_doc_ids};
 
+#[test]
+fn match_prediction_crosses_the_c_callback_without_replacing_the_bound() {
+    let intersection = Intersection::new(
+        vec![
+            rqe_iterators::IdList::<true>::new((1..=20).collect::<Vec<_>>()),
+            rqe_iterators::IdList::<true>::new((1..=10).collect::<Vec<_>>()),
+        ],
+        1.0,
+        false,
+    );
+    let mut iterator = CRQEIterator::from_rust_leaf(intersection);
+    assert_eq!(iterator.num_estimated(), 10);
+    assert_eq!(iterator.estimated_matches(100), 2.0);
+    assert_eq!(iterator.estimated_matches(0), 0.0);
+
+    // Correlation makes this prediction low; it must not limit the actual results.
+    assert_eq!(drain_doc_ids(&mut iterator), (1..=10).collect::<Vec<_>>());
+    assert_eq!(iterator.estimated_matches(100), 2.0);
+    iterator.rewind();
+    assert_eq!(iterator.num_estimated(), 10);
+    assert_eq!(iterator.estimated_matches(100), 2.0);
+}
+
+#[test]
+fn c_iterator_without_match_callback_uses_its_bound() {
+    let mut header = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    // SAFETY: The wrapper owns this header exclusively until transferred below.
+    unsafe { header.as_mut().EstimatedMatches = None };
+    // SAFETY: 1, 3, 4. The wrapper initialized a valid header and callable mandatory callbacks.
+    // 2. This transfers its sole owning pointer; the optional callback was explicitly cleared.
+    let iterator = unsafe { CRQEIterator::new(header) };
+    assert_eq!(iterator.estimated_matches(100), 10.0);
+    assert_eq!(iterator.estimated_matches(3), 3.0);
+    assert_eq!(iterator.estimated_matches(0), 0.0);
+}
+
 /// Call the C `Revalidate` callback on a Rust iterator lowered to the C ABI, then free it.
 fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let ctx = MockContext::new(100, 10);

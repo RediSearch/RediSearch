@@ -171,6 +171,14 @@ pub trait RQESuspendedIterator<'query> {
     /// uses it for display only. Default returns 0 for iterators that do
     /// not maintain a cached estimate.
     fn num_estimated(&self) -> usize;
+
+    /// Suspended counterpart of [`RQEIterator::estimated_matches`].
+    ///
+    /// Only cached state may be inspected without the spec lock. Implementations that
+    /// cannot preserve finer statistics fall back to their cached upper bound.
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.num_estimated().min(total_docs) as f64
+    }
 }
 
 /// Dyn-safe sibling of [`RQEIteratorBoxed`].
@@ -200,6 +208,9 @@ pub trait RQEDynSuspendedIterator<'query> {
     fn last_doc_id(&self) -> t_docId;
 
     fn num_estimated(&self) -> usize;
+
+    /// Type-erased counterpart of [`RQESuspendedIterator::estimated_matches`].
+    fn estimated_matches(&self, total_docs: usize) -> f64;
 }
 
 /// Type-erased, active iterator.
@@ -565,6 +576,10 @@ impl<'query, S: RQESuspendedIterator<'query> + 'query> RQEDynSuspendedIterator<'
     fn num_estimated(&self) -> usize {
         <S as RQESuspendedIterator<'query>>::num_estimated(self)
     }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        <S as RQESuspendedIterator<'query>>::estimated_matches(self, total_docs)
+    }
 }
 
 // --- Forwarding impls on the wrappers themselves ----------------------------
@@ -607,6 +622,10 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.0.estimated_matches(total_docs)
     }
 
     #[inline(always)]
@@ -685,5 +704,9 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.0.estimated_matches(total_docs)
     }
 }

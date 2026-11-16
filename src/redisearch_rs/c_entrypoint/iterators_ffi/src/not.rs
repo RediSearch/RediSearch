@@ -112,6 +112,13 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
         }
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            Self::Not(it) => it.estimated_matches(total_docs),
+            Self::NotOptimized(it) => it.estimated_matches(total_docs),
+        }
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         match self {

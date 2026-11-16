@@ -58,6 +58,17 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
               opt->numericIter->NumEstimated(opt->numericIter));
 }
 
+static double OPT_EstimatedMatches(const QueryIterator *self, size_t totalDocs) {
+  if (totalDocs == 0) return 0;
+  const OptimizerIterator *opt = (const OptimizerIterator *)self;
+  double child = QueryIterator_EstimatedMatches(opt->child, totalDocs);
+  // The optimizer replaces numeric windows during execution. Once the last window is
+  // released, only the child's statistics remain available; this is never a remaining count.
+  double numeric = opt->numericIter ? QueryIterator_EstimatedMatches(opt->numericIter, totalDocs)
+                                    : (double)totalDocs;
+  return MIN((child / (double)totalDocs) * numeric, (double)opt->optim->limit);
+}
+
 // TODO: handle MOVED better
 static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
@@ -317,6 +328,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->atEOF = false;
   ri->lastDocId = 0;
   ri->NumEstimated = OPT_NumEstimated;
+  ri->EstimatedMatches = OPT_EstimatedMatches;
   ri->Free = OptimizerIterator_Free;
   ri->Rewind = OPT_Rewind;
   ri->Revalidate = OPT_Validate;

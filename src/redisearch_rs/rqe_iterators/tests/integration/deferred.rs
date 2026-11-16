@@ -45,6 +45,89 @@ fn producer(
     })
 }
 
+fn assert_estimate_tracks_materialization(
+    iterator: rqe_iterators::TypeErasedRQEIterator<'static>,
+    calls: Rc<Cell<u32>>,
+) {
+    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators_test_utils::MockContext;
+
+    assert_eq!(iterator.estimated_matches(50), 50.0);
+    assert_eq!(iterator.estimated_matches(0), 0.0);
+    assert_eq!(calls.get(), 0);
+
+    let suspended = Box::new(iterator).suspend();
+    assert_eq!(suspended.estimated_matches(50), 50.0);
+    assert_eq!(suspended.estimated_matches(0), 0.0);
+    assert_eq!(calls.get(), 0);
+
+    let context = MockContext::new(0, 0);
+    let guard = context.spec_read();
+    let ResumeOutcome::Ok(mut iterator) = suspended.resume(&guard).unwrap() else {
+        panic!("unchanged deferred iterator must resume unchanged");
+    };
+    assert_eq!(iterator.estimated_matches(50), 50.0);
+    assert_eq!(calls.get(), 0);
+
+    for expected_id in [1, 4, 9] {
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, expected_id);
+        assert_eq!(iterator.estimated_matches(50), 3.0);
+    }
+    assert!(iterator.read().unwrap().is_none());
+    assert_eq!(iterator.estimated_matches(50), 3.0);
+    assert_eq!(iterator.estimated_matches(2), 2.0);
+    assert_eq!(iterator.estimated_matches(0), 0.0);
+
+    iterator.rewind();
+    assert_eq!(iterator.estimated_matches(50), 3.0);
+    assert_eq!(iterator.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(calls.get(), 1);
+
+    let suspended = iterator.suspend();
+    assert_eq!(suspended.estimated_matches(50), 3.0);
+    assert_eq!(suspended.estimated_matches(2), 2.0);
+    assert_eq!(suspended.estimated_matches(0), 0.0);
+    let ResumeOutcome::Ok(mut iterator) = suspended.resume(&guard).unwrap() else {
+        panic!("unchanged materialized iterator must resume unchanged");
+    };
+    assert_eq!(iterator.estimated_matches(50), 3.0);
+    assert_eq!(iterator.read().unwrap().unwrap().doc_id, 4);
+    assert_eq!(calls.get(), 1);
+}
+
+#[test]
+fn id_list_estimate_tracks_materialization_without_running_the_producer() {
+    let calls = Rc::new(Cell::new(0));
+    let iterator = IdListLazy::<true>::new(
+        producer(vec![1, 4, 9], None, false, calls.clone()),
+        100,
+        index_result::RSIndexResult::build_virt().build(),
+    );
+    assert_estimate_tracks_materialization(
+        rqe_iterators::TypeErasedRQEIterator::new(Box::new(iterator)),
+        calls,
+    );
+}
+
+#[test]
+fn metric_estimate_tracks_materialization_without_running_the_producer() {
+    let calls = Rc::new(Cell::new(0));
+    let iterator = MetricLazySortedById::new(
+        producer(
+            vec![1, 4, 9],
+            Some(vec![0.1, 0.4, 0.9]),
+            false,
+            calls.clone(),
+        ),
+        100,
+        MetricType::VectorDistance,
+    );
+    assert_estimate_tracks_materialization(
+        rqe_iterators::TypeErasedRQEIterator::new(Box::new(iterator)),
+        calls,
+    );
+}
+
 #[test]
 fn id_list_is_not_produced_until_first_read() {
     let calls = Rc::new(Cell::new(0));

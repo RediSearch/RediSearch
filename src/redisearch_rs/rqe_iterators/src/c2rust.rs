@@ -61,7 +61,7 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren`, and `EstimatedMatches`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -144,7 +144,7 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren`, and `EstimatedMatches`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -335,6 +335,17 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         unsafe { callback(self.header.as_ptr()) }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self.EstimatedMatches {
+            Some(callback) => {
+                // SAFETY: The active iterator owns this header and its constructor guarantees
+                // that the callback is ABI-compatible and callable with this header.
+                unsafe { callback(self.header.as_ptr(), total_docs) }
+            }
+            None => self.num_estimated().min(total_docs) as f64,
+        }
     }
 
     fn last_doc_id(&self) -> DocId {

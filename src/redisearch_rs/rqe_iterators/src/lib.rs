@@ -273,6 +273,23 @@ pub trait RQEIterator<'index> {
     /// Returns an upper-bound estimation for the number of results the iterator is going to yield.
     fn num_estimated(&self) -> usize;
 
+    /// Predict the total number of matching documents in a population of `total_docs`.
+    ///
+    /// Unlike [`num_estimated`](Self::num_estimated), this is an advisory prediction:
+    /// it may underestimate and must never establish exhaustion or justify pruning results.
+    /// Callers must pass the same indexed-document population to every node in a query tree.
+    /// The result is finite, nonnegative, and capped by both that population and
+    /// [`num_estimated`](Self::num_estimated). An empty population returns zero.
+    ///
+    /// This describes total matches, not remaining results or observed yields. Reading and
+    /// seeking do not refine it; materialization, replacement of a source window, or index
+    /// revalidation may change the available statistics. Composites may assume independent
+    /// predicates, so correlated filters can have substantially different actual counts. The default uses the existing bound when
+    /// no finer statistics are available. No postings are read to compute this prediction.
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.num_estimated().min(total_docs) as f64
+    }
+
     /**************** properties ****************/
 
     /// Returns the last doc id that was read or skipped to.
@@ -363,6 +380,10 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
 
     fn num_estimated(&self) -> usize {
         (**self).num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        (**self).estimated_matches(total_docs)
     }
 
     fn last_doc_id(&self) -> DocId {

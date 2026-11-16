@@ -16,6 +16,14 @@ bench = false
 name = "iterators"
 harness = false
 
+[[bench]]
+name = "cardinality"
+harness = false
+
+[[bench]]
+name = "numeric_filter"
+harness = false
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
@@ -30,6 +38,7 @@ inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 itertools.workspace = true
 query_term.workspace = true
+query_types.workspace = true
 rand.workspace = true
 redis-module.workspace = true
 redis_mock.workspace = true
