@@ -246,7 +246,7 @@ fn apply_returns_err_when_field_not_found() {
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
         apply_missing_docs(0, 0, delta, &mut write_guard),
-        Err(GcError::ApplyError(
+        Err(GcError::TargetGone(
             "no field in the spec is at the scanned field index"
         ))
     ));
@@ -445,7 +445,7 @@ fn a_delta_for_a_replaced_index_is_rejected() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
         apply_missing_docs(0, unique_id, delta, &mut guard),
-        Err(GcError::ApplyError(
+        Err(GcError::TargetGone(
             "the field's missing-docs inverted index is not the one scanned"
         ))
     ));

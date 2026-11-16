@@ -20,7 +20,7 @@
 #include "query_eval_ffi.h"
 #include "util/misc.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/expr/expression.h"
 #include "config.h"

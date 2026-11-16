@@ -265,7 +265,7 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
     if not env.isCluster():
-        conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+        conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
         env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
         env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
         env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
@@ -396,7 +396,7 @@ def testTagMultiWordTermCaseAndEscapes(env):
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
@@ -426,7 +426,7 @@ def testTagGCClearEmpty(env):
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
@@ -453,7 +453,7 @@ def testTagGCClearEmptyWithCursor(env):
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
@@ -492,7 +492,7 @@ def testEmptyTagLeak(env):
     tags = 30
 
     conn = getConnectionByEnv(env)
-    env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    set_thread_gc_config(env, clean_threshold='0')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     pl = conn.pipeline()
 

@@ -1,0 +1,7 @@
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512-fp16.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-M64-efc512-fp16-sq8.hnsw_v5
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/dbpedia-cosine-dim768-fp16-test_vectors.raw
+
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/fashion_images_multi_value-cosine-dim512-M64-efc512-fp16.hnsw_v3
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/fashion_images_multi_value-cosine-dim512-M64-efc512-fp16-sq8.hnsw_v5
+https://s3.eu-west-1.amazonaws.com/dev.cto.redis/VectorSimilarity/fashion_images_multi_value-cosine-dim512-fp16-test_vectors.raw
