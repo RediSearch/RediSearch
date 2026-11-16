@@ -282,8 +282,111 @@ def testProfileAndExplain(env):
     iterators = to_dict(res[1][1][0])['Iterators profile']
     it = to_dict(iterators)
     env.assertEqual(it['Type'], 'SPARSE_VECTOR')
-    # Dimension 3 has no posting list, so only two dimensions are iterated.
+    # Dimension 3 has no posting list, so only two of the query's three are iterated.
+    env.assertEqual(it['Query dimensions'], '3')
     env.assertEqual(it['Dimensions'], '2')
+
+
+def sparse_field_stats(env, field='sp'):
+    stats = [to_dict(f) for f in index_info(env)['field statistics']]
+    return [f for f in stats if f['attribute'] == field][0]
+
+
+def testInfoFieldStatistics(env):
+    conn = getConnectionByEnv(env)
+    create_index(env)
+    # A field no document has written to yet reports zeros.
+    stats = sparse_field_stats(env)
+    env.assertEqual([stats['memory'], stats['num_dimensions'], stats['num_records']], [0, 0, 0])
+    env.assertEqual(float(index_info(env)['sparse_vector_index_sz_mb']), 0)
+
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0), (2, 1.0)]))
+    conn.execute_command('HSET', 'doc:2', 'sp', sparse_blob([(2, 1.0), (3, 1.0)]))
+    conn.execute_command('HSET', 'doc:3', 'title', 'no vector')
+    stats = sparse_field_stats(env)
+    env.assertEqual(stats['num_records'], 4)
+    # In a cluster each shard counts the dimensions it holds, so a dimension shared by documents
+    # on different shards is counted once per shard.
+    env.assertGreaterEqual(stats['num_dimensions'], 3)
+    env.assertLessEqual(stats['num_dimensions'], 4)
+    env.assertGreater(stats['memory'], 0)
+
+    info = index_info(env)
+    sparse_mb = float(info['sparse_vector_index_sz_mb'])
+    env.assertAlmostEqual(sparse_mb, stats['memory'] / float(0x100000), 1e-6)
+    # Sparse posting lists are part of the inverted index size, not reported on top of it.
+    env.assertLessEqual(sparse_mb, float(info['inverted_sz_mb']))
+    # The text and tag fields report no sparse metrics.
+    title = [to_dict(f) for f in info['field statistics'] if to_dict(f)['attribute'] == 'title'][0]
+    env.assertFalse('num_dimensions' in title)
+
+
+@skip(cluster=True)
+def testInfoModules(env):
+    conn = getConnectionByEnv(env)
+    create_index(env)
+    ops_before = conn.execute_command('INFO', 'MODULES')[
+        'search_total_indexing_ops_sparse_vector_fields']
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0), (2, 1.0)]))
+    conn.execute_command('HSET', 'doc:2', 'sp', sparse_blob([(2, 1.0), (3, 1.0)]))
+    conn.execute_command('HSET', 'doc:bad', 'sp', sparse_blob([(500, 1.0)]))
+    info = conn.execute_command('INFO', 'MODULES')
+    env.assertEqual(info['search_fields_sparse_vector'], {'SparseVector': 1, 'IndexErrors': 1})
+    # A rejected document is an index error, not an indexing operation.
+    env.assertEqual(info['search_total_indexing_ops_sparse_vector_fields'] - ops_before, 2)
+    env.assertEqual(info['search_sparse_vector_dimensions'], 3)
+    env.assertEqual(info['search_sparse_vector_records'], 4)
+    env.assertEqual(info['search_used_memory_sparse_vector_index'],
+                    sparse_field_stats(env)['memory'])
+    env.assertLess(info['search_used_memory_sparse_vector_index'],
+                   info['search_used_memory_indexes'])
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    info = conn.execute_command('INFO', 'MODULES')
+    env.assertFalse('search_fields_sparse_vector' in info)
+
+
+@skip(cluster=True)
+def testDebugSparseIndex(env):
+    conn = getConnectionByEnv(env)
+    create_index(env)
+    # Before any document the field has no index, and reads as empty.
+    env.expect(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'sp').equal(
+        ['num_dimensions', 0, 'num_records', 0, 'memory', 0, 'longest_dimensions', []])
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'sp', 1).equal([])
+
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 0.5), (7, 1.0)]))
+    conn.execute_command('HSET', 'doc:2', 'sp', sparse_blob([(7, 2.0)]))
+    conn.execute_command('HSET', 'doc:3', 'sp', sparse_blob([(3, 1.0), (7, 0.25)]))
+
+    res = to_dict(env.cmd(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'sp'))
+    env.assertEqual([res['num_dimensions'], res['num_records']], [3, 5])
+    env.assertEqual(res['memory'], sparse_field_stats(env)['memory'])
+    longest = [to_dict(d) for d in res['longest_dimensions']]
+    # Longest first; dimensions 1 and 3 tie and are ordered by ID.
+    env.assertEqual([(d['dim_id'], d['num_entries']) for d in longest], [(7, 3), (1, 1), (3, 1)])
+    env.assertEqual([d['num_blocks'] for d in longest], [1, 1, 1])
+
+    res = to_dict(env.cmd(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'sp', 'TOP', 1))
+    env.assertEqual([to_dict(d)['dim_id'] for d in res['longest_dimensions']], [7])
+
+    # Doc IDs follow insertion order here: doc:1 is 1, doc:3 is 3.
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'sp', 7).equal(
+        [1, '1', 2, '2', 3, '0.25'])
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'sp', 99).equal([])
+
+    env.expect(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'title').error().contains(
+        'Could not find given field')
+    env.expect(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'sp', 'TOP', -1).error().contains(
+        'Expected TOP')
+    env.expect(debug_cmd(), 'INFO_SPARSEIDX', 'idx', 'sp', 'LIMIT', 1).error().contains(
+        'Expected TOP')
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'sp', 2**32).error().contains(
+        'Invalid dimension ID')
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'sp', 'x').error().contains(
+        'Invalid dimension ID')
+    env.expect(debug_cmd(), 'DUMP_SPARSEIDX', 'idx', 'nope', 1).error().contains(
+        'Could not find given field')
 
 
 @skip(no_json=True)
@@ -320,6 +423,8 @@ def check_gc_collects_sparse_entries(env):
     records_before = int(index_info(env)['num_records'])
     blocks_before = int(index_info(env)['total_inverted_index_blocks'])
     env.assertEqual(records_before, 120)
+    stats_before = sparse_field_stats(env)
+    env.assertEqual(stats_before['num_dimensions'], 70)
 
     # Delete the even docs and give doc:1 a new vector (an update is a new doc ID).
     for n in range(0, 60, 2):
@@ -332,6 +437,12 @@ def check_gc_collects_sparse_entries(env):
     info = index_info(env)
     env.assertEqual(int(info['num_records']), 29 * 2 + 1)
     env.assertLess(int(info['total_inverted_index_blocks']), blocks_before)
+    # The field's own counters follow GC. Gone are the 30 own dimensions of the deleted even docs,
+    # the 5 even common dimensions only they had, and dimension 101, which doc:1 dropped on update.
+    stats = sparse_field_stats(env)
+    env.assertEqual(stats['num_records'], 29 * 2 + 1)
+    env.assertEqual(stats['num_dimensions'], 70 - 30 - 5 - 1)
+    env.assertLess(stats['memory'], stats_before['memory'])
 
     res = search(env, '@sp:[SPARSE $q]', q, 'WITHSCORES', 'NOCONTENT', 'LIMIT', 0, 100)
     env.assertEqual(res[0], 30)

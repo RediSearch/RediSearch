@@ -79,7 +79,7 @@ Sparse vector search is commonly implemented with an **inverted index**: each no
 │  dimension_99 ─→ [doc_2: 0.1, doc_3: 0.4, doc_8: 0.6]                    │
 ├──────────────────────────────────────────────────────────────────────────┤
 │  Field attributes: DIM, metric                                           │
-│  Stats: dimensions, memory                                               │
+│  Stats: dimensions, records, memory                                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,6 +98,8 @@ pub struct SparseVectorIndex {
     /// Valid dimension IDs are `0..dim`; up to 2³², hence `u64`.
     dim: u64,
     memory_usage: usize,
+    /// `(doc_id, weight)` pairs across all posting lists; GC subtracts what it removes.
+    num_records: usize,
     /// Tells a replaced index apart from the one a GC scan saw.
     unique_id: u32,
 }
@@ -156,8 +158,13 @@ void PreparedSparseVector_Free(PreparedSparseVector *vector);
 SparseVectorAddOutcome SparseVectorIndex_Add(SparseVectorIndex *index, t_docId doc_id,
                                              const PreparedSparseVector *vector);
 
-size_t SparseVectorIndex_NumDimensions(const SparseVectorIndex *index);
-size_t SparseVectorIndex_MemoryUsage(const SparseVectorIndex *index);
+// Under the read lock: memory, dimensions and records, for FT.INFO and INFO MODULES.
+SparseVectorIndexStats SparseVectorIndex_Stats(const SparseVectorIndex *index);
+
+// FT.DEBUG replies; a NULL index (no document written yet) replies as empty.
+void SparseVectorIndex_DebugInfo(RedisModuleCtx *ctx, const SparseVectorIndex *index, size_t top);
+void SparseVectorIndex_DebugDumpDimension(RedisModuleCtx *ctx, const SparseVectorIndex *index,
+                                          uint32_t dim_id);
 ```
 
 `FieldSpec_OpenSparseVectorIndex(fs, create_if_missing)` creates the index lazily from the field attributes, and `FieldSpec_Cleanup` frees it. `IndexSpec` gets an `Index_HasSparseVec` flag, set when a sparse vector field is added. The query side needs no C ABI: query evaluation is in Rust (`query_eval`) and builds the iterator directly.
@@ -373,6 +380,24 @@ Planned once that is addressed:
 FT.HYBRID idx SEARCH "@splade:[SPARSE $q]" VSIM @embedding $v KNN 2 K 10 COMBINE RRF 2 CONSTANT 60 PARAMS 4 q <sparse_blob> v <dense_blob>
 ```
 
+## Observability
+
+Sparse posting lists are inverted indexes, so every write and GC pass also updates the spec's `inverted_sz_mb`, `num_records` and `total_inverted_index_blocks`. The surfaces below add the sparse share on top, without counting it twice.
+
+| Surface | What it reports | Notes |
+|---------|-----------------|-------|
+| `FT.INFO` attributes | `data_type`, `dim`, `distance_metric` per sparse field | |
+| `FT.INFO` `sparse_vector_index_sz_mb` | Memory of all sparse posting lists in the index | Already included in `inverted_sz_mb`. Summed across shards |
+| `FT.INFO` `field statistics` | `memory`, `num_dimensions`, `num_records` per sparse field, next to the field's `Index Errors` | Summed across shards. A dimension that documents on several shards have is counted once per shard |
+| `INFO MODULES` `fields_statistics` | `search_fields_sparse_vector` (field count, `IndexErrors`) and `search_total_indexing_ops_sparse_vector_fields` | A rejected vector is an index error, not an indexing operation |
+| `INFO MODULES` `vector_index` | `search_used_memory_sparse_vector_index`, `search_sparse_vector_dimensions`, `search_sparse_vector_records` | Memory is also part of `search_used_memory_indexes` |
+| `FT.PROFILE` | `Type: SPARSE_VECTOR`, `Query dimensions` (in the query vector) and `Dimensions` (with a posting list), with the usual counters | The difference is the query dimensions no document has |
+| `FT.EXPLAIN` | `SPARSE_VECTOR{@field: N dimensions}` | |
+| `FT.DEBUG INFO_SPARSEIDX <idx> <field> [TOP n]` | The field's stats and its `n` longest dimensions (default 10), each with `num_entries`, `num_blocks` and `memory` | Long posting lists are what make a query slow; this is the input a [pruning](#should-we-support-dimension-pruning) decision needs |
+| `FT.DEBUG DUMP_SPARSEIDX <idx> <field> <dim_id>` | One dimension's posting list, as `[doc_id, weight, …]` | Empty for a dimension no document has |
+
+The per-field `num_records` and `memory` are kept in `SparseVectorIndex` as documents are written and collected, so reading them is O(1). `num_dimensions` is the map's length. `INFO_SPARSEIDX` walks every dimension and is meant for debugging only.
+
 ## Alternatives Considered
 
 | Alternative | Why rejected |
@@ -414,7 +439,7 @@ Dimension pruning changes the vectors, so results become approximate. It is a di
 
 1. **No server-side pruning (current design).** Clients prune before they send vectors. Index-side pruning needs nothing from the server, since the client produces the document vectors. Query-side pruning by weight is equally possible on the client.
 2. **Query-side, by weight.** A query attribute such as `=>{$PRUNE_RATIO: 0.2}` drops the smallest query weights before the iterator tree is built. Cheap: it only shortens the list of `DimensionIterator`s. It adds little over the client doing the same.
-3. **Query-side, by weight and frequency** (Elasticsearch style). Only the server knows the posting-list lengths. The length per dimension is already tracked (`EntriesTrackingIndex`), but an average token frequency per field would need a new counter. Optionally, a second pass rescores the top window with the dropped dimensions, through `skip_to` on their posting lists; that adds a rescoring stage to the pipeline. Stats are per shard, as in Elasticsearch.
+3. **Query-side, by weight and frequency** (Elasticsearch style). Only the server knows the posting-list lengths. The length per dimension is already tracked (`EntriesTrackingIndex`), and `FT.DEBUG INFO_SPARSEIDX` lists the longest ones (see [Observability](#observability)). An average token frequency per field would need a new counter. Optionally, a second pass rescores the top window with the dropped dimensions, through `skip_to` on their posting lists; that adds a rescoring stage to the pipeline. Stats are per shard, as in Elasticsearch.
 4. **Index-side, as a field attribute** (e.g. `PRUNE_RATIO`, `PRUNE_TOP_K`). Saves memory, but it is fixed for the life of the index, and clients can already do it. Under `COSINE` it must be specified whether the norm is taken before or after pruning.
 
 **Proposal.** Ship option 1 and document client-side pruning. Revisit option 3 after the step 7 benchmarks in the [implementation plan](#implementation-plan): it is the only option clients cannot do themselves.
@@ -441,6 +466,7 @@ Each step is roughly one reviewable PR.
 | 5 | GC scanner | `index_gc/src/scanners/` | Done (fork and thread policies; emptied dimensions are removed) | GC flow tests; memory returns after delete |
 | 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Partial: `FT.PROFILE` done; `FT.HYBRID` rejects sparse queries for now (see [FT.HYBRID](#fthybrid)); cluster merge not yet tested | Cluster flow tests; dense + sparse RRF/LINEAR tests |
 | 7 | Benchmarks: SPLADE-style corpus (e.g. MS MARCO) for latency and memory | `tests/benchmarks/` | Not started | Benchmark YAML in CI |
+| 8 | [Observability](#observability): per-field stats in `FT.INFO` and its coordinator merge, `INFO MODULES` metrics, `FT.PROFILE` query dimensions, `FT.DEBUG INFO_SPARSEIDX` / `DUMP_SPARSEIDX` | `info/`, `coord/info_command.c`, `debug_commands.c`, `sparse_vector_index/` | Done; the coordinator merge has no cluster run yet | Flow tests for each surface, including after GC |
 
 Later work: `FT.HYBRID` support (cluster coverage first; see [FT.HYBRID](#fthybrid)), weight quantization, range queries, approximate algorithms, and [disk (Redis Flex) support](#future-work-disk-redis-flex-integration).
 
@@ -470,7 +496,7 @@ In the first version, sparse vector fields are RAM-only. `FT.CREATE` on a Flex i
 ### GC, Counters and Persistence
 
 - **GC** runs in compaction, as for tags: a compaction filter drops entries whose doc ID is in `DeletedIds` and removes emptied blocks. No sparse scanner from `index_gc` runs in disk mode.
-- **Counters** (dimensions in use) are kept through a compaction-counter factory like `TagCompactionCounterFactory`, so `FT.INFO` stays correct as compaction removes entries.
+- **Counters** (the dimensions and records that [Observability](#observability) reports) are kept through a compaction-counter factory like `TagCompactionCounterFactory`, so `FT.INFO` stays correct as compaction removes entries. `FT.DEBUG INFO_SPARSEIDX` / `DUMP_SPARSEIDX` read the in-memory map and need disk counterparts.
 - **Persistence differs from RAM mode.** Posting lists live in SpeedB and are not rebuilt from the keyspace. The spec RDB carries only the field attributes, and the disk-only state (`max_doc_id`, deleted IDs, record counts) travels in `IndexSpecRdbState`, which needs no sparse-specific additions beyond any new counters.
 - **Disk usage and metrics**: register the column family with the disk-usage callback registry so `FT.INFO` and the Flex metrics report it.
 

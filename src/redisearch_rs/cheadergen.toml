@@ -390,6 +390,9 @@ includes = ["redisearch.h", "score_explain.h"]
 [header.slots_tracker_ffi]
 includes = ["redismodule.h"]
 
+[header.sparse_vector_index_ffi]
+includes = ["redismodule.h"]
+
 [header.sorting_vector_ffi]
 includes = ["redismodule.h"]
 trailer = """

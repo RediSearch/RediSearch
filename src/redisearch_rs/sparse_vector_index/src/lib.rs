@@ -30,6 +30,7 @@
 //!   [`SparseMetric::Cosine`] every vector is L2-normalized before it is
 //!   written, so scoring is always a plain dot product.
 
+pub mod debug;
 mod query;
 mod vector;
 
@@ -38,7 +39,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use index_result::RSIndexResult;
 use inverted_index::{
-    DocLiveness, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, numeric::NumericFloatCompression,
+    DocLiveness, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IndexReader,
+    numeric::NumericFloatCompression,
 };
 use rustc_hash::FxHashMap;
 
@@ -92,6 +94,31 @@ pub struct SparseVectorAddOutcome {
     pub blocks: usize,
 }
 
+/// A field's size, as `FT.INFO` and `INFO MODULES` report it.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SparseVectorIndexStats {
+    /// Bytes used by all posting lists.
+    pub memory: usize,
+    /// Dimensions that have a posting list.
+    pub num_dimensions: usize,
+    /// `(doc_id, weight)` pairs across all posting lists.
+    pub num_records: usize,
+}
+
+/// One dimension's posting list size, for `FT.DEBUG`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DimensionStats {
+    /// The dimension ID.
+    pub dim_id: u32,
+    /// Documents in its posting list.
+    pub num_entries: usize,
+    /// Index blocks of its posting list.
+    pub num_blocks: usize,
+    /// Bytes its posting list uses.
+    pub memory: usize,
+}
+
 /// What one [`SparseVectorIndex::apply_gc`] changed.
 #[derive(Debug)]
 pub struct SparseVectorGcOutcome {
@@ -126,6 +153,8 @@ pub struct SparseVectorIndex {
     dim: u64,
     /// Bytes used by all posting lists.
     memory_usage: usize,
+    /// `(doc_id, weight)` pairs across all posting lists.
+    num_records: usize,
     unique_id: u32,
 }
 
@@ -137,6 +166,7 @@ impl SparseVectorIndex {
             metric,
             dim,
             memory_usage: 0,
+            num_records: 0,
             unique_id: NEXT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -183,6 +213,7 @@ impl SparseVectorIndex {
             outcome.records += 1;
         }
         self.memory_usage += outcome.bytes;
+        self.num_records += outcome.records;
         Ok(outcome)
     }
 
@@ -199,6 +230,65 @@ impl SparseVectorIndex {
     /// Bytes used by all posting lists, not counting the map itself.
     pub const fn memory_usage(&self) -> usize {
         self.memory_usage
+    }
+
+    /// The number of `(doc_id, weight)` pairs across all posting lists.
+    pub const fn num_records(&self) -> usize {
+        self.num_records
+    }
+
+    /// The index's size, for `FT.INFO`.
+    pub fn stats(&self) -> SparseVectorIndexStats {
+        SparseVectorIndexStats {
+            memory: self.memory_usage,
+            num_dimensions: self.num_dimensions(),
+            num_records: self.num_records,
+        }
+    }
+
+    /// The `n` dimensions with the most entries, longest first and, among
+    /// equally long ones, by increasing ID.
+    ///
+    /// Long posting lists are what make a sparse query slow, so this is what a
+    /// pruning decision needs to see.
+    pub fn longest_dimensions(&self, n: usize) -> Vec<DimensionStats> {
+        let mut dims: Vec<DimensionStats> = self
+            .dimensions
+            .iter()
+            .map(|(&dim_id, list)| DimensionStats {
+                dim_id,
+                num_entries: list.number_of_entries(),
+                num_blocks: list.number_of_blocks(),
+                memory: list.memory_usage(),
+            })
+            .collect();
+        dims.sort_unstable_by(|a, b| {
+            b.num_entries
+                .cmp(&a.num_entries)
+                .then(a.dim_id.cmp(&b.dim_id))
+        });
+        dims.truncate(n);
+        dims
+    }
+
+    /// The `(doc_id, weight)` pairs of `dim_id`'s posting list, in doc-ID
+    /// order, or `None` when no document has it.
+    pub fn dimension_entries(&self, dim_id: u32) -> Option<Vec<(t_docId, f32)>> {
+        let list = self.get_dimension(dim_id)?;
+        let mut reader = list.reader();
+        let mut result = RSIndexResult::build_numeric(0.0).build();
+        let mut entries = Vec::with_capacity(list.number_of_entries());
+        while reader
+            .next_record(&mut result)
+            .expect("a posting list in memory decodes")
+        {
+            let weight = result
+                .as_numeric()
+                .expect("a posting list holds numeric records");
+            // Weights are written from an `f32`, so this is exact.
+            entries.push((result.doc_id, weight as f32));
+        }
+        Some(entries)
     }
 
     /// The dimension IDs that have a posting list, in no particular order.
@@ -241,6 +331,7 @@ impl SparseVectorIndex {
         let info = list.apply_gc_with(delta, live);
         self.memory_usage =
             (self.memory_usage + info.bytes_allocated).saturating_sub(info.bytes_freed);
+        self.num_records = self.num_records.saturating_sub(info.entries_removed);
 
         let emptied = (list.unique_docs() == 0).then(|| RemovedDimension {
             bytes: list.memory_usage(),

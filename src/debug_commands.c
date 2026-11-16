@@ -29,6 +29,7 @@
 #include "iterators_ffi.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
+#include "sparse_vector_index_ffi.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
@@ -1655,6 +1656,68 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
       break;
     }
   }
+}
+
+// How many dimensions INFO_SPARSEIDX lists when TOP is not given.
+#define SPARSE_DEBUG_DEFAULT_TOP 10
+
+/**
+ * FT.DEBUG INFO_SPARSEIDX <index> <field> [TOP <n>]
+ * The field's size and its `n` longest dimensions, longest first.
+ */
+DEBUG_COMMAND(InfoSparseVectorIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4 && argc != 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long top = SPARSE_DEBUG_DEFAULT_TOP;
+  if (argc == 6) {
+    const char *opt = RedisModule_StringPtrLen(argv[4], NULL);
+    if (strcasecmp(opt, "TOP") || RedisModule_StringToLongLong(argv[5], &top) != REDISMODULE_OK ||
+        top < 0) {
+      return RedisModule_ReplyWithError(ctx, "Expected TOP <non-negative integer>");
+    }
+  }
+  GET_SEARCH_CTX(argv[2])
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_SPARSE_VECTOR);
+  if (!fs) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+  } else {
+    SparseVectorIndex_DebugInfo(sctx->redisCtx, FieldSpec_OpenSparseVectorIndex(fs, false),
+                                (size_t)top);
+  }
+  SearchCtx_Release(sctx);
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG DUMP_SPARSEIDX <index> <field> <dim_id>
+ * The posting list of one dimension, as a flat [doc_id, weight, ...] array.
+ */
+DEBUG_COMMAND(DumpSparseVectorIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long dimId;
+  if (RedisModule_StringToLongLong(argv[4], &dimId) != REDISMODULE_OK || dimId < 0 ||
+      dimId > UINT32_MAX) {
+    return RedisModule_ReplyWithError(ctx, "Invalid dimension ID");
+  }
+  GET_SEARCH_CTX(argv[2])
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_SPARSE_VECTOR);
+  if (!fs) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+  } else {
+    SparseVectorIndex_DebugDumpDimension(sctx->redisCtx, FieldSpec_OpenSparseVectorIndex(fs, false),
+                                         (uint32_t)dimId);
+  }
+  SearchCtx_Release(sctx);
+  return REDISMODULE_OK;
 }
 
 /**
@@ -4094,6 +4157,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
+                               {"INFO_SPARSEIDX", InfoSparseVectorIndex},
+                               {"DUMP_SPARSEIDX", DumpSparseVectorIndex},
                                {"DUMP_GEOMIDX", DumpGeometryIndex},
                                {"DUMP_PREFIX_TRIE", DumpPrefixTrie},
                                {"IDTODOCID", IdToDocId},

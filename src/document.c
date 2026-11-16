@@ -785,6 +785,7 @@ FIELD_BULK_INDEXER(sparseVectorIndexer) {
   ctx->spec->stats.invertedSize += rv.bytes;
   ctx->spec->stats.numRecords += rv.records;
   IndexStats_BlockCountAdd(&ctx->spec->stats, (int64_t)rv.blocks);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_SPARSE_VECTOR, 1);
   return 0;
 }
 

@@ -644,6 +644,7 @@ def test_info():
       # vector_index_sz_mb folds in the process-wide shared SVS thread pool memory,
       # which has a small non-zero baseline once the pool singleton is initialized.
       'vector_index_sz_mb': ANY,
+      'sparse_vector_index_sz_mb': 0.0,
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
@@ -1536,6 +1537,7 @@ def test_ft_info():
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
         'vector_index_sz_mb': global_vector_mem_mb,
+        'sparse_vector_index_sz_mb': 0.0,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
@@ -1621,6 +1623,7 @@ def test_ft_info():
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0,
         'vector_index_sz_mb': global_vector_mem_mb,
+        'sparse_vector_index_sz_mb': 0.0,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',

@@ -264,6 +264,15 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+
+  if (RSGlobalStats.fieldsStats.numSparseVectorFields > 0) {
+    RedisModule_InfoBeginDictField(ctx, "fields_sparse_vector");
+    RedisModule_InfoAddFieldLongLong(ctx, "SparseVector",
+                                     RSGlobalStats.fieldsStats.numSparseVectorFields);
+    RedisModule_InfoAddFieldLongLong(
+        ctx, "IndexErrors", FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_SPARSE_VECTOR));
+    RedisModule_InfoEndDictField(ctx);
+  }
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);
@@ -279,6 +288,8 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_sparse_vector_fields",
+                                   RSGlobalStats.fieldsStats.sparseVectorTotalDocsIndexed);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -322,6 +333,13 @@ void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
   RedisModule_InfoAddFieldULongLong(ctx, "hnsw_direct_main_thread_insertions", total_info->fields_stats.total_direct_hnsw_insertions);
   RedisModule_InfoAddFieldULongLong(ctx, "tiered_index_frontend_buffer_size", total_info->fields_stats.total_flat_buffer_size);
+  // Sparse posting lists are inverted indexes, so this is also part of `used_memory_indexes`.
+  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_sparse_vector_index",
+                                    total_info->fields_stats.total_sparse_vector_idx_mem);
+  RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_dimensions",
+                                    total_info->fields_stats.total_sparse_vector_dimensions);
+  RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_records",
+                                    total_info->fields_stats.total_sparse_vector_records);
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {

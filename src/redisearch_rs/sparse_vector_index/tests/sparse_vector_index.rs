@@ -26,7 +26,8 @@ use proptest::prelude::*;
 use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::{ContractChecker, MockContext};
 use sparse_vector_index::{
-    SparseMetric, SparseVectorError, SparseVectorIndex, SparseVectorIterator, parse_blob, prepare,
+    DimensionStats, SparseMetric, SparseVectorError, SparseVectorIndex, SparseVectorIndexStats,
+    SparseVectorIterator, parse_blob, prepare,
 };
 
 const DIM: u64 = 1000;
@@ -156,6 +157,61 @@ fn add_tracks_dimensions_and_entries() {
     assert!(index.memory_usage() > 0);
     assert_eq!(index.get_dimension(20).unwrap().unique_docs(), 2);
     assert!(index.get_dimension(40).is_none());
+    assert_eq!(
+        index.stats(),
+        SparseVectorIndexStats {
+            memory: index.memory_usage(),
+            num_dimensions: 3,
+            num_records: 4,
+        }
+    );
+}
+
+#[test]
+fn longest_dimensions_rank_by_entries_then_id() {
+    let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
+    index.add(1, &ip(&[(3, 1.0), (5, 1.0), (7, 1.0)])).unwrap();
+    index.add(2, &ip(&[(5, 1.0), (7, 1.0)])).unwrap();
+    index.add(3, &ip(&[(5, 1.0), (9, 1.0)])).unwrap();
+
+    let ranked: Vec<(u32, usize)> = index
+        .longest_dimensions(10)
+        .iter()
+        .map(|d| (d.dim_id, d.num_entries))
+        .collect();
+    // Dimensions 3 and 9 tie on one entry and are ordered by ID.
+    assert_eq!(ranked, vec![(5, 3), (7, 2), (3, 1), (9, 1)]);
+
+    let top = index.longest_dimensions(1);
+    let list = index.get_dimension(5).unwrap();
+    assert_eq!(
+        top,
+        vec![DimensionStats {
+            dim_id: 5,
+            num_entries: 3,
+            num_blocks: list.number_of_blocks(),
+            memory: list.memory_usage(),
+        }]
+    );
+    assert!(index.longest_dimensions(0).is_empty());
+}
+
+#[test]
+fn dimension_entries_lists_docs_and_weights_in_doc_order() {
+    let mut index = SparseVectorIndex::new(DIM, SparseMetric::InnerProduct);
+    index.add(4, &ip(&[(2, 0.25)])).unwrap();
+    index.add(9, &ip(&[(1, 3.5), (2, 1.5)])).unwrap();
+    assert_eq!(index.dimension_entries(2), Some(vec![(4, 0.25), (9, 1.5)]));
+    assert_eq!(index.dimension_entries(1), Some(vec![(9, 3.5)]));
+    assert_eq!(index.dimension_entries(3), None);
+}
+
+#[test]
+fn iterator_counts_query_dimensions_found_and_missing() {
+    let index = index_of(SparseMetric::InnerProduct, &[(1, vec![(1, 1.0), (2, 1.0)])]);
+    let it = iter(&index, &ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]), 10).unwrap();
+    assert_eq!(it.query_dimensions(), 3);
+    assert_eq!(it.num_dimensions(), 2);
 }
 
 /// A document sharing one query dimension can outrank one sharing all of
@@ -319,8 +375,10 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
     index.add(3, &ip(&[(1, 1.0)])).unwrap();
     let memory_before = index.memory_usage();
 
+    assert_eq!(index.num_records(), 5);
     // Doc 2 is the only one with dimension 3, so that dimension goes.
     assert_eq!(run_gc(&mut index, &[2]), 1);
+    assert_eq!(index.num_records(), 3);
     assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
     assert!(index.memory_usage() < memory_before);
 
@@ -330,8 +388,7 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
 
     // Collecting everything leaves an empty index with no dimension.
     run_gc(&mut index, &[1, 3]);
-    assert_eq!(index.num_dimensions(), 0);
-    assert_eq!(index.memory_usage(), 0);
+    assert_eq!(index.stats(), SparseVectorIndexStats::default());
 }
 
 fn collect_results(index: &SparseVectorIndex, query: &[(u32, f32)]) -> Vec<(u64, f64)> {

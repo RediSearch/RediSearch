@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redismodule.h"
 #include "rqe_core.h"
 #include "sparse_vector_index.h"
 
@@ -15,6 +16,8 @@
  * under `COSINE`, ready for [`SparseVectorIndex_Add`].
  */
 typedef struct PreparedSparseVector PreparedSparseVector;
+
+typedef struct RedisModuleCtx RedisModuleCtx;
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,6 +74,29 @@ struct PreparedSparseVector *PreparedSparseVector_FromBlob(const uint8_t *blob, 
 struct SparseVectorAddOutcome SparseVectorIndex_Add(struct SparseVectorIndex *index, t_docId doc_id, const struct PreparedSparseVector *vector);
 
 /**
+ * Reply to `FT.DEBUG DUMP_SPARSEIDX` with `dim_id`'s posting list. A null
+ * `index` (no document written yet) replies with an empty array.
+ *
+ * # Safety
+ *
+ * As [`SparseVectorIndex_DebugInfo`].
+ */
+void SparseVectorIndex_DebugDumpDimension(struct RedisModuleCtx *ctx, const struct SparseVectorIndex *index, uint32_t dim_id);
+
+/**
+ * Reply to `FT.DEBUG INFO_SPARSEIDX` with the field's size and its `top`
+ * longest dimensions. A null `index` (no document written yet) replies as
+ * an empty index.
+ *
+ * # Safety
+ *
+ * 1. `ctx` is a valid Redis module context.
+ * 2. `index` is null, or a valid pointer returned by [`SparseVectorIndex_New`]
+ *    and not written concurrently (the caller holds the spec lock).
+ */
+void SparseVectorIndex_DebugInfo(struct RedisModuleCtx *ctx, const struct SparseVectorIndex *index, size_t top);
+
+/**
  * Free an index built by [`SparseVectorIndex_New`]. A null `index` is a no-op.
  *
  * # Safety
@@ -80,15 +106,6 @@ struct SparseVectorAddOutcome SparseVectorIndex_Add(struct SparseVectorIndex *in
  * 2. No query iterator over `index` is alive.
  */
 void SparseVectorIndex_Free(struct SparseVectorIndex *index);
-
-/**
- * Bytes used by the posting lists.
- *
- * # Safety
- *
- * `index` is a valid pointer returned by [`SparseVectorIndex_New`].
- */
-size_t SparseVectorIndex_MemoryUsage(const struct SparseVectorIndex *index);
 
 /**
  * Create an empty index for a field of `dim` dimensions ranked by `metric`.
@@ -102,13 +119,14 @@ size_t SparseVectorIndex_MemoryUsage(const struct SparseVectorIndex *index);
 struct SparseVectorIndex *SparseVectorIndex_New(uint64_t dim, uint32_t metric);
 
 /**
- * The number of dimensions that have a posting list.
+ * The index's size, for `FT.INFO` and `INFO MODULES`.
  *
  * # Safety
  *
- * `index` is a valid pointer returned by [`SparseVectorIndex_New`].
+ * `index` is a valid pointer returned by [`SparseVectorIndex_New`], not
+ * written concurrently (the caller holds the spec lock).
  */
-size_t SparseVectorIndex_NumDimensions(const struct SparseVectorIndex *index);
+struct SparseVectorIndexStats SparseVectorIndex_Stats(const struct SparseVectorIndex *index);
 
 #ifdef __cplusplus
 }  // extern "C"

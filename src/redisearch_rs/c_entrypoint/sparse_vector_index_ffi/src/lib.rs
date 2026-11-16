@@ -15,10 +15,13 @@
 //! [`PreparedSparseVector_FromBlob`] checks and normalizes a document's vector,
 //! and [`SparseVectorIndex_Add`] writes it under the lock.
 
-use std::ffi::c_char;
+use std::{ffi::c_char, ptr::NonNull};
 
 use ffi::t_docId;
-use sparse_vector_index::{SparseMetric, SparseVectorAddOutcome, SparseVectorIndex};
+use redis_reply::RedisModuleCtx;
+use sparse_vector_index::{
+    SparseMetric, SparseVectorAddOutcome, SparseVectorIndex, SparseVectorIndexStats,
+};
 
 /// A document's sparse vector, checked against its field and normalized
 /// under `COSINE`, ready for [`SparseVectorIndex_Add`].
@@ -58,28 +61,59 @@ pub unsafe extern "C" fn SparseVectorIndex_Free(index: *mut SparseVectorIndex) {
     }
 }
 
-/// The number of dimensions that have a posting list.
+/// The index's size, for `FT.INFO` and `INFO MODULES`.
 ///
 /// # Safety
 ///
-/// `index` is a valid pointer returned by [`SparseVectorIndex_New`].
+/// `index` is a valid pointer returned by [`SparseVectorIndex_New`], not
+/// written concurrently (the caller holds the spec lock).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn SparseVectorIndex_NumDimensions(index: *const SparseVectorIndex) -> usize {
+pub unsafe extern "C" fn SparseVectorIndex_Stats(
+    index: *const SparseVectorIndex,
+) -> SparseVectorIndexStats {
     // SAFETY: guaranteed by the caller.
-    unsafe { &*index }.num_dimensions()
+    unsafe { &*index }.stats()
 }
 
-/// Bytes used by the posting lists.
+/// Reply to `FT.DEBUG INFO_SPARSEIDX` with the field's size and its `top`
+/// longest dimensions. A null `index` (no document written yet) replies as
+/// an empty index.
 ///
 /// # Safety
 ///
-/// `index` is a valid pointer returned by [`SparseVectorIndex_New`].
+/// 1. `ctx` is a valid Redis module context.
+/// 2. `index` is null, or a valid pointer returned by [`SparseVectorIndex_New`]
+///    and not written concurrently (the caller holds the spec lock).
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn SparseVectorIndex_MemoryUsage(
+pub unsafe extern "C" fn SparseVectorIndex_DebugInfo(
+    ctx: *mut RedisModuleCtx,
     index: *const SparseVectorIndex,
-) -> usize {
-    // SAFETY: guaranteed by the caller.
-    unsafe { &*index }.memory_usage()
+    top: usize,
+) {
+    let ctx = NonNull::new(ctx).expect("ctx cannot be NULL");
+    // SAFETY: guaranteed by 2.
+    let index = unsafe { index.as_ref() };
+    // SAFETY: guaranteed by 1.
+    unsafe { sparse_vector_index::debug::debug_info(ctx, index, top) }
+}
+
+/// Reply to `FT.DEBUG DUMP_SPARSEIDX` with `dim_id`'s posting list. A null
+/// `index` (no document written yet) replies with an empty array.
+///
+/// # Safety
+///
+/// As [`SparseVectorIndex_DebugInfo`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SparseVectorIndex_DebugDumpDimension(
+    ctx: *mut RedisModuleCtx,
+    index: *const SparseVectorIndex,
+    dim_id: u32,
+) {
+    let ctx = NonNull::new(ctx).expect("ctx cannot be NULL");
+    // SAFETY: guaranteed by 2 of [`SparseVectorIndex_DebugInfo`].
+    let index = unsafe { index.as_ref() };
+    // SAFETY: guaranteed by 1 of [`SparseVectorIndex_DebugInfo`].
+    unsafe { sparse_vector_index::debug::debug_dump_dimension(ctx, index, dim_id) }
 }
 
 /// Decode a `(u32 dim_id, f32 weight)` little-endian blob and check it

@@ -3071,6 +3071,7 @@ name = "sparse_vector_index_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "redis_reply",
  "sparse_vector_index",
  "workspace_hack",
 ]

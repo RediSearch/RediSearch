@@ -183,6 +183,8 @@ pub struct SparseVectorIterator<'index> {
     result: RSIndexResult<'index>,
     /// The number of query dimensions that have a posting list.
     num_dimensions: usize,
+    /// The number of dimensions in the query, found or not.
+    query_dimensions: usize,
     /// Where the score is yielded for `$YIELD_SCORE_AS`, or null when it is not.
     /// Written by the pipeline once the lookup key is resolved, through the
     /// handle [`key_handle`](Self::key_handle) tracks.
@@ -238,6 +240,7 @@ impl<'index> SparseVectorIterator<'index> {
             union,
             result: RSIndexResult::build_sparse_score(0.0).build(),
             num_dimensions,
+            query_dimensions: query.len(),
             own_key: std::ptr::null_mut(),
             key_handle: KeyHandleSlot::new(),
         })
@@ -271,6 +274,11 @@ impl<'index> SparseVectorIterator<'index> {
     /// The number of query dimensions that have a posting list.
     pub const fn num_dimensions(&self) -> usize {
         self.num_dimensions
+    }
+
+    /// The number of dimensions in the query, including those no document has.
+    pub const fn query_dimensions(&self) -> usize {
+        self.query_dimensions
     }
 
     /// Reduce the union's current result into [`result`](Self::result).
@@ -388,9 +396,11 @@ impl<'index> RQEIterator<'index> for SparseVectorIterator<'index> {
 impl ProfilePrint for SparseVectorIterator<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"SPARSE_VECTOR");
-        let dims = std::ffi::CString::new(self.num_dimensions.to_string())
-            .expect("a number has no interior NUL");
-        map.kv_simple_string(c"Dimensions", &dims);
+        let as_cstring =
+            |n: usize| std::ffi::CString::new(n.to_string()).expect("a number has no interior NUL");
+        // The gap between the two is the query's dimensions no document has.
+        map.kv_simple_string(c"Query dimensions", &as_cstring(self.query_dimensions));
+        map.kv_simple_string(c"Dimensions", &as_cstring(self.num_dimensions));
         ctx.print_optional_counters(map);
         ctx.print_estimated(map);
     }

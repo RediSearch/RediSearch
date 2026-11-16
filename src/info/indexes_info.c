@@ -51,6 +51,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
+    SparseVectorIndexStats sparse_info = IndexSpec_GetSparseVectorIndexesStats(sp);
+    info.fields_stats.total_sparse_vector_idx_mem += sparse_info.memory;
+    info.fields_stats.total_sparse_vector_dimensions += sparse_info.num_dimensions;
+    info.fields_stats.total_sparse_vector_records += sparse_info.num_records;
+
     bool cachedDisk = sp->diskSpec != NULL;
     CachedIndexMetrics diskMetrics = {0};
     if (cachedDisk) {

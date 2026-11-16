@@ -56,3 +56,21 @@ typedef struct SparseVectorAddOutcome {
    */
   size_t blocks;
 } SparseVectorAddOutcome;
+
+/**
+ * A field's size, as `FT.INFO` and `INFO MODULES` report it.
+ */
+typedef struct SparseVectorIndexStats {
+  /**
+   * Bytes used by all posting lists.
+   */
+  size_t memory;
+  /**
+   * Dimensions that have a posting list.
+   */
+  size_t num_dimensions;
+  /**
+   * `(doc_id, weight)` pairs across all posting lists.
+   */
+  size_t num_records;
+} SparseVectorIndexStats;
