@@ -12,7 +12,7 @@
 #include "redisearch.h"
 #include "field_spec.h"
 #include "index_flags.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -597,13 +597,14 @@ typedef struct IndexDiskAPI {
    * @param term Pointer to the query term (contains term string, idf, bm25_idf)
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
+   * @param numDocs The term's document count from the terms trie, reported as the iterator's estimate
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
    * @param view Required per-query read view. Must have been returned by
    *                 `createQueryView(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskQueryView *view, QueryError* status);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, size_t numDocs, bool needsOffsets, RedisSearchDiskQueryView *view, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index

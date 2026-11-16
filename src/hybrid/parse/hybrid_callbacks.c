@@ -25,7 +25,7 @@
 #include "vector_index.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
 #include "hiredis/sds.h"

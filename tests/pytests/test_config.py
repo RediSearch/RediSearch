@@ -227,7 +227,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_PRIORITIZE_INTERSECT_UNION_CHILDREN'][0], 'false')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
     env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
-    env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
+    env.assertEqual(res_dict['GC_POLICY'][0], 'thread')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
@@ -277,7 +277,7 @@ def testInitConfig():
     _test_config_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
     _test_config_str('GC_POLICY', 'fork')
-    _test_config_str('GC_POLICY', 'default', 'fork')
+    _test_config_str('GC_POLICY', 'default', 'thread')
     _test_config_str('ON_TIMEOUT', 'fail')
     _test_config_str('ON_TIMEOUT', 'return-strict')
     _test_config_str('TIMEOUT', '0', '0')
@@ -1797,6 +1797,10 @@ def testConfigAPIConfigOnlyBooleanParams():
 configOnlyNumericConfigs = [
     # configName, defaultValue, minValue, maxValue, legacyName
     ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
+    ('search-gc-threads', 1, 1, 64, '_GC_THREADS'),
+    ('search-gc-clean-ratio-ppm', 1000, 0, 1_000_000, 'GC_CLEAN_RATIO_PPM'),
+    ('search-thread-gc-run-interval', 7, 1, LLONG_MAX // 4 // 1000 // 1000, 'THREAD_GC_RUN_INTERVAL'),
+    ('search-thread-gc-clean-threshold', 100, 0, LLONG_MAX, 'THREAD_GC_CLEAN_THRESHOLD'),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -2628,3 +2632,31 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
     # RLTest reuses the server across tests, so hand it back at the defaults
     env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '16',
                'search-_disk-async-read-queue-factor', '1').ok()
+
+
+def testForkGcSettingsDoNotTuneTheThreadPolicy():
+    # Settings tuned for the fork's cost stay with FORK, so an upgrade that moves to THREAD by
+    # default gets THREAD's defaults, while a server that keeps GC_POLICY FORK keeps its tuning.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 3600 FORK_GC_CLEAN_THRESHOLD 100000', freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-thread-gc-run-interval').equal(
+        ['search-thread-gc-run-interval', '7'])
+    env.expect('CONFIG', 'GET', 'search-thread-gc-clean-threshold').equal(
+        ['search-thread-gc-clean-threshold', '100'])
+    env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(
+        ['search-fork-gc-run-interval', '3600'])
+    env.stop()
+
+
+def testGcPolicyConfig():
+    env = Env()
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'thread'])
+    env.expect('CONFIG', 'SET', 'search-gc-policy', 'fork').error().contains('CONFIG SET failed')
+
+    env = Env(moduleArgs='GC_POLICY FORK', freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'fork'])
+    env.stop()
+
+    env = Env(redisConfigFile=redis_config_file({'search-gc-policy': 'fork'}), freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-gc-policy').equal(['search-gc-policy', 'fork'])
+    env.expect(config_cmd(), 'GET', 'GC_POLICY').equal([['GC_POLICY', 'fork']])
+    env.stop()

@@ -105,7 +105,7 @@ jobs:
         # `Stale headers check` step below needs. The cached container image
         # already runs this script in its Dockerfile.
         if: needs.build-image.outputs.succeeded != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
           github_token: ${{ github.token }}
@@ -130,8 +130,8 @@ jobs:
             exit 1
           fi
           grep -Fq 'COV=1 and LTO=1 are mutually exclusive' "$incompatible_flags_output"
-      - name: Test coverage summary parser
-        id: coverage-summary-tests
+      - name: Test the .github/scripts helpers
+        id: github-scripts-tests
         continue-on-error: true
         run: python3 -m unittest discover -s .github/scripts/tests -v
       # Cache Rust packages and binaries
@@ -215,7 +215,7 @@ jobs:
         if: |
           steps.lint.outcome == 'failure' ||
           steps.bootstrap-dry-run.outcome == 'failure' ||
-          steps.coverage-summary-tests.outcome == 'failure' ||
+          steps.github-scripts-tests.outcome == 'failure' ||
           steps.git-diff.outcome == 'failure' ||
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
@@ -226,7 +226,7 @@ jobs:
         run: |
           echo "Lint: ${{ steps.lint.outcome }}"
           echo "Bootstrap dry-run: ${{ steps.bootstrap-dry-run.outcome }}"
-          echo "Coverage summary tests: ${{ steps.coverage-summary-tests.outcome }}"
+          echo ".github/scripts tests: ${{ steps.github-scripts-tests.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
           echo "Format check: ${{ steps.fmt.outcome }}"

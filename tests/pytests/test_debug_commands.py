@@ -108,6 +108,7 @@ class TestDebugCommands(object):
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
             "GC_WAIT_FOR_JOBS",
+            "GC_THREADS_ALIVE",
             "GIT_SHA",
             "TTL",
             "TTL_PAUSE",
@@ -162,7 +163,7 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'GC_THREADS_ALIVE', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
                         'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_QUERY_VIEWS', 'DISK_LIVE_SNAPSHOTS',
@@ -1877,8 +1878,8 @@ def test_max_doc_id(env):
 
 @skip(cluster=True)
 def test_dump_deleted_ids(env):
-    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids.
-    On RAM we have no such notion, so it should always be empty"""
+    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids: under the default
+    THREAD GC policy a RAM index tracks the IDs it deleted until a GC cycle collects them."""
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
@@ -1896,8 +1897,7 @@ def test_dump_deleted_ids(env):
     # Delete some documents
     env.cmd('DEL', 'doc2', 'doc5', 'doc7')
 
-    # For in-memory indexes, we don't track deleted IDs, so should still be empty
-    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([3, 6, 8])
 
     # Test error handling - wrong arity
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS').error().contains('wrong number of arguments')

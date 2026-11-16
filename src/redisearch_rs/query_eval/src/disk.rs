@@ -24,7 +24,8 @@ use crate::QueryEvalContext;
 ///
 /// `disk` must wrap the spec's own disk index. `term` must already carry its
 /// scoring metadata: the document count its IDF is derived from is looked up
-/// differently per caller, so computing it stays with the caller.
+/// differently per caller, so computing it stays with the caller. `num_docs` is
+/// that count; the iterator reports it as its estimate.
 /// `needs_offsets` selects the offset-carrying iterator variant.
 ///
 /// Returns `None` — after recording a
@@ -37,6 +38,7 @@ pub(crate) fn new_term_iterator<'index>(
     term: Box<RSQueryTerm>,
     field_mask: FieldMask,
     weight: f64,
+    num_docs: usize,
     needs_offsets: bool,
 ) -> Option<Box<dyn RQEIteratorPrintable<'index> + 'index>> {
     let view = NonNull::new(ctx.sctx().diskQueryView)
@@ -46,7 +48,8 @@ pub(crate) fn new_term_iterator<'index>(
     // gives us the only live reference to it; the enterprise iterators are
     // registered whenever a disk index is in use; `view` is the disk
     // view taken at query start.
-    match unsafe { disk.new_term_iterator(term, field_mask, weight, needs_offsets, view) } {
+    match unsafe { disk.new_term_iterator(term, field_mask, weight, num_docs, needs_offsets, view) }
+    {
         Ok(it) => Some(it),
         Err(err) => {
             ctx.status()

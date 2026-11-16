@@ -28,7 +28,7 @@ def runTestWithSeed(env, s=None):
     loop_count = int(count / cleaning_loops)
 
     ### test increasing integers
-    env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
+    set_thread_gc_config(env, clean_threshold=0)
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_index_info(env, idx, 0, 0, "initial")
@@ -125,14 +125,14 @@ def runTestWithSeed(env, s=None):
         forceInvokeGC(env, 'idx')
     check_index_info_empty(env, 'idx', ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testRandom(env):
 
     runTestWithSeed(env, 2)
 
     runTestWithSeed(env)
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop(env):
 
     idx_count = 100
@@ -141,7 +141,7 @@ def testMemoryAfterDrop(env):
     pl = env.getConnection().pipeline()
 
     env.cmd('FLUSHALL')
-    env.cmd(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -165,7 +165,7 @@ def testMemoryAfterDrop(env):
     for i in range(idx_count):
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testIssue1497(env):
 
     count = 110
@@ -174,7 +174,7 @@ def testIssue1497(env):
 
     env.cmd('FLUSHALL')
     waitForRdbSaveToFinish(env)
-    env.cmd(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
     res = env.cmd('ft.info', 'idx')
@@ -197,7 +197,7 @@ def testIssue1497(env):
     # Here we have 2 numeric tree field - NUMERIC and GEO
     check_index_info_empty(env, 'idx', ['NUMERIC', 'GEO'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_numeric(env):
 
     idx_count = 100
@@ -205,7 +205,7 @@ def testMemoryAfterDrop_numeric(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -229,7 +229,7 @@ def testMemoryAfterDrop_numeric(env):
         # An initialized numeric tree always contains an inverted index in its root node.
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_geo(env):
 
     idx_count = 100
@@ -238,7 +238,7 @@ def testMemoryAfterDrop_geo(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'g', 'GEO').ok()
@@ -263,7 +263,7 @@ def testMemoryAfterDrop_geo(env):
         # An initialized numeric tree always contains an inverted index in its root node.
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_text(env):
 
     idx_count = 10
@@ -271,7 +271,7 @@ def testMemoryAfterDrop_text(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 't', 'TEXT').ok()
@@ -294,7 +294,7 @@ def testMemoryAfterDrop_text(env):
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, 0)
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_tag(env):
 
     idx_count = 1
@@ -302,7 +302,7 @@ def testMemoryAfterDrop_tag(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'tg', 'TAG').ok()
@@ -358,8 +358,10 @@ def testDocTableInfo(env):
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
 
-    # check size after an update with larger text
+    # check size after an update with larger text. Under the THREAD GC policy the doc
+    # table also holds the IDs it deleted until a cycle collects them.
     conn.execute_command('HSET', 'a', 'txt', 'hello world')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size2 = float(d['doc_table_size_mb'])
@@ -369,6 +371,7 @@ def testDocTableInfo(env):
 
     # check size after an update with identical text
     conn.execute_command('HSET', 'b', 'txt', 'world')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size3 = float(d['doc_table_size_mb'])
@@ -379,6 +382,7 @@ def testDocTableInfo(env):
     # check 0 after deletion
     conn.execute_command('DEL', 'a')
     conn.execute_command('DEL', 'b')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
