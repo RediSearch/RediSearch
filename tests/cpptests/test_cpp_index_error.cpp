@@ -9,9 +9,21 @@
 
 #include "gtest/gtest.h"
 
+#include "info/global_stats.h"
 #include "info/index_error.h"
 
 class IndexErrorTest : public ::testing::Test {};
+
+TEST_F(IndexErrorTest, testGlobalCountersIgnoreCombinedFieldType) {
+  const FieldType fieldTypes = static_cast<FieldType>(INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG);
+  const size_t textErrorsBefore = FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_FULLTEXT);
+  const size_t tagErrorsBefore = FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_TAG);
+
+  FieldsGlobalStats_UpdateIndexError(fieldTypes, 1);
+  EXPECT_EQ(FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_FULLTEXT), textErrorsBefore);
+  EXPECT_EQ(FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_TAG), tagErrorsBefore);
+  EXPECT_EQ(FieldsGlobalStats_GetIndexErrorCount(fieldTypes), 0);
+}
 
 TEST_F(IndexErrorTest, testBasic) {
   IndexError error;
