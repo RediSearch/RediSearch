@@ -942,6 +942,23 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   ASSERT_EQ(0, pruned);
 }
 
+// A GC step asks this before arming the next one, so a dropped index is collected at once.
+TEST_F(IndexGCTest, testIndexExistsTracksTheSpec) {
+  GCContext *gc = get_spec(ism)->gc;
+  EXPECT_TRUE(gc->callbacks.indexExists(gc->gcCtx));
+
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = fgc->index;
+  fgc->index = dropped;
+  const bool exists = gc->callbacks.indexExists(gc->gcCtx);
+  fgc->index = index;
+  WeakRef_Release(dropped);
+  EXPECT_FALSE(exists);
+}
+
 TEST(GCTimerDelayTest, testJitterRange) {
   EXPECT_EQ(GC_TimerDelayMs(0, 12345), 0);
   EXPECT_EQ(GC_TimerDelayMs(-1000, 12345), 0);  // not a config value, but never a negative delay
@@ -1102,6 +1119,20 @@ TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
 }
 
 // A drop discovered at a step frees the context now, not at a deadline that may be weeks away.
+// A step that fires at or past its deadline, as when the event loop ran late, arms a timer due at
+// once instead of another step; that timer's firing is the run.
+TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
+  FakeGCTimers::intervalMs = 5000000000LL;
+  GCContext_Start(&gc);
+  ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
+
+  FakeGCTimers::nowMs = gc.stepDeadlineMs + 1 - FakeGCTimers::armed.back();
+  FakeGCTimers::Fire();
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  EXPECT_EQ(FakeGCTimers::armed.back(), 0);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
+}
+
 TEST_F(GCSchedulerTest, testStepHandsADroppedIndexToARun) {
   // Heap-allocated like a real context, since the run that finds the drop frees it.
   GCContext *dropped = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
