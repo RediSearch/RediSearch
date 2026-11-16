@@ -241,6 +241,22 @@ TEST(SQ8FP64Components, SymmetricL2PreservesTinyRangeAgainstConstant) {
     }
 }
 
+TEST(SQ8FP64Components, SymmetricL2ReordersDifferentMinima) {
+    const std::array left_input{0.0, 0.5};
+    const std::array right_input{1.0, 2.0};
+    const auto allocator = VecSimAllocator::newVecsimAllocator();
+    const auto components =
+        CreateSQ8FP64IndexComponents<VecSimMetric_L2>(allocator, left_input.size());
+    const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
+    const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
+    const auto left =
+        preprocessors->preprocessForStorage(left_input.data(), left_input.size() * sizeof(double));
+    const auto right = preprocessors->preprocessForStorage(right_input.data(),
+                                                           right_input.size() * sizeof(double));
+    EXPECT_EQ(calculator->calcDistance(left.get(), right.get(), left_input.size()), 3.25);
+    EXPECT_EQ(calculator->calcDistance(right.get(), left.get(), left_input.size()), 3.25);
+}
+
 TEST(SQ8FP64Components, SymmetricL2PreservesCloseLargeDeltas) {
     constexpr size_t dim = 3;
     std::vector<uint8_t> left(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
