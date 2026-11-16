@@ -25,6 +25,7 @@
 #include "vecsim/memory/memory_utils.h"
 #include "vecsim/types/float16.h"
 #include "vecsim/types/sq8.h"
+#include "vecsim/types/sq8_fp64.h"
 #include "vecsim/types/sq4.h"
 #include "vecsim/utils/vecsim_stl.h"
 
@@ -153,6 +154,9 @@ private:
  * The quantization is done by finding the minimum and maximum values of the input vector,
  * and then scaling the values to fit in the storage type's code range.
  *
+ * FP64 stores only double min/delta and an owned raw-double query, without reductions.
+ * The layouts and formulas below describe FP32/FP16 storage and queries.
+ *
  * Storage layout:
  * | quantized_values (packed for SQ4) | min_val | delta | x_sum | (L2 sum_squares) |
  * where, writing x_r[i] = min_val + delta * a[i] for the value a blob actually represents:
@@ -236,8 +240,7 @@ private:
  *   ||x - y||² = sum_sq_x + sum_sq_y - 2 * IP(x, y)
  *   where sum_sq_x, sum_sq_y are precomputed sums of the squared represented values.
  */
-// Input types accepted by QuantPreprocessor. Opt-in via std::same_as so unrelated types
-// (e.g. integers, double, bfloat16) are rejected at the template head with a named constraint.
+// FP32/FP16 input gate for mean training and FP32 conversion helpers.
 template <typename T>
 concept QuantInput = std::same_as<T, float> || std::same_as<T, vecsim_types::float16>;
 
@@ -261,8 +264,16 @@ static inline T from_fp32(float x) {
     }
 }
 
-template <QuantInput DataType, VecSimMetric Metric, bool WithNorm = false,
+template <typename DataType, typename StorageType, bool WithNorm>
+concept QuantPreprocessorInput =
+    (QuantInput<DataType> && (std::same_as<StorageType, vecsim_types::sq8> ||
+                              std::same_as<StorageType, vecsim_types::sq4>)) ||
+    (std::same_as<DataType, double> && std::same_as<StorageType, vecsim_types::sq8_fp64> &&
+     !WithNorm);
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm = false,
           typename StorageType = vecsim_types::sq8>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 class QuantPreprocessor : public PreprocessorInterface {
 public:
     // Center L2 queries in FP32 even when the original input is FP16.
@@ -270,7 +281,7 @@ public:
 
 private:
     using OUTPUT_TYPE = uint8_t;
-    using MetadataType = float; // Quantized storage metadata is always FP32.
+    using MetadataType = typename StorageType::metadata_type;
 
     static_assert(Metric == VecSimMetric_L2 || Metric == VecSimMetric_IP ||
                       Metric == VecSimMetric_Cosine,
@@ -278,131 +289,22 @@ private:
     static_assert(!WithNorm || Metric != VecSimMetric_Cosine,
                   "WithNorm does not support Cosine metric.");
 
-    // Helper function to perform quantization. This function is used by the storage preprocessing
-    // methods.
-    void quantize(const DataType *input, OUTPUT_TYPE *quantized) const {
-        assert(input && quantized);
+    struct CodeSums {
+        uint32_t sum = 0;
+        uint64_t squares = 0;
+    };
 
-        float x_mean_ip = 0.0f; // only used for WithNorm
-        auto [min_val, max_val] = find_min_max(input, x_mean_ip);
-
-        // Calculate scaling factor (typed as MetadataType because they end up as metadata).
-        const MetadataType diff = (max_val - min_val);
-        const MetadataType delta =
-            (diff == 0.0f) ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
-        const MetadataType inv_delta = MetadataType{1} / delta;
-
-        // Saturating conversion. Casting a float to uint8_t is undefined when the truncated value
-        // does not fit, and std::round does not help: it returns 300.0 for 300.0 and NaN for NaN,
-        // both of which then convert with no defined result. On x86 an out-of-range value becomes
-        // the integer indefinite 0x80000000, so a component above the range silently quantizes to
-        // 0, the bottom of the scale. Bounding first makes every input defined, and `+ 0.5` then
-        // truncating matches std::round for non-negative values without its libm call.
-        //
-        // Only the conversion is guarded here. The FP32 arithmetic feeding it keeps whatever
-        // overflow behavior it had; see the tech debt ticket for the intermediate cases.
-        const auto to_byte = [](MetadataType scaled) -> OUTPUT_TYPE {
-            if (!(scaled > MetadataType{0})) {
-                return OUTPUT_TYPE{0}; // zero, negative, -inf, or NaN
-            }
-            if (scaled >= MetadataType{StorageType::max_code}) {
-                return OUTPUT_TYPE{StorageType::max_code}; // includes +inf
-            }
-            return static_cast<OUTPUT_TYPE>(scaled + MetadataType{0.5});
-        };
-
-        // Sum the quantized bytes, not the input values. Every kernel term is written in terms of
-        // the reconstruction x_r[i] = min + delta * a[i], so the stored sums have to describe x_r
-        // as well. Summing the input instead leaves a systematic mismatch of about 0.4% of ||x||^2,
-        // which is larger than a small true distance and made L2 come out negative: for two
-        // near-duplicate vectors at dim 128 the reconstruction distance is 2.93e-04 and the kernels
-        // returned -1.49e-01. The byte sums are exact integers, so the derivation below is the only
-        // place rounding enters.
-        //
-        // 4 independent accumulators each, so the unrolled loop keeps four dependency chains.
-        uint32_t s0{}, s1{}, s2{}, s3{};
-        // 64-bit: 65025 * 65536 leaves under 1% of UINT32_MAX, and overflow here would corrupt
-        // the metadata rather than round it. This is the write path, once per vector.
-        uint64_t q0{}, q1{}, q2{}, q3{}; // only used for L2
-
-        size_t i = 0;
-        // round dim down to the nearest multiple of 4
-        size_t dim_round_down = this->dim & ~size_t(3);
-
-        // Quantize the values
-        for (; i < dim_round_down; i += 4) {
-            // Load once (widened to FP32 if DataType is FP16).
-            const float x0 = transformed_value(input, i);
-            const float x1 = transformed_value(input, i + 1);
-            const float x2 = transformed_value(input, i + 2);
-            const float x3 = transformed_value(input, i + 3);
-            // We know (input - min) => 0
-            // If min == max, all values are the same and should be quantized to 0.
-            // reconstruction will yield the same original value for all vectors.
-            const OUTPUT_TYPE a0 = to_byte((x0 - min_val) * inv_delta);
-            const OUTPUT_TYPE a1 = to_byte((x1 - min_val) * inv_delta);
-            const OUTPUT_TYPE a2 = to_byte((x2 - min_val) * inv_delta);
-            const OUTPUT_TYPE a3 = to_byte((x3 - min_val) * inv_delta);
-            StorageType::set_code(quantized, i, a0);
-            StorageType::set_code(quantized, i + 1, a1);
-            StorageType::set_code(quantized, i + 2, a2);
-            StorageType::set_code(quantized, i + 3, a3);
-
-            s0 += a0;
-            s1 += a1;
-            s2 += a2;
-            s3 += a3;
-
-            if constexpr (Metric == VecSimMetric_L2) {
-                q0 += uint64_t{a0} * a0;
-                q1 += uint64_t{a1} * a1;
-                q2 += uint64_t{a2} * a2;
-                q3 += uint64_t{a3} * a3;
-            }
-        }
-
-        // Tail: 0..3 remaining elements (still the same pass, just finishing work).
-        uint32_t q_sum = (s0 + s1) + (s2 + s3);
-        uint64_t q_sum_squares{};
-        if constexpr (Metric == VecSimMetric_L2) {
-            q_sum_squares = (q0 + q1) + (q2 + q3);
-        }
-
-        for (; i < this->dim; ++i) {
-            const float x = transformed_value(input, i);
-            const OUTPUT_TYPE a = to_byte((x - min_val) * inv_delta);
-            StorageType::set_code(quantized, i, a);
-            q_sum += a;
-            if constexpr (Metric == VecSimMetric_L2) {
-                q_sum_squares += uint64_t{a} * a;
-            }
-        }
-
-        // Derive the reconstruction sums from the exact byte sums, in double so the expansion does
-        // not lose the cross term, then store FP32 as before. The slot layout and types are
-        // unchanged; only what the numbers describe changes.
-        //   sum         = sum(x_r[i])   = dim*min + delta*q_sum
-        //   sum_squares = sum(x_r[i]^2) = dim*min^2 + 2*min*delta*q_sum + delta^2*q_sum_squares
-        const double d_min = min_val, d_delta = delta, d_dim = static_cast<double>(this->dim);
-        const MetadataType sum = static_cast<MetadataType>(d_dim * d_min + d_delta * q_sum);
-        MetadataType sum_squares{};
-        if constexpr (Metric == VecSimMetric_L2) {
-            sum_squares =
-                static_cast<MetadataType>(d_dim * d_min * d_min + 2.0 * d_min * d_delta * q_sum +
-                                          d_delta * d_delta * q_sum_squares);
-        }
-
-        // Metadata uses MetadataType. Use memcpy because the metadata offset (after the
-        // quantized body, packed for SQ4) is not guaranteed to be sizeof(MetadataType)-aligned.
-        void *meta_dst = quantized + StorageType::data_bytes_count(this->dim);
-        MetadataType buf[5] = {min_val, delta, sum};
-        size_t n = 3;
-        if constexpr (Metric == VecSimMetric_L2)
-            buf[n++] = sum_squares;
-        if constexpr (WithNorm && Metric == VecSimMetric_IP)
-            buf[n++] = x_mean_ip;
-        memcpy(meta_dst, buf, n * sizeof(MetadataType));
-    }
+    static OUTPUT_TYPE to_byte(MetadataType scaled);
+    void quantize(const DataType *input, OUTPUT_TYPE *quantized) const;
+    void quantize_fp32(const DataType *input, OUTPUT_TYPE *quantized) const;
+    void quantize_fp64(const DataType *input, OUTPUT_TYPE *quantized) const;
+    void quantize_four(const DataType *input, OUTPUT_TYPE *quantized, size_t i,
+                       MetadataType minimum, MetadataType inv_delta, uint32_t (&sums)[4],
+                       uint64_t (&squares)[4]) const;
+    CodeSums quantize_codes(const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
+                            MetadataType inv_delta) const;
+    void assign_storage_metadata(OUTPUT_TYPE *quantized, MetadataType minimum, MetadataType delta,
+                                 CodeSums sums, MetadataType x_mean_ip) const;
 
     // Computes and writes query metadata (FP32) in a single pass over the query values.
     // Without norm:
@@ -494,12 +396,7 @@ public:
 
     // Standard constructor (WithNorm == false): no mean vector.
     QuantPreprocessor(std::shared_ptr<VecSimAllocator> allocator, size_t dim)
-        requires(!WithNorm)
-        : PreprocessorInterface(allocator), dim(dim),
-          storage_bytes_count(StorageType::template storage_bytes_count<Metric>(dim)),
-          query_bytes_count(dim * sizeof(QueryType) +
-                            StorageType::template query_metadata_count<Metric>() *
-                                sizeof(MetadataType)) {}
+        requires(!WithNorm);
 
     // WithNorm constructor: accepts a pre-computed mean vector (FP32, length == dim).
     QuantPreprocessor(std::shared_ptr<VecSimAllocator> allocator, size_t dim,
@@ -573,8 +470,8 @@ public:
     /**
      * Preprocesses the query vector for asymmetric distance computation.
      *
-     * The query blob contains QueryType values followed by FP32 precomputed values. Normalized L2
-     * stores centered query values (y - mean), so its distance kernel directly computes
+     * FP64 queries contain only copied double values. Other query blobs append FP32 metadata.
+     * Normalized L2 centers queries (y - mean), so its kernel directly computes
      * ||(x - mean) - (y - mean)||² without cancellation-prone correction terms. Other modes keep
      * the original query values.
      *
@@ -592,36 +489,7 @@ public:
      * - For L2:        dim * sizeof(QueryType) + 2 * sizeof(float)
      */
     void preprocessQuery(const void *original_blob, void *&blob, size_t &query_blob_size,
-                         unsigned char alignment) const override {
-        assert(!blob && "query_blob must be nullptr");
-
-        // Allocate aligned memory for the query blob
-        blob = this->allocator->allocate_aligned(this->query_bytes_count, alignment);
-        const size_t body_bytes = this->dim * sizeof(QueryType);
-        const DataType *input = static_cast<const DataType *>(original_blob);
-        QueryType *query_values = static_cast<QueryType *>(blob);
-        if constexpr (WithNorm && Metric == VecSimMetric_L2) {
-            for (size_t i = 0; i < this->dim; ++i) {
-                query_values[i] = to_fp32<DataType>(input[i]) - this->mean[i];
-            }
-        } else {
-            memcpy(query_values, original_blob, body_bytes);
-        }
-
-        // Compute and write FP32 query metadata after the query body. The metadata offset is
-        // body_bytes, which is not guaranteed to be 4-byte aligned for FP16 query bodies.
-        void *metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
-        if constexpr (std::is_same_v<StorageType, vecsim_types::sq4> && Metric == VecSimMetric_L2) {
-            // SQ4 L2 computes residuals directly, so query sums are unused. Keep initialized
-            // padding for SIMD tails that load a final query pair when dim is odd.
-            const MetadataType padding[2] = {};
-            memcpy(metadata_dst, padding, sizeof(padding));
-        } else {
-            assign_query_metadata(query_values, input, metadata_dst);
-        }
-
-        query_blob_size = this->query_bytes_count;
-    }
+                         unsigned char alignment) const override;
 
     void preprocessStorageInPlace(void *original_blob, size_t input_blob_size) const override {
         assert(original_blob);
@@ -675,3 +543,191 @@ private:
     const size_t storage_bytes_count;
     const size_t query_bytes_count;
 };
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::to_byte(MetadataType scaled)
+    -> OUTPUT_TYPE {
+    if (!(scaled > MetadataType{0})) {
+        return OUTPUT_TYPE{0};
+    }
+
+    if (scaled >= MetadataType{StorageType::max_code}) {
+        return OUTPUT_TYPE{StorageType::max_code};
+    }
+
+    return static_cast<OUTPUT_TYPE>(scaled + MetadataType{0.5});
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize(
+    const DataType *input, OUTPUT_TYPE *quantized) const {
+    assert(input && quantized);
+    if constexpr (std::is_same_v<MetadataType, double>) {
+        quantize_fp64(input, quantized);
+    } else {
+        quantize_fp32(input, quantized);
+    }
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_fp32(
+    const DataType *input, OUTPUT_TYPE *quantized) const {
+    float x_mean_ip = 0.0f;
+    const auto [min_val, max_val] = find_min_max(input, x_mean_ip);
+    const MetadataType diff = max_val - min_val;
+    const MetadataType delta =
+        diff == 0.0f ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
+    const MetadataType inv_delta = MetadataType{1} / delta;
+    const CodeSums sums = quantize_codes(input, quantized, min_val, inv_delta);
+    assign_storage_metadata(quantized, min_val, delta, sums, x_mean_ip);
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_four(
+    const DataType *input, OUTPUT_TYPE *quantized, size_t i, MetadataType minimum,
+    MetadataType inv_delta, uint32_t (&sums)[4], uint64_t (&squares)[4]) const {
+    const float x0 = transformed_value(input, i);
+    const float x1 = transformed_value(input, i + 1);
+    const float x2 = transformed_value(input, i + 2);
+    const float x3 = transformed_value(input, i + 3);
+    const OUTPUT_TYPE a0 = to_byte((x0 - minimum) * inv_delta);
+    const OUTPUT_TYPE a1 = to_byte((x1 - minimum) * inv_delta);
+    const OUTPUT_TYPE a2 = to_byte((x2 - minimum) * inv_delta);
+    const OUTPUT_TYPE a3 = to_byte((x3 - minimum) * inv_delta);
+    StorageType::set_code(quantized, i, a0);
+    StorageType::set_code(quantized, i + 1, a1);
+    StorageType::set_code(quantized, i + 2, a2);
+    StorageType::set_code(quantized, i + 3, a3);
+    sums[0] += a0;
+    sums[1] += a1;
+    sums[2] += a2;
+    sums[3] += a3;
+    if constexpr (Metric == VecSimMetric_L2) {
+        squares[0] += uint64_t{a0} * a0;
+        squares[1] += uint64_t{a1} * a1;
+        squares[2] += uint64_t{a2} * a2;
+        squares[3] += uint64_t{a3} * a3;
+    }
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_codes(
+    const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
+    MetadataType inv_delta) const -> CodeSums {
+    uint32_t sums[4] = {};
+    uint64_t squares[4] = {};
+    size_t i = 0;
+    const size_t dim_round_down = this->dim & ~size_t(3);
+    for (; i < dim_round_down; i += 4) {
+        quantize_four(input, quantized, i, minimum, inv_delta, sums, squares);
+    }
+    CodeSums result;
+    result.sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
+    if constexpr (Metric == VecSimMetric_L2) {
+        result.squares = (squares[0] + squares[1]) + (squares[2] + squares[3]);
+    }
+    for (; i < this->dim; ++i) {
+        const float x = transformed_value(input, i);
+        const OUTPUT_TYPE code = to_byte((x - minimum) * inv_delta);
+        StorageType::set_code(quantized, i, code);
+        result.sum += code;
+        if constexpr (Metric == VecSimMetric_L2) {
+            result.squares += uint64_t{code} * code;
+        }
+    }
+    return result;
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::assign_storage_metadata(
+    OUTPUT_TYPE *quantized, MetadataType minimum, MetadataType delta, CodeSums sums,
+    MetadataType x_mean_ip) const {
+    const double d_min = minimum;
+    const double d_delta = delta;
+    const double d_dim = static_cast<double>(this->dim);
+    const MetadataType sum = static_cast<MetadataType>(d_dim * d_min + d_delta * sums.sum);
+    MetadataType sum_squares{};
+    if constexpr (Metric == VecSimMetric_L2) {
+        sum_squares =
+            static_cast<MetadataType>(d_dim * d_min * d_min + 2.0 * d_min * d_delta * sums.sum +
+                                      d_delta * d_delta * sums.squares);
+    }
+    void *const meta_dst = quantized + StorageType::data_bytes_count(this->dim);
+    MetadataType metadata[5] = {minimum, delta, sum};
+    size_t n = 3;
+    if constexpr (Metric == VecSimMetric_L2) {
+        metadata[n++] = sum_squares;
+    }
+    if constexpr (WithNorm && Metric == VecSimMetric_IP) {
+        metadata[n++] = x_mean_ip;
+    }
+    memcpy(meta_dst, metadata, n * sizeof(MetadataType));
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_fp64(
+    const DataType *input, OUTPUT_TYPE *quantized) const {
+    const auto [min_it, max_it] = std::minmax_element(input, input + dim);
+    const MetadataType minimum = *min_it;
+    const MetadataType range = *max_it - minimum;
+    const MetadataType delta = range == 0.0 ? 1.0 : range / StorageType::max_code;
+    for (size_t i = 0; i < dim; ++i) {
+        quantized[i] = to_byte((input[i] - minimum) / delta);
+    }
+    const MetadataType metadata[] = {minimum, delta};
+    memcpy(quantized + StorageType::data_bytes_count(dim), metadata, sizeof(metadata));
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::preprocessQuery(
+    const void *original_blob, void *&blob, size_t &query_blob_size,
+    unsigned char alignment) const {
+    assert(!blob && "query_blob must be nullptr");
+
+    blob = this->allocator->allocate_aligned(this->query_bytes_count, alignment);
+    const size_t body_bytes = this->dim * sizeof(QueryType);
+    const DataType *const input = static_cast<const DataType *>(original_blob);
+    QueryType *const query_values = static_cast<QueryType *>(blob);
+    if constexpr (WithNorm && Metric == VecSimMetric_L2) {
+        for (size_t i = 0; i < this->dim; ++i) {
+            query_values[i] = to_fp32<DataType>(input[i]) - this->mean[i];
+        }
+    } else {
+        memcpy(query_values, original_blob, body_bytes);
+    }
+
+    if constexpr (StorageType::template query_metadata_count<Metric, WithNorm>() > 0) {
+        void *const metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
+        if constexpr (std::is_same_v<StorageType, vecsim_types::sq4> && Metric == VecSimMetric_L2) {
+            const MetadataType padding[2] = {};
+            memcpy(metadata_dst, padding, sizeof(padding));
+        } else {
+            assign_query_metadata(query_values, input, metadata_dst);
+        }
+    }
+
+    query_blob_size = this->query_bytes_count;
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::QuantPreprocessor(
+    std::shared_ptr<VecSimAllocator> allocator, size_t dim)
+    requires(!WithNorm)
+    : PreprocessorInterface(allocator), dim(dim),
+      storage_bytes_count(StorageType::template storage_bytes_count<Metric>(dim)),
+      query_bytes_count(dim * sizeof(QueryType) +
+                        StorageType::template query_metadata_count<Metric>() *
+                            sizeof(MetadataType)) {
+    if constexpr (std::is_same_v<MetadataType, double>) {
+        assert(dim > 0);
+    }
+}

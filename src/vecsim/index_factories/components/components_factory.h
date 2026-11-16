@@ -8,11 +8,13 @@
  */
 #pragma once
 
+#include <stdexcept>
 #include "vecsim/spaces/spaces.h"
 #include "vecsim/vec_sim_common.h"
 #include "vecsim/vec_sim_index.h"
 #include "vecsim/index_factories/components/preprocessors_factory.h"
 #include "vecsim/spaces/computer/calculator.h"
+#include "vecsim/spaces/computer/sq8_fp64_preprocessor.h"
 
 template <typename DataType, typename DistType>
 IndexComponents<DataType, DistType>
@@ -32,32 +34,43 @@ CreateIndexComponents(std::shared_ptr<VecSimAllocator> allocator, VecSimMetric m
 }
 
 // Asymmetric dispatch reports alignment for the stored operand only. Ask the query type's
-// dispatcher for the query allocation alignment.
-template <typename DataType>
+// dispatcher for the query allocation alignment. FP64 quantized queries require no alignment.
+template <typename DataType, typename DistType = float>
 [[nodiscard]] unsigned char GetQueryAlignment(VecSimMetric metric, size_t dim) {
     unsigned char alignment = 0;
-    spaces::GetDistFunc<DataType, float>(metric, dim, &alignment);
+    if constexpr (!std::same_as<DistType, double>) {
+        spaces::GetDistFunc<DataType, DistType>(metric, dim, &alignment);
+    }
     return alignment;
 }
 
 template <typename DataType, VecSimMetric Metric, bool WithMean, typename StorageType>
-IndexComponents<DataType, float>
+    requires QuantPreprocessorInput<DataType, StorageType, WithMean>
+IndexComponents<DataType, typename StorageType::metadata_type>
 CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size_t dim,
                                const float *mean_ptr) {
+    using DistType = typename StorageType::metadata_type;
     using Preprocessor = QuantPreprocessor<DataType, Metric, WithMean, StorageType>;
     using QueryType = typename Preprocessor::QueryType;
-    unsigned char storage_alignment = 0, asym_storage_alignment = 0;
+    if constexpr (std::same_as<DistType, double>) {
+        if (mean_ptr) {
+            throw std::invalid_argument("FP64 quantization does not support mean training");
+        }
+    }
+    unsigned char storage_alignment = 0;
+    unsigned char asym_storage_alignment = 0;
 
     // Graph construction compares two stored quantized blobs; search compares a stored blob with a
     // QueryType query. Both dispatchers report alignment for the stored operand.
-    auto sym_func = spaces::GetDistFunc<StorageType, float>(Metric, dim, &storage_alignment);
-    auto asym_func =
-        spaces::GetDistFunc<StorageType, float, QueryType>(Metric, dim, &asym_storage_alignment);
+    const auto sym_func =
+        spaces::GetDistFunc<StorageType, DistType>(Metric, dim, &storage_alignment);
+    const auto asym_func =
+        spaces::GetDistFunc<StorageType, DistType, QueryType>(Metric, dim, &asym_storage_alignment);
     storage_alignment = spaces::combineAlignments(storage_alignment, asym_storage_alignment);
-    const unsigned char query_alignment = GetQueryAlignment<QueryType>(Metric, dim);
+    const unsigned char query_alignment = GetQueryAlignment<QueryType, DistType>(Metric, dim);
 
     PreprocessorInterface *pp = nullptr;
-    IndexCalculatorInterface<float> *calc = nullptr;
+    IndexCalculatorInterface<DistType> *calc = nullptr;
 
     if constexpr (WithMean) {
         vecsim_stl::vector<float> mean_vec(allocator);
@@ -73,10 +86,10 @@ CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator
             allocator, asym_func, sym_func, mean_sum_squares);
     } else {
         pp = new (allocator) Preprocessor(allocator, dim);
-        calc = new (allocator) DistanceCalculatorCommon<float>(allocator, sym_func, asym_func);
+        calc = new (allocator) DistanceCalculatorCommon<DistType>(allocator, sym_func, asym_func);
     }
 
-    auto *container = new (allocator)
+    auto *const container = new (allocator)
         MultiPreprocessorsContainer<DataType, 1>(allocator, query_alignment, storage_alignment);
     [[maybe_unused]] const int ret = container->addPreprocessor(pp);
     assert(ret != -1 && "Quantization preprocessor was not added correctly");
@@ -86,12 +99,15 @@ CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator
 
 // Run-time overload: selects WithMean from whether mean_ptr is set.
 template <typename DataType, VecSimMetric Metric, typename StorageType>
-IndexComponents<DataType, float>
+    requires QuantPreprocessorInput<DataType, StorageType, false>
+IndexComponents<DataType, typename StorageType::metadata_type>
 CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size_t dim,
                                const float *mean_ptr) {
-    if (mean_ptr) {
-        return CreateQuantizedIndexComponents<DataType, Metric, true, StorageType>(allocator, dim,
-                                                                                   mean_ptr);
+    if constexpr (QuantInput<DataType>) {
+        if (mean_ptr) {
+            return CreateQuantizedIndexComponents<DataType, Metric, true, StorageType>(
+                allocator, dim, mean_ptr);
+        }
     }
     return CreateQuantizedIndexComponents<DataType, Metric, false, StorageType>(allocator, dim,
                                                                                 mean_ptr);
@@ -111,6 +127,14 @@ CreateSQ8IndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size
                          const float *mean_ptr) {
     return CreateQuantizedIndexComponents<DataType, Metric, vecsim_types::sq8>(allocator, dim,
                                                                                mean_ptr);
+}
+
+// Cosine storage and query inputs must already be normalized by the caller.
+template <VecSimMetric Metric>
+IndexComponents<double, double>
+CreateSQ8FP64IndexComponents(const std::shared_ptr<VecSimAllocator> &allocator, size_t dim) {
+    return CreateQuantizedIndexComponents<double, Metric, false, vecsim_types::sq8_fp64>(
+        allocator, dim, nullptr);
 }
 
 template <typename DataType, typename DistType>

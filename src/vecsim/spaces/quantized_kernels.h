@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include "vecsim/utils/alignment.h"
 #include "vecsim/spaces/quantized_distance_helpers.h"
 
@@ -18,11 +19,12 @@
 //
 // Scalar kernels for scalar quantized storage, generic over a StorageType that provides
 // get_code(data, i), data_bytes_count(dim) and the MIN_VAL / DELTA / SUM / SUM_SQUARES metadata
-// indices (stored after the codes) and SUM_QUERY (stored after the FP32 query values).
-// It also provides the code dot hooks code_dot(a, b, dim) and code_dot_fp32(codes, y, dim).
+// indices (stored after the codes) and SUM_QUERY (stored after the query values).
+// StoredQueryL2 also requires metadata_type, matching the query value type.
+// The float IP helpers use code_dot(a, b, dim) and code_dot_fp32(codes, y, dim).
 //
 // Stored layout: [codes (data_bytes_count(dim) bytes)] [min_val] [delta] [sum] [sum_squares (L2)]
-// FP32 query layout: [float values (dim)] [y_sum] [y_sum_squares (L2 only)]
+// Query layout: [values (dim)] [y_sum] [y_sum_squares (L2 only)]
 // SQ4 L2 uses only the query body; its two trailing FP32 slots are reserved and zero-initialized.
 //
 // The operand order in these bodies is load-bearing and relies on FP addition not being
@@ -58,7 +60,7 @@ static inline float FP32_InnerProduct_Impl(const void *stored, const void *query
 }
 
 /*
- * Asymmetric stored-FP32 L2 squared distance, accumulated directly per component:
+ * Asymmetric stored-query L2 squared distance, accumulated directly per component:
  *   ||x - y||^2 = sum((dequant(x_i) - y_i)^2), where dequant(x_i) = min_val + delta * q_i
  *
  * Accumulating residuals keeps each component's rounding at the scale of |x_i - y_i|. Expanding
@@ -66,27 +68,32 @@ static inline float FP32_InnerProduct_Impl(const void *stored, const void *query
  * distance when x and y share a large common offset relative to their spread.
  */
 template <typename StorageType>
-static inline float FP32_L2Sqr(const void *stored, const void *query, size_t dim) {
-    // Storage metadata follows a byte payload and is not necessarily float-aligned.
-    const auto *pVect1 = static_cast<const uint8_t *>(stored);
-    const auto *pVect2 = static_cast<const float *>(query);
+static inline typename StorageType::metadata_type StoredQueryL2(const void *stored,
+                                                                const void *query, size_t dim) {
+    using Real = typename StorageType::metadata_type;
+    // Storage metadata follows a byte payload and is not necessarily aligned.
+    const auto *const pVect1 = static_cast<const uint8_t *>(stored);
+    const auto *const pVect2 = static_cast<const uint8_t *>(query);
 
-    const auto *params1 = pVect1 + StorageType::data_bytes_count(dim);
-    const float min_val = load_unaligned<float>(params1 + StorageType::MIN_VAL * sizeof(float));
-    const float delta = load_unaligned<float>(params1 + StorageType::DELTA * sizeof(float));
+    const auto *const params1 = pVect1 + StorageType::data_bytes_count(dim);
+    const Real min_val = load_unaligned<Real>(params1 + StorageType::MIN_VAL * sizeof(Real));
+    const Real delta = load_unaligned<Real>(params1 + StorageType::DELTA * sizeof(Real));
 
-    float res = 0;
+    Real res = 0;
     for (size_t i = 0; i < dim; i++) {
-        // Order matters. When the stored range sits far from zero, min_val and y_i are within a
-        // factor of two of each other, so min_val - y_i is exact (Sterbenz) and rounding happens
-        // only at the scale of the residual. Forming (min_val + delta*q_i) first would round at
-        // the scale of min_val and wipe out small residuals. When min_val and y_i are not close,
-        // the residual is large and either order is fine.
-        float diff =
-            delta * static_cast<float>(StorageType::get_code(pVect1, i)) + (min_val - pVect2[i]);
+        // Subtract min and query first to preserve small residuals with a large common offset.
+        const Real query_value = load_unaligned<Real>(pVect2 + i * sizeof(Real));
+        const Real diff =
+            delta * static_cast<Real>(StorageType::get_code(pVect1, i)) + (min_val - query_value);
         res += diff * diff;
     }
     return res;
+}
+
+template <typename StorageType>
+static inline float FP32_L2Sqr(const void *stored, const void *query, size_t dim) {
+    static_assert(std::is_same_v<typename StorageType::metadata_type, float>);
+    return StoredQueryL2<StorageType>(stored, query, dim);
 }
 
 /*
