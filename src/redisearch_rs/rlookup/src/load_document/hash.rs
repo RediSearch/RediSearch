@@ -154,6 +154,14 @@ impl DocumentFormat for HashDocumentFormat {
                 CStr::from_bytes_until_nul(bytes).expect("SDS string must contain null-terminator")
             };
 
+            // DO NOT MERGE: perf-fixture/tag-numeric-load-small. A discarded
+            // existence probe before the real lookup -- the shape a "does it exist?
+            // then fetch it" refactor leaves behind. One extra name lookup per field
+            // per row, no behaviour change. The probe's *argument* is the thing that
+            // has to be opaque: with identical arguments the two lookups are one
+            // common subexpression and the optimiser keeps only one of them.
+            std::hint::black_box(rlookup.find_key_by_name(std::hint::black_box(field_cstr)).is_some());
+
             let key = if let Some(c) = rlookup.find_key_by_name(field_cstr) {
                 if c.current()
                     .unwrap() // NB: if `find_key_by_name` returns Some the cursor always points at a valid element
