@@ -123,9 +123,7 @@ impl SpecLockAccess for IndexSpecWeakRef {
         &mut self,
         scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T,
     ) -> Result<T, GcError> {
-        let spec_ref = self.promote().ok_or(GcError::SpecDeleted)?;
-        let lock = spec_ref.read();
-        Ok(scan(&lock.guard()))
+        self.with_read_lock(scan).ok_or(GcError::SpecDeleted)
     }
 }
 

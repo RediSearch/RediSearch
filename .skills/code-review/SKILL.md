@@ -131,6 +131,10 @@ Run every check below on the changed C code. For each violation found, record:
 - Error messages passed to `RedisModule_ReplyWithError` are descriptive.
 - No silent failures (errors are either propagated or logged).
 
+When reviewing VecSim query-parameter errors, also follow
+[/vecsim-error-messages](../vecsim-error-messages/SKILL.md) for message lifetime
+and the Search user-data/obfuscation boundary.
+
 #### 2e. Serialization and RDB compatibility
 
 Only applies when changes touch `src/rdb.c` or serialization logic:

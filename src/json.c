@@ -19,7 +19,7 @@
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "inverted_index.h"
 #include "query_error_ffi.h"
 #include "rlookup_ffi.h"

@@ -29,8 +29,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_common.h"
 #include "field_spec.h"
 #include "gc/gc.h"
 #include "geometry/geometry_types.h"
@@ -343,7 +343,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   if (isDisk) {
-    TextResourceMetrics text = SearchDisk_ReadCachedIndexMetrics(sp->diskSpec, text_overhead).text;
+    TextResourceMetrics text = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec).text;
     REPLY_KVMAP("column_families");
     REPLY_KVMAP("text");
     REPLY_KVINT("ram_metadata_bytes", text_overhead);

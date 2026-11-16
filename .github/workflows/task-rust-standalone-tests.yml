@@ -138,7 +138,9 @@ jobs:
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
         env:
           SETUP_SCRIPT: ${{ needs.get-config.outputs.setup_script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: eval "$SETUP_SCRIPT"
 
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
@@ -196,7 +198,9 @@ jobs:
       # provides.
       - name: Install valgrind
         if: inputs.tool == 'valgrind'
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq valgrind') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq valgrind
 
       - name: Set log artifact name
         if: inputs.tool == 'miri'

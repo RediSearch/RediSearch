@@ -11,7 +11,7 @@
 
 #include "redisearch.h"
 #include "query_error_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
