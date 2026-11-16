@@ -62,7 +62,7 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "geometry_index.h"
 #include "json.h"
@@ -2700,6 +2700,10 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
     sp->gc = GCContext_CreateGC(global, gcPolicy);
     GCContext_Start(sp->gc);
+    if (gcPolicy == GCPolicy_Disk) {
+      // The disk GC does not collect from the deleted set either.
+      DocTable_StopTrackingDeleted(&sp->docs);
+    }
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);

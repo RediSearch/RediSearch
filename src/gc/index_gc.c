@@ -43,6 +43,30 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   }
 }
 
+static size_t runIntervalSec(void) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
+}
+
+// Whether a scheduled cycle should wait for more deletions; under THREAD the wait grows with the
+// index. The absolute threshold is checked first, so an idle index never takes the lock.
+static bool belowCleanThreshold(IndexSpec *sp, size_t deleted) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  if (!threadPolicyEnabled()) {
+    return deleted < settings->forkGcCleanThreshold;
+  }
+  const size_t ppm = settings->gcCleanRatioPpm;
+  if (deleted < settings->threadGcCleanThreshold || !ppm) {
+    return deleted < settings->threadGcCleanThreshold;
+  }
+  IndexSpec_LockRead(sp);
+  const size_t docs = sp->stats.scoring.numDocuments;
+  IndexSpec_Unlock(sp);
+  // Split so the product cannot overflow.
+  const size_t scale = GC_CLEAN_RATIO_PPM_SCALE;
+  return deleted < docs / scale * ppm + docs % scale * ppm / scale;
+}
+
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return true,
@@ -62,7 +86,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun)) {
     // Nothing is left to retry: without this, a threshold raised after a failed fork would
     // keep the index on the retry interval until enough changes accumulate.
     gc->schedState = INDEX_GC_SCHED_OK;
@@ -132,13 +156,12 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 
 static GCTimerPlan nextTimerCb(void *ctx) {
   const IndexGC *gc = ctx;
-  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
   if (gc->schedState == INDEX_GC_SCHED_FORK_FAILED) {
-    return (GCTimerPlan){.kind = GC_TIMER_RETRY,
-                         .intervalMs = GC_IntervalSecToMs(settings->forkGcRetryInterval)};
+    const size_t retrySec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
+    return (GCTimerPlan){.kind = GC_TIMER_RETRY, .intervalMs = GC_IntervalSecToMs(retrySec)};
   }
   return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL,
-                       .intervalMs = GC_IntervalSecToMs(settings->forkGcRunIntervalSec)};
+                       .intervalMs = GC_IntervalSecToMs(runIntervalSec())};
 }
 
 static bool indexExistsCb(void *ctx) {
