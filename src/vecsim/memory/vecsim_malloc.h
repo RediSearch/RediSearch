@@ -71,8 +71,8 @@ public:
     static size_t getAllocationOverheadSize() { return allocation_header_size; }
 
 private:
-    // Retrieve the original requested allocation size. Required for remalloc.
-    inline size_t getPointerAllocationSize(void *p) { return *(((size_t *)p) - 1); }
+    // Retrieve the available bytes after p. Required for remalloc.
+    size_t getPointerAllocationSize(void *p);
 
     struct Deleter {
         VecSimAllocator &allocator;
