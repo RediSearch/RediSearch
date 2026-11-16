@@ -224,6 +224,38 @@ TEST(SQ8FP64Components, SymmetricL2PreservesDistinctSmallResiduals) {
     EXPECT_EQ(spaces::L2_SQ8FP64(right.data(), left.data(), dim), 30.0 / 1048576.0);
 }
 
+TEST(SQ8FP64Components, SymmetricL2PreservesTinyRangeAgainstConstant) {
+    const auto allocator = VecSimAllocator::newVecsimAllocator();
+    const auto components = CreateSQ8FP64IndexComponents<VecSimMetric_L2>(allocator, 2);
+    const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
+    const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
+    for (double origin : {0.0, 1.0}) {
+        const double variable[] = {origin, origin + 0x1p-47};
+        const double constant[] = {origin, origin};
+        const auto left = preprocessors->preprocessForStorage(variable, sizeof(variable));
+        const auto right = preprocessors->preprocessForStorage(constant, sizeof(constant));
+        EXPECT_EQ(calculator->calcDistance(left.get(), right.get(), 2), 0x1p-94);
+        EXPECT_EQ(calculator->calcDistance(right.get(), left.get(), 2), 0x1p-94);
+        EXPECT_EQ(calculator->calcDistance(left.get(), left.get(), 2), 0.0);
+        EXPECT_EQ(calculator->calcDistance(right.get(), right.get(), 2), 0.0);
+    }
+}
+
+TEST(SQ8FP64Components, SymmetricL2PreservesCloseLargeDeltas) {
+    constexpr size_t dim = 3;
+    std::vector<uint8_t> left(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
+    std::vector<uint8_t> right(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
+    const uint8_t codes[] = {0, 3, 255};
+    const double left_metadata[] = {0.0, 1e15 + 0.125};
+    const double right_metadata[] = {0.0, 1e15 + 0.25};
+    std::memcpy(left.data(), codes, sizeof(codes));
+    std::memcpy(right.data(), codes, sizeof(codes));
+    std::memcpy(left.data() + dim, left_metadata, sizeof(left_metadata));
+    std::memcpy(right.data() + dim, right_metadata, sizeof(right_metadata));
+    EXPECT_EQ(spaces::L2_SQ8FP64(left.data(), right.data(), dim), 32517.0 / 32.0);
+    EXPECT_EQ(spaces::L2_SQ8FP64(right.data(), left.data(), dim), 32517.0 / 32.0);
+}
+
 TEST(SQ8FP64Components, TinyDeltaUsesDirectDivision) {
     const auto allocator = VecSimAllocator::newVecsimAllocator();
     SQ8FP64Preprocessor<VecSimMetric_L2> preprocessor(allocator, 3);

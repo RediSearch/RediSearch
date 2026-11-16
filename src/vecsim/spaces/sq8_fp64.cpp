@@ -20,12 +20,16 @@ double metadata(const void *blob, size_t dim, size_t index) {
 }
 
 double storedL2(const void *left, const void *right, size_t dim) {
-    const auto *const a = static_cast<const uint8_t *>(left);
-    const auto *const b = static_cast<const uint8_t *>(right);
-    const double min_a = metadata(left, dim, vecsim_types::sq8_fp64::MIN_VAL);
-    const double delta_a = metadata(left, dim, vecsim_types::sq8_fp64::DELTA);
-    const double min_b = metadata(right, dim, vecsim_types::sq8_fp64::MIN_VAL);
-    const double delta_b = metadata(right, dim, vecsim_types::sq8_fp64::DELTA);
+    const double left_delta = metadata(left, dim, vecsim_types::sq8_fp64::DELTA);
+    const double right_delta = metadata(right, dim, vecsim_types::sq8_fp64::DELTA);
+    // Put the larger delta first so a constant vector's delta cannot erase a smaller step.
+    const bool reverse = left_delta < right_delta;
+    const auto *const a = static_cast<const uint8_t *>(reverse ? right : left);
+    const auto *const b = static_cast<const uint8_t *>(reverse ? left : right);
+    const double min_a = metadata(a, dim, vecsim_types::sq8_fp64::MIN_VAL);
+    const double delta_a = reverse ? right_delta : left_delta;
+    const double min_b = metadata(b, dim, vecsim_types::sq8_fp64::MIN_VAL);
+    const double delta_b = reverse ? left_delta : right_delta;
     double result = 0.0;
     for (size_t i = 0; i < dim; ++i) {
         const double residual =
