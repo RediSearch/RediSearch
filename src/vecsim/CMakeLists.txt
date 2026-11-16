@@ -26,7 +26,8 @@ if(USE_COVERAGE)
 		message(FATAL_ERROR "Build type must be DEBUG for coverage")
 	endif()
 
-	set(COV_CXX_FLAGS "-coverage")
+	# sccache recognizes --coverage and caches the .gcno alongside each object file.
+	set(COV_CXX_FLAGS "--coverage")
 endif()
 
 include(cmake/san.cmake)
