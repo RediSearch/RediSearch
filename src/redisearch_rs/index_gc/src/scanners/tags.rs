@@ -354,16 +354,16 @@ pub fn apply_tag_entry_with(
     let fs = guard
         .field_specs_mut()
         .get_mut(usize::from(entry.field_index))
-        .ok_or(GcError::ApplyError(
+        .ok_or(GcError::TargetGone(
             "the spec has no field at the scanned position",
         ))?;
 
-    let tag_index = fetch_tag_index_mut(fs).ok_or(GcError::ApplyError(
+    let tag_index = fetch_tag_index_mut(fs).ok_or(GcError::TargetGone(
         "the field no longer has an in-memory tag index",
     ))?;
 
     if tag_index.uniqueId != entry.tag_index_unique_id {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the field's tag index is not the one the child scanned",
         ));
     }
@@ -372,7 +372,7 @@ pub fn apply_tag_entry_with(
     // SAFETY: the tag index owns this trie, and the write guard keeps it live
     // and excludes concurrent changes throughout lookup and application.
     let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
-    let ii = values.find(&entry.tag).ok_or(GcError::ApplyError(
+    let ii = values.find(&entry.tag).ok_or(GcError::TargetGone(
         "the tag was removed before the delta could be applied",
     ))?;
 
@@ -381,7 +381,7 @@ pub fn apply_tag_entry_with(
     let ii = unsafe { &mut *ii.cast::<InvertedIndex>().as_ptr() };
 
     if u32::from(ii.unique_id()) != entry.inverted_index_unique_id {
-        return Err(GcError::ApplyError(
+        return Err(GcError::TargetGone(
             "the tag's posting list is not the one the child scanned",
         ));
     }

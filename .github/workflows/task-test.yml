@@ -183,7 +183,9 @@ jobs:
 
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: ${{ needs.get-config.outputs.setup_script }}
 
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script

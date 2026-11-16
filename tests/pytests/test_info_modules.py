@@ -651,7 +651,7 @@ def test_counting_queries_BG():
 @skip(cluster=True)
 def test_redis_info_modules_vecsim():
   env = Env(moduleArgs='WORKERS 2')
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  set_thread_gc_config(env, clean_threshold='0')
   set_doc = lambda key: env.expect('HSET', key, 'vec', '????')
 
   env.expect('FT.CREATE', 'idx1', 'PREFIX', '1', 'doc:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT16', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -714,8 +714,8 @@ def test_indexes_logically_deleted_docs(env):
 
   # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run interval
   # is > 8h (5 minutes is the hard limit for a test).
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  set_thread_gc_config(env, clean_threshold='0')
+  set_thread_gc_config(env, run_interval='30000')
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
   get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
 

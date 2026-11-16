@@ -357,12 +357,14 @@ fn adding_ii_blocks_growth_strategy() {
         last_block_num_entries: 1,
         deltas: vec![
             BlockGcScanResult {
+                span: 1,
                 index: 0,
                 repair: RepairType::Delete {
                     n_unique_docs_removed: 1,
                 },
             },
             BlockGcScanResult {
+                span: 1,
                 index: 1,
                 repair: RepairType::Delete {
                     n_unique_docs_removed: 1,

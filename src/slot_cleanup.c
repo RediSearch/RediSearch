@@ -67,9 +67,10 @@ void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
     // Only the ids are collected here, so the disk path reads each length from its row.
     deleted += IndexSpec_DeleteDocById_Unsafe(spec, docIds[i], DOCID_META_DOCLEN_UNKNOWN);
   }
+  // Before unlocking: a thread GC cycle takes the count under the lock it copies the deleted IDs in.
+  IndexSpec_DeferGCDeletes(spec, deleted);
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
-  IndexSpec_DeferGCDeletes(spec, deleted);
 }
 
 // Runs one chunk; returns whether the cleanup is complete.

@@ -89,13 +89,13 @@ impl NumericTreeId {
         let fs = guard
             .field_specs_mut()
             .get_mut(field_index)
-            .ok_or(GcError::ApplyError(
+            .ok_or(GcError::TargetGone(
                 "no field in the spec is at the scanned field index",
             ))?;
 
         let tree = fs
             .tree()
-            .ok_or(GcError::ApplyError("the field has no numeric tree"))?;
+            .ok_or(GcError::TargetGone("the field has no numeric tree"))?;
 
         let id = Self {
             field_index,
@@ -121,7 +121,7 @@ impl NumericTreeId {
             .field_specs_mut()
             .get_mut(self.field_index)
             .and_then(|fs| fs.tree_mut())
-            .ok_or(GcError::ApplyError(
+            .ok_or(GcError::TargetGone(
                 "the numeric tree was dropped while its deltas were being applied",
             ))?;
         self.check(tree)?;
@@ -130,7 +130,7 @@ impl NumericTreeId {
 
     fn check(&self, tree: &NumericRangeTree) -> Result<(), GcError> {
         if u32::from(tree.unique_id()) != self.unique_id {
-            return Err(GcError::ApplyError(
+            return Err(GcError::TargetGone(
                 "the field's numeric tree is not the one the child scanned",
             ));
         }
@@ -179,8 +179,7 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
 }
 
 /// The doc IDs spanned by the ranges of the nodes `key`'s tree gained since `key`
-/// listed its nodes, when its structure changed since. `listed` is scratch space,
-/// filled only then.
+/// listed its nodes, when its structure changed since.
 ///
 /// A leaf that splits copies every entry of its range into two new leaves, so a
 /// cycle that cleans the listed nodes leaves those copies, dead entries included,
@@ -190,7 +189,6 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
 pub fn ranges_of_nodes_added_since(
     spec: &IndexSpecReadGuard,
     key: &NumericTreeKey,
-    listed: &mut HashSet<NodeIndex>,
 ) -> Vec<RangeInclusive<DocId>> {
     let Some(tree) = key.id.tree(spec) else {
         return Vec::new();
@@ -198,8 +196,7 @@ pub fn ranges_of_nodes_added_since(
     if tree.revision_id() == key.revision_id {
         return Vec::new();
     }
-    listed.clear();
-    listed.extend(key.nodes.iter().copied());
+    let listed: HashSet<NodeIndex> = key.nodes.iter().copied().collect();
     tree.indexed_post_order_iter()
         .filter(|(node_idx, _)| !listed.contains(node_idx))
         .filter_map(|(_, node)| node.range()?.entries().doc_id_range())
