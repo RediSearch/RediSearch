@@ -717,11 +717,11 @@ void HNSWIndex<DataType, DistType>::emplaceToHeap(
 //
 // The search is bound by memory latency rather than by distance computation. Each batch of links
 // is first filtered against the visited tags, so no memory traffic is spent on the vectors of
-// neighbors that will be skipped, and then every cache line of each surviving candidate's vector
-// is prefetched VECTOR_PREFETCH_AHEAD candidates before its distance is computed. Prefetching only
-// the first line of the next vector, as before, leaves the rest of the vector to be loaded on
-// demand. On Arm Neoverse-V2 a lookahead of 4 was fastest among 1, 2, 4, 8 and 16; on x86 a
-// lookahead of 1 gained nothing, while 4 did.
+// neighbors that will be skipped, and then each surviving candidate's vector is prefetched
+// VECTOR_PREFETCH_AHEAD candidates before its distance is computed. A vector of up to
+// WHOLE_VECTOR_PREFETCH_MAX_LINES cache lines (e.g. SQ8 at dim 768) is prefetched whole; of a
+// larger one (e.g. FP32 at dim 768, 48 lines) only the first LARGE_VECTOR_PREFETCH_LINES lines are,
+// since prefetching hundreds of lines ahead saturates the memory system and slowed such queries.
 template <typename DataType, typename DistType>
 template <typename Visitor>
 void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelData &node_level,
@@ -731,21 +731,27 @@ void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelD
     constexpr size_t CACHE_LINE_SIZE = 64;
     constexpr size_t VECTOR_PREFETCH_AHEAD = 4;
     constexpr size_t BATCH_SIZE = 64;
+    constexpr size_t WHOLE_VECTOR_PREFETCH_MAX_LINES = 16;
+    constexpr size_t LARGE_VECTOR_PREFETCH_LINES = 4;
 
     const size_t num_links = node_level.getNumLinks();
     if (num_links == 0) {
         return;
     }
 
-    // Vectors are packed back to back in their block, so a vector need not start on a cache line.
-    // Prefetch every line its bytes touch, from the line holding its first byte to the line
-    // holding its last.
+    // Vectors are packed back to back in their block, so a vector need not start on a cache line:
+    // a whole-vector prefetch covers every line its bytes touch, from the line holding its first
+    // byte to the line holding its last. The loop counts lines rather than comparing addresses;
+    // GCC dropped an address-range form of it when the end was capped at run time.
     const size_t vector_size = this->getStoredDataSize();
-    auto prefetchVector = [vector_size](const char *data) {
-        const uintptr_t first = reinterpret_cast<uintptr_t>(data) & ~(CACHE_LINE_SIZE - 1);
-        const uintptr_t last = reinterpret_cast<uintptr_t>(data) + vector_size - 1;
-        for (uintptr_t line = first; line <= last; line += CACHE_LINE_SIZE) {
-            __builtin_prefetch(reinterpret_cast<const char *>(line));
+    const bool whole = vector_size <= WHOLE_VECTOR_PREFETCH_MAX_LINES * CACHE_LINE_SIZE;
+    auto prefetchVector = [vector_size, whole](const char *data) {
+        const uintptr_t first = reinterpret_cast<uintptr_t>(data) / CACHE_LINE_SIZE;
+        const uintptr_t last =
+            (reinterpret_cast<uintptr_t>(data) + vector_size - 1) / CACHE_LINE_SIZE;
+        const size_t lines = whole ? last - first + 1 : LARGE_VECTOR_PREFETCH_LINES;
+        for (size_t i = 0; i < lines; i++) {
+            __builtin_prefetch(reinterpret_cast<const char *>((first + i) * CACHE_LINE_SIZE));
         }
     };
 
