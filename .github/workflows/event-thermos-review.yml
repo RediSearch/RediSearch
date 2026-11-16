@@ -37,6 +37,13 @@ jobs:
       # review prompt; bump both values together.
       PSTACK_REF: 36f43364d9198e951f2b739bfb007eb747f834b7
       PSTACK_VERSION: 0.9.136
+      # The one model setting. The session runs `--model opus` and pstack's thermos
+      # skill asks for `opus` for both reviewer subagents; this pins what that
+      # alias means for all three. Session init shows it, the result shows usage.
+      ANTHROPIC_DEFAULT_OPUS_MODEL: claude-opus-5-5
+      # A run that would cost more stops with no review posted. The result notice
+      # reports each run's cost; raise this if real reviews approach it.
+      MAX_BUDGET_USD: "25"
     steps:
       # The PR head, not the merge commit: the diff and the review's commit are the
       # head's, so the files Claude reads must have the head's line numbers.
@@ -112,6 +119,13 @@ jobs:
               it yourself instead. Run them in the foreground, not in the background: this
               session ends as soon as you stop, and background agents would be lost.
             - Read files with the Read, Grep and Glob tools; Bash is unavailable.
+            - Before reviewing, read `CLAUDE.md` (its Code Review Rules section) and the
+              `.skills/*/SKILL.md` that match the changed files: `code-review` for C,
+              `rust-review` for Rust, `write-flow-tests` for Python flow tests, and
+              `adversarial-review` for any change. Pass those rules to both reviewer
+              subagents. Where they conflict with the pstack skills' defaults, the repo's
+              rules win; in particular, report only findings with a concrete failure, and
+              do not apply the 1k-line file rule or TypeScript-specific checks.
             - The PR is already fetched; you have no `gh`, cannot write files, and cannot
               post anything. Read `.ci/review/pr.json` (title, description, base),
               `.ci/review/pr.diff`, and the full files in the checkout. Earlier feedback is
@@ -130,8 +144,9 @@ jobs:
                 repeat the inline comments' text in it.
           claude_args: >-
             --plugin-dir .ci/pstack-claude/plugins/pstack
-            --model claude-opus-5-5
+            --model opus
             --max-turns 120
+            --max-budget-usd ${{ env.MAX_BUDGET_USD }}
             --allowedTools "Agent,Read,Grep,Glob"
             --json-schema '{"type":"object","additionalProperties":false,"required":["summary","comments"],"properties":{"summary":{"type":"string"},"comments":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","line","body"],"properties":{"path":{"type":"string"},"line":{"type":"integer","minimum":1},"body":{"type":"string"}}}}}}'
 
@@ -148,7 +163,9 @@ jobs:
           note notice "session init" "$(jq -c '[.[] | select(.type=="system" and .subtype=="init")][0]
             | {model, plugins, thermos: ((.slash_commands // []) | map(select(test("thermos"))))}' "$f")"
           note notice "session result" "$(jq -c '[.[] | select(.type=="result")][-1]
-            | {subtype, is_error, num_turns, duration_ms, permission_denials, result}' "$f")"
+            | {subtype, is_error, num_turns, duration_ms, total_cost_usd,
+               cost_by_model: ((.modelUsage // {}) | map_values(.costUSD)),
+               permission_denials, result}' "$f")"
           errors=$(jq -c '[.[] | select(.type=="user") | .message.content[]?
             | select(.type=="tool_result" and .is_error==true) | .content] | .[:8]' "$f")
           [ "$errors" = "[]" ] || note warning "tool errors" "$errors"
