@@ -2944,11 +2944,20 @@ def test_vector_only_update_no_reindex():
         f'*=>[KNN 1 @vector $blob EF_RUNTIME {ef_runtime} AS distance]',
         'PARAMS', '2', 'blob', vectors[0],
         'SORTBY', 'distance', 'ASC', 'NOCONTENT', 'DIALECT', '2')
+    if res != [1, expected_nearest]:
+        print('VECTOR_UPDATE_MISMATCH', res, expected_nearest, flush=True)
+        print('TARGET_HASH_MATCHES', conn.execute_command('HGET', expected_nearest, 'vector') == vectors[0], flush=True)
+        print('BACKEND', get_tiered_backend_debug_info(env, 'idx', 'vector'), flush=True)
+        print('FRONTEND', get_tiered_frontend_debug_info(env, 'idx', 'vector'), flush=True)
+        print('ADHOC', env.cmd('FT.SEARCH', 'idx', '@price:[100 100]=>[KNN 1 @vector $blob HYBRID_POLICY ADHOC_BF AS distance]', 'PARAMS', 2, 'blob', vectors[0], 'SORTBY', 'distance', 'RETURN', 1, 'distance', 'DIALECT', 2), flush=True)
+        env.cmd(debug_cmd(), 'WORKERS', 'DRAIN')
+        print('AFTER_DRAIN', env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @vector $blob EF_RUNTIME 400 AS distance]', 'PARAMS', 2, 'blob', vectors[0], 'SORTBY', 'distance', 'RETURN', 1, 'distance', 'DIALECT', 2), flush=True)
     env.assertEqual(res, [1, expected_nearest])
 
     res = env.cmd('FT.SEARCH', 'idx', f'@price:[{price} {price}]',
                   'LIMIT', '0', '0', 'NOCONTENT')
     env.assertEqual(res, [num_docs])
+
 
 
 @skip(cluster=True)
@@ -3097,3 +3106,123 @@ def testVectorDimensionSizeOverflow(env):
     env.expect('FT.CREATE', 'valid', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
                'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'COSINE').ok()
     env.expect('FT.SEARCH', 'valid', '*').equal([0])
+
+
+def test_vector_only_update_diagnostic_00():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_01():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_02():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_03():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_04():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_05():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_06():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_07():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_08():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_09():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_10():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_11():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_12():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_13():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_14():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_15():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_16():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_17():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_18():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_19():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_20():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_21():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_22():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_23():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_24():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_25():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_26():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_27():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_28():
+    test_vector_only_update_no_reindex()
+
+
+def test_vector_only_update_diagnostic_29():
+    test_vector_only_update_no_reindex()
