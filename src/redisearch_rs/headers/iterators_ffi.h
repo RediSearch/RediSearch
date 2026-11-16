@@ -12,7 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "field.h"
 #include "query_types.h"
 #include "rqe_core.h"

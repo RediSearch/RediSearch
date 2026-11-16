@@ -86,7 +86,7 @@
 #include "aggregate/reply_empty.h"
 #include "module_init_ffi.h"
 #include "asm_state_machine.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/functions/function.h"
 #include "concurrent_ctx.h"
 #include "doc_table.h"
