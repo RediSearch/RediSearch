@@ -525,6 +525,34 @@ def testDumpDeletedIdsListsWhatTheNextCycleCollects():
 
 
 @skip(cluster=True)
+def testThreadGCRearmReadsIntervalChangedWhileRearmIsPending():
+    """The scheduler reads the run interval when it re-arms, under THREAD as under FORK. A
+    THREAD cycle used to set the interval its re-arm would use, so a change landing between
+    the cycle and its re-arm waited out the old period first."""
+    env = thread_gc_env(run_interval=1000)
+    skipIfNoEnableAssert(env)
+    rearm = 'GCBeforeRearmPost'  # SYNC_POINT_GC_BEFORE_REARM_POST, src/debug_commands.h
+    cycles = lambda: int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles'])
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    # STOP disarms the creation timer; CONTINUE queues a scheduled cycle at once.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', rearm, 10000).ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    wait_for_condition(lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', rearm) == 1, {}),
+                       'the thread GC cycle never parked before its re-arm')
+    parked = cycles()  # the parked cycle is already counted
+
+    env.expect('CONFIG', 'SET', 'search-thread-gc-run-interval', 1).ok()
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', rearm)
+        wait_for_condition(lambda: (cycles() >= parked + 2, {'cycles': cycles()}),
+                           'the re-arm kept the old run interval', timeout=30)
+    finally:
+        env.expect('CONFIG', 'SET', 'search-thread-gc-run-interval', 1000).ok()
+
+
+@skip(cluster=True)
 def testThreadGCSettingsBounds():
     """search-gc-threads is a CONFIG-only setting, changeable at runtime, between 1 and 64."""
     env = Env(moduleArgs='GC_POLICY THREAD', freshEnv=True)

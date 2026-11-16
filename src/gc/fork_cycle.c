@@ -178,7 +178,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
-    gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval);
+    if (!forced) {
+      gc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+    }
     IndexSpecRef_Release(early_check);
 
     GilGate_Unlock(&gcGilGate_g, ctx);
@@ -193,7 +195,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
   // the child cleans. Updates can still be counted from the reindexing pool, hence one exchange.
   size_t num_docs_to_clean = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
 
-  gc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+  if (!forced) {
+    gc->schedState = INDEX_GC_SCHED_OK;
+  }
 
   GilGate_Unlock(&gcGilGate_g, ctx);
 

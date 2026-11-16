@@ -970,6 +970,34 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   ASSERT_EQ(0, pruned);
 }
 
+// A THREAD cycle never forks, so whatever it does leaves nothing to retry -- but only a scheduled
+// cycle says so; a forced one is its caller's, as under FORK.
+TEST_F(ThreadGCTest, testScheduledCycleClearsAFailedFork) {
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+
+  // A skipped cycle clears the state too, so only a cycle that runs tests the THREAD path.
+  size_t &threshold = RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold;
+  const size_t savedThreshold = threshold;
+  threshold = 0;
+  const bool rescheduled = IndexGC_RunCycle(fgc, nullptr, nullptr);
+  threshold = savedThreshold;
+  ASSERT_TRUE(rescheduled);
+  ASSERT_EQ(fgc->stats.numCycles, (size_t)1);
+  EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_OK);
+}
+
+TEST_F(ThreadGCTest, testForcedCycleLeavesTheSchedulingState) {
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+
+  runGC();
+  ASSERT_EQ(fgc->stats.numCycles, (size_t)1);
+  EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_FORK_FAILED);
+}
+
 // A GC step asks this before arming the next one, so a dropped index is collected at once.
 TEST_F(IndexGCTest, testIndexExistsTracksTheSpec) {
   GCContext *gc = get_spec(ism)->gc;
@@ -1026,8 +1054,8 @@ TEST(ModuleTimerTest, testDelayToDeadline) {
 }
 
 /**
- * Timer arming in steps. A hand-built GCContext with a fake GC behind its callbacks and fake
- * timers, so each scheduling state is set up directly rather than raced.
+ * Timer arming and interval restarts. A hand-built GCContext with a fake GC behind its
+ * callbacks and fake timers, so each scheduling state is set up directly rather than raced.
  */
 
 namespace {
@@ -1038,7 +1066,7 @@ struct FakeGCTimers {
   static inline RedisModuleTimerProc lastProc = nullptr;
   static inline void *lastData = nullptr;
   static inline uint64_t nowMs = 0;
-  static inline long long intervalMs;  // what the fake GC asks for next
+  static inline GCTimerPlan plan;  // what the fake GC asks for next
   static inline bool indexExists = true;
   static inline std::atomic<bool> terminated{false};
 
@@ -1061,8 +1089,8 @@ struct FakeGCTimers {
     stopped.push_back(id);
     return REDISMODULE_OK;
   }
-  static long long GetIntervalMs(void *) {
-    return intervalMs;
+  static GCTimerPlan NextTimer(void *) {
+    return plan;
   }
   static bool IndexExists(void *) {
     return indexExists;
@@ -1093,14 +1121,14 @@ class GCSchedulerTest : public ::testing::Test {
     FakeGCTimers::lastId = 0;
     FakeGCTimers::nowMs = 1000;
     GC_NowMs = FakeGCTimers::Now;
-    FakeGCTimers::intervalMs = 1000000;
+    FakeGCTimers::plan = {GC_TIMER_RUN_INTERVAL, 1000000};
     FakeGCTimers::indexExists = true;
     FakeGCTimers::terminated = false;
     // Installing a timer API also turns RS_IsMock off for the scheduler, which is what lets
     // it arm at all.
     RedisModule_CreateTimer = FakeGCTimers::Create;
     RedisModule_StopTimer = FakeGCTimers::Stop;
-    gc.callbacks.getIntervalMs = FakeGCTimers::GetIntervalMs;
+    gc.callbacks.nextTimer = FakeGCTimers::NextTimer;
     gc.callbacks.indexExists = FakeGCTimers::IndexExists;
   }
 
@@ -1109,13 +1137,101 @@ class GCSchedulerTest : public ::testing::Test {
     RedisModule_StopTimer = savedStopTimer;
     GC_NowMs = savedNowMs;
   }
+
+  void expectArmedWith(GCTimerKind kind, long long intervalMs) {
+    ASSERT_NE(gc.timerID, 0);
+    EXPECT_EQ(gc.timerID, FakeGCTimers::lastId);
+    EXPECT_EQ(gc.armedPlan.kind, kind);
+    EXPECT_EQ(gc.armedPlan.intervalMs, intervalMs);
+    const mstime_t delay = FakeGCTimers::armed.back();
+    EXPECT_GE(delay, intervalMs);
+    EXPECT_LT(delay, intervalMs * 2);
+  }
 };
+
+TEST_F(GCSchedulerTest, testArmRecordsThePlan) {
+  GCContext_Start(&gc);
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+  expectArmedWith(GC_TIMER_RUN_INTERVAL, 1000000);
+}
+
+// The CONFIG SET scenario: the effective interval changes after the arm with no call, and the
+// later call must still see that the timer is armed with something else.
+TEST_F(GCSchedulerTest, testRestartsWhenTheIntervalDiffersFromTheArmedOne) {
+  GCContext_Start(&gc);
+  const RedisModuleTimerID first = gc.timerID;
+  FakeGCTimers::plan.intervalMs = 10000;
+
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_EQ(FakeGCTimers::stopped, std::vector<RedisModuleTimerID>{first});
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  expectArmedWith(GC_TIMER_RUN_INTERVAL, 10000);
+}
+
+// Repeated calls with the same value must not keep pushing the run back.
+TEST_F(GCSchedulerTest, testNoRestartWhenTheIntervalMatchesTheArmedOne) {
+  GCContext_Start(&gc);
+  GCContext_OnIntervalChanged(&gc);
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_TRUE(FakeGCTimers::stopped.empty());
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+
+  // Nor a repeat of the value a restart just armed.
+  FakeGCTimers::plan.intervalMs = 10000;
+  GCContext_OnIntervalChanged(&gc);
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_EQ(FakeGCTimers::stopped.size(), (size_t)1);
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+}
+
+TEST_F(GCSchedulerTest, testNoOpWithoutAGCContext) {
+  GCContext_OnIntervalChanged(nullptr);  // an index created with NOGC
+  EXPECT_TRUE(FakeGCTimers::armed.empty());
+}
+
+TEST_F(GCSchedulerTest, testNoOpWithNoTimer) {
+  FakeGCTimers::plan.intervalMs = 10000;
+  GCContext_OnIntervalChanged(&gc);  // never started
+  EXPECT_TRUE(FakeGCTimers::armed.empty());
+  EXPECT_EQ(gc.timerID, 0);
+}
+
+TEST_F(GCSchedulerTest, testNoOpWhenStopped) {
+  GCContext_Start(&gc);
+  GCContext_StopFutureRuns(&gc);
+  FakeGCTimers::plan.intervalMs = 10000;
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+  EXPECT_EQ(gc.timerID, 0);
+}
+
+TEST_F(GCSchedulerTest, testNoOpWhilePausedAndResumeArmsTheNewInterval) {
+  GCContext_Start(&gc);
+  GCContext_PauseScheduling(&gc);
+  FakeGCTimers::plan.intervalMs = 10000;
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+  EXPECT_EQ(gc.timerID, 0);
+
+  GCContext_ResumeScheduling(&gc);
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  expectArmedWith(GC_TIMER_RUN_INTERVAL, 10000);
+}
+
+TEST_F(GCSchedulerTest, testNoOpWhileARunIsPending) {
+  // What a fired timer leaves once its run is queued: enabled, no timer, RUN_PENDING held.
+  // That run's re-arm is the one to pick up the new interval; arming here would be a second.
+  gc.enabled = true;
+  RS_AtomicUintFetchOrRelaxed(&gc.schedFlags, GC_SCHED_RUN_PENDING);
+  FakeGCTimers::plan.intervalMs = 10000;
+
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_TRUE(FakeGCTimers::armed.empty());
+  EXPECT_EQ(gc.timerID, 0);
+}
 
 TEST_F(GCSchedulerTest, testShortDelayIsOneTimer) {
   GCContext_Start(&gc);
-  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)1);
-  EXPECT_GE(FakeGCTimers::armed.back(), FakeGCTimers::intervalMs);
-  EXPECT_LT(FakeGCTimers::armed.back(), FakeGCTimers::intervalMs * 2);
   EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);  // its own expiry is the deadline
 }
 
@@ -1123,7 +1239,7 @@ TEST_F(GCSchedulerTest, testShortDelayIsOneTimer) {
 // armed in steps, and the steps add up to the whole interval and jitter.
 TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
   const long long intervalMs = 5000000000LL;  // about 58 days, so at least three steps
-  FakeGCTimers::intervalMs = intervalMs;
+  FakeGCTimers::plan.intervalMs = intervalMs;
   GCContext_Start(&gc);
   ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
 
@@ -1134,6 +1250,7 @@ TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
     FakeGCTimers::Fire();
     ASSERT_NE(gc.timerID, 0);
     EXPECT_FALSE(gcSchedFlags(&gc) & GC_SCHED_RUN_PENDING);
+    EXPECT_EQ(gc.armedPlan.intervalMs, intervalMs);
   }
   ASSERT_GE(FakeGCTimers::armed.size(), (size_t)3);
   EXPECT_LE(FakeGCTimers::armed.back(), RS_MAX_TIMER_DELAY_MS);
@@ -1146,10 +1263,25 @@ TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
   EXPECT_LT(total, intervalMs * 2);
 }
 
+// A step wakes the GC like any timer, so an interval changed since the arm takes over there
+// rather than at a deadline the old interval set -- forever away for the config's maximum.
+TEST_F(GCSchedulerTest, testStepArmsALoweredIntervalAfresh) {
+  FakeGCTimers::plan.intervalMs = GC_IntervalSecToMs((size_t)LLONG_MAX);
+  GCContext_Start(&gc);
+  ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
+  FakeGCTimers::plan.intervalMs = 1000;
+
+  FakeGCTimers::Fire();
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  expectArmedWith(GC_TIMER_RUN_INTERVAL, 1000);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
+  EXPECT_FALSE(gcSchedFlags(&gc) & GC_SCHED_RUN_PENDING);  // a fresh arm, not a run
+}
+
 // A step that fires at or past its deadline, as when the event loop ran late, arms a timer due at
 // once instead of another step; that timer's firing is the run.
 TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
-  FakeGCTimers::intervalMs = 5000000000LL;
+  FakeGCTimers::plan.intervalMs = 5000000000LL;
   GCContext_Start(&gc);
   ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
 
@@ -1167,7 +1299,7 @@ TEST_F(GCSchedulerTest, testStepHandsADroppedIndexToARun) {
   dropped->callbacks = gc.callbacks;
   dropped->callbacks.periodicCallback = FakeGCTimers::DroppedIndexRun;
   dropped->callbacks.onTerm = FakeGCTimers::OnTerm;
-  FakeGCTimers::intervalMs = 5000000000LL;
+  FakeGCTimers::plan.intervalMs = 5000000000LL;
   GCContext_Start(dropped);
   ASSERT_NE(dropped->stepDeadlineMs, (uint64_t)0);
 
@@ -1178,6 +1310,110 @@ TEST_F(GCSchedulerTest, testStepHandsADroppedIndexToARun) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   EXPECT_TRUE(FakeGCTimers::terminated);
+}
+
+// A waiting step is still the run-interval timer the restart is about.
+TEST_F(GCSchedulerTest, testRestartDuringStepsArmsTheNewInterval) {
+  FakeGCTimers::plan.intervalMs = 5000000000LL;
+  GCContext_Start(&gc);
+  FakeGCTimers::Fire();
+  const RedisModuleTimerID step = gc.timerID;
+  FakeGCTimers::plan.intervalMs = 10000;
+
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_EQ(FakeGCTimers::stopped, std::vector<RedisModuleTimerID>{step});
+  expectArmedWith(GC_TIMER_RUN_INTERVAL, 10000);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
+}
+
+TEST_F(GCSchedulerTest, testNoOpOnARetryTimer) {
+  FakeGCTimers::plan = {GC_TIMER_RETRY, 5000};
+  GCContext_Start(&gc);
+  expectArmedWith(GC_TIMER_RETRY, 5000);
+
+  FakeGCTimers::plan = {GC_TIMER_RUN_INTERVAL, 10000};
+  GCContext_OnIntervalChanged(&gc);
+  EXPECT_TRUE(FakeGCTimers::stopped.empty());
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+}
+
+/**
+ * The fork GC's scheduling state, which picks the next timer. Driven through real cycles.
+ */
+
+static GCTimerPlan nextForkGCTimer(RefManager *ism) {
+  GCContext *gc = get_spec(ism)->gc;
+  return gc->callbacks.nextTimer(gc->gcCtx);
+}
+
+TEST_F(IndexGCTestTag, testForcedRunLeavesTheSchedulingState) {
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+
+  runGC();
+  ASSERT_EQ(fgc->stats.numCycles, (size_t)1);  // the fork succeeded
+  EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_FORK_FAILED);
+  EXPECT_EQ(nextForkGCTimer(ism).kind, GC_TIMER_RETRY);
+}
+
+TEST_F(IndexGCTestTag, testForcedFailedForkLeavesTheSchedulingState) {
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  // A budget spent before the run starts: the forced cycle gives up without forking.
+  GCForcedRun forced = GCForcedRun_New(1, GC_FORCED_RUN_RETRY_INTERVAL_MS);
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+  ASSERT_TRUE(IndexGC_RunCycle(fgc, &forced, nullptr));
+  ASSERT_EQ(forced.outcome, GC_FORCED_RUN_NO_FORK);
+  EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_OK);
+  EXPECT_EQ(nextForkGCTimer(ism).kind, GC_TIMER_RUN_INTERVAL);
+}
+
+TEST_F(IndexGCTestTag, testScheduledForkClearsAFailedFork) {
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+
+  ASSERT_TRUE(IndexGC_RunCycle(fgc, nullptr, nullptr));
+  ASSERT_EQ(fgc->stats.numCycles, (size_t)1);
+  EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_OK);
+}
+
+TEST_F(IndexGCTest, testThresholdSkipAfterAFailedForkArmsTheRunInterval) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  GCTimerPlan next = nextForkGCTimer(ism);
+  EXPECT_EQ(next.kind, GC_TIMER_RETRY);
+  EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(settings->forkGcRetryInterval));
+
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 100;
+  const bool rescheduled = IndexGC_RunCycle(fgc, nullptr, nullptr);
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
+  ASSERT_TRUE(rescheduled);
+  ASSERT_EQ(fgc->stats.numCycles, (size_t)0);  // skipped, not forked
+
+  next = nextForkGCTimer(ism);
+  EXPECT_EQ(next.kind, GC_TIMER_RUN_INTERVAL);
+  EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(settings->forkGcRunIntervalSec));
+}
+
+// The interval is read when arming, so a change since the last cycle is what the next timer gets.
+TEST_F(IndexGCTest, testNextTimerReadsTheCurrentInterval) {
+  GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  const size_t savedRun = settings->forkGcRunIntervalSec;
+  const size_t savedRetry = settings->forkGcRetryInterval;
+  settings->forkGcRunIntervalSec = savedRun + 7;
+  settings->forkGcRetryInterval = savedRetry + 3;
+
+  const GCTimerPlan run = nextForkGCTimer(ism);
+  fgc->schedState = INDEX_GC_SCHED_FORK_FAILED;
+  const GCTimerPlan retry = nextForkGCTimer(ism);
+  settings->forkGcRunIntervalSec = savedRun;
+  settings->forkGcRetryInterval = savedRetry;
+
+  EXPECT_EQ(run.intervalMs, GC_IntervalSecToMs(savedRun + 7));
+  EXPECT_EQ(retry.intervalMs, GC_IntervalSecToMs(savedRetry + 3));
 }
 
 // In-memory THREAD cycles fork nothing, so their timers fire on the interval; FORK and disk
