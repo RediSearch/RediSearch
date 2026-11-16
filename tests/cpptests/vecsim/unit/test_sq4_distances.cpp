@@ -23,7 +23,6 @@
 #include "vecsim/spaces/functions/AVX512F_BW_VL_VNNI.h"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -201,7 +200,9 @@ TEST(SQ4Distances, FP32L2PackedPairsPreserveCoordinateOrder) {
                 stored.data()[dim / 2] |= 0xf0;
             }
             const float actual = SQ4_FP32_L2Sqr(stored.data(), query.data(), dim);
-            EXPECT_EQ(std::bit_cast<uint32_t>(actual), std::bit_cast<uint32_t>(expected));
+            // The packed and scalar loops may contract multiply-adds differently on ARM.
+            // Compare at float precision while keeping the residual-scale reference above.
+            EXPECT_FLOAT_EQ(actual, expected);
         }
     }
 }

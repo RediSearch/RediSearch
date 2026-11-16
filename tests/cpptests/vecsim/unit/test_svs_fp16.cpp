@@ -1690,12 +1690,17 @@ TYPED_TEST(FP16SVSTest, scalar_quantization_query) {
     const size_t k = 10;
     const double quant_precision = 1.0 / (1 << 7); // int8 quantization precision
 
-    std::default_random_engine gen;
-    std::uniform_real_distribution<float> dist(-1.0, 1.0);
     std::vector<std::array<float16, dim>> dataset(n);
+    // Separate the nearest k vectors from the rest by more than quantization error.
+    // Random vectors near the kth/radius boundary can legitimately change membership.
+    // The coordinate jitter still exercises lossy scalar quantization.
+    std::mt19937 generator(42);
+    std::uniform_real_distribution<float> jitter(-0.125f, 0.125f);
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < dim; j++) {
-            dataset[i][j] = vecsim_types::FP32_to_FP16(dist(gen));
+            const float center = j % 2 == 0 ? 0.75f : -0.25f;
+            dataset[i][j] =
+                vecsim_types::FP32_to_FP16((i < k ? center : -center) + jitter(generator));
         }
     }
     std::vector<size_t> ids(n);
@@ -1715,7 +1720,7 @@ TYPED_TEST(FP16SVSTest, scalar_quantization_query) {
     };
 
     const std::pair<VecSimMetric, double> metrics[] = {
-        {VecSimMetric_L2, 30.},
+        {VecSimMetric_L2, 10.},
         {VecSimMetric_Cosine, 1.0},
     };
 
@@ -1765,7 +1770,7 @@ TYPED_TEST(FP16SVSTest, scalar_quantization_query) {
 
         // test range search
         fp_results = VecSimIndex_RangeQuery(index_fp, query, radius, nullptr, BY_ID);
-        ASSERT_GT(fp_results->results.size(), 0);
+        ASSERT_EQ(fp_results->results.size(), k);
         runRangeQueryTest(index_sq, query, radius, verify_res, fp_results->results.size(), BY_ID);
         VecSimQueryReply_Free(fp_results);
 
