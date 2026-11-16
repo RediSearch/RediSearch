@@ -1794,7 +1794,8 @@ TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingA
   RedisModule_HashSet(key, REDISMODULE_HASH_CFIELDS, "v", value, nullptr);
   RedisModule_FreeString(nullptr, value);
   RedisModule_CloseKey(key);
-  ASSERT_EQ(DocIdMeta_Set(RSDummyContext, doc.docKey, spec->specId, 42), REDISMODULE_OK);
+  ASSERT_EQ(DocIdMeta_Set(RSDummyContext, doc.docKey, spec->specId, 42, DOCID_META_DOCLEN_UNKNOWN),
+            REDISMODULE_OK);
   QueryError error = QueryError_Default();
   auto *ctx = NewAddDocumentCtx(spec, &doc, &error);
   ASSERT_NE(ctx, nullptr);
@@ -1808,7 +1809,7 @@ TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingA
   search.spec = spec;
   api.docTable.putDocument = [](RedisSearchDiskIndexSpec *, SearchDiskWriteBatchHandle *,
                                 const char *, size_t, float, uint32_t, uint32_t, uint32_t,
-                                uint32_t *oldLen, t_expirationTimePoint, t_docId *oldId) {
+                                uint32_t *oldLen, t_expirationTimePoint, t_docId *oldId, uint32_t) {
     EXPECT_EQ(*oldId, 42u);
     *oldId = 0;
     *oldLen = 0;
