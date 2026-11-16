@@ -12,6 +12,7 @@
 #include <limits.h>
 
 #include "config.h"
+#include "gc.h"
 #include "module.h"
 #include "rdb.h"
 
@@ -22,7 +23,7 @@ void IndexGCSettings_Init(IndexGCSettings *settings) {
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value) {
   switch (id) {
     case INDEX_GC_SETTING_RUN_INTERVAL:
-      return value >= 1 && value <= LLONG_MAX;
+      return value >= 1 && value <= GC_MAX_INTERVAL_SEC;
     case INDEX_GC_SETTING_CLEAN_THRESHOLD:
       return value <= LLONG_MAX;
   }

@@ -2036,7 +2036,7 @@ TEST_F(RdbMockTest, testGCSettingsRoundTrip) {
       {"threshold", unset, {true, 500}},
       {"both", {true, 100}, {true, 500}},
       {"threshold 0", unset, {true, 0}},
-      {"largest values", {true, (size_t)LLONG_MAX}, {true, (size_t)LLONG_MAX}},
+      {"largest values", {true, (size_t)GC_MAX_INTERVAL_SEC}, {true, (size_t)LLONG_MAX}},
   };
   for (const auto &c : cases) {
     SCOPED_TRACE(c.what);
@@ -2152,6 +2152,9 @@ TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
   } cases[] = {
       {"run interval 1", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(1)}}, true},
       {"run interval 0", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(0)}}, false},
+      {"run interval above GC_MAX_INTERVAL_SEC",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(GC_MAX_INTERVAL_SEC + 1)}},
+       false},
       {"run interval above 2^63-1",
        {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(tooLarge)}},
        false},

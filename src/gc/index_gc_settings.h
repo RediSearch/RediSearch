@@ -45,8 +45,9 @@ typedef enum {
 // Leaves every setting unset.
 void IndexGCSettings_Init(IndexGCSettings *settings);
 
-// Whether `value` is in range for `id`, the same range as the matching global config.
-// False for an id this binary does not know.
+// Whether `value` is in range for `id`. A run interval goes up to GC_MAX_INTERVAL_SEC, the longest
+// a timer arms, so no accepted value is silently capped; a clean threshold takes the range of the
+// global threshold configs. False for an id this binary does not know.
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value);
 
 // The global value an unset override inherits: the search-thread-gc-* config under the THREAD
