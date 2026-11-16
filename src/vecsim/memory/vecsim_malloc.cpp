@@ -22,6 +22,19 @@ struct VecSimAllocationHeader {
     std::size_t is_aligned : 1;
 };
 
+// Requested blob alignment need not satisfy the allocation header's alignment.
+static VecSimAllocationHeader readAllocationHeader(const void *p) {
+    VecSimAllocationHeader header;
+    memcpy(&header, static_cast<const unsigned char *>(p) - sizeof(header), sizeof(header));
+    return header;
+}
+
+static unsigned char allocationOffset(const void *p, const VecSimAllocationHeader &header) {
+    return header.is_aligned
+               ? (static_cast<const unsigned char *>(p) - sizeof(VecSimAllocationHeader))[-1]
+               : 0;
+}
+
 size_t VecSimAllocator::allocation_header_size = sizeof(VecSimAllocationHeader);
 
 VecSimMemoryFunctions VecSimAllocator::memFunctions = {.allocFunction = malloc,
@@ -55,7 +68,8 @@ void *VecSimAllocator::allocate_aligned(size_t size, unsigned char alignment) {
         size_t remainder = (((uintptr_t)ptr) + allocation_header_size) % alignment;
         unsigned char offset = alignment - remainder;
         // Store the allocation header in the 8 bytes before the returned pointer.
-        new (ptr + offset) VecSimAllocationHeader{size, true};
+        const VecSimAllocationHeader header{size, true};
+        memcpy(ptr + offset, &header, sizeof(header));
         // Store the offset in the byte right before the header.
         ptr[offset - 1] = offset;
         // Return the aligned pointer.
@@ -84,8 +98,8 @@ void VecSimAllocator::transferAllocationTo(void *p, VecSimAllocator &destination
     if (!p || this == &destination) {
         return;
     }
-    const auto *header = static_cast<const VecSimAllocationHeader *>(p) - 1;
-    const size_t bytes = header->allocation_size + allocation_header_size;
+    const auto header = readAllocationHeader(p);
+    const size_t bytes = header.allocation_size + allocation_header_size;
     this->allocated -= bytes;
     destination.allocated += bytes;
 }
@@ -94,11 +108,17 @@ void VecSimAllocator::free_allocation(void *p) {
     if (!p)
         return;
 
-    auto hdr = ((VecSimAllocationHeader *)p) - 1;
-    unsigned char offset = hdr->is_aligned ? ((unsigned char *)hdr)[-1] : 0;
+    const auto header = readAllocationHeader(p);
+    const auto offset = allocationOffset(p, header);
 
-    this->allocated -= (hdr->allocation_size + allocation_header_size);
+    this->allocated -= (header.allocation_size + allocation_header_size);
     vecsim_free((char *)p - offset - allocation_header_size);
+}
+
+size_t VecSimAllocator::getPointerAllocationSize(void *p) {
+    const auto header = readAllocationHeader(p);
+    // Alignment padding before the returned pointer is not available to copy.
+    return header.allocation_size - allocationOffset(p, header);
 }
 
 void *VecSimAllocator::callocate(size_t size) {
