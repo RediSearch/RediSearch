@@ -964,6 +964,23 @@ TEST_F(ThreadGCTest, testForcedCycleLeavesTheSchedulingState) {
   EXPECT_EQ(fgc->schedState, INDEX_GC_SCHED_FORK_FAILED);
 }
 
+// A GC step asks this before arming the next one, so a dropped index is collected at once.
+TEST_F(IndexGCTest, testIndexExistsTracksTheSpec) {
+  GCContext *gc = get_spec(ism)->gc;
+  EXPECT_TRUE(gc->callbacks.indexExists(gc->gcCtx));
+
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = fgc->index;
+  fgc->index = dropped;
+  const bool exists = gc->callbacks.indexExists(gc->gcCtx);
+  fgc->index = index;
+  WeakRef_Release(dropped);
+  EXPECT_FALSE(exists);
+}
+
 TEST(GCTimerDelayTest, testJitterRange) {
   EXPECT_EQ(GC_TimerDelayMs(0, 12345), 0);
   EXPECT_EQ(GC_TimerDelayMs(-1000, 12345), 0);  // not a config value, but never a negative delay
@@ -1225,6 +1242,20 @@ TEST_F(GCSchedulerTest, testStepArmsALoweredIntervalAfresh) {
   expectArmedWith(GC_TIMER_RUN_INTERVAL, 1000);
   EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
   EXPECT_FALSE(gcSchedFlags(&gc) & GC_SCHED_RUN_PENDING);  // a fresh arm, not a run
+}
+
+// A step that fires at or past its deadline, as when the event loop ran late, arms a timer due at
+// once instead of another step; that timer's firing is the run.
+TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
+  FakeGCTimers::plan.intervalMs = 5000000000LL;
+  GCContext_Start(&gc);
+  ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
+
+  FakeGCTimers::nowMs = gc.stepDeadlineMs + 1 - FakeGCTimers::armed.back();
+  FakeGCTimers::Fire();
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  EXPECT_EQ(FakeGCTimers::armed.back(), 0);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
 }
 
 // A drop discovered at a step frees the context now, not at a deadline that may be weeks away.

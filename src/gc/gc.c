@@ -132,8 +132,10 @@ static bool GCContext_ArmTimer(GCContext* gc) {
   unsigned long draw;
   RedisModule_GetRandomBytes((unsigned char*)&draw, sizeof(draw));
   const uint64_t now = GC_NowMs();
+  // Cannot wrap: the delay is under LLONG_MAX, and the monotonic clock is far below the rest of
+  // the uint64_t range.
   const uint64_t delay = (uint64_t)GC_TimerDelayMs(plan.intervalMs, draw);
-  gc->timerID = GCContext_ArmStep(gc, delay > UINT64_MAX - now ? UINT64_MAX : now + delay, now);
+  gc->timerID = GCContext_ArmStep(gc, now + delay, now);
   if (gc->timerID == 0) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
     return false;
