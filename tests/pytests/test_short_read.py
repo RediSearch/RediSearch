@@ -466,7 +466,8 @@ class Debug:
 
         env.debugPrint(name + ': %d out of %d \n%s' % (self.dbg_ndx, total_len, self.dbg_str))
 
-@skip(cluster=True, msan=True)
+# Times out on the enterprise build, as on 2.10.
+@skip(cluster=True, msan=True, enterprise=True)
 def testShortReadSearch(env):
     if not server_version_at_least(env, "6.2.0"):
         env.skip()
