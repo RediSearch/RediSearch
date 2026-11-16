@@ -109,6 +109,11 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
   RS_ASSERT(spec->diskSpec);
+  const SearchDiskDocStats docStats = {
+      .score = aCtx->doc->score,
+      .maxTermFreq = aCtx->fwIdx->maxTermFreq,
+      .docLen = aCtx->fwIdx->totalFreq,
+  };
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
        entry = ForwardIndexIterator_Next(&it)) {
@@ -120,7 +125,8 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     }
     entry->staged =
         SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch, entry->term, entry->len,
-                             aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen);
+                             aCtx->doc->docId, entry->fieldMask, entry->freq, docStats, offsets,
+                             offsetsLen);
   }
 }
 

@@ -48,6 +48,8 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "max_doc_id", .type = InfoField_Max},
     {.name = "num_terms", .type = InfoField_WholeSum},
     {.name = "num_records", .type = InfoField_WholeSum},
+    // Disk indexes only; 1 if any shard's index keeps per-block score bounds.
+    {.name = "disk_score_skipping", .type = InfoField_Max},
     {.name = "inverted_sz_mb", .type = InfoField_DoubleSum},
     {.name = "total_inverted_index_blocks", .type = InfoField_WholeSum},
     {.name = "vector_index_sz_mb", .type = InfoField_DoubleSum},

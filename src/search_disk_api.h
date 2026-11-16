@@ -187,6 +187,17 @@ typedef struct SearchDiskResourceConfig {
   int maxOpenFiles;
 } SearchDiskResourceConfig;
 
+/**
+ * Statistics of the document being indexed, passed with each of its terms so the
+ * disk index can bound the score of the term's postings without reading the doc
+ * table. The same values `putDocument` stores for the document.
+ */
+typedef struct SearchDiskDocStats {
+  float score;           // Document score
+  uint32_t maxTermFreq;  // Maximum frequency of any single term in the document
+  uint32_t docLen;       // Sum of the frequencies of all terms in the document
+} SearchDiskDocStats;
+
 /** A schema field borrowed by the index-open APIs. */
 typedef struct SearchDiskField {
   t_fieldIndex fieldIndex;
@@ -235,6 +246,9 @@ typedef struct BasicDiskAPI {
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @param flags The index's `IndexSpec::flags`. Selects which per-posting data TEXT
    *              postings store (`Index_StoreTermOffsets`, `Index_StoreFieldFlags`).
+   * @param scoreSkipping Whether the index keeps per-block score bounds. Fixed for the
+   *                      index's lifetime and persisted with its RDB state, which
+   *                      `openIndexSpecWithRdbState` takes it from instead.
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
@@ -253,8 +267,9 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpec)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      bool deleteBeforeOpen, IndexFlags flags, const SearchDiskField *fields, size_t numFields,
-      const SearchDiskCompactionCallbacks *callbacks, void *private_data, QueryError *status);
+      bool deleteBeforeOpen, IndexFlags flags, bool scoreSkipping, const SearchDiskField *fields,
+      size_t numFields, const SearchDiskCompactionCallbacks *callbacks, void *private_data,
+      QueryError *status);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -514,13 +529,15 @@ typedef struct IndexDiskAPI {
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param freq Frequency of the term in the document
+   * @param docStats Statistics of the document being indexed
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false if the input was rejected
    */
   bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
                     const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
-                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+                    uint32_t freq, SearchDiskDocStats docStats, const uint8_t *offsets,
+                    size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -797,6 +814,12 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
+
+  /**
+   * @brief Whether the index keeps per-block score bounds (the `scoreSkipping` it
+   * was opened with, or the value persisted in its RDB state).
+   */
+  bool (*isScoreSkippingEnabled)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 /** Disk index operations supporting slot migration. */
