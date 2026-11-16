@@ -22,6 +22,30 @@
 namespace {
 using vecsim_types::sq8_fp64;
 
+static_assert(QuantPreprocessorInput<float, vecsim_types::sq8, false>);
+static_assert(QuantPreprocessorInput<float, vecsim_types::sq8, true>);
+static_assert(QuantPreprocessorInput<vecsim_types::float16, vecsim_types::sq8, false>);
+static_assert(QuantPreprocessorInput<vecsim_types::float16, vecsim_types::sq8, true>);
+static_assert(QuantPreprocessorInput<float, vecsim_types::sq4, false>);
+static_assert(QuantPreprocessorInput<float, vecsim_types::sq4, true>);
+static_assert(QuantPreprocessorInput<vecsim_types::float16, vecsim_types::sq4, false>);
+static_assert(QuantPreprocessorInput<vecsim_types::float16, vecsim_types::sq4, true>);
+static_assert(QuantPreprocessorInput<double, sq8_fp64, false>);
+
+static_assert(!QuantPreprocessorInput<double, vecsim_types::sq8, false>);
+static_assert(!QuantPreprocessorInput<double, vecsim_types::sq8, true>);
+static_assert(!QuantPreprocessorInput<double, vecsim_types::sq4, false>);
+static_assert(!QuantPreprocessorInput<double, vecsim_types::sq4, true>);
+static_assert(!QuantPreprocessorInput<float, sq8_fp64, false>);
+static_assert(!QuantPreprocessorInput<float, sq8_fp64, true>);
+static_assert(!QuantPreprocessorInput<vecsim_types::float16, sq8_fp64, false>);
+static_assert(!QuantPreprocessorInput<vecsim_types::float16, sq8_fp64, true>);
+static_assert(!QuantPreprocessorInput<double, sq8_fp64, true>);
+
+static_assert(!QuantPreprocessorInput<int, vecsim_types::sq8, false>);
+static_assert(!QuantPreprocessorInput<int, vecsim_types::sq4, false>);
+static_assert(!QuantPreprocessorInput<int, sq8_fp64, false>);
+
 double readMetadata(const void *blob, size_t offset, size_t index) {
     double result;
     std::memcpy(&result, static_cast<const uint8_t *>(blob) + offset + index * sizeof(double),
