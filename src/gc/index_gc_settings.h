@@ -31,8 +31,8 @@ typedef struct {
 // interval is read only there; the threshold reaches the GC thread only through the copy the
 // GC takes when it queues a run, so neither needs a lock.
 typedef struct {
-  IndexGCOverride runIntervalSec;  // overrides search-fork-gc-run-interval
-  IndexGCOverride cleanThreshold;  // overrides search-fork-gc-clean-threshold
+  IndexGCOverride runIntervalSec;  // overrides the active policy's run interval
+  IndexGCOverride cleanThreshold;  // overrides the active policy's absolute clean threshold
 } IndexGCSettings;
 
 // Ids of the settings in the RDB override block. Fixed: never renumber or reuse one, since an
@@ -49,7 +49,13 @@ void IndexGCSettings_Init(IndexGCSettings *settings);
 // False for an id this binary does not know.
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value);
 
-// The value the index uses: its override if set, otherwise the global value.
+// The global value an unset override inherits: the search-thread-gc-* config under the THREAD
+// policy, the search-fork-gc-* one otherwise. Under THREAD, search-gc-clean-ratio-ppm applies on
+// top of the clean threshold, whether that is the index's or the global one.
+size_t IndexGCSettings_GlobalRunIntervalSec(void);
+size_t IndexGCSettings_GlobalCleanThreshold(void);
+
+// The value the index uses: its override if set, otherwise the global value above.
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings);
 size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings);
 

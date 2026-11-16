@@ -33,14 +33,26 @@ static size_t effective(const IndexGCOverride *override, size_t global) {
   return override->isSet ? override->value : global;
 }
 
+static bool threadPolicy(void) {
+  return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+}
+
+size_t IndexGCSettings_GlobalRunIntervalSec(void) {
+  const GCSettings *global = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicy() ? global->threadGcRunIntervalSec : global->forkGcRunIntervalSec;
+}
+
+size_t IndexGCSettings_GlobalCleanThreshold(void) {
+  const GCSettings *global = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicy() ? global->threadGcCleanThreshold : global->forkGcCleanThreshold;
+}
+
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings) {
-  return effective(&settings->runIntervalSec,
-                   RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+  return effective(&settings->runIntervalSec, IndexGCSettings_GlobalRunIntervalSec());
 }
 
 size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings) {
-  return effective(&settings->cleanThreshold,
-                   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold);
+  return effective(&settings->cleanThreshold, IndexGCSettings_GlobalCleanThreshold());
 }
 
 // The override for `id`, or NULL for an id this binary does not know.

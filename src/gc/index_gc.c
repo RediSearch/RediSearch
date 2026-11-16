@@ -43,11 +43,6 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   }
 }
 
-static size_t runIntervalSec(void) {
-  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
-  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
-}
-
 // Whether a scheduled cycle should wait for more deletions. `threshold` is the run's queue-time
 // copy of the absolute threshold; under THREAD the wait also grows with the index, by the global
 // ratio. The absolute threshold is checked first, so an idle index never takes the lock.
@@ -83,8 +78,8 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun,
-                                     gc->cleanThreshold)) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check),
+                                     gc->deletedOrUpdatedDocsFromLastRun, gc->cleanThreshold)) {
     // Nothing is left to retry: without this, a threshold raised after a failed fork would
     // keep the index on the retry interval until enough changes accumulate.
     gc->schedState = INDEX_GC_SCHED_OK;
@@ -158,7 +153,7 @@ size_t IndexGC_RunIntervalSec(const IndexGC *gc) {
   StrongRef ref = WeakRef_Promote(gc->index);
   const IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return runIntervalSec();
+    return IndexGCSettings_GlobalRunIntervalSec();
   }
   const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
   StrongRef_Release(ref);

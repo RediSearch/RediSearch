@@ -73,6 +73,7 @@ class IndexGCTest : public ::testing::Test {
   RefManager *ism;
   IndexGC *fgc;
   GCPolicy savedPolicy;
+  size_t savedForkThreshold, savedThreadThreshold;
 
   // The policy the spec is created under; most of these tests drive the fork cycle.
   virtual GCPolicy policy() const { return GCPolicy_Fork; }
@@ -82,7 +83,12 @@ class IndexGCTest : public ::testing::Test {
     RSGlobalConfig.gcConfigParams.gcPolicy = policy();
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
-    RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
+    // Either policy's, so a scheduled cycle runs under whichever policy() picks.
+    GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+    savedForkThreshold = global.forkGcCleanThreshold;
+    savedThreadThreshold = global.threadGcCleanThreshold;
+    global.forkGcCleanThreshold = 0;
+    global.threadGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     fgc = reinterpret_cast<IndexGC *>(get_spec(ism)->gc->gcCtx);
     copyThresholdAtQueueTime();
@@ -91,6 +97,8 @@ class IndexGCTest : public ::testing::Test {
   void TearDown() override {
     freeSpec(ism);
     RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = savedForkThreshold;
+    RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold = savedThreadThreshold;
   }
 
   // What GCContext_QueueRun does before handing the GC a scheduled run: a scheduled cycle checks
@@ -1458,8 +1466,16 @@ class IndexGCSettingsTest : public IndexGCTestTag {
   }
 
   IndexGCSettings &settings() { return get_spec(ism)->gcSettings; }
-  size_t &globalThreshold() { return RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold; }
-  size_t &globalInterval() { return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec; }
+  // The globals an unset override inherits under the policy the test runs.
+  bool threadPolicy() const { return policy() == GCPolicy_Thread; }
+  size_t &globalThreshold() {
+    GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+    return threadPolicy() ? global.threadGcCleanThreshold : global.forkGcCleanThreshold;
+  }
+  size_t &globalInterval() {
+    GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+    return threadPolicy() ? global.threadGcRunIntervalSec : global.forkGcRunIntervalSec;
+  }
 
   // Runs a scheduled cycle, and returns whether it got past the clean threshold.
   bool scheduledCycleCollects() {
@@ -1550,6 +1566,28 @@ INSTANTIATE_TEST_SUITE_P(Policies, IndexGCSettingsPolicyTest,
                            return info.param == GCPolicy_Fork ? "Fork" : "Thread";
                          });
 
+class IndexGCSettingsThreadTest : public IndexGCSettingsTest {
+ protected:
+  GCPolicy policy() const override { return GCPolicy_Thread; }
+};
+
+// The index's threshold replaces only the absolute one: the global ratio still applies on top.
+TEST_F(IndexGCSettingsThreadTest, testTheRatioAppliesOverTheIndexThreshold) {
+  for (int i = 0; i < 4; ++i) {
+    const std::string key = "live" + std::to_string(i);
+    ASSERT_TRUE(RS::addDocument(ctx, ism, key.c_str(), tag_field_name, "hello"));
+  }
+  addAndDelete(2);
+  settings().cleanThreshold = {true, 1};
+  copyThresholdAtQueueTime();
+
+  size_t &ppm = RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm;
+  ppm = GC_CLEAN_RATIO_PPM_SCALE;  // wait for as many deletions as there are live documents
+  EXPECT_FALSE(scheduledCycleCollects());
+  ppm = 0;
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
 TEST_F(IndexGCSettingsTest, testCreatedWithTheIndexThreshold) {
   settings().cleanThreshold = {true, 42};
   StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
@@ -1589,7 +1627,7 @@ TEST_F(IndexGCSettingsTest, testQueueRunAfterTheDropKeepsTheCopy) {
   EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
 }
 
-TEST_F(IndexGCSettingsTest, testRunIntervalHelper) {
+TEST_P(IndexGCSettingsPolicyTest, testRunIntervalHelper) {
   globalInterval() = 30;
   EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 30);
 
@@ -1647,7 +1685,7 @@ TEST_F(IndexGCSettingsTimerTest, testTimerFiringAfterTheDropKeepsTheCopy) {
   EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
 }
 
-TEST_F(IndexGCSettingsTest, testRunIntervalTimerArmsWithTheIndexInterval) {
+TEST_P(IndexGCSettingsPolicyTest, testRunIntervalTimerArmsWithTheIndexInterval) {
   globalInterval() = 30;
   GCTimerPlan next = nextForkGCTimer(ism);
   EXPECT_EQ(next.kind, GC_TIMER_RUN_INTERVAL);
@@ -1671,7 +1709,7 @@ TEST_F(IndexGCSettingsTest, testRunIntervalTimerArmsWithTheIndexInterval) {
   EXPECT_EQ(nextForkGCTimer(ism).intervalMs, GC_IntervalSecToMs(60));
 }
 
-TEST_F(IndexGCSettingsTest, testRunIntervalHelperAfterTheDrop) {
+TEST_P(IndexGCSettingsPolicyTest, testRunIntervalHelperAfterTheDrop) {
   settings().runIntervalSec = {true, 5};
   globalInterval() = 60;
   GCContext *gc = createGCForDroppedIndex(0);
@@ -1682,19 +1720,31 @@ TEST_F(IndexGCSettingsTest, testRunIntervalHelperAfterTheDrop) {
 
 TEST(IndexGCSettingsHelpers, testEffectiveValues) {
   const GCSettings saved = RSGlobalConfig.gcConfigParams.gcSettings;
-  RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = 30;
-  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 100;
+  const GCPolicy savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
+  GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+  global.forkGcRunIntervalSec = 30;
+  global.forkGcCleanThreshold = 100;
+  global.threadGcRunIntervalSec = 7;
+  global.threadGcCleanThreshold = 50;
 
   IndexGCSettings s;
   IndexGCSettings_Init(&s);
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 30);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 100);
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
+  EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 7);
+  EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 50);
 
   s.runIntervalSec = {true, 1};
   s.cleanThreshold = {true, 0};
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+  RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
+  EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
 
+  RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
   RSGlobalConfig.gcConfigParams.gcSettings = saved;
 }
 
