@@ -15,14 +15,19 @@
 #include "vecsim/vec_sim.h"
 #include "mock_thread_pool.h"
 #include "unit_test_utils.h"
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <random>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace vecsim::quantization;
@@ -55,6 +60,7 @@ float unalignedFloat(const void *data, size_t offset) {
     return value;
 }
 // An independent bit reader and decoded-score reference, including the full mean error.
+// The references read the dense matrix, so they only apply where the rotation is dense.
 std::vector<double> decoded(const TurboQuant &quantizer, const void *blob) {
     const auto *bytes = static_cast<const unsigned char *>(blob);
     std::vector<double> values(quantizer.dim());
@@ -506,6 +512,392 @@ TEST_P(TurboQuantTest, ExistingWriterVersionsRemainUnchanged) {
         IndexOwner restored(HNSWFactory::NewIndex(filename), VecSimIndex_Free);
         EXPECT_NE(restored, nullptr);
         std::remove(filename.c_str());
+    }
+}
+
+// Block Hadamard rotation.
+namespace {
+std::vector<float> gaussianVector(size_t dim, uint32_t seed, float scale = 1.0f) {
+    std::mt19937 rng(seed);
+    std::normal_distribution<float> normal(0.0f, scale);
+    std::vector<float> values(dim);
+    for (float &value : values)
+        value = normal(rng);
+    return values;
+}
+std::vector<float> applyRotation(const TurboQuantRotation &rotation, const std::vector<float> &x) {
+    std::vector<float> out(x.size()), scratch(x.size());
+    rotation.apply(x.data(), out.data(), scratch.data());
+    return out;
+}
+// Independent double-precision reference of the documented transform: explicit Sylvester
+// Hadamard entries (-1)^popcount(i & j) / sqrt(block), no butterflies.
+std::vector<double> referenceRotation(const TurboQuantRotation &rotation,
+                                      const std::vector<float> &x) {
+    const size_t dim = rotation.dim(), block = rotation.block();
+    std::vector<double> current(x.begin(), x.end()), next(dim);
+    for (unsigned round = 0; round < TurboQuantRotation::kRounds; ++round) {
+        if (round > 0) {
+            const auto *permutation = rotation.permutations().data() + (round - 1) * dim;
+            for (size_t i = 0; i < dim; ++i)
+                next[i] = current[permutation[i]];
+            current.swap(next);
+        }
+        const auto *signs = rotation.scaledSigns().data() + round * dim;
+        for (size_t i = 0; i < dim; ++i)
+            current[i] *= signs[i] < 0 ? -1.0 : 1.0;
+        for (size_t start = 0; start < dim; start += block) {
+            for (size_t i = 0; i < block; ++i) {
+                double sum = 0;
+                for (size_t j = 0; j < block; ++j)
+                    sum += (std::popcount(uint64_t(i & j)) % 2 ? -1.0 : 1.0) * current[start + j];
+                next[start + i] = sum / std::sqrt(double(block));
+            }
+        }
+        current.swap(next);
+    }
+    return current;
+}
+std::shared_ptr<TurboQuant> newCodec(const std::shared_ptr<VecSimAllocator> &allocator,
+                                     size_t dim, unsigned bits = 2, uint64_t seed = 42,
+                                     std::vector<float> mean = {}) {
+    mean.resize(dim, 0.0f);
+    return std::allocate_shared<TurboQuant>(VecsimSTLAllocator<TurboQuant>(allocator), allocator,
+                                            dim, bits, seed, std::span<const float>(mean));
+}
+std::string savedFitted(const TurboQuant &quantizer) {
+    std::stringstream out;
+    quantizer.saveFitted(out);
+    return out.str();
+}
+std::shared_ptr<TurboQuant> loadFittedString(const std::string &bytes, size_t dim, unsigned bits) {
+    std::stringstream in(bytes);
+    return TurboQuant::loadFitted(in, VecSimAllocator::newVecsimAllocator(), dim, bits);
+}
+} // namespace
+
+TEST(TurboQuantRotation, BlockSizeRuleAndDenseFallback) {
+    const std::pair<size_t, size_t> cases[] = {{768, 256}, {384, 128}, {1536, 512},
+                                               {1024, 1024}, {2048, 1024}, {960, 64},
+                                               {64, 64}, {96, 0}, {100, 0}, {9, 0}, {2, 0}};
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    for (auto [dim, block] : cases) {
+        EXPECT_EQ(TurboQuantRotation::hadamardBlock(dim), block) << dim;
+        auto codec = newCodec(allocator, dim);
+        const auto &rotation = codec->rotationOperator();
+        EXPECT_EQ(rotation.kind(), block ? TurboQuantRotationKind::BlockHadamard
+                                         : TurboQuantRotationKind::Dense)
+            << dim;
+        EXPECT_EQ(rotation.block(), block) << dim;
+        EXPECT_EQ(codec->rotation().size(), block ? 0 : dim * dim) << dim;
+        EXPECT_EQ(rotation.sharedBytes(), TurboQuantRotation::sharedBytesFor(dim)) << dim;
+    }
+    // About 15 KB instead of the 2.36 MB dense matrix at dim 768.
+    EXPECT_EQ(TurboQuantRotation::sharedBytesFor(768), 3 * 768 * 4 + 2 * 768 * 4);
+}
+
+TEST(TurboQuantRotation, MatchesReferenceAndPreservesNormsAndInnerProducts) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    for (size_t dim : {64, 384, 768, 960, 1024, 1536}) {
+        const auto owner = newCodec(allocator, dim);
+        const auto &rotation = owner->rotationOperator();
+        ASSERT_TRUE(rotation.isBlockHadamard());
+        for (uint32_t trial = 0; trial < 4; ++trial) {
+            const auto x = gaussianVector(dim, 1000 * dim + 2 * trial);
+            const auto y = gaussianVector(dim, 1000 * dim + 2 * trial + 1);
+            const auto rx = applyRotation(rotation, x), ry = applyRotation(rotation, y);
+            double nx = 0, nrx = 0, xy = 0, rxy = 0;
+            for (size_t i = 0; i < dim; ++i) {
+                nx += double(x[i]) * x[i];
+                nrx += double(rx[i]) * rx[i];
+                xy += double(x[i]) * y[i];
+                rxy += double(rx[i]) * ry[i];
+            }
+            EXPECT_NEAR(std::sqrt(nrx), std::sqrt(nx), 1e-5 * std::sqrt(nx)) << dim;
+            EXPECT_NEAR(rxy, xy, 1e-5 * nx) << dim; // |x| ~ |y|
+            if (trial == 0 && dim <= 1024) {
+                const auto reference = referenceRotation(rotation, x);
+                double max_error = 0;
+                for (size_t i = 0; i < dim; ++i)
+                    max_error = std::max(max_error, std::abs(reference[i] - rx[i]));
+                EXPECT_LT(max_error, 1e-5) << dim;
+            }
+        }
+    }
+}
+
+TEST(TurboQuantRotation, IsOrthonormal) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    for (size_t dim : {256, 384}) {
+        const auto owner = newCodec(allocator, dim);
+        std::vector<std::vector<float>> columns;
+        for (size_t i = 0; i < dim; ++i) {
+            std::vector<float> basis(dim, 0.0f);
+            basis[i] = 1.0f;
+            columns.push_back(applyRotation(owner->rotationOperator(), basis));
+        }
+        double max_error = 0;
+        for (size_t i = 0; i < dim; ++i)
+            for (size_t j = i; j < dim; ++j) {
+                double dot = 0;
+                for (size_t k = 0; k < dim; ++k)
+                    dot += double(columns[i][k]) * columns[j][k];
+                max_error = std::max(max_error, std::abs(dot - (i == j ? 1.0 : 0.0)));
+            }
+        EXPECT_LT(max_error, 1e-5) << dim;
+    }
+}
+
+TEST(TurboQuantRotation, DeterministicPerSeedAndDistinctAcrossSeeds) {
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto a = newCodec(allocator, 768, 2, 42), b = newCodec(allocator, 768, 3, 42);
+    auto c = newCodec(allocator, 768, 2, 43);
+    const auto &ra = a->rotationOperator(), &rb = b->rotationOperator();
+    const auto &rc = c->rotationOperator();
+    EXPECT_TRUE(std::ranges::equal(ra.scaledSigns(), rb.scaledSigns()));
+    EXPECT_TRUE(std::ranges::equal(ra.permutations(), rb.permutations()));
+    EXPECT_FALSE(std::ranges::equal(ra.scaledSigns(), rc.scaledSigns()));
+    EXPECT_FALSE(std::ranges::equal(ra.permutations(), rc.permutations()));
+    // Every round holds a valid sign vector and permutation.
+    const float magnitude = 1.0f / 16.0f;
+    for (float sign : ra.scaledSigns())
+        EXPECT_TRUE(sign == magnitude || sign == -magnitude);
+    for (size_t round = 0; round + 1 < TurboQuantRotation::kRounds; ++round) {
+        std::vector<uint32_t> sorted(ra.permutations().begin() + round * 768,
+                                     ra.permutations().begin() + (round + 1) * 768);
+        std::sort(sorted.begin(), sorted.end());
+        for (uint32_t i = 0; i < 768; ++i)
+            EXPECT_EQ(sorted[i], i);
+    }
+}
+
+TEST_P(TurboQuantTest, BlockHadamardEncodeAndQueryShareTheRotation) {
+    const unsigned bits = GetParam();
+    constexpr size_t dim = 768;
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    const auto mean = gaussianVector(dim, 11, 0.02f);
+    const VecSimTurboQuantParams config{.mean = mean.data(), .seed = 42};
+    auto parts = CreateTurboQuantIndexComponents(allocator, dim, bits, &config);
+    std::unique_ptr<PreprocessorsContainerAbstract> pp(parts.preprocessors);
+    std::unique_ptr<IndexCalculatorInterface<float>> calculator(parts.indexCalculator);
+    const TurboQuant &native = *GetTurboQuantCodec(calculator.get());
+    const auto &rotation = native.rotationOperator();
+    ASSERT_TRUE(rotation.isBlockHadamard());
+    // The rotated mean is exactly R * mean.
+    EXPECT_TRUE(std::ranges::equal(native.biasRotatedMean(), applyRotation(rotation, mean)));
+    for (uint32_t trial = 0; trial < 3; ++trial) {
+        const auto x = gaussianVector(dim, 100 + trial, 0.04f);
+        const auto q = gaussianVector(dim, 200 + trial, 0.04f);
+        auto stored = pp->preprocessForStorage(x.data(), dim * sizeof(float));
+        auto prepared = pp->preprocessQuery(q.data(), dim * sizeof(float));
+        // Query preparation writes exactly R * q.
+        const auto rotated_query = applyRotation(rotation, q);
+        for (size_t i = 0; i < dim; ++i)
+            ASSERT_EQ(unalignedFloat(prepared.get(), i * sizeof(float)), rotated_query[i]) << i;
+        // Encoding quantizes exactly R * (x - mean) / ||x - mean||.
+        std::vector<float> unit(dim);
+        float norm = 0;
+        for (size_t i = 0; i < dim; ++i)
+            norm = std::hypot(norm, x[i] - mean[i]);
+        for (size_t i = 0; i < dim; ++i)
+            unit[i] = (x[i] - mean[i]) / norm;
+        const auto rotated_unit = applyRotation(rotation, unit);
+        const auto values = decoded(native, stored.get());
+        const float scale = unalignedFloat(stored.get(), (dim * bits + 7) / 8);
+        for (size_t i = 0; i < dim; ++i) {
+            unsigned code = 0;
+            for (size_t c = 1; c < native.centroids().size(); ++c)
+                if (rotated_unit[i] > (native.centroids()[c - 1] + native.centroids()[c]) * 0.5f)
+                    code = c;
+            ASSERT_DOUBLE_EQ(values[i], double(scale) * native.centroids()[code]) << i;
+        }
+        // The score matches the decoded double reference built from the same rotation.
+        double reference = 1 + unalignedFloat(stored.get(), native.storageBytes() - sizeof(float));
+        for (size_t i = 0; i < dim; ++i)
+            reference -= values[i] * rotated_query[i] + double(mean[i]) * q[i];
+        EXPECT_NEAR(calculator->calcDistanceForQuery(stored.get(), prepared.get(), dim),
+                    reference, 3e-6);
+    }
+}
+
+TEST_P(TurboQuantTest, BlockHadamardIndexSaveLoadRoundTrip) {
+    const unsigned bits = GetParam();
+    constexpr size_t dim = 768;
+    const auto mean = gaussianVector(dim, 21, 0.02f);
+    VecSimTurboQuantParams config{.mean = mean.data(), .seed = 7};
+    auto params = CreateParams(parameters(bits, dim, &config));
+    IndexOwner index(VecSimIndex_New(&params), VecSimIndex_Free);
+    ASSERT_NE(index, nullptr);
+    auto *hnsw = dynamic_cast<HNSWIndex<float, float> *>(index.get());
+    ASSERT_NE(hnsw, nullptr);
+    EXPECT_TRUE(codecOf(hnsw).rotationOperator().isBlockHadamard());
+    EXPECT_GE(VecSimIndex_EstimateInitialSize(&params), index->getAllocationSize());
+    constexpr size_t rows = 24;
+    for (size_t i = 0; i < rows; ++i) {
+        const auto row = gaussianVector(dim, 300 + i, 0.04f);
+        ASSERT_EQ(VecSimIndex_AddVector(index.get(), row.data(), i), 1);
+    }
+    const auto query = gaussianVector(dim, 999, 0.04f);
+    const auto filename = path(bits, "hadamard_roundtrip");
+    hnsw->saveIndex(filename);
+    IndexOwner restored(HNSWFactory::NewIndex(filename), VecSimIndex_Free);
+    std::remove(filename.c_str());
+    ASSERT_NE(restored, nullptr);
+    auto *loaded = dynamic_cast<HNSWIndex<float, float> *>(restored.get());
+    ASSERT_NE(loaded, nullptr);
+    const auto &a = codecOf(hnsw).rotationOperator();
+    const auto &b = codecOf(loaded).rotationOperator();
+    EXPECT_TRUE(b.isBlockHadamard());
+    EXPECT_EQ(b.block(), a.block());
+    EXPECT_TRUE(std::ranges::equal(a.scaledSigns(), b.scaledSigns()));
+    EXPECT_TRUE(std::ranges::equal(a.permutations(), b.permutations()));
+    EXPECT_TRUE(
+        std::ranges::equal(codecOf(hnsw).biasRotatedMean(), codecOf(loaded).biasRotatedMean()));
+    for (size_t i = 0; i < rows; ++i) {
+        EXPECT_EQ(std::memcmp(hnsw->getDataByInternalId(i), loaded->getDataByInternalId(i),
+                              hnsw->getStoredDataSize()),
+                  0);
+        EXPECT_EQ(VecSimIndex_GetDistanceFrom_Unsafe(index.get(), i, query.data()),
+                  VecSimIndex_GetDistanceFrom_Unsafe(restored.get(), i, query.data()));
+    }
+    // A vector added after reload encodes identically to one added to the original.
+    const auto extra = gaussianVector(dim, 4242, 0.04f);
+    ASSERT_EQ(VecSimIndex_AddVector(index.get(), extra.data(), 500), 1);
+    ASSERT_EQ(VecSimIndex_AddVector(restored.get(), extra.data(), 500), 1);
+    EXPECT_EQ(std::memcmp(hnsw->getDataByInternalId(rows), loaded->getDataByInternalId(rows),
+                          hnsw->getStoredDataSize()),
+              0);
+    EXPECT_TRUE(loaded->checkIntegrity().valid_state);
+}
+
+TEST_P(TurboQuantTest, LegacyDenseSchemaStillLoadsAtHadamardDimensions) {
+    // A schema-1 (dense) fitted blob at dim 768, as written before block Hadamard existed. Its
+    // matrix is the materialized block Hadamard rotation, so the dense codec must reproduce the
+    // structured codec's prepared queries to float tolerance.
+    const unsigned bits = GetParam();
+    constexpr size_t dim = 768;
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto structured = newCodec(allocator, dim, bits, 42, gaussianVector(dim, 31, 0.02f));
+    std::vector<float> matrix(dim * dim);
+    for (size_t col = 0; col < dim; ++col) {
+        std::vector<float> basis(dim, 0.0f);
+        basis[col] = 1.0f;
+        const auto column = applyRotation(structured->rotationOperator(), basis);
+        for (size_t row = 0; row < dim; ++row)
+            matrix[row * dim + col] = column[row];
+    }
+    const auto mean = structured->biasMean();
+    std::vector<float> rotated_mean(dim);
+    double norm = 0;
+    for (size_t row = 0; row < dim; ++row) {
+        double dot = 0;
+        for (size_t col = 0; col < dim; ++col)
+            dot += double(matrix[row * dim + col]) * mean[col];
+        rotated_mean[row] = float(dot);
+        norm += double(mean[row]) * mean[row];
+    }
+    std::string blob;
+    auto append = [&](const void *data, size_t bytes) {
+        blob.append(static_cast<const char *>(data), bytes);
+    };
+    auto appendFloats = [&](std::span<const float> values) {
+        const uint64_t count = values.size();
+        append(&count, sizeof(count));
+        append(values.data(), values.size_bytes());
+    };
+    const uint32_t header[] = {1, bits, 1, 3, 1};
+    const uint64_t seed = 42;
+    const float norm_squared = float(norm);
+    append(header, sizeof(header));
+    append(&seed, sizeof(seed));
+    appendFloats(matrix);
+    appendFloats(structured->centroids());
+    appendFloats(mean);
+    appendFloats(rotated_mean);
+    append(&norm_squared, sizeof(norm_squared));
+
+    auto legacy = loadFittedString(blob, dim, bits);
+    EXPECT_EQ(legacy->rotationOperator().kind(), TurboQuantRotationKind::Dense);
+    EXPECT_EQ(legacy->rotation().size(), dim * dim);
+    // Re-saving a dense codec is byte-for-byte the schema-1 layout.
+    EXPECT_EQ(savedFitted(*legacy), blob);
+    auto dense_parts = CreateTurboQuantIndexComponents(allocator, legacy);
+    auto structured_parts = CreateTurboQuantIndexComponents(allocator, structured);
+    std::unique_ptr<PreprocessorsContainerAbstract> dense_pp(dense_parts.preprocessors);
+    std::unique_ptr<PreprocessorsContainerAbstract> structured_pp(structured_parts.preprocessors);
+    std::unique_ptr<IndexCalculatorInterface<float>> dense_calc(dense_parts.indexCalculator);
+    std::unique_ptr<IndexCalculatorInterface<float>> structured_calc(
+        structured_parts.indexCalculator);
+    const auto q = gaussianVector(dim, 77, 0.04f);
+    auto a = dense_pp->preprocessQuery(q.data(), dim * sizeof(float));
+    auto b = structured_pp->preprocessQuery(q.data(), dim * sizeof(float));
+    for (size_t i = 0; i < dim; ++i)
+        EXPECT_NEAR(unalignedFloat(a.get(), 4 * i), unalignedFloat(b.get(), 4 * i), 1e-6) << i;
+}
+
+TEST_P(TurboQuantTest, RejectsCorruptBlockHadamardFittedState) {
+    const unsigned bits = GetParam();
+    constexpr size_t dim = 768;
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto structured = newCodec(allocator, dim, bits, 42, gaussianVector(dim, 41, 0.02f));
+    const auto bytes = savedFitted(*structured);
+    ASSERT_NO_THROW(loadFittedString(bytes, dim, bits));
+    // Layout: header (5 x u32), seed, block, rounds, sign count, signs, perm count, perms, ...
+    const size_t block_offset = 5 * sizeof(uint32_t) + sizeof(uint64_t);
+    const size_t signs_offset = block_offset + 3 * sizeof(uint64_t);
+    const size_t perms_offset = signs_offset + 3 * dim * sizeof(float) + sizeof(uint64_t);
+    auto expectReject = [&](const std::string &corrupt) {
+        EXPECT_THROW(loadFittedString(corrupt, dim, bits), std::runtime_error);
+    };
+    for (size_t length :
+         {size_t(0), block_offset, signs_offset + 7, perms_offset + 5, bytes.size() - 1})
+        expectReject(bytes.substr(0, length));
+    auto patch = [&](size_t offset, const auto &value) {
+        auto corrupt = bytes;
+        std::memcpy(corrupt.data() + offset, &value, sizeof(value));
+        return corrupt;
+    };
+    expectReject(patch(block_offset, uint64_t(128)));   // wrong block for dim 768
+    expectReject(patch(block_offset + 8, uint64_t(2))); // wrong round count
+    expectReject(patch(signs_offset, 0.5f));            // not +-1/sqrt(256)
+    expectReject(patch(perms_offset, uint32_t(dim)));   // out of range
+    uint32_t second;
+    std::memcpy(&second, bytes.data() + perms_offset + 4, sizeof(second));
+    expectReject(patch(perms_offset, second)); // duplicate entry
+    expectReject(patch(0, uint32_t(3)));       // unknown schema
+    // Wrong dimension for the payload, and schema 2 where only dense is valid.
+    EXPECT_THROW(loadFittedString(bytes, 384, bits), std::runtime_error);
+    auto small = newCodec(allocator, 96, bits, 42, gaussianVector(96, 43, 0.02f));
+    ASSERT_EQ(small->rotationOperator().kind(), TurboQuantRotationKind::Dense);
+    auto small_bytes = savedFitted(*small);
+    const uint32_t hadamard_schema = 2;
+    std::memcpy(small_bytes.data(), &hadamard_schema, sizeof(hadamard_schema));
+    EXPECT_THROW(loadFittedString(small_bytes, 96, bits), std::runtime_error);
+}
+
+TEST(TurboQuantRotation, DirectLoadRejectsTruncationAndLeavesStateUntouched) {
+    // The codec-level size check hides these branches, so exercise the rotation loader directly.
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+    auto owner = newCodec(allocator, 768);
+    std::stringstream saved;
+    owner->rotationOperator().saveBlockHadamard(saved);
+    const std::string bytes = saved.str();
+    TurboQuantRotation target(allocator);
+    {
+        std::stringstream full(bytes);
+        target.loadBlockHadamard(full, 768);
+    }
+    const std::vector<float> signs(target.scaledSigns().begin(), target.scaledSigns().end());
+    ASSERT_TRUE(std::ranges::equal(signs, owner->rotationOperator().scaledSigns()));
+    const auto x = gaussianVector(768, 5);
+    for (size_t length : {size_t(10), size_t(24), size_t(24 + 100), size_t(24 + 3 * 768 * 4 + 4),
+                          bytes.size() - 1}) {
+        std::stringstream truncated(bytes.substr(0, length));
+        EXPECT_THROW(target.loadBlockHadamard(truncated, 768), std::runtime_error) << length;
+        // A failed load keeps the previous, still usable rotation.
+        EXPECT_TRUE(target.isBlockHadamard());
+        EXPECT_TRUE(std::ranges::equal(target.scaledSigns(), signs));
+        EXPECT_EQ(applyRotation(target, x), applyRotation(owner->rotationOperator(), x));
     }
 }
 

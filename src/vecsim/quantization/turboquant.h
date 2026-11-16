@@ -9,6 +9,7 @@
 #pragma once
 
 #include "vecsim/quantization/turboquant_kernels.h"
+#include "vecsim/quantization/turboquant_rotation.h"
 #include "vecsim/utils/vecsim_stl.h"
 #include <algorithm>
 #include <cassert>
@@ -26,12 +27,13 @@
 
 namespace vecsim::quantization {
 
-// Dense MSE TurboQuant estimator for 1 - inner product, with a projection-match scale and a
-// mean-error correction. Stored vectors encode r = x - mean as
+// MSE TurboQuant estimator for 1 - inner product, with a projection-match scale and a
+// mean-error correction. The rotation R is block Hadamard, or dense when the dimension needs it
+// (see TurboQuantRotation). Stored vectors encode r = x - mean as
 // [ceil(d*b/8) packed codes][scale][delta], where n = ||r||, u = R*r/n, c = the centroid decode,
 // scale = n/(u.c) and delta = scale*(c.R*mean) - r.mean. Queries hold [R*q: d floats][q.mean].
-// Only construction and loading validate and throw. Encoding allocates scratch, so it can
-// throw std::bad_alloc; query preparation and scoring never throw.
+// Only construction and loading validate and throw. Encoding and query preparation allocate
+// scratch, so they can throw std::bad_alloc; scoring never throws.
 class TurboQuant {
     std::shared_ptr<VecSimAllocator> allocator_;
     size_t dim_;
@@ -41,7 +43,7 @@ class TurboQuant {
     turboquant_detail::RowDot row_dot_ = nullptr;
     turboquant_detail::PackedPairDot stored_pair_dot_ = nullptr;
     size_t code_bytes_;
-    vecsim_stl::vector<float> rotation_;
+    TurboQuantRotation rotation_;
     vecsim_stl::vector<float> centroids_;
     vecsim_stl::vector<float> bias_mean_;
     vecsim_stl::vector<float> bias_rotated_mean_;
@@ -67,6 +69,11 @@ class TurboQuant {
 
     void initializeRotation(uint64_t seed) {
         std::mt19937_64 rotation_rng(splitSeed(seed));
+        if (TurboQuantRotation::kindFor(dim_) == TurboQuantRotationKind::BlockHadamard) {
+            rotation_.generateBlockHadamard(dim_, rotation_rng);
+            return;
+        }
+        auto &dense = rotation_.resetDense(dim_);
         std::normal_distribution<double> gaussian;
         vecsim_stl::vector<double> basis(dim_ * dim_, allocator_);
         // Row-wise Gaussian QR with positive diagonal convention gives Haar orthogonal Pi.
@@ -98,7 +105,7 @@ class TurboQuant {
             }
             for (size_t col = 0; col < dim_; ++col) {
                 current[col] /= norm;
-                rotation_[row * dim_ + col] = static_cast<float>(current[col]);
+                dense[row * dim_ + col] = static_cast<float>(current[col]);
             }
         }
     }
@@ -158,17 +165,24 @@ class TurboQuant {
         }
     }
 
-    // Derived mean terms: ||mean||^2 and R*mean, both accumulated in double.
-    void computeMeanTerms(std::span<const float> mean, float *rotated,
-                          float &norm_squared) const noexcept {
+    // Derived mean terms: ||mean||^2 in double, and R*mean (in double for a dense R, zero while
+    // R is unset). A block Hadamard R uses `scratch`, dim floats not aliasing `rotated`.
+    void computeMeanTerms(std::span<const float> mean, float *rotated, float &norm_squared,
+                          float *scratch) const noexcept {
         double norm = 0;
         for (float value : mean)
             norm += double(value) * value;
         norm_squared = static_cast<float>(norm);
+        if (rotation_.isBlockHadamard()) {
+            rotation_.apply(mean.data(), rotated, scratch);
+            return;
+        }
+        const auto dense = rotation_.dense();
+        const size_t cols = dense.empty() ? 0 : dim_;
         for (size_t row = 0; row < dim_; ++row) {
             double dot = 0;
-            for (size_t col = 0; col < dim_; ++col)
-                dot += double(rotation_[row * dim_ + col]) * mean[col];
+            for (size_t col = 0; col < cols; ++col)
+                dot += double(dense[row * dim_ + col]) * mean[col];
             rotated[row] = static_cast<float>(dot);
         }
     }
@@ -223,29 +237,34 @@ public:
                uint64_t seed, std::span<const float> mean, bool initialize = true)
         : allocator_(std::move(allocator)), dim_(validatedDim(allocator_, dim, bits, mean)),
           bits_(bits), seed_(seed), code_bytes_((dim_ * bits_ + 7) / 8),
-          rotation_(dim_ * dim_, allocator_), centroids_(size_t{1} << bits_, allocator_),
+          rotation_(allocator_), centroids_(size_t{1} << bits_, allocator_),
           bias_mean_(dim_, allocator_), bias_rotated_mean_(dim_, allocator_) {
-        std::copy(mean.begin(), mean.end(), bias_mean_.begin());
         if (initialize) {
             initializeRotation(seed);
             initializeCentroids();
         }
-        computeMeanTerms(biasMean(), bias_rotated_mean_.data(), bias_mean_norm_squared_);
+        setMean(mean);
         selectKernels();
     }
 
     // Writer-only: install a fitted mean before any vector is stored, with readers excluded.
     // Updates the buffers in place, so the codec address and cached dispatches remain valid.
     void setMean(std::span<const float> mean) noexcept {
-        assert(mean.size() == dim_);
+        assert(mean.size() == dim_ && mean.data() != bias_mean_.data());
+        // bias_mean_ serves as the rotation scratch before it receives the new mean.
+        computeMeanTerms(mean, bias_rotated_mean_.data(), bias_mean_norm_squared_,
+                         bias_mean_.data());
         std::copy(mean.begin(), mean.end(), bias_mean_.begin());
-        computeMeanTerms(biasMean(), bias_rotated_mean_.data(), bias_mean_norm_squared_);
     }
 
 #ifdef BUILD_TESTS
-    // Fitted state, schema 1. The full rotation is stored; the seed is metadata only.
+    // Fitted state. The schema is the rotation kind: schema 1 stores a dense rotation as
+    // [count][dim*dim floats], byte-for-byte the format written before block Hadamard existed;
+    // schema 2 stores the actual block Hadamard signs and permutations in the same position.
+    // Everything after the rotation is common to both. The seed is metadata only.
     void saveFitted(std::ostream &out) const {
-        const uint32_t header[] = {1, bits_, 1, 3, 1}; // schema, MSE, projection-match, mean-error
+        // schema (= rotation kind), MSE, projection-match, mean-error
+        const uint32_t header[] = {static_cast<uint32_t>(rotation_.kind()), bits_, 1, 3, 1};
         out.write(reinterpret_cast<const char *>(header), sizeof(header));
         out.write(reinterpret_cast<const char *>(&seed_), sizeof(seed_));
         auto write = [&](const auto &values) {
@@ -253,7 +272,10 @@ public:
             out.write(reinterpret_cast<const char *>(&count), sizeof(count));
             out.write(reinterpret_cast<const char *>(values.data()), count * sizeof(float));
         };
-        write(rotation_);
+        if (rotation_.isBlockHadamard())
+            rotation_.saveBlockHadamard(out);
+        else
+            write(rotation_.dense());
         write(centroids_);
         write(bias_mean_);
         write(bias_rotated_mean_);
@@ -269,16 +291,23 @@ public:
         uint64_t seed = 0;
         in.read(reinterpret_cast<char *>(header), sizeof(header));
         in.read(reinterpret_cast<char *>(&seed), sizeof(seed));
-        if (!in || header[0] != 1 || header[1] != bits || header[2] != 1 || header[3] != 3 ||
-            header[4] != 1)
+        const auto kind = static_cast<TurboQuantRotationKind>(header[0]);
+        // Schema 1 (dense) loads at any dimension; schema 2 only where a new index builds it.
+        if (!in ||
+            (kind != TurboQuantRotationKind::Dense &&
+             !(kind == TurboQuantRotationKind::BlockHadamard &&
+               TurboQuantRotation::kindFor(dim) == kind)) ||
+            header[1] != bits || header[2] != 1 || header[3] != 3 || header[4] != 1)
             throw std::runtime_error("Unsupported TurboQuant fitted policy");
         const auto position = in.tellg();
         in.seekg(0, std::ios::end);
         const auto end = in.tellg();
         in.seekg(position);
-        const uint64_t minimum =
-            4 * sizeof(uint64_t) + sizeof(float) +
-            (uint64_t(dim) * dim + (uint64_t(1) << bits) + 2 * dim) * sizeof(float);
+        const uint64_t rotation_bytes = kind == TurboQuantRotationKind::Dense
+                                            ? sizeof(uint64_t) + uint64_t(dim) * dim * sizeof(float)
+                                            : TurboQuantRotation::minimumBlockHadamardBytes(dim);
+        const uint64_t minimum = rotation_bytes + 3 * sizeof(uint64_t) + sizeof(float) +
+                                 ((uint64_t(1) << bits) + 2 * dim) * sizeof(float);
         if (!in || position < 0 || end < position || uint64_t(end - position) < minimum)
             throw std::runtime_error("Truncated TurboQuant fitted state");
         vecsim_stl::vector<float> zero(dim, 0.0f, allocator);
@@ -297,7 +326,10 @@ public:
                 if (!std::isfinite(value))
                     throw std::runtime_error("Nonfinite TurboQuant fitted state");
         };
-        read(codec->rotation_);
+        if (kind == TurboQuantRotationKind::Dense)
+            read(codec->rotation_.resetDense(dim));
+        else
+            codec->rotation_.loadBlockHadamard(in, dim);
         read(codec->centroids_);
         read(codec->bias_mean_);
         read(codec->bias_rotated_mean_);
@@ -309,16 +341,17 @@ public:
                 (i && codec->centroids_[i] <= codec->centroids_[i - 1]))
                 throw std::runtime_error("Invalid TurboQuant fitted centroids");
         // Validate the relationship between persisted derived terms and the exact stored mean.
-        vecsim_stl::vector<float> rotated(dim, allocator);
+        vecsim_stl::vector<float> rotated(dim, allocator), scratch(dim, allocator);
         float norm_squared = 0;
-        codec->computeMeanTerms(codec->biasMean(), rotated.data(), norm_squared);
+        codec->computeMeanTerms(codec->biasMean(), rotated.data(), norm_squared, scratch.data());
         if (norm_squared != codec->bias_mean_norm_squared_ ||
             !std::equal(rotated.begin(), rotated.end(), codec->bias_rotated_mean_.begin()))
             throw std::runtime_error("Inconsistent TurboQuant fitted mean terms");
-        for (size_t row = 0; row < dim; ++row) {
+        const auto dense = codec->rotation_.dense();
+        for (size_t row = 0; row < dim && !dense.empty(); ++row) {
             double squared = 0;
             for (size_t col = 0; col < dim; ++col) {
-                const double value = codec->rotation_[row * dim + col];
+                const double value = dense[row * dim + col];
                 squared += value * value;
             }
             if (std::abs(squared - 1.0) > 1e-4)
@@ -331,7 +364,9 @@ public:
     size_t dim() const { return dim_; }
     unsigned bits() const { return bits_; }
     uint64_t seed() const { return seed_; }
-    std::span<const float> rotation() const { return {rotation_.data(), rotation_.size()}; }
+    // The dense row-major dim x dim matrix; empty for a block Hadamard rotation.
+    std::span<const float> rotation() const { return rotation_.dense(); }
+    const TurboQuantRotation &rotationOperator() const { return rotation_; }
     std::span<const float> centroids() const { return {centroids_.data(), centroids_.size()}; }
     std::span<const float> biasMean() const { return {bias_mean_.data(), bias_mean_.size()}; }
     std::span<const float> biasRotatedMean() const {
@@ -339,9 +374,10 @@ public:
     }
     size_t storageBytes() const { return code_bytes_ + 2 * sizeof(float); }
     size_t queryBytes() const { return (dim_ + 1) * sizeof(float); }
-    // Rotation, centroids, mean and rotated mean, each in its own allocation.
+    // Rotation, centroids, mean and rotated mean of a new codec, each in its own allocation(s).
     static size_t sharedDataBytes(size_t dim, unsigned bits) {
-        return (dim * dim + (size_t(1) << bits) + 2 * dim) * sizeof(float);
+        return TurboQuantRotation::sharedBytesFor(dim) +
+               ((size_t(1) << bits) + 2 * dim) * sizeof(float);
     }
 
     // Encodes x - mean. Reads all of `input` before writing `stored`, so they may alias.
@@ -362,11 +398,20 @@ public:
         for (size_t i = 0; i < dim_; ++i) {
             unit[i] /= norm;
         }
+        const auto dense = rotation_.dense();
+        if (rotation_.isBlockHadamard()) {
+            vecsim_stl::vector<float> scratch(dim_, allocator_);
+            rotation_.apply(unit.data(), unit.data(), scratch.data()); // unit now holds R*unit
+        }
         double unit_code_dot = 0, code_mean_dot = 0;
         for (size_t row = 0; row < dim_; ++row) {
             float rotated = 0;
-            for (size_t col = 0; col < dim_; ++col) {
-                rotated += rotation_[row * dim_ + col] * unit[col];
+            if (dense.empty()) {
+                rotated = unit[row];
+            } else {
+                for (size_t col = 0; col < dim_; ++col) {
+                    rotated += dense[row * dim_ + col] * unit[col];
+                }
             }
             unsigned code = 0;
             while (code + 1 < centroids_.size() &&
@@ -386,13 +431,18 @@ public:
     // Writes [R*q][q.mean] into an FP32-aligned buffer that does not alias `input`.
     void prepareQuery(const float *input, void *query) const {
         auto *output = static_cast<float *>(query);
-        for (size_t row = 0; row < dim_; ++row) {
+        if (rotation_.isBlockHadamard()) {
+            vecsim_stl::vector<float> scratch(dim_, allocator_);
+            rotation_.apply(input, output, scratch.data());
+        }
+        const auto dense = rotation_.dense();
+        for (size_t row = 0; row < dim_ && !dense.empty(); ++row) {
             float value = 0;
             if (row_dot_) {
-                value = row_dot_(rotation_.data() + row * dim_, input, dim_);
+                value = row_dot_(dense.data() + row * dim_, input, dim_);
             } else {
                 for (size_t col = 0; col < dim_; ++col) {
-                    value += rotation_[row * dim_ + col] * input[col];
+                    value += dense[row * dim_ + col] * input[col];
                 }
             }
             output[row] = value;
