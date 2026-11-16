@@ -579,40 +579,23 @@ static int rpQueryItNextAsyncDiskProfiled(ResultProcessor *base, SearchResult *r
   return rpQueryItNextAsyncDiskImpl(base, res, false, -INFINITY, true);
 }
 
-// A threshold only helps a tree that can bound its candidates; any other takes the plain path.
-static inline bool appliesThreshold(const RPQueryIterator *self) {
-  return QueryIterator_ReportsScoreBounds(self->iterator);
-}
-
 static int rpQueryItNextWithThreshold(ResultProcessor *base, SearchResult *res,
                                       double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base)) {
-    return rpQueryItNext(base, res);
-  }
   return rpQueryItNextImpl(base, res, true, minCompetitiveScore, false);
 }
 
 static int rpQueryItNextWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
                                               double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base)) {
-    return rpQueryItNextProfiled(base, res);
-  }
   return rpQueryItNextImpl(base, res, true, minCompetitiveScore, true);
 }
 
 static int rpQueryItNextAsyncDiskWithThreshold(ResultProcessor *base, SearchResult *res,
                                                double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base)) {
-    return rpQueryItNextAsyncDisk(base, res);
-  }
   return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, false);
 }
 
 static int rpQueryItNextAsyncDiskWithThresholdProfiled(ResultProcessor *base, SearchResult *res,
                                                        double minCompetitiveScore) {
-  if (!appliesThreshold((RPQueryIterator *)base)) {
-    return rpQueryItNextAsyncDiskProfiled(base, res);
-  }
   return rpQueryItNextAsyncDiskImpl(base, res, true, minCompetitiveScore, true);
 }
 
@@ -659,8 +642,14 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   IndexResultAsyncRead_Init(&ret->async, asyncPoolSize, asyncQueueSize);
 
   ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
+  // A threshold only helps a tree that can bound its candidates. `ReportsScoreBounds` is fixed
+  // once the tree is built, so decide here rather than walking the tree on every pull; without
+  // the hook, `RP_NextWithThreshold` takes the plain `Next`. The one later root swap, to an empty
+  // iterator on a revalidate abort, is harmless on the threshold path: it falls back to `Read`.
   ret->base.NextWithThreshold =
-      isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold;
+      !QueryIterator_ReportsScoreBounds(root)
+          ? NULL
+          : (isProfiled ? rpQueryItNextWithThresholdProfiled : rpQueryItNextWithThreshold);
   return &ret->base;
 }
 
@@ -679,8 +668,10 @@ void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp) {
   if (pool) {
     IndexResultAsyncRead_SetupAsyncPool(&self->async, pool);
     rp->Next = rp->parent->isProfile ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
-    rp->NextWithThreshold = rp->parent->isProfile ? rpQueryItNextAsyncDiskWithThresholdProfiled
-                                                  : rpQueryItNextAsyncDiskWithThreshold;
+    if (rp->NextWithThreshold) {
+      rp->NextWithThreshold = rp->parent->isProfile ? rpQueryItNextAsyncDiskWithThresholdProfiled
+                                                    : rpQueryItNextAsyncDiskWithThreshold;
+    }
   }
 }
 

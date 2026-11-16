@@ -10,7 +10,7 @@
 //! Window skipping in [`RQEIterator::read_with_threshold`] of the composites, driven over
 //! [`Blocked`] leaves.
 
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use proptest::prelude::*;
 use query_types::QueryNodeType;
@@ -23,7 +23,7 @@ use rqe_iterators::{
     union_opaque::build_union,
 };
 
-use crate::utils::blocked::{Block, Blocked, BlockedLog, drain_above};
+use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, tree};
 
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
@@ -149,6 +149,47 @@ fn intersection_passes_over_a_target_its_aligned_children_rule_out() {
     // `b` is moved onto 2, before it stands in a block, and onto 6; never onto 4 or 8.
     assert_eq!(visited(&b_log), [2, 6]);
     assert_eq!(b_log.borrow().skip_tos, 2);
+}
+
+/// An exact-phrase intersection (`max_slop = 0`, `in_order`) over `a` then `b`, each a single
+/// block of `docs` with the matching scores and term positions.
+fn phrase(
+    a: (&[(DocId, f64)], &[u8]),
+    b: (&[(DocId, f64)], &[u8]),
+) -> Intersection<'static, Blocked> {
+    let a = Blocked::new(vec![Block::tight(a.0)]).with_positions(a.1);
+    let b = Blocked::new(vec![Block::tight(b.0)]).with_positions(b.1);
+    Intersection::new_with_slop_order(vec![a, b], 1.0, false, Some(0), true)
+}
+
+#[test]
+fn phrase_intersection_keeps_only_relevant_documents() {
+    let docs: Vec<_> = (1..=5).map(|id| (id, 2.0)).collect();
+    // Doc 1 and 4 are adjacent and in order; 2 and 5 are too far apart; 3 is out of order.
+    let a_positions = [1, 1, 3, 1, 1];
+    let b_positions = [2, 4, 2, 2, 3];
+    let build = || phrase((&docs, &a_positions), (&docs, &b_positions));
+    let threshold = min_competitive(1.0);
+
+    assert_eq!(plain_survivors(&mut build(), threshold), [1, 4]);
+    assert_eq!(drain_above(&mut build(), threshold), [1, 4]);
+}
+
+#[test]
+fn phrase_intersection_drops_by_bound_and_by_relevancy() {
+    // Docs 1 to 3 cannot reach the threshold; of those that can, 5 fails the phrase check.
+    let a: Vec<_> = (1..=6)
+        .map(|id| (id, if id <= 3 { 1.0 } else { 3.0 }))
+        .collect();
+    let b: Vec<_> = (1..=6).map(|id| (id, 1.0)).collect();
+    let a_positions = [1, 1, 1, 1, 1, 1];
+    // Doc 3 fails both checks.
+    let b_positions = [2, 2, 5, 2, 5, 2];
+    let build = || phrase((&a, &a_positions), (&b, &b_positions));
+    let threshold = min_competitive(3.5);
+
+    assert_eq!(plain_survivors(&mut build(), threshold), [4, 6]);
+    assert_eq!(drain_above(&mut build(), threshold), [4, 6]);
 }
 
 /****************************** unions ******************************/
@@ -622,122 +663,6 @@ fn intersection_through_the_c_abi_skips_windows() {
 
 /****************************** equivalence ******************************/
 
-/// A leaf to build: its blocks, and whether it reports their boundaries.
-#[derive(Debug, Clone)]
-struct LeafSpec {
-    blocks: Vec<Block>,
-    reports_blocks: bool,
-}
-
-#[derive(Debug, Clone)]
-enum Tree {
-    Leaf(LeafSpec),
-    And(Vec<Tree>),
-    Or { children: Vec<Tree>, heap: bool },
-}
-
-impl Tree {
-    /// Builds the iterator, collecting the logs of its leaves.
-    fn build(&self, logs: &mut Vec<Log>) -> DynIterator {
-        match self {
-            Self::Leaf(spec) => {
-                let leaf = Blocked::new(spec.blocks.clone());
-                logs.push(leaf.log());
-                if spec.reports_blocks {
-                    Box::new(leaf)
-                } else {
-                    Box::new(leaf.without_block_bounds())
-                }
-            }
-            Self::And(children) => Box::new(Intersection::new(
-                children.iter().map(|child| child.build(logs)).collect(),
-                1.0,
-                false,
-            )),
-            Self::Or { children, heap } => {
-                let children: Vec<_> = children.iter().map(|child| child.build(logs)).collect();
-                if *heap {
-                    Box::new(UnionFullHeap::new(children))
-                } else {
-                    Box::new(UnionFullFlat::new(children))
-                }
-            }
-        }
-    }
-
-    /// The score of every matching document, as the composites define it at weight 1: an
-    /// intersection sums all its children, a union those that match.
-    fn scores(&self) -> BTreeMap<DocId, f64> {
-        match self {
-            Self::Leaf(spec) => spec
-                .blocks
-                .iter()
-                .flat_map(|block| block.docs.iter().copied())
-                .collect(),
-            Self::And(children) => {
-                let mut children = children.iter().map(Self::scores);
-                let first = children.next().expect("an intersection has children");
-                children.fold(first, |acc, child| {
-                    acc.into_iter()
-                        .filter_map(|(doc, score)| child.get(&doc).map(|s| (doc, score + s)))
-                        .collect()
-                })
-            }
-            Self::Or { children, .. } => {
-                let mut scores = BTreeMap::new();
-                for child in children {
-                    for (doc, score) in child.scores() {
-                        *scores.entry(doc).or_insert(0.0) += score;
-                    }
-                }
-                scores
-            }
-        }
-    }
-}
-
-fn leaf_spec() -> impl Strategy<Value = Tree> {
-    let docs = proptest::collection::btree_map(1u64..=40, 0u8..=8, 1..=30);
-    (docs, any::<u64>(), proptest::bool::weighted(0.85)).prop_map(
-        |(docs, splits, reports_blocks)| {
-            let mut blocks: Vec<Vec<(DocId, f64)>> = vec![Vec::new()];
-            for (i, (doc, score)) in docs.into_iter().enumerate() {
-                if splits & (1 << (i % 64)) != 0 && !blocks.last().expect("non-empty").is_empty() {
-                    blocks.push(Vec::new());
-                }
-                blocks
-                    .last_mut()
-                    .expect("non-empty")
-                    .push((doc, f64::from(score) * 0.5));
-            }
-            let blocks = blocks
-                .iter()
-                .enumerate()
-                .map(|(i, docs)| {
-                    let tight = Block::tight(docs);
-                    // Every third block is quantized up.
-                    let slack = if i % 3 == 2 { 0.75 } else { 0.0 };
-                    Block::loose(docs, tight.max_score + slack)
-                })
-                .collect();
-            Tree::Leaf(LeafSpec {
-                blocks,
-                reports_blocks,
-            })
-        },
-    )
-}
-
-fn tree() -> impl Strategy<Value = Tree> {
-    leaf_spec().prop_recursive(2, 8, 3, |inner| {
-        prop_oneof![
-            proptest::collection::vec(inner.clone(), 2..=3).prop_map(Tree::And),
-            (proptest::collection::vec(inner, 2..=3), any::<bool>())
-                .prop_map(|(children, heap)| Tree::Or { children, heap }),
-        ]
-    })
-}
-
 /// Thresholds for successive reads, rising like the minimum of a filling heap. The last one holds
 /// for every later read.
 fn thresholds() -> impl Strategy<Value = Vec<MinCompetitiveScore>> {
@@ -758,7 +683,7 @@ proptest! {
     /// Thresholded reads keep every document a plain read yields that reaches the threshold in
     /// force while it is passed, and yield only real matches, in increasing order, then EOF.
     #[test]
-    fn thresholded_reads_keep_every_competitive_document(tree in tree(), thresholds in thresholds()) {
+    fn thresholded_reads_keep_every_competitive_document(tree in tree(40, 30), thresholds in thresholds()) {
         let scores = tree.scores();
         let mut logs = Vec::new();
         let mut it = tree.build(&mut logs);

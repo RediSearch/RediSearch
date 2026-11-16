@@ -10,13 +10,15 @@
 //! A leaf laid out in storage blocks with per-block score maxima, standing in for a disk term
 //! leaf when testing score-bound window skipping.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use rqe_core::DocId;
+use proptest::prelude::*;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    UnionFullFlat, UnionFullHeap,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -89,6 +91,8 @@ pub(crate) struct Blocked {
     /// Index into `entries` of the next document to position on, or [`past_end_cursor`].
     next: usize,
     reports_blocks: bool,
+    /// One term position per document, in id order, when the leaf yields term results.
+    positions: Option<Vec<u8>>,
     result: RSIndexResult<'static>,
     log: Rc<RefCell<BlockedLog>>,
 }
@@ -111,6 +115,7 @@ impl Blocked {
             entries,
             next: 0,
             reports_blocks: true,
+            positions: None,
             result: RSIndexResult::build_virt().build(),
             log: Rc::default(),
         }
@@ -124,6 +129,22 @@ impl Blocked {
     /// The same leaf, but reporting no block boundary, as a leaf without block metadata does.
     pub(crate) const fn without_block_bounds(mut self) -> Self {
         self.reports_blocks = false;
+        self
+    }
+
+    /// The same leaf, but yielding a term result carrying `positions[i]` as the only offset of
+    /// its `i`-th document, so that a slop or in-order intersection can check it.
+    pub(crate) fn with_positions(mut self, positions: &[u8]) -> Self {
+        assert_eq!(
+            positions.len(),
+            self.entries.len(),
+            "one position per document"
+        );
+        assert!(
+            positions.iter().all(|&p| (1..=127).contains(&p)),
+            "positions must fit a single-byte varint",
+        );
+        self.positions = Some(positions.to_vec());
         self
     }
 
@@ -159,6 +180,15 @@ impl Blocked {
         let (b, i) = self.entries[at];
         let doc_id = self.blocks[b].docs[i].0;
         self.next = at + 1;
+        if let Some(positions) = &self.positions {
+            let offsets = RSOffsetSlice::from_slice(&positions[at..=at]).to_owned();
+            self.result = RSIndexResult::build_term()
+                .doc_id(doc_id)
+                .weight(1.)
+                .field_mask(RS_FIELDMASK_ALL)
+                .owned_record(None, offsets)
+                .build();
+        }
         self.result.doc_id = doc_id;
         self.log.borrow_mut().visited.push(doc_id);
         Some(doc_id)
@@ -312,4 +342,133 @@ pub(crate) fn drain_above<'index>(
         docs.push(doc);
     }
     docs
+}
+
+/****************************** random trees ******************************/
+
+/// A leaf to build: its blocks, and whether it reports their boundaries.
+#[derive(Debug, Clone)]
+pub(crate) struct LeafSpec {
+    pub(crate) blocks: Vec<Block>,
+    pub(crate) reports_blocks: bool,
+}
+
+/// A query tree over [`Blocked`] leaves, from which both the iterator and the exact score of
+/// every match are derived.
+#[derive(Debug, Clone)]
+pub(crate) enum Tree {
+    Leaf(LeafSpec),
+    And(Vec<Tree>),
+    Or { children: Vec<Tree>, heap: bool },
+}
+
+impl Tree {
+    /// Builds the iterator, collecting the logs of its leaves.
+    pub(crate) fn build(
+        &self,
+        logs: &mut Vec<Rc<RefCell<BlockedLog>>>,
+    ) -> Box<dyn RQEIterator<'static>> {
+        match self {
+            Self::Leaf(spec) => {
+                let leaf = Blocked::new(spec.blocks.clone());
+                logs.push(leaf.log());
+                if spec.reports_blocks {
+                    Box::new(leaf)
+                } else {
+                    Box::new(leaf.without_block_bounds())
+                }
+            }
+            Self::And(children) => Box::new(Intersection::new(
+                children.iter().map(|child| child.build(logs)).collect(),
+                1.0,
+                false,
+            )),
+            Self::Or { children, heap } => {
+                let children: Vec<_> = children.iter().map(|child| child.build(logs)).collect();
+                if *heap {
+                    Box::new(UnionFullHeap::new(children))
+                } else {
+                    Box::new(UnionFullFlat::new(children))
+                }
+            }
+        }
+    }
+
+    /// The score of every matching document, as the composites define it at weight 1: an
+    /// intersection sums all its children, a union those that match. This is the oracle a
+    /// correct result is checked against.
+    pub(crate) fn scores(&self) -> BTreeMap<DocId, f64> {
+        match self {
+            Self::Leaf(spec) => spec
+                .blocks
+                .iter()
+                .flat_map(|block| block.docs.iter().copied())
+                .collect(),
+            Self::And(children) => {
+                let mut children = children.iter().map(Self::scores);
+                let first = children.next().expect("an intersection has children");
+                children.fold(first, |acc, child| {
+                    acc.into_iter()
+                        .filter_map(|(doc, score)| child.get(&doc).map(|s| (doc, score + s)))
+                        .collect()
+                })
+            }
+            Self::Or { children, .. } => {
+                let mut scores = BTreeMap::new();
+                for child in children {
+                    for (doc, score) in child.scores() {
+                        *scores.entry(doc).or_insert(0.0) += score;
+                    }
+                }
+                scores
+            }
+        }
+    }
+}
+
+/// A random leaf of up to `max_docs` documents among `1..=max_doc_id`, cut into blocks at random.
+/// Scores are multiples of a power of two, so sums are exact in `f64` and no tie is broken
+/// differently by rounding in two runs over the same tree. Every third block reports a maximum
+/// looser than its scores, as a quantized one does.
+fn leaf_spec(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Value = Tree> {
+    let docs = proptest::collection::btree_map(1..=max_doc_id, 0u8..=8, 1..=max_docs);
+    (docs, any::<u64>(), proptest::bool::weighted(0.85)).prop_map(
+        |(docs, splits, reports_blocks)| {
+            let mut blocks: Vec<Vec<(DocId, f64)>> = vec![Vec::new()];
+            for (i, (doc, score)) in docs.into_iter().enumerate() {
+                if splits & (1 << (i % 64)) != 0 && !blocks.last().expect("non-empty").is_empty() {
+                    blocks.push(Vec::new());
+                }
+                blocks
+                    .last_mut()
+                    .expect("non-empty")
+                    .push((doc, f64::from(score) * 0.5));
+            }
+            let blocks = blocks
+                .iter()
+                .enumerate()
+                .map(|(i, docs)| {
+                    let tight = Block::tight(docs);
+                    let slack = if i % 3 == 2 { 0.75 } else { 0.0 };
+                    Block::loose(docs, tight.max_score + slack)
+                })
+                .collect();
+            Tree::Leaf(LeafSpec {
+                blocks,
+                reports_blocks,
+            })
+        },
+    )
+}
+
+/// A random tree of intersections and full unions, up to two composite levels deep, over leaves
+/// drawn by [`leaf_spec`].
+pub(crate) fn tree(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Value = Tree> {
+    leaf_spec(max_doc_id, max_docs).prop_recursive(2, 8, 3, |inner| {
+        prop_oneof![
+            proptest::collection::vec(inner.clone(), 2..=3).prop_map(Tree::And),
+            (proptest::collection::vec(inner, 2..=3), any::<bool>())
+                .prop_map(|(children, heap)| Tree::Or { children, heap }),
+        ]
+    })
 }

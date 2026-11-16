@@ -826,9 +826,11 @@ where
         if self.is_eof || self.last_doc_id() == 0 {
             return None;
         }
+        // The same children the pivot reads, so an enclosing window and this union's own pivot
+        // agree on which children bound the block.
         crate::composite::summed_block_bound(
-            self.children.iter().filter(|child| !child.at_eof()),
-            self.result.weight,
+            crate::composite::PivotingUnion::live_children(self),
+            crate::composite::PivotingUnion::score_weight(self),
         )
     }
 
