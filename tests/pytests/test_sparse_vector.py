@@ -47,6 +47,7 @@ def ids_and_scores(res):
 
 
 def testCreateValidation(env):
+    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4,
                'DIM', 10, 'DISTANCE_METRIC', 'IP').ok()
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'sp', 'SPARSEVECTOR', 6,
@@ -68,6 +69,7 @@ def testCreateValidation(env):
 
 
 def testInfo(env):
+    enable_unstable_features(env)
     create_index(env, metric='COSINE', dim=30522)
     sp = [a for a in index_info(env)['attributes'] if 'sp' in a][0]
     env.assertEqual(sp, ['identifier', 'sp', 'attribute', 'sp', 'type', 'SPARSEVECTOR',
@@ -76,6 +78,7 @@ def testInfo(env):
 
 def testTopKMatchesBruteForce(env):
     """The top LIMIT results by the default score are the exact best dot products."""
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, dim=200)
     rnd = random.Random(1234)
@@ -100,6 +103,7 @@ def testTopKMatchesBruteForce(env):
 
 def testPartialOverlapRanksFirst(env):
     """A document with one of the query dimensions can still be the best match."""
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 10.0)]))
@@ -117,6 +121,7 @@ def testPartialOverlapRanksFirst(env):
 
 
 def testCombinedWithOtherClauses(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'running shoes', 'cat', 'footwear',
@@ -149,6 +154,7 @@ def testCombinedWithOtherClauses(env):
 
 
 def testYieldScoreAs(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     conn.execute_command('HSET', 'doc:1', 'title', 'a', 'sp', sparse_blob([(1, 3.0)]))
@@ -178,6 +184,7 @@ def testYieldScoreAs(env):
 
 
 def testInvalidQueries(env):
+    enable_unstable_features(env)
     create_index(env, dim=100)
     for q, msg in [
         (sparse_blob([(100, 1.0)]), 'out of range'),
@@ -196,6 +203,7 @@ def testInvalidQueries(env):
 
 @skip(cluster=True)
 def testInvalidDocuments(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, dim=100)
     conn.execute_command('HSET', 'doc:ok', 'sp', sparse_blob([(1, 1.0)]))
@@ -217,6 +225,7 @@ def testInvalidDocuments(env):
 
 
 def testUpdateAndDelete(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 5.0)]))
@@ -238,6 +247,7 @@ def testUpdateAndDelete(env):
 
 
 def testCosine(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, metric='COSINE', dim=10)
     conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 3.0), (2, 4.0)]))
@@ -254,6 +264,7 @@ def testCosine(env):
 
 
 def testRdbReload(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, metric='COSINE', dim=50)
     conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0)]))
@@ -271,6 +282,7 @@ def testRdbReload(env):
 
 @skip(cluster=True)
 def testProfileAndExplain(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0), (2, 1.0)]))
@@ -293,6 +305,7 @@ def sparse_field_stats(env, field='sp'):
 
 
 def testInfoFieldStatistics(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     # A field no document has written to yet reports zeros.
@@ -323,6 +336,7 @@ def testInfoFieldStatistics(env):
 
 @skip(cluster=True)
 def testInfoModules(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     ops_before = conn.execute_command('INFO', 'MODULES')[
@@ -348,6 +362,7 @@ def testInfoModules(env):
 
 @skip(cluster=True)
 def testDebugSparseIndex(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env)
     # Before any document the field has no index, and reads as empty.
@@ -391,6 +406,7 @@ def testDebugSparseIndex(env):
 
 @skip(no_json=True)
 def testJson(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, on='JSON', path='$.sp')
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(
@@ -413,6 +429,7 @@ def testJson(env):
 
 
 def check_gc_collects_sparse_entries(env):
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
     create_index(env, dim=200)
@@ -476,6 +493,7 @@ def schema_fingerprint(env, idx='idx'):
 def testSchemaFingerprintCoversSparseAttributes(env):
     """Shards must not report schema agreement when they disagree on DIM or the
     metric, since those decide how a query vector is checked and scored."""
+    enable_unstable_features(env)
     fingerprints = set()
     for dim, metric in [(10, 'IP'), (11, 'IP'), (10, 'COSINE')]:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4,
@@ -487,6 +505,7 @@ def testSchemaFingerprintCoversSparseAttributes(env):
 
 def testHybridRejectsSparseQueries(env):
     """Sparse vector queries are not supported in FT.HYBRID yet, in either clause."""
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
                'emb', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
@@ -505,6 +524,7 @@ def testHybridRejectsSparseQueries(env):
 def testDenseRangeDistanceIsNotASparseScore(env):
     """A dense VECTOR_RANGE clause yielding its distance does not change the
     default sparse score of the documents it also matches."""
+    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
                'r', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
@@ -517,3 +537,124 @@ def testDenseRangeDistanceIsNotASparseScore(env):
     env.assertEqual(res[0], 2)
     env.assertEqual([res[1], float(res[2]), res[4], float(res[5])], ['doc:a', 3.0, 'doc:b', 2.0])
     env.assertEqual([float(res[3][1]), float(res[6][1])], [0.0, 100.0])
+
+
+# ---------------------------------------------------------------------------
+# ENABLE_UNSTABLE_FEATURES gate
+# ---------------------------------------------------------------------------
+
+GATE_ERROR = 'SPARSEVECTOR is unavailable when `ENABLE_UNSTABLE_FEATURES` is off'
+
+
+def set_unstable_features(env, on):
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features',
+                              'yes' if on else 'no')
+
+
+def sparse_info_modules_keys(conn):
+    return sorted(k for k in conn.execute_command('INFO', 'MODULES') if 'sparse' in k)
+
+
+def testRequiresUnstableFeatures(env):
+    """With the flag off, a sparse field cannot be created or queried, and an
+    index without one reports exactly what it reported before the feature."""
+    set_unstable_features(env, False)
+    conn = getConnectionByEnv(env)
+    sparse = ['sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP']
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', *sparse).error().contains(GATE_ERROR)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', *sparse).error().contains(GATE_ERROR)
+    env.assertEqual(len(index_info(env)['attributes']), 1)
+    env.expect('FT.SEARCH', 'idx', '@title:[SPARSE $q]', 'PARAMS', 2, 'q',
+               sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(GATE_ERROR)
+
+    env.assertFalse('sparse_vector_index_sz_mb' in index_info(env))
+    env.assertEqual(sparse_info_modules_keys(conn), [])
+
+
+def check_sparse_index_after_reload(env, expected_docs):
+    """The reloaded index has its attributes and its documents."""
+    waitForIndex(env)
+    sp = [a for a in index_info(env)['attributes'] if 'sp' in a][0]
+    env.assertEqual(sp[-4:], ['dim', 100, 'distance_metric', 'COSINE'])
+    env.assertEqual(index_info(env)['num_docs'], len(expected_docs))
+    env.assertEqual(sparse_field_stats(env)['num_records'], 2 * len(expected_docs))
+    # Observability follows the field, not the flag.
+    env.assertTrue('sparse_vector_index_sz_mb' in index_info(env))
+
+
+def index_sparse_docs(conn, ids):
+    for i in ids:
+        conn.execute_command('HSET', f'doc:{i}', 'sp', sparse_blob([(1, 1.0), (i + 10, 1.0)]))
+
+
+def search_ids(env):
+    res = search(env, '@sp:[SPARSE $q]', [(1, 1.0)], 'NOCONTENT', 'LIMIT', 0, 100)
+    return sorted(res[1:])
+
+
+def testRdbSavedWithFlagOnLoadsWithFlagOff(env):
+    """Turning the flag off must not leave an index created under it unloadable
+    or stale: it loads, keeps indexing, and only querying is refused."""
+    set_unstable_features(env, True)
+    conn = getConnectionByEnv(env)
+    create_index(env, metric='COSINE')
+    index_sparse_docs(conn, [1, 2])
+
+    env.broadcast('SAVE')
+    set_unstable_features(env, False)
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    check_sparse_index_after_reload(env, [1, 2])
+
+    # Indexing is not gated: a document written now is in the index.
+    index_sparse_docs(conn, [3])
+    env.assertEqual(sparse_field_stats(env)['num_records'], 6)
+    env.expect('FT.SEARCH', 'idx', '@sp:[SPARSE $q]', 'PARAMS', 2, 'q',
+               sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(GATE_ERROR)
+
+    set_unstable_features(env, True)
+    env.assertEqual(search_ids(env), ['doc:1', 'doc:2', 'doc:3'])
+
+
+def testRdbSavedWithFlagOffLoadsWithFlagOn(env):
+    """An RDB written with the flag off, holding a sparse index and a plain one,
+    loads with the flag on, including documents indexed while it was off."""
+    set_unstable_features(env, True)
+    conn = getConnectionByEnv(env)
+    create_index(env, metric='COSINE')
+    env.expect('FT.CREATE', 'plain', 'PREFIX', 1, 'plain:', 'SCHEMA', 't', 'TEXT').ok()
+    index_sparse_docs(conn, [1])
+
+    set_unstable_features(env, False)
+    index_sparse_docs(conn, [2])
+    conn.execute_command('HSET', 'plain:1', 't', 'hello')
+    env.broadcast('SAVE')
+    set_unstable_features(env, True)
+    env.broadcast('DEBUG RELOAD NOSAVE')
+
+    check_sparse_index_after_reload(env, [1, 2])
+    env.assertEqual(search_ids(env), ['doc:1', 'doc:2'])
+    waitForIndex(env, 'plain')
+    env.assertEqual(env.cmd('FT.SEARCH', 'plain', 'hello', 'NOCONTENT'), [1, 'plain:1'])
+    env.assertFalse('sparse_vector_index_sz_mb' in index_info(env, 'plain'))
+
+
+@skip(cluster=True)
+def testRestartResetsFlagButKeepsSparseIndex(env):
+    """`CONFIG SET` is not persisted, so a restart comes back with the flag off:
+    the most likely way a user ends up loading sparse data with it off."""
+    set_unstable_features(env, True)
+    conn = getConnectionByEnv(env)
+    create_index(env, metric='COSINE')
+    index_sparse_docs(conn, [1, 2])
+
+    env.restartAndReload()
+    env.assertEqual(env.cmd('CONFIG', 'GET', 'search-enable-unstable-features'),
+                    ['search-enable-unstable-features', 'no'])
+    check_sparse_index_after_reload(env, [1, 2])
+    env.expect('FT.SEARCH', 'idx', '@sp:[SPARSE $q]', 'PARAMS', 2, 'q',
+               sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(GATE_ERROR)
+
+    set_unstable_features(env, True)
+    env.assertEqual(search_ids(env), ['doc:1', 'doc:2'])

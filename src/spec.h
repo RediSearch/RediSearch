@@ -55,6 +55,13 @@ struct IndexesScanner;
 #define SPEC_NUMERIC_STR "NUMERIC"
 #define SPEC_SPARSE_VECTOR_STR "SPARSEVECTOR"
 
+// Sparse vectors are behind ENABLE_UNSTABLE_FEATURES (docs/CONTRIBUTING-unstable-features.md).
+// Only creating a field and querying one are gated: a field created while the flag was on keeps
+// loading from RDB and indexing documents after it is turned off, so its index stays correct.
+#define SPARSE_VECTOR_UNSTABLE_ERR                                                 \
+  "SPARSEVECTOR is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it " \
+  "with `CONFIG SET search-enable-unstable-features yes`"
+
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
 #define SPEC_NOFREQS_STR "NOFREQS"

@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "config.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -1031,8 +1032,15 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
 
 geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
   if (B.len == strlen("SPARSE") && !strncasecmp("SPARSE", B.s, B.len)) {
-    // The query vector is binary, so it is always a parameter.
-    A = NewSparseVectorNode_WithParams(ctx, NULL, &C);
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      // `SPARSE` was never a geoshape predicate, so this query was an error before the feature
+      // existed too; only the message changes, to say how to enable it.
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, SPARSE_VECTOR_UNSTABLE_ERR);
+      A = NULL;
+    } else {
+      // The query vector is binary, so it is always a parameter.
+      A = NewSparseVectorNode_WithParams(ctx, NULL, &C);
+    }
   } else {
     // Geometry param is actually a case sensitive term
     C.type = QT_PARAM_TERM_CASE;

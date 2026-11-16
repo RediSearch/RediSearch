@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "config.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -2396,8 +2397,15 @@ static YYACTIONTYPE yy_reduce(
       case 77: /* geometry_query ::= LSQB TERM ATTRIBUTE RSQB */
 {
   if (yymsp[-2].minor.yy0.len == strlen("SPARSE") && !strncasecmp("SPARSE", yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len)) {
-    // The query vector is binary, so it is always a parameter.
-    yymsp[-3].minor.yy119 = NewSparseVectorNode_WithParams(ctx, NULL, &yymsp[-1].minor.yy0);
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      // `SPARSE` was never a geoshape predicate, so this query was an error before the feature
+      // existed too; only the message changes, to say how to enable it.
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, SPARSE_VECTOR_UNSTABLE_ERR);
+      yymsp[-3].minor.yy119 = NULL;
+    } else {
+      // The query vector is binary, so it is always a parameter.
+      yymsp[-3].minor.yy119 = NewSparseVectorNode_WithParams(ctx, NULL, &yymsp[-1].minor.yy0);
+    }
   } else {
     // Geometry param is actually a case sensitive term
     yymsp[-1].minor.yy0.type = QT_PARAM_TERM_CASE;

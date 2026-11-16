@@ -1523,6 +1523,11 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     // Skip SORTABLE and NOINDEX options
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_SPARSE_VECTOR_STR)) {  // sparse vector field
+    // FT.CREATE and FT.ALTER both parse fields here; RDB load does not.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPARSE_VECTOR_UNSTABLE_ERR);
+      goto error;
+    }
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_SPARSE_VECTOR_STR, fs, status))
       goto error;
     if (!parseSparseVectorField(sp, fs, ac, status)) goto error;

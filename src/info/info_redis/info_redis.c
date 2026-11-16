@@ -288,8 +288,12 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
-  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_sparse_vector_fields",
-                                   RSGlobalStats.fieldsStats.sparseVectorTotalDocsIndexed);
+  // Reported only while a sparse field exists, like `fields_sparse_vector`, so INFO is unchanged
+  // for anyone not using the unstable feature (SPARSE_VECTOR_UNSTABLE_ERR).
+  if (RSGlobalStats.fieldsStats.numSparseVectorFields > 0) {
+    RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_sparse_vector_fields",
+                                     RSGlobalStats.fieldsStats.sparseVectorTotalDocsIndexed);
+  }
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -333,13 +337,16 @@ void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
   RedisModule_InfoAddFieldULongLong(ctx, "hnsw_direct_main_thread_insertions", total_info->fields_stats.total_direct_hnsw_insertions);
   RedisModule_InfoAddFieldULongLong(ctx, "tiered_index_frontend_buffer_size", total_info->fields_stats.total_flat_buffer_size);
-  // Sparse posting lists are inverted indexes, so this is also part of `used_memory_indexes`.
-  RedisModule_InfoAddFieldULongLong(ctx, "used_memory_sparse_vector_index",
-                                    total_info->fields_stats.total_sparse_vector_idx_mem);
-  RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_dimensions",
-                                    total_info->fields_stats.total_sparse_vector_dimensions);
-  RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_records",
-                                    total_info->fields_stats.total_sparse_vector_records);
+  // Reported only while a sparse field exists; see `total_indexing_ops_sparse_vector_fields`.
+  if (RSGlobalStats.fieldsStats.numSparseVectorFields > 0) {
+    // Sparse posting lists are inverted indexes, so this is also part of `used_memory_indexes`.
+    RedisModule_InfoAddFieldULongLong(ctx, "used_memory_sparse_vector_index",
+                                      total_info->fields_stats.total_sparse_vector_idx_mem);
+    RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_dimensions",
+                                      total_info->fields_stats.total_sparse_vector_dimensions);
+    RedisModule_InfoAddFieldULongLong(ctx, "sparse_vector_records",
+                                      total_info->fields_stats.total_sparse_vector_records);
+  }
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
