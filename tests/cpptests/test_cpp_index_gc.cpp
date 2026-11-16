@@ -1522,8 +1522,7 @@ TEST_F(IndexGCSettingsTest, testQueueRunCopiesTheThreshold) {
   EXPECT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);  // the run finished
 }
 
-// GCContext_FinishDrop and a timer that fires after the drop both queue the run through
-// GCContext_QueueRun, which finds the index gone; the run then frees the GC.
+// GCContext_FinishDrop queues the run that finds the index gone; that run then frees the GC.
 TEST_F(IndexGCSettingsTest, testQueueRunAfterTheDropKeepsTheCopy) {
   GCContext *gc = createGCForDroppedIndex(42);
   settings().cleanThreshold = {true, 9};
@@ -1543,6 +1542,52 @@ TEST_F(IndexGCSettingsTest, testRunIntervalHelper) {
 
   settings().runIntervalSec = {false, 0};
   EXPECT_EQ(IndexGC_RunIntervalSec(fgc), 60);
+}
+
+// The fork GC's own callbacks under the fake timers, so a timer can be armed and fired.
+class IndexGCSettingsTimerTest : public IndexGCSettingsTest {
+ protected:
+  const decltype(RedisModule_CreateTimer) savedCreateTimer = RedisModule_CreateTimer;
+  const decltype(RedisModule_StopTimer) savedStopTimer = RedisModule_StopTimer;
+  const decltype(GC_NowMs) savedNowMs = GC_NowMs;
+
+  void SetUp() override {
+    // Created while the mock has no timer API, so the fixture's own GC arms nothing.
+    IndexGCSettingsTest::SetUp();
+    ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
+    FakeGCTimers::armed.clear();
+    FakeGCTimers::stopped.clear();
+    FakeGCTimers::lastId = 0;
+    FakeGCTimers::nowMs = 1000;
+    GC_NowMs = FakeGCTimers::Now;
+    RedisModule_CreateTimer = FakeGCTimers::Create;
+    RedisModule_StopTimer = FakeGCTimers::Stop;
+  }
+
+  void TearDown() override {
+    RedisModule_CreateTimer = savedCreateTimer;
+    RedisModule_StopTimer = savedStopTimer;
+    GC_NowMs = savedNowMs;
+    IndexGCSettingsTest::TearDown();
+  }
+};
+
+TEST_F(IndexGCSettingsTimerTest, testTimerFiringAfterTheDropKeepsTheCopy) {
+  settings().runIntervalSec = {true, 5};
+  settings().cleanThreshold = {true, 42};
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  GCContext *gc = GCContext_CreateGC(strong, GCPolicy_Fork);
+  GCContext_Start(gc);
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+  EXPECT_EQ(gc->armedPlan.intervalMs, GC_IntervalSecToMs(5));
+
+  StrongRef_Invalidate(strong);  // the drop
+  StrongRef_Release(strong);
+  settings().cleanThreshold = {true, 9};
+  PausedGCPool paused;  // on leaving, the queued run finds the drop and frees `gc`
+  FakeGCTimers::Fire();
+  EXPECT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
 }
 
 TEST_F(IndexGCSettingsTest, testRunIntervalTimerArmsWithTheIndexInterval) {
