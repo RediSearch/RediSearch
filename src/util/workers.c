@@ -12,7 +12,7 @@
 #include "config.h"
 #include "logging.h"
 #include "rmutil/rm_assert.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 #include <sys/param.h>
 

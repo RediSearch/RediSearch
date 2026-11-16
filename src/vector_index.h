@@ -8,7 +8,7 @@
 */
 #ifndef VECTOR_INDEX_H__
 #define VECTOR_INDEX_H__
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "iterators/iterator_api.h"
 #include "query_node.h"
 #include "query_ctx.h"

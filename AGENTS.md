@@ -70,7 +70,8 @@ make fmt CHECK=1                          # Check formatting without changes
 (cd src/redisearch_rs && cargo license-fix) # Add missing license headers (subshell: custom subcommand, no --manifest-path)
 ```
 
-C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
+VecSim source and its relocated tests/benchmarks preserve their scoped four-space
+style with clang-format 18.1.8 (`make vecsim-format`). Other C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
 
 ## Running Expensive Commands
 
@@ -228,7 +229,8 @@ as production code.
 - `src/buffer/buffer.c` — Redis String DMA buffer implementation
 
 ### Key Dependencies
-- `deps/VectorSimilarity/` — vector index backends (HNSW, flat, etc.)
+- `src/vecsim/` — vector index backends (HNSW, flat, etc.)
+- `deps/ScalableVectorSearch/` — SVS dependency (git submodule)
 - `deps/snowball/` — stemming algorithms (git submodule)
 - `deps/friso/` — Chinese tokenization
 - `deps/phonetics/` — phonetic matching
@@ -239,7 +241,9 @@ as production code.
 - `tests/pytests/` — Python integration tests (RLTest framework)
 - `tests/cpptests/` — C++ unit tests (Google Test → `rstest` binary)
 - `tests/ctests/` — C unit tests (standalone binaries)
-- `tests/benchmarks/` — YAML-driven benchmark configs
+- `tests/cpptests/vecsim/` — VecSim units and shared test utilities (`make vecsim-tests`)
+- `tests/cpptests/micro-benchmarks/vecsim/` — VecSim C++ microbenchmarks
+- `tests/benchmarks/` — YAML-driven benchmark configs and VecSim dataset tooling
 
 ## Build System
 
@@ -375,6 +379,9 @@ Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Ru
 Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 
 ### Benchmarking
+VecSim C++ microbenchmarks and dataset tooling are described in
+[the VecSim benchmark guide](docs/vecsim/benchmarks.md); use `make vecsim-benchmarks`.
+
 Invoke [/run-macro-benchmarks](.skills/run-macro-benchmarks/SKILL.md) to run an end-to-end macro benchmark (`tests/benchmarks/*.yml`) against a real redis-server.
 Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust micro-benchmarks and compare performance with the C implementation.
 
