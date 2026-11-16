@@ -32,6 +32,7 @@ typedef struct BlockClientCtx{
   RedisModuleDisconnectFunc disconnectCallback;  // Optional cancellation callback; does not reply.
   BlockedClientFreePrivDataCB freePrivData;
   rs_wall_clock_ms_t timeoutMS;
+  void (*profileTimeoutSignal)(void *);
 } BlockClientCtx;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, BlockClientCtx *blockClientCtx);

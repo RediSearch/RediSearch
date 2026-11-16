@@ -1626,10 +1626,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
-  // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
-  // observe a RETURN-STRICT main-thread timeout without holding an AREQ
-  // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncCtx.timedOut;
+  // Pipeline processors also stop on a PROFILE deadline, which retains reply ownership.
+  sctx->time.timedOutFlag = &req->syncCtx.executionTimedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

@@ -51,6 +51,7 @@ typedef struct {
   // and treats an empty channel as EOF. Set by RETURN-STRICT main-thread
   // serialization after BG has exited the pipeline, so a plain bool is safe.
   bool drainOnly;
+  bool collectingProfile;
 
   // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
   // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,

@@ -946,7 +946,7 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
 #ifdef ENABLE_ASSERT
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
 #endif
-  return AREQ_TimedOut(areq);
+  return AREQ_ExecutionTimedOut(areq);
 }
 
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
