@@ -53,11 +53,18 @@ bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value);
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings);
 size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings);
 
-// The override block: a count, then one (setting id, value) pair per set override. Load
-// skips ids it does not know, so a later setting needs no encoding version bump, and fails
-// on a known id with a value out of range or given twice.
+// The override block: a count, then one (setting id, value) pair per set override, the value
+// saved as a string buffer of any length. Load skips ids it does not know, whatever their
+// value, so a later setting needs no encoding version bump; it fails on a known id whose value
+// is malformed, out of range or given twice. Skipped ids are counted until the next
+// IndexGCSettings_ReportSkipped.
 void IndexGCSettings_RdbSave(RedisModuleIO *rdb, const IndexGCSettings *settings);
 int IndexGCSettings_RdbLoad(RedisModuleIO *rdb, IndexGCSettings *settings);
+
+// Logs once how many settings the loads since the last call skipped, if any. Called when a
+// whole RDB load or a single serialized spec load ends, so a load logs one line however many
+// indexes it holds.
+void IndexGCSettings_ReportSkipped(void);
 
 #ifdef __cplusplus
 }

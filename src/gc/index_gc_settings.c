@@ -54,6 +54,30 @@ static IndexGCOverride *overrideFor(IndexGCSettings *settings, uint64_t id) {
   return NULL;
 }
 
+// Each value is saved as a string buffer, so a loader can skip a setting it does not know
+// whatever the value holds. The numeric settings so far hold a little-endian unsigned 64-bit
+// number, written byte by byte so the encoding does not depend on the host.
+#define NUMERIC_VALUE_LEN 8
+
+static void saveNumericValue(RedisModuleIO *rdb, uint64_t value) {
+  char buf[NUMERIC_VALUE_LEN];
+  for (size_t i = 0; i < NUMERIC_VALUE_LEN; ++i) {
+    buf[i] = (char)(value >> (8 * i));
+  }
+  RedisModule_SaveStringBuffer(rdb, buf, NUMERIC_VALUE_LEN);
+}
+
+static bool decodeNumericValue(const char *buf, size_t len, uint64_t *value) {
+  if (len != NUMERIC_VALUE_LEN) {
+    return false;
+  }
+  *value = 0;
+  for (size_t i = 0; i < NUMERIC_VALUE_LEN; ++i) {
+    *value |= (uint64_t)(unsigned char)buf[i] << (8 * i);
+  }
+  return true;
+}
+
 void IndexGCSettings_RdbSave(RedisModuleIO *rdb, const IndexGCSettings *settings) {
   const struct {
     IndexGCSettingId id;
@@ -70,36 +94,46 @@ void IndexGCSettings_RdbSave(RedisModuleIO *rdb, const IndexGCSettings *settings
   for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
     if (all[i].override->isSet) {
       RedisModule_SaveUnsigned(rdb, all[i].id);
-      RedisModule_SaveUnsigned(rdb, all[i].override->value);
+      saveNumericValue(rdb, all[i].override->value);
     }
   }
 }
 
+// Settings skipped as unknown since the last report. Loads run on the main thread.
+static uint64_t skippedSinceReport_g = 0;
+
 int IndexGCSettings_RdbLoad(RedisModuleIO *rdb, IndexGCSettings *settings) {
   const uint64_t count = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
-  uint64_t skipped = 0;
   for (uint64_t i = 0; i < count; ++i) {
     const uint64_t id = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
-    const uint64_t value = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    size_t len = 0;
+    char *buf = LoadStringBuffer_IOError(rdb, &len, return REDISMODULE_ERR);
     IndexGCOverride *override = overrideFor(settings, id);
     if (!override) {
       // Written by a newer binary. Every GC setting only tunes when garbage is collected, never
       // what a query returns, so loading without it is safe.
-      ++skipped;
+      RedisModule_Free(buf);
+      ++skippedSinceReport_g;
       continue;
     }
-    if (override->isSet || !IndexGCSettings_IsValid((IndexGCSettingId)id, value)) {
-      RedisModule_LogIOError(rdb, "warning",
-                             "RDB Load: invalid GC setting %llu (value %llu)",
-                             (unsigned long long)id, (unsigned long long)value);
+    uint64_t value = 0;
+    const bool decoded = decodeNumericValue(buf, len, &value);
+    RedisModule_Free(buf);
+    if (!decoded || override->isSet || !IndexGCSettings_IsValid((IndexGCSettingId)id, value)) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: invalid GC setting %llu",
+                             (unsigned long long)id);
       return REDISMODULE_ERR;
     }
     *override = (IndexGCOverride){.isSet = true, .value = value};
   }
-  if (skipped) {
+  return REDISMODULE_OK;
+}
+
+void IndexGCSettings_ReportSkipped(void) {
+  if (skippedSinceReport_g) {
     RedisModule_Log(RSDummyContext, "notice",
                     "RDB Load: ignored %llu GC setting(s) unknown to this version",
-                    (unsigned long long)skipped);
+                    (unsigned long long)skippedSinceReport_g);
+    skippedSinceReport_g = 0;
   }
-  return REDISMODULE_OK;
 }

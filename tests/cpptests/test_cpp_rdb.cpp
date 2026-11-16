@@ -2074,36 +2074,99 @@ TEST_F(RdbMockTest, testGCSettingsAbsentBeforeTheirEncoding) {
   expectUnset(loaded->gcSettings);
 }
 
+namespace {
+
+// One setting as the override block stores it: the id, then the value as a string buffer.
+void saveRawGCSetting(RedisModuleIO *io, uint64_t id, const std::string &value) {
+  RMCK_SaveUnsigned(io, id);
+  RMCK_SaveStringBuffer(io, value.data(), value.size());
+}
+
+// A numeric value: an unsigned 64-bit number, little-endian.
+std::string numericGCValue(uint64_t value) {
+  std::string bytes(8, '\0');
+  for (size_t i = 0; i < bytes.size(); ++i) {
+    bytes[i] = static_cast<char>(value >> (8 * i));
+  }
+  return bytes;
+}
+
+}  // namespace
+
 TEST_F(RdbMockTest, testGCSettingsUnknownIdIsSkipped) {
   GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_unknown_id");
-  RMCK_SaveUnsigned(io.get(), 3);
-  RMCK_SaveUnsigned(io.get(), 99);  // a setting from a later version
-  RMCK_SaveUnsigned(io.get(), 7);
-  RMCK_SaveUnsigned(io.get(), INDEX_GC_SETTING_RUN_INTERVAL);
-  RMCK_SaveUnsigned(io.get(), 50);
-  RMCK_SaveUnsigned(io.get(), 0);  // 0 is never assigned either
-  RMCK_SaveUnsigned(io.get(), UINT64_MAX);
+  RMCK_SaveUnsigned(io.get(), 4);
+  // Settings from a later version, whose values are not one unsigned number.
+  saveRawGCSetting(io.get(), 99, "FORK");
+  saveRawGCSetting(io.get(), INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(50));
+  saveRawGCSetting(io.get(), 0, std::string(20, '\x7f'));  // 0 is never assigned either
+  saveRawGCSetting(io.get(), 100, "");
 
   GCSpecPtr loaded = loadGCSpec(io.get());
+  IndexGCSettings_ReportSkipped();
   ASSERT_NE(loaded, nullptr);
   EXPECT_EQ(io->read_pos, io->buffer.size());
   expectSame({true, 50}, loaded->gcSettings.runIntervalSec);
   EXPECT_FALSE(loaded->gcSettings.cleanThreshold.isSet);
 }
 
+TEST_F(RdbMockTest, testGCSettingsUnknownIdsAreReportedOncePerLoad) {
+  const char *names[] = {"gc_settings_report_a", "gc_settings_report_b", "gc_settings_report_c"};
+  GCIOPtr io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  RMCK_SaveUnsigned(io.get(), std::size(names));
+  for (const char *name : names) {
+    GCIOPtr spec = saveGCSpecWithoutBlock(name);
+    io->buffer.insert(io->buffer.end(), spec->buffer.begin(), spec->buffer.end());
+    RMCK_SaveUnsigned(io.get(), 1);
+    saveRawGCSetting(io.get(), 99, "FORK");
+  }
+
+  IndexGCSettings_ReportSkipped();  // nothing left over from an earlier test
+  testing::internal::CaptureStderr();
+  const int rc = Indexes_RdbLoad(io.get(), INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB);
+  const std::string log = testing::internal::GetCapturedStderr();
+  for (const char *name : names) {
+    StrongRef ref = Indexes_LoadIndexSpecUnsafe(name);
+    EXPECT_NE(ref.rm, nullptr) << name;
+    if (ref.rm) Indexes_RemoveSpecFromGlobals(ref, false);
+  }
+
+  ASSERT_EQ(rc, REDISMODULE_OK);
+  const std::string line = "ignored 3 GC setting(s) unknown to this version";
+  EXPECT_NE(log.find(line), std::string::npos) << log;
+  size_t mentions = 0;
+  for (size_t at = log.find("unknown to this version"); at != std::string::npos;
+       at = log.find("unknown to this version", at + 1)) {
+    ++mentions;
+  }
+  EXPECT_EQ(mentions, 1u) << log;
+}
+
 TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
   const uint64_t tooLarge = (uint64_t)LLONG_MAX + 1;
+  const std::string runInterval5 = numericGCValue(5);
   const struct {
     const char *what;
-    std::vector<std::pair<uint64_t, uint64_t>> pairs;
+    std::vector<std::pair<uint64_t, std::string>> pairs;
     bool loads;
   } cases[] = {
-      {"run interval 1", {{INDEX_GC_SETTING_RUN_INTERVAL, 1}}, true},
-      {"run interval 0", {{INDEX_GC_SETTING_RUN_INTERVAL, 0}}, false},
-      {"run interval above 2^63-1", {{INDEX_GC_SETTING_RUN_INTERVAL, tooLarge}}, false},
-      {"threshold above 2^63-1", {{INDEX_GC_SETTING_CLEAN_THRESHOLD, tooLarge}}, false},
+      {"run interval 1", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(1)}}, true},
+      {"run interval 0", {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(0)}}, false},
+      {"run interval above 2^63-1",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, numericGCValue(tooLarge)}},
+       false},
+      {"threshold above 2^63-1",
+       {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(tooLarge)}},
+       false},
       {"a setting given twice",
-       {{INDEX_GC_SETTING_CLEAN_THRESHOLD, 5}, {INDEX_GC_SETTING_CLEAN_THRESHOLD, 6}},
+       {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(5)},
+        {INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(6)}},
+       false},
+      {"a numeric value that is too short",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, runInterval5.substr(0, 4)}},
+       false},
+      {"a numeric value that is too long",
+       {{INDEX_GC_SETTING_RUN_INTERVAL, runInterval5 + '\0'}},
        false},
   };
   for (const auto &c : cases) {
@@ -2111,8 +2174,7 @@ TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
     GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_validation");
     RMCK_SaveUnsigned(io.get(), c.pairs.size());
     for (const auto &[id, value] : c.pairs) {
-      RMCK_SaveUnsigned(io.get(), id);
-      RMCK_SaveUnsigned(io.get(), value);
+      saveRawGCSetting(io.get(), id, value);
     }
     GCSpecPtr loaded = loadGCSpec(io.get());
     EXPECT_EQ(loaded != nullptr, c.loads);
@@ -2120,10 +2182,19 @@ TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
 }
 
 TEST_F(RdbMockTest, testGCSettingsTruncatedBlockFailsTheLoad) {
-  GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_truncated");
-  RMCK_SaveUnsigned(io.get(), 1);
-  RMCK_SaveUnsigned(io.get(), INDEX_GC_SETTING_RUN_INTERVAL);  // no value follows
-  EXPECT_EQ(loadGCSpec(io.get()), nullptr);
+  {
+    GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_truncated");
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveUnsigned(io.get(), INDEX_GC_SETTING_RUN_INTERVAL);  // no value follows
+    EXPECT_EQ(loadGCSpec(io.get()), nullptr);
+  }
+  {
+    GCIOPtr io = saveGCSpecWithoutBlock("gc_settings_truncated");
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveUnsigned(io.get(), 99);
+    RMCK_SaveUnsigned(io.get(), 16);  // a value length past the end of the stream
+    EXPECT_EQ(loadGCSpec(io.get()), nullptr);
+  }
 }
 
 TEST_F(RdbMockTest, testGCSettingsUnsetOnCreate) {
