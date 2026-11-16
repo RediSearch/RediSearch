@@ -2179,19 +2179,19 @@ TEST_F(RdbMockTest, testGCSettingsUnsetOnLegacyLoad) {
   legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
   legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
 
-  const char *name = "gc_settings_legacy";
+  static constexpr char name[] = "gc_settings_legacy";
   SchemaRuleArgs *ruleArgs = static_cast<SchemaRuleArgs *>(rm_calloc(1, sizeof(*ruleArgs)));
   ruleArgs->type = rm_strdup("HASH");
   ruleArgs->prefixes = static_cast<const char **>(rm_malloc(sizeof(*ruleArgs->prefixes)));
   ruleArgs->prefixes[0] = rm_strdup("");
   ruleArgs->nprefixes = 1;
-  HiddenString *key = NewHiddenString(name, strlen(name), true);
+  HiddenString *key = NewHiddenString(name, sizeof(name) - 1, true);
   dictAdd(legacySpecRules, key, ruleArgs);  // the dict copies the key
   HiddenString_Free(key, true);
 
   // The oldest legacy encoding: no fields, no terms trie, timeout or aliases.
   GCIOPtr io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
-  RMCK_SaveStringBuffer(io.get(), name, strlen(name) + 1);
+  RMCK_SaveStringBuffer(io.get(), name, sizeof(name));
   RMCK_SaveUnsigned(io.get(), INDEX_DEFAULT_FLAGS);
   RMCK_SaveUnsigned(io.get(), 0);  // Fields.
   for (int i = 0; i < 10; ++i) {
