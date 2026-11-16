@@ -266,12 +266,18 @@ void HNSWIndex<DataType, DistType>::saveIndexFields(std::ofstream &output) const
     // V5 fields: scalar quantization support (between factory params and index build params)
     if (this->quantType != VecSimQuant_NONE) {
         writeBinaryPOD(output, this->quantType);
-        // Write mean vector (dim floats). Empty vector means no mean (zero-mean quantization).
-        bool hasMean = !this->serializedMeanVector.empty();
-        writeBinaryPOD(output, hasMean);
-        if (hasMean) {
-            output.write(reinterpret_cast<const char *>(this->serializedMeanVector.data()),
-                         this->dim * sizeof(float));
+        if (const auto *codec =
+                vecsim::quantization::GetTurboQuantCodec(this->getIndexCalculator())) {
+            // TQ2/TQ3 write their fitted state (including the full rotation) instead of a mean.
+            codec->saveFitted(output);
+        } else {
+            // Write mean vector (dim floats). Empty vector means no mean (zero-mean quantization).
+            bool hasMean = !this->serializedMeanVector.empty();
+            writeBinaryPOD(output, hasMean);
+            if (hasMean) {
+                output.write(reinterpret_cast<const char *>(this->serializedMeanVector.data()),
+                             this->dim * sizeof(float));
+            }
         }
     }
 

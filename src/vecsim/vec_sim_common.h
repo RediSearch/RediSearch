@@ -75,7 +75,18 @@ typedef enum {
     VecSimQuant_SQ8 = 1,
     // Packed 4-bit scalar quantization with optional mean centering (FP32 input).
     VecSimQuant_SQ4 = 2,
+    VecSimQuant_TQ2 = 3, // FP32 MSE TurboQuant, 2-bit codes.
+    VecSimQuant_TQ3 = 4, // FP32 MSE TurboQuant, 3-bit codes.
 } VecSimQuantType;
+
+// Optional configuration for TQ2/TQ3. The factory copies the mean during construction.
+// NULL quantParams selects seed 42 and a zero mean. A supplied config uses its seed exactly
+// (including 0). Tiered indexes with a positive QuantNormalizationSetSize train the mean.
+typedef struct {
+    const float *mean; // Optional float[dim]; NULL selects a zero mean.
+    uint64_t seed;
+} VecSimTurboQuantParams;
+#define VECSIM_TURBOQUANT_DEFAULT_SEED UINT64_C(42)
 
 // Algorithm type/library.
 typedef enum { VecSimAlgo_BF, VecSimAlgo_HNSWLIB, VecSimAlgo_TIERED, VecSimAlgo_SVS } VecSimAlgo;
@@ -193,6 +204,7 @@ typedef struct {
     double epsilon;
     VecSimQuantType quantType; // Defaults to VecSimQuant_NONE.
     // SQ8/SQ4 mean vector (float[dim]); NULL disables mean centering. Copied during construction.
+    // TQ2/TQ3: VecSimTurboQuantParams*; NULL uses a zero mean and seed 42.
     // L2 centering keeps queries in FLOAT32, including when the input type is FLOAT16.
     const void *quantParams;
 } HNSWParams;

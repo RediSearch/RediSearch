@@ -23,6 +23,7 @@
 
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
+using vecsim::quantization::isTurboQuant;
 
 namespace TieredFactory {
 
@@ -40,7 +41,8 @@ static inline BFParams NewBFParams(const TieredIndexParams *params) {
 }
 
 static inline bool RequiresQuantizationTraining(const TieredIndexParams *params) {
-    return params->primaryIndexParams->algoParams.hnswParams.quantType == VecSimQuant_SQ8 &&
+    const auto type = params->primaryIndexParams->algoParams.hnswParams.quantType;
+    return (type == VecSimQuant_SQ8 || isTurboQuant(type)) &&
            params->specificParams.tieredHnswParams.QuantNormalizationSetSize > 0;
 }
 
@@ -53,6 +55,8 @@ static inline bool IsQuantizationSupported(const TieredIndexParams *params) {
 
     if constexpr (!QuantInput<DataType> || !std::is_same_v<DistType, float>) {
         return false;
+    } else if constexpr (std::is_same_v<DataType, float>) {
+        return hnsw_params.quantType == VecSimQuant_SQ8 || isTurboQuant(hnsw_params.quantType);
     } else {
         return hnsw_params.quantType == VecSimQuant_SQ8;
     }
@@ -68,7 +72,15 @@ inline VecSimIndex *NewIndex(const TieredIndexParams *params) {
     auto management_layer_allocator = VecSimAllocator::newVecsimAllocator();
     VecSimParams backend_params = *params->primaryIndexParams;
     vecsim_stl::vector<float> initial_mean(management_layer_allocator);
-    if (RequiresQuantizationTraining(params)) {
+    VecSimTurboQuantParams tq_params{.mean = nullptr, .seed = VECSIM_TURBOQUANT_DEFAULT_SEED};
+    if (RequiresQuantizationTraining(params) && isTurboQuant(hnsw_params.quantType)) {
+        // TQ2/TQ3 always carry a mean. Start from zero; tiered installs the trained mean.
+        if (const auto *config =
+                static_cast<const VecSimTurboQuantParams *>(hnsw_params.quantParams)) {
+            tq_params.seed = config->seed;
+        }
+        backend_params.algoParams.hnswParams.quantParams = &tq_params;
+    } else if (RequiresQuantizationTraining(params)) {
         // Allocate the final SQ8 WithMean layout now. The factory copies this temporary mean;
         // tiered keeps the graph empty until it installs the mean accumulated from FLAT.
         initial_mean.resize(hnsw_params.dim, 0.0f);

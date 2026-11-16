@@ -15,6 +15,8 @@
 #include "vecsim/types/bfloat16.h"
 #include "vecsim/types/float16.h"
 #include "vecsim/types/sq4.h"
+#include "vecsim/types/turboquant.h"
+#include "vecsim/quantization/turboquant_components.h"
 
 #include <type_traits>
 
@@ -22,6 +24,8 @@ using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
 using sq8 = vecsim_types::sq8;
 using sq4 = vecsim_types::sq4;
+using vecsim::quantization::isTurboQuant;
+using vecsim::quantization::turboQuantBits;
 
 namespace HNSWFactory {
 
@@ -57,6 +61,10 @@ template <VecSimMetric Metric, typename StorageType = sq8>
 [[nodiscard]] constexpr bool QuantizationParamsSupported(VecSimQuantType quant_type,
                                                          VecSimType type,
                                                          VecSimMetric resolved_metric) {
+    // TurboQuant has FP32 inner-product kernels only; cosine requires normalized input.
+    if (quant_type == VecSimQuant_TQ2 || quant_type == VecSimQuant_TQ3) {
+        return type == VecSimType_FLOAT32 && resolved_metric == VecSimMetric_IP;
+    }
     // Reject unknown quantizers instead of silently creating an unquantized index.
     if (quant_type != VecSimQuant_SQ8 && quant_type != VecSimQuant_SQ4) {
         return false;
@@ -98,6 +106,23 @@ VecSimIndex *NewIndex_Quantized(const HNSWParams *hnswParams,
     return index;
 }
 
+// The codec constructor rejects an unsupported dim or a nonfinite mean.
+static VecSimIndex *NewIndex_TurboQuant(const HNSWParams *hnswParams,
+                                        AbstractIndexInitParams abstractInitParams) {
+    auto components = vecsim::quantization::CreateTurboQuantIndexComponents(
+        abstractInitParams.allocator, abstractInitParams.dim, turboQuantBits(hnswParams->quantType),
+        static_cast<const VecSimTurboQuantParams *>(hnswParams->quantParams));
+    abstractInitParams.storedDataSize =
+        vecsim::quantization::GetTurboQuantCodec(components.indexCalculator)->storageBytes();
+    abstractInitParams.isQuantized = true;
+    auto index =
+        NewIndex_ChooseMultiOrSingle<float, float>(hnswParams, abstractInitParams, components);
+#ifdef BUILD_TESTS
+    index->quantType = hnswParams->quantType;
+#endif
+    return index;
+}
+
 VecSimIndex *NewIndex(const VecSimParams *params, bool is_normalized) {
     const HNSWParams *hnswParams = &params->algoParams.hnswParams;
     AbstractIndexInitParams abstractInitParams =
@@ -109,6 +134,10 @@ VecSimIndex *NewIndex(const VecSimParams *params, bool is_normalized) {
 
         if (!QuantizationParamsSupported(hnswParams->quantType, hnswParams->type, metric)) {
             return NULL;
+        }
+
+        if (isTurboQuant(hnswParams->quantType)) {
+            return NewIndex_TurboQuant(hnswParams, abstractInitParams);
         }
 
         if (hnswParams->quantType == VecSimQuant_SQ4) {
@@ -216,7 +245,10 @@ size_t EstimateInitialSize(const HNSWParams *params, bool is_normalized, bool wi
                       sizeof(QuantPreprocessor<float, VecSimMetric_L2, true>));
         static_assert(sizeof(QuantPreprocessor<float, VecSimMetric_L2, false, sq4>) ==
                       sizeof(QuantPreprocessor<float, VecSimMetric_L2>));
-        if (with_mean) {
+        if (isTurboQuant(params->quantType)) {
+            est += vecsim::quantization::EstimateTurboQuantComponentsMemory(
+                params->dim, turboQuantBits(params->quantType));
+        } else if (with_mean) {
             est += allocations_overhead +
                    sizeof(DistanceCalculatorWithNorm<float, float, VecSimMetric_L2>);
             est += allocations_overhead + sizeof(MultiPreprocessorsContainer<float, 1>);
@@ -264,7 +296,16 @@ size_t EstimateElementSize(const HNSWParams *params, bool with_mean) {
 
     size_t stored_data_size;
     // Preserve the element estimator's existing contract: return a size and validate in NewIndex.
-    if (params->quantType == VecSimQuant_SQ4) {
+    if (isTurboQuant(params->quantType)) {
+        if (params->type != VecSimType_FLOAT32 ||
+            (params->metric != VecSimMetric_IP && params->metric != VecSimMetric_Cosine) ||
+            !vecsim::quantization::TurboQuant::dimSupported(params->dim)) {
+            return SIZE_MAX;
+        }
+        stored_data_size = params->quantType == VecSimQuant_TQ2
+                               ? vecsim_types::tq2::storage_bytes_count(params->dim)
+                               : vecsim_types::tq3::storage_bytes_count(params->dim);
+    } else if (params->quantType == VecSimQuant_SQ4) {
         stored_data_size =
             params->metric == VecSimMetric_L2
                 ? GetQuantizedStoredDataSize<VecSimMetric_L2, sq4>(params->dim, with_mean)
@@ -361,11 +402,13 @@ static bool InitializeParams(std::ifstream &source_params, HNSWParams &params,
         std::underlying_type_t<VecSimQuantType> raw_quant_type;
         Serializer::readBinaryPOD(source_params, raw_quant_type);
         if (raw_quant_type != VecSimQuant_NONE && raw_quant_type != VecSimQuant_SQ8 &&
-            raw_quant_type != VecSimQuant_SQ4) {
+            raw_quant_type != VecSimQuant_SQ4 && raw_quant_type != VecSimQuant_TQ2 &&
+            raw_quant_type != VecSimQuant_TQ3) {
             return false;
         }
         params.quantType = static_cast<VecSimQuantType>(raw_quant_type);
-        if (params.quantType != VecSimQuant_NONE) {
+        // TQ2/TQ3 store fitted state here instead; the loader reads it with the codec.
+        if (params.quantType != VecSimQuant_NONE && !isTurboQuant(params.quantType)) {
             bool hasMean = false;
             Serializer::readBinaryPOD(source_params, hasMean);
             if (hasMean) {
@@ -415,6 +458,17 @@ VecSimIndex *NewIndex(const std::string &location, bool is_normalized) {
 
         if (!QuantizationParamsSupported(params.quantType, params.type, metric)) {
             return NULL;
+        }
+
+        if (isTurboQuant(params.quantType)) {
+            auto codec = vecsim::quantization::TurboQuant::loadFitted(
+                input, abstractInitParams.allocator, params.dim, turboQuantBits(params.quantType));
+            abstractInitParams.isQuantized = true;
+            abstractInitParams.storedDataSize = codec->storageBytes();
+            auto components = vecsim::quantization::CreateTurboQuantIndexComponents(
+                abstractInitParams.allocator, std::move(codec));
+            return NewIndex_ChooseMultiOrSingle<float, float>(input, &params, abstractInitParams,
+                                                              components, version);
         }
 
         if (params.quantType == VecSimQuant_SQ4) {
