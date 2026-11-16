@@ -1146,7 +1146,6 @@ TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
   EXPECT_LT(total, intervalMs * 2);
 }
 
-// A drop discovered at a step frees the context now, not at a deadline that may be weeks away.
 // A step that fires at or past its deadline, as when the event loop ran late, arms a timer due at
 // once instead of another step; that timer's firing is the run.
 TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
@@ -1161,6 +1160,7 @@ TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
   EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
 }
 
+// A drop discovered at a step frees the context now, not at a deadline that may be weeks away.
 TEST_F(GCSchedulerTest, testStepHandsADroppedIndexToARun) {
   // Heap-allocated like a real context, since the run that finds the drop frees it.
   GCContext *dropped = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
