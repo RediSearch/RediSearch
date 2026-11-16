@@ -1165,6 +1165,12 @@ typedef struct CachedIndexMetrics {
   DocTableResourceMetrics doc_table;
 } CachedIndexMetrics;
 
+/* Search-owned totals across local indexes for INFO output. */
+typedef struct IndexInfoTotals {
+  uint64_t text_ram_metadata_bytes;
+  uint64_t num_docs;
+} IndexInfoTotals;
+
 typedef struct MetricsDiskAPI {
   /* Stop and join collection before index teardown; idempotent, main thread only. */
   void (*stopMetrics)(RedisSearchDisk *disk);
@@ -1248,10 +1254,10 @@ typedef struct MetricsDiskAPI {
    *
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context
-   * @param textRamMetadataBytes Aggregate TEXT metadata RAM measured by the caller
+   * @param totals Non-null Search-owned totals, borrowed only for this call
    */
   void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx,
-                            uint64_t textRamMetadataBytes, uint64_t numDocs);
+                            const IndexInfoTotals *totals);
 
   /**
    * @brief Get per-field disk metrics for a TEXT field.

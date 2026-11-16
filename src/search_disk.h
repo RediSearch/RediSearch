@@ -857,8 +857,7 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
  *
  * @param ctx Redis module info context
  */
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx *ctx, uint64_t textRamMetadataBytes,
-                                  uint64_t numDocs);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx *ctx, const IndexInfoTotals *totals);
 
 /**
  * @brief Get per-field disk metrics for a TEXT field.

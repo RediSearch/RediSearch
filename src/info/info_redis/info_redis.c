@@ -152,8 +152,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (SearchDisk_IsEnabled() &&
       AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
-    SearchDisk_OutputInfoMetrics(ctx, total_info.text_ram_metadata_bytes,
-                                 total_info.total_num_docs_in_indexes);
+    const IndexInfoTotals totals = {
+        .text_ram_metadata_bytes = total_info.text_ram_metadata_bytes,
+        .num_docs = total_info.total_num_docs_in_indexes,
+    };
+    SearchDisk_OutputInfoMetrics(ctx, &totals);
   }
 
   // Active operations
