@@ -1740,7 +1740,19 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
+    HybridDebugParams debugParams = {0};
+    if (isDebug) {
+      QueryError status = QueryError_Default();
+      debugParams = parseHybridDebugParamsCount(newArgv, newArgc, &status);
+      if (QueryError_HasError(&status) ||
+          parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
+        rm_free(newArgv);
+        return QueryError_ReplyAndClear(ctx, &status);
+      }
+      newArgc -= (int)debugParams.debug_params_count + 2;
+    }
+    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile,
+                         isDebug ? &debugParams : NULL);
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -2324,8 +2336,6 @@ cleanup:
 searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError* status) {
 
   searchRequestCtx *req = searchRequestCtx_New();
-  req->serializeInReplyCallback =
-      RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict;
 
   rs_wall_clock_init(&req->initClock);
 
@@ -2337,6 +2347,9 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   int argvOffset = 2 + req->profileArgs;
+  req->timeoutPolicy = Profile_ResolveTimeoutPolicy(
+      RSGlobalConfig.requestConfigParams.timeoutPolicy, req->profileArgs > 0);
+  req->serializeInReplyCallback = req->timeoutPolicy == TimeoutPolicy_ReturnStrict;
   req->queryString = rm_strdup(RedisModule_StringPtrLen(argv[argvOffset++], NULL));
   req->limit = 10;
   req->offset = 0;
@@ -3403,10 +3416,10 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 }
 
 // TODO - get RequestConfig ptr as parameter instead of global config
-bool should_return_error(QueryErrorCode errCode) {
+bool should_return_error(QueryErrorCode errCode, RSTimeoutPolicy timeoutPolicy) {
   // Check if this is a timeout error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
-    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+    return timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
@@ -3486,7 +3499,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       rCtx->lastError = curr_rep;
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
-      if (should_return_error(errCode)) {
+      if (should_return_error(errCode, req->timeoutPolicy)) {
         // Shard reply already contains the prefixed error string — set directly.
         QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
         QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
@@ -3905,8 +3918,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Capture the policy on the main thread so BG and the timeout callback agree
   // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  RSTimeoutPolicy policy =
+      Profile_ResolveTimeoutPolicy(RSGlobalConfig.requestConfigParams.timeoutPolicy, isProfile);
   CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
+  if (isProfile) {
+    handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
+  }
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
     bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
@@ -3991,7 +4008,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   // Capture the policy on the main thread so BG and the timeout callback agree
   // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  RSTimeoutPolicy policy =
+      Profile_ResolveTimeoutPolicy(RSGlobalConfig.requestConfigParams.timeoutPolicy, isProfile);
   CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
 
   ConcurrentSearchHandlerCtx handlerCtx;
@@ -4004,6 +4022,9 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
+  if (isProfile) {
+    handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
+  }
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.disconnect_callback = CoordRequestCtx_Disconnect;
     const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
@@ -4604,16 +4625,18 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
 // Block client with timeout callback.
 // Returns a blocked client with the appropriate timeout from query args or global config.
 // The timeout callback is selected based on the timeout policy.
-static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx, size_t queryTimeout) {
+static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx *ctx,
+                                                                  size_t queryTimeout,
+                                                                  RSTimeoutPolicy policy) {
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   // DistSearchFreePrivData will be called to free the MRCtx after reply/timeout callback completes
 
   BlockedClientTimeoutCB timeoutCallback = NULL;
   BlockedClientFreePrivDataCB freePrivDataCallback = DistSearchFreePrivData;
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (policy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
-  } else if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  } else if (policy == TimeoutPolicy_ReturnStrict) {
     timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
@@ -4730,7 +4753,8 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
-  RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
+  RedisModuleBlockedClient *bc =
+      DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS, req->timeoutPolicy);
 
   // Set the blocked client in MRCtx
   MRCtx_SetBlockedClient(mrctx, bc);
