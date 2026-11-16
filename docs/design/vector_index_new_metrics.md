@@ -39,9 +39,9 @@ AddToInfo_*()                    →  Renders to INFO command output
 
 | File | Purpose |
 |------|---------|
-| `deps/VectorSimilarity/src/VecSim/vec_sim_common.h` | `VecSimIndexStatsInfo` struct definition |
-| `deps/VectorSimilarity/src/VecSim/vec_sim_tiered_index.h` | `statisticInfo()` implementation for tiered indexes |
-| `deps/VectorSimilarity/src/VecSim/algorithms/hnsw/hnsw_tiered.h` | Tiered HNSW implementation (where direct insertions occur) |
+| `src/vecsim/vec_sim_common.h` | `VecSimIndexStatsInfo` struct definition |
+| `src/vecsim/vec_sim_tiered_index.h` | `statisticInfo()` implementation for tiered indexes |
+| `src/vecsim/algorithms/hnsw/hnsw_tiered.h` | Tiered HNSW implementation (where direct insertions occur) |
 | `src/info/vector_index_stats.h` | `VectorIndexStats` struct and getter/setter mappings |
 | `src/info/vector_index_stats.c` | Getter/setter implementations and aggregation |
 | `src/info/field_spec_info.c` | `IndexSpec_GetVectorIndexStats()` - bridges VecSim to RediSearch |

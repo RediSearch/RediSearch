@@ -43,6 +43,27 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   }
 }
 
+static size_t runIntervalSec(void) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
+}
+
+// Whether a scheduled cycle should wait for more deletions. `threshold` is the run's queue-time
+// copy of the absolute threshold; under THREAD the wait also grows with the index, by the global
+// ratio. The absolute threshold is checked first, so an idle index never takes the lock.
+static bool belowCleanThreshold(IndexSpec *sp, size_t deleted, size_t threshold) {
+  const size_t ppm = RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm;
+  if (deleted < threshold || !threadPolicyEnabled() || !ppm) {
+    return deleted < threshold;
+  }
+  IndexSpec_LockRead(sp);
+  const size_t docs = sp->stats.scoring.numDocuments;
+  IndexSpec_Unlock(sp);
+  // Split so the product cannot overflow.
+  const size_t scale = GC_CLEAN_RATIO_PPM_SCALE;
+  return deleted < docs / scale * ppm + docs % scale * ppm / scale;
+}
+
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return true,
@@ -62,7 +83,8 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < gc->cleanThreshold) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun,
+                                     gc->cleanThreshold)) {
     // Nothing is left to retry: without this, a threshold raised after a failed fork would
     // keep the index on the retry interval until enough changes accumulate.
     gc->schedState = INDEX_GC_SCHED_OK;
@@ -136,7 +158,7 @@ size_t IndexGC_RunIntervalSec(const IndexGC *gc) {
   StrongRef ref = WeakRef_Promote(gc->index);
   const IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+    return runIntervalSec();
   }
   const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
   StrongRef_Release(ref);

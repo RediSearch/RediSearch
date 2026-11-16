@@ -911,7 +911,7 @@ def test_memory_info():
 def test_hybrid_query_with_text_vamana_adhoc_bf():
     """Validate the automatic ADHOC_BF choices for SVS-VAMANA hybrid queries."""
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 8', redisConfigFile=thread_gc_conf(clean_threshold=10000))
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 1500 * 2 * env.shardsCount # enough docs to trigger svs initialization on all shards
@@ -987,7 +987,7 @@ def test_hybrid_query_with_text_vamana_batches():
     Vamana graph: it can end up with regions the search cannot reach from its entry point, and then
     even a query with a doc's own vector does not return it. The expected results are the exact
     (ADHOC_BF) ones."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 8', redisConfigFile=thread_gc_conf(clean_threshold=10000))
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 1500 * 2 * env.shardsCount  # enough docs to initialize SVS on all shards
@@ -1043,7 +1043,7 @@ def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     # The expected results at the default EF_RUNTIME rely on overwritten vectors leaving the graph at
     # once, which only in-place writes do while the GC is held off.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000', redisConfigFile=min_maintenance_workers_conf(0))
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', redisConfigFile=redis_config_file({'search-min-maintenance-workers': 0, **thread_gc_settings(clean_threshold=10000)}))
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1122,7 +1122,7 @@ def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     # The expected results rely on overwritten vectors leaving the graph at once, which only in-place
     # writes do while the GC is held off.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000', redisConfigFile=min_maintenance_workers_conf(0))
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', redisConfigFile=redis_config_file({'search-min-maintenance-workers': 0, **thread_gc_settings(clean_threshold=10000)}))
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1605,12 +1605,20 @@ def test_wrong_vector_size():
 
 
 def test_hybrid_query_cosine():
+    _test_hybrid_query_cosine('FLOAT32')
+
+
+def test_hybrid_query_cosine_float64():
+    _test_hybrid_query_cosine('FLOAT64')
+
+
+def _test_hybrid_query_cosine(data_type):
+    """Both hybrid policies must return the nearest vectors that match the text filter."""
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', redisConfigFile=thread_gc_conf(clean_threshold=10000))
     conn = getConnectionByEnv(env)
     dim = 4
     index_size = 6000 * env.shardsCount
-    data_type = random.choice(['FLOAT32', 'FLOAT64'])
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
@@ -1623,24 +1631,18 @@ def test_hybrid_query_cosine():
         p.execute_command('HSET', i, 'v', vector.tobytes(), 't', 'text value')
     p.execute()
 
-    query_data = create_np_array_typed([1]*dim, data_type)
+    # Keep the query away from the stored directions: distances near zero collapse
+    # neighboring IDs into FLOAT32 ties, especially with several shards.
+    query_data = create_np_array_typed([1] + [0] * (dim - 1), data_type)
 
-    expected_res_ids = [str(index_size-i) for i in range(15)]
+    expected_res_ids = [str(index_size-i) for i in range(10)]
     res = conn.execute_command('FT.SEARCH', 'idx', '(text value)=>[KNN 10 @v $vec_param]',
                                 'SORTBY', '__v_score',
                                 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                                 'RETURN', 0)
     debug_info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_BATCHES')
-    actual_res_ids = [res[1:][i] for i in range(10)]
-    if data_type == 'FLOAT64':
-        # for FLOAT64, expect to get better accuracy
-        env.assertEqual(actual_res_ids, expected_res_ids[:10])
-    else:
-        # The order of ids is not accurate due to floating point numeric errors, but the top k should be
-        # in the last 15 ids.
-        for res_id in actual_res_ids:
-            env.assertContains(res_id, expected_res_ids)
+    env.assertEqual(res, [10] + expected_res_ids)
 
     # Change the text value to 'other' for 10 vectors (with id 10, 20, ..., index_size)
     for i in range(1, int(index_size/10) + 1):
@@ -1656,13 +1658,7 @@ def test_hybrid_query_cosine():
                                 'RETURN', 0)
     debug_info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF')
-    actual_res_ids = [res[1:][i] for i in range(10)]
-    if data_type == 'FLOAT64':
-        # for FLOAT64, expect to get better accuracy
-        env.assertEqual(actual_res_ids, expected_res_ids)
-    else:
-        for res_id in actual_res_ids:
-            env.assertContains(res_id, expected_res_ids)
+    env.assertEqual(res, [10] + expected_res_ids)
 
 
 def test_ft_aggregate_basic():
@@ -1723,7 +1719,7 @@ def test_fail_on_v1_dialect():
 
 def test_hybrid_query_with_global_filters():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', redisConfigFile=thread_gc_conf(clean_threshold=10000))
     conn = getConnectionByEnv(env)
     dim = 2
     index_size = 1000
@@ -2823,7 +2819,7 @@ def test_tiered_index_gc_maintenance_worker():
 
 def _tiered_index_gc(workers_args):
     N = 100
-    env = Env(moduleArgs=f'{workers_args} FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'{workers_args}', redisConfigFile=thread_gc_conf(run_interval=1000000000000, clean_threshold=N))
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2874,7 +2870,7 @@ def _tiered_index_gc(workers_args):
 @skip(cluster=True)
 def test_vector_only_update_no_reindex():
     """A HASH write changing only the vector must reindex that field and no others."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2', redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = getConnectionByEnv(env)
 
     num_docs = 200
