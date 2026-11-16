@@ -29,6 +29,7 @@ typedef struct {
   size_t total_mem;  // Total memory used by the indexes
   size_t min_mem;    // Memory used by the smallest (local) index
   size_t max_mem;    // Memory used by the largest (local) index
+  uint64_t text_ram_metadata_bytes;
 
   // Indexing
   rs_wall_clock_ns_t indexing_time;  // Time spent on indexing

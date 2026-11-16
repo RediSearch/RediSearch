@@ -8,6 +8,12 @@ publish.workspace = true
 [lib]
 test = false
 doctest = false
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "gone_ids"
+harness = false
 
 [features]
 unittest = []
@@ -44,6 +50,7 @@ trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 dict.workspace = true
 document.workspace = true
 ffi.workspace = true

@@ -199,7 +199,6 @@ as production code.
 - `src/gc/gc.c`, `src/gc/gc.h` — GC interface and scheduling (timers, the GC thread pool, forced runs)
 - `src/gc/index_gc.c`, `src/gc/index_gc.h` — per-index GC context (`IndexGC`): counters, stats, the cycle entry point
 - `src/gc/fork_cycle.c` — the forking policy's cycle: fork a child, apply its deltas in the parent, reap it
-- `src/gc/pipe.c` — the parent/child pipe
 - `src/gc/disk_gc.c` — the disk-backed GC policy
 - The scanners (terms, tags, numeric, missing docs, existing docs) are Rust: `src/redisearch_rs/index_gc/src/scanners/`, with the fork-specific pipe and orchestration in `src/redisearch_rs/index_gc/src/fork/` and the C ABI in `c_entrypoint/index_gc_ffi`
 - Vector (tiered) indexes use VecSim's own GC, called from the GC cycle

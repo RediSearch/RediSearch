@@ -16,7 +16,7 @@ class TestIteratorsRevalidate:
 
     def __init__(self):
         skipTest(cluster=True)
-        self.env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 1 FORK_GC_RUN_INTERVAL 99999999999999999')
+        self.env = Env(redisConfigFile=thread_gc_conf(clean_threshold=1, run_interval=1000000000))
 
     def setUp(self):
         """Create index and add 10 documents for testing"""
@@ -296,7 +296,7 @@ class TestIteratorsRevalidateTimeout:
     def __init__(self):
         skipTest(cluster=True)
         self.env = Env(protocol=3,
-                       moduleArgs='FORK_GC_CLEAN_THRESHOLD 1 FORK_GC_RUN_INTERVAL 99999999999999999')
+                       redisConfigFile=thread_gc_conf(clean_threshold=1, run_interval=1000000000))
 
     def setUp(self):
         self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()

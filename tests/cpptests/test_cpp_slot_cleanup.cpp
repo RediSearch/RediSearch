@@ -506,6 +506,7 @@ class BufferedDiskQuery {
     processing.isProfile = profiled;
     processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false);
     QITR_PushRP(&processing, processor);
+    RPQueryIterator_ConfigureAsyncIO(processor);
   }
 
   void mergeHybrid() {
@@ -603,7 +604,7 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
       return false;
     };
     api.docTable.createAsyncReadPool = [](RedisSearchDiskIndexSpec *, uint16_t capacity,
-                                          RedisSearchDiskSnapshot *snapshot) {
+                                          RedisSearchDiskSnapshot *snapshot, bool) {
       ++bufferedAsyncPool->creates;
       EXPECT_EQ(capacity, 8);
       EXPECT_EQ(snapshot,

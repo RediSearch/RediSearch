@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "thread_cycle.h"
 #include "time_sample.h"
 #include "module.h"
 #include "info/global_stats.h"
@@ -28,6 +29,43 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/references.h"
+
+// GC_POLICY is load-time, so a GC runs the same policy for its whole life.
+static bool threadPolicyEnabled(void) {
+  return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+}
+
+void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+}
+
+static size_t runIntervalSec(void) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
+}
+
+// Whether a scheduled cycle should wait for more deletions; under THREAD the wait grows with the
+// index. The absolute threshold is checked first, so an idle index never takes the lock.
+static bool belowCleanThreshold(IndexSpec *sp, size_t deleted) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  if (!threadPolicyEnabled()) {
+    return deleted < settings->forkGcCleanThreshold;
+  }
+  const size_t ppm = settings->gcCleanRatioPpm;
+  if (deleted < settings->threadGcCleanThreshold || !ppm) {
+    return deleted < settings->threadGcCleanThreshold;
+  }
+  IndexSpec_LockRead(sp);
+  const size_t docs = sp->stats.scoring.numDocuments;
+  IndexSpec_Unlock(sp);
+  // Split so the product cannot overflow.
+  const size_t scale = GC_CLEAN_RATIO_PPM_SCALE;
+  return deleted < docs / scale * ppm + docs % scale * ppm / scale;
+}
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
@@ -46,20 +84,21 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
     return false;
   }
 
-  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
-  // away uncounted.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
-  if (deferred) {
-    gc->deletedOrUpdatedDocsFromLastRun += deferred;
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
+  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun)) {
+    // A cycle sets the interval it re-arms with; a skipped one must too, or a CONFIG SET never
+    // reaches an index that stays below the threshold.
+    gc->retryIntervalMs = GC_IntervalSecToMs(runIntervalSec());
     IndexSpecRef_Release(early_check);
     return true;
   }
 
-  return ForkCycle_Run(gc, forced, hook, early_check);
+  if (threadPolicyEnabled()) {
+    return ThreadCycle_Run(gc, forced, early_check);
+  } else {
+    return ForkCycle_Run(gc, forced, hook, early_check);
+  }
 }
 
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
@@ -115,9 +154,9 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
-static struct timespec getIntervalCb(void *ctx) {
+static long long getIntervalMsCb(void *ctx) {
   IndexGC *gc = ctx;
-  return gc->retryInterval;
+  return gc->retryIntervalMs;
 }
 
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -126,8 +165,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
-  forkGc->retryInterval.tv_nsec = 0;
+  forkGc->retryIntervalMs = GC_IntervalSecToMs(runIntervalSec());
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -136,7 +174,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getInterval = getIntervalCb;
+  callbacks->getIntervalMs = getIntervalMsCb;
   callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;

@@ -945,8 +945,8 @@ def test_mod_6597(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
 
     # Populate the db (and index) with enough documents for the GC to work (one
-    # more than `FORK_GC_CLEAN_THRESHOLD`).
-    res = env.cmd(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD')[0][1]
+    # more than `search-thread-gc-clean-threshold`).
+    res = env.cmd('CONFIG', 'GET', 'search-thread-gc-clean-threshold')[1]
     num_docs = int(res) + 1
     for i in range(num_docs):
         conn.execute_command('hset', f'doc{i}', 'test', str(i))
@@ -956,7 +956,7 @@ def test_mod_6597(env):
     n = len(res) - 1
 
     # Make sure GC is not self-invoked (periodic run).
-    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    set_thread_gc_config(env, run_interval=3600)
 
     # Delete all documents of the index. The same effect is achieved if a split
     # occurred and a whole NumericRangeNode is deleted.
