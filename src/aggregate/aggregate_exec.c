@@ -524,17 +524,18 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 }
 
 /**
- * Serializes and frees the buffered `results`. Returns true when memory pressure cut
- * the replay short; the caller must then end a cursor, which would otherwise resume
+ * Serializes and frees the buffered `results`; with `stopped` set it frees them without
+ * serializing. Returns true when memory pressure cut the replay short; the caller must then end a cursor, which would otherwise resume
  * past the rows left out.
  */
 static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
-                                     cachedVars *cv, RespSchema *schema) {
+                                     cachedVars *cv, RespSchema *schema, bool stopped) {
   uint32_t memoryCheckCounter = 0;
-  bool stopped = false;
+  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided.
+  const bool checkPerRow = req->base.reqConfig.oomPolicy != OomPolicy_Fail;
   array_foreach(results, res, {
-    stopped = stopped || StoredResults_ShouldStopForMemory(&memoryCheckCounter,
-                                                           AREQ_QueryProcessingCtx(req)->err);
+    stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
+                                             &memoryCheckCounter, AREQ_QueryProcessingCtx(req)->err));
     if (!stopped) {
       serializeResult(req, reply, res, cv, schema);
     }
@@ -755,11 +756,27 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
 }
 
 /**
+ * Memory check before replaying buffered rows. A timeout that stopped the pipeline owns the
+ * reply, so it is not second-guessed here.
+ */
+static bool shouldStopBeforeReplay(AREQ *req, QueryProcessingCtx *qctx, const ChunkSerializeState *state,
+                                   int rc) {
+  if (state->results == NULL || (AREQ_RequestFlags(req) & QEXEC_F_NOROWS) ||
+      (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) || QueryError_HasError(qctx->err)) {
+    return false;
+  }
+  return StoredResults_StopBeforeReply(req->base.reqConfig.oomPolicy, qctx->err);
+}
+
+/**
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
  */
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
   QueryProcessingCtx *qctx, int rc, size_t limit, cachedVars *cv, ChunkSerializeState *state) {
+
+    // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
+    const bool replayStopped = shouldStopBeforeReplay(req, qctx, state, rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (handleSendChunkError(req, reply, qctx, rc)) {
@@ -784,7 +801,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     // Results buffered by startPipelineCommon
     if (state->results != NULL) {
-      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema, replayStopped);
       state->results = NULL;
       goto done_2;
     }
@@ -1005,6 +1022,9 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
 static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
   QueryProcessingCtx *qctx, int rc, cachedVars *cv, ChunkSerializeState *state) {
 
+    // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
+    const bool replayStopped = shouldStopBeforeReplay(req, qctx, state, rc);
+
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (handleSendChunkError(req, reply, qctx, rc)) {
       state->cursor_done = true;
@@ -1026,7 +1046,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
     if (state->results != NULL) {
-      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema, replayStopped);
       state->results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {

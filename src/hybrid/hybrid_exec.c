@@ -404,13 +404,15 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   return ApplyOomStop(&hreq->base.limits, oomPolicy, err, rc);
 }
 
+// With `stopped` set the rows are freed without serializing.
 static void HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results,
-                                          HybridRequest *hreq, cachedVars *cv) {
+                                          HybridRequest *hreq, cachedVars *cv, bool stopped) {
   uint32_t memoryCheckCounter = 0;
-  bool stopped = false;
+  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided.
+  const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail;
   array_foreach(results, res, {
-    stopped = stopped ||
-              StoredResults_ShouldStopForMemory(&memoryCheckCounter, hreq->tailPipeline->qctx.err);
+    stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
+                                             &memoryCheckCounter, hreq->tailPipeline->qctx.err));
     if (!stopped) {
       serializeResult_hybrid(hreq, reply, res, cv);
     }
@@ -538,10 +540,26 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
     return false;
   }
 
+  bool replayStopped = false;
+  if (*results != NULL && !err && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF)) {
+    // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
+    QueryError oomErr = QueryError_Default();
+    replayStopped = StoredResults_StopBeforeReply(hreq->base.reqConfig.oomPolicy, &oomErr);
+    if (replayStopped && QueryError_HasError(&oomErr)) {
+      handleSendChunkError_hybrid(hreq, reply, &oomErr, rc);
+      QueryError_ClearError(&oomErr);
+      return false;
+    }
+    if (replayStopped) {
+      QueryError_SetQueryOOMWarning(qctx->err);
+    }
+    QueryError_ClearError(&oomErr);
+  }
+
   prepareSendChunkReply_hybrid(hreq, reply, qctx);
 
   if (*results != NULL) {
-    HREQ_populateReplyWithResults(reply, *results, hreq, cv);
+    HREQ_populateReplyWithResults(reply, *results, hreq, cv, replayStopped);
     *results = NULL;  // Results consumed and freed by HREQ_populateReplyWithResults
   } else {
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {

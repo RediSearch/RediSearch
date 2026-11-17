@@ -79,6 +79,18 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
   return true;
 }
 
+bool StoredResults_StopBeforeReply(RSOomPolicy oomPolicy, QueryError *err) {
+  if (!QueryMemory_CheckpointExact(NULL)) {
+    return false;
+  }
+  if (oomPolicy == OomPolicy_Fail) {
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  } else {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return true;
+}
+
 static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy) {
   return QueryRequestLimits_IsMemoryStopped(timeout) &&
          oomPolicy != OomPolicy_Fail && !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
