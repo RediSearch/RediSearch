@@ -427,14 +427,14 @@ static void executeAggregateDeferred(void *arg) {
     // into qctx so the result emitter picks it up.
     if (nc->withCount && barrierReleasedEarly) {
       // The barrier holds only part of the shards' totals, which could be below the rows the
-      // pipeline reads. Count the rows rpnetRead decodes instead.
+      // pipeline reads. Count the rows rpnetNext decodes instead.
       nc->countStreamedRows = true;
     } else if (nc->withCount) {
       qctx->totalResults = totalResults;
     }
 
     // The plan may never read the iterator (LIMIT 0 0), so publish its memory stop here.
-    // Same order as rpnetRead: an elapsed deadline keeps its ON_TIMEOUT outcome.
+    // Same order as rpnetNext: an elapsed deadline keeps its ON_TIMEOUT outcome.
     if (r->base.limits.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
         !QueryRequestLimits_IsTimedOutExact(&r->base.limits)) {
       RPNet_MemoryStops(nc);
