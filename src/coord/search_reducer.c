@@ -50,9 +50,6 @@ typedef struct searchReducerCtx {
   size_t totalReplies;
   searchReplyOffsets offsets;
 
-  specialCaseCtx *reduceSpecialCaseCtxKnn;
-  specialCaseCtx *reduceSpecialCaseCtxSortby;
-
   MRReply *warning;
   QueryProcessingCtx qctx;
   RLookup lookup;
@@ -113,7 +110,7 @@ static searchResult *newResult_resp2(searchResult *res, MRReply *arr, size_t j,
 
 static searchResult *newResult_resp3(searchResult *res, MRReply *results, size_t j,
                                      searchReplyOffsets *offsets, bool explainScores,
-                                     specialCaseCtx *reduceSpecialCaseCtxSortBy) {
+                                     const char *sortKeyName) {
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
 
@@ -155,10 +152,10 @@ static searchResult *newResult_resp3(searchResult *res, MRReply *results, size_t
 
   if (offsets->sortKey > 0) {
     MRReply *sortkey = NULL;
-    if (reduceSpecialCaseCtxSortBy) {
+    if (sortKeyName) {
       MRReply *require_fields = MRReply_MapElement(result_j, "required_fields");
       if (require_fields) {
-        sortkey = MRReply_MapElement(require_fields, reduceSpecialCaseCtxSortBy->sortby.sortKey);
+        sortkey = MRReply_MapElement(require_fields, sortKeyName);
       }
     }
     if (!sortkey) {
@@ -221,32 +218,18 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   }
 
   // Update the offsets for the special case after determining score, payload, field.
-  size_t specialCaseStartOffset = offsets->firstField;
-  size_t specialCasesMaxOffset = 0;
-  if (ctx->specialCases) {
-    size_t nSpecialCases = array_len(ctx->specialCases);
-    for (size_t i = 0; i < nSpecialCases; i++) {
-      switch (ctx->specialCases[i]->specialCaseType) {
-        case SPECIAL_CASE_KNN: {
-          ctx->specialCases[i]->knn.offset += specialCaseStartOffset;
-          specialCasesMaxOffset = MAX(specialCasesMaxOffset, ctx->specialCases[i]->knn.offset);
-          break;
-        }
-        case SPECIAL_CASE_SORTBY: {
-          ctx->specialCases[i]->sortby.offset += specialCaseStartOffset;
-          offsets->sortKey = ctx->specialCases[i]->sortby.offset;
-          specialCasesMaxOffset = MAX(specialCasesMaxOffset, ctx->specialCases[i]->sortby.offset);
-          break;
-        }
-        case SPECIAL_CASE_NONE:
-        default:
-          break;
-      }
-    }
+  size_t requiredStart = offsets->firstField;
+  size_t lastRequired = 0;
+  if (ctx->sortKey) {
+    offsets->sortKey = requiredStart;
+    lastRequired = requiredStart;
   }
-
-  if (specialCasesMaxOffset > 0) {
-    offsets->firstField = specialCasesMaxOffset + 1;
+  if (ctx->knn) {
+    ctx->knn->offset += requiredStart;
+    lastRequired = MAX(lastRequired, ctx->knn->offset);
+  }
+  if (lastRequired > 0) {
+    offsets->firstField = lastRequired + 1;
     offsets->step = offsets->firstField + 1;
   } else if (ctx->withSortingKeys) {
     offsets->step++;
@@ -310,17 +293,17 @@ static MRReply *searchReplyBody(const searchRequestCtx *req, MRReply *reply) {
 }
 
 static bool needsKnnSelection(const searchReducerCtx *ctx) {
-  return ctx->reduceSpecialCaseCtxKnn && ctx->reduceSpecialCaseCtxKnn->knn.shouldSort;
+  return ctx->searchCtx->knn && ctx->searchCtx->knn->shouldSort;
 }
 
 static bool searchRowDistance(searchReducerCtx *ctx, MRReply *body, size_t ordinal,
                               const searchResult *view, double *distance) {
   MRReply *value;
-  knnContext *knn = &ctx->reduceSpecialCaseCtxKnn->knn;
+  knnContext *knn = ctx->searchCtx->knn;
   // WITHSORTKEYS can move the shared distance field out of required_fields.
   // The normal sort-key decoder already handles both wire representations.
-  if (ctx->reduceSpecialCaseCtxSortby && view->sortKey &&
-      !strcmp(ctx->reduceSpecialCaseCtxSortby->sortby.sortKey, knn->fieldName)) {
+  if (ctx->searchCtx->sortKey && view->sortKey &&
+      !strcmp(ctx->searchCtx->sortKey, knn->fieldName)) {
     *distance = view->sortKeyNum;
     return true;
   }
@@ -387,7 +370,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
         searchResult view = {0};
         if (resp3) {
           newResult_resp3(&view, rows, source->row, &ctx->offsets,
-                          ctx->searchCtx->withExplainScores, ctx->reduceSpecialCaseCtxSortby);
+                          ctx->searchCtx->withExplainScores, ctx->searchCtx->sortKey);
         } else {
           newResult_resp2(&view, body, offset, &ctx->offsets, ctx->searchCtx->withExplainScores);
         }
@@ -402,7 +385,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
             return searchReplyParseError(ctx);
           }
           RLookup_WriteOwnKey(ctx->knnKeys[0], values, RSValue_NewNumber(distance));
-          ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies + 1);
+          ctx->totalReplies = MIN(ctx->searchCtx->knn->k, ctx->totalReplies + 1);
         }
         // The source owns these bytes until stored rows and both sorters have been freed.
         if (view.sortKey) {
@@ -512,8 +495,7 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, bool fromTimeout) {
   if (needsKnnSelection(ctx)) {
     ctx->knnKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "distance", RLOOKUP_F_NOFLAGS);
     ctx->knnKeys[1] = ctx->sortKeys[1];
-    QITR_PushRP(&ctx->qctx,
-                RPSorter_NewByFields(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->knnKeys, 2, 3));
+    QITR_PushRP(&ctx->qctx, RPSorter_NewByFields(ctx->searchCtx->knn->k, ctx->knnKeys, 2, 3));
   }
   ResultProcessor *sorter =
       ctx->searchCtx->withSortby
@@ -542,8 +524,8 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, bool fromTimeout) {
   }
   SearchResult_Destroy(&row);
   reply->hasStoredResults = true;
-  if (ctx->reduceSpecialCaseCtxKnn) {
-    ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies);
+  if (ctx->searchCtx->knn) {
+    ctx->totalReplies = MIN(ctx->searchCtx->knn->k, ctx->totalReplies);
   }
 }
 
@@ -603,10 +585,9 @@ void CoordSearch_SerializeResult(QueryRequest *request, RedisModule_Reply *reply
   if (req->withSortingKeys && req->withSortby) {
     if (reply->resp3) RedisModule_Reply_SimpleString(reply, "sortkey");
     MRReply *sortkey = NULL;
-    if (MRReply_Type(record) == MR_REPLY_MAP && ctx->reduceSpecialCaseCtxSortby) {
+    if (MRReply_Type(record) == MR_REPLY_MAP && ctx->searchCtx->sortKey) {
       MRReply *required = MRReply_MapElement(record, "required_fields");
-      if (required)
-        sortkey = MRReply_MapElement(required, ctx->reduceSpecialCaseCtxSortby->sortby.sortKey);
+      if (required) sortkey = MRReply_MapElement(required, ctx->searchCtx->sortKey);
     }
     if (!sortkey) sortkey = searchRowField(record, offset, ctx->offsets.sortKey, "sortkey");
     MR_ReplyWithMRReply(reply, sortkey);
@@ -859,15 +840,6 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
-  if (req->specialCases) {
-    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
-      specialCaseCtx *special = req->specialCases[i];
-      if (special->specialCaseType == SPECIAL_CASE_KNN)
-        rCtx->reduceSpecialCaseCtxKnn = special;
-      else if (special->specialCaseType == SPECIAL_CASE_SORTBY)
-        rCtx->reduceSpecialCaseCtxSortby = special;
-    }
-  }
   reduceSearchPipeline(rCtx, fromTimeout);
   if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     goto cleanup;

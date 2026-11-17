@@ -52,7 +52,6 @@ struct Request {
   }
   ~Request() {
     CoordSearchReducer_Free(&req);
-    array_free(req.specialCases);
     QueryRequest_Destroy(&req.base);
   }
   MRReply *add(const std::string &wire) {
@@ -125,15 +124,13 @@ TEST(SearchReply, MemoryStopEndsStrictReductionAtShardBoundary) {
 
 TEST(SearchReply, MissingKnnDistanceStopsBothSorters) {
   for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict, TimeoutPolicy_Fail}) {
-    specialCaseCtx knn = {};
-    knn.specialCaseType = SPECIAL_CASE_KNN;
-    knn.knn.k = 2;
-    knn.knn.fieldName = "distance";
-    knn.knn.shouldSort = true;
+    knnContext knn = {};
+    knn.k = 2;
+    knn.fieldName = "distance";
+    knn.shouldSort = true;
     Request request(policy);
     request.req.noContent = true;
-    request.req.specialCases = array_new(specialCaseCtx *, 1);
-    array_append(request.req.specialCases, &knn);
+    request.req.knn = &knn;
     auto row = [](const char *id, bool hasDistance) {
       std::vector<std::string> fields = {str("id"), str(id), str("score"), ",1\r\n"};
       if (hasDistance) {
