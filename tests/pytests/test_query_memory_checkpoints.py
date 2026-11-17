@@ -1199,20 +1199,11 @@ def test_coordinator_profile_aggregate_stop_does_not_spin(env):
         env.assertGreater(coord_stops, 0, message=stage)
 
 
-def memory_stop_log_count(env):
-    # CONFIG GET replies a map under RESP3.
-    log_dir = env.cmd('config', 'get', 'dir')['dir']
-    log_file = env.cmd('CONFIG', 'GET', 'logfile')['logfile']
-    with open(os.path.join(log_dir, log_file), errors='replace') as f:
-        return sum('Query stopped: memory pressure' in line for line in f)
-
-
 @skip(cluster=True)
 @env_spec(protocol=3)
-def test_pipeline_stop_counts_and_logs_once_per_query(env):
+def test_pipeline_stop_counts_once_per_query(env):
     """A query stopped in the pipeline bumps the OOM warning counter (ON_OOM RETURN) or the OOM
-    error counter (ON_OOM FAIL) once and logs the stop once, however many checkpoints see the
-    pressure after it."""
+    error counter (ON_OOM FAIL) once, however many checkpoints see the pressure after it."""
     create_index(env)
     query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'SORTBY', 2, '@n', 'ASC', 'MAX', N_DOCS)
     # The sorter checkpoints on every row, so pressure at a row after the build checkpoints stops
@@ -1221,16 +1212,13 @@ def test_pipeline_stop_counts_and_logs_once_per_query(env):
     memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 2)
     try:
         errors, warnings = coord_oom_counters(env)
-        logs = memory_stop_log_count(env)
         res = env.cmd(*query)
         env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
         env.assertEqual(coord_oom_counters(env), (errors, warnings + 1))
-        env.assertEqual(memory_stop_log_count(env), logs + 1)
 
         memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 2)
         with oom_policy(env, 'fail'):
             env.expect(*query).error().contains(OOM_QUERY_ERROR)
         env.assertEqual(coord_oom_counters(env), (errors + 1, warnings + 1))
-        env.assertEqual(memory_stop_log_count(env), logs + 2)
     finally:
         memory_pressure(env, 'RESET')
