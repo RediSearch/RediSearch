@@ -9,6 +9,9 @@
 
 #include "gtest/gtest.h"
 #include "gtest/internal/gtest-port.h"  // For CaptureStderr/GetCapturedStderr
+extern "C" {
+#include "util/dict.h"
+}
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
