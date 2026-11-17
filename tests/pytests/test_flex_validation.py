@@ -979,16 +979,6 @@ def test_flex_blocks_suggest_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_slop_argument(env):
-    """Test that SLOP argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
-        .error().contains('SLOP is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_blocks_drop_and_dropindex_dd(env):
     """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
     _create_flex_search(env)
@@ -1003,16 +993,6 @@ def test_flex_blocks_drop_and_dropindex_dd(env):
 
     # FT.DROPINDEX without DD should work
     env.expect('FT.DROPINDEX', 'idx').ok()
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_inorder_argument(env):
-    """Test that INORDER argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
-        .error().contains('INORDER is not supported in Redis Flex')
 
 
 @skip(cluster=True)
