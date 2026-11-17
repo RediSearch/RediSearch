@@ -348,7 +348,6 @@ fn filtered_top_k_on_a_multivalue_field_matches_brute_force() {
                 ascending,
                 range_batch_size,
                 60,
-                child_ids.len(),
             );
             let k = NonZeroUsize::new(5).unwrap();
             let mut it =
@@ -818,7 +817,6 @@ fn filtered_timeout_mid_batch_serves_only_already_intersected_matches() {
         true,
         8,
         pairs.len(),
-        3,
     )
     .with_timeout(TimeoutOnce::new(1));
     // Sparse matches force seeking within the batch before the timeout.
