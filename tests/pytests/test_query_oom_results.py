@@ -645,6 +645,8 @@ def test_reply_loop_stop_ends_the_cursor(env):
     """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later."""
     try:
         _index_with_docs(env)
+        # Workers add checkpoint calls of their own after the reply loop's layout below.
+        _set_policies(env, 'return', 'return', 0)
         query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
         # The chunk's reply loop makes 3 calls, the last ones of the query.
         _memory_pressure(env, 'AT_CALL', _checkpoint_calls(env, query) - 3 + 2)
@@ -927,16 +929,20 @@ def test_reply_loop_stop_on_a_shard_reaches_the_coordinator(env):
     own; its reply loop's are its last."""
     _index_with_docs(env)
     shard = env.getConnection(2)
-    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', NEVER)
-    env.cmd(*AGGREGATE)
-    calls = shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
-    env.assertGreater(calls, B, message=calls)
-    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', calls)
+    # Workers add checkpoint calls of their own after the reply loop's, so the last call is the
+    # reply loop's only without them.
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', 0)
     try:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', NEVER)
+        env.cmd(*AGGREGATE)
+        calls = shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+        env.assertGreater(calls, B, message=calls)
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', calls)
         res = env.cmd(*AGGREGATE)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
     finally:
         shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', 0)
 
 
 @skip(cluster=False)
