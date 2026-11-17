@@ -1784,6 +1784,58 @@ def test_aggregate_mixed_shard_stops_follow_the_stop_precedence():
 
 
 @skip(cluster=False)
+def test_aggregate_shard_oom_read_before_a_shard_timeout_still_counts():
+    """A shard timeout is judged against every shard reply received, also one the pipeline already
+    read: the stopped shard's OOM reply is read while the timed-out shard is still paused, and the
+    timeout read later still outranks under ON_OOM FAIL and keeps the OOM warning under RETURN.
+    The stopped shard runs under ON_OOM RETURN, so its reply is a warning the pipeline reads past
+    rather than an error that would end the request at once."""
+    env = Env(protocol=3, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    create_index(env)
+    coord = env.getConnection(1)
+    stopped_shard = env.getConnection(2)
+    timed_out_shard = env.getConnection(3)
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'TIMEOUT', 0)
+    try:
+        for oom_policy in ('return', 'fail'):
+            set_policies(env, 'RETURN', oom_policy)
+            shard_change_oom_policy(env, 2, 'return')
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+            timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', 1)
+            sync_point(coord, 'CLEAR')
+            # A 1 ms auto-release makes the point a counter of queued shard replies.
+            sync_point(coord, 'ARM', 'ShardReplyQueued', 1)
+            try:
+                # Holds the timed-out shard's reply until the other two were queued and read.
+                timed_out_shard.execute_command('CLIENT', 'PAUSE', 2000)
+                thread, result = run_in_thread(coord, query)
+                wait_for_condition(
+                    lambda: (sync_point(coord, 'HIT_COUNT', 'ShardReplyQueued') >= 2, {}),
+                    'Timeout waiting for the other shard replies to be queued')
+                env.assertEqual(sync_point(coord, 'HIT_COUNT', 'ShardReplyQueued'), 2)
+                thread.join(timeout=30)
+                env.assertFalse(thread.is_alive())
+            finally:
+                sync_point(coord, 'CLEAR')
+                stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'RESET')
+            res = result[0]
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=(oom_policy, res))
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=oom_policy)
+            else:
+                env.assertFalse(isinstance(res, Exception), message=(oom_policy, res))
+                env.assertContains(TIMEOUT_WARNING, res['warning'], message=(oom_policy, res))
+                env.assertContains(COORD_OOM_WARNING, res['warning'], message=(oom_policy, res))
+            expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
+
+
+@skip(cluster=False)
 def test_profile_aggregate_mixed_shard_stops_keep_both_warnings():
     """A profiled shard reply nests its warnings in the `results` map, so a shard timeout read
     before the queued reply of the shard that stopped for memory must still keep that shard's OOM

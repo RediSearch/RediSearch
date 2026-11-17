@@ -38,6 +38,13 @@ static inline MRReply *clusterQueryErrorReply(void) {
   return MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
 }
 
+// Flags a shard's OOM on both read streams before it is pushed into them, as netCursorCallback
+// does for their row replies (see MRIterator_SetShardOom).
+static void flagShardOom(HybridArmingCtx *ctx) {
+  MRIterator_SetShardOom(ctx->searchIt);
+  MRIterator_SetShardOom(ctx->vsimIt);
+}
+
 // Forward mapping-stage warnings into the read streams, where each subquery's
 // RPNet folds them (see processHybridMappingWarning in rpnet.c). Pushed one
 // bare string reply per warning — a top-level string is unambiguous in a read
@@ -54,6 +61,9 @@ static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
       MRIterator *target = strstr(warning_str, VSIM_SUFFIX) ? ctx->vsimIt : ctx->searchIt;
       MRIterator_PushReply(target, warning);
       continue;
+    }
+    if (QueryWarningCode_GetCodeFromMessage(warning_str) == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD) {
+      flagShardOom(ctx);
     }
     // Clone before pushing the original: a push hands ownership to the
     // reader, which may free it concurrently.
@@ -90,6 +100,9 @@ static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long sea
 // the resolving side's channel unblock cannot beat the error into the reader.
 // Consumes the error reply.
 static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *error) {
+  if (QueryError_GetCodeFromMessage(MRReply_String(error, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+    flagShardOom(ctx);
+  }
   MRIterator_PushReply(ctx->searchIt, MRReply_Clone(error));
   MRIterator_PushReply(ctx->vsimIt, error);
   MRIterator_ResolveShard(ctx->searchIt, shardIdx, 1);

@@ -304,6 +304,12 @@ bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx);
 void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx);
 bool MRIterator_IsMemoryStopped(MRIterator *it);
 
+/* A shard replied an OOM error, or a reply that carries the shard OOM warning. The IO thread sets
+ * it before pushing that reply, so a reader that pops the reply, or any reply pushed after it,
+ * also sees the flag. Sticky: it covers the replies the reader already consumed. */
+void MRIterator_SetShardOom(MRIterator *it);
+bool MRIterator_HasShardOom(MRIterator *it);
+
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);

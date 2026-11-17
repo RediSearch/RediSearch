@@ -122,7 +122,7 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestLimits_GetClockDeadline(&nc->areq->base.limits);
 }
 
-static int settleQueuedOom(RPNet *nc);
+static int settleShardOom(RPNet *nc);
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
@@ -136,8 +136,7 @@ static int settleQueuedOom(RPNet *nc);
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
 //     bails the coord pipeline early by returning RS_RESULT_STOPPED, or
-//     RS_RESULT_ERROR when a queued shard reply brings an OOM failure that
-//     outranks it (see settleQueuedOom).
+//     RS_RESULT_ERROR when a shard's OOM outranks it (see settleShardOom).
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
@@ -174,98 +173,33 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-    return settleQueuedOom(nc);
+    return settleShardOom(nc);
   }
 
   return RS_RESULT_OK;
 }
 
-// A timeout that must be replied as an error was just read. Under ON_OOM FAIL an OOM beats it,
-// so look for one among the replies already queued: the queue is emptied without waiting, since
-// the request ends in an error and waiting would only delay the timeout one. Returns the OOM
-// reply (an error, or a shard OOM warning in a hybrid mapping stream) or NULL; the caller frees it.
-static MRReply *takeQueuedOomFailure(RPNet *nc) {
-  if (!nc->it || nc->areq->base.reqConfig.oomPolicy != OomPolicy_Fail) {
-    return NULL;
-  }
-  MRReply *oom = NULL;
-  MRReply *queued;
-  while ((queued = MRIterator_TryNext(nc->it))) {
-    const int type = MRReply_Type(queued);
-    const char *str = (type == MR_REPLY_ERROR || type == MR_REPLY_STRING || type == MR_REPLY_STATUS)
-                          ? MRReply_String(queued, NULL)
-                          : NULL;
-    const bool isOom =
-        !oom && str &&
-        (type == MR_REPLY_ERROR
-             ? QueryError_GetCodeFromMessage(str) == QUERY_ERROR_CODE_OUT_OF_MEMORY
-             : nc->hybridSubquery != RPNET_HYBRID_NONE && !strcmp(str, QUERY_WOOM_SHARD));
-    if (isOom) {
-      oom = queued;
-    } else {
-      MRReply_Free(queued);
-    }
-  }
-  return oom;
+// Whether a shard's OOM outranks a shard timeout read under ON_OOM FAIL: judged on every reply
+// received so far (MRIterator_HasShardOom), whether still queued or already consumed.
+static bool shardOomFails(const RPNet *nc) {
+  return nc->it && nc->areq->base.reqConfig.oomPolicy == OomPolicy_Fail &&
+         MRIterator_HasShardOom(nc->it);
 }
 
-static bool hasShardOomWarning(const RPNet *nc, MRReply *reply) {
-  if (nc->cmd.protocol != 3 || MRReply_Type(reply) != MR_REPLY_ARRAY) {
-    return false;
-  }
-  MRReply *meta = MRReply_ArrayElement(reply, 0);
-  if (meta && nc->cmd.forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
-    meta = MRReply_MapElement(meta, "results");  // as in getNextReply: profile has an extra level
-  }
-  MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
-                                                                  : NULL;
-  const size_t len = warnings ? MRReply_Length(warnings) : 0;
-  for (size_t i = 0; i < len; i++) {
-    const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
-    if (str && !strcmp(str, QUERY_WOOM_SHARD)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// A shard's timeout warning ends the stream, but an OOM from another shard outranks it. Looks
-// through the replies already queued, without waiting, as takeQueuedOomFailure does: an OOM error
-// fails the request under ON_OOM FAIL, and under RETURN an OOM error or shard OOM warning is kept
-// as the query's OOM warning next to the timeout one. Returns RS_RESULT_ERROR when the request
-// failed with the OOM error, else RS_RESULT_STOPPED.
-static int settleQueuedOom(RPNet *nc) {
-  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore) {
+// A shard's timeout warning ends the stream, but an OOM any shard replied outranks it: under
+// ON_OOM FAIL the request fails with the OOM error, and under RETURN the OOM warning is kept next
+// to the timeout one. Returns RS_RESULT_ERROR when the request failed, else RS_RESULT_STOPPED.
+static int settleShardOom(RPNet *nc) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore ||
+      !MRIterator_HasShardOom(nc->it)) {
     return RS_RESULT_STOPPED;
   }
   QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
-  const bool fail = nc->areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
-  bool failed = false, warn = false;
-  MRReply *queued;
-  while ((queued = MRIterator_TryNext(nc->it))) {
-    if (MRReply_Type(queued) == MR_REPLY_ERROR &&
-        QueryError_GetCodeFromMessage(MRReply_String(queued, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-      if (fail && !failed) {
-        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-        QueryError_SetDetail(err, MRReply_String(queued, NULL));
-        failed = true;
-      }
-      warn = true;
-      MRReply_Free(queued);
-      continue;
-    }
-    if (hasShardOomWarning(nc, queued)) {
-      warn = true;
-    }
-    // The timeout ends this read only: a cursor's next read and a profile still need the rest.
-    array_ensure_append_1(nc->settledReplies, queued);
-  }
-  if (failed) {
+  if (shardOomFails(nc)) {
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     return RS_RESULT_ERROR;
   }
-  if (warn) {
-    QueryError_SetQueryOOMWarning(err);
-  }
+  QueryError_SetQueryOOMWarning(err);
   return RS_RESULT_STOPPED;
 }
 
@@ -304,11 +238,8 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       if (nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
-        MRReply *oom = takeQueuedOomFailure(nc);
-        if (oom) {
+        if (shardOomFails(nc)) {
           QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-          QueryError_SetDetail(err, MRReply_String(oom, NULL));
-          MRReply_Free(oom);
           return RS_RESULT_ERROR;
         }
         return RS_RESULT_STOPPED;
@@ -473,9 +404,7 @@ bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns
 #endif
 
 int getNextReply(RPNet *nc) {
-  // Settled replies are not in the channel, so its emptiness would end the cursor early.
-  const bool settledLeft = nc->settledHead < array_len(nc->settledReplies);
-  if (nc->cmd.forCursor && !settledLeft) {
+  if (nc->cmd.forCursor) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
@@ -505,14 +434,9 @@ int getNextReply(RPNet *nc) {
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
-  MRReply *root = NULL;
-  if (nc->settledHead < array_len(nc->settledReplies)) {
-    root = nc->settledReplies[nc->settledHead++];
-  } else {
-    root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                         : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
-                                                      &popTimedOut);
-  }
+  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+                                : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
+                                                             &popTimedOut);
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
@@ -663,12 +587,6 @@ void rpnetFree(ResultProcessor *rp) {
     array_foreach(nc->shardsProfile, reply, MRReply_Free(reply));
     array_free(nc->shardsProfile);
   }
-  if (nc->settledReplies) {
-    for (size_t i = nc->settledHead; i < array_len(nc->settledReplies); i++) {
-      MRReply_Free(nc->settledReplies[i]);
-    }
-    array_free(nc->settledReplies);
-  }
 
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
@@ -812,14 +730,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       if (errCode == QUERY_ERROR_CODE_TIMED_OUT &&
-          nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
-        // An OOM error that already arrived outranks the timeout one.
-        MRReply *oom = takeQueuedOomFailure(nc);
-        if (oom) {
-          MRReply_Free(nc->current.root);
-          nc->current.root = oom;
-          errCode = QUERY_ERROR_CODE_OUT_OF_MEMORY;
-        }
+          nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail &&
+          shardOomFails(nc)) {
+        // The standard OOM error: the shard's own text may be a warning, not an error.
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+        return RS_RESULT_ERROR;
       }
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||

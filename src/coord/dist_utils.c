@@ -62,6 +62,31 @@ bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
   return false;
 }
 
+// An OOM error, or a RESP3 reply whose warnings hold the shard OOM warning. RESP2 replies carry
+// no warnings.
+static bool replyReportsShardOom(const MRCommand *cmd, MRReply *rep) {
+  if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    return QueryError_GetCodeFromMessage(MRReply_String(rep, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY;
+  }
+  if (cmd->protocol != 3 || MRReply_Type(rep) != MR_REPLY_ARRAY) {
+    return false;
+  }
+  MRReply *meta = MRReply_ArrayElement(rep, 0);
+  if (meta && cmd->forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
+    meta = MRReply_MapElement(meta, "results");  // profile has an extra level
+  }
+  MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
+                                                                  : NULL;
+  const size_t len = warnings ? MRReply_Length(warnings) : 0;
+  for (size_t i = 0; i < len; i++) {
+    const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
+    if (str && !strcmp(str, QUERY_WOOM_SHARD)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Cursor callback for network responses.
 // Handles DEL commands, error replies, reply structure assertions,
 // cursor continuation, and reply fan-in to the channel.
@@ -82,6 +107,8 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+    // Before the push, so a reader that pops this reply sees the flag (release / acquire).
+    if (replyReportsShardOom(cmd, rep)) MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -189,6 +216,8 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
   }
 
+  // Before the push, as for an error reply.
+  if (replyReportsShardOom(cmd, rep)) MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
 
