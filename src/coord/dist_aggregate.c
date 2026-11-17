@@ -699,7 +699,10 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // STRICT serializes on the main thread after the worker hands off the pipeline.
   // Collect available profiles without waiting for shards that may need this thread.
-  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  // A memory-stopped request aborts the channel pops (getNextReply returns RS_RESULT_STOPPED
+  // without consuming), so a blocking drain would spin: take what is queued and stop.
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict ||
+      QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {

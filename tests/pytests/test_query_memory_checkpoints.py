@@ -1133,3 +1133,60 @@ def test_profile_build_checkpoint_stop(env):
                 env.assertEqual('Timeout limit was reached' in str(res), False, message=res)
                 with oom_policy(env, 'fail'):
                     expect_oom_error_at_call(env, at_call, *query)
+
+
+def run_at_call_within(env, n, timeout, *query):
+    """Like run_at_call, but fails the test instead of hanging when the reply takes over
+    `timeout` seconds."""
+    import threading
+    out = {}
+
+    def run():
+        try:
+            out['res'] = env.getConnection().execute_command(*query)
+        except Exception as e:
+            out['err'] = e
+
+    # Per-row checkpoints of the coordinator's sorter and grouper read on every call.
+    memory_pressure(env, 'READ_INTERVAL', 1)
+    memory_pressure(env, 'AT_CALL', n)
+    try:
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout)
+        env.assertFalse(t.is_alive(), message=f'no reply to {query} stopped at call {n}')
+    finally:
+        memory_pressure(env, 'RESET')
+    return out.get('res')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_coordinator_profile_aggregate_stop_does_not_spin(env):
+    """A memory stop of the coordinator's own sorter or grouper ends FT.PROFILE AGGREGATE's drain
+    of the shard replies: it replies in time with the profile and the OOM warning instead of
+    spinning on the aborted channel. Pressure is armed on the coordinator process only and swept
+    over every checkpoint call of one run, so the test does not depend on which call is the
+    stage's."""
+    create_index(env)
+    for stage in (('GROUPBY', 1, '@n', 'REDUCE', 'COUNT', 0, 'AS', 'c'),
+                  ('SORTBY', 2, '@n', 'ASC', 'MAX', N_DOCS)):
+        query = ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@n') + stage
+        memory_pressure(env, 'READ_INTERVAL', 1)
+        memory_pressure(env, 'AT_CALL', 2**62)
+        try:
+            env.cmd(*query)
+            calls = checkpoint_calls(env)
+        finally:
+            memory_pressure(env, 'RESET')
+        env.assertGreater(calls, BUILD_CHECKPOINTS, message=(stage, calls))
+
+        coord_stops = 0
+        for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
+            res = run_at_call_within(env, n, 30, *query)
+            if res is None:
+                return
+            env.assertContains('Profile', res)
+            if COORD_OOM_WARNING in res['Results']['warning']:
+                coord_stops += 1
+        env.assertGreater(coord_stops, 0, message=stage)
