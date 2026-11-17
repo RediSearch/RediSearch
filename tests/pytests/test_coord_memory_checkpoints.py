@@ -1012,9 +1012,10 @@ def test_aggregate_stream_stop_resp2():
 
 
 @skip(cluster=False)
-def test_aggregate_profile_is_not_stopped():
-    """FT.PROFILE reads the shard stream to its end to collect the shards' profiles, so the
-    coordinator stream checkpoints leave it out: under pressure it still replies in full."""
+def test_aggregate_profile_stops_with_its_profile():
+    """FT.PROFILE AGGREGATE reads memory before each shard reply as FT.AGGREGATE does: under
+    pressure it stops, and still replies the rows taken, the coordinator OOM warning and the
+    profile, as its drain ends on the stop."""
     env = Env(protocol=3)
     skipIfNoEnableAssert(env)
     create_index(env)
@@ -1022,7 +1023,10 @@ def test_aggregate_profile_is_not_stopped():
     res = stopped_at_first_read(env, coord, ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
                                              'LOAD', 1, '@n'))
     env.assertFalse(isinstance(res, Exception), message=res)
-    env.assertEqual(len(res['Results']['results']), N_DOCS, message=res)
+    env.assertLess(len(res['Results']['results']), N_DOCS, message=res)
+    env.assertContains(COORD_OOM_WARNING, res['Results']['warning'], message=res)
+    env.assertContains('Coordinator', res['Profile'], message=res)
+    env.assertEqual(cursor_count(env, 'idx'), 0)
     expect_clean_end(env, coord)
 
 
@@ -1865,3 +1869,49 @@ def test_profile_aggregate_mixed_shard_stops_keep_both_warnings():
         expect_clean_end(env, coord)
     finally:
         reset_policies(env)
+
+
+HYBRID_DOCS = 3000
+# A WINDOW past every match, so each shard serves its subqueries over several cursor reads.
+HYBRID_LARGE_WINDOW = ('FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$b',
+                       'KNN', 2, 'K', HYBRID_DOCS, 'COMBINE', 'RRF', 2, 'WINDOW', HYBRID_DOCS,
+                       'LIMIT', 0, HYBRID_DOCS, 'PARAMS', 2, 'b',
+                       np.zeros(2, dtype=np.float32).tobytes())
+
+
+@skip(cluster=False)
+def test_hybrid_subquery_stream_stop():
+    """The coordinator FT.HYBRID reads memory before each shard reply of either subquery stream,
+    as FT.AGGREGATE does: a stop under ON_OOM FAIL replies the OOM error, under RETURN the rows the
+    merger holds with the coordinator OOM warning, and the stopped stream's shard cursors are
+    deleted rather than read. Shard 1 shares the forced ratio, as in stopped_at_first_read."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'hidx', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(HYBRID_DOCS):
+        conn.execute_command('HSET', f'h{i}', 'name', 'hello',
+                             'v', np.array([i, 0], dtype=np.float32).tobytes())
+    coord = env.getConnection(1)
+    full = coord.execute_command(*HYBRID_LARGE_WINDOW)
+    env.assertEqual(len(full['results']), HYBRID_DOCS)
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            errors, warnings = coord_oom_counters(coord)
+            res = stopped_at_first_read(env, coord, HYBRID_LARGE_WINDOW)
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains(OOM_QUERY_ERROR, str(res))
+                env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings))
+            else:
+                env.assertFalse(isinstance(res, Exception), message=res)
+                env.assertLess(len(res['results']), HYBRID_DOCS, message=res['warnings'])
+                env.assertEqual(res['warnings'], [COORD_OOM_WARNING])
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+            wait_for_condition(lambda: (cursor_count(env, 'hidx') == 0, {}),
+                               'Timeout waiting for the shard cursors to be deleted')
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')

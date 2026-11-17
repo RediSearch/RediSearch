@@ -616,13 +616,11 @@ void RPNet_resetCurrent(RPNet *nc) {
 }
 
 // Memory, before each fetch of a shard reply: the IO thread's read (MRIterator_IsMemoryStopped)
-// or this one. Requests the memory stop and wakes its channel. Left out: hybrid
-// subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
-// the stream to its end and would spin on a stopped one.
+// or this one. Requests the memory stop and wakes its channel. A hybrid subquery stop is mapped
+// by HybridRequest_ApplyOomStop; FT.PROFILE's profile collection ends its drain on the stop.
 bool RPNet_MemoryStops(RPNet *nc) {
   QueryRequestLimits *timeout = &nc->areq->base.limits;
-  if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
-      QueryRequestLimits_IsMemoryStopped(timeout) ||
+  if (!nc->it || QueryRequestLimits_IsMemoryStopped(timeout) ||
       QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
     return false;
   }
