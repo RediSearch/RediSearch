@@ -343,7 +343,8 @@ static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
 // Records that a buffering processor keeps its rows past a memory stop, for the reply's warning.
 static void RP_HoldStop(const ResultProcessor *rp) {
   if (rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits)) {
-    rp->parent->oomCut = true;
+    // A subquery stage runs on a depleter thread while the tail may read the flag.
+    RS_AtomicBoolStoreRelaxed(&rp->parent->oomCut, true);
   }
 }
 
