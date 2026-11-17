@@ -26,3 +26,7 @@ int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {
   // is safe on any thread.
   return QueryMemory_CheckpointExact(timeout);
 }
+
+int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout, uint32_t *counter) {
+  return QueryMemory_Checkpoint(timeout, counter);
+}
