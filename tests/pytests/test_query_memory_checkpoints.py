@@ -1186,7 +1186,7 @@ def test_coordinator_profile_aggregate_stop_does_not_spin(env):
         coord_stops = 0
         for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
             res = run_at_call_within(env, n, 30, *query)
-            if res is None:  # the hang is already reported
+            if res is None:  # a hang or an error is already reported
                 return
             env.assertContains('Profile', res)
             if COORD_OOM_WARNING in res['Results']['warning']:

@@ -699,10 +699,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // STRICT serializes on the main thread after the worker hands off the pipeline.
   // Collect available profiles without waiting for shards that may need this thread.
-  // A memory-stopped request aborts the pop on an empty channel (getNextReply returns
-  // RS_RESULT_STOPPED), so a blocking drain would spin: take what is queued and stop.
-  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict ||
-      QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
@@ -710,13 +707,15 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
     const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
     const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
-    int rc;
     do {
       MRReply_Free(rpnet->current.root);
       RPNet_resetCurrent(rpnet);
-      rc = getNextReply(rpnet);
-      // A stop requested during the drain aborts the pop on an empty channel.
-    } while (rc != RS_RESULT_EOF && rc != RS_RESULT_STOPPED);
+      // A memory stop, possibly requested mid-drain, aborts the pop on an empty channel with
+      // RS_RESULT_STOPPED forever. Take only what is queued, so the next call ends with EOF.
+      if (QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+        rpnet->drainOnly = true;
+      }
+    } while (getNextReply(rpnet) != RS_RESULT_EOF);
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;
     rpnet->breakdown.freeTime = freeTime;
