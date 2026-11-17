@@ -68,7 +68,7 @@ void *cbWrapper(void *args) {
     }
 
     // run ForkGC
-    gc->callbacks.periodicCallback(fgcArgs->fgc);
+    gc->callbacks.periodicCallback(fgcArgs->fgc, NULL);
   }
   return NULL;
 }

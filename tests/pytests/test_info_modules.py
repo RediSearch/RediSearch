@@ -356,6 +356,9 @@ def test_redis_info():
 
 
 def test_counting_queries(env: Env):
+  # The query counters leave out internal queries, which the enterprise build's
+  # `_FT` commands are (TotalGlobalStats_CountQuery).
+  skipTest(enterprise=True)
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
   # Add some data
@@ -635,7 +638,9 @@ class testWarningsAndErrorsStandalone:
   """Test class for warnings and errors metrics in standalone mode"""
 
   def __init__(self):
-    skipTest(cluster=True)
+    # On the enterprise build the suite's `_FT` queries are internal ones, whose
+    # errors and warnings count toward the shard metrics, not these.
+    skipTest(cluster=True, enterprise=True)
     self.env = Env()
     _common_warnings_errors_test_scenario(self.env)
     self.prev_info_dict = info_modules_to_dict(self.env)
