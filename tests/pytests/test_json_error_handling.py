@@ -87,6 +87,8 @@ def test_numeric_field_invalid_array_elements(env):
 @skip(no_json=True, cluster=True)
 def test_json_type_validation_errors(env):
     """Test JSON type validation errors from FieldSpec_CheckJsonType"""
+    # With the flag off the object-type error keeps its wording from before sparse vectors.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
 
     # Test: Object type for TEXT field (should fail)
     env.expect('FT.CREATE', 'obj_val_idx', 'ON', 'JSON', 'SCHEMA',
@@ -102,7 +104,7 @@ def test_json_type_validation_errors(env):
     error_dict = {errors[i]: errors[i+1] for i in range(0, len(errors), 2)}
     env.assertTrue(error_dict['indexing failures'] > 0)
     error_message = error_dict['last indexing error']
-    env.assertIn('Invalid JSON type: Object type can represent only GEOMETRY or SPARSEVECTOR fields', error_message)
+    env.assertIn('Invalid JSON type: Object type can represent only GEOMETRY field', error_message)
 
     # Check that the error key is recorded
     env.assertIn('last indexing error key', error_dict)
@@ -148,3 +150,18 @@ def test_populated_array_freed_when_later_field_fails(env):
                            message=msg)
         env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([1, 'doc:ok'], message=msg)
         env.flush()
+
+
+@skip(no_json=True, cluster=True)
+def test_json_object_type_error_names_sparse_vectors_when_enabled(env):
+    """With sparse vectors enabled, the object-type error lists them among the
+    field types that accept an object."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'obj_val_idx', 'ON', 'JSON', 'SCHEMA',
+               '$.data', 'AS', 'data', 'TEXT').ok()
+    env.expect('JSON.SET', 'obj_val_error_doc', '$',
+               '{"data": {"nested": "object"}}').ok()
+    errors = to_dict(index_info(env, 'obj_val_idx')['Index Errors'])
+    env.assertEqual(errors['indexing failures'], 1)
+    env.assertContains('Object type can represent only GEOMETRY or SPARSEVECTOR fields',
+                       errors['last indexing error'])

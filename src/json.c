@@ -8,6 +8,7 @@
 */
 
 #include "json.h"
+#include "config.h"
 
 #include <math.h>
 #include <string.h>
@@ -138,9 +139,14 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
       // field as an {"indices": [...], "values": [...]} object
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                          "Invalid JSON type: Object type can represent only GEOMETRY or "
-                          "SPARSEVECTOR fields");
+      // The sparse wording only once the feature is enabled: with ENABLE_UNSTABLE_FEATURES off
+      // the error stays as it was (docs/CONTRIBUTING-unstable-features.md, requirement 1).
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+          RSGlobalConfig.enableUnstableFeatures
+              ? "Invalid JSON type: Object type can represent only GEOMETRY or "
+                "SPARSEVECTOR fields"
+              : "Invalid JSON type: Object type can represent only GEOMETRY fields");
     }
     break;
   // null type is not supported
