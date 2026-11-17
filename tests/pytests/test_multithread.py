@@ -197,7 +197,7 @@ def test_numeric_query_survives_field_alter_race():
 
 # Regression test (see assert_query_survives_field_alter_race). WITHOUTCOUNT routes the
 # wildcard query through the SORTBY optimizer's partial-range path (query_optimizer.c /
-# NewOptimizerIterator), a separate field-index re-derivation site from the plain numeric
+# newNumericTopKFromOptimizer), a separate field-index re-derivation site from the plain numeric
 # filter above.
 @skip(cluster=True)
 def test_numeric_optimizer_query_survives_field_alter_race():

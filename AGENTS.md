@@ -178,7 +178,7 @@ as production code.
 - `src/query.c` — query execution entry point
 - `src/query_optimizer.c` — query plan optimization
 - `src/query_parser/v2/` — Ragel lexer (`lexer.rl`) + Lemon parser (`parser.y`), used by DIALECT 2 onwards (v1 is legacy)
-- `src/iterators/` — iterator implementations (optimizer_reader; vector top-k lives in `src/redisearch_rs/top_k/`)
+- `src/iterators/` — the `QueryIterator` C ABI (`iterator_api.h`); iterators are implemented in Rust (`src/redisearch_rs/rqe_iterators/`, top-k in `src/redisearch_rs/top_k/`)
 - `src/result_processor.c` — result processing pipeline
 - `src/numeric_filter.c` — numeric range filter iterators
 - `src/cursor.c` — cursor-based result pagination
