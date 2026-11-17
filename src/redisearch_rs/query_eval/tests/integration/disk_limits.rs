@@ -214,7 +214,7 @@ fn numeric_node(field_index: FieldIndex, filter: &mut NumericFilter) -> MockQuer
 }
 
 fn numeric_limits_received(request: Request) -> (Limits, Limits) {
-    let _guard = GlobalGuard;
+    let _guard = GlobalGuard::default();
     let mut context = TestContext::numeric(
         (1..=3u64).map(|i| RSIndexResult::build_numeric(i as f64).doc_id(i).build()),
         false,
@@ -233,7 +233,7 @@ fn numeric_limits_received(request: Request) -> (Limits, Limits) {
 }
 
 fn geo_limits_received(request: Request) -> (Limits, Limits) {
-    let _guard = GlobalGuard;
+    let _guard = GlobalGuard::default();
     let points: [(DocId, f64, f64); 1] = [(1, 13.361389, 38.115556)];
     let mut context = TestContext::geo(points.into_iter());
     let mut gf = Box::new(ffi::GeoFilter {
