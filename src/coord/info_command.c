@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "info/field_spec_info.h"
+#include "info/info_command.h"
 #include "../src/reply_macros.h"
 #include "info/index_error.h"
 #include "module.h"
@@ -152,7 +153,7 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts,
 
 /** Reply with a KV array, the values are emitted per name and type */
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
-                         InfoFieldSpec *specs, size_t numFields);
+                         InfoFieldSpec *specs, size_t numFields, const InfoSelection *selection);
 
 // Writes field data to the target
 static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
@@ -365,10 +366,10 @@ static void cleanInfoReply(InfoFields *fields) {
 }
 
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
-                           InfoFieldSpec *specs, size_t numSpecs) {
+                         InfoFieldSpec *specs, size_t numSpecs, const InfoSelection *selection) {
   for (size_t ii = 0; ii < numSpecs; ++ii) {
     InfoValue *source = values + ii;
-    if (!source->isSet) {
+    if (!source->isSet || !InfoSelection_Matches(selection, specs[ii].name)) {
       continue;
     }
 
@@ -391,7 +392,8 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
-static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
+static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields,
+                               const InfoSelection *selection) {
   InfoValue *values = fields->toplevelValues;
   const InfoValue *docs =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
@@ -400,69 +402,79 @@ static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
   const InfoValue *size =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "inverted_sz_mb").value;
 
-  if (records && docs && records->isSet && docs->isSet) {
+  if (records && docs && records->isSet && docs->isSet &&
+      InfoSelection_Matches(selection, "records_per_doc_avg")) {
     double average = docs->u.total_l ? (double)records->u.total_l / docs->u.total_l : NAN;
     RedisModule_ReplyKV_Double(reply, "records_per_doc_avg", average);
   }
-  if (size && records && size->isSet && records->isSet) {
+  if (size && records && size->isSet && records->isSet &&
+      InfoSelection_Matches(selection, "bytes_per_record_avg")) {
     double average = records->u.total_l ? MB_TO_BYTES(size->u.total_d / records->u.total_l) : NAN;
     RedisModule_ReplyKV_Double(reply, "bytes_per_record_avg", average);
   }
 }
 
-static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
+static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate,
+                                const InfoSelection *selection) {
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
-  if (fields->indexName) {
+  if (fields->indexName && InfoSelection_Matches(selection, "index_name")) {
     REPLY_KVSTR_SAFE("index_name", fields->indexName);
   }
 
-  if (fields->indexOptions) {
+  if (fields->indexOptions && InfoSelection_Matches(selection, "index_options")) {
     RedisModule_ReplyKV_MRReply(reply, "index_options", fields->indexOptions);
   }
 
-  if (fields->indexDef) {
+  if (fields->indexDef && InfoSelection_Matches(selection, "index_definition")) {
     RedisModule_ReplyKV_MRReply(reply, "index_definition", fields->indexDef);
   }
 
-  if (fields->indexSchema) {
+  if (fields->indexSchema && InfoSelection_Matches(selection, "attributes")) {
     RedisModule_ReplyKV_MRReply(reply, "attributes", fields->indexSchema);
   }
 
-  RedisModule_ReplyKV_Map(reply, "gc_stats");
-  replyKvArray(reply, fields, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(reply);
+  if (InfoSelection_Matches(selection, "gc_stats")) {
+    RedisModule_ReplyKV_Map(reply, "gc_stats");
+    replyKvArray(reply, fields, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, NULL);
+    RedisModule_Reply_MapEnd(reply);
+  }
 
-  RedisModule_ReplyKV_Map(reply, "cursor_stats");
-  replyKvArray(reply, fields, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(reply);
+  if (InfoSelection_Matches(selection, "cursor_stats")) {
+    RedisModule_ReplyKV_Map(reply, "cursor_stats");
+    replyKvArray(reply, fields, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, NULL);
+    RedisModule_Reply_MapEnd(reply);
+  }
 
-  if (fields->stopWordList) {
+  if (fields->stopWordList && InfoSelection_Matches(selection, "stopwords_list")) {
     RedisModule_ReplyKV_MRReply(reply, "stopwords_list", fields->stopWordList);
   }
 
-  RedisModule_ReplyKV_Map(reply, "dialect_stats");
-  replyKvArray(reply, fields, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC);
-  RedisModule_Reply_MapEnd(reply);
+  if (InfoSelection_Matches(selection, "dialect_stats")) {
+    RedisModule_ReplyKV_Map(reply, "dialect_stats");
+    replyKvArray(reply, fields, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, NULL);
+    RedisModule_Reply_MapEnd(reply);
+  }
 
-  replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
-  replyIndexAverages(reply, fields);
-  if (fields->textResources[0].isSet) {
+  replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, selection);
+  replyIndexAverages(reply, fields, selection);
+  if (fields->textResources[0].isSet && InfoSelection_Matches(selection, "column_families")) {
     RedisModule_ReplyKV_Map(reply, "column_families");
     RedisModule_ReplyKV_Map(reply, "text");
     replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
-                 ARRAY_SIZE(textResourceSpecs));
+                 ARRAY_SIZE(textResourceSpecs), NULL);
     RedisModule_Reply_MapEnd(reply);
     RedisModule_Reply_MapEnd(reply);
   }
 
-
   // Global index error stats
-  RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
+  if (InfoSelection_Matches(selection, "Index Errors")) {
+    RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+    IndexError_Reply(&fields->indexError, reply, 0, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
+  }
 
-  if (fields->fieldSpecInfo_arr) {
+  if (fields->fieldSpecInfo_arr && InfoSelection_Matches(selection, "field statistics")) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
       AggregatedFieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0, obfuscate);
@@ -470,20 +482,24 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
     RedisModule_Reply_ArrayEnd(reply); // >Field statistics
   }
 
-
   RedisModule_Reply_MapEnd(reply);
 }
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
-  InfoFields fields = { .indexError = IndexError_Init() };
   MRReply *firstError = NULL;
+  const InfoSelection *selection = MRCtx_GetPrivData(mc);
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
 
   if (count == 0) {
     return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_CLUSTER_NO_RESPONSES));
   }
 
+  if (selection && selection->count && count != selection->expectedShards) {
+    return RedisModule_ReplyWithError(ctx, "Incomplete FT.INFO shard replies");
+  }
+
+  InfoFields fields = { .indexError = IndexError_Init() };
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
@@ -495,9 +511,30 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
 
     if (type != MR_REPLY_ARRAY && type != MR_REPLY_MAP) {
+      if (selection && selection->count) {
+        QueryError_SetError(&error, QUERY_ERROR_CODE_BAD_VAL, "Invalid FT.INFO shard reply");
+        break;
+      }
       continue;  // Ooops!
     }
 
+    if (selection && selection->count && !selection->prefix) {
+      for (int i = 0; i < selection->count; ++i) {
+        const char *key = RedisModule_StringPtrLen(selection->args[i], NULL);
+        bool found = false;
+        for (size_t j = 0; j + 1 < MRReply_Length(replies[ii]); j += 2) {
+          if (MRReply_StringEquals(MRReply_ArrayElement(replies[ii], j), key, true)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_GENERIC, "Unavailable FT.INFO field: %s", key);
+          break;
+        }
+      }
+      if (QueryError_HasError(&error)) break;
+    }
     size_t numElems = MRReply_Length(replies[ii]);
     RS_ASSERT(numElems % 2 == 0);
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0, &error);
@@ -514,7 +551,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     // Reply with error
     RedisModule_Reply_Error(reply, QueryError_GetUserError(&error));
   } else {
-    generateFieldsReply(&fields, reply, false);
+    generateFieldsReply(&fields, reply, false, selection);
   }
 
   QueryError_ClearError(&error);

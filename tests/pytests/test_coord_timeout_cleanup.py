@@ -330,7 +330,8 @@ def test_generic_fanout_allows_client_unblock(env):
     client_id = client.client_id()
     point = 'BeforeCoordFanout'
     try:
-        for command in (['FT.INFO', 'idx'], ['FT._LIST', 'WITHCLUSTERSTATE']):
+        for command in (['FT.INFO', 'idx'], ['FT.INFO', 'idx', 'FIELDS', 'num_docs'],
+                        ['FT.INFO', 'idx', 'PREFIX', 'num_'], ['FT._LIST', 'WITHCLUSTERSTATE']):
             for reason in ('TIMEOUT', 'ERROR'):
                 results, errors = [], []
 

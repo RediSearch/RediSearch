@@ -218,3 +218,86 @@ def test_vecsim_info_stats_marked_deleted():
   env.assertTrue(all([r == 'DONE' for r in res]))
   info = index_info(env, 'idx')
   env.assertEqual(info["field statistics"][0]["marked_deleted"], 0)
+
+
+def test_info_selection():
+  """Selection preserves row values, nested replies and order under both protocols and cluster routing."""
+  for protocol in [2, 3]:
+    env = Env(protocol=protocol)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'STOPWORDS', 1, 'the',
+               'SCHEMA', 't', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'geom',
+                         'POLYGON((1 1, 1 2, 2 2, 2 1, 1 1))')
+    full = env.cmd('FT.INFO', 'idx')
+    info = full if protocol == 3 else to_dict(full)
+
+    def project(keys):
+      return {k: v for k, v in info.items() if k in keys} if protocol == 3 else [
+        item for i in range(0, len(full), 2) if full[i] in keys for item in full[i:i + 2]]
+
+    keys = ['index_definition', 'num_docs', 'indexing', 'percent_indexed', 'hash_indexing_failures']
+    env.assertEqual(env.cmd('FT.INFO', 'idx', 'FIELDS', *reversed(keys)), project(keys))
+    for prefix in ['index_', 'num_', 'attributes', 'Index ', 'does_not_exist', 'NUM_']:
+      keys = [k for k in info if k.startswith(prefix)]
+      env.assertEqual(env.cmd('FT.INFO', 'idx', 'PREFIX', prefix), project(keys))
+    for key in ['index_name', 'attributes', 'Index Errors', 'field statistics',
+                'stopwords_list', 'dialect_stats', 'records_per_doc_avg', 'bytes_per_record_avg',
+                'geoshapes_sz_mb']:
+      env.assertEqual(env.cmd('FT.INFO', 'idx', 'FIELDS', key, key), project([key]))
+    all_rows = env.cmd('FT.INFO', 'idx', 'PREFIX', '')
+    env.assertEqual(list(all_rows) if protocol == 3 else all_rows[::2], list(info))
+    env.expect('FT.ALIASADD', 'alias', 'idx').ok()
+    env.assertEqual(env.cmd('FT.INFO', 'alias', 'FIELDS', 'index_name'), project(['index_name']))
+    env.expect('FT.ALIASDEL', 'alias').ok()
+    env.expect('FT.INFO', 'idx', 'FIELDS', 'not_a_field').error().contains('Unknown FT.INFO field')
+    env.expect('FT.INFO', 'idx', 'FIELDS', 'NUM_DOCS').error().contains('Unknown FT.INFO field')
+    env.expect('FT.INFO', 'idx', 'FIELDS', 'num_docs\x00suffix').error().contains('Unknown FT.INFO field')
+    env.expect('FT.INFO', 'idx', 'FIELDS', 'column_families').error().contains('Unavailable FT.INFO field')
+    for args in [('PREFIX',), ('FIELDS',), ('PREFIX', 'num_', 'FIELDS', 'num_docs'),
+                 ('FIELDS', 'num_docs', 'PREFIX', 'num_')]:
+      env.expect('FT.INFO', 'idx', *args).error()
+    env.expect('FT.INFO', 'missing', 'FIELDS', 'num_docs').error().contains('Index not found')
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.INFO', 'idx', 'FIELDS', 'stopwords_list').error().contains('Unavailable FT.INFO field')
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.stop()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_info_fields_missing_on_one_shard(env):
+  """A row present on only some shards must not become a successful partial observation."""
+  for missing_shard in [1, 3]:
+    index = f'idx{missing_shard}'
+    for shard in range(1, env.shardsCount + 1):
+      conn = env.getConnection(shard)
+      conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+      options = [] if shard == missing_shard else ['STOPWORDS', 1, 'the']
+      conn.execute_command('_FT.CREATE', index, *options, 'SCHEMA', 't', 'TEXT')
+    env.expect('FT.INFO', index, 'FIELDS', 'index_name', 'stopwords_list').error().contains(
+      'Unavailable FT.INFO field: stopwords_list')
+    env.expect('FT.DROPINDEX', index).ok()
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+@require_enable_assert
+def test_info_selection_rejects_incomplete_shard_replies(env):
+  """A failed shard dispatch must not yield partial selected observations."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  for selector in [('FIELDS', 'num_docs', 'indexing', 'percent_indexed'), ('PREFIX', 'num_')]:
+    try:
+      env.expect(debug_cmd(), 'SEND_ERROR', 1).ok()
+      env.expect('FT.INFO', 'idx', *selector).error().contains('Incomplete FT.INFO shard replies')
+    finally:
+      env.cmd(debug_cmd(), 'SEND_ERROR', 0)
+
+
+def test_info_fields_gc_disabled():
+  """NOGC removes the local gc_stats row, including on every cluster shard."""
+  env = Env(moduleArgs='NOGC')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.INFO', 'idx', 'FIELDS', 'gc_stats').error().contains(
+    'Unavailable FT.INFO field: gc_stats')

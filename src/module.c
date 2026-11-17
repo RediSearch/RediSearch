@@ -4266,7 +4266,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
+  if (argc < 2) {
     // FT.INFO {index}
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -4277,6 +4277,9 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   VERIFY_ACL(ctx, argv[1])
 
+  InfoSelection selection;
+  if (InfoSelection_Parse(ctx, argv, argc, &selection) != REDISMODULE_OK) return REDISMODULE_OK;
+
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
     return IndexInfoCommand(ctx, argv, argc);
@@ -4284,12 +4287,12 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand cmd = MR_NewCommandFromRedisStrings(2, argv);
   MRCommand_AppendLiteral(&cmd, WITH_INDEX_ERROR_TIME);
   MRCommand_SetProtocol(&cmd, ctx);
   MRCommand_SetPrefix(&cmd, "_FT");
 
-  struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
+  struct MRCtx *mctx = InfoSelection_CreateRequest(ctx, &selection, NumShards);
   MR_Fanout(mctx, InfoReplyReducer, cmd);
   return REDISMODULE_OK;
 }

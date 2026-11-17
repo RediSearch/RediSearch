@@ -323,9 +323,30 @@ int SetFtInfoInfo(RedisModuleCommand *cmd) {
         .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
+      {
+        .name = "selection",
+        .type = REDISMODULE_ARG_TYPE_ONEOF,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "prefix",
+            .token = "PREFIX",
+            .summary = "Returns rows whose top-level names start with this case-sensitive prefix.",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+          },
+          {
+            .name = "field",
+            .token = "FIELDS",
+            .summary = "Returns only the named top-level rows. Unknown or unavailable names are errors.",
+            .type = REDISMODULE_ARG_TYPE_STRING,
+            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
+          },
+          {0}
+        },
+      },
       {0}
     },
-    .arity = 2,
+    .arity = -2,
     .since = "1.0.0",
     .tips = "dont_cache",
   };

@@ -233,6 +233,8 @@ def test_acl_key_permissions_validation(env):
     index_commands = [
         ['FT.AGGREGATE', no_perm_index, '*'],
         ['FT.INFO', no_perm_index],
+        ['FT.INFO', no_perm_index, 'FIELDS', 'num_docs'],
+        ['FT.INFO', no_perm_index, 'PREFIX', 'num_'],
         ['FT.SEARCH', no_perm_index, '*'],
         ['FT.HYBRID', no_perm_index, 'SEARCH', '*', 'VSIM' ,'@embedding', '$BLOB',\
          'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"],
