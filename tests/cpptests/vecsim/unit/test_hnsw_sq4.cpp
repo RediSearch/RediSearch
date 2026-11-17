@@ -556,12 +556,12 @@ TEST(HNSWSQ4Factory, RejectsInvalidParams) {
                          .quantParams = quant_params},
                         false);
 
-        // Value 3 is not a VecSimQuantType enumerator.
+        // Value 5 is not a VecSimQuantType enumerator.
         for (bool is_normalized : {false, true}) {
             expect_rejected({.type = VecSimType_FLOAT32,
                              .dim = dim,
                              .metric = VecSimMetric_IP,
-                             .quantType = static_cast<VecSimQuantType>(3),
+                             .quantType = static_cast<VecSimQuantType>(5),
                              .quantParams = quant_params},
                             is_normalized);
         }
