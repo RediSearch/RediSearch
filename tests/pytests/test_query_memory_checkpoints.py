@@ -495,7 +495,7 @@ def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
 @env_spec(protocol=3)
 def test_sorter_stop_over_cursor_reads(env):
     """A sorted prefix longer than a cursor read is read to its end, and the read that ends it
-    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
         for _ in worker_counts(env):
             env.flush()
@@ -520,7 +520,7 @@ def test_sorter_stop_over_cursor_reads(env):
 @env_spec(protocol=3)
 def test_normalizer_stop_over_cursor_reads(env):
     """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
-    the max among them; the read that ends them carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    the max among them; the read that ends them carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
         for _ in worker_counts(env):
             env.flush()
@@ -717,7 +717,7 @@ def test_withcount_depleter_stop_past_the_limit_warns(env):
 @env_spec(protocol=3)
 def test_withcount_depleter_stop_over_cursor_reads(env):
     """Depleted rows read over several cursor reads keep coming, and the read that ends them
-    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
         for _ in worker_counts(env):
             env.flush()
