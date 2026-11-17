@@ -250,9 +250,8 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   CommonPipelineCtx ctx = {
     .limits = &hreq->base.limits,
     .oomPolicy = hreq->base.reqConfig.oomPolicy,
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
+    // Only for AggregateResults' debug pause, which a subquery timeout releases:
+    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ.
     .areq = hreq->requests[SEARCH_INDEX],
   };
 
@@ -302,17 +301,26 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   qctx->skippedResults = 0;
 }
 
-static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
+// ApplyOomStop for the tail pipeline, whose error slot the hybrid reply reads.
+static int hybridApplyOomStop(HybridRequest *hreq, int rc) {
+  return ApplyOomStop(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
+                      hreq->tailPipeline->qctx.err, rc);
+}
+
+static void HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results,
+                                          HybridRequest *hreq, cachedVars *cv) {
+  uint32_t memoryCheckCounter = 0;
+  bool stopped = false;
+  array_foreach(results, res, {
+    stopped = stopped ||
+              StoredResults_ShouldStopForMemory(&memoryCheckCounter, hreq->tailPipeline->qctx.err);
+    if (!stopped) {
       serializeResult_hybrid(hreq, reply, res, cv);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
+    }
+    SearchResult_Destroy(res);
+    rm_free(res);
+  });
+  array_free(results);
 }
 
 /**
@@ -592,6 +600,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     }
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
+    rc = hybridApplyOomStop(hreq, rc);
 
     // Refresh the background-scan-OOM capture now that the tail pipeline has
     // drained, mirroring the aggregate startPipeline: the reply path reads

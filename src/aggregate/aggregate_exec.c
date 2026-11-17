@@ -523,17 +523,26 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   req->base.reply.hasStoredResults = true;
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, AREQ *req, cachedVars *cv, RespSchema *schema) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
+/**
+ * Serializes and frees the buffered `results`. Returns true when memory pressure cut
+ * the replay short; the caller must then end a cursor, which would otherwise resume
+ * past the rows left out.
+ */
+static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
+                                     cachedVars *cv, RespSchema *schema) {
+  uint32_t memoryCheckCounter = 0;
+  bool stopped = false;
+  array_foreach(results, res, {
+    stopped = stopped || StoredResults_ShouldStopForMemory(&memoryCheckCounter,
+                                                           AREQ_QueryProcessingCtx(req)->err);
+    if (!stopped) {
       serializeResult(req, reply, res, cv, schema);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
+    }
+    SearchResult_Destroy(res);
+    rm_free(res);
+  });
+  array_free(results);
+  return stopped;
 }
 
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
@@ -775,7 +784,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     // Results buffered by startPipelineCommon
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
       goto done_2;
     }
@@ -1011,7 +1020,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
