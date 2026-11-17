@@ -530,3 +530,42 @@ fn eval_prefix_memory_counter_persists_across_nodes() {
     drop(fixture.eval());
     assert_eq!(*fixture.ctx.memory_counter_mut(), 2 * after_first);
 }
+
+/// Gives the fixture's request a memory stop, as a checkpoint under pressure would.
+/// The returned limits must outlive every evaluation on the fixture.
+fn stop_for_memory(fixture: &mut PrefixFixture) -> Box<ffi::QueryRequestLimits> {
+    // SAFETY: all-zero is the valid initial state of `QueryRequestLimits`.
+    let mut limits: Box<ffi::QueryRequestLimits> = Box::new(unsafe { std::mem::zeroed() });
+    limits.memory.stopped = true;
+    // SAFETY: the fixture exclusively owns the `QueryEvalCtx` and its search context, and
+    // nothing is evaluating.
+    unsafe {
+        (*(*fixture._context.qctx().as_ptr()).sctx).limits = &mut *limits;
+        (*fixture._context.qctx().as_ptr()).reqFlags = QEFlag::IsSearch as u32;
+    }
+    limits
+}
+
+/// The ids the evaluated node yields, empty when it built no iterator or no child.
+fn built_ids(fixture: &mut PrefixFixture) -> Vec<u64> {
+    fixture
+        .eval()
+        .map_or_else(Vec::new, |mut it| collect_doc_ids(&mut it))
+}
+
+#[test]
+fn eval_prefix_builds_no_child_past_a_memory_stop() {
+    let mut fixture = PrefixFixture::new("ap", true, false);
+    let _limits = stop_for_memory(&mut fixture);
+    assert!(
+        built_ids(&mut fixture).is_empty(),
+        "no term may be opened once the request is memory-stopped"
+    );
+}
+
+#[test]
+fn eval_suffix_trie_builds_no_child_past_a_memory_stop() {
+    let mut fixture = PrefixFixture::with_suffix_trie("ple", false, true);
+    let _limits = stop_for_memory(&mut fixture);
+    assert!(built_ids(&mut fixture).is_empty());
+}
