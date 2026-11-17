@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::coverage::Coverage;
-use crate::lower::lower;
-use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode, argv};
+use crate::lower::{Cursors, lower};
+use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode, Var, argv};
 use crate::resp::Value;
 use crate::target::{Connection, Env, Reply, Server, Status};
 
@@ -61,6 +61,7 @@ pub fn run(program: &Program, env: &Env) -> Result<Trace, String> {
         server: Server::spawn(env, &program.module_args)?,
         conns: BTreeMap::new(),
         pending: BTreeMap::new(),
+        cursors: Cursors::new(),
         control: None,
         steps: Vec::new(),
         clock: 0,
@@ -95,7 +96,10 @@ pub fn run(program: &Program, env: &Env) -> Result<Trace, String> {
 struct Interpreter {
     server: Server,
     conns: BTreeMap<Conn, Connection>,
-    pending: BTreeMap<Conn, VecDeque<usize>>,
+    /// Per connection, the steps awaiting a reply and the variable each
+    /// reply binds.
+    pending: BTreeMap<Conn, VecDeque<(usize, Option<Var>)>>,
+    cursors: Cursors,
     control: Option<Connection>,
     steps: Vec<Step>,
     clock: u32,
@@ -106,17 +110,23 @@ impl Interpreter {
         if op.kind == OpKind::Barrier {
             return self.barrier(at);
         }
-        lower(&op.kind).into_iter().find_map(|command| {
-            self.drain(op.conn, at)
-                .or_else(|| self.send(op.conn, at, command))
-                .or_else(|| match op.reply {
-                    ReplyMode::Await => self.drain(op.conn, at),
-                    ReplyMode::Defer => None,
-                })
-        })
+        if let Some(exit) = self.drain(op.conn, at) {
+            return Some(exit);
+        }
+        let binds = op.kind.binds();
+        lower(&op.kind, &self.cursors)
+            .into_iter()
+            .find_map(|command| {
+                self.drain(op.conn, at)
+                    .or_else(|| self.send(op.conn, at, command, binds))
+                    .or_else(|| match op.reply {
+                        ReplyMode::Await => self.drain(op.conn, at),
+                        ReplyMode::Defer => None,
+                    })
+            })
     }
 
-    fn send(&mut self, conn: Conn, at: usize, command: Argv) -> Option<Exit> {
+    fn send(&mut self, conn: Conn, at: usize, command: Argv, binds: Option<Var>) -> Option<Exit> {
         let sent = self.tick();
         let result = match self.conns.get_mut(&conn) {
             Some(connection) => connection.send(&command),
@@ -137,7 +147,10 @@ impl Interpreter {
         let step = self.steps.len() - 1;
         match result {
             Ok(()) => {
-                self.pending.entry(conn).or_default().push_back(step);
+                self.pending
+                    .entry(conn)
+                    .or_default()
+                    .push_back((step, binds));
                 None
             }
             Err(e) => self.dropped(conn, step, Reply::Closed(e), at),
@@ -148,7 +161,7 @@ impl Interpreter {
     /// time gets one more chance after the harness releases the scheduling
     /// controls the program holds, and the program then carries on.
     fn drain(&mut self, conn: Conn, at: usize) -> Option<Exit> {
-        while let Some(step) = self.pending.get_mut(&conn).and_then(VecDeque::pop_front) {
+        while let Some((step, binds)) = self.pending.get_mut(&conn).and_then(VecDeque::pop_front) {
             let mut reply = self.read(conn, SETTLE);
             if reply == Reply::Timeout {
                 let sent = self.tick();
@@ -157,7 +170,12 @@ impl Interpreter {
                 reply = self.read(conn, REPLY_DEADLINE);
             }
             match reply {
-                Reply::Value(_) => self.record(step, reply),
+                Reply::Value(ref value) => {
+                    if let (Some(var), Some(id)) = (binds, cursor_id(value)) {
+                        self.cursors.insert(var, id);
+                    }
+                    self.record(step, reply);
+                }
                 Reply::Timeout => {
                     self.record(step, reply);
                     return Some(Exit::Hung { at_op: at });
@@ -327,6 +345,18 @@ impl Interpreter {
     fn tick(&mut self) -> u32 {
         self.clock += 1;
         self.clock
+    }
+}
+
+/// The cursor id in a reply to `FT.AGGREGATE … WITHCURSOR` or
+/// `FT.CURSOR READ`: `[results, id]`.
+fn cursor_id(reply: &Value) -> Option<i64> {
+    match reply {
+        Value::Array(items) => match items.as_slice() {
+            [_, Value::Int(id)] => Some(*id),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

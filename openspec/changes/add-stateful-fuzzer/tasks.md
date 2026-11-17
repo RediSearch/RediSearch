@@ -70,11 +70,11 @@ acceptance check for that PR.
 ## 7. Depth operations
 
 - [x] 7.1 `Populate` with the golden expansion test
-- [ ] 7.2 `Alter`, `Aggregate` with cursors and `Var` bindings, `CursorRead`
+- [x] 7.2 `Alter`, `Aggregate` with cursors and `Var` bindings, `Cursor` reads and deletes
 - [ ] 7.3 Vector fields, JSON documents, geo fields
 - [ ] 7.4 Seeds for each
 - **Done when:** each new operation produces non-error replies in a seed and adds edges not reached by the earlier seeds.
-- **Status:** `Populate` is done; `seeds/populate.json` writes 500 documents, queries, deletes, and forces a GC, reaching 8,056 edges against 5,720 for the smoke seed. A live test checks that every seed runs without error replies and reaches edges no other seed does.
+- **Status:** `Populate` is done; `seeds/populate.json` writes 500 documents, queries, deletes, and forces a GC, reaching 8,056 edges against 5,720 for the smoke seed. A live test checks that every seed runs without error replies and reaches edges no other seed does. `seeds/aggregate.json` covers `Aggregate` with grouping, reducers, sorting, `APPLY`, `FILTER`, and cursors read and deleted through variables, and `Alter`.
 
 ## 8. Logic rules
 

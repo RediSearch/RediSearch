@@ -103,6 +103,12 @@ pub struct Program {
 )]
 pub struct Conn(pub u8);
 
+/// A slot that holds a server-chosen value, a cursor id, between ops.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub struct Var(pub u8);
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyMode {
@@ -144,6 +150,27 @@ pub enum OpKind {
     Command {
         argv: Argv,
     },
+    Alter {
+        index: Bytes,
+        field: Field,
+    },
+    /// The pipeline is raw tokens; only the cursor is typed, because its id
+    /// is bound to `cursor.var` for later `Cursor` ops.
+    Aggregate {
+        index: Bytes,
+        query: Query,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pipeline: Argv,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cursor: Option<CursorSpec>,
+    },
+    /// Uses the cursor id bound to `var`, or 0 if none is. A read rebinds
+    /// `var` to the id it returns.
+    Cursor {
+        index: Bytes,
+        var: Var,
+        action: CursorAction,
+    },
     /// `n` writes under `prefix`, with values for `fields` drawn from the
     /// fixed dictionary by a PRNG seeded with `seed`.
     Populate {
@@ -152,6 +179,40 @@ pub enum OpKind {
         n: u32,
         seed: u64,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CursorSpec {
+    pub var: Var,
+    pub count: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorAction {
+    Read {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u32>,
+    },
+    Del,
+}
+
+impl OpKind {
+    /// The variable whose value this op's reply sets.
+    pub fn binds(&self) -> Option<Var> {
+        match self {
+            OpKind::Aggregate {
+                cursor: Some(cursor),
+                ..
+            } => Some(cursor.var),
+            OpKind::Cursor {
+                var,
+                action: CursorAction::Read { .. },
+                ..
+            } => Some(*var),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

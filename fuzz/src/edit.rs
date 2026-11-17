@@ -16,16 +16,18 @@ use std::ops::RangeInclusive;
 use rand::Rng;
 use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
 
-use crate::lower::{NUMBERS, WORDS, lower};
+use crate::lower::{Cursors, NUMBERS, WORDS, lower};
 use crate::program::{
-    Argv, Bound, Bytes, Conn, FORMAT_VERSION, Field, FieldKind, Op, OpKind, Program, Query,
-    QueryOptions, ReplyMode, argv,
+    Argv, Bound, Bytes, Conn, CursorAction, CursorSpec, FORMAT_VERSION, Field, FieldKind, Op,
+    OpKind, Program, Query, QueryOptions, ReplyMode, Var, argv,
 };
 
 const CONNS: u8 = 3;
 const GENERATED_OPS: RangeInclusive<usize> = 4..=40;
 const STACKED_EDITS: RangeInclusive<usize> = 1..=3;
 const POPULATE_BITS: RangeInclusive<u32> = 0..=9;
+const VARS: u8 = 2;
+const PIPELINE_STEPS: RangeInclusive<usize> = 0..=3;
 const KEYS: u32 = 16;
 const QUERY_DEPTH: u32 = 2;
 const INDEXES: [&str; 3] = ["i0", "i1", "i2"];
@@ -48,6 +50,8 @@ pub struct Scope {
     pub indexes: BTreeMap<Bytes, Schema>,
     pub workers: bool,
     pub paused: bool,
+    /// The index each cursor variable was last bound for.
+    pub cursors: BTreeMap<Var, Bytes>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,7 +96,25 @@ impl Scope {
                 }
                 _ => {}
             },
-            OpKind::Query { .. } | OpKind::Barrier | OpKind::Populate { .. } => {}
+            OpKind::Alter { index, field } => {
+                if let Some(schema) = self.indexes.get_mut(index)
+                    && schema.fields.iter().all(|f| f.name != field.name)
+                {
+                    schema.fields.push(field.clone());
+                }
+            }
+            OpKind::Aggregate {
+                index,
+                cursor: Some(cursor),
+                ..
+            } => {
+                self.cursors.insert(cursor.var, index.clone());
+            }
+            OpKind::Query { .. }
+            | OpKind::Aggregate { .. }
+            | OpKind::Cursor { .. }
+            | OpKind::Barrier
+            | OpKind::Populate { .. } => {}
         }
     }
 }
@@ -172,10 +194,33 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
             n: 1 << rng.random_range(POPULATE_BITS) | rng.random_range(0..2),
             seed: rng.random(),
         },
-        (Some((_, schema)), 8..=13) => OpKind::Query {
-            index: index.expect("matched Some").0.clone(),
+        (Some((name, schema)), 8..=11) => OpKind::Query {
+            index: name.clone(),
             query: query(schema, pools, rng, QUERY_DEPTH),
             options: options(rng),
+        },
+        (Some(_), 13) if !scope.cursors.is_empty() => {
+            let (var, index) = scope.cursors.iter().choose(rng).expect("not empty");
+            OpKind::Cursor {
+                index: index.clone(),
+                var: *var,
+                action: if rng.random_ratio(1, 5) {
+                    CursorAction::Del
+                } else {
+                    CursorAction::Read {
+                        count: rng.random_bool(0.5).then(|| rng.random_range(1..=10)),
+                    }
+                },
+            }
+        }
+        (Some((name, schema)), 12 | 13) => OpKind::Aggregate {
+            index: name.clone(),
+            query: query(schema, pools, rng, QUERY_DEPTH),
+            pipeline: pipeline(schema, pools, rng),
+            cursor: rng.random_ratio(1, 3).then(|| CursorSpec {
+                var: Var(rng.random_range(0..VARS)),
+                count: rng.random_range(1..=10),
+            }),
         },
         (Some((_, schema)), 14) => command(&["DEL"], [key(schema, rng)]),
         (Some(_), 15) => OpKind::Barrier,
@@ -190,6 +235,16 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
         (Some(_), 17) if scope.workers && !scope.paused => {
             command(&[DEBUG, "WORKERS", "PAUSE"], [])
         }
+        (Some((name, schema)), 17) => OpKind::Alter {
+            index: name.clone(),
+            field: field(
+                FIELDS
+                    .iter()
+                    .find(|&&f| schema.fields.iter().all(|s| s.name != f.into()))
+                    .unwrap_or(&FIELDS[0]),
+                rng,
+            ),
+        },
         (Some((name, _)), _) => OpKind::Command {
             argv: HOOKS
                 .choose(rng)
@@ -203,7 +258,7 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
         },
     };
     let reply = match kind {
-        OpKind::Query { .. } if scope.paused => ReplyMode::Defer,
+        OpKind::Query { .. } | OpKind::Aggregate { .. } if scope.paused => ReplyMode::Defer,
         OpKind::Query { .. } | OpKind::Command { .. } if rng.random_ratio(1, 8) => ReplyMode::Defer,
         _ => ReplyMode::Await,
     };
@@ -233,22 +288,7 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> OpKind {
     names.shuffle(rng);
     let fields = names[..rng.random_range(1..=4)]
         .iter()
-        .map(|&name| {
-            let kind = [
-                FieldKind::Text,
-                FieldKind::Numeric,
-                FieldKind::Tag,
-                FieldKind::Geo,
-            ]
-            .choose(rng)
-            .expect("never empty")
-            .clone();
-            Field {
-                name: name.into(),
-                sortable: kind != FieldKind::Geo && rng.random_ratio(1, 4),
-                kind,
-            }
-        })
+        .map(|name| field(name, rng))
         .collect();
     let index = INDEXES
         .iter()
@@ -261,6 +301,78 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> OpKind {
         prefix: (*PREFIXES.choose(rng).expect("never empty")).into(),
         fields,
     }
+}
+
+fn field(name: &str, rng: &mut impl Rng) -> Field {
+    let kind = [
+        FieldKind::Text,
+        FieldKind::Numeric,
+        FieldKind::Tag,
+        FieldKind::Geo,
+    ]
+    .choose(rng)
+    .expect("never empty")
+    .clone();
+    Field {
+        name: name.into(),
+        sortable: kind != FieldKind::Geo && rng.random_ratio(1, 4),
+        kind,
+    }
+}
+
+/// Aggregation steps over the schema's fields. After a `GROUPBY` only its
+/// key and reducer outputs remain, so later steps refer to those.
+fn pipeline(schema: &Schema, pools: &Pools, rng: &mut impl Rng) -> Argv {
+    let mut names: Vec<(String, bool)> = schema
+        .fields
+        .iter()
+        .map(|f| {
+            (
+                String::from_utf8_lossy(f.name.as_slice()).into_owned(),
+                f.kind == FieldKind::Numeric,
+            )
+        })
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for _ in 0..rng.random_range(PIPELINE_STEPS) {
+        let any = names.choose(rng).map(|(name, _)| format!("@{name}"));
+        let numeric = names
+            .iter()
+            .filter(|(_, numeric)| *numeric)
+            .choose(rng)
+            .map(|(name, _)| format!("@{name}"));
+        match (rng.random_range(0..6), any, numeric) {
+            (0, Some(field), _) => out.extend(["LOAD".into(), "1".into(), field]),
+            (1, Some(field), numeric) => {
+                out.extend(["GROUPBY".into(), "1".into(), field.clone()]);
+                out.extend(["REDUCE", "COUNT", "0", "AS", "count"].map(String::from));
+                names = vec![(field[1..].to_owned(), false), ("count".into(), true)];
+                if let Some(numeric) = numeric {
+                    out.extend(["REDUCE".into(), "SUM".into(), "1".into(), numeric]);
+                    out.extend(["AS".into(), "sum".into()]);
+                    names.push(("sum".into(), true));
+                }
+            }
+            (2, Some(field), _) => {
+                let order = if rng.random_bool(0.5) { "ASC" } else { "DESC" };
+                out.extend(["SORTBY".into(), "2".into(), field, order.into()]);
+            }
+            (3, _, Some(numeric)) => {
+                out.extend(["APPLY".into(), format!("{numeric} * 2"), "AS".into()]);
+                out.push("doubled".into());
+                names.push(("doubled".into(), true));
+            }
+            (4, _, Some(numeric)) => {
+                out.extend(["FILTER".into(), format!("{numeric} > {}", pools.num(rng))]);
+            }
+            _ => out.extend([
+                "LIMIT".into(),
+                "0".into(),
+                rng.random_range(1..20).to_string(),
+            ]),
+        }
+    }
+    out.into_iter().map(Bytes::from).collect()
 }
 
 fn key(schema: &Schema, rng: &mut impl Rng) -> Bytes {
@@ -405,9 +517,9 @@ fn edit(program: &mut Program, donor: &Program, pools: &Pools, rng: &mut impl Rn
             let end = rng.random_range(at + 1..=ops.len().min(at + 4));
             ops.drain(at..end);
         }
-        6 => {
+        6 if ops[at].kind.binds().is_none() && !matches!(ops[at].kind, OpKind::Cursor { .. }) => {
             let op = ops.remove(at);
-            let lowered = lower(&op.kind).into_iter().map(|argv| Op {
+            let lowered = lower(&op.kind, &Cursors::new()).into_iter().map(|argv| Op {
                 kind: OpKind::Command { argv },
                 ..op
             });
@@ -532,6 +644,25 @@ pub fn smaller(program: &Program) -> Vec<Program> {
                     options: options.clone(),
                 })
                 .collect(),
+            OpKind::Aggregate {
+                index,
+                query,
+                pipeline,
+                cursor,
+            } => {
+                let with = |query: &Query, pipeline: &Argv, cursor| OpKind::Aggregate {
+                    index: index.clone(),
+                    query: query.clone(),
+                    pipeline: pipeline.clone(),
+                    cursor,
+                };
+                cursor
+                    .map(|_| with(query, pipeline, None))
+                    .into_iter()
+                    .chain(hoists(query).iter().map(|q| with(q, pipeline, *cursor)))
+                    .chain(without_each(pipeline).map(|p| with(query, &p, *cursor)))
+                    .collect()
+            }
             OpKind::Command { argv } if argv.len() > 1 => without_each(argv)
                 .map(|argv| OpKind::Command { argv })
                 .collect(),
@@ -612,6 +743,9 @@ pub fn size(program: &Program) -> usize {
                 total += fields.len() + usize::try_from(*n).expect("fits")
             }
             OpKind::Query { query, .. } => total += nodes(query),
+            OpKind::Aggregate { query, cursor, .. } => {
+                total += nodes(query) + usize::from(cursor.is_some())
+            }
             _ => {}
         }
         visit(&mut op.kind.clone(), &mut |leaf| {
@@ -643,8 +777,18 @@ enum Leaf<'a> {
 fn visit(kind: &mut OpKind, f: &mut dyn FnMut(Leaf<'_>)) {
     match kind {
         OpKind::Query { query, .. } => visit_query(query, f),
+        OpKind::Aggregate {
+            query, pipeline, ..
+        } => {
+            visit_query(query, f);
+            pipeline.iter_mut().for_each(|token| f(Leaf::Word(token)));
+        }
         OpKind::Command { argv } => argv.iter_mut().for_each(|token| f(Leaf::Word(token))),
-        OpKind::Create { .. } | OpKind::Barrier | OpKind::Populate { .. } => {}
+        OpKind::Create { .. }
+        | OpKind::Alter { .. }
+        | OpKind::Cursor { .. }
+        | OpKind::Barrier
+        | OpKind::Populate { .. } => {}
     }
 }
 

@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::lower::lower;
+use crate::lower::{Cursors, lower};
 use crate::program::Program;
 use crate::run::{Exit, Trace};
 use crate::target::Reply;
@@ -193,7 +193,7 @@ fn command(program: &Program, op: usize) -> String {
     program
         .ops
         .get(op)
-        .and_then(|op| lower(&op.kind).into_iter().next())
+        .and_then(|op| lower(&op.kind, &Cursors::new()).into_iter().next())
         .and_then(|argv| argv.into_iter().next())
         .map_or_else(
             || "end".to_owned(),

@@ -7,7 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::program::{Argv, Bound, Bytes, Field, FieldKind, OpKind, Query, argv};
+use std::collections::BTreeMap;
+
+use crate::program::{
+    Argv, Bound, Bytes, CursorAction, Field, FieldKind, OpKind, Query, Var, argv,
+};
+
+/// The cursor ids bound so far.
+pub type Cursors = BTreeMap<Var, i64>;
 
 /// The values generated programs draw from. Changing them changes what every
 /// `Populate` expands to.
@@ -30,7 +37,7 @@ pub const WORDS: [&str; 14] = [
 pub const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
 const POPULATE_NUMBERS: u64 = 10_000;
 
-pub fn lower(op: &OpKind) -> Vec<Argv> {
+pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
     match op {
         OpKind::Create {
             index,
@@ -42,20 +49,47 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             command.extend(argv(&["ON", "HASH", "PREFIX", "1"]));
             command.push(prefix.clone());
             command.push("SCHEMA".into());
-            for field in fields {
-                command.push(field.name.clone());
-                command.push(
-                    match field.kind {
-                        FieldKind::Text => "TEXT",
-                        FieldKind::Numeric => "NUMERIC",
-                        FieldKind::Tag => "TAG",
-                        FieldKind::Geo => "GEO",
-                    }
-                    .into(),
-                );
-                if field.sortable {
-                    command.push("SORTABLE".into());
+            fields
+                .iter()
+                .for_each(|field| schema_field(field, &mut command));
+            vec![command]
+        }
+        OpKind::Alter { index, field } => {
+            let mut command = argv(&["FT.ALTER"]);
+            command.push(index.clone());
+            command.extend(argv(&["SCHEMA", "ADD"]));
+            schema_field(field, &mut command);
+            vec![command]
+        }
+        OpKind::Aggregate {
+            index,
+            query,
+            pipeline,
+            cursor,
+        } => {
+            let mut text = Vec::new();
+            render(query, &mut text);
+            let mut command = vec!["FT.AGGREGATE".into(), index.clone(), Bytes(text)];
+            command.extend(pipeline.iter().cloned());
+            if let Some(cursor) = cursor {
+                command.extend(argv(&["WITHCURSOR", "COUNT", &cursor.count.to_string()]));
+            }
+            vec![command]
+        }
+        OpKind::Cursor { index, var, action } => {
+            let id = cursors.get(var).copied().unwrap_or(0).to_string();
+            let mut command = argv(&["FT.CURSOR"]);
+            command.push(
+                match action {
+                    CursorAction::Read { .. } => "READ",
+                    CursorAction::Del => "DEL",
                 }
+                .into(),
+            );
+            command.push(index.clone());
+            command.push(id.into());
+            if let CursorAction::Read { count: Some(count) } = action {
+                command.extend(argv(&["COUNT", &count.to_string()]));
             }
             vec![command]
         }
@@ -156,6 +190,22 @@ fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
     }
 }
 
+fn schema_field(field: &Field, command: &mut Argv) {
+    command.push(field.name.clone());
+    command.push(
+        match field.kind {
+            FieldKind::Text => "TEXT",
+            FieldKind::Numeric => "NUMERIC",
+            FieldKind::Tag => "TAG",
+            FieldKind::Geo => "GEO",
+        }
+        .into(),
+    );
+    if field.sortable {
+        command.push("SORTABLE".into());
+    }
+}
+
 fn render(query: &Query, out: &mut Vec<u8>) {
     match query {
         Query::All => out.push(b'*'),
@@ -236,11 +286,14 @@ mod tests {
     use super::*;
 
     fn query(q: Query) -> String {
-        let command = &lower(&OpKind::Query {
-            index: "i".into(),
-            query: q,
-            options: Default::default(),
-        })[0];
+        let command = &lower(
+            &OpKind::Query {
+                index: "i".into(),
+                query: q,
+                options: Default::default(),
+            },
+            &Cursors::new(),
+        )[0];
         String::from_utf8(command[2].0.clone()).unwrap()
     }
 
@@ -264,7 +317,7 @@ mod tests {
         };
         let words = |line: &str| -> Argv { line.split('|').map(Bytes::from).collect() };
         assert_eq!(
-            lower(&op),
+            lower(&op, &Cursors::new()),
             [
                 words("HSET|k:0|t|x-y|n|7|g|日本語|p|-84.7985,27.4425"),
                 words("HSET|k:1|t|the green|n|0|g|red|p|9.1000,3.3743"),

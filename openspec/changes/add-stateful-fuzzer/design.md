@@ -39,16 +39,20 @@ enum OpKind {
     Barrier,
     Command { argv: Vec<Bytes> },
     Populate { prefix, fields, n, seed },
-    Aggregate { index, query: QueryAst, steps, cursor: Option<Var> },
-    CursorRead { cursor: Var },
+    Alter { index, field },
+    Aggregate { index, query: QueryAst, pipeline: Vec<Bytes>, cursor: Option<{ var, count }> },
+    Cursor { index, var: Var, action: Read { count } | Del },
 }
 ```
 
 - **Typed only where the fuzzer reasons about an op.** `Create` declares a
-  schema the generator builds on; `Query` and `Aggregate` are trees the judge
-  matches structurally; `Barrier` is executed by the interpreter itself;
-  `Populate` expands into many writes; `Aggregate` and `CursorRead` bind a
-  cursor. Everything else, including writes, deletes, drops, schema changes,
+  schema the generator builds on, and `Alter` extends it; `Query` and the
+  query of an `Aggregate` are trees the judge can match structurally;
+  `Barrier` is executed by the interpreter itself; `Populate` expands into
+  many writes; `Aggregate` and `Cursor` bind and use a cursor. An aggregation
+  pipeline stays raw tokens: the generator builds it from the schema, and
+  nothing reasons about it afterwards. Everything else, including writes,
+  deletes, drops,
   `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET`, is a `Command`.
   The interpreter treats a typed op and a `Command` the same way once lowered.
 - **`module_args`** holds only what must exist before the server starts: some
@@ -67,8 +71,12 @@ enum OpKind {
   `lower` by SplitMix64 seeded with `seed`, using raw integer draws only, so a
   dependency update cannot change it. A golden test freezes the expansion. The
   generator draws `n` up to 513, log-uniformly.
-- **`Var`** binds a server-chosen value (a cursor id). If its source op was
-  deleted, failed, or is still deferred, the op using it is recorded as skipped.
+- **`Var`** holds a server-chosen value, a cursor id, bound when the reply of
+  an `Aggregate` with a cursor or of a cursor read is read. A `Cursor` op whose
+  variable is unbound, because its source op was deleted, failed, or is still
+  deferred on another connection, sends id 0 and draws an ordinary error.
+  Before lowering an op, the interpreter reads the pending replies on its
+  connection, so a binding made earlier on the same connection is seen.
 - **`conn`** is taken modulo a small fixed number of connections.
 
 `lower(&OpKind) -> Vec<Argv>` turns an op into the commands it sends; `Barrier`
