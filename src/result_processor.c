@@ -2332,10 +2332,12 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Check memory, and end at once on a stop whose policy discards the rows (a blocked-client
-    // timeout, an OOM stop under ON_OOM FAIL). Under a RETURN policy the upstream ends the rows;
-    // the wall-clock deadline is handled by the upstream's own checks.
-    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+    // Check memory, and end at once on a stop whose policy discards the rows (an OOM stop under
+    // ON_OOM FAIL). Under a RETURN policy the upstream ends the rows. The blocked-client flag is
+    // read here because a filled sorter yields from its heap without checking it, and the
+    // timeout callback waits for this drain; the wall-clock deadline is the upstream's own check.
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls) ||
+        QueryRequestLimits_IsBlockedClientTimedOut(self->depletingThreadCtx->limits)) {
       rc = RS_RESULT_STOPPED;
       break;
     }
