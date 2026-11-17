@@ -188,6 +188,26 @@ impl Context<'_> {
             parent.totalResults = parent.totalResults.saturating_sub(n);
         }
     }
+
+    /// Marks the reply as cut by a memory stop: this processor keeps emitting rows it held when
+    /// the stop arrived, so the reply carries the OOM warning even if it ends at EOF. The Rust side
+    /// of `RP_HoldStop`.
+    ///
+    /// No-op when the processor has no parent.
+    pub fn hold_stop(&mut self) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor and the chain runs on a
+        // single thread. Provenance comes from the raw pointer C provided, so writing through it
+        // is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor and the chain
+            // runs on a single thread, so a plain store to `oomCut`, as C `RP_HoldStop` does, is
+            // sound.
+            unsafe { (*parent).oomCut = true };
+        }
+    }
 }
 
 /// The previous result processor in the pipeline.
@@ -712,6 +732,28 @@ pub(crate) mod test {
         rp.next(cx, &mut res).unwrap().unwrap();
 
         assert_eq!(res.score(), 42.0);
+    }
+
+    #[test]
+    fn hold_stop_marks_the_parent_cut() {
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
+        assert!(!cx.parent().unwrap().oomCut);
+
+        cx.hold_stop();
+
+        assert!(cx.parent().unwrap().oomCut);
+    }
+
+    #[test]
+    fn hold_stop_without_a_parent_is_a_no_op() {
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let mut cx = Context::new(rp.as_mut().project().header);
+
+        cx.hold_stop();
+
+        assert!(cx.parent().is_none());
     }
 
     #[test]
