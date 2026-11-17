@@ -16,6 +16,7 @@
 #include "gtest/gtest.h"
 #include "index_utils.h"
 
+#include <climits>
 #include <vector>
 #include <string>
 
@@ -361,4 +362,40 @@ TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
   emptyFs.types = INDEXFLD_T_TAG;
   emptyFs.tagOpts.tagIndex = NULL;
   ASSERT_EQ(TagIndex_GetOverhead(&emptyFs), 0u);
+}
+
+TEST_F(TagIndexTest, DiskCountsRemoveOnlyEmptyValues) {
+  auto *diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
+  TagIndex *idx = NewTagIndex(diskSpec, 0, true);
+  IndexStats stats = {0};
+  const char *first[] = {"hello", "world", ""};
+  const char *second[] = {"hello"};
+  TagIndex_Commit(idx, first, 3, &stats);
+  TagIndex_Commit(idx, second, 1, &stats);
+  EXPECT_EQ(stats.numRecords, 4u);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(idx->values, "hello", 5)), 2u);
+
+  EXPECT_FALSE(TagIndex_DecrementValueCount(idx, "hello", 5, 1));
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(idx->values, "hello", 5)), 1u);
+  EXPECT_TRUE(TagIndex_DecrementValueCount(idx, "hello", 5, 1));
+  EXPECT_EQ(TrieMap_Find(idx->values, "hello", 5), TRIEMAP_NOTFOUND);
+  EXPECT_TRUE(TagIndex_DecrementValueCount(idx, "", 0, 1));
+  EXPECT_EQ(TagIndex_NUniqueValues(idx), 1u);
+
+  auto timeout = timespec{.tv_sec = LONG_MAX, .tv_nsec = 0};
+  auto matches = TagIndex_GetSuffixMatches(idx, "llo", 3, false, timeout, true);
+  EXPECT_EQ(array_len(matches), 0u);
+  array_free(matches);
+  TagIndex_Free(idx);
+}
+
+TEST_F(TagIndexTest, DiskCountsFreeAndDeleteWithoutFreeingIntegers) {
+  auto *diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
+  TagIndex *idx = NewTagIndex(diskSpec, 0, false);
+  IndexStats stats = {0};
+  const char *values[] = {"hello", "world"};
+  TagIndex_Commit(idx, values, 2, &stats);
+  EXPECT_EQ(TagIndex_DeleteTagValue(idx, "hello", 5), 1);
+  EXPECT_EQ(TagIndex_NUniqueValues(idx), 1u);
+  TagIndex_Free(idx);
 }
