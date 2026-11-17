@@ -164,8 +164,10 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
-     // same way.
-     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
+     // same way, except under ON_OOM RETURN, where the held rows keep coming over the next reads.
+     if (QueryRequestLimits_IsTimedOutExact(ctx->limits) ||
+         (QueryRequestLimits_IsMemoryStopped(ctx->limits) &&
+          !(ctx->areq && oomStopKeepsBufferedRows(ctx->areq)))) {
        *rc = RS_RESULT_STOPPED;
      }
    } else {
