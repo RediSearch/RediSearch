@@ -58,10 +58,20 @@ typedef struct {
   // finishSendChunk.
   bool withCount;
 
+  // Set with withCount when a memory stop released the WITHCOUNT barrier before every shard's
+  // total was summed: totalResults then counts the rows decoded from each chunk instead, as the
+  // shard total is repeated on every cursor read and would be added once per queued chunk.
+  bool countStreamedRows;
+
   // Drain-only mode: rpnetNext pops already-queued replies without blocking
   // and treats an empty channel as EOF. Set by RETURN-STRICT main-thread
   // serialization after BG has exited the pipeline, so a plain bool is safe.
   bool drainOnly;
+
+  // Replies settleQueuedOom took off the channel to look for an OOM and that carry rows or
+  // profiles the next read still needs. Served first, in order, from settledHead.
+  arrayof(MRReply *) settledReplies;
+  size_t settledHead;
 
   // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
   // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,
@@ -102,6 +112,11 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
+
+// Requests the memory stop when memory is under pressure and wakes the request's channel.
+// Returns whether the request is now stopped by memory. The WITHCOUNT worker calls it too, since
+// a pager that never reads (LIMIT 0 0) would not.
+bool RPNet_MemoryStops(RPNet *nc);
 
 #ifdef ENABLE_ASSERT
 // Exercises the decoder's validation and mapping with synthetic shard chunks.

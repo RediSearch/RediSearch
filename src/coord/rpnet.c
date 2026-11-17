@@ -16,6 +16,7 @@
 
 #include "value_ffi.h"
 #include "rpnet.h"
+#include "query_memory.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
@@ -121,6 +122,8 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestLimits_GetClockDeadline(&nc->areq->base.limits);
 }
 
+static int settleQueuedOom(RPNet *nc);
+
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 //
@@ -132,7 +135,9 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 //     coord's own deadline (handled by the strict timeout callback) is the
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
-//     bails the coord pipeline early by returning RS_RESULT_STOPPED.
+//     bails the coord pipeline early by returning RS_RESULT_STOPPED, or
+//     RS_RESULT_ERROR when a queued shard reply brings an OOM failure that
+//     outranks it (see settleQueuedOom).
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
@@ -169,10 +174,99 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-    return RS_RESULT_STOPPED;
+    return settleQueuedOom(nc);
   }
 
   return RS_RESULT_OK;
+}
+
+// A timeout that must be replied as an error was just read. Under ON_OOM FAIL an OOM beats it,
+// so look for one among the replies already queued: the queue is emptied without waiting, since
+// the request ends in an error and waiting would only delay the timeout one. Returns the OOM
+// reply (an error, or a shard OOM warning in a hybrid mapping stream) or NULL; the caller frees it.
+static MRReply *takeQueuedOomFailure(RPNet *nc) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+    return NULL;
+  }
+  MRReply *oom = NULL;
+  MRReply *queued;
+  while ((queued = MRIterator_TryNext(nc->it))) {
+    const int type = MRReply_Type(queued);
+    const char *str = (type == MR_REPLY_ERROR || type == MR_REPLY_STRING || type == MR_REPLY_STATUS)
+                          ? MRReply_String(queued, NULL)
+                          : NULL;
+    const bool isOom =
+        !oom && str &&
+        (type == MR_REPLY_ERROR
+             ? QueryError_GetCodeFromMessage(str) == QUERY_ERROR_CODE_OUT_OF_MEMORY
+             : nc->hybridSubquery != RPNET_HYBRID_NONE && !strcmp(str, QUERY_WOOM_SHARD));
+    if (isOom) {
+      oom = queued;
+    } else {
+      MRReply_Free(queued);
+    }
+  }
+  return oom;
+}
+
+static bool hasShardOomWarning(const RPNet *nc, MRReply *reply) {
+  if (nc->cmd.protocol != 3 || MRReply_Type(reply) != MR_REPLY_ARRAY) {
+    return false;
+  }
+  MRReply *meta = MRReply_ArrayElement(reply, 0);
+  if (meta && nc->cmd.forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
+    meta = MRReply_MapElement(meta, "results");  // as in getNextReply: profile has an extra level
+  }
+  MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
+                                                                  : NULL;
+  const size_t len = warnings ? MRReply_Length(warnings) : 0;
+  for (size_t i = 0; i < len; i++) {
+    const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
+    if (str && !strcmp(str, QUERY_WOOM_SHARD)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// A shard's timeout warning ends the stream, but an OOM from another shard outranks it. Looks
+// through the replies already queued, without waiting, as takeQueuedOomFailure does: an OOM error
+// fails the request under ON_OOM FAIL, and under RETURN an OOM error or shard OOM warning is kept
+// as the query's OOM warning next to the timeout one. Returns RS_RESULT_ERROR when the request
+// failed with the OOM error, else RS_RESULT_STOPPED.
+static int settleQueuedOom(RPNet *nc) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore) {
+    return RS_RESULT_STOPPED;
+  }
+  QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
+  const bool fail = nc->areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
+  bool failed = false, warn = false;
+  MRReply *queued;
+  while ((queued = MRIterator_TryNext(nc->it))) {
+    if (MRReply_Type(queued) == MR_REPLY_ERROR &&
+        QueryError_GetCodeFromMessage(MRReply_String(queued, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+      if (fail && !failed) {
+        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+        QueryError_SetDetail(err, MRReply_String(queued, NULL));
+        failed = true;
+      }
+      warn = true;
+      MRReply_Free(queued);
+      continue;
+    }
+    if (hasShardOomWarning(nc, queued)) {
+      warn = true;
+    }
+    // The timeout ends this read only: a cursor's next read and a profile still need the rest.
+    array_ensure_append_1(nc->settledReplies, queued);
+  }
+  if (failed) {
+    return RS_RESULT_ERROR;
+  }
+  if (warn) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return RS_RESULT_STOPPED;
 }
 
 // True when a popped reply is a mapping-stage warning injected into a hybrid
@@ -210,6 +304,13 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       if (nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+        MRReply *oom = takeQueuedOomFailure(nc);
+        if (oom) {
+          QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+          QueryError_SetDetail(err, MRReply_String(oom, NULL));
+          MRReply_Free(oom);
+          return RS_RESULT_ERROR;
+        }
         return RS_RESULT_STOPPED;
       }
       break;
@@ -372,7 +473,9 @@ bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns
 #endif
 
 int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
+  // Settled replies are not in the channel, so its emptiness would end the cursor early.
+  const bool settledLeft = nc->settledHead < array_len(nc->settledReplies);
+  if (nc->cmd.forCursor && !settledLeft) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
@@ -402,9 +505,14 @@ int getNextReply(RPNet *nc) {
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
-  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                                : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
-                                                             &popTimedOut);
+  MRReply *root = NULL;
+  if (nc->settledHead < array_len(nc->settledReplies)) {
+    root = nc->settledReplies[nc->settledHead++];
+  } else {
+    root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+                         : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
+                                                      &popTimedOut);
+  }
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
@@ -506,8 +614,8 @@ int getNextReply(RPNet *nc) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
 
-    if (ret == RS_RESULT_STOPPED) {
-      return RS_RESULT_STOPPED;
+    if (ret != RS_RESULT_OK) {
+      return ret;
     }
   }
 
@@ -555,6 +663,12 @@ void rpnetFree(ResultProcessor *rp) {
     array_foreach(nc->shardsProfile, reply, MRReply_Free(reply));
     array_free(nc->shardsProfile);
   }
+  if (nc->settledReplies) {
+    for (size_t i = nc->settledHead; i < array_len(nc->settledReplies); i++) {
+      MRReply_Free(nc->settledReplies[i]);
+    }
+    array_free(nc->settledReplies);
+  }
 
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
@@ -581,6 +695,27 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
     nc->current.meta = NULL;
+}
+
+// Memory, before each fetch of a shard reply: the IO thread's read (MRIterator_IsMemoryStopped)
+// or this one. Requests the memory stop and wakes its channel. Left out: hybrid
+// subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
+// the stream to its end and would spin on a stopped one.
+bool RPNet_MemoryStops(RPNet *nc) {
+  QueryRequestLimits *timeout = &nc->areq->base.limits;
+  if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
+      QueryRequestLimits_IsMemoryStopped(timeout) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
+    return false;
+  }
+  if (MRIterator_IsMemoryStopped(nc->it)) {
+    QueryRequestLimits_RequestMemoryStop(timeout);
+  } else if (!QueryMemory_CheckpointExact(timeout)) {
+    return false;
+  }
+  // Every stop requester wakes the channel, whoever pops it.
+  QueryRequestAsyncState_WakeAbortChannel(&nc->areq->base.async);
+  return true;
 }
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -625,8 +760,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_STOPPED) {
-        return RS_RESULT_STOPPED;
+      const int ret = processWarningsAndCleanup(nc, resp3);
+      if (ret != RS_RESULT_OK) {
+        return ret;
       }
 
       root = rows = NULL;
@@ -646,7 +782,15 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_STOPPED;
-    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    }
+    // After the deadline check: an elapsed deadline keeps its ON_TIMEOUT outcome.
+    if (!nc->drainOnly && RPNet_MemoryStops(nc)) {
+      // Without a cursor, so the shards' cursors are deleted rather than read.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_STOPPED;
+    }
+    if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) &&
+        !MRIterator_IsMemoryStopped(nc->it)) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
@@ -667,6 +811,16 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+      if (errCode == QUERY_ERROR_CODE_TIMED_OUT &&
+          nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+        // An OOM error that already arrived outranks the timeout one.
+        MRReply *oom = takeQueuedOomFailure(nc);
+        if (oom) {
+          MRReply_Free(nc->current.root);
+          nc->current.root = oom;
+          errCode = QUERY_ERROR_CODE_OUT_OF_MEMORY;
+        }
+      }
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
@@ -723,12 +877,22 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // pipeline (popped from the channel, about to emit its rows).
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
 #endif
+    // The IO thread can stop after the pre-pop check yet before queueing this reply. Publish it
+    // now: a satisfied LIMIT may never call rpnetNext again. The reply is kept, as for a stop
+    // seen earlier, and the next read returns the stop. An elapsed deadline keeps its ON_TIMEOUT
+    // outcome instead, returned below once the reply is counted.
+    const bool deadlineElapsed =
+        areq->base.limits.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestLimits_IsTimedOutExact(&areq->base.limits);
+    if (!nc->drainOnly && MRIterator_IsMemoryStopped(nc->it) && !deadlineElapsed) {
+      RPNet_MemoryStops(nc);
+    }
     if (resp3) { // RESP3
       nc->curIdx = 0;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
       // IO thread; it is preserved across cursor reads by finishSendChunk.
-      if (!nc->withCount) {
+      if (!nc->withCount || nc->countStreamedRows) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
@@ -737,10 +901,21 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       nc->curIdx = 1;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred (see RESP3 branch above).
-      if (!nc->withCount) {
+      if (nc->countStreamedRows) {
+        // Element 0 is the shard's WITHCOUNT total, repeated on every cursor read: count the rows.
+        const size_t len = MRReply_Length(rows);
+        nc->base.parent->totalResults += len > 0 ? len - 1 : 0;
+      } else if (!nc->withCount) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
+    }
+    if (!nc->drainOnly && MRIterator_IsMemoryStopped(nc->it) && deadlineElapsed) {
+      // The deadline expired while blocked in the pop and the IO thread stopped on memory
+      // meanwhile. The reply stays in nc->current, already counted; as with any reply still
+      // queued at a timeout, its rows are not part of this read's reply.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_STOPPED;
     }
   }
 
