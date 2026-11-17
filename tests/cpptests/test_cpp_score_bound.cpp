@@ -27,46 +27,13 @@
 #include "redismock/util.h"
 #include "result_processor.h"
 #include "rmalloc.h"
-#include "score_bound.h"
 #include "search_ctx.h"
 #include "search_result.h"
 #include "search_result_ffi.h"
 #include "spec.h"
 #include "types_ffi.h"
 
-// The threshold passed down for heap minimum `theta`, which the test knows to apply.
-static double minCompetitiveFor(double theta) {
-  double minCompetitive = NAN;
-  EXPECT_TRUE(ScoreBound_MinCompetitive(theta, &minCompetitive)) << theta;
-  return minCompetitive;
-}
-
 class ScoreBoundTest : public ::testing::Test {};
-
-TEST_F(ScoreBoundTest, dropsOnlyClearlyBelowTheThreshold) {
-  const double theta = 2.5;
-  const double minCompetitive = minCompetitiveFor(theta);
-  const double edge = theta * (1 - SCORE_BOUND_REL_EPSILON);
-
-  // A bound equal to the threshold may still enter the heap through the tie-break.
-  EXPECT_FALSE(ScoreBound_CanDrop(theta, minCompetitive));
-  EXPECT_FALSE(ScoreBound_CanDrop(edge, minCompetitive));
-  EXPECT_FALSE(ScoreBound_CanDrop(std::nextafter(edge, INFINITY), minCompetitive));
-  EXPECT_TRUE(ScoreBound_CanDrop(std::nextafter(edge, -INFINITY), minCompetitive));
-  // Inside the margin, near ties are kept.
-  EXPECT_FALSE(ScoreBound_CanDrop(theta * (1 - SCORE_BOUND_REL_EPSILON / 2), minCompetitive));
-  EXPECT_TRUE(ScoreBound_CanDrop(theta * (1 - 2 * SCORE_BOUND_REL_EPSILON), minCompetitive));
-  EXPECT_FALSE(ScoreBound_CanDrop(INFINITY, minCompetitive));
-}
-
-// A heap minimum that is not positive could drop nothing, so it gives no threshold at all.
-TEST_F(ScoreBoundTest, nonPositiveHeapMinimumGivesNoThreshold) {
-  for (double theta : {0.0, -0.0, -1.0, -(double)INFINITY, (double)NAN}) {
-    double minCompetitive = 42;
-    EXPECT_FALSE(ScoreBound_MinCompetitive(theta, &minCompetitive)) << theta;
-    EXPECT_EQ(minCompetitive, 42) << theta;
-  }
-}
 
 // C iterators that leave the hooks unset report no bounds and read as if there were no threshold.
 TEST_F(ScoreBoundTest, unsetHooksAreSafeDefaults) {
@@ -150,6 +117,16 @@ static double scoreZero(const ScoringFunctionArgs *, const RSIndexResult *,
   return 0;
 }
 
+static double scoreNegative(const ScoringFunctionArgs *, const RSIndexResult *res,
+                            const RSDocumentMetadata *, double) {
+  return -(double)res->docId;
+}
+
+static double scoreNaN(const ScoringFunctionArgs *, const RSIndexResult *,
+                       const RSDocumentMetadata *, double) {
+  return NAN;
+}
+
 class ScoreThresholdChainTest : public ::testing::Test {
  protected:
   QueryProcessingCtx qctx = {};
@@ -211,7 +188,7 @@ TEST_F(ScoreThresholdChainTest, reachesTheSourceThroughScorerProfileAndMetrics) 
   push(RPSorter_NewByScore(k, NULL));
   drain();
   EXPECT_EQ(source->thresholdCalls, n - k + 1);
-  EXPECT_EQ(source->lastThreshold, minCompetitiveFor((double)(n - k + 1)));
+  EXPECT_EQ(source->lastThreshold, (double)(n - k + 1));
 }
 
 TEST_F(ScoreThresholdChainTest, unknownProcessorBlocksIt) {
@@ -243,6 +220,22 @@ TEST_F(ScoreThresholdChainTest, heapThatNeverFillsPassesNone) {
 TEST_F(ScoreThresholdChainTest, nonPositiveHeapMinimumPassesNone) {
   pushSource(20);
   push(newScorer(scoreZero));
+  push(RPSorter_NewByScore(5, NULL));
+  drain();
+  EXPECT_EQ(source->thresholdCalls, 0);
+}
+
+TEST_F(ScoreThresholdChainTest, negativeHeapMinimumPassesNone) {
+  pushSource(20);
+  push(newScorer(scoreNegative));
+  push(RPSorter_NewByScore(5, NULL));
+  drain();
+  EXPECT_EQ(source->thresholdCalls, 0);
+}
+
+TEST_F(ScoreThresholdChainTest, nanHeapMinimumPassesNone) {
+  pushSource(20);
+  push(newScorer(scoreNaN));
   push(RPSorter_NewByScore(5, NULL));
   drain();
   EXPECT_EQ(source->thresholdCalls, 0);
