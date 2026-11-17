@@ -189,7 +189,9 @@ def _batches_queries():
 def test_knn_batches_stop_for_oom(env):
     """A filtered KNN in batches stops for memory at its first checkpoint, with and without
     workers and under either ON_TIMEOUT. That is VecSim's stop callback at the start of the first
-    batch; batch_memory.rs pins the read before each further batch."""
+    batch. The read before a further batch is not covered end to end: its stop is
+    indistinguishable in the reply from VecSim's poll at the start of that batch, so
+    batch_memory.rs pins it."""
     _create_indexed_hash_index(env)
     try:
         for workers in (0, 2):
@@ -208,10 +210,14 @@ def test_knn_batches_stop_for_oom(env):
 @skip(cluster=False)
 @env_spec(protocol=3)
 def test_knn_batches_stop_for_oom_on_shards(env):
-    """Shards stopped between batches report the OOM to the coordinator. Small batches make every
-    shard holding filtered docs fetch more than one."""
+    """Shards stopped at their second checkpoint, past the first batch, report the OOM to the
+    coordinator. That call is either the read before a further batch or VecSim's poll at the start
+    of it: the reply cannot tell them apart, so batch_memory.rs pins the former."""
     _create_indexed_hash_index(env)
-    _expect_stopped_by_policy(env, _batches_queries()['hnsw'], None)
+    query = _batches_queries()['hnsw']
+    calls = _checkpoint_calls(env, query)
+    env.assertTrue(all(c >= 2 for c in calls), message=calls)
+    _expect_stopped_by_policy(env, query, None, [2] * len(calls))
 
 
 # A FLAT scan calls VecSim's stop callback once per vector block (1024 vectors), so every shard

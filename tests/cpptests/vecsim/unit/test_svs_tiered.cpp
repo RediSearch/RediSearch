@@ -3415,6 +3415,41 @@ TYPED_TEST(SVSTieredIndexTest, BatchIterator) {
     }
 }
 
+TYPED_TEST(SVSTieredIndexTest, BatchIteratorReturnsAFlatStop) {
+    size_t d = 4;
+    size_t n = 100;
+    size_t per_label = TypeParam::isMulti() ? 10 : 1;
+    SVSParams svs_params = {
+        .type = TypeParam::get_index_type(),
+        .dim = d,
+        .metric = VecSimMetric_L2,
+        .multi = TypeParam::isMulti(),
+    };
+    VecSimParams params = CreateParams(svs_params);
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateTieredSVSIndex(params, mock_thread_pool);
+    ASSERT_INDEX(tiered_index);
+    for (size_t i = 0; i < n; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index->GetFlatIndex(), d, i / per_label, i);
+    }
+    TEST_DATA_T query[d];
+    GenerateVector<TEST_DATA_T>(query, d, 0);
+
+    CountingQueryCallbacks callbacks;
+    VecSimBatchIterator *it = VecSimBatchIterator_New(tiered_index, query, nullptr);
+    VecSimQueryReply *rep = VecSimBatchIterator_Next(it, 2, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_OK);
+    VecSimQueryReply_Free(rep);
+
+    // A stop on a later flat batch ends the batch instead of retrying it forever.
+    CountingQueryCallbacks::stopAt = CountingQueryCallbacks::stopCalls + 1;
+    rep = VecSimBatchIterator_Next(it, 2, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_Stopped);
+    ASSERT_EQ(VecSimQueryReply_Len(rep), 0);
+    VecSimQueryReply_Free(rep);
+    VecSimBatchIterator_Free(it);
+}
+
 TYPED_TEST(SVSTieredIndexTest, BatchIteratorReset) {
     // Scalar quantization accuracy is insufficient for this test.
     if (this->isFallbackToSQ()) {

@@ -268,7 +268,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryMemory_SetForcedRatio",
         ],
         types: &[],
-        vars: &[],
+        vars: &["QUERY_MEMORY_RATIO_READ_INTERVAL"],
     },
     HeaderAllowlist {
         path: "src/query_node.h",

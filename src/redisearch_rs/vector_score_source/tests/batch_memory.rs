@@ -181,7 +181,8 @@ fn the_adhoc_checkpoint_reads_memory_once_per_interval() {
     // `check_stop` with an unamortized read would stop on call 1.
     assert!(source.check_stop().is_ok());
     assert!(!memory_stopped(&index));
-    let stopped_at = (2..=4096).find(|_| source.check_stop().is_err());
-    assert!(stopped_at.is_some(), "the interval read never happened");
+    let interval = ffi::QUERY_MEMORY_RATIO_READ_INTERVAL as usize;
+    let stopped_at = (2..=2 * interval).find(|_| source.check_stop().is_err());
+    assert_eq!(stopped_at, Some(interval));
     assert!(memory_stopped(&index));
 }
