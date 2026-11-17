@@ -350,7 +350,7 @@ RedisModuleBlockedClient *MRSearchCtx_GetBlockedClient(const struct MRSearchCtx 
 static void searchFanoutComplete(struct MRSearchCtx *fanout) {
   IORuntimeCtx_RequestCompleted(fanout->ioRuntime);
   searchRequestCtx *request = fanout->request;
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&request->base.limits)) {
     RedisModule_UnblockClient(fanout->bc, &request->base);
   } else {
     CoordSearchReducer_Schedule(request);

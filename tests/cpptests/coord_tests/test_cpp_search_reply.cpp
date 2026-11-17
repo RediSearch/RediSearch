@@ -85,7 +85,7 @@ TEST(SearchReply, ParseErrorStopsAndOverridesPartialResultsAndShardTimeout) {
         if (shardTimeout)
           request.add(std::string("-") + QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT) + "\r\n");
         // Exercise the main-thread timeout path too: an encountered parse error wins.
-        QueryRequestTimeout_MarkTimedOut(&request.req.base.timeout);
+        QueryRequestLimits_MarkTimedOut(&request.req.base.limits);
         CoordSearchReducer_DebugReduce(&request.req);
         EXPECT_EQ(request.req.base.reply.rc, RS_RESULT_ERROR);
         EXPECT_EQ(QueryError_GetCode(&request.req.base.reply.err), QUERY_ERROR_CODE_GENERIC);
@@ -98,6 +98,26 @@ TEST(SearchReply, ParseErrorStopsAndOverridesPartialResultsAndShardTimeout) {
                   : MRReply_ArrayElement(root, 5);
         EXPECT_EQ(std::string(MRReply_String(unread, nullptr)), "unread");
       }
+    }
+  }
+}
+
+TEST(SearchReply, MemoryStopEndsStrictReductionAtShardBoundary) {
+  for (bool resp3 : {false, true}) {
+    Request request;
+    request.req.noContent = true;
+    request.add(chunk(resp3, str("1")));
+    request.add(chunk(resp3, str("not-a-score")));
+    QueryRequestLimits_RequestMemoryStop(&request.req.base.limits);
+    // The timeout-owned reducer still stops at the first completed shard. Parsing
+    // the second shard would expose its malformed score and discard partial rows.
+    QueryRequestLimits_MarkTimedOut(&request.req.base.limits);
+    CoordSearchReducer_DebugReduce(&request.req);
+    EXPECT_FALSE(QueryError_HasError(&request.req.base.reply.err));
+    EXPECT_EQ(request.req.base.reply.rc, RS_RESULT_EOF);
+    ASSERT_EQ(array_len(request.req.base.reply.results), 3);
+    for (size_t i = 0; i < array_len(request.req.base.reply.results); ++i) {
+      EXPECT_EQ(SearchResult_GetDocId(request.req.base.reply.results[i]) >> 32, 0);
     }
   }
 }
