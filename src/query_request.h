@@ -232,8 +232,6 @@ void QueryRequestLimits_MarkTimedOut(QueryRequestLimits *limits);
  * The stop is cleared only by Init; Reset and BeginCycle keep it. The
  * timeout checks (IsTimedOut, IsTimedOutExact, IsBlockedClientTimedOut) do not
  * report it: only sites that read it explicitly observe it.
- *
- * The first call per request logs the stop at notice level.
  */
 void QueryRequestLimits_RequestMemoryStop(QueryRequestLimits *limits);
 

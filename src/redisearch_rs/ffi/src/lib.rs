@@ -117,7 +117,8 @@ pub struct QueryProcessingCtx {
     pub skipIndexResultDeepCopy: bool,
     /// The owning request's limits. Its memory stop is sticky for the request
     /// and tells buffering processors their upstream stopped for memory rather
-    /// than a timeout. Null for a pipeline without a request.
+    /// than a timeout. Null when the pipeline runs without memory checkpoints:
+    /// no owning request, or a hybrid pipeline.
     pub limits: *mut QueryRequestLimits,
     /// The owning request's ON_OOM policy, applied by buffering processors to
     /// a stop for memory pressure.

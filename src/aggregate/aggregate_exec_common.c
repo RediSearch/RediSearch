@@ -185,7 +185,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // under ON_OOM RETURN keeps collecting what the stages hold (see
      // RP_StopPolicy), but nothing new from the row source. Not on the row that
      // fills the limit, which would end a full cursor chunk; startPipelineCommon
-     // checks the stop after.
+     // checks the stop after, and ends the chunk only for a stop that does not keep the
+     // held rows.
      if (rp->parent->resultLimit && QueryMemory_Checkpoint(ctx->limits, &memoryCheckCounter)) {
        if (!oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy)) {
          *rc = RS_RESULT_STOPPED;
@@ -213,8 +214,11 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx, rc);
-     // Check timeout after aggregation; a stop raised while filling the limit ends it the same way.
-     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
+     // Check timeout after aggregation; a stop raised while filling the limit ends it the same way,
+     // except an OOM stop under ON_OOM RETURN, where the held rows keep coming over the next reads.
+     if (QueryRequestLimits_IsTimedOutExact(ctx->limits) ||
+         (QueryRequestLimits_IsMemoryStopped(ctx->limits) &&
+          !oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy))) {
        *rc = RS_RESULT_STOPPED;
      }
    } else {
