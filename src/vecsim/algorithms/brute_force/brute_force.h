@@ -41,7 +41,13 @@ public:
 
     size_t indexSize() const override;
     size_t indexCapacity() const override;
-    std::unique_ptr<RawDataContainer::Iterator> getVectorsIterator() const;
+    /**
+     * Calls `visit(vector, id)` for every vector in id order, one storage block at a time: the
+     * stop callback is polled before each block, the timeout before each vector. Returns false
+     * when either asked to stop, after the vectors visited so far.
+     */
+    template <typename Visit>
+    bool scanVectors(void *timeoutCtx, Visit &&visit) const;
     const DataType *getDataByInternalId(idType id) const {
         // `vectors` is always a DataBlocksContainer; skip the RawDataContainer vtable.
         return reinterpret_cast<const DataType *>(
@@ -263,9 +269,28 @@ size_t BruteForceIndex<DataType, DistType>::indexCapacity() const {
 }
 
 template <typename DataType, typename DistType>
-std::unique_ptr<RawDataContainer::Iterator>
-BruteForceIndex<DataType, DistType>::getVectorsIterator() const {
-    return this->vectors->getIterator();
+template <typename Visit>
+bool BruteForceIndex<DataType, DistType>::scanVectors(void *timeoutCtx, Visit &&visit) const {
+    // `vectors` is always a DataBlocksContainer, whose blocks hold their elements contiguously.
+    const auto *container = static_cast<const DataBlocksContainer *>(this->vectors);
+    const size_t count = container->size();
+    assert(count == this->count);
+    const size_t block_size = container->blockSize();
+    const size_t stride = container->elementByteCount();
+    for (size_t block_start = 0; block_start < count; block_start += block_size) {
+        if (VECSIM_STOP(timeoutCtx)) {
+            return false;
+        }
+        const char *vector = container->DataBlocksContainer::getElement(block_start);
+        const size_t block_end = std::min(block_start + block_size, count);
+        for (size_t id = block_start; id < block_end; ++id, vector += stride) {
+            if (VECSIM_TIMEOUT(timeoutCtx)) {
+                return false;
+            }
+            visit(vector, static_cast<idType>(id));
+        }
+    }
+    return true;
 }
 
 template <typename DataType, typename DistType>
@@ -288,14 +313,7 @@ BruteForceIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
         getNewMaxPriorityQueue();
 
     // For vector, compute its scores and update the Top candidates max heap
-    auto vectors_it = this->vectors->getIterator();
-    idType curr_id = 0;
-    while (auto *vector = vectors_it->next()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
-            rep->code = VecSim_QueryReply_TimedOut;
-            delete TopCandidates;
-            return rep;
-        }
+    bool completed = scanVectors(timeoutCtx, [&](const char *vector, idType curr_id) {
         auto score = this->calcDistance(vector, processed_query);
         // If we have less than k or a better score, insert it.
         if (score < upperBound || TopCandidates->size() < k) {
@@ -306,9 +324,12 @@ BruteForceIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
             }
             upperBound = TopCandidates->top().first;
         }
-        ++curr_id;
+    });
+    if (!completed) {
+        rep->code = VecSim_QueryReply_Stopped;
+        delete TopCandidates;
+        return rep;
     }
-    assert(curr_id == this->count);
 
     rep->results.resize(TopCandidates->size());
     for (auto &result : std::ranges::reverse_view(rep->results)) {
@@ -333,23 +354,16 @@ BruteForceIndex<DataType, DistType>::rangeQuery(const void *queryBlob, double ra
         getNewResultsContainer(10); // Use 10 as the initial capacity for the dynamic array.
 
     DistType radius_ = DistType(radius);
-    auto vectors_it = this->vectors->getIterator();
-    idType curr_id = 0;
     const void *processed_query = processed_query_ptr.get();
-    while (vectors_it->hasNext()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
-            rep->code = VecSim_QueryReply_TimedOut;
-            break;
-        }
-        auto score = this->calcDistance(vectors_it->next(), processed_query);
+    bool completed = scanVectors(timeoutCtx, [&](const char *vector, idType curr_id) {
+        auto score = this->calcDistance(vector, processed_query);
         if (score <= radius_) {
             res_container->emplace(getVectorLabel(curr_id), score);
         }
-        ++curr_id;
+    });
+    if (!completed) {
+        rep->code = VecSim_QueryReply_Stopped;
     }
-    // assert only if the loop finished iterating all the ids (we didn't get rep->code !=
-    // VecSim_OK).
-    assert((rep->code != VecSim_OK || curr_id == this->count));
     rep->results = res_container->get_results();
     return rep;
 }

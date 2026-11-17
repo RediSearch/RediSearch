@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <cmath>
 #include <cstring>
@@ -317,3 +318,34 @@ std::vector<std::string> getTieredHNSWFields();
         FAIL() << "exception '" << MESSAGE << "' not thrown with expected type '"                  \
                << #EXCEPTION_TYPE << "'!";                                                         \
     }
+
+// Installs counting timeout and stop callbacks for the lifetime of the object, then restores the
+// defaults (a never-timing-out timeout callback and no stop callback). The stop callback asks to
+// stop from its `stopAtCall`-th call on (0: never).
+class CountingQueryCallbacks {
+public:
+    explicit CountingQueryCallbacks(size_t stopAtCall = 0) {
+        reset(stopAtCall);
+        VecSim_SetTimeoutCallbackFunction([](void *) {
+            ++timeoutCalls;
+            return 0;
+        });
+        VecSim_SetStopCallbackFunction([](void *) {
+            ++stopCalls;
+            return stopAt != 0 && stopCalls >= stopAt ? 1 : 0;
+        });
+    }
+    ~CountingQueryCallbacks() {
+        VecSim_SetTimeoutCallbackFunction([](void *) { return 0; });
+        VecSim_SetStopCallbackFunction(nullptr);
+    }
+    static void reset(size_t stopAtCall = 0) {
+        timeoutCalls = 0;
+        stopCalls = 0;
+        stopAt = stopAtCall;
+    }
+    // Counted from any thread: SVS may poll from several.
+    static inline std::atomic<size_t> timeoutCalls{0};
+    static inline std::atomic<size_t> stopCalls{0};
+    static inline size_t stopAt = 0;
+};

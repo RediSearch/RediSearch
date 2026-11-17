@@ -403,6 +403,12 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
                 while (flat_results.size() < n_res && !flat_iterator->isDepleted()) {
                     auto tail = flat_iterator->getNextResults(n_res - flat_results.size(),
                                                               BY_SCORE_THEN_ID);
+                    // A stopped flat batch is empty and not depleted: retrying it would never end.
+                    if (VecSim_OK != tail->code) {
+                        auto code = tail->code;
+                        VecSimQueryReply_Free(tail);
+                        return new VecSimQueryReply(this->allocator, code);
+                    }
                     flat_results.insert(flat_results.end(), tail->results.begin(),
                                         tail->results.end());
                     VecSimQueryReply_Free(tail);

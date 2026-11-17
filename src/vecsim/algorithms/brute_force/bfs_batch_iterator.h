@@ -25,18 +25,14 @@ private:
         this->index_label_count = this->index->indexLabelCount();
         this->scores.reserve(this->index_label_count);
 
-        idType curr_id = 0;
-        auto vectors_it = this->index->getVectorsIterator();
-        while (auto *vector = vectors_it->next()) {
-            // Compute the scores for every vector and extend the scores array.
-            if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
-                return VecSim_QueryReply_TimedOut;
-            }
-            auto score = this->index->calcDistance(vector, this->getQueryBlob());
-            this->scores.emplace_back(score, this->index->getVectorLabel(curr_id));
-            ++curr_id;
+        bool completed = this->index->scanVectors(
+            this->getTimeoutCtx(), [&](const char *vector, idType curr_id) {
+                auto score = this->index->calcDistance(vector, this->getQueryBlob());
+                this->scores.emplace_back(score, this->index->getVectorLabel(curr_id));
+            });
+        if (!completed) {
+            return VecSim_QueryReply_Stopped;
         }
-        assert(curr_id == this->index->indexSize());
         return VecSim_QueryReply_OK;
     }
 };

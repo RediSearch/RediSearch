@@ -533,6 +533,16 @@ typedef struct {
 typedef int (*timeoutCallbackFunction)(void *ctx);
 
 /**
+ * @brief A 3rd party function that asks a running query to stop for a reason other than its
+ * timeout, such as memory pressure. Unlike the timeout callback it is called only every so many
+ * steps of a search (see VecSim_SetStopCallbackFunction), so it may do more work per call.
+ * @param ctx the query's timeoutCtx (VecSimQueryParams::timeoutCtx), NULL for a query without
+ * query params
+ * @return the function should return a non-zero value to stop the query
+ */
+typedef int (*stopCallbackFunction)(void *ctx);
+
+/**
  * @brief A struct to pass 3rd party logging function to Vecsimlib.
  * @param ctx some generic context to pass to the function
  * @param level loglevel (in redis we should choose from: "warning", "notice", "verbose", "debug")
@@ -547,6 +557,8 @@ static inline size_t RoundUpInitialCapacity(size_t initialCapacity, size_t block
 }
 
 #define VECSIM_TIMEOUT(ctx) (__builtin_expect(VecSimIndexInterface::timeoutCallback(ctx), false))
+// Reads the stop callback once, so a concurrent unset never calls NULL.
+#define VECSIM_STOP(ctx) (__builtin_expect(VecSimIndexInterface::callStopCallback(ctx), false))
 
 #ifdef __cplusplus
 }

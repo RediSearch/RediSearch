@@ -33,6 +33,10 @@ extern "C" void VecSim_SetTimeoutCallbackFunction(timeoutCallbackFunction callba
     VecSimIndex::setTimeoutCallbackFunction(callback);
 }
 
+extern "C" void VecSim_SetStopCallbackFunction(stopCallbackFunction callback) {
+    VecSimIndex::setStopCallbackFunction(callback);
+}
+
 extern "C" void VecSim_SetLogCallbackFunction(logCallbackFunction callback) {
     VecSimIndex::setLogCallbackFunction(callback);
 }
