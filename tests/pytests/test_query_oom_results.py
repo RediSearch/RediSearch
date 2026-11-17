@@ -12,7 +12,7 @@ from common import *
 from test_blocked_client_timeout import (
     _wait_shard_paused_after_aggregate_result, wait_for_client_unblocked,
 )
-from test_memory_pressure_hook import BUILD_CHECKPOINTS
+from test_query_memory_checkpoints import BUILD_CHECKPOINTS
 from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
     info_modules_to_dict,
