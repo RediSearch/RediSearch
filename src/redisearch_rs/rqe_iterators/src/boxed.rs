@@ -148,7 +148,7 @@ pub trait RQESuspendedIterator<'query> {
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
-    /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
+    /// [`Stopped`](RQEIteratorError::Stopped)) — distinct from `Aborted`. On
     /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'index>(
         self: Box<Self>,

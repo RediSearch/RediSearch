@@ -255,7 +255,7 @@ impl ScoreSource for MockScoreSource {
                 .timeout_once_at
                 .is_some_and(|n| self.n_timeout_checks == n)
         {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(())
     }

@@ -18,15 +18,16 @@ use std::{
     ffi::{c_int, c_void},
     ptr,
     ptr::NonNull,
+    sync::{Mutex, MutexGuard, PoisonError},
 };
 
 use ffi::{
-    AlgoParams, BFParams, HNSWParams, QueryRequestLimits,
-    QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
-    VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
-    VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
-    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
+    AlgoParams, BFParams, HNSWParams, QueryMemory_ResetFakePressure, QueryMemory_SetForcedRatio,
+    QueryRequestLimits, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
+    VecSearchMode_EMPTY_MODE, VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex,
+    VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New, VecSimMetric,
+    VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2, VecSimParams,
+    VecSimQuantType_VecSimQuant_NONE, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use top_k::Ascending;
@@ -357,5 +358,37 @@ impl Drop for MockTimeout {
     fn drop(&mut self) {
         // SAFETY: the fn pointer is valid for the whole program.
         unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
+    }
+}
+
+/// Serializes [`ForcedMemoryRatio`] guards within a test binary.
+static FORCED_MEMORY_RATIO_LOCK: Mutex<()> = Mutex::new(());
+
+/// Makes every memory checkpoint read the forced ratio until dropped, when the real read is
+/// restored.
+///
+/// The forced ratio is process-global, so tests that use this guard need a test binary of their
+/// own; within one binary the guards are serialized.
+#[must_use = "the forced ratio is removed when the guard is dropped"]
+pub struct ForcedMemoryRatio(
+    #[expect(dead_code, reason = "held to serialize the guards")] MutexGuard<'static, ()>,
+);
+
+impl ForcedMemoryRatio {
+    /// Force `ratio` as the used-memory ratio.
+    pub fn set(ratio: f32) -> Self {
+        let guard = FORCED_MEMORY_RATIO_LOCK
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // SAFETY: a plain store of process-global test state.
+        unsafe { QueryMemory_SetForcedRatio(ratio) };
+        ForcedMemoryRatio(guard)
+    }
+}
+
+impl Drop for ForcedMemoryRatio {
+    fn drop(&mut self) {
+        // SAFETY: a plain store of process-global test state.
+        unsafe { QueryMemory_ResetFakePressure() };
     }
 }

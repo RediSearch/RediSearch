@@ -267,7 +267,7 @@ fn resume_frees_the_shell_when_the_payload_errors() {
 
     let guard = mock_ctx.spec_read();
     match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
-        Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+        Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
         Ok(_) => panic!("the failing child's error must reach the caller"),
     }
 }

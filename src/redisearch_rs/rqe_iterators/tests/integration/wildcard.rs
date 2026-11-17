@@ -763,7 +763,7 @@ mod disk_via_resume {
         };
         match failure {
             MockRevalidateResult::TimedOut => {
-                assert!(matches!(err, RQEIteratorError::TimedOut))
+                assert!(matches!(err, RQEIteratorError::Stopped))
             }
             MockRevalidateResult::IoError => {
                 assert!(matches!(err, RQEIteratorError::IoError(_)))
@@ -979,7 +979,7 @@ mod new_wildcard_via_resume {
         let guard = ctx.spec_read();
         assert!(matches!(
             it.suspend().resume(&guard),
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         ));
     }
 }
