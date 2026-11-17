@@ -662,8 +662,12 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoadWithRegisteredAlias) {
   IndexSpec *spec = IndexSpec_Parse("dup_alias_idx", args, std::size(args), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   Spec_AddToDict(spec);
-  std::unique_ptr<IndexSpec, void (*)(IndexSpec *)> specGuard(
-      spec, [](IndexSpec *s) { IndexSpec_Free(s); });
+  std::unique_ptr<IndexSpec, void (*)(IndexSpec *)> specGuard(spec, [](IndexSpec *s) {
+    // Parsed specs have no unique ID, so normal teardown skips alias cleanup.
+    IndexSpec_ClearAliases(s);
+    s->aliases = nullptr;
+    IndexSpec_Free(s);
+  });
 
   ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(alias, spec, 0, &err));
 
