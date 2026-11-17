@@ -1912,7 +1912,12 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status) {
   // Build errors go to the caller's `status`; the running pipeline reports into the request's own
   // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
-  Pipeline_Initialize(&req->pipeline, req->base.limits.timeout.config.timeoutPolicy, &req->base.reply.err);
+  Pipeline_Initialize(&req->pipeline, &req->base);
+  if (IsHybrid(req)) {
+    // The hybrid reply does not map an OOM stop yet, so hybrid pipelines run without memory
+    // checkpoints: a stop there would reply as a timeout.
+    req->pipeline.qctx.limits = NULL;
+  }
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
