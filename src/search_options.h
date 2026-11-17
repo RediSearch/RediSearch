@@ -86,6 +86,7 @@ typedef enum {
   Search_NoStopWords        = (1 << 1),
   Search_InOrder            = (1 << 2),
   Search_CanSkipRichResults = (1 << 3), // No need to bubble up full result structure (used by the scorer and highlighter)
+  Search_CheckExpansionMemory = (1 << 4), // Term expansions sample memory although the request flags would not
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
