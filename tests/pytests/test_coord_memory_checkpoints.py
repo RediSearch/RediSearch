@@ -1869,6 +1869,89 @@ def test_aggregate_shard_oom_read_before_a_shard_timeout_still_counts():
 
 
 @skip(cluster=False)
+def test_aggregate_cursor_shard_oom_warns_in_the_read_that_read_it():
+    """A shard's OOM warning is per chunk, as on a shard: under ON_OOM RETURN the cursor read that
+    reads the stopped shard's reply carries it, and a shard timeout in a later read keeps only
+    its timeout warning."""
+    # Workers run the shard queries, so shard 1 can be held without holding the coordinator.
+    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    create_index(env)
+    coord = env.getConnection(1)
+    stopped_shard = env.getConnection(2)
+    timed_out_shard = env.getConnection(3)
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'TIMEOUT', 0)
+    try:
+        set_policies(env, 'RETURN', 'return')
+        # The stopped shard's checkpoint calls for one query, so it can stop halfway with rows.
+        stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', 1)
+        stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+        try:
+            coord.execute_command(*query)
+            shard_calls = stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+        finally:
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+        def stop_halfway():
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', 1)
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', shard_calls // 2)
+
+        stop_halfway()
+        try:
+            res = coord.execute_command(*query)
+        finally:
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+        # The first read takes every row of shard 1 and of the stopped shard, and none of the held
+        # timed-out shard.
+        first_read = len(aggregate_rows(env, res)) - timed_out_shard.execute_command('DBSIZE')
+        env.assertGreater(first_read - coord.execute_command('DBSIZE'), 0, message=shard_calls)
+
+        stop_halfway()
+        timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', 1)
+        sync_point(coord, 'CLEAR')
+        # Shard 1 is held until the stopped shard's reply is queued, so the first read pops that
+        # reply first and moves past it to shard 1's rows: the reply a read pops last is released,
+        # with its warnings, only by the next read.
+        sync_point(coord, 'ARM', 'BeforeFirstRead')
+        sync_point(coord, 'ARM', 'ShardReplyQueued', 1)
+        try:
+            # Holds the timed-out shard's reply until the first read has ended.
+            timed_out_shard.execute_command('CLIENT', 'PAUSE', 3000)
+            thread, result = run_in_thread(
+                coord, query + ('WITHCURSOR', 'COUNT', first_read))
+            wait_for_sync_point(coord, 'BeforeFirstRead')
+            wait_for_condition(
+                lambda: (sync_point(coord, 'HIT_COUNT', 'ShardReplyQueued') >= 1, {}),
+                'Timeout waiting for the stopped shard reply to be queued')
+            sync_point(coord, 'SIGNAL', 'BeforeFirstRead')
+            thread.join(timeout=30)
+            env.assertFalse(thread.is_alive())
+            env.assertEqual(sync_point(coord, 'HIT_COUNT', 'ShardReplyQueued'), 2)
+            reply, cursor = result[0]
+            env.assertEqual(len(aggregate_rows(env, reply)), first_read, message=reply)
+            env.assertEqual(reply['warning'], [COORD_OOM_WARNING], message=reply)
+            env.assertNotEqual(cursor, 0)
+            errors, warnings = coord_oom_counters(coord)
+            reply, cursor = coord.execute_command('FT.CURSOR', 'READ', 'idx', cursor)
+        finally:
+            sync_point(coord, 'CLEAR')
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'RESET')
+        env.assertEqual(reply['warning'], [TIMEOUT_WARNING], message=reply)
+        env.assertEqual(coord_oom_counters(coord), (errors, warnings))
+        if cursor:
+            coord.execute_command('FT.CURSOR', 'DEL', 'idx', cursor)
+        wait_for_condition(lambda: (cursor_count(env, 'idx') == 0, {}),
+                           'Timeout waiting for the shard and coordinator cursors to end')
+        expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
+
+
+@skip(cluster=False)
 def test_profile_aggregate_mixed_shard_stops_keep_both_warnings():
     """A profiled shard reply nests its warnings in the `results` map, so a shard timeout read
     before the queued reply of the shard that stopped for memory must still keep that shard's OOM

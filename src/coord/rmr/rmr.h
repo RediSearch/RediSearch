@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "util/rs_atomic.h"
 
 #ifdef __cplusplus
@@ -304,10 +305,13 @@ bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx);
 void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx);
 bool MRIterator_IsMemoryStopped(MRIterator *it);
 
-/* A shard replied an OOM error, or a reply that carries the shard OOM warning. The IO thread sets
- * it before pushing that reply, so a reader that pops the reply, or any reply pushed after it,
- * also sees the flag. Sticky: it covers the replies the reader already consumed. */
+/* A shard replied an OOM error, or a reply that carries the shard OOM warning (see
+ * ShardReply_ReportsOom). The IO thread counts it before pushing that reply, so a reader that pops
+ * the reply, or any reply pushed after it, also sees the count. MRIterator_HasShardOom covers
+ * every such reply received, the ones the reader already consumed included; a reader that counts
+ * the ones it popped can tell those still queued from MRIterator_ShardOomReplies. */
 void MRIterator_SetShardOom(MRIterator *it);
+uint32_t MRIterator_ShardOomReplies(MRIterator *it);
 bool MRIterator_HasShardOom(MRIterator *it);
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);

@@ -187,11 +187,12 @@ static bool shardOomFails(const RPNet *nc) {
 }
 
 // A shard's timeout warning ends the stream, but an OOM any shard replied outranks it: under
-// ON_OOM FAIL the request fails with the OOM error, and under RETURN the OOM warning is kept next
-// to the timeout one. Returns RS_RESULT_ERROR when the request failed, else RS_RESULT_STOPPED.
+// ON_OOM FAIL the request fails with the OOM error. Under RETURN the OOM warning is kept next to
+// the timeout one for an OOM reply still queued; one already popped warned in the chunk that read
+// it, and shard OOM warnings are per chunk. Returns RS_RESULT_ERROR when the request failed, else
+// RS_RESULT_STOPPED.
 static int settleShardOom(RPNet *nc) {
-  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore ||
-      !MRIterator_HasShardOom(nc->it)) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore) {
     return RS_RESULT_STOPPED;
   }
   QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
@@ -199,7 +200,9 @@ static int settleShardOom(RPNet *nc) {
     QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     return RS_RESULT_ERROR;
   }
-  QueryError_SetQueryOOMWarning(err);
+  if (MRIterator_ShardOomReplies(nc->it) > nc->shardOomRepliesPopped) {
+    QueryError_SetQueryOOMWarning(err);
+  }
   return RS_RESULT_STOPPED;
 }
 
@@ -441,6 +444,7 @@ int getNextReply(RPNet *nc) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
   }
+  if (root && ShardReply_ReportsOom(&nc->cmd, root)) nc->shardOomRepliesPopped++;
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);

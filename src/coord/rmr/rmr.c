@@ -657,7 +657,7 @@ struct MRIteratorCtx {
   bool timedOut;    // whether the coordinator experienced a timeout
   bool memoryCheckpoint;
   bool memoryStopped;  // set on the IO thread, read by the reader
-  bool shardOom;       // set on the IO thread, read by the reader
+  uint32_t shardOomReplies;  // counted on the IO thread, read by the reader
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
@@ -752,11 +752,15 @@ bool MRIterator_IsMemoryStopped(MRIterator *it) {
 }
 
 void MRIterator_SetShardOom(MRIterator *it) {
-  __atomic_store_n(&it->ctx.shardOom, true, __ATOMIC_RELEASE);
+  __atomic_add_fetch(&it->ctx.shardOomReplies, 1, __ATOMIC_RELEASE);
+}
+
+uint32_t MRIterator_ShardOomReplies(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.shardOomReplies, __ATOMIC_ACQUIRE);
 }
 
 bool MRIterator_HasShardOom(MRIterator *it) {
-  return __atomic_load_n(&it->ctx.shardOom, __ATOMIC_ACQUIRE);
+  return MRIterator_ShardOomReplies(it) > 0;
 }
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {

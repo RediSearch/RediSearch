@@ -63,6 +63,10 @@ typedef struct {
   // shard total is repeated on every cursor read and would be added once per queued chunk.
   bool countStreamedRows;
 
+  // The popped replies that reported a shard OOM (ShardReply_ReportsOom), counted against
+  // MRIterator_ShardOomReplies to tell whether one is still queued.
+  uint32_t shardOomRepliesPopped;
+
   // Drain-only mode: rpnetNext pops already-queued replies without blocking
   // and treats an empty channel as EOF. Set by RETURN-STRICT main-thread
   // serialization after BG has exited the pipeline, so a plain bool is safe.

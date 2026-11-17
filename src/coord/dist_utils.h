@@ -37,6 +37,11 @@ static inline bool isRespSchemaReply(const MRReply *rows) {
 // errors, and pushes replies onto the iterator channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
+// A shard reply that reports an OOM: an OOM error, a hybrid mapping-stage shard OOM warning
+// string, or a RESP3 reply whose warnings hold the shard OOM warning. RESP2 replies carry no
+// warnings.
+bool ShardReply_ReportsOom(const MRCommand *cmd, MRReply *rep);
+
 // Helper function to extract total_results from a shard reply.
 // Returns true if total_results was found, false otherwise.
 bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total);
