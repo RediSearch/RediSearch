@@ -9,6 +9,7 @@
 
 mod proximity;
 
+use std::ops::ControlFlow;
 use std::ptr::{self, NonNull};
 
 use super::aggregate::RawAggregateResult;
@@ -901,6 +902,18 @@ impl<'a> RSIndexResult<'a> {
     /// expected to short-circuit that case before invoking this function.
     pub fn is_within_range(&self, max_slop: Option<u32>, in_order: bool) -> bool {
         proximity::is_within_range(self, max_slop, in_order)
+    }
+
+    /// Calls `visit` with every common position of this result, in ascending order, until
+    /// it breaks. Returns what the last call to `visit` returned.
+    ///
+    /// The common positions of an intersection are the ones that all its children record. Any
+    /// other result stands for one condition, so every position it records is common.
+    pub fn visit_common_positions(
+        &self,
+        visit: impl FnMut(u32) -> ControlFlow<()>,
+    ) -> ControlFlow<()> {
+        proximity::visit_common_positions(self, visit)
     }
 
     /// Debug-only assertion that `self.data == other.data`.

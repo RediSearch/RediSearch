@@ -15,6 +15,7 @@ build_utils = { path = "../build_utils" }
 
 [dependencies]
 cheadergen.workspace = true
+document_metadata.workspace = true
 ffi.workspace = true
 rqe_core.workspace = true
 geo.workspace = true
@@ -30,6 +31,7 @@ numeric_range_tree.workspace = true
 query_error.workspace = true
 query_term.workspace = true
 rlookup.workspace = true
+sorting_vector.workspace = true
 redis-module.workspace = true
 redis_reply.workspace = true
 thiserror.workspace = true

@@ -11,6 +11,7 @@
 //! satisfy `max_slop` / `in_order` constraints.
 
 use std::io::Cursor;
+use std::ops::ControlFlow;
 
 use super::super::result_data::RawResultData;
 use super::RSIndexResult;
@@ -39,6 +40,17 @@ enum OffsetIter<'a> {
 }
 
 impl OffsetIter<'_> {
+    /// Returns the next position that is `min` or more, or `None` at EOF. The smaller
+    /// positions before it are consumed.
+    fn next_at_least(&mut self, min: u32) -> Option<u32> {
+        loop {
+            let pos = self.next_offset()?;
+            if pos >= min {
+                return Some(pos);
+            }
+        }
+    }
+
     /// Returns the next position in ascending order, or `None` at EOF.
     fn next_offset(&mut self) -> Option<u32> {
         match self {
@@ -217,6 +229,54 @@ fn within_range_unordered(iters: &mut [OffsetIter<'_>], max_slop: u32) -> bool {
     false
 }
 
+/// Calls `visit` with every position that all the offset streams contain, in ascending
+/// order, until it breaks.
+///
+/// Each stream in turn moves up to the candidate position, and a stream that lands past it
+/// sets the next candidate.
+fn visit_common_positions_of(
+    iters: &mut [OffsetIter<'_>],
+    mut visit: impl FnMut(u32) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    let mut candidate = 0;
+    // How many streams, the ones asked most recently, contain `candidate`.
+    let mut agreeing = 0;
+    for i in (0..iters.len()).cycle() {
+        let Some(pos) = iters[i].next_at_least(candidate) else {
+            break;
+        };
+        if pos != candidate {
+            candidate = pos;
+            agreeing = 0;
+        }
+        agreeing += 1;
+        if agreeing == iters.len() {
+            visit(candidate)?;
+            let Some(next) = candidate.checked_add(1) else {
+                break;
+            };
+            candidate = next;
+            agreeing = 0;
+        }
+    }
+    ControlFlow::Continue(())
+}
+
+/// Implements [`RSIndexResult::visit_common_positions`] for `ir`.
+pub(super) fn visit_common_positions(
+    ir: &RSIndexResult,
+    visit: impl FnMut(u32) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    let mut iters: Vec<OffsetIter<'_>> = match &ir.data {
+        RawResultData::Intersection(agg) => (0..agg.len())
+            .filter_map(|i| agg.get(i))
+            .map(iterate_offsets)
+            .collect(),
+        _ => vec![iterate_offsets(ir)],
+    };
+    visit_common_positions_of(&mut iters, visit)
+}
+
 /// Returns `(min_value, min_index)`. Returns `(u32::MAX, 0)` on an empty slice.
 #[inline]
 fn array_min(arr: &[u32]) -> (u32, usize) {
@@ -391,6 +451,105 @@ mod tests {
         static B: [u8; 1] = [5];
         let mut iters = [static_term_iter(&EMPTY), static_term_iter(&B)];
         assert!(!within_range_unordered(&mut iters, 100));
+    }
+
+    // ── visit_common_positions_of ─────────────────────────────────────────────
+
+    /// The positions that all of `iters` contain.
+    fn common_positions(mut iters: Vec<OffsetIter<'static>>) -> Vec<u32> {
+        let mut common = Vec::new();
+        let flow = visit_common_positions_of(&mut iters, |pos| {
+            common.push(pos);
+            ControlFlow::Continue(())
+        });
+        assert!(flow.is_continue());
+        common
+    }
+
+    #[test]
+    fn common_positions_of_two_streams() {
+        // positions [1, 9, 13, 20] and [4, 7, 9, 20]
+        static A: [u8; 4] = [1, 8, 4, 7];
+        static B: [u8; 4] = [4, 3, 2, 11];
+        let iters = vec![static_term_iter(&A), static_term_iter(&B)];
+        assert_eq!(common_positions(iters), [9, 20]);
+    }
+
+    #[test]
+    fn adjacent_positions_are_not_common() {
+        // positions [3] and [4]: a phrase match at slop 0, but not one position
+        static A: [u8; 1] = [3];
+        static B: [u8; 1] = [4];
+        let iters = vec![static_term_iter(&A), static_term_iter(&B)];
+        assert!(common_positions(iters).is_empty());
+    }
+
+    #[test]
+    fn common_positions_of_three_streams() {
+        // positions [2, 6], [1, 6, 8] and [6]
+        static A: [u8; 2] = [2, 4];
+        static B: [u8; 3] = [1, 5, 2];
+        static C: [u8; 1] = [6];
+        let iters = vec![
+            static_term_iter(&A),
+            static_term_iter(&B),
+            static_term_iter(&C),
+        ];
+        assert_eq!(common_positions(iters), [6]);
+
+        // positions [2, 6], [1, 6, 8] and [8]: each pair shares one, all three do not
+        static D: [u8; 1] = [8];
+        let iters = vec![
+            static_term_iter(&A),
+            static_term_iter(&B),
+            static_term_iter(&D),
+        ];
+        assert!(common_positions(iters).is_empty());
+    }
+
+    #[test]
+    fn empty_stream_has_no_common_position() {
+        static EMPTY: [u8; 0] = [];
+        static B: [u8; 1] = [5];
+        let iters = vec![static_term_iter(&EMPTY), static_term_iter(&B)];
+        assert!(common_positions(iters).is_empty());
+        assert!(common_positions(vec![]).is_empty());
+    }
+
+    #[test]
+    fn every_position_of_a_single_stream_is_common() {
+        // positions [0, 2, 5]
+        static A: [u8; 3] = [0, 2, 3];
+        assert_eq!(common_positions(vec![static_term_iter(&A)]), [0, 2, 5]);
+    }
+
+    /// A position that two children of a merge record is still one position.
+    #[test]
+    fn position_repeated_in_a_merge_is_visited_once() {
+        // merge of [2, 5] and [5, 9], against [5, 9]
+        static A: [u8; 2] = [2, 3];
+        static B: [u8; 2] = [5, 4];
+        let merge = make_merge(vec![static_term_iter(&A), static_term_iter(&B)]);
+        let iters = vec![merge, static_term_iter(&B)];
+        assert_eq!(common_positions(iters), [5, 9]);
+    }
+
+    #[test]
+    fn visit_stops_when_the_visitor_breaks() {
+        // positions [1, 2, 3] twice
+        static A: [u8; 3] = [1, 1, 1];
+        let mut iters = [static_term_iter(&A), static_term_iter(&A)];
+        let mut visited = Vec::new();
+        let flow = visit_common_positions_of(&mut iters, |pos| {
+            visited.push(pos);
+            if pos == 2 {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
+        assert!(flow.is_break());
+        assert_eq!(visited, [1, 2]);
     }
 
     // ── OffsetIter::Merge ─────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ use std::{
 };
 
 use dict::{Dict, MissingFieldDictType};
+use document_metadata::OwnedDocumentMetadata;
 use ffi::{IndexFlags, IndexFlags_Index_WideSchema};
 use hidden_string::HiddenString;
 use inverted_index::opaque::InvertedIndex;
@@ -50,6 +51,7 @@ use index_result::RSIndexResult;
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 use rqe_iterators::IteratorsConfig;
+use sorting_vector::RSSortingVector;
 use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -310,6 +312,32 @@ impl TestContext {
         unsafe { (*dmd).ref_count -= 1 };
 
         id
+    }
+
+    /// Give document `doc_id`, which has none yet, the values of the spec's sortable fields.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the spec's [`DocTable`](ffi::DocTable) has no such document.
+    pub fn set_sorting_vector(&self, doc_id: DocId, sorting_vector: RSSortingVector) {
+        // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec`.
+        let spec = unsafe { self.spec.as_mut() }.expect("the context has a spec");
+        let docs = &raw mut spec.docs;
+        // SAFETY: `docs` is the valid `DocTable` of that spec.
+        let dmd = unsafe { ffi::DocTable_Borrow(docs, doc_id) }.cast_mut();
+        assert!(!dmd.is_null(), "the document is in the DocTable");
+        // The table takes the vector over, so it is not dropped here.
+        let sorting_vector = std::mem::ManuallyDrop::new(sorting_vector);
+        let sorting_vector = NonNull::from_ref(&*sorting_vector).cast::<ffi::RSSortingVector>();
+        // SAFETY: `ffi::RSSortingVector` and `RSSortingVector` share a layout, and the
+        // pointer is to a live vector that nothing else reads or drops.
+        let sorting_vector = unsafe { sorting_vector.read() };
+        // SAFETY: `docs` and `dmd` are valid, and the table takes ownership of the vector.
+        unsafe { ffi::DocTable_SetSortingVector(docs, dmd, sorting_vector) };
+        let dmd = NonNull::new(dmd).expect("checked above");
+        // SAFETY: `dmd` is valid, and the handle takes the reference that `DocTable_Borrow`
+        // took, which it gives back when it drops.
+        drop(unsafe { OwnedDocumentMetadata::from_raw(dmd) });
     }
 
     /// Create a new [`TestContext`] with a numeric inverted index having the given records.

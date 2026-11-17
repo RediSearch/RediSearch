@@ -62,7 +62,8 @@ pub enum IteratorType {
     MetricLazySortedByScore = 22,
     /// Used only in tests.
     Mock = 23,
-    Max = 24,
+    ElementFilter = 24,
+    Max = 25,
 }
 
 impl IteratorType {
@@ -96,7 +97,8 @@ impl IteratorType {
             | Self::NotOptimized
             | Self::Optional
             | Self::OptionalOptimized
-            | Self::Optimus => false,
+            | Self::Optimus
+            | Self::ElementFilter => false,
 
             Self::Max => unreachable!(),
         }
@@ -129,6 +131,7 @@ impl IteratorType {
             Self::Optimus => "OPTIMUS",
             Self::GeoShape => "GEO_SHAPE",
             Self::Mock => "MOCK",
+            Self::ElementFilter => "ELEMENT_FILTER",
             Self::Max => "MAX",
         }
     }
@@ -169,7 +172,8 @@ impl TryFrom<u32> for IteratorType {
             21 => Ok(Self::MetricLazySortedById),
             22 => Ok(Self::MetricLazySortedByScore),
             23 => Ok(Self::Mock),
-            24 => Ok(Self::Max),
+            24 => Ok(Self::ElementFilter),
+            25 => Ok(Self::Max),
             other => Err(other),
         }
     }

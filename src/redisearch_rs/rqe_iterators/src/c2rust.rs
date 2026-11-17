@@ -18,8 +18,9 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection, profile_print, profile_print::ProfilePrint,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, element_filter::QueryElementFilter,
+    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
+    profile_print::ProfilePrint,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -434,6 +435,17 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Optimus => 1.0,
             IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
+            IteratorType::ElementFilter => {
+                // SAFETY: as for `Intersect` above: `type_ == ElementFilter` guarantees that
+                // `self` wraps a `QueryElementFilter`, the only filter that query evaluation
+                // builds.
+                let filter = unsafe {
+                    RQEIteratorWrapper::<QueryElementFilter<'_>>::ref_from_header_ptr(self.as_raw())
+                };
+                filter
+                    .inner
+                    .intersection_sort_weight(prioritize_union_children)
+            }
             IteratorType::Max => 1.0,
         }
     }

@@ -8,6 +8,7 @@
 */
 
 use redis_module::RedisString;
+use sorting_vector::RSSortingVector;
 use std::{
     fmt::{self, Debug},
     mem::offset_of,
@@ -54,6 +55,14 @@ impl DocumentMetadata {
         // SAFETY: caller of `from_ptr` promised `keyPtr` is a valid SDS that
         // outlives this `DocumentMetadata` borrow.
         unsafe { RedisString::from_raw_parts(ctx.map(|c| c.cast()), self.0.keyPtr, key_name_len) }
+    }
+
+    /// The values of the document's sortable fields.
+    pub const fn sorting_vector(&self) -> &RSSortingVector {
+        let sorting_vector = NonNull::from_ref(&self.0.sortVector).cast::<RSSortingVector>();
+        // SAFETY: `ffi::RSSortingVector` and `RSSortingVector` share a layout, and the caller
+        // of `from_ptr` promised `sortVector` is initialized.
+        unsafe { sorting_vector.as_ref() }
     }
 }
 
