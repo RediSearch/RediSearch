@@ -887,9 +887,9 @@ def test_profile_search_short_reply_reads_memory_resp2():
 @skip(cluster=False)
 def test_search_fanout_stop_then_timeout():
     """A fan-out stopped for memory still waits for its last shard reply; a blocked-client timeout
-    that fires meanwhile owns the reply, and its warning is the timeout's, as on a shard: FT.SEARCH
-    replies once, with the timeout error (ON_TIMEOUT FAIL) or the timeout's partial result and
-    warning (RETURN-STRICT), and releases its blocked client. The remote shards are held before their first read so the timer
+    that fires meanwhile owns the reply: FT.SEARCH replies once, with the timeout error (ON_TIMEOUT
+    FAIL) or the timeout's partial result and warning (RETURN-STRICT), and releases its blocked
+    client. Under ON_OOM RETURN the stop's warning stays next to the timeout's. The remote shards are held before their first read so the timer
     fires first."""
     # Workers run the shard queries, so a parked shard still answers SYNC_POINT.
     env = Env(protocol=3, moduleArgs='WORKERS 1')
@@ -940,7 +940,8 @@ def test_search_fanout_stop_then_timeout():
                 # Every reply was discarded by the stop.
                 env.assertFalse(isinstance(res, Exception), message=(case, res))
                 env.assertEqual(search_ids(env, res), [], message=(case, res))
-                env.assertEqual(res['warning'], ['Timeout limit was reached'], message=(case, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING, 'Timeout limit was reached'],
+                                message=(case, res))
             wait_for_condition(
                 lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
                 'Timeout waiting for the blocked client to be released')
@@ -1565,8 +1566,8 @@ def test_cursor_read_stop_resp2():
 @skip(cluster=False)
 def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
     """A shard warning is retained, the coordinator then stops for memory, and the RETURN-STRICT
-    timer claims reduction before the background reducer: the timer owns the reply, so its
-    warning is the timeout's, not the retained shard warning."""
+    timer claims reduction before the background reducer: the timer owns the reply, which keeps
+    every distinct warning, the retained shard warning, the coordinator's stop and the timeout."""
     env = Env(protocol=3)
     skipIfNoEnableAssert(env)
     if env.shardsCount < 3:
@@ -1608,7 +1609,9 @@ def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
             sync_point(coord, 'CLEAR')
         res = result[0]
         env.assertFalse(isinstance(res, Exception), message=res)
-        env.assertEqual(res['warning'], ['Timeout limit was reached'], message=res)
+        env.assertEqual(res['warning'],
+                        [SHARD_OOM_WARNING, COORD_OOM_WARNING, 'Timeout limit was reached'],
+                        message=res)
         wait_for_condition(
             lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
             'Timeout waiting for the blocked client to be released')

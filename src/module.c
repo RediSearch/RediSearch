@@ -3424,39 +3424,29 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // After the results, so a reply cut short for memory still carries its warning.
+    // Each distinct warning once: the shards', then the coordinator's own stops.
     RedisModule_Reply_SimpleString(reply, "warning");  // >warning
-    if (rCtx->numWarnings) {
-      size_t len = rCtx->numWarnings;
-      RedisModule_Reply_ArrayWithLen(reply, len + req->queryOOM);
-      // Iterate over warning array and track warnings
-      for (size_t i = 0; i < len; ++i) {
-        // Extract warning string and track it
-        MRReply *currentWarning = rCtx->warnings[i];
-        const char *warning_str = MRReply_String(currentWarning, NULL);
-        QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
-
-        // Reply warning
-        MR_ReplyWithMRReply(reply, currentWarning);
-      }
-      // Shard warnings do not tell that the coordinator dropped shards' replies.
-      if (req->queryOOM) {
-        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
-                                               COORD_ERR_WARN);
-        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-      }
-    } else if (req->queryOOM) {
+    const char *timeoutWarning = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+    bool addTimeoutWarning = req->timedOut;
+    for (size_t i = 0; i < rCtx->numWarnings && addTimeoutWarning; ++i) {
+      addTimeoutWarning = strcmp(MRReply_String(rCtx->warnings[i], NULL), timeoutWarning) != 0;
+    }
+    RedisModule_Reply_ArrayWithLen(reply, rCtx->numWarnings + req->queryOOM + addTimeoutWarning);
+    for (size_t i = 0; i < rCtx->numWarnings; ++i) {
+      MRReply *currentWarning = rCtx->warnings[i];
+      const char *warning_str = MRReply_String(currentWarning, NULL);
+      QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
+      QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+      MR_ReplyWithMRReply(reply, currentWarning);
+    }
+    if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
                                              COORD_ERR_WARN);
-      // We use the cluster warning since shard level warning sent via empty reply bailout
-      RedisModule_Reply_ArrayWithLen(reply, 1);
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-    } else if (req->timedOut) {
+    }
+    if (addTimeoutWarning) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-      RedisModule_Reply_ArrayWithLen(reply, 1);
-      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
-    } else {
-      RedisModule_Reply_EmptyArray(reply);
+      RedisModule_Reply_SimpleString(reply, timeoutWarning);
     }
 
   }
@@ -4842,11 +4832,12 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
     }
   }
 
-  // This callback owns the reply, so its warning is the timeout's even after an OOM stop the
-  // background reducer mapped. Errors, a shard's included, stay.
-  // A timer-owned reduction never sets queryOOM, so read the stop itself too.
-  const bool oomStopped = req->queryOOM || searchStoppedForOom(req);
-  req->queryOOM = false;
+  // This callback owns the reply, so an OOM stop the background reducer mapped to the OOM error
+  // under ON_OOM FAIL yields to the timeout. Errors, a shard's included, stay. Under ON_OOM RETURN
+  // the stop keeps its warning next to the timeout's. A timer-owned reduction never sets
+  // queryOOM, so read the stop itself too.
+  req->queryOOM = (req->queryOOM || searchStoppedForOom(req)) &&
+                  req->base.reqConfig.oomPolicy != OomPolicy_Fail;
 
   // Check if bailout set an error (e.g., index dropped before fanout)
   // In this case, reply with the error instead of partial results
@@ -4860,11 +4851,6 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   searchReducerCtx *rCtx = req->rctx;
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
-  // Shard warnings retained before the OOM stop would otherwise outrank the timeout warning.
-  // The replies they point into are owned by the reducer's replies, so only drop the references.
-  if (oomStopped) {
-    rCtx->numWarnings = 0;
-  }
   req->timedOut = true;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
