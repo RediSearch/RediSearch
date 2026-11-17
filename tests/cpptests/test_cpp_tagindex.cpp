@@ -397,5 +397,8 @@ TEST_F(TagIndexTest, DiskCountsFreeAndDeleteWithoutFreeingIntegers) {
   TagIndex_Commit(idx, values, 2, &stats);
   EXPECT_EQ(TagIndex_DeleteTagValue(idx, "hello", 5), 1);
   EXPECT_EQ(TagIndex_NUniqueValues(idx), 1u);
+  EXPECT_TRUE(TagIndex_DecrementValueCount(idx, "world", 5, 1));
+  EXPECT_EQ(TagIndex_NUniqueValues(idx), 0u);
+  TagIndex_Commit(idx, values, 2, &stats);
   TagIndex_Free(idx);
 }
