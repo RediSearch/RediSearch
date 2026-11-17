@@ -385,3 +385,20 @@ def test_knn_adhoc_stops_for_oom_anywhere_in_the_scan(env):
         allShards_change_oom_policy(env, 'return')
         _memory_pressure(env, 'RESET')
         set_workers(env, 0)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_range_under_numeric_sort_optimizer_stops_for_oom(env):
+    """The numeric sort optimizer wraps the range iterator for SORTBY on a numeric field with
+    WITHOUTCOUNT or DIALECT 4; a stop at the range's first read must come back as the OOM reply,
+    not be read as a result."""
+    _create_indexed_hash_index(env)
+    params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
+    for opt in (['WITHOUTCOUNT'], ['DIALECT', 4]):
+        for field in ('v', 'vh'):
+            query = ['FT.SEARCH', 'hidx',
+                     f'@{field}:[VECTOR_RANGE {RADIUS} $b]=>{{$YIELD_DISTANCE_AS: d}}', *params,
+                     'SORTBY', 'n', 'NOCONTENT', 'LIMIT', 0, 5, *opt]
+            env.debugPrint(f'{field} {opt}')
+            _expect_stopped_by_policy(env, query, 5, _checkpoint_calls(env, query))

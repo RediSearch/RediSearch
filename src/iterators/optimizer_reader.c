@@ -162,7 +162,7 @@ IteratorStatus OPT_ReadYield(QueryIterator *self) {
 }
 
 IteratorStatus OPT_Read(QueryIterator *self) {
-  IteratorStatus rc1, rc2;
+  IteratorStatus rc1 = ITERATOR_OK, rc2 = ITERATOR_OK;
   OptimizerIterator *it = (OptimizerIterator *)self;
   QOptimizer *opt = it->optim;
 
@@ -180,6 +180,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
       if (numericRes == NULL || childRes->docId == numericRes->docId) {
         rc1 = child->Read(child);
         if (rc1 == ITERATOR_EOF) break;
+        if (rc1 == ITERATOR_STOPPED) return ITERATOR_STOPPED;
         rc2 = numeric->SkipTo(numeric, child->lastDocId);
       } else if (childRes->docId > numericRes->docId) {
         rc2 = numeric->SkipTo(numeric, childRes->docId);
@@ -187,6 +188,10 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         rc1 = child->SkipTo(child, numericRes->docId);
       }
 
+      // A stopped child leaves `current` untouched, possibly NULL.
+      if (rc1 == ITERATOR_STOPPED || rc2 == ITERATOR_STOPPED) {
+        return ITERATOR_STOPPED;
+      }
       if (rc1 == ITERATOR_EOF || rc2 == ITERATOR_EOF) {
         break;
       }
