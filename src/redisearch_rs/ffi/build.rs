@@ -261,7 +261,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query_node.h",
-        fns: &[],
+        fns: &["QueryNode_SameElementChild"],
         types: &[
             "QueryFuzzyNode",
             "QueryGeofilterNode",
@@ -272,11 +272,13 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryNumericNode",
             "QueryPhraseNode",
             "QueryPrefixNode",
+            "QuerySameElementNode",
             "QueryTagNode",
             "QueryTokenNode",
             "QueryVectorNode",
             "QueryVerbatimNode",
             "RSQueryNode",
+            "SameElementChild",
         ],
         vars: &[],
     },

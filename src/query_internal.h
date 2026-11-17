@@ -84,6 +84,8 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
+/* Conditions that must all hold on one element of the NESTED group at `group` */
+QueryNode *NewSameElementNode(uint16_t group);
 
 /* Build a `QN_LEXRANGE` node bounded on exactly one side.
  *

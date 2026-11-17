@@ -65,7 +65,9 @@ pub enum QueryNodeType {
     WildcardQuery = 16,
     Null = 17,
     Missing = 18,
-    Max = 19,
+    /// Conditions that must all hold on one element of the array of a NESTED group.
+    SameElement = 19,
+    Max = 20,
 }
 
 impl QueryNodeType {
@@ -90,6 +92,7 @@ impl QueryNodeType {
             Self::WildcardQuery => "WILDCARD_QUERY",
             Self::Null => "NULL",
             Self::Missing => "MISSING",
+            Self::SameElement => "SAME_ELEMENT",
             Self::Max => "MAX",
         }
     }
@@ -124,7 +127,8 @@ impl TryFrom<u32> for QueryNodeType {
             16 => Ok(Self::WildcardQuery),
             17 => Ok(Self::Null),
             18 => Ok(Self::Missing),
-            19 => Ok(Self::Max),
+            19 => Ok(Self::SameElement),
+            20 => Ok(Self::Max),
             other => Err(other),
         }
     }

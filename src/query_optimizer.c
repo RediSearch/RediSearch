@@ -164,6 +164,9 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
     case QN_WILDCARD:  // No SCORE
     case QN_NULL:
     case QN_MISSING:
+    // NO SCORE. Its numeric conditions apply to one array element, so none of them can be
+    // replaced by a sort on the field of the whole document.
+    case QN_SAME_ELEMENT:
       break;
   }
   return ret;

@@ -1971,9 +1971,11 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "sorting_vector",
  "string_utils",
  "thiserror",
  "trie_rs",
+ "value",
  "vector_score_source",
  "workspace_hack",
 ]
