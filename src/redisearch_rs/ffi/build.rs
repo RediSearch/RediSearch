@@ -140,6 +140,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DocTable_Exists",
             "DocTable_ForEachLiveId",
             "DocTable_Free",
+            "DocTable_IsVisible",
             "DocTable_KeyEquals",
             "DocTable_Put",
             "DocTable_StartKeyMap",
