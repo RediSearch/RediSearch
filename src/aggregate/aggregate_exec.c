@@ -531,8 +531,10 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
                                      cachedVars *cv, RespSchema *schema, bool stopped) {
   uint32_t memoryCheckCounter = 0;
-  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided.
-  const bool checkPerRow = req->base.reqConfig.oomPolicy != OomPolicy_Fail;
+  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
+  // already applied while buffering made the held rows the reply, so only a new one cuts.
+  const bool checkPerRow = req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+                           !QueryRequestLimits_IsMemoryStopped(&req->base.limits);
   array_foreach(results, res, {
     stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
                                              &memoryCheckCounter,

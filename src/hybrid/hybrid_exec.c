@@ -409,8 +409,10 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
 static void HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results,
                                           HybridRequest *hreq, cachedVars *cv, bool stopped) {
   uint32_t memoryCheckCounter = 0;
-  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided.
-  const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail;
+  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
+  // already applied while buffering made the held rows the reply, so only a new one cuts.
+  const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+                           !QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
   array_foreach(results, res, {
     stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
                                              &memoryCheckCounter, hreq->tailPipeline->qctx.err));
