@@ -489,8 +489,8 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
 @env_spec(protocol=3)
 def test_hybrid_buffered_results_stop_replies_by_on_oom_policy(env):
     """FT.HYBRID maps a stop while buffering its tail like the other commands: ON_OOM FAIL
-    replies the OOM error; under ON_OOM RETURN the tail keeps collecting what its merger
-    already holds and replies it with the OOM warning."""
+    replies the OOM error; under ON_OOM RETURN a tail stop after the merger holds every row cuts
+    nothing, so the reply is complete and warns of nothing."""
     try:
         _hybrid_index(env)
         rows = len(env.cmd(*HYBRID)['results'])
@@ -511,7 +511,7 @@ def test_hybrid_buffered_results_stop_replies_by_on_oom_policy(env):
             _memory_pressure(env, 'AT_CALL', tail_buffering_call(2, rows + 1))
             res = env.cmd(*HYBRID)
             env.assertEqual(len(res['results']), rows, message=(workers, res))
-            env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=workers)
+            env.assertEqual(res['warnings'], [], message=(workers, res))
     finally:
         _reset(env)
 
