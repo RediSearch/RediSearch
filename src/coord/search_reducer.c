@@ -795,8 +795,9 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
     source->current = NULL;
     ++source->shard;
     // Preserve the reducer's shard-boundary cancellation point during migration.
-    if (!source->fromTimeout &&
-        QueryRequestTimeout_IsBlockedClientTimedOut(&ctx->searchCtx->base.timeout)) {
+    if (QueryRequestLimits_IsMemoryStopped(&ctx->searchCtx->base.limits) ||
+        (!source->fromTimeout &&
+         QueryRequestLimits_IsBlockedClientTimedOut(&ctx->searchCtx->base.limits))) {
       return RS_RESULT_EOF;
     }
   }
@@ -812,7 +813,7 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   ctx->pipeline = true;
   ctx->replies = replies;
   ctx->qctx.err = &ctx->searchCtx->base.reply.err;
-  ctx->qctx.timeoutPolicy = ctx->searchCtx->base.timeout.config.timeoutPolicy;
+  ctx->qctx.timeoutPolicy = ctx->searchCtx->base.limits.timeout.config.timeoutPolicy;
   ctx->qctx.resultLimit = UINT32_MAX;
   ctx->qctx.skipIndexResultDeepCopy = true;
   RPSearchReply *source = rm_calloc(1, sizeof(*source));
@@ -1273,7 +1274,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
     heap_free(rCtx->pq);
     rCtx->pq = NULL;
     reduceSearchPipeline(rCtx, count, replies, fromTimeout);
-    if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
       goto cleanup;
     }
   } else if (!profile) {
