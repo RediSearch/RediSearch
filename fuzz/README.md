@@ -127,8 +127,7 @@ For each server the fuzzer creates a POSIX shared-memory segment and names it
 in `REDISEARCH_COV_SHM`. When the module loads, the shim maps that segment and
 records each edge it reaches by setting one byte. Because the bytes go straight
 to shared memory, edges reached by a forked GC child or just before a crash are
-kept. The fuzzer reads the map only after the whole process group has exited,
-and fails the run at startup if the module has more edges than the map holds.
+kept. The fuzzer reads the map only after the whole process group has exited.
 A module built without `FUZZ_COV` runs normally with an empty edge set.
 
 ## Running
@@ -141,7 +140,8 @@ cargo run -- run <program.json> --repeat 10
 ```
 
 `run` starts a fresh server, executes the program, and prints each finding.
-`--repeat N` runs it N times and reports how often each finding reproduced.
+`--repeat N` runs it N times and reports how often each finding reproduced and
+how many edges were reached in every run versus in any run.
 Each distinct finding is written to `findings/<signature>/`: the program, the
 trace, the server log, and a manifest with the binaries, sanitizer settings,
 and reproduction rate. The exit code is 0 without findings, 1 with findings,
@@ -155,6 +155,7 @@ cargo test                                         # unit tests, no server neede
 source ../bin/fuzz/env.sh && cargo test -- --ignored   # every program in tests/programs/ against a live server
 ```
 
-The programs under `tests/programs/` exercise the harness itself: a crash, a
-Redis panic, a hang, a stall the harness resolves, a barrier that cannot
-complete, and a query left pending while another connection drops its index.
+The live tests run the smoke seed and the programs under `tests/programs/`,
+which exercise the harness itself: a crash, a hang, a stall the harness
+resolves, a barrier that cannot complete, a query left pending while another
+connection drops its index, and the edges a forced GC adds.

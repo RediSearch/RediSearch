@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -22,22 +24,16 @@ use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 
 use crate::coverage::{self, Coverage, Segment};
-use crate::program::{Argv, Setup};
-use crate::resp::{self, Decoded, Value};
+use crate::program::{Argv, Bytes, argv};
+use crate::resp::{self, Value};
 
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
-const SOCKET_NAME: &str = "redis.sock";
-const LOG_NAME: &str = "server.log";
+const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
+const EXIT_DEADLINE: Duration = Duration::from_secs(30);
+const POLL: Duration = Duration::from_millis(20);
 
-#[derive(Clone, Debug)]
 pub struct Env {
     pub redis_server: PathBuf,
     pub module: PathBuf,
-    pub startup_deadline: Duration,
-    pub reply_deadline: Duration,
-    pub release_grace: Duration,
-    pub shutdown_deadline: Duration,
-    pub coverage_capacity: usize,
 }
 
 impl Env {
@@ -50,11 +46,6 @@ impl Env {
         Ok(Env {
             redis_server: var("REDIS_SERVER")?,
             module: var("REDISEARCH_MODULE")?,
-            startup_deadline: Duration::from_secs(30),
-            reply_deadline: Duration::from_secs(10),
-            release_grace: Duration::from_secs(5),
-            shutdown_deadline: Duration::from_secs(30),
-            coverage_capacity: 1 << 24,
         })
     }
 }
@@ -65,25 +56,19 @@ pub struct Status {
     pub signal: Option<i32>,
 }
 
-impl From<ExitStatus> for Status {
-    fn from(status: ExitStatus) -> Self {
-        Status {
-            code: status.code(),
-            signal: status.signal(),
-        }
-    }
-}
-
-impl Status {
-    pub fn success(&self) -> bool {
-        self.code == Some(0)
-    }
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reply {
+    Value(Value),
+    Timeout,
+    Closed(String),
+    Invalid(String),
 }
 
 pub struct Server {
     child: Child,
     pgid: Pid,
-    status: Option<ExitStatus>,
+    exited: Option<Status>,
     socket: PathBuf,
     log: PathBuf,
     coverage: Segment,
@@ -91,148 +76,109 @@ pub struct Server {
 }
 
 pub struct Reaped {
-    pub status: Option<Status>,
+    pub status: Status,
     pub log: Vec<u8>,
     pub coverage: Coverage,
 }
 
 impl Server {
-    pub fn spawn(env: &Env, setup: &Setup) -> Result<Server, String> {
+    pub fn spawn(env: &Env, module_args: &[Bytes]) -> Result<Server, String> {
         let dir = tempfile::Builder::new()
             .prefix("rsfz")
             .tempdir()
-            .map_err(|e| format!("creating server directory: {e}"))?;
-        let socket = dir.path().join(SOCKET_NAME);
-        let log = dir.path().join(LOG_NAME);
-        let out = File::create(&log).map_err(|e| format!("creating {}: {e}", log.display()))?;
+            .map_err(|e| e.to_string())?;
+        let socket = dir.path().join("redis.sock");
+        let log = dir.path().join("server.log");
+        let out = File::create(&log).map_err(|e| e.to_string())?;
         let err = out.try_clone().map_err(|e| e.to_string())?;
-        let coverage = Segment::create(env.coverage_capacity)?;
-
-        let mut command = Command::new(&env.redis_server);
-        command
-            .arg("--port")
-            .arg("0")
-            .arg("--unixsocket")
+        let coverage = Segment::create()?;
+        let child = Command::new(&env.redis_server)
+            .args(["--port", "0", "--save", "", "--appendonly", "no"])
+            .args(["--enable-debug-command", "yes", "--unixsocket"])
             .arg(&socket)
             .arg("--dir")
             .arg(dir.path())
-            .args([
-                "--save",
-                "",
-                "--appendonly",
-                "no",
-                "--enable-debug-command",
-                "yes",
-            ])
             .arg("--loadmodule")
             .arg(&env.module)
-            .args(setup.module_args.iter().map(|a| os_arg(a.as_slice())))
+            .args(module_args.iter().map(|a| OsStr::from_bytes(a.as_slice())))
             .env(coverage::SHM_ENV, coverage.name())
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err)
-            .process_group(0);
-        let child = command
+            .process_group(0)
             .spawn()
             .map_err(|e| format!("spawning {}: {e}", env.redis_server.display()))?;
-        let pgid = Pid::from_raw(i32::try_from(child.id()).map_err(|e| e.to_string())?);
         let mut server = Server {
+            pgid: Pid::from_raw(i32::try_from(child.id()).map_err(|e| e.to_string())?),
             child,
-            pgid,
-            status: None,
+            exited: None,
             socket,
             log,
             coverage,
             _dir: dir,
         };
-        server.wait_ready(env.startup_deadline)?;
-        let guards = server.coverage.guards();
-        if guards > u64::try_from(server.coverage.capacity()).unwrap_or(u64::MAX) {
-            return Err(format!(
-                "the module has {guards} coverage guards but the map holds {}",
-                server.coverage.capacity()
-            ));
-        }
-        Ok(server)
-    }
-
-    fn wait_ready(&mut self, deadline: Duration) -> Result<(), String> {
         let start = Instant::now();
-        while start.elapsed() < deadline {
-            if let Some(status) = self.try_exit() {
-                return Err(format!(
-                    "server exited during startup ({status:?}):\n{}",
-                    tail(&self.read_log(), 40)
-                ));
-            }
-            if self.socket.exists()
-                && let Ok(mut conn) = self.connect(Duration::from_secs(1))
-                && conn
-                    .call(&vec!["PING".into()], Duration::from_secs(1))
-                    .is_ok()
+        while start.elapsed() < STARTUP_DEADLINE && server.exited().is_none() {
+            if let Ok(mut conn) = server.connect()
+                && conn.call(&argv(&["PING"]), STARTUP_DEADLINE).is_ok()
             {
-                return Ok(());
+                return Ok(server);
             }
-            sleep(POLL_INTERVAL);
+            sleep(POLL);
         }
-        Err(format!(
-            "server not ready after {deadline:?}:\n{}",
-            tail(&self.read_log(), 40)
-        ))
+        let log = String::from_utf8_lossy(&server.read_log()).into_owned();
+        Err(format!("server did not start:\n{log}"))
     }
 
-    pub fn connect(&self, write_deadline: Duration) -> Result<Connection, String> {
-        let stream = UnixStream::connect(&self.socket).map_err(|e| e.to_string())?;
-        stream
-            .set_write_timeout(Some(write_deadline))
-            .map_err(|e| e.to_string())?;
-        Ok(Connection {
-            stream,
-            buf: Vec::new(),
-        })
+    pub fn connect(&self) -> Result<Connection, String> {
+        UnixStream::connect(&self.socket)
+            .map(|stream| Connection {
+                stream,
+                buf: Vec::new(),
+            })
+            .map_err(|e| e.to_string())
     }
 
-    pub fn try_exit(&mut self) -> Option<Status> {
-        if self.status.is_none() {
-            self.status = self.child.try_wait().ok().flatten();
+    pub fn exited(&mut self) -> Option<Status> {
+        if self.exited.is_none() {
+            self.exited = self.child.try_wait().ok().flatten().map(|s| Status {
+                code: s.code(),
+                signal: s.signal(),
+            });
         }
-        self.status.map(Status::from)
+        self.exited
     }
 
     pub fn wait_exit(&mut self, deadline: Duration) -> Option<Status> {
         let start = Instant::now();
-        loop {
-            if let Some(status) = self.try_exit() {
-                return Some(status);
-            }
-            if start.elapsed() >= deadline {
-                return None;
-            }
-            sleep(POLL_INTERVAL);
+        while self.exited().is_none() && start.elapsed() < deadline {
+            sleep(POLL);
         }
+        self.exited()
     }
 
     pub fn abort(&self) {
         let _ = kill(self.pgid, Signal::SIGABRT);
     }
 
-    pub fn reap(mut self, deadline: Duration) -> Reaped {
-        let _ = killpg(self.pgid, Signal::SIGKILL);
-        if self.status.is_none() {
-            self.status = self.child.wait().ok();
-        }
+    /// Lets the server finish exiting, so a sanitizer or crash report is
+    /// complete, then kills whatever is left of its process group.
+    pub fn reap(mut self) -> Reaped {
+        self.wait_exit(EXIT_DEADLINE);
         let start = Instant::now();
-        while killpg(self.pgid, None) != Err(Errno::ESRCH) && start.elapsed() < deadline {
-            let _ = killpg(self.pgid, Signal::SIGKILL);
-            sleep(POLL_INTERVAL);
+        while killpg(self.pgid, Signal::SIGKILL) != Err(Errno::ESRCH)
+            && start.elapsed() < EXIT_DEADLINE
+        {
+            self.exited();
+            sleep(POLL);
         }
         Reaped {
-            status: self.status.map(Status::from),
+            status: self.exited().unwrap_or(Status {
+                code: None,
+                signal: None,
+            }),
             log: self.read_log(),
-            coverage: Coverage {
-                guards: self.coverage.guards(),
-                edges: self.coverage.edges(),
-            },
+            coverage: self.coverage.read(),
         }
     }
 
@@ -253,14 +199,6 @@ pub struct Connection {
     buf: Vec<u8>,
 }
 
-#[derive(Debug)]
-pub enum Received {
-    Value(Value),
-    Timeout,
-    Closed(String),
-    Invalid(String),
-}
-
 impl Connection {
     pub fn send(&mut self, argv: &Argv) -> Result<(), String> {
         self.stream
@@ -268,35 +206,35 @@ impl Connection {
             .map_err(|e| e.to_string())
     }
 
-    pub fn recv(&mut self, deadline: Duration) -> Received {
+    /// Reads one reply. A timeout keeps the bytes read so far, so a later
+    /// call still returns this reply.
+    pub fn recv(&mut self, deadline: Duration) -> Reply {
         let start = Instant::now();
         let mut chunk = [0u8; 64 * 1024];
         loop {
             match resp::decode(&self.buf) {
-                Decoded::Complete(value, used) => {
+                Ok(Some((value, used))) => {
                     self.buf.drain(..used);
-                    return Received::Value(value);
+                    return Reply::Value(value);
                 }
-                Decoded::Invalid(e) => return Received::Invalid(e),
-                Decoded::Incomplete => {}
+                Err(e) => return Reply::Invalid(e),
+                Ok(None) => {}
             }
             let Some(left) = deadline
                 .checked_sub(start.elapsed())
                 .filter(|d| !d.is_zero())
             else {
-                return Received::Timeout;
+                return Reply::Timeout;
             };
-            if let Err(e) = self.stream.set_read_timeout(Some(left)) {
-                return Received::Closed(e.to_string());
-            }
+            let _ = self.stream.set_read_timeout(Some(left));
             match self.stream.read(&mut chunk) {
-                Ok(0) => return Received::Closed("connection closed by server".to_owned()),
+                Ok(0) => return Reply::Closed("connection closed by server".to_owned()),
                 Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
                 Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                    return Received::Timeout;
+                    return Reply::Timeout;
                 }
                 Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) => return Received::Closed(e.to_string()),
+                Err(e) => return Reply::Closed(e.to_string()),
             }
         }
     }
@@ -304,19 +242,8 @@ impl Connection {
     pub fn call(&mut self, argv: &Argv, deadline: Duration) -> Result<Value, String> {
         self.send(argv)?;
         match self.recv(deadline) {
-            Received::Value(value) => Ok(value),
+            Reply::Value(value) => Ok(value),
             other => Err(format!("{other:?}")),
         }
     }
-}
-
-fn os_arg(bytes: &[u8]) -> &std::ffi::OsStr {
-    use std::os::unix::ffi::OsStrExt;
-    std::ffi::OsStr::from_bytes(bytes)
-}
-
-fn tail(log: &[u8], lines: usize) -> String {
-    let text = String::from_utf8_lossy(log);
-    let all: Vec<&str> = text.lines().collect();
-    all[all.len().saturating_sub(lines)..].join("\n")
 }

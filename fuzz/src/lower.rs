@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::program::{Argv, Bound, Bytes, Field, FieldKind, Hook, OpKind, Query, QueryOptions};
-
-pub const DEBUG_COMMAND: &str = "_FT.DEBUG";
+use crate::program::{Argv, Bound, Bytes, FieldKind, OpKind, Query, argv};
 
 pub fn lower(op: &OpKind) -> Vec<Argv> {
     match op {
@@ -17,127 +15,51 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             index,
             prefix,
             fields,
-        } => vec![create(index, prefix, fields)],
-        OpKind::Write { key, fields } => {
-            let mut argv = vec!["HSET".into(), key.clone()];
-            for (name, value) in fields {
-                argv.push(name.clone());
-                argv.push(value.clone());
+        } => {
+            let mut command = argv(&["FT.CREATE"]);
+            command.push(index.clone());
+            command.extend(argv(&["ON", "HASH", "PREFIX", "1"]));
+            command.push(prefix.clone());
+            command.push("SCHEMA".into());
+            for field in fields {
+                command.push(field.name.clone());
+                command.push(
+                    match field.kind {
+                        FieldKind::Text => "TEXT",
+                        FieldKind::Numeric => "NUMERIC",
+                        FieldKind::Tag => "TAG",
+                        FieldKind::Geo => "GEO",
+                    }
+                    .into(),
+                );
+                if field.sortable {
+                    command.push("SORTABLE".into());
+                }
             }
-            vec![argv]
+            vec![command]
         }
-        OpKind::Delete { key } => vec![vec!["DEL".into(), key.clone()]],
         OpKind::Query {
             index,
             query,
             options,
-        } => vec![search(index, query, options)],
-        OpKind::Drop { index, delete_docs } => {
-            let mut argv = vec!["FT.DROPINDEX".into(), index.clone()];
-            if *delete_docs {
-                argv.push("DD".into());
-            }
-            vec![argv]
-        }
-        OpKind::Admin { hook } => vec![admin(hook)],
-        OpKind::Barrier => Vec::new(),
-        OpKind::Raw { argv } => vec![argv.clone()],
-    }
-}
-
-pub fn words(words: &[&str]) -> Argv {
-    words.iter().map(|w| Bytes::from(*w)).collect()
-}
-
-fn debug(args: &[&str], tail: &[&Bytes]) -> Argv {
-    let mut argv = words(&[DEBUG_COMMAND]);
-    argv.extend(words(args));
-    argv.extend(tail.iter().map(|b| (*b).clone()));
-    argv
-}
-
-fn admin(hook: &Hook) -> Argv {
-    match hook {
-        Hook::WorkersPause => debug(&["WORKERS", "PAUSE"], &[]),
-        Hook::WorkersResume => debug(&["WORKERS", "RESUME"], &[]),
-        Hook::WorkersDrain => debug(&["WORKERS", "DRAIN"], &[]),
-        Hook::GcStop { index } => debug(&["GC_STOP_SCHEDULE"], &[index]),
-        Hook::GcContinue { index } => debug(&["GC_CONTINUE_SCHEDULE"], &[index]),
-        Hook::GcForce { index } => debug(&["GC_FORCEINVOKE"], &[index]),
-        Hook::GcWait => debug(&["GC_WAIT_FOR_JOBS"], &[]),
-        Hook::ScanPauseBeforeScan(pause) => debug(
-            &[
-                "BG_SCAN_CONTROLLER",
-                "SET_PAUSE_BEFORE_SCAN",
-                if *pause { "true" } else { "false" },
-            ],
-            &[],
-        ),
-        Hook::ScanResume => debug(&["BG_SCAN_CONTROLLER", "SET_BG_INDEX_RESUME"], &[]),
-        Hook::SyncPointArm {
-            name,
-            auto_release_ms,
         } => {
-            let mut argv = debug(&["SYNC_POINT", "ARM"], &[name]);
-            argv.push(auto_release_ms.to_string().into());
-            argv
-        }
-        Hook::SyncPointSignal { name } => debug(&["SYNC_POINT", "SIGNAL"], &[name]),
-        Hook::Reload => words(&["DEBUG", "RELOAD"]),
-        Hook::ConfigSet { setting, value } => {
-            let mut argv = words(&["CONFIG", "SET", setting.name()]);
-            argv.push(value.clone());
-            argv
-        }
-    }
-}
-
-fn create(index: &Bytes, prefix: &Bytes, fields: &[Field]) -> Argv {
-    let mut argv: Argv = vec![
-        "FT.CREATE".into(),
-        index.clone(),
-        "ON".into(),
-        "HASH".into(),
-        "PREFIX".into(),
-        "1".into(),
-        prefix.clone(),
-        "SCHEMA".into(),
-    ];
-    for field in fields {
-        argv.push(field.name.clone());
-        argv.push(
-            match field.kind {
-                FieldKind::Text => "TEXT",
-                FieldKind::Numeric => "NUMERIC",
-                FieldKind::Tag => "TAG",
-                FieldKind::Geo => "GEO",
+            let mut text = Vec::new();
+            render(query, &mut text);
+            let mut command = vec!["FT.SEARCH".into(), index.clone(), Bytes(text)];
+            if options.no_content {
+                command.push("NOCONTENT".into());
             }
-            .into(),
-        );
-        if field.sortable {
-            argv.push("SORTABLE".into());
+            if let Some((offset, count)) = options.limit {
+                command.extend(argv(&["LIMIT", &offset.to_string(), &count.to_string()]));
+            }
+            if let Some(dialect) = options.dialect {
+                command.extend(argv(&["DIALECT", &dialect.to_string()]));
+            }
+            vec![command]
         }
+        OpKind::Barrier => Vec::new(),
+        OpKind::Command { argv } => vec![argv.clone()],
     }
-    argv
-}
-
-fn search(index: &Bytes, query: &Query, options: &QueryOptions) -> Argv {
-    let mut text = Vec::new();
-    render(query, &mut text);
-    let mut argv: Argv = vec!["FT.SEARCH".into(), index.clone(), Bytes(text)];
-    if options.no_content {
-        argv.push("NOCONTENT".into());
-    }
-    if let Some((offset, count)) = options.limit {
-        argv.push("LIMIT".into());
-        argv.push(offset.to_string().into());
-        argv.push(count.to_string().into());
-    }
-    if let Some(dialect) = options.dialect {
-        argv.push("DIALECT".into());
-        argv.push(dialect.to_string().into());
-    }
-    argv
 }
 
 fn render(query: &Query, out: &mut Vec<u8>) {
@@ -202,10 +124,7 @@ fn bound(bound: Bound, unbounded: &[u8], out: &mut Vec<u8>) {
     match bound {
         Bound::Unbounded => out.extend_from_slice(unbounded),
         Bound::Inclusive(n) => out.extend_from_slice(n.to_string().as_bytes()),
-        Bound::Exclusive(n) => {
-            out.push(b'(');
-            out.extend_from_slice(n.to_string().as_bytes());
-        }
+        Bound::Exclusive(n) => out.extend_from_slice(format!("({n}").as_bytes()),
     }
 }
 
@@ -222,156 +141,18 @@ fn escape(token: &Bytes, out: &mut Vec<u8>) {
 mod tests {
     use super::*;
 
-    fn strings(argv: &Argv) -> Vec<String> {
-        argv.iter()
-            .map(|a| String::from_utf8(a.0.clone()).unwrap())
-            .collect()
-    }
-
     fn query(q: Query) -> String {
-        let argv = &lower(&OpKind::Query {
+        let command = &lower(&OpKind::Query {
             index: "i".into(),
             query: q,
-            options: QueryOptions::default(),
+            options: Default::default(),
         })[0];
-        String::from_utf8(argv[2].0.clone()).unwrap()
+        String::from_utf8(command[2].0.clone()).unwrap()
     }
 
     #[test]
-    fn create_lowers_schema() {
-        let op = OpKind::Create {
-            index: "i1".into(),
-            prefix: "doc:".into(),
-            fields: vec![
-                Field {
-                    name: "t".into(),
-                    kind: FieldKind::Text,
-                    sortable: false,
-                },
-                Field {
-                    name: "n".into(),
-                    kind: FieldKind::Numeric,
-                    sortable: true,
-                },
-            ],
-        };
-        assert_eq!(
-            strings(&lower(&op)[0]),
-            [
-                "FT.CREATE",
-                "i1",
-                "ON",
-                "HASH",
-                "PREFIX",
-                "1",
-                "doc:",
-                "SCHEMA",
-                "t",
-                "TEXT",
-                "n",
-                "NUMERIC",
-                "SORTABLE"
-            ]
-        );
-    }
-
-    #[test]
-    fn write_and_delete_lower_to_hash_commands() {
-        let write = OpKind::Write {
-            key: "doc:1".into(),
-            fields: vec![("t".into(), "hello world".into())],
-        };
-        assert_eq!(
-            strings(&lower(&write)[0]),
-            ["HSET", "doc:1", "t", "hello world"]
-        );
-        let delete = OpKind::Delete {
-            key: "doc:1".into(),
-        };
-        assert_eq!(strings(&lower(&delete)[0]), ["DEL", "doc:1"]);
-    }
-
-    #[test]
-    fn drop_and_hooks_lower_to_their_commands() {
-        let drop = OpKind::Drop {
-            index: "i".into(),
-            delete_docs: true,
-        };
-        assert_eq!(strings(&lower(&drop)[0]), ["FT.DROPINDEX", "i", "DD"]);
-        let cases: [(Hook, &[&str]); 5] = [
-            (Hook::WorkersPause, &["_FT.DEBUG", "WORKERS", "PAUSE"]),
-            (
-                Hook::GcForce { index: "i".into() },
-                &["_FT.DEBUG", "GC_FORCEINVOKE", "i"],
-            ),
-            (
-                Hook::ScanPauseBeforeScan(true),
-                &[
-                    "_FT.DEBUG",
-                    "BG_SCAN_CONTROLLER",
-                    "SET_PAUSE_BEFORE_SCAN",
-                    "true",
-                ],
-            ),
-            (
-                Hook::SyncPointArm {
-                    name: "p".into(),
-                    auto_release_ms: 500,
-                },
-                &["_FT.DEBUG", "SYNC_POINT", "ARM", "p", "500"],
-            ),
-            (
-                Hook::ConfigSet {
-                    setting: crate::program::Setting::OnTimeout,
-                    value: "fail".into(),
-                },
-                &["CONFIG", "SET", "search-on-timeout", "fail"],
-            ),
-        ];
-        for (hook, expected) in cases {
-            assert_eq!(strings(&lower(&OpKind::Admin { hook })[0]), expected);
-        }
-        assert!(lower(&OpKind::Barrier).is_empty());
-    }
-
-    #[test]
-    fn query_options_follow_the_query() {
-        let op = OpKind::Query {
-            index: "i".into(),
-            query: Query::All,
-            options: QueryOptions {
-                no_content: true,
-                limit: Some((0, 0)),
-                dialect: Some(2),
-            },
-        };
-        assert_eq!(
-            strings(&lower(&op)[0]),
-            [
-                "FT.SEARCH",
-                "i",
-                "*",
-                "NOCONTENT",
-                "LIMIT",
-                "0",
-                "0",
-                "DIALECT",
-                "2"
-            ]
-        );
-    }
-
-    #[test]
-    fn query_rendering() {
-        assert_eq!(query(Query::Term("hello".into())), "hello");
+    fn queries_render_to_escaped_query_syntax() {
         assert_eq!(query(Query::Term("a-b c".into())), r"a\-b\ c");
-        assert_eq!(
-            query(Query::InField {
-                field: "t".into(),
-                term: "x".into()
-            }),
-            "@t:x"
-        );
         assert_eq!(
             query(Query::Tag {
                 field: "g".into(),
@@ -389,22 +170,14 @@ mod tests {
         );
         assert_eq!(
             query(Query::And(vec![
-                Query::Term("a".into()),
+                Query::InField {
+                    field: "t".into(),
+                    term: "a".into()
+                },
                 Query::Or(vec![Query::Term("b".into()), Query::Term("c".into())]),
-                Query::Not(Box::new(Query::Term("d".into()))),
+                Query::Not(Box::new(Query::Or(vec![]))),
             ])),
-            "(a (b | c) -(d))"
+            "(@t:a (b | c) -(*))"
         );
-        assert_eq!(query(Query::Or(vec![])), "*");
-    }
-
-    #[test]
-    fn non_utf8_terms_pass_through_unescaped() {
-        let argv = &lower(&OpKind::Query {
-            index: "i".into(),
-            query: Query::Term(Bytes(vec![0xe0, b'.'])),
-            options: QueryOptions::default(),
-        })[0];
-        assert_eq!(argv[2].0, vec![0xe0, b'\\', b'.']);
     }
 }

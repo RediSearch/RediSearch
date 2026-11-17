@@ -237,10 +237,6 @@ setup_test_configuration() {
       echo "Error: FUZZ_COV builds only the module; it cannot be combined with test builds or runs" >&2
       exit 1
     fi
-    if [[ -n "$SAN" && "$SAN" != "address" ]]; then
-      echo "Error: FUZZ_COV requires SAN=address" >&2
-      exit 1
-    fi
     SAN=address
   fi
 }

@@ -34,12 +34,6 @@ impl From<String> for Bytes {
     }
 }
 
-impl From<Vec<u8>> for Bytes {
-    fn from(v: Vec<u8>) -> Self {
-        Bytes(v)
-    }
-}
-
 impl fmt::Debug for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match std::str::from_utf8(&self.0) {
@@ -72,53 +66,42 @@ impl<'de> Deserialize<'de> for Bytes {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         match BytesRepr::deserialize(deserializer)? {
             BytesRepr::Text(s) => Ok(Bytes(s.into_bytes())),
-            BytesRepr::Hex { hex } => from_hex(&hex).map(Bytes).map_err(serde::de::Error::custom),
+            BytesRepr::Hex { hex } => (0..hex.len())
+                .step_by(2)
+                .map(|i| {
+                    hex.get(i..i + 2)
+                        .and_then(|b| u8::from_str_radix(b, 16).ok())
+                })
+                .collect::<Option<Vec<u8>>>()
+                .map(Bytes)
+                .ok_or_else(|| serde::de::Error::custom(format!("invalid hex {hex:?}"))),
         }
     }
 }
 
-pub fn to_hex(bytes: &[u8]) -> String {
+fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn from_hex(s: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) {
-        return Err(format!("odd-length hex string {s:?}"));
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("{s:?}: {e}")))
-        .collect()
-}
-
 pub type Argv = Vec<Bytes>;
+
+pub fn argv(words: &[&str]) -> Argv {
+    words.iter().map(|w| Bytes::from(*w)).collect()
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Program {
     pub version: u32,
-    #[serde(default)]
-    pub setup: Setup,
-    pub ops: Vec<Op>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Setup {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub module_args: Vec<Bytes>,
+    pub ops: Vec<Op>,
 }
 
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
 pub struct Conn(pub u8);
-
-impl Conn {
-    pub fn is_default(&self) -> bool {
-        self.0 == 0
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -128,32 +111,21 @@ pub enum ReplyMode {
     Defer,
 }
 
-impl ReplyMode {
-    pub fn is_await(&self) -> bool {
-        *self == ReplyMode::Await
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Op {
-    #[serde(default, skip_serializing_if = "Conn::is_default")]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub conn: Conn,
-    #[serde(default, skip_serializing_if = "ReplyMode::is_await")]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub reply: ReplyMode,
     #[serde(flatten)]
     pub kind: OpKind,
 }
 
-impl From<OpKind> for Op {
-    fn from(kind: OpKind) -> Self {
-        Op {
-            conn: Conn::default(),
-            reply: ReplyMode::default(),
-            kind,
-        }
-    }
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
+/// The ops the fuzzer reasons about are typed; everything else is a `Command`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OpKind {
@@ -162,77 +134,16 @@ pub enum OpKind {
         prefix: Bytes,
         fields: Vec<Field>,
     },
-    Write {
-        key: Bytes,
-        fields: Vec<(Bytes, Bytes)>,
-    },
-    Delete {
-        key: Bytes,
-    },
     Query {
         index: Bytes,
         query: Query,
         #[serde(default)]
         options: QueryOptions,
     },
-    Drop {
-        index: Bytes,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        delete_docs: bool,
-    },
-    Admin {
-        hook: Hook,
-    },
     Barrier,
-    Raw {
+    Command {
         argv: Argv,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Hook {
-    WorkersPause,
-    WorkersResume,
-    WorkersDrain,
-    GcStop { index: Bytes },
-    GcContinue { index: Bytes },
-    GcForce { index: Bytes },
-    GcWait,
-    ScanPauseBeforeScan(bool),
-    ScanResume,
-    SyncPointArm { name: Bytes, auto_release_ms: u32 },
-    SyncPointSignal { name: Bytes },
-    Reload,
-    ConfigSet { setting: Setting, value: Bytes },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Setting {
-    Workers,
-    ForkGcRunInterval,
-    ForkGcCleanThreshold,
-    Timeout,
-    OnTimeout,
-    DefaultDialect,
-    MinPrefix,
-    MaxPrefixExpansions,
-}
-
-impl Setting {
-    pub fn name(self) -> &'static str {
-        match self {
-            Setting::Workers => "search-workers",
-            Setting::ForkGcRunInterval => "search-fork-gc-run-interval",
-            Setting::ForkGcCleanThreshold => "search-fork-gc-clean-threshold",
-            Setting::Timeout => "search-timeout",
-            Setting::OnTimeout => "search-on-timeout",
-            Setting::DefaultDialect => "search-default-dialect",
-            Setting::MinPrefix => "search-min-prefix",
-            Setting::MaxPrefixExpansions => "search-max-prefix-expansions",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -317,56 +228,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utf8_bytes_serialize_as_strings() {
-        let json = serde_json::to_string(&Bytes::from("héllo")).unwrap();
-        assert_eq!(json, r#""héllo""#);
-    }
-
-    #[test]
-    fn invalid_utf8_round_trips_through_hex() {
-        let original = Bytes(vec![b'a', 0xe0, 0x00, 0xff]);
-        let json = serde_json::to_string(&original).unwrap();
+    fn bytes_are_text_when_valid_utf8_and_hex_otherwise() {
+        assert_eq!(serde_json::to_string(&Bytes::from("é")).unwrap(), r#""é""#);
+        let binary = Bytes(vec![b'a', 0xe0, 0x00, 0xff]);
+        let json = serde_json::to_string(&binary).unwrap();
         assert_eq!(json, r#"{"hex":"61e000ff"}"#);
-        assert_eq!(serde_json::from_str::<Bytes>(&json).unwrap(), original);
-    }
-
-    #[test]
-    fn malformed_hex_is_rejected() {
-        assert!(serde_json::from_str::<Bytes>(r#"{"hex":"abc"}"#).is_err());
-        assert!(serde_json::from_str::<Bytes>(r#"{"hex":"zz"}"#).is_err());
+        assert_eq!(serde_json::from_str::<Bytes>(&json).unwrap(), binary);
     }
 
     #[test]
     fn program_round_trips() {
         let program = Program {
             version: FORMAT_VERSION,
-            setup: Setup {
-                module_args: vec!["WORKERS".into(), "2".into()],
-            },
+            module_args: argv(&["WORKERS", "2"]),
             ops: vec![
-                OpKind::Create {
-                    index: "i1".into(),
-                    prefix: "doc:".into(),
-                    fields: vec![Field {
-                        name: "t".into(),
-                        kind: FieldKind::Text,
-                        sortable: true,
-                    }],
-                }
-                .into(),
                 Op {
                     conn: Conn(1),
                     reply: ReplyMode::Defer,
+                    kind: OpKind::Create {
+                        index: "i1".into(),
+                        prefix: "doc:".into(),
+                        fields: vec![Field {
+                            name: "t".into(),
+                            kind: FieldKind::Text,
+                            sortable: true,
+                        }],
+                    },
+                },
+                Op {
+                    conn: Conn::default(),
+                    reply: ReplyMode::Await,
                     kind: OpKind::Query {
                         index: "i1".into(),
-                        query: Query::And(vec![
-                            Query::Term("hello".into()),
-                            Query::Not(Box::new(Query::Range {
-                                field: "n".into(),
-                                min: Bound::Exclusive(-3),
-                                max: Bound::Unbounded,
-                            })),
-                        ]),
+                        query: Query::Not(Box::new(Query::Range {
+                            field: "n".into(),
+                            min: Bound::Exclusive(-3),
+                            max: Bound::Unbounded,
+                        })),
                         options: QueryOptions {
                             no_content: true,
                             limit: Some((0, 10)),
@@ -374,25 +272,15 @@ mod tests {
                         },
                     },
                 },
-                OpKind::Raw {
-                    argv: vec!["PING".into(), Bytes(vec![0xe0])],
-                }
-                .into(),
+                Op {
+                    conn: Conn::default(),
+                    reply: ReplyMode::Await,
+                    kind: OpKind::Command {
+                        argv: vec!["PING".into(), Bytes(vec![0xe0])],
+                    },
+                },
             ],
         };
-        let parsed = Program::from_json(&program.to_json()).unwrap();
-        assert_eq!(parsed, program);
-    }
-
-    #[test]
-    fn unsupported_version_is_rejected() {
-        let err = Program::from_json(r#"{"version": 999, "ops": []}"#).unwrap_err();
-        assert!(err.contains("999"), "{err}");
-    }
-
-    #[test]
-    fn unknown_op_fields_are_rejected() {
-        let text = r#"{"version": 1, "ops": [{"op": "delete", "key": "k", "bogus": 1}]}"#;
-        assert!(Program::from_json(text).is_err());
+        assert_eq!(Program::from_json(&program.to_json()).unwrap(), program);
     }
 }

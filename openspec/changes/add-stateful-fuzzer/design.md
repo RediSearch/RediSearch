@@ -30,25 +30,31 @@ same `judge(run(program))`. Only `campaign` depends on LibAFL.
 ## Program
 
 ```rust
-struct Program { version: u32, setup: Setup, pools: Pools, ops: Vec<Op> }
-struct Setup   { module_args: Vec<(String, String)>, modules: Vec<Module> }
+struct Program { version: u32, module_args: Vec<Bytes>, pools: Pools, ops: Vec<Op> }
 struct Pools   { terms: Vec<Bytes>, tags: Vec<Bytes>, nums: Vec<F64Bits>, vecs: Vec<Vec<F32Bits>> }
-struct Op      { conn: u8, reply: ReplyMode, kind: OpKind }
+struct Op      { conn: Conn, reply: ReplyMode, kind: OpKind }
 enum ReplyMode { Await, Defer }
 enum OpKind {
-    Create { name, schema, opts }, Alter { index, field }, Drop { index, delete_docs },
-    Write { key, fields }, Delete { key },
+    Create { index, prefix, fields },
+    Query { index, query: QueryAst, options },
+    Barrier,
+    Command { argv: Vec<Bytes> },
     Populate { index, fields, n, seed },
-    Query { index, query: QueryAst, opts },
     Aggregate { index, query: QueryAst, steps, cursor: Option<Var> },
     CursorRead { cursor: Var },
-    Admin { hook: Hook, args }, Barrier, Raw { argv: Vec<Bytes> },
 }
 ```
 
-- **`Setup` holds only what must exist before the server starts**: module load
-  arguments (some `search-*` settings are immutable after load) and extra
-  modules such as RedisJSON. Runtime configuration is an `Admin` op.
+- **Typed only where the fuzzer reasons about an op.** `Create` declares a
+  schema the generator builds on; `Query` and `Aggregate` are trees the judge
+  matches structurally; `Barrier` is executed by the interpreter itself;
+  `Populate` expands into many writes; `Aggregate` and `CursorRead` bind a
+  cursor. Everything else, including writes, deletes, drops, schema changes,
+  `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET`, is a `Command`.
+  The interpreter treats a typed op and a `Command` the same way once lowered.
+- **`module_args`** holds only what must exist before the server starts: some
+  `search-*` settings are immutable after load. Runtime configuration is a
+  `CONFIG SET` command.
 - **Explicit names.** Indexes, keys, and cursors are named in the program.
   Deleting an op never changes what another op sends. An op that refers to a
   missing index is still sent and draws an ordinary error.
@@ -59,90 +65,89 @@ enum OpKind {
 - **`Populate`** carries its own field list, so it does not depend on an earlier
   `Create`. It expands to `n` writes drawn from `pools` with a pinned PRNG, using
   raw integer draws only. A golden test freezes the expansion.
-- **`QueryAst`** is a tree, not a string. The judge recognises related queries
-  by structure.
-- **`Admin`** is table-driven. Each `Hook` has an argv template and an effect,
-  `PreservesResults` or `ChangesResults`. The table covers `FT.DEBUG WORKERS`
-  pause, resume, and drain; GC stop, continue, force, and wait;
-  `BG_SCAN_CONTROLLER`; TTL pause and expire; `DEBUG RELOAD`; and one
-  `CONFIG SET` hook per allow-listed setting. `SYNC_POINT` is a table row armed
-  with its auto-release timeout; few sync points are reachable without the
-  coordinator, so no further design rests on it.
-- **`Raw`** is always `ChangesResults`.
 - **`Var`** binds a server-chosen value (a cursor id). If its source op was
   deleted, failed, or is still deferred, the op using it is recorded as skipped.
 - **`conn`** is taken modulo a small fixed number of connections.
 
-`lower(&Op, &Pools, &Bindings) -> Vec<Argv>` is a pure helper for the ops that
-are plain commands. It is not the boundary for `Barrier`, which is implemented
-by the interpreter.
+`lower(&OpKind) -> Vec<Argv>` turns an op into the commands it sends; `Barrier`
+lowers to none.
 
 `Scope` is a pure fold over a prefix of a program: declared indexes and schemas,
 configuration, and twin indexes. The generator uses it to produce well-typed
 ops. The judge uses a second fold over only those ops whose recorded reply
-succeeded, starting from `Setup`.
+succeeded.
 
 ## Execution
 
-The interpreter owns all execution state: connections, pending replies and the
-ops they belong to, bindings, deadlines, and the server process.
+`run(&Program, &Env) -> Result<Trace, String>`. An error means the server could
+not start, which is never a finding. The interpreter owns the server and all
+execution state: connections, pending replies, and a harness connection for its
+own commands.
 
 ### Lifecycle
 
 1. **Start.** Create a private temporary directory and a zeroed coverage segment.
    Spawn `redis-server` in its own process group, listening on a unix socket in
-   that directory, with stdout and stderr redirected to a log file. Wait for
-   readiness or record `StartupFailed`.
+   that directory, with stdout and stderr redirected to a log file.
 2. **Execute** ops in order. For `Await`, send and read the reply. For `Defer`,
    send and leave the reply pending. Pending replies on a connection are read
-   when that connection is next used, at a `Barrier`, and at the end. Every
-   read has a deadline.
-3. **Release.** On any deadline expiry, and always before the final collection,
-   a harness-owned control connection sends a fixed release list: resume
-   workers, resume the background scan, unpause TTL, continue the GC schedule,
-   clear sync points.
-4. **Stop.** Collect remaining replies, send `SHUTDOWN NOSAVE`, and wait.
-5. **Abort** if the server is still unresponsive after the release list: send
-   `SIGABRT` to obtain a backtrace, then kill the process group.
-6. **Reap** the whole process group, then read the coverage segment and the log.
+   when that connection is next used, at a `Barrier`, and at the end. A reply
+   that misses its deadline gets one more chance after the harness releases its
+   controls (below). A connection that closes or sends an invalid reply is
+   recorded and reopened on next use; the program stops only if the server is
+   exiting.
+3. **Release.** The harness connection sends a fixed list: resume workers,
+   resume the background scan, clear sync points, and continue the GC schedule
+   of every index. It stops at the first command the server does not answer,
+   since its main thread is then blocked.
+4. **Stop.** At the end: release, read the remaining replies, send
+   `SHUTDOWN NOSAVE`, and wait for the server to exit.
+5. **Abort** a hung server with `SIGABRT` to obtain a backtrace.
+6. **Reap.** Let the server finish exiting, so a sanitizer report is complete,
+   kill what is left of the process group, then read the coverage segment and
+   the log.
 
 ```rust
-enum Exit { Clean, Died { status, at_step }, Hung { at_step }, Stalled { at_step }, StartupFailed }
+enum Exit { Clean, Died { at_op }, Hung { at_op }, Stalled { at_op } }
 ```
 
-`Stalled` means replies arrived only after the release list: the program held
-its own controls. It is not a finding. `Hung` means they did not. The trace
-records whether a terminating signal came from the harness.
+`Stalled` means a reply arrived only after the release: the program held its
+own controls. It is not a finding. `Hung` means it did not arrive at all. A run
+that reaches the end but whose server exits non-zero, for example with a leak
+report, is `Died` at the end.
 
 ### Trace
 
 ```rust
-struct Trace { steps: Vec<Step>, exit: Exit, log: Bytes, edges: Vec<u8> }
-struct Step  { op: usize, argv: Argv, sent: u32, received: Option<u32>, reply: Reply, micros: u64 }
+struct Trace { steps: Vec<Step>, exit: Exit, status: Status, log: Bytes, coverage: Coverage }
+struct Step  { op: usize, conn: Conn, argv: Argv, sent: u32, received: Option<u32>, reply: Option<Reply> }
+enum Reply   { Value(Value), Timeout, Closed(String), Invalid(String) }
 ```
 
-`sent` and `received` are sequence numbers on one harness-side clock, so the
-judge can tell which ops ran inside a deferred op's window. `Populate` records a
-summary (count, error count, first error). A reply is a value, a server error,
-a protocol error, a timeout, or skipped.
+`sent` and `received` are positions on one harness-side clock, so the judge can
+tell which ops ran inside a deferred op's window. `reply` is `None` when the
+reply was never read because the server died first. `Populate` records a
+summary (count, error count, first error).
 
 ### Barrier
 
-`Barrier` reads all pending replies, then on the control connection polls until
+`Barrier` reads all pending replies, then on the harness connection polls until
 `FT.INFO` reports `indexing` as 0 for every index in `FT._LIST` and
 `FT.DEBUG WORKERS STATS` reports no pending and no in-progress jobs, then calls
 `GC_WAIT_FOR_JOBS`. It polls worker statistics because `WORKERS DRAIN` can
-deadlock the main thread. If the barrier times out it is recorded as
-inconclusive; that is never a finding.
+deadlock the main thread. It is recorded as a step whose reply is `OK`, or
+`Timeout` when the server did not become quiet in time; a timed-out barrier
+makes logic rules across it inconclusive and is never a finding.
 
 ### Server environment
 
 - `redis-server` is an AddressSanitizer build; the module is built with
-  `SAN=address`, `ENABLE_ASSERT=1`, and `FUZZ_COV=1`.
+  `FUZZ_COV=1`, which implies `SAN=address` and therefore a Debug build with
+  assertions.
 - Server flags: `--enable-debug-command yes`, `--save ""`, `--appendonly no`.
-- `ASAN_OPTIONS` with `halt_on_error=1` and `detect_odr_violation=0`.
-- Leak checking on Linux only, with `RS_GLOBAL_DTORS=1` and the suppressions
-  file the Python tests use.
+- `ASAN_OPTIONS` with `halt_on_error=1`, `detect_odr_violation=0` and
+  `detect_leaks=1`, with `RS_GLOBAL_DTORS=1` and the suppressions file the
+  Python tests use.
 
 ## Judge
 
@@ -156,8 +161,9 @@ module frames of the abort backtrace.
 
 **Logic findings** are rules over replies already in the trace:
 
-- **Equivalence.** The same query on the same index, with only `PreservesResults`
-  ops between the two, returns the same total, and the same id set when the
+- **Equivalence.** The same query on the same index, with only ops that cannot
+  change results between the two (queries, barriers, and an allow-list of
+  commands such as GC, worker and scan control, and `DEBUG RELOAD`), returns the same total, and the same id set when the
   total is under a cap.
 - **Twin.** Two indexes with the same schema and prefix return the same key set
   for the same query after a conclusive barrier. Order and scores are not
@@ -212,13 +218,13 @@ One edit set serves both mutation and reduction:
 | Edit | Smaller? |
 |---|---|
 | Delete a range of ops | yes |
-| Replace an op with its lowered `Raw` ops (`Lower`) | no |
+| Replace an op with its lowered `Command` ops (`Lower`) | no |
 | Simplify a leaf (shorter bytes, 0 or 1, fewer fields, smaller `n`) | yes |
 | Insert a generated op, typed against `Scope` | no |
 | Splice a range from another program | no |
 | Regenerate one field from the pools | no |
 | Insert a related-query group | no |
-| Edit `Raw` argv tokens: delete, duplicate, swap, replace from a pool | no |
+| Edit `Command` argv tokens: delete, duplicate, swap, replace from a pool | no |
 
 `Lower` does not apply to ops that define or use a `Var`. `mutate` samples one
 edit. `smaller` enumerates the smaller edits, largest first.
@@ -267,8 +273,8 @@ to programs with one connection, no deferred replies, and no variables.
 
 ## Edge cases
 
-- **Server fails to start.** Recorded as `StartupFailed`, never as a finding;
-  the campaign stops after repeated failures.
+- **Server fails to start.** `run` returns an error, never a finding; the
+  campaign stops after repeated failures.
 - **Program leaves workers paused.** Resolved by the release list; `Stalled`.
 - **Hook errors** (for example pausing workers when none are configured). An
   ordinary error reply.

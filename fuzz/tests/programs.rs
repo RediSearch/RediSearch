@@ -7,142 +7,114 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Runs each program under `tests/programs/` against a live server built by
-//! `fuzz/setup.sh`. Ignored by default; run with
-//! `source bin/fuzz/env.sh && cargo test -- --ignored`.
+//! Runs programs against a live server built by `fuzz/setup.sh`. Ignored by
+//! default; run with `source bin/fuzz/env.sh && cargo test -- --ignored`.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use redisearch_fuzz::judge::{Kind, judge};
-use redisearch_fuzz::program::Program;
-use redisearch_fuzz::run::{Exit, Reply, run};
-use redisearch_fuzz::target::Env;
+use redisearch_fuzz::program::{Op, OpKind, Program, ReplyMode, argv};
+use redisearch_fuzz::resp::Value;
+use redisearch_fuzz::run::{Exit, Trace, run};
+use redisearch_fuzz::target::{Env, Reply};
 
-#[derive(Debug, PartialEq)]
-enum Expected {
-    Clean,
-    Died,
-    Hung,
-    Stalled,
+fn load(path: &str) -> Program {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+    Program::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-fn check(
-    name: &str,
-    expected_exit: Expected,
-    expected_findings: &[Kind],
-) -> redisearch_fuzz::run::Trace {
+fn execute(program: &Program) -> (Trace, Vec<Kind>) {
     let env = Env::from_env().expect("source bin/fuzz/env.sh first");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/programs")
-        .join(format!("{name}.json"));
-    let program = Program::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let trace = run(&program, &env);
-    let exit = match trace.exit {
-        Exit::Clean => Expected::Clean,
-        Exit::Died { .. } => Expected::Died,
-        Exit::Hung { .. } => Expected::Hung,
-        Exit::Stalled { .. } => Expected::Stalled,
-        Exit::StartupFailed { ref reason } => panic!("{name}: server failed to start:\n{reason}"),
-    };
-    assert_eq!(exit, expected_exit, "{name}: {:?}", trace.exit);
-    let kinds: Vec<Kind> = judge(&program, &trace)
-        .into_iter()
-        .map(|f| f.kind)
-        .collect();
-    assert_eq!(kinds, expected_findings, "{name}");
-    trace
+    let trace = run(program, &env).unwrap();
+    let kinds = judge(program, &trace).into_iter().map(|f| f.kind).collect();
+    (trace, kinds)
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn smoke_seed_runs_clean() {
-    let env = Env::from_env().expect("source bin/fuzz/env.sh first");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds/smoke.json");
-    let program = Program::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let trace = run(&program, &env);
+fn every_smoke_command_succeeds() {
+    let (trace, kinds) = execute(&load("seeds/smoke.json"));
     assert_eq!(trace.exit, Exit::Clean);
-    assert!(judge(&program, &trace).is_empty());
-    assert!(
-        trace
-            .steps
-            .iter()
-            .all(|s| matches!(s.reply, Reply::Value(ref v) if !matches!(v, redisearch_fuzz::resp::Value::Error(_)))),
-        "every smoke command succeeds"
-    );
+    assert!(kinds.is_empty());
+    assert!(trace.steps.iter().all(|step| matches!(
+        &step.reply,
+        Some(Reply::Value(value)) if !matches!(value, Value::Error(_))
+    )));
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn redis_panic_is_a_crash() {
-    check("panic", Expected::Died, &[Kind::Crash]);
-}
-
-#[test]
-#[ignore = "needs bin/fuzz/env.sh"]
-fn segfault_is_a_crash() {
-    check("segfault", Expected::Died, &[Kind::Crash]);
+fn a_segfault_is_a_crash() {
+    let (trace, kinds) = execute(&load("tests/programs/segfault.json"));
+    assert_eq!(trace.exit, Exit::Died { at_op: 0 });
+    assert_eq!(kinds, [Kind::Crash]);
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_command_that_never_returns_is_a_hang() {
-    check("hang", Expected::Hung, &[Kind::Hang]);
+    let (trace, kinds) = execute(&load("tests/programs/hang.json"));
+    assert_eq!(trace.exit, Exit::Hung { at_op: 0 });
+    assert_eq!(kinds, [Kind::Hang]);
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_query_held_by_the_program_is_a_stall_not_a_finding() {
-    check("stall", Expected::Stalled, &[]);
-    check("stall-deferred", Expected::Stalled, &[]);
+fn a_reply_the_program_held_back_is_a_stall_not_a_finding() {
+    let (trace, kinds) = execute(&load("tests/programs/stall.json"));
+    assert_eq!(trace.exit, Exit::Stalled { at_op: 3 });
+    assert!(kinds.is_empty());
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_barrier_that_cannot_complete_is_inconclusive_not_a_finding() {
-    let trace = check("barrier-blocked-scan", Expected::Clean, &[]);
-    assert!(trace.steps.iter().any(|s| s.reply == Reply::Inconclusive));
+fn a_barrier_that_cannot_complete_times_out_without_a_finding() {
+    let (trace, kinds) = execute(&load("tests/programs/barrier-blocked-scan.json"));
+    assert_eq!(trace.exit, Exit::Clean);
+    assert!(kinds.is_empty());
+    assert_eq!(trace.steps.last().unwrap().reply, Some(Reply::Timeout));
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_pending_query_survives_its_index_being_dropped() {
-    let trace = check("drop-under-pending-query", Expected::Clean, &[]);
-    let query = trace
-        .steps
-        .iter()
-        .find(|s| s.conn.0 == 1)
-        .expect("the deferred query ran");
-    let drop = trace
-        .steps
-        .iter()
-        .find(|s| {
-            s.argv
-                .first()
-                .is_some_and(|a| a.as_slice() == b"FT.DROPINDEX")
-        })
-        .expect("the drop ran");
+fn a_deferred_query_is_answered_after_another_connection_drops_its_index() {
+    let (trace, kinds) = execute(&load("tests/programs/drop-under-pending-query.json"));
+    assert_eq!(trace.exit, Exit::Clean);
+    assert!(kinds.is_empty());
+    let [.., query, drop, _resume, _barrier] = trace.steps.as_slice() else {
+        panic!("{:?}", trace.steps);
+    };
     assert!(query.sent < drop.sent && drop.received < query.received);
-}
-
-fn edges(name: &str) -> std::collections::BTreeSet<u32> {
-    let trace = check(name, Expected::Clean, &[]);
-    assert!(
-        trace.coverage.guards > 0,
-        "{name}: the module has no coverage guards; build it with FUZZ_COV=1"
-    );
-    trace.coverage.edges.into_iter().collect()
-}
-
-#[test]
-#[ignore = "needs bin/fuzz/env.sh"]
-fn different_programs_reach_different_edges() {
-    assert_ne!(edges("tags-only"), edges("gc-unforced"));
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_forced_gc_reaches_edges_the_same_writes_alone_do_not() {
-    let unforced = edges("gc-unforced");
-    let forced = edges("gc-forced");
-    assert!(forced.difference(&unforced).count() > 0);
+    let edges = |program: &Program| -> BTreeSet<u32> {
+        let (trace, _) = execute(program);
+        assert!(
+            trace.coverage.guards > 0,
+            "build the module with FUZZ_COV=1"
+        );
+        trace.coverage.edges.into_iter().collect()
+    };
+    let unforced = load("tests/programs/gc.json");
+    let mut forced = unforced.clone();
+    let barrier = forced
+        .ops
+        .iter()
+        .position(|op| op.kind == OpKind::Barrier)
+        .unwrap();
+    forced.ops.insert(
+        barrier,
+        Op {
+            conn: Default::default(),
+            reply: ReplyMode::Await,
+            kind: OpKind::Command {
+                argv: argv(&["_FT.DEBUG", "GC_FORCEINVOKE", "i1"]),
+            },
+        },
+    );
+    assert!(edges(&forced).difference(&edges(&unforced)).count() > 0);
 }

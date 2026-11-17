@@ -7,16 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use redisearch_fuzz::judge::Finding;
+use redisearch_fuzz::bundle;
+use redisearch_fuzz::judge::{Finding, judge};
 use redisearch_fuzz::program::Program;
+use redisearch_fuzz::run::{Trace, run};
 use redisearch_fuzz::target::Env;
-use redisearch_fuzz::{bundle, judge, run};
 
 #[derive(Parser)]
 #[command(about = "Stateful fuzzer for RediSearch")]
@@ -30,33 +31,33 @@ enum Command {
     /// Run one program against a fresh server and report its findings.
     Run {
         program: PathBuf,
-        /// Run the program this many times and report how often each finding reproduces.
+        /// Run the program this many times and report how often each finding
+        /// and each edge recurs.
         #[arg(long, default_value_t = 1)]
         repeat: u32,
         /// Directory that receives a bundle per distinct finding.
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
-        /// Print every command and its reply.
+        /// Print every step and its reply.
         #[arg(long)]
         verbose: bool,
     },
 }
 
 fn main() -> ExitCode {
-    match Cli::parse().command {
-        Command::Run {
-            program,
-            repeat,
-            findings,
-            verbose,
-        } => match run_command(&program, repeat, &findings, verbose) {
-            Ok(found) if found => ExitCode::from(1),
-            Ok(_) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("error: {e}");
-                ExitCode::from(2)
-            }
-        },
+    let Command::Run {
+        program,
+        repeat,
+        findings,
+        verbose,
+    } = Cli::parse().command;
+    match run_command(&program, repeat, &findings, verbose) {
+        Ok(false) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::from(1),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
     }
 }
 
@@ -70,58 +71,50 @@ fn run_command(
     let program = Program::from_json(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     let env = Env::from_env()?;
 
-    let mut counts: BTreeMap<Finding, u32> = BTreeMap::new();
-    let mut every_run: Option<BTreeSet<u32>> = None;
-    let mut any_run: BTreeSet<u32> = BTreeSet::new();
+    let mut found: BTreeMap<Finding, (u32, Trace)> = BTreeMap::new();
+    let mut edges: BTreeMap<u32, u32> = BTreeMap::new();
     for attempt in 1..=repeat {
-        let trace = run::run(&program, &env);
-        let edges: BTreeSet<u32> = trace.coverage.edges.iter().copied().collect();
-        every_run = Some(match every_run {
-            Some(seen) => seen.intersection(&edges).copied().collect(),
-            None => edges.clone(),
-        });
-        any_run.extend(edges);
+        let trace = run(&program, &env)?;
         if verbose {
             for step in &trace.steps {
                 println!("  [{}] {:?} -> {:?}", step.op, step.argv, step.reply);
             }
         }
-        let findings = judge::judge(&program, &trace);
+        let findings = judge(&program, &trace);
         println!(
-            "run {attempt}/{repeat}: exit {:?}, {} steps, {}/{} edges, {} findings",
+            "run {attempt}/{repeat}: {:?}, {} steps, {}/{} edges, {} findings",
             trace.exit,
             trace.steps.len(),
             trace.coverage.edges.len(),
             trace.coverage.guards,
             findings.len()
         );
-        if let run::Exit::StartupFailed { reason } = &trace.exit {
-            return Err(format!("server failed to start:\n{reason}"));
+        for &edge in &trace.coverage.edges {
+            *edges.entry(edge).or_default() += 1;
         }
         for finding in findings {
-            if !counts.contains_key(&finding) {
-                let dir = bundle::write(findings_dir, &program, &trace, &finding, &env)?;
-                println!(
-                    "  new {:?} {} -> {}",
-                    finding.kind,
-                    finding.signature,
-                    dir.display()
-                );
-            }
-            *counts.entry(finding).or_default() += 1;
+            found.entry(finding).or_insert_with(|| (0, trace.clone())).0 += 1;
         }
     }
-    if repeat > 1 && !any_run.is_empty() {
-        let stable = every_run.map_or(0, |edges| edges.len());
+    if repeat > 1 {
+        let stable = edges.values().filter(|&&runs| runs == repeat).count();
+        println!("edges: {} in any run, {stable} in every run", edges.len());
+    }
+    for (finding, (reproduced, trace)) in &found {
+        let dir = bundle::write(
+            findings_dir,
+            &program,
+            trace,
+            finding,
+            (*reproduced, repeat),
+            &env,
+        )?;
         println!(
-            "edges: {} in any run, {stable} in every run, {} unstable",
-            any_run.len(),
-            any_run.len() - stable
+            "{reproduced}/{repeat} {:?} {} -> {}",
+            finding.kind,
+            finding.signature,
+            dir.display()
         );
     }
-    for (finding, count) in &counts {
-        println!("{count}/{repeat} {:?} {}", finding.kind, finding.signature);
-        bundle::record_rate(findings_dir, finding, *count, repeat)?;
-    }
-    Ok(!counts.is_empty())
+    Ok(!found.is_empty())
 }

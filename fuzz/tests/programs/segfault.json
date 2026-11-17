@@ -1,1 +1,1 @@
-{"version": 1, "ops": [{"op": "raw", "argv": ["DEBUG", "SEGFAULT"]}]}
+{"version": 1, "ops": [{"op": "command", "argv": ["DEBUG", "SEGFAULT"]}]}

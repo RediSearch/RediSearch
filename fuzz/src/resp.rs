@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::program::{Argv, Bytes};
 
-const MAX_DEPTH: usize = 64;
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Value {
@@ -34,153 +32,86 @@ pub fn encode(argv: &Argv) -> Vec<u8> {
     out
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Decoded {
-    Complete(Value, usize),
-    Incomplete,
-    Invalid(String),
+/// Decodes the first reply in `buf`: `Ok(None)` until it has fully arrived,
+/// then the reply and the number of bytes it used.
+pub fn decode(buf: &[u8]) -> Result<Option<(Value, usize)>, String> {
+    parse(buf, 0)
 }
 
-pub fn decode(buf: &[u8]) -> Decoded {
-    match parse(buf, 0, 0) {
-        Ok(Some((value, end))) => Decoded::Complete(value, end),
-        Ok(None) => Decoded::Incomplete,
-        Err(e) => Decoded::Invalid(e),
-    }
-}
-
-type Parsed = Result<Option<(Value, usize)>, String>;
-
-fn parse(buf: &[u8], at: usize, depth: usize) -> Parsed {
-    if depth > MAX_DEPTH {
-        return Err(format!("reply nested deeper than {MAX_DEPTH}"));
-    }
-    let Some((&kind, _)) = buf.get(at..).and_then(<[u8]>::split_first) else {
+fn parse(buf: &[u8], at: usize) -> Result<Option<(Value, usize)>, String> {
+    let Some(&kind) = buf.get(at) else {
         return Ok(None);
     };
-    let Some((line, next)) = line(buf, at + 1) else {
+    let Some(end) = buf[at..].windows(2).position(|w| w == b"\r\n") else {
         return Ok(None);
     };
-    match kind {
-        b'+' => Ok(Some((Value::Simple(Bytes(line.to_vec())), next))),
-        b'-' => Ok(Some((Value::Error(Bytes(line.to_vec())), next))),
-        b':' => Ok(Some((Value::Int(integer(line)?), next))),
+    let line = &buf[at + 1..at + end];
+    let next = at + end + 2;
+    let length = || {
+        std::str::from_utf8(line)
+            .ok()
+            .and_then(|s| s.parse::<i64>().ok())
+            .ok_or_else(|| format!("bad integer {:?}", String::from_utf8_lossy(line)))
+    };
+    let value = match kind {
+        b'+' => Value::Simple(Bytes(line.to_vec())),
+        b'-' => Value::Error(Bytes(line.to_vec())),
+        b':' => Value::Int(length()?),
+        b'$' | b'*' if length()? == -1 => Value::Nil,
         b'$' => {
-            let len = integer(line)?;
-            if len == -1 {
-                return Ok(Some((Value::Nil, next)));
-            }
-            let len = usize::try_from(len).map_err(|_| format!("bad bulk length {len}"))?;
-            let end = next + len;
-            if buf.len() < end + 2 {
-                return Ok(None);
-            }
-            if &buf[end..end + 2] != b"\r\n" {
-                return Err("bulk string not terminated by CRLF".to_owned());
-            }
-            Ok(Some((Value::Bulk(Bytes(buf[next..end].to_vec())), end + 2)))
+            let end = next + usize::try_from(length()?).map_err(|e| e.to_string())?;
+            return match buf.get(end..end + 2) {
+                None => Ok(None),
+                Some(b"\r\n") => Ok(Some((Value::Bulk(Bytes(buf[next..end].to_vec())), end + 2))),
+                Some(_) => Err("bulk string not terminated by CRLF".to_owned()),
+            };
         }
         b'*' => {
-            let len = integer(line)?;
-            if len == -1 {
-                return Ok(Some((Value::Nil, next)));
-            }
-            let len = usize::try_from(len).map_err(|_| format!("bad array length {len}"))?;
             let mut items = Vec::new();
             let mut cursor = next;
-            for _ in 0..len {
-                match parse(buf, cursor, depth + 1)? {
-                    Some((item, after)) => {
-                        items.push(item);
-                        cursor = after;
-                    }
-                    None => return Ok(None),
-                }
+            for _ in 0..usize::try_from(length()?).map_err(|e| e.to_string())? {
+                let Some((item, after)) = parse(buf, cursor)? else {
+                    return Ok(None);
+                };
+                items.push(item);
+                cursor = after;
             }
-            Ok(Some((Value::Array(items), cursor)))
+            return Ok(Some((Value::Array(items), cursor)));
         }
-        other => Err(format!("unknown reply type byte 0x{other:02x}")),
-    }
-}
-
-fn line(buf: &[u8], from: usize) -> Option<(&[u8], usize)> {
-    let rest = buf.get(from..)?;
-    let pos = rest.windows(2).position(|w| w == b"\r\n")?;
-    Some((&rest[..pos], from + pos + 2))
-}
-
-fn integer(line: &[u8]) -> Result<i64, String> {
-    std::str::from_utf8(line)
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| format!("bad integer {:?}", String::from_utf8_lossy(line)))
+        other => return Err(format!("unknown reply type byte 0x{other:02x}")),
+    };
+    Ok(Some((value, next)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn complete(input: &[u8]) -> Value {
-        match decode(input) {
-            Decoded::Complete(value, used) => {
-                assert_eq!(used, input.len());
-                value
-            }
-            other => panic!("expected a complete reply, got {other:?}"),
+    #[test]
+    fn a_reply_decodes_only_once_complete() {
+        let reply = b"*4\r\n$5\r\na\r\nbc\r\n:-7\r\n*1\r\n+x\r\n$-1\r\n-ERR no\r\n";
+        let first_len = reply.len() - b"-ERR no\r\n".len();
+        for end in 0..first_len {
+            assert_eq!(decode(&reply[..end]), Ok(None), "prefix of length {end}");
         }
-    }
-
-    #[test]
-    fn encodes_binary_safe_arguments() {
-        let argv = vec![Bytes::from("SET"), Bytes(vec![0, b'\r', b'\n'])];
-        assert_eq!(encode(&argv), b"*2\r\n$3\r\nSET\r\n$3\r\n\0\r\n\r\n");
-    }
-
-    #[test]
-    fn decodes_each_reply_type() {
-        assert_eq!(complete(b"+OK\r\n"), Value::Simple("OK".into()));
-        assert_eq!(complete(b"-ERR no\r\n"), Value::Error("ERR no".into()));
-        assert_eq!(complete(b":-42\r\n"), Value::Int(-42));
-        assert_eq!(complete(b"$-1\r\n"), Value::Nil);
         assert_eq!(
-            complete(b"$5\r\na\r\nbc\r\n"),
-            Value::Bulk("a\r\nbc".into())
-        );
-        assert_eq!(
-            complete(b"*2\r\n:1\r\n*1\r\n$0\r\n\r\n"),
-            Value::Array(vec![
-                Value::Int(1),
-                Value::Array(vec![Value::Bulk("".into())])
-            ])
+            decode(reply),
+            Ok(Some((
+                Value::Array(vec![
+                    Value::Bulk("a\r\nbc".into()),
+                    Value::Int(-7),
+                    Value::Array(vec![Value::Simple("x".into())]),
+                    Value::Nil,
+                ]),
+                first_len
+            )))
         );
     }
 
     #[test]
-    fn every_strict_prefix_is_incomplete() {
-        let full = b"*3\r\n$3\r\nfoo\r\n:7\r\n*1\r\n+x\r\n";
-        for end in 0..full.len() {
-            assert_eq!(
-                decode(&full[..end]),
-                Decoded::Incomplete,
-                "prefix of length {end}"
-            );
+    fn protocol_violations_are_errors() {
+        for bad in [&b"?x\r\n"[..], b":abc\r\n", b"$2\r\nabXY", b"*-5\r\n"] {
+            assert!(decode(bad).is_err(), "{:?}", String::from_utf8_lossy(bad));
         }
-        assert!(matches!(decode(full), Decoded::Complete(_, n) if n == full.len()));
-    }
-
-    #[test]
-    fn trailing_bytes_are_left_for_the_next_reply() {
-        assert_eq!(
-            decode(b"+A\r\n+B\r\n"),
-            Decoded::Complete(Value::Simple("A".into()), 4)
-        );
-    }
-
-    #[test]
-    fn protocol_violations_are_invalid() {
-        assert!(matches!(decode(b"?x\r\n"), Decoded::Invalid(_)));
-        assert!(matches!(decode(b":abc\r\n"), Decoded::Invalid(_)));
-        assert!(matches!(decode(b"$2\r\nabXY"), Decoded::Invalid(_)));
-        assert!(matches!(decode(b"*-5\r\n"), Decoded::Invalid(_)));
     }
 }

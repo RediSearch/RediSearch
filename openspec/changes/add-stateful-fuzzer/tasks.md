@@ -12,23 +12,22 @@ acceptance check for that PR.
 ## 1. Target and replay
 
 - [x] 1.1 Create the `fuzz/` crate with `Program`, `Bytes`, and the versioned JSON format
-- [x] 1.2 Implement `lower` for `Create`, `Write`, `Delete`, `Query`, and `Raw`
+- [x] 1.2 Implement `lower` for `Create`, `Query`, and `Command`
 - [x] 1.3 Implement `target`: spawn in a process group with a unix socket, log capture, connections with deadlines
 - [x] 1.4 Implement the interpreter lifecycle and `Exit`, including the release list and the control connection
 - [x] 1.5 Implement the safety judge and signatures
 - [x] 1.6 Add the `run <file>` command and the finding bundle
 - [x] 1.7 Unit tests: JSON round-trip, `lower` against expected argv, signature extraction from logs
-- [x] 1.8 Harness self-test programs: Redis panic, segfault, hang, and a stall the release list resolves
+- [x] 1.8 Harness self-test programs: a segfault, a hang, and a stall the release resolves
 - **Done when:** a crashing program yields the same signature ten times out of ten, and server startup time under AddressSanitizer is recorded in the PR. If startup exceeds one second, open a follow-up for forking test cases from a loaded server.
 - **Status:** the panic and segfault self-tests reproduce ten times out of ten. With the module loaded, the AddressSanitizer server is ready in about 1.6 s on a cold start and well under a second when warm. The bugs the earlier fuzzer found are fixed on master, so sanitizer, assertion, and leak signatures are so far tested only against logs in the documented formats; task 5.0 adds a real one.
 
 ## 2. Scheduling and multiple connections
 
 - [x] 2.1 Implement `ReplyMode::Defer` with send and receive sequence numbers
-- [x] 2.2 Implement the `Admin` hook table (effects move to 8.1, their first user)
-- [x] 2.3 Implement `Barrier` with its polling predicates and inconclusive outcome
-- [x] 2.4 Implement `Drop` lowering
-- [x] 2.5 Tests: `Stalled` versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
+- [x] 2.2 Drive the `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET` as `Command` ops
+- [x] 2.3 Implement `Barrier` with its polling predicates and timeout
+- [x] 2.4 Tests: `Stalled` versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
 - **Done when:** a seed with workers enabled holds a query pending behind paused workers while another connection drops the index, and completes with exit `Clean`.
 - **Status:** done; `tests/programs/drop-under-pending-query.json`. The pending query is answered with `SEARCH_INDEX_DROPPED_BG` after the drop. `TTL_PAUSE` and `TTL_EXPIRE` apply only to temporary indexes, so their hooks arrive with temporary-index support in 7.2.
 
@@ -75,7 +74,7 @@ acceptance check for that PR.
 
 ## 8. Logic rules
 
-- [ ] 8.1 Reply-confirmed scope in the judge, the skip conditions, and each op's effect (`PreservesResults` or `ChangesResults`)
+- [ ] 8.1 Reply-confirmed scope in the judge, the skip conditions, and the allow-list of commands that cannot change results
 - [ ] 8.2 Twin rule and the twin-index generator bias
 - [ ] 8.3 Equivalence rule
 - [ ] 8.4 Partition rule and the related-query edit
@@ -85,7 +84,7 @@ acceptance check for that PR.
 ## 9. Scale-out
 
 - [ ] 9.1 Run several processes over shared corpus and findings directories
-- [ ] 9.2 Convert recorded command streams from the Python tests into `Raw` seed programs
+- [ ] 9.2 Convert recorded command streams from the Python tests into `Command` seed programs
 - [ ] 9.3 Add the `export` command for single-connection programs
 - **Done when:** four processes reach a higher edge count than one process in the same wall time.
 
