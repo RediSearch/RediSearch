@@ -188,7 +188,9 @@ pub enum OpKind {
 }
 
 /// What an index covers: hashes, or JSON documents (with RedisJSON).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum DataType {
     #[default]
@@ -239,7 +241,7 @@ pub struct Field {
     pub sortable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FieldKind {
     Text,
@@ -254,14 +256,14 @@ pub enum FieldKind {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum Algorithm {
     Flat,
     Hnsw,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum Metric {
     L2,

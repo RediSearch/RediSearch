@@ -178,27 +178,50 @@ log (reports from forked children land there); an assertion failed; the exit is
 signature is the sanitizer summary line, the assertion location, or the leading
 module frames of the abort backtrace.
 
-**Logic findings** are rules over replies already in the trace:
+**Logic findings** are rules over `FT.SEARCH` replies already in the trace
+(`logic`). Two replies are compared only inside one *settled period*: it
+starts at a barrier that completed and ends at the next op that can change
+results, and neither query may have had such an op sent while it was in
+flight. Ops are classed by their effect on results:
 
-- **Equivalence.** The same query on the same index, with only ops that cannot
-  change results between the two (queries, barriers, and an allow-list of
-  commands such as GC, worker and scan control, and `DEBUG RELOAD`), returns the same total, and the same id set when the
-  total is under a cap.
-- **Twin.** Two indexes with the same schema and prefix return the same key set
-  for the same query after a conclusive barrier. Order and scores are not
-  compared.
-- **Partition.** For queries `q`, `q p`, and `q -p` on the same index with no
-  `ChangesResults` op between them, the totals add up.
+- **Neutral**: queries, aggregates, cursors, inspection commands (`FT.INFO`,
+  `FT.EXPLAIN`, and the like), and the `FT.DEBUG` GC, worker, and scan-control
+  hooks. They do not end a period, so a forced GC between two queries is
+  checked.
+- **Transparent**: `DEBUG RELOAD`. It must not change results, but leaves the
+  index rebuilding, so the next comparable query needs a barrier after it;
+  the period continues across it.
+- **Changing**: everything else, including every unknown command.
 
-A rule instance is skipped when the reply-confirmed scope does not show the
-fail-on-timeout policy, when any query in it timed out or errored, when a
-deferred query's window overlaps a `ChangesResults` op, when a barrier between
-them was inconclusive, or when the query is not exact (approximate KNN, prefix
-expansion that can hit the expansion cap, a truncated result). The generator
-has one edit that inserts such a group of related queries.
+The rules:
 
-**Features** are the coverage edges plus reply classes (op kind and outcome
-class) hashed into a reserved tail of the same map.
+- **Equivalence.** The same query on the same index returns the same total,
+  and the same keys when both replies list all of them.
+- **Twin.** The same query on two indexes whose server-confirmed schemas match
+  (data type, prefix, and fields, ignoring order and `SORTABLE`) returns the
+  same total and keys.
+- **Partition.** For `q`, `q p`, and `q -p` on the same index, the totals of
+  the last two add up to the first. A lone `p` and `-p` partition `*`.
+
+Rules apply only when the program loads the module with `ON_TIMEOUT FAIL`,
+since the default policy returns partial results on a timeout. A query is
+skipped when its reply is an error, when it contains a KNN node (approximate),
+and, for partition, when a term can become an empty node (empty, a stopword,
+or split by the tokenizer) or a clause names a field the confirmed schema
+lacks, since dialect 1 drops such a clause. The signature is the rule and the
+query's shape without its values, for example `logic:partition:and(term,tag)`.
+
+Query rendering writes each negation as `(-(…))`: dialect 1 parses `-(a) b`
+as `-(a b)`, which the first 1,000-program run showed as false partition
+findings. The generator loads `ON_TIMEOUT FAIL` in three programs of four,
+makes a third of new indexes a twin of an existing one (sometimes with
+different `SORTABLE` flags), and emits a related-query group: a barrier, `q`,
+`q p`, `q -p`, sometimes a forced GC, `q` again, and `q` on a twin if one
+exists. The same group is a mutation edit.
+
+**Features** beyond coverage edges are not implemented: edges alone have kept
+campaigns growing so far. Reply classes can join the map if a campaign
+plateaus.
 
 ## Coverage
 

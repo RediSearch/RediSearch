@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::logic;
 use crate::lower::{Cursors, lower};
 use crate::program::Program;
 use crate::run::{Exit, Trace};
@@ -23,6 +24,7 @@ pub enum Kind {
     Crash,
     Hang,
     Protocol,
+    Logic,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -88,6 +90,7 @@ pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
                 signature: format!("protocol:{}", command(program, step.op)),
             }),
     );
+    findings.extend(logic::check(program, trace));
     findings.sort();
     findings.dedup();
     findings

@@ -78,12 +78,13 @@ acceptance check for that PR.
 
 ## 8. Logic rules
 
-- [ ] 8.1 Reply-confirmed scope in the judge, the skip conditions, and the allow-list of commands that cannot change results
-- [ ] 8.2 Twin rule and the twin-index generator bias
-- [ ] 8.3 Equivalence rule
-- [ ] 8.4 Partition rule and the related-query edit
-- [ ] 8.5 For each rule: a seed that passes and a doctored trace that fails
+- [x] 8.1 Reply-confirmed scope in the judge, the skip conditions, and the allow-list of commands that cannot change results
+- [x] 8.2 Twin rule and the twin-index generator bias
+- [x] 8.3 Equivalence rule
+- [x] 8.4 Partition rule and the related-query edit
+- [x] 8.5 For each rule: a seed that passes and a doctored trace that fails
 - **Done when:** 1,000 generated runs produce no untriaged logic finding.
+- **Status:** 1,000 generated programs, rerun after each fix, end with no logic finding. The first run gave 26 partition findings, all false: dialect 1 parses `-(a) b` as `-(a b)`, and drops clauses on unknown fields and terms the tokenizer splits. Rendering negations as `(-(…))` and skipping vanishing terms and unknown fields resolved all of them. `seeds/logic.json` checks a partition over a term and over a range, equivalence across a forced GC and across `DEBUG RELOAD`, and a twin created after the documents, against a live server. Unit tests check each rule against consistent and doctored traces, and that an intervening write, a reload without a barrier, or the default timeout policy suppresses it. The same runs found a leak in the KNN score path and a deadlock in `FT.DEBUG WORKERS PAUSE`, recorded for later filing.
 
 ## 9. Scale-out
 

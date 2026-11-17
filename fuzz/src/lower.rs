@@ -378,10 +378,12 @@ fn render(query: &Query, out: &mut Vec<u8>, vectors: &mut Vec<Bytes>) {
             out.extend_from_slice(format!(" $v{}]", vectors.len()).as_bytes());
             vectors.push(vector.clone());
         }
+        // Dialect 1 parses `-(a) b` as `-(a b)`; the outer parentheses
+        // keep the negation to its own operand in every dialect.
         Query::Not(child) => {
-            out.extend_from_slice(b"-(");
+            out.extend_from_slice(b"(-(");
             render(child, out, vectors);
-            out.push(b')');
+            out.extend_from_slice(b"))");
         }
     }
 }
@@ -555,7 +557,7 @@ mod tests {
                 Query::Or(vec![Query::Term("b".into()), Query::Term("c".into())]),
                 Query::Not(Box::new(Query::Or(vec![]))),
             ])),
-            "(@t:a (b | c) -(*))"
+            "(@t:a (b | c) (-(*)))"
         );
         let knn = lower(
             &OpKind::Query {

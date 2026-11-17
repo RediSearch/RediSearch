@@ -27,6 +27,8 @@ const GENERATED_OPS: RangeInclusive<usize> = 4..=40;
 const STACKED_EDITS: RangeInclusive<usize> = 1..=3;
 const POPULATE_BITS: RangeInclusive<u32> = 0..=9;
 const VARS: u8 = 2;
+const RELATED_EVERY: u32 = 12;
+const RELATED_LIMIT: u32 = 1000;
 const VECTOR_DIMS: [u16; 3] = [2, 4, 8];
 const PIPELINE_STEPS: RangeInclusive<usize> = 0..=3;
 const KEYS: u32 = 16;
@@ -64,6 +66,25 @@ pub struct Schema {
 }
 
 impl Scope {
+    /// Another index over the same keys with the same fields, ignoring
+    /// field order and `SORTABLE`.
+    pub fn twin(&self, index: &Bytes) -> Option<&Bytes> {
+        let key = |schema: &Schema| {
+            let mut fields: Vec<_> = schema
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.kind.clone()))
+                .collect();
+            fields.sort();
+            (schema.on, schema.prefix.clone(), fields)
+        };
+        let wanted = key(self.indexes.get(index)?);
+        self.indexes
+            .iter()
+            .find(|(name, schema)| *name != index && key(schema) == wanted)
+            .map(|(name, _)| name)
+    }
+
     pub fn of(module_args: &[Bytes], ops: &[Op]) -> Scope {
         let mut scope = Scope {
             workers: module_args
@@ -167,19 +188,25 @@ impl Pools {
 
 pub fn generate(rng: &mut impl Rng) -> Program {
     let pools = Pools::of(&[]);
-    let module_args = if rng.random_bool(0.5) {
-        argv(&["WORKERS", "2"])
-    } else {
-        Vec::new()
-    };
+    let mut module_args = Vec::new();
+    if rng.random_ratio(3, 4) {
+        module_args.extend(argv(&["ON_TIMEOUT", "FAIL"]));
+    }
+    if rng.random_bool(0.5) {
+        module_args.extend(argv(&["WORKERS", "2"]));
+    }
     let mut scope = Scope::of(&module_args, &[]);
-    let ops = (0..rng.random_range(GENERATED_OPS))
-        .map(|_| {
-            let op = op(&scope, &pools, rng);
+    let mut ops = Vec::new();
+    for _ in 0..rng.random_range(GENERATED_OPS) {
+        let group = match rng.random_ratio(1, RELATED_EVERY) {
+            true => related(&scope, &pools, rng),
+            false => None,
+        };
+        for op in group.unwrap_or_else(|| vec![op(&scope, &pools, rng)]) {
             scope.add(&op);
-            op
-        })
-        .collect();
+            ops.push(op);
+        }
+    }
     Program {
         version: FORMAT_VERSION,
         module_args,
@@ -276,6 +303,55 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
     }
 }
 
+/// Queries the logic rules relate, behind a barrier on one connection: `q`,
+/// `q p`, and `q -p`, sometimes a forced GC, `q` again, and `q` on a twin of
+/// the index if there is one.
+fn related(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Option<Vec<Op>> {
+    let (name, schema) = scope.indexes.iter().choose(rng)?;
+    let q = match query(schema, pools, rng, QUERY_DEPTH) {
+        Query::Knn { filter, .. } => *filter,
+        q => q,
+    };
+    let p = query(schema, pools, rng, 0);
+    let with = |part: Query| match &q {
+        Query::All => part,
+        q => Query::And(vec![q.clone(), part]),
+    };
+    let options = QueryOptions {
+        no_content: true,
+        limit: Some((0, RELATED_LIMIT)),
+        dialect: rng.random_bool(0.5).then_some(2),
+    };
+    let search = |index: &Bytes, query: Query| OpKind::Query {
+        index: index.clone(),
+        query,
+        options: options.clone(),
+    };
+    let mut kinds = vec![
+        OpKind::Barrier,
+        search(name, q.clone()),
+        search(name, with(p.clone())),
+        search(name, with(Query::Not(Box::new(p)))),
+    ];
+    if rng.random_bool(0.5) {
+        kinds.push(command(&[DEBUG, "GC_FORCEINVOKE"], [name.clone()]));
+    }
+    kinds.push(search(name, q.clone()));
+    if let Some(twin) = scope.twin(name) {
+        kinds.push(search(twin, q));
+    }
+    Some(
+        kinds
+            .into_iter()
+            .map(|kind| Op {
+                conn: Conn::default(),
+                reply: ReplyMode::Await,
+                kind,
+            })
+            .collect(),
+    )
+}
+
 fn conn(rng: &mut impl Rng) -> Conn {
     if rng.random_bool(0.5) {
         Conn::default()
@@ -303,6 +379,24 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> OpKind {
         .filter(|name| !scope.indexes.contains_key(name))
         .choose(rng)
         .unwrap_or_else(|| (*INDEXES.choose(rng).expect("never empty")).into());
+    if let Some(original) = scope.indexes.values().choose(rng)
+        && rng.random_ratio(1, 3)
+    {
+        return OpKind::Create {
+            index,
+            on: original.on,
+            prefix: original.prefix.clone(),
+            fields: original
+                .fields
+                .iter()
+                .map(|f| Field {
+                    sortable: f.sortable != (f.kind != FieldKind::Geo && rng.random_ratio(1, 3))
+                        && !matches!(f.kind, FieldKind::Geo | FieldKind::Vector { .. }),
+                    ..f.clone()
+                })
+                .collect(),
+        };
+    }
     let (on, prefixes) = if rng.random_ratio(1, 3) {
         (DataType::Json, JSON_PREFIXES)
     } else {
@@ -543,9 +637,15 @@ fn edit(program: &mut Program, donor: &Program, pools: &Pools, rng: &mut impl Rn
     let ops = &mut program.ops;
     let at = rng.random_range(0..=ops.len());
     match rng.random_range(0..12) {
-        0..=3 => {
+        0..=2 => {
             let op = op(&Scope::of(&program.module_args, &ops[..at]), pools, rng);
             ops.insert(at, op);
+        }
+        3 => {
+            let scope = Scope::of(&program.module_args, &ops[..at]);
+            if let Some(group) = related(&scope, pools, rng) {
+                ops.splice(at..at, group);
+            }
         }
         4 if !donor.ops.is_empty() => {
             let start = rng.random_range(0..donor.ops.len());
