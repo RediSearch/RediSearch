@@ -1776,9 +1776,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // The parser only builds a sparse node on a sparse field, so an index without one skips the walk.
+  // A vector query joined below never adds one.
+  const bool hasSparse =
+      (index->flags & Index_HasSparseVec) && ast->root && hasSparseVectorNode(ast->root);
+
   // A sparse vector query ranks by its dot product unless a SCORER says otherwise: the text
   // scorers would score its documents as zero.
-  if (scorerDefaulted && ast->root && hasSparseVectorNode(ast->root)) {
+  if (scorerDefaulted && hasSparse) {
     opts->scorerName = SPARSE_SCORER_NAME;
   }
 
@@ -1791,10 +1796,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   // Not yet supported in FT.HYBRID, in the SEARCH clause or the VSIM FILTER. Not reported as
   // VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a generic vector-expression error. Checked
-  // here, after the vector query joined the tree, rather than through the QAST validation flags,
-  // which an index with no TEXT or TAG field skips.
-  if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && ast->root &&
-      hasSparseVectorNode(ast->root)) {
+  // here rather than through the QAST validation flags, which an index with no TEXT or TAG field
+  // skips.
+  if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && hasSparse) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         IsHybridSearchSubquery(req)
                             ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH"
