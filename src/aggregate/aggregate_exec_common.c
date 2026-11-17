@@ -79,6 +79,26 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
   return true;
 }
 
+static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy) {
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
+         oomPolicy != OomPolicy_Fail && !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
+}
+
+bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *timeout,
+                          RSOomPolicy oomPolicy, uint32_t *counter, int *rc) {
+  if (!QueryMemory_Checkpoint(timeout, counter)) {
+    return false;
+  }
+  // Held rows read nothing upstream, so no per-row check there sees a clock deadline: this one
+  // ends the drain on it.
+  if (oomStopKeepsBufferedRows(timeout, oomPolicy) && !QueryRequestLimits_IsTimedOut(timeout)) {
+    RP_EndRowSourceOnStop(qctx);
+    return false;
+  }
+  *rc = RS_RESULT_STOPPED;
+  return true;
+}
+
  void destroyResults(SearchResult **results) {
    if (results) {
      for (size_t i = 0; i < array_len(results); i++) {
@@ -119,11 +139,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 // Compiler eliminates the function completely in release builds - zero overhead
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
-
-static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy) {
-  return QueryRequestLimits_IsMemoryStopped(timeout) &&
-         oomPolicy != OomPolicy_Fail && !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
-}
 
  SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc) {
    AREQ *areq = ctx->areq;
