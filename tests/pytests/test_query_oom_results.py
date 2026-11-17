@@ -338,9 +338,11 @@ def test_blocked_client_timeout_owns_the_reply_over_the_pre_header_stop(env):
     try:
         skipIfNoEnableAssert(env)
         _index_with_docs(env)
-        query = [*AGGREGATE, 'TIMEOUT', 1]
         _set_policies(env, 'return-strict', 'fail', 2)
-        calls = _checkpoint_calls(env, query)
+        # Calibrated without a timeout, so a slow build cannot change the call count; the armed
+        # run's timeout is long enough for buffering to finish and short enough to end the pause.
+        calls = _checkpoint_calls(env, AGGREGATE)
+        query = [*AGGREGATE, 'TIMEOUT', 500]
         _memory_pressure(env, 'AT_CALL', calls)
         setPauseBeforeStoreResults(env, True, False)
         result = []
@@ -361,6 +363,9 @@ def test_blocked_client_timeout_owns_the_reply_over_the_pre_header_stop(env):
         res = result[0]
         env.assertFalse(isinstance(res, Exception), message=res)
         env.assertEqual(len(res['results']), N_DOCS, message=res)
+        # The armed call is the pre-header one, the replay's only call; the timeout-owned reply
+        # skips it before it is counted, so the pressure never fires.
+        env.assertEqual(_memory_pressure(env, 'STATUS')[5], calls - 1)
     finally:
         resetStoreResultsDebug(env)
         _reset(env)
