@@ -2432,7 +2432,6 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->specialCaseType = SPECIAL_CASE_SORTBY;
     ctx->sortby.sortKey = rm_strdup(sortKey);
-    ctx->sortby.asc = true;
     req->sortAscending = true;
 
     // Check for ASC/DESC - the sortbyArgs.objs points to the field name,
@@ -2447,7 +2446,6 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
       size_t orderLen;
       const char *order = RedisModule_StringPtrLen(argv[sortFieldIdx + 1], &orderLen);
       if (orderLen == 4 && !strncasecmp(order, "DESC", 4)) {
-        ctx->sortby.asc = false;
         req->sortAscending = false;
       }
     }

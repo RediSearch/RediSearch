@@ -46,7 +46,6 @@ typedef struct {
 } searchReplyOffsets;
 
 typedef struct searchReducerCtx {
-  MRReply *fieldNames;
   searchRequestCtx *searchCtx;
   size_t totalReplies;
   searchReplyOffsets offsets;
@@ -499,16 +498,13 @@ void CoordSearchReducer_Free(searchRequestCtx *request) {
   if (request->replySource) searchReplyFree(&request->replySource->base);
 }
 
-static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **replies,
-                                 bool fromTimeout) {
-  ctx->replies = replies;
+static void reduceSearchPipeline(searchReducerCtx *ctx, bool fromTimeout) {
   ctx->qctx.err = &ctx->searchCtx->base.reply.err;
   ctx->qctx.timeoutPolicy = ctx->searchCtx->base.limits.timeout.config.timeoutPolicy;
   ctx->qctx.resultLimit = UINT32_MAX;
   ctx->qctx.skipIndexResultDeepCopy = true;
   RPSearchReply *source = ctx->searchCtx->replySource;
   source->ctx = ctx;
-  RS_ASSERT(source->snapshotCount == count);
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
   ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
@@ -638,11 +634,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   if (reply->resp3)  // RESP3
   {
     RedisModule_Reply_SimpleString(reply, "attributes");
-    if (rCtx->fieldNames) {
-      MR_ReplyWithMRReply(reply, rCtx->fieldNames);
-    } else {
-      RedisModule_Reply_EmptyArray(reply);
-    }
+    RedisModule_Reply_EmptyArray(reply);
 
     RedisModule_Reply_SimpleString(reply, "warning");  // >warning
     if (rCtx->warning) {
@@ -876,7 +868,7 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
         rCtx->reduceSpecialCaseCtxSortby = special;
     }
   }
-  reduceSearchPipeline(rCtx, count, replies, fromTimeout);
+  reduceSearchPipeline(rCtx, fromTimeout);
   if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     goto cleanup;
   }

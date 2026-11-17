@@ -26,7 +26,6 @@ typedef struct {
 
 typedef struct {
   const char* sortKey;  // SortKey name;
-  bool asc;             // Sort order ASC/DESC
   size_t offset;        // SortKey reply offset
 } sortbyContext;
 
