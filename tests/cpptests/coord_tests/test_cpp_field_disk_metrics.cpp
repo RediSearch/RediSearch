@@ -99,6 +99,37 @@ class ShardEntry {
   AggregatedFieldSpecInfo info_;
 };
 
+// Consumes the shard replies and returns the captured coordinator response.
+std::vector<std::string> reduceInfoReplies(std::vector<MRReply *> replies) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  MR_Init(1, 1);
+  MR_InitLocalNodeId();
+  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, replies.size());
+
+  auto savedString = RedisModule_ReplyWithSimpleString;
+  auto savedInteger = RedisModule_ReplyWithLongLong;
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
+    RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *ctx, long long value) {
+    RMCK_GetReplyLog(ctx).push_back("integer:" + std::to_string(value));
+    return REDISMODULE_OK;
+  };
+  EXPECT_EQ(InfoReplyReducer(mr, replies.size(), replies.data()), REDISMODULE_OK);
+  RedisModule_ReplyWithSimpleString = savedString;
+  RedisModule_ReplyWithLongLong = savedInteger;
+  auto output = RMCK_GetReplyLog(ctx);
+
+  for (auto *reply : replies) MRReply_Free(reply);
+  MRCtx_DecrRef(mr);
+  RedisModule_ThreadSafeContextLock(ctx);
+  MR_FreeCluster();
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  return output;
+}
+
 }  // namespace
 
 class FieldDiskMetricsTest : public ::testing::Test {};
@@ -228,39 +259,13 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
         .str("storage_bytes").integer(storage);
     return parseReply(r.s);
   };
-  MRReply *replies[] = {shardReply(100, 20, 1000), shardReply(200, 50, 4000)};
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
-  MR_Init(1, 1);
-  MR_InitLocalNodeId();
-  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, 2);
-
-  auto savedString = RedisModule_ReplyWithSimpleString;
-  auto savedInteger = RedisModule_ReplyWithLongLong;
-  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
-    RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
-    return REDISMODULE_OK;
-  };
-  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *ctx, long long value) {
-    RMCK_GetReplyLog(ctx).push_back("integer:" + std::to_string(value));
-    return REDISMODULE_OK;
-  };
-  EXPECT_EQ(InfoReplyReducer(mr, 2, replies), REDISMODULE_OK);
-  RedisModule_ReplyWithSimpleString = savedString;
-  RedisModule_ReplyWithLongLong = savedInteger;
+  const auto output = reduceInfoReplies({shardReply(100, 20, 1000), shardReply(200, 50, 4000)});
 
   const std::vector<std::string> expected = {
       "string:column_families", "map:postponed", "string:text", "map:postponed",
       "string:ram_metadata_bytes", "integer:300", "string:memtable_bytes", "integer:70",
       "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
-  const auto &output = RMCK_GetReplyLog(ctx);
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
-
-  for (auto *reply : replies) MRReply_Free(reply);
-  MRCtx_DecrRef(mr);
-  RedisModule_ThreadSafeContextLock(ctx);
-  MR_FreeCluster();
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
@@ -281,25 +286,7 @@ TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
         .integer(storage);
     return parseReply(r.s);
   };
-  MRReply *replies[] = {shardReply(3, 9, 20, 1000), shardReply(5, 7, 50, 4000)};
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
-  MR_Init(1, 1);
-  MR_InitLocalNodeId();
-  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, 2);
-
-  auto savedString = RedisModule_ReplyWithSimpleString;
-  auto savedInteger = RedisModule_ReplyWithLongLong;
-  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *value) {
-    RMCK_GetReplyLog(ctx).push_back("string:" + std::string(value));
-    return REDISMODULE_OK;
-  };
-  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *ctx, long long value) {
-    RMCK_GetReplyLog(ctx).push_back("integer:" + std::to_string(value));
-    return REDISMODULE_OK;
-  };
-  EXPECT_EQ(InfoReplyReducer(mr, 2, replies), REDISMODULE_OK);
-  RedisModule_ReplyWithSimpleString = savedString;
-  RedisModule_ReplyWithLongLong = savedInteger;
+  const auto output = reduceInfoReplies({shardReply(3, 9, 20, 1000), shardReply(5, 7, 50, 4000)});
 
   const std::vector<std::string> expected = {"string:column_families",
                                              "map:postponed",
@@ -315,14 +302,6 @@ TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
                                              "integer:5000",
                                              "setmap:4",
                                              "setmap:1"};
-  const auto &output = RMCK_GetReplyLog(ctx);
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()),
             output.end());
-
-  for (auto *reply : replies) MRReply_Free(reply);
-  MRCtx_DecrRef(mr);
-  RedisModule_ThreadSafeContextLock(ctx);
-  MR_FreeCluster();
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
 }
