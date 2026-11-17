@@ -956,16 +956,19 @@ def aggregate_rows(env, res):
     return res['results'] if env.protocol == 3 else res[1:]
 
 
-def stopped_at_first_read(env, coord, query):
+def stopped_at_first_read(env, coord, query, read_interval=None):
     """Runs `query` on the coordinator with memory forced over the limit after the entry guard,
     before its pipeline fetches the first shard reply, so its memory read before that fetch stops
     it. Shard 1 shares the forced ratio, so the outcome alone does not prove where the stop came
-    from; the FT.SEARCH tests above place the pressure precisely."""
+    from; the FT.SEARCH tests above place the pressure precisely. A `read_interval` also sets the
+    checkpoints' read interval with the pressure, so only exact memory reads see it."""
     sync_point(coord, 'CLEAR')
     sync_point(coord, 'ARM', 'BeforeRPNetNext')
     try:
         thread, result = run_in_thread(coord, query)
         wait_for_sync_point(coord, 'BeforeRPNetNext')
+        if read_interval is not None:
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', read_interval)
         coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
         sync_point(coord, 'SIGNAL', 'BeforeRPNetNext')
         thread.join(timeout=30)
@@ -1243,6 +1246,7 @@ def _test_aggregate_withcount_reader_stop(env):
                 sync_point(coord, 'CLEAR')
                 coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
             thread.join(timeout=30)
+            env.assertFalse(thread.is_alive())
             errors, warnings = coord_oom_counters(coord)
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', first_fetch_read)
             try:
@@ -1906,7 +1910,9 @@ def test_hybrid_subquery_stream_stop():
     """The coordinator FT.HYBRID reads memory before each shard reply of either subquery stream,
     as FT.AGGREGATE does: a stop under ON_OOM FAIL replies the OOM error, under RETURN the rows the
     merger holds with the coordinator OOM warning, and the stopped stream's shard cursors are
-    deleted rather than read. Shard 1 shares the forced ratio, as in stopped_at_first_read."""
+    deleted rather than read. The pressure comes with a read interval no row reaches, so the
+    per-row depleter, merger and reply checks never see it and only the stream's exact read can
+    stop the query."""
     env = Env(protocol=3)
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'hidx', 'SCHEMA', 'name', 'TEXT',
@@ -1922,7 +1928,7 @@ def test_hybrid_subquery_stream_stop():
         for oom_policy in ('return', 'fail'):
             allShards_change_oom_policy(env, oom_policy)
             errors, warnings = coord_oom_counters(coord)
-            res = stopped_at_first_read(env, coord, HYBRID_LARGE_WINDOW)
+            res = stopped_at_first_read(env, coord, HYBRID_LARGE_WINDOW, read_interval=1 << 30)
             if oom_policy == 'fail':
                 env.assertTrue(isinstance(res, ResponseError), message=res)
                 env.assertContains(OOM_QUERY_ERROR, str(res))
