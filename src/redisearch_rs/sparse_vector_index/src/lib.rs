@@ -296,15 +296,12 @@ impl SparseVectorIndex {
         self.dimensions.keys().copied()
     }
 
-    /// The dimension IDs greater than `after` (all of them for `None`), in
-    /// increasing order, so a GC walk can stop and resume by ID.
-    pub fn dimension_ids_after(&self, after: Option<u32>) -> Vec<u32> {
-        let mut ids: Vec<u32> = self
-            .dimensions
-            .keys()
-            .copied()
-            .filter(|&id| after.is_none_or(|a| id > a))
-            .collect();
+    /// The dimension IDs that have a posting list, in increasing order.
+    ///
+    /// This copies and sorts every ID, so a caller that walks the dimensions
+    /// in pieces should take it once and resume by position.
+    pub fn sorted_dimension_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self.dimension_ids().collect();
         ids.sort_unstable();
         ids
     }

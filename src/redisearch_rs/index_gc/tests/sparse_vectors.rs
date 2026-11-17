@@ -261,7 +261,7 @@ fn applying_drops_an_emptied_dimension_and_reports_what_it_freed() {
         total.record(apply_sparse_vector_entry(entry, &mut test.write_guard()).unwrap());
     }
     let index = test.index(0);
-    assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
+    assert_eq!(index.sorted_dimension_ids(), vec![1, 2]);
     assert_eq!(total.records_removed, 2);
     assert_eq!(
         memory_before + total.bytes_allocated,
@@ -309,13 +309,34 @@ fn the_thread_walk_resumes_after_the_last_dimension_it_visited() {
 }
 
 #[test]
+fn the_thread_walk_skips_dimensions_gone_since_it_started() {
+    let mut test = TestSpec::create(&[Some(DOCS), Some(DOCS)], &[]);
+    let live = |id: DocId| id != 2;
+    let mut cursor = SparseVectorsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_sparse_vectors_after(
+        &test.read_guard(),
+        &mut cursor,
+        live,
+        || true,
+        &mut found
+    ));
+    // Between holds, field 0's index is recreated empty: the IDs the walk
+    // listed for it no longer have posting lists.
+    test.replace_index(0);
+    while scan_sparse_vectors_after(&test.read_guard(), &mut cursor, live, || true, &mut found) {}
+    let walked: Vec<_> = found.iter().map(|s| (s.field_index, s.dim_id)).collect();
+    assert_eq!(walked, vec![(0, 1), (1, 1), (1, 2), (1, 3)]);
+}
+
+#[test]
 fn a_thread_gc_cycle_collects_every_sparse_field() {
     let mut test = TestSpec::create(&[Some(DOCS), None, Some(DOCS)], &[1, 2]);
     let mut recorder = Recorder::default();
     run_cycle(&mut test, &mut recorder, true).unwrap();
     for field in [0, 2] {
         let index = test.index(field);
-        assert_eq!(index.dimension_ids_after(None), vec![1], "field {field}");
+        assert_eq!(index.sorted_dimension_ids(), vec![1], "field {field}");
         assert_eq!(
             index.get_dimension(1).unwrap().unique_docs(),
             1,

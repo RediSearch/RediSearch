@@ -355,7 +355,7 @@ const NO_REPAIR: Option<fn(&RSIndexResult<'_>, &RepairContext<'_>)> = None;
 fn run_gc(index: &mut SparseVectorIndex, gone: &[u64]) -> usize {
     let live = |id: u64| !gone.contains(&id);
     let mut removed = 0;
-    for dim_id in index.dimension_ids_after(None) {
+    for dim_id in index.sorted_dimension_ids() {
         let list = index.get_dimension(dim_id).unwrap();
         let unique_id = u32::from(list.unique_id());
         let Some(delta) = list.scan_gc(live, NO_REPAIR).unwrap() else {
@@ -379,7 +379,7 @@ fn gc_collects_deleted_entries_and_drops_empty_dimensions() {
     // Doc 2 is the only one with dimension 3, so that dimension goes.
     assert_eq!(run_gc(&mut index, &[2]), 1);
     assert_eq!(index.num_records(), 3);
-    assert_eq!(index.dimension_ids_after(None), vec![1, 2]);
+    assert_eq!(index.sorted_dimension_ids(), vec![1, 2]);
     assert!(index.memory_usage() < memory_before);
 
     let query = ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]);

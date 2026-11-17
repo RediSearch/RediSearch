@@ -154,18 +154,31 @@ pub fn collect_sparse_vectors(
     serialize(writer, None::<SparseVectorEntry>)
 }
 
-/// Where a [`scan_sparse_vectors_after`] walk resumes: a field, and the last
-/// dimension of that field it visited.
+/// Where a [`scan_sparse_vectors_after`] walk resumes: a field, and how far
+/// into that field's dimensions it got.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SparseVectorsCursor {
     /// Position of the field in the spec's field array, which only grows.
     field_index: FieldIndex,
-    /// The last dimension visited in that field; `None` before the first.
-    after: Option<u32>,
+    /// The walk through that field's dimensions; `None` before the first.
+    dimensions: Option<DimensionsWalk>,
+}
+
+/// The dimension IDs a field had when its walk started, and the position of
+/// the next one to visit.
+///
+/// Taken once per field rather than per read hold: listing and sorting every
+/// ID costs more than the bounded number of dimensions one hold visits.
+/// Dimensions added after the walk started wait for the next cycle; ones
+/// removed since are skipped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DimensionsWalk {
+    ids: Vec<u32>,
+    next: usize,
 }
 
 /// Snapshot the dimensions of every sparse vector field, in field then
-/// dimension-ID order, starting strictly after `cursor`, until `should_stop`
+/// dimension-ID order, resuming where `cursor` stopped, until `should_stop`
 /// returns `true` after a dimension or none is left.
 ///
 /// Appends a [`SparseVectorSnapshot`] of each dimension whose posting list
@@ -182,10 +195,16 @@ pub fn scan_sparse_vectors_after(
     for (position, fs) in fields.skip(usize::from(cursor.field_index)) {
         let field_index = field_index_of(position);
         if let Some(index) = fetch_sparse_index(fs) {
-            for dim_id in index.dimension_ids_after(cursor.after) {
-                let list = index
-                    .get_dimension(dim_id)
-                    .expect("an ID the index listed has a posting list");
+            let walk = cursor.dimensions.get_or_insert_with(|| DimensionsWalk {
+                ids: index.sorted_dimension_ids(),
+                next: 0,
+            });
+            while let Some(&dim_id) = walk.ids.get(walk.next) {
+                walk.next += 1;
+                // Removed by a write hold since the walk started.
+                let Some(list) = index.get_dimension(dim_id) else {
+                    continue;
+                };
                 if let Some(snapshot) = list.gc_snapshot(&live, GcSnapshotScope::DirtyBlocks) {
                     found.push(SparseVectorSnapshot {
                         field_index,
@@ -195,7 +214,6 @@ pub fn scan_sparse_vectors_after(
                         snapshot,
                     });
                 }
-                cursor.after = Some(dim_id);
                 if should_stop() {
                     return true;
                 }
@@ -204,7 +222,7 @@ pub fn scan_sparse_vectors_after(
         cursor.field_index = field_index
             .checked_add(1)
             .expect("a spec has fewer fields than a field index can count");
-        cursor.after = None;
+        cursor.dimensions = None;
     }
     false
 }
