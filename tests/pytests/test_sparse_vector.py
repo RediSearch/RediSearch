@@ -416,16 +416,28 @@ def testJson(env):
     res = search(env, '@sp:[SPARSE $q]', [(3, 2.0), (10, 1.0)], 'WITHSCORES', 'NOCONTENT')
     env.assertEqual(ids_and_scores(res), [('doc:1', 3.0), ('doc:2', 1.5)])
 
-    for bad in [
-        {'indices': [1, 2], 'values': [1.0]},
-        {'indices': [1.5], 'values': [1.0]},
-        {'indices': [-1], 'values': [1.0]},
-        {'indices': [1]},
-        {'indices': [2, 1], 'values': [1.0, 1.0]},
-        [1, 2],
-    ]:
-        conn.execute_command('JSON.SET', 'doc:bad', '$', json.dumps({'sp': bad}))
-        env.assertEqual(search(env, '@sp:[SPARSE $q]', [(1, 1.0)], 'NOCONTENT'), [0])
+
+@skip(no_json=True, cluster=True)
+def testJsonInvalidValues(env):
+    """Each malformed value is rejected as an indexing failure with its own error,
+    rather than indexed as something else (an empty or reordered vector)."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, on='JSON', path='$.sp')
+    for n, (bad, error) in enumerate([
+        ({'indices': [1, 2], 'values': [1.0]}, 'must have the same length'),
+        ({'indices': [1.5], 'values': [1.0]}, 'Invalid sparse vector index at index 0'),
+        ({'indices': [-1], 'values': [1.0]}, 'Invalid sparse vector index at index 0'),
+        ({'indices': [1]}, 'must have `indices` and `values` arrays'),
+        ({'indices': [2, 1], 'values': [1.0, 1.0]}, 'strictly increasing'),
+        ([1, 2], 'Unsupported field type'),
+    ], start=1):
+        conn.execute_command('JSON.SET', f'doc:bad{n}', '$', json.dumps({'sp': bad}))
+        errors = to_dict(index_info(env)['Index Errors'])
+        env.assertEqual(errors['indexing failures'], n, message=bad)
+        env.assertContains(error, errors['last indexing error'], message=bad)
+        env.assertEqual(errors['last indexing error key'], f'doc:bad{n}', message=bad)
+    env.assertEqual(index_info(env)['num_docs'], 0)
 
 
 def check_gc_collects_sparse_entries(env):
