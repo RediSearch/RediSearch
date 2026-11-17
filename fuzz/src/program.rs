@@ -137,6 +137,8 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 pub enum OpKind {
     Create {
         index: Bytes,
+        #[serde(default, skip_serializing_if = "is_default")]
+        on: DataType,
         prefix: Bytes,
         fields: Vec<Field>,
     },
@@ -152,6 +154,8 @@ pub enum OpKind {
     },
     Alter {
         index: Bytes,
+        #[serde(default, skip_serializing_if = "is_default")]
+        on: DataType,
         field: Field,
     },
     /// The pipeline is raw tokens; only the cursor is typed, because its id
@@ -174,11 +178,22 @@ pub enum OpKind {
     /// `n` writes under `prefix`, with values for `fields` drawn from the
     /// fixed dictionary by a PRNG seeded with `seed`.
     Populate {
+        #[serde(default, skip_serializing_if = "is_default")]
+        on: DataType,
         prefix: Bytes,
         fields: Vec<Field>,
         n: u32,
         seed: u64,
     },
+}
+
+/// What an index covers: hashes, or JSON documents (with RedisJSON).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DataType {
+    #[default]
+    Hash,
+    Json,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -345,6 +360,7 @@ mod tests {
                     reply: ReplyMode::Defer,
                     kind: OpKind::Create {
                         index: "i1".into(),
+                        on: DataType::Json,
                         prefix: "doc:".into(),
                         fields: vec![Field {
                             name: "t".into(),

@@ -55,6 +55,12 @@ enum OpKind {
   deletes, drops,
   `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET`, is a `Command`.
   The interpreter treats a typed op and a `Command` the same way once lowered.
+- **`on`** (`hash` or `json`) on `Create`, `Alter`, and `Populate` selects the
+  data type. A JSON schema declares `$.name AS name`; a JSON write is
+  `JSON.SET key $` of an object with text and geo as strings, tags as arrays
+  of strings, numbers as numbers, and vectors as arrays of floats. The
+  generator makes about a third of its indexes JSON, on prefixes of their own,
+  so writes of one type rarely meet keys of the other.
 - **`module_args`** holds only what must exist before the server starts: some
   `search-*` settings are immutable after load. Runtime configuration is a
   `CONFIG SET` command.

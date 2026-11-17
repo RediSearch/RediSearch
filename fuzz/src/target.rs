@@ -35,6 +35,8 @@ const POLL: Duration = Duration::from_millis(20);
 pub struct Env {
     pub redis_server: PathBuf,
     pub module: PathBuf,
+    /// RedisJSON, loaded after the module as the Python tests do.
+    pub rejson: PathBuf,
 }
 
 impl Env {
@@ -47,6 +49,7 @@ impl Env {
         Ok(Env {
             redis_server: var("REDIS_SERVER")?,
             module: var("REDISEARCH_MODULE")?,
+            rejson: var("REJSON_MODULE")?,
         })
     }
 }
@@ -102,6 +105,8 @@ impl Server {
             .arg("--loadmodule")
             .arg(&env.module)
             .args(module_args.iter().map(|a| OsStr::from_bytes(a.as_slice())))
+            .arg("--loadmodule")
+            .arg(&env.rejson)
             .env(coverage::SHM_ENV, coverage.name())
             .stdin(Stdio::null())
             .stdout(out)

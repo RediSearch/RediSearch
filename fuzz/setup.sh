@@ -66,6 +66,19 @@ git -C "$ROOT" apply -R "$patch"
 trap - EXIT
 PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
 
+# RedisJSON, built the way tests/pytests/runtests.sh builds it: REJSON_PATH
+# names a prebuilt module, REJSON_BRANCH a branch to build (default master).
+# RedisJSON's sanitizer build assumes Linux (a target triple with an
+# environment, an ELF linker flag), so on macOS it is built without one.
+echo "==> rejson.so"
+rejson_san=address
+[[ $OS == Darwin ]] && rejson_san=""
+set +u
+ROOT="$ROOT" BINROOT="$(dirname "$(dirname "$module")")" SAN="$rejson_san" \
+  source "$ROOT/tests/deps/setup_rejson.sh"
+set -u
+cd "$ROOT"
+
 preload=""
 if [[ $OS != Darwin ]] && command -v g++ > /dev/null; then
   preload="$(g++ -print-file-name=libstdc++.so.6)"
@@ -75,6 +88,7 @@ cat > "$OUT/env.sh" <<EOF
 export REDIS_SERVER="$redis_server"
 export REDISEARCH_MODULE="$module"
 export REDISEARCH_PLANTED_MODULE="$planted"
+export REJSON_MODULE="$JSON_BIN_PATH"
 export RS_GLOBAL_DTORS=1
 export ASAN_OPTIONS="halt_on_error=1:detect_odr_violation=0:detect_leaks=1"
 export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0"

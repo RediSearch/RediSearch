@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 
 use crate::program::{
-    Algorithm, Argv, Bound, Bytes, CursorAction, Field, FieldKind, Metric, OpKind, Query, Var, argv,
+    Algorithm, Argv, Bound, Bytes, CursorAction, DataType, Field, FieldKind, Metric, OpKind, Query,
+    Var, argv,
 };
 
 /// The cursor ids bound so far.
@@ -41,24 +42,33 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
     match op {
         OpKind::Create {
             index,
+            on,
             prefix,
             fields,
         } => {
             let mut command = argv(&["FT.CREATE"]);
             command.push(index.clone());
-            command.extend(argv(&["ON", "HASH", "PREFIX", "1"]));
+            command.push("ON".into());
+            command.push(
+                match on {
+                    DataType::Hash => "HASH",
+                    DataType::Json => "JSON",
+                }
+                .into(),
+            );
+            command.extend(argv(&["PREFIX", "1"]));
             command.push(prefix.clone());
             command.push("SCHEMA".into());
             fields
                 .iter()
-                .for_each(|field| schema_field(field, &mut command));
+                .for_each(|field| schema_field(*on, field, &mut command));
             vec![command]
         }
-        OpKind::Alter { index, field } => {
+        OpKind::Alter { index, on, field } => {
             let mut command = argv(&["FT.ALTER"]);
             command.push(index.clone());
             command.extend(argv(&["SCHEMA", "ADD"]));
-            schema_field(field, &mut command);
+            schema_field(*on, field, &mut command);
             vec![command]
         }
         OpKind::Aggregate {
@@ -119,6 +129,7 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
         OpKind::Barrier => Vec::new(),
         OpKind::Command { argv } => vec![argv.clone()],
         OpKind::Populate {
+            on,
             prefix,
             fields,
             n,
@@ -129,12 +140,11 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
                 .map(|i| {
                     let mut key = prefix.clone();
                     key.0.extend_from_slice(i.to_string().as_bytes());
-                    let mut command = vec!["HSET".into(), key];
-                    for field in fields {
-                        command.push(field.name.clone());
-                        command.push(populated(field, &mut rng));
-                    }
-                    command
+                    let values: Vec<(&Field, Bytes)> = fields
+                        .iter()
+                        .map(|field| (field, populated(field, &mut rng)))
+                        .collect();
+                    write(*on, key, &values)
                 })
                 .collect()
         }
@@ -206,7 +216,71 @@ fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
     }
 }
 
-fn schema_field(field: &Field, command: &mut Argv) {
+/// A write of `values` to `key`: `HSET`, or `JSON.SET` of an object whose
+/// members are the values as JSON. Text and geo points are strings, tags an
+/// array of strings, numbers stay numbers, and a vector blob becomes an array
+/// of floats.
+pub fn write(on: DataType, key: Bytes, values: &[(&Field, Bytes)]) -> Argv {
+    match on {
+        DataType::Hash => {
+            let mut command = vec!["HSET".into(), key];
+            for (field, value) in values {
+                command.push(field.name.clone());
+                command.push(value.clone());
+            }
+            command
+        }
+        DataType::Json => {
+            let members: Vec<String> = values
+                .iter()
+                .map(|(field, value)| {
+                    let name = String::from_utf8_lossy(field.name.as_slice());
+                    format!("{}:{}", json_string(&name), json_value(&field.kind, value))
+                })
+                .collect();
+            vec![
+                "JSON.SET".into(),
+                key,
+                "$".into(),
+                format!("{{{}}}", members.join(",")).into(),
+            ]
+        }
+    }
+}
+
+fn json_value(kind: &FieldKind, value: &Bytes) -> String {
+    match kind {
+        FieldKind::Numeric => String::from_utf8_lossy(value.as_slice()).into_owned(),
+        FieldKind::Vector { .. } => {
+            let floats: Vec<String> = value
+                .as_slice()
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]).to_string())
+                .collect();
+            format!("[{}]", floats.join(","))
+        }
+        FieldKind::Tag => {
+            let tags: Vec<String> = String::from_utf8_lossy(value.as_slice())
+                .split(',')
+                .map(json_string)
+                .collect();
+            format!("[{}]", tags.join(","))
+        }
+        FieldKind::Text | FieldKind::Geo => json_string(&String::from_utf8_lossy(value.as_slice())),
+    }
+}
+
+fn json_string(text: &str) -> String {
+    serde_json::to_string(text).expect("strings serialize")
+}
+
+fn schema_field(on: DataType, field: &Field, command: &mut Argv) {
+    if on == DataType::Json {
+        let mut path = Bytes::from("$.");
+        path.0.extend_from_slice(field.name.as_slice());
+        command.push(path);
+        command.push("AS".into());
+    }
     command.push(field.name.clone());
     match &field.kind {
         FieldKind::Text => command.push("TEXT".into()),
@@ -374,6 +448,7 @@ mod tests {
             sortable: false,
         };
         let op = OpKind::Populate {
+            on: DataType::Hash,
             prefix: "k:".into(),
             fields: vec![
                 field("t", FieldKind::Text),
@@ -392,6 +467,64 @@ mod tests {
                 words("HSET|k:1|t|the green|n|0|g|red|p|9.1000,3.3743"),
                 words("HSET|k:2|t|running running hello|n|906|g|red,日本語|p|68.5272,35.7618"),
             ]
+        );
+    }
+
+    #[test]
+    fn json_indexes_use_paths_and_json_writes_render_each_kind() {
+        let field = |name: &str, kind| Field {
+            name: name.into(),
+            kind,
+            sortable: false,
+        };
+        let text = field("t", FieldKind::Text);
+        let tag = field("g", FieldKind::Tag);
+        let n = field("n", FieldKind::Numeric);
+        let v = field(
+            "v",
+            FieldKind::Vector {
+                algorithm: Algorithm::Flat,
+                dim: 2,
+                metric: Metric::L2,
+            },
+        );
+        let create = OpKind::Create {
+            index: "i".into(),
+            on: DataType::Json,
+            prefix: "j:".into(),
+            fields: vec![n.clone()],
+        };
+        assert_eq!(
+            lower(&create, &Cursors::new()),
+            [argv(&[
+                "FT.CREATE",
+                "i",
+                "ON",
+                "JSON",
+                "PREFIX",
+                "1",
+                "j:",
+                "SCHEMA",
+                "$.n",
+                "AS",
+                "n",
+                "NUMERIC"
+            ])]
+        );
+        let values = [
+            (&text, Bytes::from("say \"hi\"")),
+            (&tag, Bytes::from("red,blue")),
+            (&n, Bytes::from("-7")),
+            (&v, vector(2, || 15)),
+        ];
+        assert_eq!(
+            write(DataType::Json, "j:1".into(), &values),
+            argv(&[
+                "JSON.SET",
+                "j:1",
+                "$",
+                r#"{"t":"say \"hi\"","g":["red","blue"],"n":-7,"v":[1.5,1.5]}"#
+            ])
         );
     }
 

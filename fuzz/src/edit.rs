@@ -16,9 +16,9 @@ use std::ops::RangeInclusive;
 use rand::Rng;
 use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
 
-use crate::lower::{Cursors, NUMBERS, WORDS, lower, vector};
+use crate::lower::{self, Cursors, NUMBERS, WORDS, lower, vector};
 use crate::program::{
-    Algorithm, Argv, Bound, Bytes, Conn, CursorAction, CursorSpec, FORMAT_VERSION, Field,
+    Algorithm, Argv, Bound, Bytes, Conn, CursorAction, CursorSpec, DataType, FORMAT_VERSION, Field,
     FieldKind, Metric, Op, OpKind, Program, Query, QueryOptions, ReplyMode, Var, argv,
 };
 
@@ -33,6 +33,7 @@ const KEYS: u32 = 16;
 const QUERY_DEPTH: u32 = 2;
 const INDEXES: [&str; 3] = ["i0", "i1", "i2"];
 const PREFIXES: [&str; 2] = ["d0:", "d1:"];
+const JSON_PREFIXES: [&str; 2] = ["j0:", "j1:"];
 const FIELDS: [&str; 5] = ["f0", "f1", "f2", "f3", "f4"];
 const SYNTAX: &[u8] = b"@:{}[]()|-~*%\"\\$,.; ";
 const DEBUG: &str = "_FT.DEBUG";
@@ -57,6 +58,7 @@ pub struct Scope {
 
 #[derive(Clone, Debug)]
 pub struct Schema {
+    pub on: DataType,
     pub prefix: Bytes,
     pub fields: Vec<Field>,
 }
@@ -77,10 +79,12 @@ impl Scope {
         match &op.kind {
             OpKind::Create {
                 index,
+                on,
                 prefix,
                 fields,
             } => {
                 self.indexes.entry(index.clone()).or_insert_with(|| Schema {
+                    on: *on,
                     prefix: prefix.clone(),
                     fields: fields.clone(),
                 });
@@ -97,7 +101,7 @@ impl Scope {
                 }
                 _ => {}
             },
-            OpKind::Alter { index, field } => {
+            OpKind::Alter { index, field, .. } => {
                 if let Some(schema) = self.indexes.get_mut(index)
                     && schema.fields.iter().all(|f| f.name != field.name)
                 {
@@ -190,6 +194,7 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
         (None, _) | (_, 0) => create(scope, rng),
         (Some((_, schema)), 1..=6) => write(schema, pools, rng),
         (Some((_, schema)), 7) => OpKind::Populate {
+            on: schema.on,
             prefix: schema.prefix.clone(),
             fields: schema.fields.clone(),
             n: 1 << rng.random_range(POPULATE_BITS) | rng.random_range(0..2),
@@ -238,6 +243,7 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
         }
         (Some((name, schema)), 17) => OpKind::Alter {
             index: name.clone(),
+            on: schema.on,
             field: field(
                 FIELDS
                     .iter()
@@ -297,9 +303,15 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> OpKind {
         .filter(|name| !scope.indexes.contains_key(name))
         .choose(rng)
         .unwrap_or_else(|| (*INDEXES.choose(rng).expect("never empty")).into());
+    let (on, prefixes) = if rng.random_ratio(1, 3) {
+        (DataType::Json, JSON_PREFIXES)
+    } else {
+        (DataType::Hash, PREFIXES)
+    };
     OpKind::Create {
         index,
-        prefix: (*PREFIXES.choose(rng).expect("never empty")).into(),
+        on,
+        prefix: (*prefixes.choose(rng).expect("never empty")).into(),
         fields,
     }
 }
@@ -391,16 +403,16 @@ fn key(schema: &Schema, rng: &mut impl Rng) -> Bytes {
 }
 
 fn write(schema: &Schema, pools: &Pools, rng: &mut impl Rng) -> OpKind {
-    let mut hset = argv(&["HSET"]);
-    hset.push(key(schema, rng));
+    let key = key(schema, rng);
+    let mut values = Vec::new();
     for field in &schema.fields {
-        if hset.len() > 2 && rng.random_ratio(1, 4) {
-            continue;
+        if values.is_empty() || !rng.random_ratio(1, 4) {
+            values.push((field, value(&field.kind, pools, rng)));
         }
-        hset.push(field.name.clone());
-        hset.push(value(&field.kind, pools, rng));
     }
-    OpKind::Command { argv: hset }
+    OpKind::Command {
+        argv: lower::write(schema.on, key, &values),
+    }
 }
 
 fn value(kind: &FieldKind, pools: &Pools, rng: &mut impl Rng) -> Bytes {
@@ -631,22 +643,26 @@ pub fn smaller(program: &Program) -> Vec<Program> {
         let kinds: Vec<OpKind> = match &op.kind {
             OpKind::Create {
                 index,
+                on,
                 prefix,
                 fields,
             } => without_each(fields)
                 .map(|fields| OpKind::Create {
                     index: index.clone(),
+                    on: *on,
                     prefix: prefix.clone(),
                     fields,
                 })
                 .collect(),
             OpKind::Populate {
+                on,
                 prefix,
                 fields,
                 n,
                 seed,
             } => (*n > 1)
                 .then(|| OpKind::Populate {
+                    on: *on,
                     prefix: prefix.clone(),
                     fields: fields.clone(),
                     n: n / 2,
@@ -654,6 +670,7 @@ pub fn smaller(program: &Program) -> Vec<Program> {
                 })
                 .into_iter()
                 .chain(without_each(fields).map(|fields| OpKind::Populate {
+                    on: *on,
                     prefix: prefix.clone(),
                     fields,
                     n: *n,

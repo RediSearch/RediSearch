@@ -17,7 +17,7 @@ same clang.
 | cmake, make, perl, git | as for a normal RediSearch build | |
 
 Network access during the first build: crates.io, github.com (submodules,
-CMake-fetched sources, Redis), and `release-assets.githubusercontent.com`
+CMake-fetched sources, Redis, RedisJSON), and `release-assets.githubusercontent.com`
 (Boost, unless `.install/boost` already exists).
 
 ### One command
@@ -46,8 +46,15 @@ source bin/fuzz/env.sh
    duration of one incremental build and reverted afterwards, then the module
    is rebuilt clean; do not commit or snapshot while it runs. If the patch no
    longer applies after a change on master, refresh its context lines.
-5. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
-   `REDISEARCH_PLANTED_MODULE`, and the sanitizer settings below.
+5. Builds RedisJSON with `tests/deps/setup_rejson.sh`, exactly as
+   `tests/pytests/runtests.sh` does: it clones RedisJSON into
+   `tests/deps/RedisJSON` and builds it with `SAN=address` (on Linux; RedisJSON's
+   sanitizer build does not support macOS, so there it is built without one). `REJSON_PATH`
+   names a prebuilt module instead, and `REJSON_BRANCH` a branch to build
+   (default `master`). Every fuzzed server loads it after the module.
+6. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
+   `REDISEARCH_PLANTED_MODULE`, `REJSON_MODULE`, and the sanitizer settings
+   below.
 
 Variables:
 

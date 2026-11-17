@@ -30,6 +30,7 @@ struct Manifest<'a> {
     runs: u32,
     redis_server: &'a Path,
     module: &'a Path,
+    rejson: &'a Path,
     environment: Vec<(&'a str, String)>,
 }
 
@@ -52,6 +53,7 @@ pub fn write(
         runs,
         redis_server: &env.redis_server,
         module: &env.module,
+        rejson: &env.rejson,
         environment: SANITIZER_VARS
             .iter()
             .filter_map(|&name| Some((name, std::env::var(name).ok()?)))
