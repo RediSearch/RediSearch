@@ -723,14 +723,20 @@ def _hybrid_stop_shapes(env):
                 _set_policies(env, 'return', 'return', workers)
 
                 # A stop that lands after a stage read everything truncates nothing and warns of
-                # nothing; any cut carries the OOM warning and never a timeout one.
+                # nothing; any cut carries the OOM warning and never a timeout one. Some stop must
+                # warn, or a query that ignores every stop would pass.
+                warned = 0
+
                 def returns_with_warning(res, at_call, calls):
+                    nonlocal warned
                     env.assertFalse(isinstance(res, Exception), message=(name, workers, at_call, res))
                     rows, warnings = _hybrid_reply(env, res)
                     env.assertTrue(warnings == [COORD_OOM_WARNING] or
                                    (len(rows) == full and warnings == []),
                                    message=(name, workers, at_call, res))
+                    warned += warnings == [COORD_OOM_WARNING]
                 _sweep_hybrid(env, query, returns_with_warning)
+                env.assertGreater(warned, 0, message=(name, workers))
 
                 _set_policies(env, 'return', 'fail', workers)
 
@@ -997,6 +1003,7 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
             allShards_change_oom_policy(env, 'return')
             calls = shard_calls()
             env.assertGreater(calls, 0)
+            warned = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
                 env.assertFalse(isinstance(res, Exception),
@@ -1004,6 +1011,9 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
                 env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
                                (len(res['results']) == full and res['warnings'] == []),
                                message=(workers, on_timeout, at_call, res))
+                warned += res['warnings'] == [COORD_OOM_WARNING]
+            # Some stop must warn, or a shard that ignores every stop would pass.
+            env.assertGreater(warned, 0, message=(workers, on_timeout))
 
             # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
             # standalone; everywhere else it is the OOM error.
