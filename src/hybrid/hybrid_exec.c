@@ -856,7 +856,8 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_STOPPED) {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
-          } else {
+          } else if (HybridRequest_GetError(req, status) == REDISMODULE_OK) {
+            // No subquery recorded why it failed.
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
           }
         }
