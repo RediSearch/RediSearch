@@ -32,6 +32,12 @@ typedef struct HybridExplainContext HybridExplainContext;
  * can force preservation even without scores. At this flag-only stage we also
  * keep score-returning requests on the conservative copy path to preserve the
  * existing rich-result behavior.
+ *
+ * The query optimizer also relies on this to keep its numeric SORTBY reader,
+ * which yields only each match's numeric value, away from requests that read
+ * term records: the highlighter does, and so does scoring, which finds no
+ * matched term without them and scores every result 0. Narrowing this to the
+ * copy path's needs alone would break returned scores under that optimizer.
  */
 static inline bool QEFlags_RequireIndexResultsDownstream(QEFlags flags) {
   return (flags & QEXEC_F_SEND_HIGHLIGHT) ||
