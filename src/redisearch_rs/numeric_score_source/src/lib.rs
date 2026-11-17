@@ -65,21 +65,12 @@ pub type NumericTopKIterator<
     I = CRQEIterator,
 > = TopKIterator<'index, NumericScoreSource<'index, V, E, T>, I, RuntimeOrder>;
 
-/// Pick the heap's score ordering for the query's sort direction.
-pub(crate) fn cmp_for(ascending: bool) -> RuntimeOrder {
-    RuntimeOrder::new(ascending)
-}
-
 /// Construct an unfiltered [`NumericTopKIterator`] (no filter child).
 ///
 /// Every record is fed through the heap, which retains the top `k` by numeric
 /// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
 /// with no child) performs the selection. The sort direction is taken from the
 /// `source` (`SORTBY field ASC`/`DESC`).
-///
-/// The source's window is sized from `k`
-/// ([`narrow_window_to_top_k`](NumericScoreSource::narrow_window_to_top_k)), so
-/// only the best-scored ranges covering `k` documents are read.
 pub fn new_numeric_top_k_unfiltered<
     'index,
     V: DocValidity + 'index,
@@ -89,23 +80,8 @@ pub fn new_numeric_top_k_unfiltered<
     source: NumericScoreSource<'index, V, E, T>,
     k: NonZeroUsize,
 ) -> NumericTopKIterator<'index, V, E, T> {
-    let heap = TopKHeap::new(k, cmp_for(source.ascending()));
-    numeric_top_k_unfiltered_with_heap(source, heap)
-}
-
-/// [`new_numeric_top_k_unfiltered`] around a pre-allocated `heap`, whose
-/// capacity is `k`.
-pub(crate) fn numeric_top_k_unfiltered_with_heap<
-    'index,
-    V: DocValidity + 'index,
-    E: ExpirationChecker + 'index,
-    T: TimeoutContext + 'index,
->(
-    mut source: NumericScoreSource<'index, V, E, T>,
-    heap: TopKHeap<'index, RuntimeOrder>,
-) -> NumericTopKIterator<'index, V, E, T> {
-    source.narrow_window_to_top_k(heap.capacity().get());
-    TopKIterator::from_heap(source, None, heap, TopKMode::Batches)
+    let heap = TopKHeap::new(k, RuntimeOrder::new(source.ascending()));
+    assemble(source, None, heap)
 }
 
 /// Construct a filtered [`NumericTopKIterator`] over `child`.
@@ -124,15 +100,18 @@ where
     T: TimeoutContext + 'index,
     C: RQEIterator<'index> + 'index,
 {
-    let heap = TopKHeap::new(k, cmp_for(source.ascending()));
-    numeric_top_k_filtered_with_heap(source, child, heap)
+    let heap = TopKHeap::new(k, RuntimeOrder::new(source.ascending()));
+    assemble(source, Some(child), heap)
 }
 
-/// [`new_numeric_top_k_filtered`] around a pre-allocated `heap`, whose
-/// capacity is `k`.
-pub(crate) fn numeric_top_k_filtered_with_heap<'index, V, E, T, C>(
-    source: NumericScoreSource<'index, V, E, T>,
-    child: C,
+/// Wrap `source` and `child` around a `heap` of capacity `k`.
+///
+/// Without a child every record read reaches the heap, so the source's window
+/// is narrowed to the best-scored ranges covering `k` documents
+/// ([`narrow_window_to_top_k`](NumericScoreSource::narrow_window_to_top_k)).
+pub(crate) fn assemble<'index, V, E, T, C>(
+    mut source: NumericScoreSource<'index, V, E, T>,
+    child: Option<C>,
     heap: TopKHeap<'index, RuntimeOrder>,
 ) -> NumericTopKIterator<'index, V, E, T, C>
 where
@@ -141,7 +120,10 @@ where
     T: TimeoutContext + 'index,
     C: RQEIterator<'index> + 'index,
 {
-    TopKIterator::from_heap(source, Some(child), heap, TopKMode::Batches)
+    if child.is_none() {
+        source.narrow_window_to_top_k(heap.capacity().get());
+    }
+    TopKIterator::from_heap(source, child, heap, TopKMode::Batches)
 }
 
 impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile

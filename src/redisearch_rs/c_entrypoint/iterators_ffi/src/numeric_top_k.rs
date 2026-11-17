@@ -40,9 +40,9 @@ use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
 /// owning child iterator for a filtered query, whose selectivity sizes the
 /// initial value-window and drives the expand-and-retry path.
 ///
-/// `filter` is read once to copy the numeric range parameters; it is not
-/// retained after this call. `mode` is the [`NumericOptimizerMode`] the query
-/// plan chose.
+/// `filter` is read once to copy the numeric range parameters, including the
+/// sort direction; it is not retained after this call. `mode` is the
+/// [`NumericOptimizerMode`] the query plan chose.
 ///
 /// Documents the doc table no longer shows (deleted, or hidden by a pending slot
 /// deletion) are dropped before they can take a top-k slot.
@@ -69,7 +69,6 @@ use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
 pub unsafe extern "C" fn NewNumericTopKIterator(
     tree: *const NumericRangeTree,
     filter: *const NumericFilter,
-    ascending: bool,
     k: usize,
     num_docs: usize,
     mode: NumericOptimizerMode,
@@ -110,7 +109,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     let child = NonNull::new(child).map(|c| unsafe { CRQEIterator::new(c) });
 
     let reduced = new_numeric_top_k(
-        tree, filter, ascending, k, num_docs, mode, validity, expiration, timeout, child,
+        tree, filter, k, num_docs, mode, validity, expiration, timeout, child,
     );
     match reduced {
         Ok(reduced) => box_reduced(reduced),
