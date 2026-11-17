@@ -110,6 +110,7 @@ typedef struct {
   // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
   // ascending order over a doc table too big to stay cached.
   bool prefetchDmd;
+  bool returnedRow;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -327,6 +328,7 @@ typedef enum {
   REVALIDATE_CONTINUE,         // Proceed with a normal read
   REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
   REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+  REVALIDATE_ABORTED,          // The index changed under the iterator: it now reads as exhausted
 } RevalidateOutcome;
 
 /**
@@ -334,8 +336,8 @@ typedef enum {
  *
  * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
  * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
- * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
- * results are partial and must be returned as `RS_RESULT_STOPPED`.
+ * reports: an abort lets the query end as if the index were exhausted, unless the caller fails it,
+ * while a timeout means the results are partial and must be returned as `RS_RESULT_STOPPED`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -368,9 +370,7 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
   if (rc == VALIDATE_ABORTED || rc == VALIDATE_TIMEOUT) {
     self->iterator->Free(self->iterator);
     self->iterator = NewEmptyIterator();
-    if (rc == VALIDATE_TIMEOUT) {
-      return REVALIDATE_TIMEDOUT;
-    }
+    return rc == VALIDATE_TIMEOUT ? REVALIDATE_TIMEDOUT : REVALIDATE_ABORTED;
   } else if (rc == VALIDATE_MOVED && !it->atEOF) {
     return REVALIDATE_VALIDATE_CURRENT;
   }
@@ -391,6 +391,13 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+  }
+  // Only FT.HYBRID background depletion bounds a query. Before its first row, failing loses
+  // nothing, where reading on would answer the subquery as empty and successful.
+  if (revalidateOutcome == REVALIDATE_ABORTED && sctx->maxVisibleDocId && !self->returnedRow) {
+    QueryError_SetWithoutUserDataFmt(base->parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                                     "Index changed before the query started; retry");
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_ERROR);
   }
   bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
@@ -441,6 +448,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
     }
 
     setSearchResult(base, res, it->current, dmd);
+    self->returnedRow = true;
     return RS_RESULT_OK;
   }
 }

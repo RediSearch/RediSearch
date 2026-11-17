@@ -170,3 +170,106 @@ def test_hybrid_writer_not_blocked_before_depletion():
     env.assertEqual(hybrid_reply_keys(payload) & late_keys, set())
     # The late documents match the query, so their absence above comes from the bound.
     env.assertEqual(hybrid_reply_keys(env.cmd(*query)) & late_keys, late_keys)
+
+
+INDEX_CHANGED_ERROR = 'Index changed before the query started; retry'
+
+
+def setup_numeric_index(env):
+    conn = env.getConnection()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 6):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i,
+                             'v', np.array([i, 0.0]).astype(np.float32).tobytes())
+
+
+def split_numeric_tree(env):
+    """Add enough distinct values to split the numeric tree's only range, which bumps its
+    revision and so aborts the numeric iterator on its next revalidation."""
+    def revision():
+        return to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))['revisionId']
+
+    before = revision()
+    conn = env.getConnection()
+    for i in range(500):
+        conn.execute_command('HSET', f'late:{i}', 'n', 2000 + i)
+    env.assertNotEqual(revision(), before,
+                       message='the inserts must change the numeric tree, or nothing aborts')
+
+
+def run_in_thread(conn, query):
+    outcome = []
+
+    def run():
+        try:
+            outcome.append(('ok', conn.execute_command(*query)))
+        except Exception as e:
+            outcome.append(('err', str(e)))
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def hybrid_numeric_query(*extra):
+    query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    return ('SEARCH', '@n:[0 100]', 'VSIM', '@v', '$BLOB', *extra,
+            'PARAMS', '2', 'BLOB', query_vector)
+
+
+@skip(cluster=True)
+def test_hybrid_fails_when_numeric_tree_changes_before_depletion():
+    """A numeric tree change between the build and the depletion aborts the search
+    subquery's iterators before they return a row, so the query fails rather than
+    answering that subquery as empty."""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_numeric_index(env)
+
+    sync_point = 'BeforeHybridDepletion'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+    # TIMEOUT 0 leaves the signal as the only release of the sync point.
+    thread, outcome = run_in_thread(
+        env.getConnection(), ('FT.HYBRID', 'idx', *hybrid_numeric_query(), 'TIMEOUT', '0'))
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    split_numeric_tree(env)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    thread.join(timeout=30)
+    env.assertFalse(thread.is_alive(), message='Query thread never completed')
+    env.assertEqual(outcome[0][0] if outcome else None, 'err', message=outcome)
+    if outcome:
+        env.assertContains(INDEX_CHANGED_ERROR, outcome[0][1])
+
+
+@skip(cluster=True)
+def test_hybrid_cursor_reports_subquery_error():
+    """The shard's cursor path replies with the failing subquery's own error."""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_numeric_index(env)
+
+    shard_conn = env.getConnection()
+    shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    setPauseBeforeHybridStoreCursors(env, True)
+    thread, outcome = run_in_thread(
+        shard_conn,
+        ('_FT.HYBRID', 'idx', *hybrid_numeric_query('WITHCURSOR'),
+         '_COORD_DISPATCH_TIME', '1000000'))
+    wait_for_condition(
+        lambda: (getIsHybridStoreCursorsPaused(env) == 1, {}),
+        'Timeout waiting for the hybrid cursor pause')
+
+    split_numeric_tree(env)
+
+    resetHybridStoreCursorsDebug(env)
+    thread.join(timeout=30)
+    env.assertFalse(thread.is_alive(), message='Query thread never completed')
+    env.assertEqual(outcome[0][0] if outcome else None, 'err', message=outcome)
+    if outcome:
+        env.assertContains(INDEX_CHANGED_ERROR, outcome[0][1])
