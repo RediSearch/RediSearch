@@ -268,6 +268,36 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
 }
 
+TEST_F(FieldDiskMetricsTest, InfoReducerSumsMissingColumnFamilyResources) {
+  auto shardReply = [](long long memtable, long long storage) {
+    Resp r;
+    r.arr(2)
+        .str("column_families")
+        .arr(2)
+        .str("missing")
+        .arr(4)
+        .str("memtable_bytes")
+        .integer(memtable)
+        .str("storage_bytes")
+        .integer(storage);
+    return parseReply(r.s);
+  };
+  const auto output = reduceInfoReplies({shardReply(20, 1000), shardReply(50, 4000)});
+
+  const std::vector<std::string> expected = {"string:column_families",
+                                             "map:postponed",
+                                             "string:missing",
+                                             "map:postponed",
+                                             "string:memtable_bytes",
+                                             "integer:70",
+                                             "string:storage_bytes",
+                                             "integer:5000",
+                                             "setmap:2",
+                                             "setmap:1"};
+  EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()),
+            output.end());
+}
+
 TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
   auto shardReply = [](long long docs, long long maxId, long long memtable, long long storage) {
     Resp r;
