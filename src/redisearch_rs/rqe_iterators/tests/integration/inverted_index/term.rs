@@ -123,6 +123,13 @@ fn term_skip_to() {
 }
 
 #[test]
+fn term_stops_at_context_bound() {
+    let test = TermBaseTest::new(10);
+    test.test
+        .read_and_skip_to_bounded(10, || ContractChecker::new(test.create_iterator()));
+}
+
+#[test]
 /// test reading from Term iterator with a filter
 fn term_filter() {
     let test = TermBaseTest::new(10);

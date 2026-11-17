@@ -31,6 +31,7 @@ struct NumericBuilder<'index, R, E = NoOpChecker> {
     range_min: Option<f64>,
     range_max: Option<f64>,
     expiration_checker: E,
+    max_doc_id: DocId,
     _marker: std::marker::PhantomData<&'index ()>,
 }
 
@@ -46,6 +47,7 @@ where
     /// - `range_min`: None
     /// - `range_max`: None
     /// - `expiration_checker`: NoOpChecker
+    /// - `max_doc_id`: [`DocId::MAX`]
     fn new(reader: R) -> Self {
         Self {
             reader,
@@ -53,6 +55,7 @@ where
             range_min: None,
             range_max: None,
             expiration_checker: NoOpChecker,
+            max_doc_id: DocId::MAX,
             _marker: std::marker::PhantomData,
         }
     }
@@ -86,6 +89,12 @@ where
         self
     }
 
+    /// End the index at `max_doc_id`.
+    fn max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.max_doc_id = max_doc_id;
+        self
+    }
+
     /// Set the expiration checker.
     fn expiration_checker<E2: rqe_iterators::ExpirationChecker>(
         self,
@@ -97,6 +106,7 @@ where
             range_min: self.range_min,
             range_max: self.range_max,
             expiration_checker: checker,
+            max_doc_id: self.max_doc_id,
             _marker: std::marker::PhantomData,
         }
     }
@@ -111,7 +121,7 @@ where
                 self.range_source,
                 self.range_min,
                 self.range_max,
-                DocId::MAX,
+                self.max_doc_id,
             )
         }
     }
@@ -356,6 +366,111 @@ fn skip_to_then_read_with_duplicates() {
     // No more docs.
     assert_eq!(it.read().expect("read failed"), None);
     assert!(it.at_eof());
+}
+
+/// The bound tests below index docs 1 to 8, with two entries per doc when `multi`,
+/// and end the index at doc 5.
+mod bound {
+    use std::collections::HashSet;
+
+    use ffi::IndexFlags_Index_StoreNumeric;
+    use index_result::RSIndexResult;
+    use inverted_index::InvertedIndex;
+    use rqe_core::DocId;
+    use rqe_iterators::{RQEIterator, SkipToOutcome};
+    use rqe_iterators_test_utils::{ContractChecker, MockExpirationChecker};
+
+    use super::NumericBuilder;
+
+    const MAX_DOC_ID: DocId = 5;
+
+    fn make_index(multi: bool) -> InvertedIndex<inverted_index::numeric::Numeric> {
+        let mut ii =
+            InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+        for doc_id in 1..=8 {
+            let copies = if multi { 2 } else { 1 };
+            for copy in 0..copies {
+                let record = RSIndexResult::build_numeric(f64::from(copy))
+                    .doc_id(doc_id)
+                    .build();
+                ii.add_record(&record).expect("failed to add record");
+            }
+        }
+        ii
+    }
+
+    /// Docs 4 and 5 are expired, so reading past doc 3 must stop at the bound rather
+    /// than return doc 6.
+    fn expired_up_to_the_bound() -> MockExpirationChecker {
+        MockExpirationChecker::new(HashSet::from([4, MAX_DOC_ID]))
+    }
+
+    fn read_doc_ids<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
+        let mut doc_ids = Vec::new();
+        while let Some(record) = it.read().expect("read failed") {
+            doc_ids.push(record.doc_id);
+        }
+        assert!(it.at_eof());
+        doc_ids
+    }
+
+    #[test]
+    fn read_skip_multi_stops_at_max_doc_id() {
+        let ii = make_index(true);
+        let mut it = ContractChecker::new(
+            NumericBuilder::new(ii.reader())
+                .max_doc_id(MAX_DOC_ID)
+                .build(),
+        );
+        // Doc 5, on the bound, is returned once despite its two entries.
+        assert_eq!(read_doc_ids(&mut it), [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn read_check_expiration_stops_at_max_doc_id() {
+        let ii = make_index(false);
+        let mut it = ContractChecker::new(
+            NumericBuilder::new(ii.reader())
+                .max_doc_id(MAX_DOC_ID)
+                .expiration_checker(expired_up_to_the_bound())
+                .build(),
+        );
+        assert_eq!(read_doc_ids(&mut it), [1, 2, 3]);
+    }
+
+    #[test]
+    fn read_skip_multi_check_expiration_stops_at_max_doc_id() {
+        let ii = make_index(true);
+        let mut it = ContractChecker::new(
+            NumericBuilder::new(ii.reader())
+                .max_doc_id(MAX_DOC_ID)
+                .expiration_checker(expired_up_to_the_bound())
+                .build(),
+        );
+        assert_eq!(read_doc_ids(&mut it), [1, 2, 3]);
+    }
+
+    #[test]
+    fn skip_to_check_expiration_stops_at_max_doc_id() {
+        let ii = make_index(false);
+        let build = || {
+            NumericBuilder::new(ii.reader())
+                .max_doc_id(MAX_DOC_ID)
+                .expiration_checker(expired_up_to_the_bound())
+                .build()
+        };
+
+        let mut it = build();
+        let found = it.skip_to(3).expect("skip_to failed");
+        assert!(matches!(found, Some(SkipToOutcome::Found(r)) if r.doc_id == 3));
+        // The next live doc, 6, is past the bound.
+        assert!(it.skip_to(4).expect("skip_to failed").is_none());
+        assert!(it.at_eof());
+
+        let mut it = build();
+        assert!(it.skip_to(6).expect("skip_to failed").is_none());
+        assert!(it.at_eof());
+    }
 }
 
 /// Test the `reader()` accessor on the Numeric iterator.
@@ -618,6 +733,61 @@ mod from_tree {
                 "expected Geo variant for geo filter"
             );
         }
+    }
+
+    /// Check that the single iterator `from_tree` builds over docs 1, 3 and 5, with
+    /// the context bound at doc 3, reads and skips only up to the bound.
+    fn assert_stops_at_context_bound(tree: &NumericRangeTree, filter: &NumericFilter) {
+        let ctx = MockContext::new(0, 0);
+        ctx.set_max_visible_doc_id(3);
+        let field_ctx = make_field_ctx();
+        let build = || {
+            // SAFETY: `ctx` keeps sctx/spec alive past the iterators; field is Index.
+            let mut iters = unsafe {
+                NumericIteratorVariant::from_tree(
+                    std::ptr::NonNull::from(tree),
+                    ctx.sctx(),
+                    filter,
+                    &field_ctx,
+                )
+            };
+            assert_eq!(iters.len(), 1, "expected one range for a single-leaf tree");
+            iters.remove(0)
+        };
+
+        let mut it = ContractChecker::new(build());
+        let mut doc_ids = Vec::new();
+        while let Some(record) = it.read().expect("read failed") {
+            doc_ids.push(record.doc_id);
+        }
+        assert_eq!(doc_ids, [1, 3]);
+
+        let mut it = build();
+        assert!(it.skip_to(5).expect("skip_to failed").is_none());
+        assert!(it.at_eof());
+    }
+
+    #[test]
+    fn numeric_stops_at_context_bound() {
+        let tree = build_tree(&[(1, 1.0), (3, 3.0), (5, 5.0)]);
+        assert_stops_at_context_bound(&tree, &passthrough_filter());
+    }
+
+    #[test]
+    fn geo_stops_at_context_bound() {
+        use super::variant_resume::{geo_score, wide_geo_filter};
+
+        let tree = build_tree(&[
+            (1, geo_score(0.0, 0.0)),
+            (3, geo_score(0.1, 0.1)),
+            (5, geo_score(0.2, 0.2)),
+        ]);
+        let geo_filter = wide_geo_filter();
+        let filter = NumericFilter {
+            geo_filter: std::ptr::from_ref(&geo_filter).cast(),
+            ..passthrough_filter()
+        };
+        assert_stops_at_context_bound(&tree, &filter);
     }
 
     #[test]
@@ -898,7 +1068,7 @@ mod variant_resume {
 
     /// Encode a WGS-84 point the way the geo indexer does, so `isWithinRadius`
     /// decodes the stored value back to `(lon, lat)`.
-    fn geo_score(lon: f64, lat: f64) -> f64 {
+    pub(super) fn geo_score(lon: f64, lat: f64) -> f64 {
         let coords =
             geo::hash::WGS84Coordinates::from_f64(lon, lat).expect("coordinates must be in bounds");
         geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64
@@ -910,7 +1080,7 @@ mod variant_resume {
     /// [`geo_moved_after_current_document_deleted`]. Unlike
     /// [`super::geo_filter_stub`] this one is meant to be *matched against*, not
     /// just to select the `Geo` arm.
-    fn wide_geo_filter() -> GeoFilter {
+    pub(super) fn wide_geo_filter() -> GeoFilter {
         GeoFilter {
             fieldIndex: RS_INVALID_FIELD_INDEX,
             lat: 0.0,
