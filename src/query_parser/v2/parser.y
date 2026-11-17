@@ -1164,7 +1164,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     // `C.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
     // when the coordinator parses a KNN clause with no local spec, purely to read
-    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalKnnContext); the node
     // itself is never evaluated. Otherwise `C.fs` is uninitialised parser-stack garbage, not
     // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
     VectorQuery_SetField(A->vn.vq, ctx->sctx->spec ? C.fs : NULL);

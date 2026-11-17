@@ -189,7 +189,7 @@ void VectorQuery_Free(VectorQuery *vq);
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
 // Sets `vq->fieldIndex` from `field`, or RS_INVALID_FIELD_INDEX if NULL — the coordinator's
-// plan-only KNN parse (prepareOptionalTopKCase) has no spec to resolve a field against.
+// plan-only KNN parse (prepareOptionalKnnContext) has no spec to resolve a field against.
 void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,

@@ -2512,7 +2512,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy119 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     // `yymsp[-1].minor.yy128.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
     // when the coordinator parses a KNN clause with no local spec, purely to read
-    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalKnnContext); the node
     // itself is never evaluated. Otherwise `yymsp[-1].minor.yy128.fs` is uninitialised parser-stack garbage, not
     // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
     VectorQuery_SetField(yylhsminor.yy119->vn.vq, ctx->sctx->spec ? yymsp[-1].minor.yy128.fs : NULL);
