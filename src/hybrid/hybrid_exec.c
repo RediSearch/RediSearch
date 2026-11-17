@@ -251,7 +251,8 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .limits = &hreq->base.limits,
     .oomPolicy = hreq->base.reqConfig.oomPolicy,
     // Only for AggregateResults' debug pause, which a subquery timeout releases:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ.
+    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ. The row-boundary
+    // timeout and memory checks read `limits`.
     .areq = hreq->requests[SEARCH_INDEX],
   };
 
@@ -532,11 +533,13 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Serializes results and handles the main reply logic for hybrid.
  * Sets *results to NULL after consuming them, so finishSendChunk_HREQ won't double-free.
  * Returns true if reply was sent, false if error/timeout occurred before replying.
+ * `*countQuery` is cleared when the error replied is the pre-header OOM one, which no error slot holds.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
                                             ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
                                             cachedVars *cv, SearchResult *r,
-                                            SearchResult ***results, const QueryError *err) {
+                                            SearchResult ***results, const QueryError *err,
+                                            bool *countQuery) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
@@ -552,6 +555,8 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
     if (replayStopped && QueryError_HasError(&oomErr)) {
       handleSendChunkError_hybrid(hreq, reply, &oomErr, rc);
       QueryError_ClearError(&oomErr);
+      // The error lives in no request slot, so the caller's count would call it a success.
+      *countQuery = false;
       return false;
     }
     if (replayStopped) {
@@ -756,7 +761,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError,
+                                    &countQuery);
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
@@ -782,7 +788,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
-                                    fatalError);
+                                    fatalError, &countQuery);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;

@@ -63,6 +63,10 @@ def _expect_complete_after_the_pre_header_call(env, query, fail_calls):
     return res
 
 
+def _queries_processed(env):
+    return int(env.cmd('INFO', 'MODULES')['search_total_queries_processed'])
+
+
 def _oom_counters(env):
     section = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
     return int(section[OOM_ERROR_COORD_METRIC]), int(section[OOM_WARNING_COORD_METRIC])
@@ -334,9 +338,11 @@ def test_blocked_client_timeout_owns_the_reply_over_the_pre_header_stop(env):
     try:
         skipIfNoEnableAssert(env)
         _index_with_docs(env)
-        query = [*AGGREGATE, 'TIMEOUT', 1]
         _set_policies(env, 'return-strict', 'fail', 2)
-        calls = _checkpoint_calls(env, query)
+        # Calibrated without a timeout, so a slow build cannot change the call count; the armed
+        # run's timeout is long enough for buffering to finish and short enough to end the pause.
+        calls = _checkpoint_calls(env, AGGREGATE)
+        query = [*AGGREGATE, 'TIMEOUT', 500]
         _memory_pressure(env, 'AT_CALL', calls)
         setPauseBeforeStoreResults(env, True, False)
         result = []
@@ -357,6 +363,9 @@ def test_blocked_client_timeout_owns_the_reply_over_the_pre_header_stop(env):
         res = result[0]
         env.assertFalse(isinstance(res, Exception), message=res)
         env.assertEqual(len(res['results']), N_DOCS, message=res)
+        # The armed call is the pre-header one, the replay's only call; the timeout-owned reply
+        # skips it before it is counted, so the pressure never fires.
+        env.assertEqual(_memory_pressure(env, 'STATUS')[5], calls - 1)
     finally:
         resetStoreResultsDebug(env)
         _reset(env)
@@ -476,9 +485,14 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
 
             _set_policies(env, 'fail', 'fail', workers)
             errors, warnings = _oom_counters(env)
+            processed = _queries_processed(env)
             _memory_pressure(env, 'AT_CALL', buffering_calls)
             env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
+            # A query that failed with the pre-header OOM error is not a processed one.
+            env.assertEqual(_queries_processed(env), processed, message=workers)
+            env.cmd(*HYBRID)
+            env.assertEqual(_queries_processed(env), processed + 1, message=workers)
 
             env.assertEqual(_checkpoint_calls(env, HYBRID), buffering_calls, message=workers)
     finally:
@@ -714,14 +728,20 @@ def _hybrid_stop_shapes(env):
                 _set_policies(env, 'return', 'return', workers)
 
                 # A stop that lands after a stage read everything truncates nothing and warns of
-                # nothing; any cut carries the OOM warning and never a timeout one.
+                # nothing; any cut carries the OOM warning and never a timeout one. Some stop must
+                # warn, or a query that ignores every stop would pass.
+                warned = 0
+
                 def returns_with_warning(res, at_call, calls):
+                    nonlocal warned
                     env.assertFalse(isinstance(res, Exception), message=(name, workers, at_call, res))
                     rows, warnings = _hybrid_reply(env, res)
                     env.assertTrue(warnings == [COORD_OOM_WARNING] or
                                    (len(rows) == full and warnings == []),
                                    message=(name, workers, at_call, res))
+                    warned += warnings == [COORD_OOM_WARNING]
                 _sweep_hybrid(env, query, returns_with_warning)
+                env.assertGreater(warned, 0, message=(name, workers))
 
                 _set_policies(env, 'return', 'fail', workers)
 
@@ -988,6 +1008,7 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
             allShards_change_oom_policy(env, 'return')
             calls = shard_calls()
             env.assertGreater(calls, 0)
+            warned = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
                 env.assertFalse(isinstance(res, Exception),
@@ -995,9 +1016,12 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
                 env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
                                (len(res['results']) == full and res['warnings'] == []),
                                message=(workers, on_timeout, at_call, res))
+                warned += res['warnings'] == [COORD_OOM_WARNING]
+            # Some stop must warn, or a shard that ignores every stop would pass.
+            env.assertGreater(warned, 0, message=(workers, on_timeout))
 
-            # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
-            # standalone; everywhere else it is the OOM error.
+            # Under FAIL a shard never sends a cut reply: a stop anywhere is the OOM error, a stop
+            # that lands after every stage read everything leaves the reply complete.
             allShards_change_oom_policy(env, 'fail')
             # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
             calls = shard_calls()
@@ -1009,8 +1033,7 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
                                        message=(workers, on_timeout, at_call))
                     errors += 1
                 else:
-                    env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
-                                   (len(res['results']) == full and res['warnings'] == []),
+                    env.assertTrue(len(res['results']) == full and res['warnings'] == [],
                                    message=(workers, on_timeout, at_call, res))
             env.assertGreater(errors, 0, message=(workers, on_timeout))
     finally:

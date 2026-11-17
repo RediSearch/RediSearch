@@ -64,8 +64,10 @@ bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolic
                                    QueryError *err);
 
 /**
- * Per-row stop check of the inline reply loops, before each upstream read: a
- * requested stop, a blocked-client timeout or memory pressure. The reply grows
+ * Per-row memory stop check of the inline reply loops, before each upstream
+ * read: a memory stop already requested on the request, or memory pressure. It
+ * does not read the timeout state: a blocked-client timeout is the upstream
+ * stages' check, so none of it may be dropped as redundant. The reply grows
  * the client output buffer, which only the memory ratio sees, so this is the
  * loop's only memory check. On true `rc` is RS_RESULT_STOPPED, which the
  * caller maps like a pipeline stop (ApplyOomStop for an OOM stop). An OOM stop
