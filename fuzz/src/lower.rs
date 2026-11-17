@@ -7,15 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::collections::BTreeMap;
-
 use crate::program::{
-    Algorithm, Argv, Bound, Bytes, CursorAction, DataType, Field, FieldKind, Metric, OpKind, Query,
-    Var, argv,
+    Algorithm, Argv, Bound, Bytes, DataType, Field, FieldKind, Metric, OpKind, Query, argv,
 };
-
-/// The cursor ids bound so far.
-pub type Cursors = BTreeMap<Var, i64>;
 
 /// The values generated programs draw from. Changing them changes what every
 /// `Populate` expands to.
@@ -38,7 +32,7 @@ pub const WORDS: [&str; 14] = [
 pub const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
 const POPULATE_NUMBERS: u64 = 10_000;
 
-pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
+pub fn lower(op: &OpKind) -> Vec<Argv> {
     match op {
         OpKind::Create {
             index,
@@ -69,41 +63,6 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
             command.push(index.clone());
             command.extend(argv(&["SCHEMA", "ADD"]));
             schema_field(*on, field, &mut command);
-            vec![command]
-        }
-        OpKind::Aggregate {
-            index,
-            query,
-            pipeline,
-            cursor,
-        } => {
-            let (text, params) = rendered(query);
-            let mut command = vec!["FT.AGGREGATE".into(), index.clone(), text];
-            command.extend(pipeline.iter().cloned());
-            if let Some(cursor) = cursor {
-                command.extend(argv(&["WITHCURSOR", "COUNT", &cursor.count.to_string()]));
-            }
-            if !params.is_empty() {
-                command.extend(params);
-                command.extend(argv(&["DIALECT", "2"]));
-            }
-            vec![command]
-        }
-        OpKind::Cursor { index, var, action } => {
-            let id = cursors.get(var).copied().unwrap_or(0).to_string();
-            let mut command = argv(&["FT.CURSOR"]);
-            command.push(
-                match action {
-                    CursorAction::Read { .. } => "READ",
-                    CursorAction::Del => "DEL",
-                }
-                .into(),
-            );
-            command.push(index.clone());
-            command.push(id.into());
-            if let CursorAction::Read { count: Some(count) } = action {
-                command.extend(argv(&["COUNT", &count.to_string()]));
-            }
             vec![command]
         }
         OpKind::Query {
@@ -316,7 +275,7 @@ fn schema_field(on: DataType, field: &Field, command: &mut Argv) {
 }
 
 /// The query text, and the `PARAMS` arguments its vectors need, if any.
-fn rendered(query: &Query) -> (Bytes, Argv) {
+pub fn rendered(query: &Query) -> (Bytes, Argv) {
     let mut text = Vec::new();
     let mut vectors = Vec::new();
     render(query, &mut text, &mut vectors);
@@ -430,25 +389,16 @@ fn escape(token: &Bytes, out: &mut Vec<u8>) {
 mod tests {
     use super::*;
 
-    fn query(q: Query) -> String {
-        let command = &lower(
-            &OpKind::Query {
-                index: "i".into(),
-                query: q,
-                options: Default::default(),
-            },
-            &Cursors::new(),
-        )[0];
-        String::from_utf8(command[2].0.clone()).unwrap()
+    fn field(name: &str, kind: FieldKind) -> Field {
+        Field {
+            name: name.into(),
+            kind,
+            sortable: false,
+        }
     }
 
     #[test]
     fn a_populate_expansion_never_changes() {
-        let field = |name: &str, kind| Field {
-            name: name.into(),
-            kind,
-            sortable: false,
-        };
         let op = OpKind::Populate {
             on: DataType::Hash,
             prefix: "k:".into(),
@@ -463,7 +413,7 @@ mod tests {
         };
         let words = |line: &str| -> Argv { line.split('|').map(Bytes::from).collect() };
         assert_eq!(
-            lower(&op, &Cursors::new()),
+            lower(&op),
             [
                 words("HSET|k:0|t|x-y|n|7|g|日本語|p|-84.7985,27.4425"),
                 words("HSET|k:1|t|the green|n|0|g|red|p|9.1000,3.3743"),
@@ -473,15 +423,54 @@ mod tests {
     }
 
     #[test]
-    fn json_indexes_use_paths_and_json_writes_render_each_kind() {
-        let field = |name: &str, kind| Field {
-            name: name.into(),
-            kind,
-            sortable: false,
+    fn queries_schemas_and_writes_render_to_redisearch_syntax() {
+        let text = |query: Query| {
+            let (text, _) = rendered(&query);
+            String::from_utf8(text.0).unwrap()
         };
-        let text = field("t", FieldKind::Text);
-        let tag = field("g", FieldKind::Tag);
+        assert_eq!(text(Query::Term("a-b c".into())), r"a\-b\ c");
+        assert_eq!(
+            text(Query::And(vec![
+                Query::Tag {
+                    field: "g".into(),
+                    values: vec!["red".into(), "a b".into()],
+                },
+                Query::Or(vec![Query::Term("b".into()), Query::Term("c".into())]),
+                Query::Not(Box::new(Query::Range {
+                    field: "n".into(),
+                    min: Bound::Exclusive(-3),
+                    max: Bound::Unbounded,
+                })),
+            ])),
+            r"(@g:{red | a\ b} (b | c) (-(@n:[(-3 +inf])))"
+        );
+        let knn = OpKind::Query {
+            index: "i".into(),
+            query: Query::Knn {
+                filter: Box::new(Query::All),
+                field: "v".into(),
+                k: 3,
+                vector: vector(1, || 10),
+            },
+            options: Default::default(),
+        };
+        let mut expected = argv(&["FT.SEARCH", "i", "*=>[KNN 3 @v $v0]", "PARAMS", "2", "v0"]);
+        expected.extend([vector(1, || 10), "DIALECT".into(), "2".into()]);
+        assert_eq!(lower(&knn), [expected]);
+
         let n = field("n", FieldKind::Numeric);
+        let create = OpKind::Create {
+            index: "i".into(),
+            on: DataType::Json,
+            prefix: "j:".into(),
+            fields: vec![n.clone()],
+        };
+        let schema = "FT.CREATE i ON JSON PREFIX 1 j: SCHEMA $.n AS n NUMERIC";
+        assert_eq!(
+            lower(&create),
+            [argv(&schema.split(' ').collect::<Vec<_>>())]
+        );
+        let (text_field, tag) = (field("t", FieldKind::Text), field("g", FieldKind::Tag));
         let v = field(
             "v",
             FieldKind::Vector {
@@ -490,31 +479,8 @@ mod tests {
                 metric: Metric::L2,
             },
         );
-        let create = OpKind::Create {
-            index: "i".into(),
-            on: DataType::Json,
-            prefix: "j:".into(),
-            fields: vec![n.clone()],
-        };
-        assert_eq!(
-            lower(&create, &Cursors::new()),
-            [argv(&[
-                "FT.CREATE",
-                "i",
-                "ON",
-                "JSON",
-                "PREFIX",
-                "1",
-                "j:",
-                "SCHEMA",
-                "$.n",
-                "AS",
-                "n",
-                "NUMERIC"
-            ])]
-        );
         let values = [
-            (&text, Bytes::from("say \"hi\"")),
+            (&text_field, Bytes::from("say \"hi\"")),
             (&tag, Bytes::from("red,blue")),
             (&n, Bytes::from("-7")),
             (&v, vector(2, || 15)),
@@ -527,67 +493,6 @@ mod tests {
                 "$",
                 r#"{"t":"say \"hi\"","g":["red","blue"],"n":-7,"v":[1.5,1.5]}"#
             ])
-        );
-    }
-
-    #[test]
-    fn queries_render_to_escaped_query_syntax() {
-        assert_eq!(query(Query::Term("a-b c".into())), r"a\-b\ c");
-        assert_eq!(
-            query(Query::Tag {
-                field: "g".into(),
-                values: vec!["red".into(), "a b".into()]
-            }),
-            r"@g:{red | a\ b}"
-        );
-        assert_eq!(
-            query(Query::Range {
-                field: "n".into(),
-                min: Bound::Exclusive(-3),
-                max: Bound::Unbounded
-            }),
-            "@n:[(-3 +inf]"
-        );
-        assert_eq!(
-            query(Query::And(vec![
-                Query::InField {
-                    field: "t".into(),
-                    term: "a".into()
-                },
-                Query::Or(vec![Query::Term("b".into()), Query::Term("c".into())]),
-                Query::Not(Box::new(Query::Or(vec![]))),
-            ])),
-            "(@t:a (b | c) (-(*)))"
-        );
-        let knn = lower(
-            &OpKind::Query {
-                index: "i".into(),
-                query: Query::Knn {
-                    filter: Box::new(Query::Tag {
-                        field: "g".into(),
-                        values: vec!["red".into()],
-                    }),
-                    field: "v".into(),
-                    k: 3,
-                    vector: Bytes(vec![0, 0, 128, 63]),
-                },
-                options: Default::default(),
-            },
-            &Cursors::new(),
-        );
-        assert_eq!(
-            knn,
-            [vec![
-                "FT.SEARCH".into(),
-                "i".into(),
-                "(@g:{red})=>[KNN 3 @v $v0]".into(),
-                "PARAMS".into(),
-                "2".into(),
-                "v0".into(),
-                Bytes(vec![0, 0, 128, 63]),
-                "DIALECT".into(),
-                "2".into(),
-            ]]
         );
     }
 }

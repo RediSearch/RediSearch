@@ -7,53 +7,52 @@ workspace-wide test, miri, and coverage runs do not build it. Two plain data
 types carry everything between components, and one component performs IO.
 
 ```
- edit (pure)            run (only IO)               judge (pure)
- generate ─┐
- mutate   ─┼─▶ Program ─▶ interpreter ─▶ Trace ─▶ findings + features
+ generate ─┐                 run (only IO)            judge, logic (pure)
+ mutate   ─┼─▶ Program ─▶ interpreter ─▶ Trace ─▶ findings
  smaller  ─┘      ▲                                    │
-                  └──────────── campaign ◀─────────────┘
+                  └───────── reduce, campaign ◀────────┘
 ```
 
-| Module | Responsibility | Depends on |
-|---|---|---|
-| `program` | Program types, JSON format, `lower` | serde |
-| `edit` | `Scope`; generate, mutate, and shrink programs | `program` |
-| `target` | Server process, connections, log, coverage memory | a small RESP reader of its own |
-| `run` | The interpreter: `Program` → `Trace` | `program`, `target` |
-| `judge` | `(Program, Trace)` → findings and features | `program` |
-| `reduce` | Shrink a failing program | `edit`, `run`, `judge` |
-| `campaign` | Corpus, novelty, scheduling | all of the above, LibAFL |
+| Module | Responsibility |
+|---|---|
+| `program` | The types, the JSON format, and the one visitor over an op's values |
+| `lower` | An op as the commands it sends: query, schema, and write syntax, `Populate` |
+| `scope` | What a sequence of ops set up: indexes and schemas, worker state, cursors |
+| `generate` | Ops and programs well-typed against a scope, and the value pools |
+| `edit` | One edit set: `mutate` and `smaller`, with the size measure |
+| `target`, `resp`, `coverage` | Server process, connections, the RESP reader, coverage memory |
+| `run` | The interpreter: `Program` → `Trace` |
+| `judge`, `logic` | `(Program, Trace)` → findings: safety from the log and exit, logic from replies |
+| `reduce`, `bundle`, `campaign` | Consumers of `judge::execute` |
 
-`fuzz`, `run <file>`, `reduce <file>`, and `export <file>` all go through the
-same `judge(run(program))`. Only `campaign` depends on LibAFL.
+`judge::execute(program, env)` runs and judges a program; `run`, `reduce`,
+and `fuzz` all go through it. `scope` serves both the generator, which folds
+every op of a prefix, and the logic rules, which fold only the ops the server
+accepted. Only `campaign` depends on LibAFL.
 
 ## Program
 
 ```rust
 struct Program { version: u32, module_args: Vec<Bytes>, ops: Vec<Op> }
-struct Op      { conn: Conn, reply: ReplyMode, kind: OpKind }
+struct Op      { conn: Conn, reply: ReplyMode, bind: Option<Var>, kind: OpKind }
 enum ReplyMode { Await, Defer }
 enum OpKind {
-    Create { index, prefix, fields },
+    Create { index, on, prefix, fields },
+    Alter { index, on, field },
     Query { index, query: QueryAst, options },
+    Populate { on, prefix, fields, n, seed },
     Barrier,
     Command { argv: Vec<Bytes> },
-    Populate { prefix, fields, n, seed },
-    Alter { index, field },
-    Aggregate { index, query: QueryAst, pipeline: Vec<Bytes>, cursor: Option<{ var, count }> },
-    Cursor { index, var: Var, action: Read { count } | Del },
 }
 ```
 
 - **Typed only where the fuzzer reasons about an op.** `Create` declares a
-  schema the generator builds on, and `Alter` extends it; `Query` and the
-  query of an `Aggregate` are trees the judge can match structurally;
-  `Barrier` is executed by the interpreter itself; `Populate` expands into
-  many writes; `Aggregate` and `Cursor` bind and use a cursor. An aggregation
-  pipeline stays raw tokens: the generator builds it from the schema, and
-  nothing reasons about it afterwards. Everything else, including writes,
-  deletes, drops,
-  `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET`, is a `Command`.
+  schema the generator builds on, and `Alter` extends it; `Query` is a tree
+  the logic rules match structurally and shrinking simplifies; `Populate`
+  expands into many writes; `Barrier` is executed by the interpreter itself.
+  Everything else, including writes, deletes, drops, aggregations, cursor
+  reads, `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET`, is a
+  `Command`; the generator builds aggregations from the schema as tokens.
   The interpreter treats a typed op and a `Command` the same way once lowered.
 - **`on`** (`hash` or `json`) on `Create`, `Alter`, and `Populate` selects the
   data type. A JSON schema declares `$.name AS name`; a JSON write is
@@ -79,11 +78,12 @@ enum OpKind {
   `lower` by SplitMix64 seeded with `seed`, using raw integer draws only, so a
   dependency update cannot change it. A golden test freezes the expansion. The
   generator draws `n` up to 513, log-uniformly.
-- **`Var`** holds a server-chosen value, a cursor id, bound when the reply of
-  an `Aggregate` with a cursor or of a cursor read is read. A `Cursor` op whose
-  variable is unbound, because its source op was deleted, failed, or is still
-  deferred on another connection, sends id 0 and draws an ordinary error.
-  Before lowering an op, the interpreter reads the pending replies on its
+- **`Var`** holds a server-chosen value, a cursor id. An op with `bind` stores
+  the id in its reply (`[results, id]`) in that variable when the reply is
+  read, and a command token `$<n>` is replaced by variable `n` when sent. An
+  unbound variable reads as 0, because its source op was deleted, failed, or
+  is still deferred on another connection, and draws an ordinary error.
+  Before sending an op, the interpreter reads the pending replies on its
   connection, so a binding made earlier on the same connection is seen.
 - **`conn`** is taken modulo a small fixed number of connections.
 
@@ -305,9 +305,11 @@ LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
   trace and findings in a second observer. Judge features join the map with
   the logic rules (task 8).
 - Feedback is max-map novelty over that one map.
-- The objective is a finding whose signature is neither in a known-signatures
-  file nor already present as a finding directory. It writes the finding's
-  bundle itself, so LibAFL's solutions corpus stays in memory.
+- The objective is a finding whose signature has no directory under
+  `findings/` yet: creating the directory claims it, so a known bug is marked
+  by its directory, and of several workers only one reports a finding. The
+  objective writes the bundle itself, so LibAFL's solutions corpus stays in
+  memory.
 - The scheduler is the length-and-time minimizer over a queue.
 - One mutational stage, at most eight mutations per scheduled program, wraps a
   mutator that calls `edit::mutate` with a donor drawn from the corpus, seeded

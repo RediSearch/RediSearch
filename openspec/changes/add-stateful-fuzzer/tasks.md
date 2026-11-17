@@ -61,7 +61,7 @@ acceptance check for that PR.
 ## 6. Campaign
 
 - [x] 6.1 Implement `Input` and `HasLen` for `Program`, the executor, and the two observers
-- [x] 6.2 Wire feedback, objective, scheduler, the capped mutational stage, and the known-signatures file
+- [x] 6.2 Wire feedback, objective, scheduler, the capped mutational stage, and known signatures (a finding's directory marks it known)
 - [x] 6.3 Add the `fuzz` command with a corpus directory and a findings directory
 - [x] 6.4 If not running within five working days, replace with the hand-written loop behind the same interface (not needed: the LibAFL wiring ran on the first day)
 - **Status:** three 30-minute single-worker campaigns from `seeds/` against the planted module each found the planted overflow (after 2, 5, and 30 s), the planted assertion (35 to 79 s), and the real `DebugIndexes_ScanProc` overflow (268 to 505 s). Each reached about 11,000 edges, against 5,720 for the smoke seed, at 1.3 programs per second. The planted bugs are close to the smoke seed, which already has a sortable numeric field, a TEXT field, and a TAG field; the real bug is the stronger signal. With `--jobs 12` on a 12-core machine, a campaign runs 12.4 programs per second.
@@ -70,7 +70,7 @@ acceptance check for that PR.
 ## 7. Depth operations
 
 - [x] 7.1 `Populate` with the golden expansion test
-- [x] 7.2 `Alter`, `Aggregate` with cursors and `Var` bindings, `Cursor` reads and deletes
+- [x] 7.2 `Alter`, aggregations with cursors bound to variables, cursor reads and deletes
 - [x] 7.3 Vector fields, JSON documents, geo fields
 - [x] 7.4 Seeds for each
 - **Done when:** each new operation produces non-error replies in a seed and adds edges not reached by the earlier seeds.

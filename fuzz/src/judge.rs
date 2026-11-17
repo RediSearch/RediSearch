@@ -10,9 +10,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::logic;
-use crate::lower::{Cursors, lower};
+use crate::lower::lower;
 use crate::program::Program;
-use crate::run::{Exit, Trace};
+use crate::run::{Exit, Trace, run};
+use crate::target::Env;
 use crate::target::Reply;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -31,6 +32,14 @@ pub enum Kind {
 pub struct Finding {
     pub kind: Kind,
     pub signature: String,
+}
+
+/// Runs `program` on a fresh server and judges the run: the one way every
+/// command executes a program. An error means the server could not start.
+pub fn execute(program: &Program, env: &Env) -> Result<(Trace, Vec<Finding>), String> {
+    let trace = run(program, env)?;
+    let findings = judge(program, &trace);
+    Ok((trace, findings))
 }
 
 pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
@@ -196,7 +205,7 @@ fn command(program: &Program, op: usize) -> String {
     program
         .ops
         .get(op)
-        .and_then(|op| lower(&op.kind, &Cursors::new()).into_iter().next())
+        .and_then(|op| lower(&op.kind).into_iter().next())
         .and_then(|argv| argv.into_iter().next())
         .map_or_else(
             || "end".to_owned(),

@@ -11,7 +11,6 @@
 //! scheduling; everything it runs goes through [`run`] and [`judge`].
 
 use std::borrow::Cow;
-use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -38,9 +37,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::bundle;
 use crate::edit::{mutate, size};
-use crate::judge::{Finding, judge};
+use crate::judge::{Finding, execute};
 use crate::program::Program;
-use crate::run::{Exit, Trace, run};
+use crate::run::{Exit, Trace};
 use crate::target::Env;
 
 /// Edge ids are guard numbers, fewer than this in the module.
@@ -48,17 +47,15 @@ const MAP: usize = 1 << 20;
 const MUTATIONS_PER_PICK: usize = 8;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
 
-/// One worker's campaign. Workers share `findings`: a finding belongs to the
-/// worker that creates its directory first.
+/// One worker's campaign. A signature that already has a directory under
+/// `findings` is known and not reported again; workers share `findings`, so a
+/// new finding belongs to the worker that creates its directory first.
 pub struct Campaign<'a> {
     pub worker: usize,
     pub env: Env,
     pub seeds: &'a [PathBuf],
     pub corpus: &'a Path,
     pub findings: &'a Path,
-    /// Signatures to ignore, one per line, in addition to every finding
-    /// already under `findings`.
-    pub known: Option<&'a Path>,
     pub duration: Option<Duration>,
 }
 
@@ -87,9 +84,9 @@ pub fn fuzz(campaign: Campaign<'_>) -> Result<(), Error> {
     let edges = OwnedMapObserver::new("edges", vec![0u8; MAP]).track_indices();
     let verdict = Verdict::default();
     let mut feedback = MaxMapFeedback::new(&edges);
+    std::fs::create_dir_all(campaign.findings)?;
     let mut objective = NewFinding {
         verdict: verdict.handle(),
-        known: known(campaign.known)?,
         findings: campaign.findings.to_owned(),
         env: campaign.env.clone(),
     };
@@ -130,18 +127,6 @@ pub fn fuzz(campaign: Campaign<'_>) -> Result<(), Error> {
         fuzzer.fuzz_one(&mut stages, &mut executor, &mut state, &mut manager)?;
     }
     Ok(())
-}
-
-fn known(file: Option<&Path>) -> Result<BTreeSet<String>, Error> {
-    let mut known = BTreeSet::new();
-    if let Some(file) = file {
-        for line in std::fs::read_to_string(file)?.lines() {
-            if !line.trim().is_empty() {
-                known.insert(bundle::dir_name(line.trim()));
-            }
-        }
-    }
-    Ok(known)
 }
 
 /// The last run's trace and findings, for [`NewFinding`].
@@ -190,7 +175,7 @@ impl<EM, S: HasExecutions, Z> Executor<EM, Program, S, Z> for Target {
         program: &Program,
     ) -> Result<ExitKind, Error> {
         *state.executions_mut() += 1;
-        let trace = run(program, &self.env).map_err(Error::unknown)?;
+        let (trace, findings) = execute(program, &self.env).map_err(Error::unknown)?;
         let map = self.observers.0.as_mut();
         for &edge in &trace.coverage.edges {
             if let Ok(edge) = usize::try_from(edge) {
@@ -202,17 +187,14 @@ impl<EM, S: HasExecutions, Z> Executor<EM, Program, S, Z> for Target {
             Exit::Died { .. } => ExitKind::Crash,
             Exit::Hung { .. } => ExitKind::Timeout,
         };
-        let findings = judge(program, &trace);
         self.observers.1.0.last = Some((trace, findings));
         Ok(exit)
     }
 }
 
-/// The objective: a finding whose signature is not yet known. Creating the
-/// finding's directory claims it, so of several workers only one writes it.
+/// The objective: a finding whose directory this worker could create.
 struct NewFinding {
     verdict: Handle<Verdict>,
-    known: BTreeSet<String>,
     findings: PathBuf,
     env: Env,
 }
@@ -242,12 +224,9 @@ impl<EM, OT: MatchName, S> Feedback<EM, Program, OT, S> for NewFinding {
             return Ok(false);
         };
         let mut new = false;
-        std::fs::create_dir_all(&self.findings)?;
         for finding in findings {
-            let name = bundle::dir_name(&finding.signature);
-            if self.known.insert(name.clone())
-                && std::fs::create_dir(self.findings.join(&name)).is_ok()
-            {
+            let claimed = self.findings.join(bundle::dir_name(&finding.signature));
+            if std::fs::create_dir(claimed).is_ok() {
                 let dir = bundle::write(
                     &self.findings,
                     program,

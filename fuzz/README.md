@@ -164,8 +164,8 @@ and reproduction rate. The exit code is 0 without findings, 1 with findings,
 and 2 on an error such as a server that fails to start. `fuzz` runs a coverage-guided campaign in one worker process per core
 (`--jobs N` to change), each from the programs in `seeds/` and its own corpus
 kept in `corpus/<worker>/`, writing each finding whose signature is new to
-`findings/`. Signatures listed in a `--known` file, one per line, are ignored,
-as is any signature that already has a directory under `findings/`.
+`findings/`. A signature that already has a directory there is not reported
+again, so creating an empty directory marks a known bug.
 
 `reduce` shrinks a failing program while each smaller version still yields
 the same finding (the first one, or the one named by `--signature`), then runs
@@ -181,10 +181,11 @@ cargo test                                         # unit tests, no server neede
 source ../bin/fuzz/env.sh && cargo test -- --ignored   # every program in tests/programs/ against a live server
 ```
 
-The live tests run the smoke seed and the programs under `tests/programs/`,
-which exercise the harness itself: a crash, a hang, a stall the harness
-resolves, a barrier that cannot complete, a query left pending while another
-connection drops its index, and the edges a forced GC adds. Others check that
-most replies to generated programs are not errors, that a crash inside a
-generated program reduces to the crashing command, and that the seeds under
-`planted/` trigger the planted bugs as a sanitizer report and an assertion.
+The live tests check that every seed runs without an error reply and reaches
+code no other seed does; exercise the harness with the programs under
+`tests/programs/` (a hang, a stall the harness releases, a barrier that cannot
+complete, a query left pending while another connection drops its index);
+check that most replies to generated programs are not errors, that a crash
+inside a generated program reduces to the crashing command, that the seeds
+under `planted/` give a real sanitizer report and a real assertion, and that a
+short campaign from the seeds finds a planted bug.

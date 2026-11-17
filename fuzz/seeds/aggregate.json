@@ -1,29 +1,166 @@
 {
-  "version": 1,
-  "ops": [
-    {"op": "create", "index": "i0", "prefix": "d0:", "fields": [
-      {"name": "f0", "type": "text"},
-      {"name": "f1", "type": "numeric", "sortable": true},
-      {"name": "f2", "type": "tag"}
-    ]},
-    {"op": "populate", "prefix": "d0:", "fields": [
-      {"name": "f0", "type": "text"},
-      {"name": "f1", "type": "numeric"},
-      {"name": "f2", "type": "tag"}
-    ], "n": 200, "seed": 2},
-    {"op": "barrier"},
-    {"op": "aggregate", "index": "i0", "query": "all",
-     "pipeline": ["GROUPBY", "1", "@f2", "REDUCE", "COUNT", "0", "AS", "count", "REDUCE", "SUM", "1", "@f1", "AS", "sum", "SORTBY", "2", "@count", "DESC"],
-     "cursor": {"var": 0, "count": 3}},
-    {"op": "cursor", "index": "i0", "var": 0, "action": {"read": {"count": 2}}},
-    {"op": "cursor", "index": "i0", "var": 0, "action": {"read": {}}},
-    {"op": "aggregate", "index": "i0", "query": {"term": "hello"},
-     "pipeline": ["LOAD", "1", "@f1", "APPLY", "@f1 * 2", "AS", "doubled", "FILTER", "@doubled > 100", "LIMIT", "0", "5"],
-     "cursor": {"var": 1, "count": 2}},
-    {"op": "cursor", "index": "i0", "var": 1, "action": "del"},
-    {"op": "alter", "index": "i0", "field": {"name": "f3", "type": "numeric"}},
-    {"op": "command", "argv": ["HSET", "d0:1", "f3", "42"]},
-    {"op": "barrier"},
-    {"op": "query", "index": "i0", "query": {"range": {"field": "f3", "min": {"inclusive": 40}, "max": "unbounded"}}}
-  ]
+ "version": 1,
+ "ops": [
+  {
+   "op": "create",
+   "index": "i0",
+   "prefix": "d0:",
+   "fields": [
+    {
+     "name": "f0",
+     "type": "text"
+    },
+    {
+     "name": "f1",
+     "type": "numeric",
+     "sortable": true
+    },
+    {
+     "name": "f2",
+     "type": "tag"
+    }
+   ]
+  },
+  {
+   "op": "populate",
+   "prefix": "d0:",
+   "fields": [
+    {
+     "name": "f0",
+     "type": "text"
+    },
+    {
+     "name": "f1",
+     "type": "numeric"
+    },
+    {
+     "name": "f2",
+     "type": "tag"
+    }
+   ],
+   "n": 200,
+   "seed": 2
+  },
+  {
+   "op": "barrier"
+  },
+  {
+   "op": "command",
+   "argv": [
+    "FT.AGGREGATE",
+    "i0",
+    "*",
+    "GROUPBY",
+    "1",
+    "@f2",
+    "REDUCE",
+    "COUNT",
+    "0",
+    "AS",
+    "count",
+    "REDUCE",
+    "SUM",
+    "1",
+    "@f1",
+    "AS",
+    "sum",
+    "SORTBY",
+    "2",
+    "@count",
+    "DESC",
+    "WITHCURSOR",
+    "COUNT",
+    "3"
+   ],
+   "bind": 0
+  },
+  {
+   "op": "command",
+   "argv": [
+    "FT.CURSOR",
+    "READ",
+    "i0",
+    "$0",
+    "COUNT",
+    "2"
+   ],
+   "bind": 0
+  },
+  {
+   "op": "command",
+   "argv": [
+    "FT.CURSOR",
+    "READ",
+    "i0",
+    "$0"
+   ],
+   "bind": 0
+  },
+  {
+   "op": "command",
+   "argv": [
+    "FT.AGGREGATE",
+    "i0",
+    "hello",
+    "LOAD",
+    "1",
+    "@f1",
+    "APPLY",
+    "@f1 * 2",
+    "AS",
+    "doubled",
+    "FILTER",
+    "@doubled > 100",
+    "LIMIT",
+    "0",
+    "5",
+    "WITHCURSOR",
+    "COUNT",
+    "2"
+   ],
+   "bind": 1
+  },
+  {
+   "op": "command",
+   "argv": [
+    "FT.CURSOR",
+    "DEL",
+    "i0",
+    "$1"
+   ]
+  },
+  {
+   "op": "alter",
+   "index": "i0",
+   "field": {
+    "name": "f3",
+    "type": "numeric"
+   }
+  },
+  {
+   "op": "command",
+   "argv": [
+    "HSET",
+    "d0:1",
+    "f3",
+    "42"
+   ]
+  },
+  {
+   "op": "barrier"
+  },
+  {
+   "op": "query",
+   "index": "i0",
+   "query": {
+    "range": {
+     "field": "f3",
+     "min": {
+      "inclusive": 40
+     },
+     "max": "unbounded"
+    }
+   }
+  }
+ ]
 }

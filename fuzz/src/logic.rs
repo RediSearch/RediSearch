@@ -17,12 +17,13 @@
 //! barrier before the next comparable query. Rules apply only when the server
 //! fails a query that times out instead of returning partial results.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::judge::{Finding, Kind};
-use crate::program::{Bytes, DataType, Field, FieldKind, OpKind, Program, Query, QueryOptions};
+use crate::program::{Bytes, OpKind, Program, Query, QueryOptions};
 use crate::resp::Value;
 use crate::run::{Step, Trace};
+use crate::scope::{Key, Scope};
 use crate::target::Reply;
 
 /// RediSearch's default stopwords; see [`vanishes`].
@@ -33,11 +34,10 @@ const STOPWORDS: [&str; 33] = [
 ];
 
 /// Commands that cannot change what a query returns.
-const NEUTRAL_COMMANDS: [&str; 12] = [
+const NEUTRAL_COMMANDS: [&str; 10] = [
     "FT.INFO",
     "FT._LIST",
     "FT.EXPLAIN",
-    "FT.EXPLAINCLI",
     "FT.TAGVALS",
     "FT.SEARCH",
     "FT.AGGREGATE",
@@ -45,16 +45,13 @@ const NEUTRAL_COMMANDS: [&str; 12] = [
     "EXISTS",
     "HGETALL",
     "JSON.GET",
-    "DBSIZE",
 ];
 
 /// `_FT.DEBUG` subcommands that change scheduling, not results.
-const NEUTRAL_HOOKS: [&str; 7] = [
+const NEUTRAL_HOOKS: [&str; 5] = [
     "GC_FORCEINVOKE",
-    "GC_FORCEBGINVOKE",
     "GC_STOP_SCHEDULE",
     "GC_CONTINUE_SCHEDULE",
-    "GC_WAIT_FOR_JOBS",
     "WORKERS",
     "BG_SCAN_CONTROLLER",
 ];
@@ -67,14 +64,10 @@ enum Effect {
     Changing,
 }
 
-/// A schema as the server confirmed it. `sortable` is left out: it does not
-/// change which documents match, so indexes differing only in it are twins.
-type Schema = (DataType, Bytes, BTreeSet<(Bytes, FieldKind)>);
-
 struct Observation<'a> {
     period: u32,
     index: &'a Bytes,
-    schema: Option<Schema>,
+    key: Option<Key>,
     query: &'a Query,
     options: &'a QueryOptions,
     total: i64,
@@ -83,7 +76,11 @@ struct Observation<'a> {
 }
 
 pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
-    if !fails_on_timeout(&program.module_args) {
+    let fails_on_timeout = program.module_args.windows(2).any(|pair| {
+        pair[0].as_slice().eq_ignore_ascii_case(b"ON_TIMEOUT")
+            && pair[1].as_slice().eq_ignore_ascii_case(b"FAIL")
+    });
+    if !fails_on_timeout {
         return Vec::new();
     }
     let seen = observations(program, trace);
@@ -95,7 +92,7 @@ pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
             }
             let rule = if a.index == b.index {
                 "equivalence"
-            } else if a.schema.is_some() && a.schema == b.schema {
+            } else if a.key.is_some() && a.key == b.key {
                 "twin"
             } else {
                 continue;
@@ -107,29 +104,25 @@ pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
         }
     }
     for whole in &seen {
-        let parts = |pick: fn(&Query) -> Option<(&Query, &Query, bool)>| {
-            seen.iter().filter_map(move |o| {
-                let (rest, p, negated) = pick(o.query)?;
-                (o.period == whole.period
-                    && o.index == whole.index
-                    && o.options == whole.options
-                    && rest == whole.query)
-                    .then_some((p, negated, o.total))
-            })
+        let comparable = |o: &&Observation| {
+            o.period == whole.period && o.index == whole.index && o.options == whole.options
         };
-        for (p, negated, total) in parts(split) {
-            if negated
-                || vanishes(whole.query)
-                || vanishes(p)
-                || !known_fields(whole.query, &whole.schema)
-                || !known_fields(p, &whole.schema)
-            {
-                continue;
-            }
-            let complement = parts(split)
-                .find(|(other, negated, _)| *negated && *other == p)
-                .map(|(_, _, total)| total);
-            if let Some(complement) = complement
+        let parts: Vec<(&Query, bool, i64)> = seen
+            .iter()
+            .filter(comparable)
+            .filter_map(|o| {
+                let (rest, p, negated) = split(o.query)?;
+                (rest == whole.query).then_some((p, negated, o.total))
+            })
+            .collect();
+        for &(p, _, total) in parts.iter().filter(|(_, negated, _)| !negated) {
+            let checkable = !vanishes(whole.query)
+                && !vanishes(p)
+                && known_fields(whole.query, &whole.key)
+                && known_fields(p, &whole.key);
+            let complement = parts.iter().find(|(q, negated, _)| *negated && *q == p);
+            if checkable
+                && let Some(&(_, _, complement)) = complement
                 && total + complement != whole.total
             {
                 findings.push(finding("partition", whole.query));
@@ -156,38 +149,30 @@ fn split(query: &Query) -> Option<(&Query, &Query, bool)> {
     })
 }
 
+/// The signature names the rule and the query's structure without its
+/// values, so one bug found through different terms keeps one signature.
 fn finding(rule: &str, query: &Query) -> Finding {
+    fn shape(query: &Query) -> String {
+        let group = |name, children: &[Query]| {
+            let inner: Vec<String> = children.iter().map(shape).collect();
+            format!("{name}({})", inner.join(","))
+        };
+        match query {
+            Query::All => "all".into(),
+            Query::Term(_) => "term".into(),
+            Query::InField { .. } => "in_field".into(),
+            Query::Tag { .. } => "tag".into(),
+            Query::Range { .. } => "range".into(),
+            Query::And(children) => group("and", children),
+            Query::Or(children) => group("or", children),
+            Query::Not(child) => format!("not({})", shape(child)),
+            Query::Knn { filter, .. } => format!("knn({})", shape(filter)),
+        }
+    }
     Finding {
         kind: Kind::Logic,
         signature: format!("logic:{rule}:{}", shape(query)),
     }
-}
-
-/// The query's structure without its values, so one bug found through
-/// different terms keeps one signature.
-fn shape(query: &Query) -> String {
-    let group = |name, children: &[Query]| {
-        let inner: Vec<String> = children.iter().map(shape).collect();
-        format!("{name}({})", inner.join(","))
-    };
-    match query {
-        Query::All => "all".into(),
-        Query::Term(_) => "term".into(),
-        Query::InField { .. } => "in_field".into(),
-        Query::Tag { .. } => "tag".into(),
-        Query::Range { .. } => "range".into(),
-        Query::And(children) => group("and", children),
-        Query::Or(children) => group("or", children),
-        Query::Not(child) => format!("not({})", shape(child)),
-        Query::Knn { filter, .. } => format!("knn({})", shape(filter)),
-    }
-}
-
-fn fails_on_timeout(module_args: &[Bytes]) -> bool {
-    module_args.windows(2).any(|pair| {
-        pair[0].as_slice().eq_ignore_ascii_case(b"ON_TIMEOUT")
-            && pair[1].as_slice().eq_ignore_ascii_case(b"FAIL")
-    })
 }
 
 /// Whether the query has a term that can become an empty node: an empty
@@ -214,8 +199,8 @@ fn vanishes(query: &Query) -> bool {
 
 /// Whether every field the query names is in the confirmed schema. Dialect 1
 /// drops a clause on an unknown field instead of failing the query.
-fn known_fields(query: &Query, schema: &Option<Schema>) -> bool {
-    let Some((_, _, fields)) = schema else {
+fn known_fields(query: &Query, key: &Option<Key>) -> bool {
+    let Some((_, _, fields)) = key else {
         return false;
     };
     let known = |field: &Bytes| fields.iter().any(|(name, _)| name == field);
@@ -223,26 +208,20 @@ fn known_fields(query: &Query, schema: &Option<Schema>) -> bool {
         Query::InField { field, .. } | Query::Tag { field, .. } | Query::Range { field, .. } => {
             known(field)
         }
-        Query::Knn { filter, field, .. } => known(field) && known_fields(filter, schema),
+        Query::Knn { filter, field, .. } => known(field) && known_fields(filter, key),
         Query::And(children) | Query::Or(children) => {
-            children.iter().all(|child| known_fields(child, schema))
+            children.iter().all(|child| known_fields(child, key))
         }
-        Query::Not(child) => known_fields(child, schema),
+        Query::Not(child) => known_fields(child, key),
         Query::All | Query::Term(_) => true,
     }
 }
 
-fn exact(query: &Query) -> bool {
-    match query {
-        Query::Knn { .. } => false,
-        Query::And(children) | Query::Or(children) => children.iter().all(exact),
-        Query::Not(child) => exact(child),
-        _ => true,
-    }
-}
-
+/// The settled, exact search replies, each with its period and the schema of
+/// its index at the time, from folding the ops the server accepted.
 fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'a>> {
-    let mut schemas: BTreeMap<&Bytes, Schema> = BTreeMap::new();
+    let effects: Vec<Option<Effect>> = trace.steps.iter().map(effect).collect();
+    let mut scope = Scope::new(&program.module_args);
     let mut period = 0;
     let mut settled = false;
     let mut seen = Vec::new();
@@ -251,38 +230,40 @@ fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'
             &step.reply,
             Some(Reply::Value(value)) if !matches!(value, Value::Error(_))
         );
-        if marker(step) {
-            if step.argv[0] == "BARRIER".into() {
-                settled = succeeded;
-            }
-            continue;
-        }
-        let op = &program.ops[step.op].kind;
-        match effect(op, step) {
-            Effect::Changing => {
+        match effects[i] {
+            None if step.argv[0] == "BARRIER".into() => settled = succeeded,
+            None | Some(Effect::Neutral) => {}
+            Some(Effect::Transparent) => settled = false,
+            Some(Effect::Changing) => {
                 period += 1;
                 settled = false;
             }
-            Effect::Transparent => settled = false,
-            Effect::Neutral => {}
         }
-        if succeeded {
-            confirm(op, &mut schemas);
+        let op = &program.ops[step.op];
+        if succeeded && effects[i].is_some() {
+            scope.add(op);
         }
+        let quiet = step.received.is_some_and(|received| {
+            trace.steps.iter().zip(&effects).all(|(other, effect)| {
+                other.sent <= step.sent
+                    || other.sent >= received
+                    || matches!(effect, None | Some(Effect::Neutral))
+            })
+        });
         if let OpKind::Query {
             index,
             query,
             options,
-        } = op
+        } = &op.kind
             && settled
-            && exact(query)
-            && quiet(program, trace, i)
+            && quiet
+            && !matches!(query, Query::Knn { .. })
             && let Some((total, keys)) = step.reply.as_ref().and_then(result)
         {
             seen.push(Observation {
                 period,
                 index,
-                schema: schemas.get(index).cloned(),
+                key: scope.key(index),
                 query,
                 options,
                 total,
@@ -293,39 +274,9 @@ fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'
     seen
 }
 
-/// Whether no op that is not neutral was sent while step `i` was in flight.
-fn quiet(program: &Program, trace: &Trace, i: usize) -> bool {
-    let step = &trace.steps[i];
-    let Some(received) = step.received else {
-        return false;
-    };
-    trace.steps.iter().all(|other| {
-        other.sent <= step.sent
-            || other.sent >= received
-            || marker(other)
-            || effect(&program.ops[other.op].kind, other) == Effect::Neutral
-    })
-}
-
-/// A step the harness records for its own barrier or release.
-fn marker(step: &Step) -> bool {
-    matches!(step.argv.as_slice(), [word] if *word == "BARRIER".into() || *word == "RELEASE".into())
-}
-
-fn effect(op: &OpKind, step: &Step) -> Effect {
-    match op {
-        OpKind::Query { .. }
-        | OpKind::Aggregate { .. }
-        | OpKind::Cursor { .. }
-        | OpKind::Barrier => Effect::Neutral,
-        OpKind::Create { .. }
-        | OpKind::Alter { .. }
-        | OpKind::Populate { .. }
-        | OpKind::Command { .. } => command_effect(step),
-    }
-}
-
-fn command_effect(step: &Step) -> Effect {
+/// How a step can change what queries return; `None` for the harness's own
+/// barrier and release steps.
+fn effect(step: &Step) -> Option<Effect> {
     let word = |i: usize| {
         step.argv
             .get(i)
@@ -333,48 +284,19 @@ fn command_effect(step: &Step) -> Effect {
             .unwrap_or_default()
     };
     let command = word(0);
-    if NEUTRAL_COMMANDS.contains(&command.as_str())
-        || (command == "_FT.DEBUG" && NEUTRAL_HOOKS.contains(&word(1).as_str()))
-    {
-        Effect::Neutral
-    } else if command == "DEBUG" && word(1) == "RELOAD" {
-        Effect::Transparent
-    } else {
-        Effect::Changing
-    }
-}
-
-/// Folds a step the server accepted into the schemas it confirms.
-fn confirm<'a>(op: &'a OpKind, schemas: &mut BTreeMap<&'a Bytes, Schema>) {
-    let fields = |fields: &[Field]| -> BTreeSet<(Bytes, FieldKind)> {
-        fields
-            .iter()
-            .map(|f| (f.name.clone(), f.kind.clone()))
-            .collect()
-    };
-    match op {
-        OpKind::Create {
-            index,
-            on,
-            prefix,
-            fields: declared,
-        } => {
-            schemas.insert(index, (*on, prefix.clone(), fields(declared)));
-        }
-        OpKind::Alter { index, field, .. } => {
-            if let Some((_, _, fields)) = schemas.get_mut(index) {
-                fields.insert((field.name.clone(), field.kind.clone()));
-            }
-        }
-        OpKind::Command { argv } => {
-            if let [command, index, ..] = argv.as_slice()
-                && command.as_slice().eq_ignore_ascii_case(b"FT.DROPINDEX")
-            {
-                schemas.retain(|name, _| *name != index);
-            }
-        }
-        _ => {}
-    }
+    Some(
+        if step.argv.len() == 1 && (command == "BARRIER" || command == "RELEASE") {
+            return None;
+        } else if NEUTRAL_COMMANDS.contains(&command.as_str())
+            || (command == "_FT.DEBUG" && NEUTRAL_HOOKS.contains(&word(1).as_str()))
+        {
+            Effect::Neutral
+        } else if command == "DEBUG" && word(1) == "RELOAD" {
+            Effect::Transparent
+        } else {
+            Effect::Changing
+        },
+    )
 }
 
 /// The total and, when the reply lists every match, the keys of an
@@ -401,42 +323,13 @@ fn result(reply: &Reply) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
 mod tests {
     use super::*;
     use crate::coverage::Coverage;
-    use crate::lower::{Cursors, lower};
-    use crate::program::{FORMAT_VERSION, Op, argv};
+    use crate::lower::lower;
+    use crate::program::{DataType, FORMAT_VERSION, Field, FieldKind, Op, argv};
     use crate::run::Exit;
     use crate::target::Status;
 
-    fn create(index: &str) -> OpKind {
-        OpKind::Create {
-            index: index.into(),
-            on: DataType::Hash,
-            prefix: "d:".into(),
-            fields: vec![Field {
-                name: "t".into(),
-                kind: FieldKind::Text,
-                sortable: false,
-            }],
-        }
-    }
-
-    fn search(index: &str, query: Query) -> OpKind {
-        OpKind::Query {
-            index: index.into(),
-            query,
-            options: QueryOptions::default(),
-        }
-    }
-
-    fn command(words: &[&str]) -> OpKind {
-        OpKind::Command { argv: argv(words) }
-    }
-
-    fn term(word: &str) -> Query {
-        Query::Term(word.into())
-    }
-
-    /// Runs the rules over a trace in which each op got `replies[i]`, or a
-    /// count of `totals[i]` matches for a query.
+    /// The rules' verdicts on a trace in which every op succeeded and each
+    /// query matched the paired number of documents.
     fn signatures(fail: bool, ops: &[(OpKind, i64)]) -> Vec<String> {
         let program = Program {
             version: FORMAT_VERSION,
@@ -450,6 +343,7 @@ mod tests {
                 .map(|(kind, _)| Op {
                     conn: Default::default(),
                     reply: Default::default(),
+                    bind: None,
                     kind: kind.clone(),
                 })
                 .collect(),
@@ -462,13 +356,10 @@ mod tests {
                 let (argv, value) = match kind {
                     OpKind::Barrier => (argv(&["BARRIER"]), Value::Simple("OK".into())),
                     OpKind::Query { .. } => (
-                        lower(kind, &Cursors::new()).remove(0),
+                        lower(kind).remove(0),
                         Value::Array(vec![Value::Int(*total)]),
                     ),
-                    _ => (
-                        lower(kind, &Cursors::new()).remove(0),
-                        Value::Simple("OK".into()),
-                    ),
+                    _ => (lower(kind).remove(0), Value::Simple("OK".into())),
                 };
                 Step {
                     op: at,
@@ -498,86 +389,80 @@ mod tests {
 
     #[test]
     fn each_rule_passes_consistent_replies_and_flags_doctored_ones() {
-        let hello = || search("i", term("hello"));
-        let both = || {
-            search(
-                "i",
-                Query::And(vec![
-                    term("hello"),
-                    Query::InField {
-                        field: "t".into(),
-                        term: "world".into(),
-                    },
-                ]),
-            )
+        let create = |index: &str| OpKind::Create {
+            index: index.into(),
+            on: DataType::Hash,
+            prefix: "d:".into(),
+            fields: vec![Field {
+                name: "t".into(),
+                kind: FieldKind::Text,
+                sortable: false,
+            }],
         };
-        let only = || {
-            search(
-                "i",
-                Query::And(vec![
-                    term("hello"),
-                    Query::Not(Box::new(Query::InField {
-                        field: "t".into(),
-                        term: "world".into(),
-                    })),
-                ]),
-            )
+        let search = |index: &str, query| OpKind::Query {
+            index: index.into(),
+            query,
+            options: QueryOptions::default(),
+        };
+        let command = |words: &[&str]| OpKind::Command { argv: argv(words) };
+        let hello = || Query::Term("hello".into());
+        let world = || Query::InField {
+            field: "t".into(),
+            term: "world".into(),
         };
         let partition = |rest| {
             vec![
                 (create("i"), 0),
                 (OpKind::Barrier, 0),
-                (hello(), 5),
-                (both(), 2),
-                (only(), rest),
+                (search("i", hello()), 5),
+                (search("i", Query::And(vec![hello(), world()])), 2),
+                (
+                    search(
+                        "i",
+                        Query::And(vec![hello(), Query::Not(Box::new(world()))]),
+                    ),
+                    rest,
+                ),
             ]
         };
-        let equivalence = |between: OpKind, second| {
+        let repeated = |between, second| {
             vec![
                 (create("i"), 0),
                 (OpKind::Barrier, 0),
-                (hello(), 3),
+                (search("i", hello()), 3),
                 (between, 0),
-                (hello(), second),
+                (search("i", hello()), second),
             ]
         };
-        let gc = || command(&["_FT.DEBUG", "GC_FORCEINVOKE", "i"]);
         let twin = |second| {
             vec![
                 (create("i"), 0),
                 (create("j"), 0),
                 (OpKind::Barrier, 0),
-                (hello(), 3),
-                (search("j", term("hello")), second),
+                (search("i", hello()), 3),
+                (search("j", hello()), second),
             ]
         };
+        let gc = || command(&["_FT.DEBUG", "GC_FORCEINVOKE", "i"]);
         let none: [&str; 0] = [];
         assert_eq!(signatures(true, &partition(3)), none);
         assert_eq!(signatures(true, &partition(2)), ["logic:partition:term"]);
-        assert_eq!(signatures(true, &equivalence(gc(), 3)), none);
+        assert_eq!(signatures(true, &repeated(gc(), 3)), none);
         assert_eq!(
-            signatures(true, &equivalence(gc(), 2)),
+            signatures(true, &repeated(gc(), 2)),
             ["logic:equivalence:term"]
-        );
-        assert_eq!(
-            signatures(
-                true,
-                &equivalence(command(&["HSET", "d:1", "t", "hello"]), 2)
-            ),
-            none,
-            "a write ends the period"
-        );
-        assert_eq!(
-            signatures(true, &equivalence(command(&["DEBUG", "RELOAD"]), 2)),
-            none,
-            "a reload needs a barrier before the next comparison"
         );
         assert_eq!(signatures(true, &twin(3)), none);
         assert_eq!(signatures(true, &twin(2)), ["logic:twin:term"]);
-        assert_eq!(
+        for skipped in [
+            signatures(true, &repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
+            signatures(true, &repeated(command(&["DEBUG", "RELOAD"]), 2)),
             signatures(false, &twin(2)),
-            none,
-            "partial results on timeout make every rule inconclusive"
-        );
+        ] {
+            assert_eq!(
+                skipped, none,
+                "a write, a reload without a barrier, or partial results"
+            );
+        }
     }
 }

@@ -18,11 +18,12 @@ use rand::rngs::SmallRng;
 
 use redisearch_fuzz::bundle;
 use redisearch_fuzz::campaign::{Campaign, fuzz};
-use redisearch_fuzz::edit::{generate, size};
-use redisearch_fuzz::judge::{Finding, judge};
+use redisearch_fuzz::edit::size;
+use redisearch_fuzz::generate::generate;
+use redisearch_fuzz::judge::{Finding, execute};
 use redisearch_fuzz::program::Program;
 use redisearch_fuzz::reduce::reduce;
-use redisearch_fuzz::run::{Trace, run};
+use redisearch_fuzz::run::Trace;
 use redisearch_fuzz::target::Env;
 
 #[derive(Parser)]
@@ -70,9 +71,6 @@ enum Command {
         corpus: PathBuf,
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
-        /// File of signatures to ignore, one per line.
-        #[arg(long)]
-        known: Option<PathBuf>,
         /// Stop after this many seconds.
         #[arg(long)]
         duration: Option<u64>,
@@ -110,7 +108,6 @@ fn main() -> ExitCode {
             seeds,
             corpus,
             findings,
-            known,
             duration,
             jobs: _,
             worker: Some(worker),
@@ -121,7 +118,6 @@ fn main() -> ExitCode {
                 seeds: &seeds,
                 corpus: &corpus.join(worker.to_string()),
                 findings: &findings,
-                known: known.as_deref(),
                 duration: duration.map(Duration::from_secs),
             })
             .map(|()| false)
@@ -185,8 +181,8 @@ fn reduce_command(
     findings_dir: &Path,
 ) -> Result<bool, String> {
     let env = Env::from_env()?;
-    let trace = run(program, &env)?;
-    let finding = judge(program, &trace)
+    let (_, findings) = execute(program, &env)?;
+    let finding = findings
         .into_iter()
         .find(|finding| signature.is_none_or(|s| s == finding.signature))
         .ok_or("the program does not yield that finding")?;
@@ -209,13 +205,12 @@ fn run_command(
     let mut found: BTreeMap<Finding, (u32, Trace)> = BTreeMap::new();
     let mut edges: BTreeMap<u32, u32> = BTreeMap::new();
     for attempt in 1..=repeat {
-        let trace = run(program, &env)?;
+        let (trace, findings) = execute(program, &env)?;
         if verbose {
             for step in &trace.steps {
                 println!("  [{}] {:?} -> {:?}", step.op, step.argv, step.reply);
             }
         }
-        let findings = judge(program, &trace);
         println!(
             "run {attempt}/{repeat}: {:?}, {} steps, {}/{} edges, {} findings",
             trace.exit,

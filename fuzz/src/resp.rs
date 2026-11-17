@@ -87,8 +87,10 @@ fn parse(buf: &[u8], at: usize) -> Result<Option<(Value, usize)>, String> {
 mod tests {
     use super::*;
 
+    /// An incomplete reply is not an error, so reads can resume; a malformed
+    /// one is.
     #[test]
-    fn a_reply_decodes_only_once_complete() {
+    fn replies_decode_only_once_complete_and_violations_are_errors() {
         let reply = b"*4\r\n$5\r\na\r\nbc\r\n:-7\r\n*1\r\n+x\r\n$-1\r\n-ERR no\r\n";
         let first_len = reply.len() - b"-ERR no\r\n".len();
         for end in 0..first_len {
@@ -106,10 +108,6 @@ mod tests {
                 first_len
             )))
         );
-    }
-
-    #[test]
-    fn protocol_violations_are_errors() {
         for bad in [&b"?x\r\n"[..], b":abc\r\n", b"$2\r\nabXY", b"*-5\r\n"] {
             assert!(decode(bad).is_err(), "{:?}", String::from_utf8_lossy(bad));
         }

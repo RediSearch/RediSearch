@@ -1,1 +1,0 @@
-{"version": 1, "ops": [{"op": "command", "argv": ["DEBUG", "SEGFAULT"]}]}

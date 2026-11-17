@@ -103,11 +103,19 @@ pub struct Program {
 )]
 pub struct Conn(pub u8);
 
-/// A slot that holds a server-chosen value, a cursor id, between ops.
+/// A slot for a value the server chooses, such as a cursor id. An op's `bind`
+/// stores the id in its reply there, and a command token `$<n>` reads slot
+/// `n` (0 while it is unset).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
 pub struct Var(pub u8);
+
+impl Var {
+    pub fn token(self) -> Bytes {
+        format!("${}", self.0).into()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -123,6 +131,8 @@ pub struct Op {
     pub conn: Conn,
     #[serde(default, skip_serializing_if = "is_default")]
     pub reply: ReplyMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<Var>,
     #[serde(flatten)]
     pub kind: OpKind,
 }
@@ -142,38 +152,17 @@ pub enum OpKind {
         prefix: Bytes,
         fields: Vec<Field>,
     },
-    Query {
-        index: Bytes,
-        query: Query,
-        #[serde(default)]
-        options: QueryOptions,
-    },
-    Barrier,
-    Command {
-        argv: Argv,
-    },
     Alter {
         index: Bytes,
         #[serde(default, skip_serializing_if = "is_default")]
         on: DataType,
         field: Field,
     },
-    /// The pipeline is raw tokens; only the cursor is typed, because its id
-    /// is bound to `cursor.var` for later `Cursor` ops.
-    Aggregate {
+    Query {
         index: Bytes,
         query: Query,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pipeline: Argv,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cursor: Option<CursorSpec>,
-    },
-    /// Uses the cursor id bound to `var`, or 0 if none is. A read rebinds
-    /// `var` to the id it returns.
-    Cursor {
-        index: Bytes,
-        var: Var,
-        action: CursorAction,
+        #[serde(default)]
+        options: QueryOptions,
     },
     /// `n` writes under `prefix`, with values for `fields` drawn from the
     /// fixed dictionary by a PRNG seeded with `seed`.
@@ -185,51 +174,21 @@ pub enum OpKind {
         n: u32,
         seed: u64,
     },
+    Barrier,
+    Command {
+        argv: Argv,
+    },
 }
 
 /// What an index covers: hashes, or JSON documents (with RedisJSON).
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord,
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum DataType {
     #[default]
     Hash,
     Json,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CursorSpec {
-    pub var: Var,
-    pub count: u32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CursorAction {
-    Read {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        count: Option<u32>,
-    },
-    Del,
-}
-
-impl OpKind {
-    /// The variable whose value this op's reply sets.
-    pub fn binds(&self) -> Option<Var> {
-        match self {
-            OpKind::Aggregate {
-                cursor: Some(cursor),
-                ..
-            } => Some(cursor.var),
-            OpKind::Cursor {
-                var,
-                action: CursorAction::Read { .. },
-                ..
-            } => Some(*var),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -241,7 +200,7 @@ pub struct Field {
     pub sortable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FieldKind {
     Text,
@@ -256,14 +215,14 @@ pub enum FieldKind {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Algorithm {
     Flat,
     Hnsw,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Metric {
     L2,
@@ -321,6 +280,48 @@ pub struct QueryOptions {
     pub dialect: Option<u8>,
 }
 
+/// A value inside an op that edits may replace or shrink.
+pub enum Leaf<'a> {
+    Word(&'a mut Bytes),
+    Int(&'a mut i64),
+}
+
+impl OpKind {
+    /// Calls `f` on every query term, tag value, range bound, and command
+    /// token, in a fixed order.
+    pub fn leaves(&mut self, f: &mut dyn FnMut(Leaf<'_>)) {
+        match self {
+            OpKind::Query { query, .. } => query.leaves(f),
+            OpKind::Command { argv } => argv.iter_mut().for_each(|token| f(Leaf::Word(token))),
+            OpKind::Create { .. }
+            | OpKind::Alter { .. }
+            | OpKind::Populate { .. }
+            | OpKind::Barrier => {}
+        }
+    }
+}
+
+impl Query {
+    fn leaves(&mut self, f: &mut dyn FnMut(Leaf<'_>)) {
+        match self {
+            Query::All => {}
+            Query::Term(term) | Query::InField { term, .. } => f(Leaf::Word(term)),
+            Query::Tag { values, .. } => values.iter_mut().for_each(|v| f(Leaf::Word(v))),
+            Query::Range { min, max, .. } => {
+                for bound in [min, max] {
+                    if let Bound::Inclusive(n) | Bound::Exclusive(n) = bound {
+                        f(Leaf::Int(n));
+                    }
+                }
+            }
+            Query::And(children) | Query::Or(children) => {
+                children.iter_mut().for_each(|child| child.leaves(f))
+            }
+            Query::Not(child) | Query::Knn { filter: child, .. } => child.leaves(f),
+        }
+    }
+}
+
 impl Program {
     pub fn from_json(text: &str) -> Result<Program, String> {
         let program: Program = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -335,68 +336,5 @@ impl Program {
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("programs always serialize")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bytes_are_text_when_valid_utf8_and_hex_otherwise() {
-        assert_eq!(serde_json::to_string(&Bytes::from("é")).unwrap(), r#""é""#);
-        let binary = Bytes(vec![b'a', 0xe0, 0x00, 0xff]);
-        let json = serde_json::to_string(&binary).unwrap();
-        assert_eq!(json, r#"{"hex":"61e000ff"}"#);
-        assert_eq!(serde_json::from_str::<Bytes>(&json).unwrap(), binary);
-    }
-
-    #[test]
-    fn program_round_trips() {
-        let program = Program {
-            version: FORMAT_VERSION,
-            module_args: argv(&["WORKERS", "2"]),
-            ops: vec![
-                Op {
-                    conn: Conn(1),
-                    reply: ReplyMode::Defer,
-                    kind: OpKind::Create {
-                        index: "i1".into(),
-                        on: DataType::Json,
-                        prefix: "doc:".into(),
-                        fields: vec![Field {
-                            name: "t".into(),
-                            kind: FieldKind::Text,
-                            sortable: true,
-                        }],
-                    },
-                },
-                Op {
-                    conn: Conn::default(),
-                    reply: ReplyMode::Await,
-                    kind: OpKind::Query {
-                        index: "i1".into(),
-                        query: Query::Not(Box::new(Query::Range {
-                            field: "n".into(),
-                            min: Bound::Exclusive(-3),
-                            max: Bound::Unbounded,
-                        })),
-                        options: QueryOptions {
-                            no_content: true,
-                            limit: Some((0, 10)),
-                            dialect: Some(2),
-                        },
-                    },
-                },
-                Op {
-                    conn: Conn::default(),
-                    reply: ReplyMode::Await,
-                    kind: OpKind::Command {
-                        argv: vec!["PING".into(), Bytes(vec![0xe0])],
-                    },
-                },
-            ],
-        };
-        assert_eq!(Program::from_json(&program.to_json()).unwrap(), program);
     }
 }

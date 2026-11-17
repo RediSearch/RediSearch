@@ -8,9 +8,8 @@
 */
 
 use crate::edit::smaller;
-use crate::judge::{Finding, judge};
+use crate::judge::{Finding, execute};
 use crate::program::Program;
-use crate::run::run;
 use crate::target::Env;
 
 /// Shrinks `program` while a fresh run of it still yields `finding`. After a
@@ -44,5 +43,5 @@ pub fn reduce(
 }
 
 fn reproduces(program: &Program, finding: &Finding, env: &Env) -> bool {
-    run(program, env).is_ok_and(|trace| judge(program, &trace).contains(finding))
+    execute(program, env).is_ok_and(|(_, findings)| findings.contains(finding))
 }

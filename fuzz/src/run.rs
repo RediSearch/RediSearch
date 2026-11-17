@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::coverage::Coverage;
-use crate::lower::{Cursors, lower};
+use crate::lower::lower;
 use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode, Var, argv};
 use crate::resp::Value;
 use crate::target::{Connection, Env, Reply, Server, Status};
@@ -61,7 +61,7 @@ pub fn run(program: &Program, env: &Env) -> Result<Trace, String> {
         server: Server::spawn(env, &program.module_args)?,
         conns: BTreeMap::new(),
         pending: BTreeMap::new(),
-        cursors: Cursors::new(),
+        vars: BTreeMap::new(),
         control: None,
         steps: Vec::new(),
         clock: 0,
@@ -99,7 +99,7 @@ struct Interpreter {
     /// Per connection, the steps awaiting a reply and the variable each
     /// reply binds.
     pending: BTreeMap<Conn, VecDeque<(usize, Option<Var>)>>,
-    cursors: Cursors,
+    vars: BTreeMap<Var, i64>,
     control: Option<Connection>,
     steps: Vec<Step>,
     clock: u32,
@@ -113,17 +113,18 @@ impl Interpreter {
         if let Some(exit) = self.drain(op.conn, at) {
             return Some(exit);
         }
-        let binds = op.kind.binds();
-        lower(&op.kind, &self.cursors)
-            .into_iter()
-            .find_map(|command| {
-                self.drain(op.conn, at)
-                    .or_else(|| self.send(op.conn, at, command, binds))
-                    .or_else(|| match op.reply {
-                        ReplyMode::Await => self.drain(op.conn, at),
-                        ReplyMode::Defer => None,
-                    })
-            })
+        lower(&op.kind).into_iter().find_map(|command| {
+            let command = command
+                .into_iter()
+                .map(|token| self.resolve(token))
+                .collect();
+            self.drain(op.conn, at)
+                .or_else(|| self.send(op.conn, at, command, op.bind))
+                .or_else(|| match op.reply {
+                    ReplyMode::Await => self.drain(op.conn, at),
+                    ReplyMode::Defer => None,
+                })
+        })
     }
 
     fn send(&mut self, conn: Conn, at: usize, command: Argv, binds: Option<Var>) -> Option<Exit> {
@@ -172,7 +173,7 @@ impl Interpreter {
             match reply {
                 Reply::Value(ref value) => {
                     if let (Some(var), Some(id)) = (binds, cursor_id(value)) {
-                        self.cursors.insert(var, id);
+                        self.vars.insert(var, id);
                     }
                     self.record(step, reply);
                 }
@@ -340,6 +341,18 @@ impl Interpreter {
             self.control = None;
         }
         reply.ok()
+    }
+
+    /// A `$<n>` token becomes the value bound to variable `n`, or 0.
+    fn resolve(&self, token: Bytes) -> Bytes {
+        let var = std::str::from_utf8(token.as_slice())
+            .ok()
+            .and_then(|t| t.strip_prefix('$')?.parse().ok())
+            .map(Var);
+        match var {
+            Some(var) => self.vars.get(&var).copied().unwrap_or(0).to_string().into(),
+            None => token,
+        }
     }
 
     fn tick(&mut self) -> u32 {
