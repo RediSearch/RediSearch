@@ -120,6 +120,28 @@ def testPartialOverlapRanksFirst(env):
     env.assertEqual(search(env, '@sp:[SPARSE $q]', [(77, 1.0)]), [0])
 
 
+def testSeveralSparseClausesAreSummed(env):
+    """Each clause's score has its own field's metric applied, and the scorer
+    sums them without rescaling, so an IP field outweighs a COSINE one."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               'ip', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
+               'cos', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'COSINE').ok()
+    # doc:1 wins the IP clause by 4, doc:2 wins the COSINE clause by less than 1.
+    conn.execute_command('HSET', 'doc:1', 'ip', sparse_blob([(1, 6.0)]),
+                         'cos', sparse_blob([(1, 1.0), (2, 1.0)]))
+    conn.execute_command('HSET', 'doc:2', 'ip', sparse_blob([(1, 2.0)]),
+                         'cos', sparse_blob([(1, 1.0)]))
+    res = env.cmd('FT.SEARCH', 'idx', '@ip:[SPARSE $a] @cos:[SPARSE $b]',
+                  'WITHSCORES', 'NOCONTENT', 'PARAMS', 4,
+                  'a', sparse_blob([(1, 1.0)]), 'b', sparse_blob([(1, 1.0)]), 'DIALECT', 2)
+    got = ids_and_scores(res)
+    env.assertEqual([doc for doc, _ in got], ['doc:1', 'doc:2'])
+    env.assertAlmostEqual(got[0][1], 6.0 + 1 / math.sqrt(2), 1e-6)
+    env.assertAlmostEqual(got[1][1], 2.0 + 1.0, 1e-6)
+
+
 def testSparseScorerCannotBeNamed(env):
     """SPARSE is only ever chosen by the query itself: as a default scorer it
     would score every text query 0, and naming it adds nothing."""
