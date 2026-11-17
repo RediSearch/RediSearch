@@ -466,7 +466,7 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordSearchReplyAccept");
 #endif
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&request->base.limits)) {
     // Each request has one IO-thread producer. Publish only fully initialized slots.
     int published = atomic_load_explicit(&source->publishedCount, memory_order_relaxed);
     RS_ASSERT((size_t)published < source->capacity);
