@@ -960,7 +960,8 @@ def test_term_expansion_checks_memory_per_expanded_term(env):
     try:
         for workers in worker_counts(env):
             for query in (('FT.SEARCH', 'idx', '@t:pre*', 'NOCONTENT'),
-                          ('FT.SEARCH', 'idx', "@t:w'pre*'", 'NOCONTENT')):
+                          ('FT.SEARCH', 'idx', "@t:w'pre*'", 'NOCONTENT'),
+                          ('FT.AGGREGATE', 'idx', '@t:pre*', 'LOAD', 1, '@t')):
                 # Call 1 is the build entry; the later calls are the expanded terms.
                 for at_call in (5, 250):
                     memory_pressure(env, 'AT_CALL', at_call)
