@@ -77,7 +77,8 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
 // Whether the subquery's term expansions sample memory. Hybrid reads memory at build under FAIL
 // only (see the checks in the build loop), so the expansion samples follow the same policy.
 static bool subqueryChecksExpansionMemory(const AREQ *areq) {
-  return IsHybridSearchSubquery(areq) && areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
+  return (IsHybridSearchSubquery(areq) || IsHybridVectorSubquery(areq)) &&
+         areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
 }
 
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
