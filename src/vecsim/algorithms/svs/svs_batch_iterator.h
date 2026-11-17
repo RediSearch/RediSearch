@@ -35,7 +35,6 @@ private:
 
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
-        rep->results.reserve(n_res);
         auto timeoutCtx = this->getTimeoutCtx();
         VecSimSharedStopPoller stop(timeoutCtx, VECSIM_STOP_CHECK_INTERVAL);
         auto cancel = [timeoutCtx, &stop]() { return VECSIM_TIMEOUT(timeoutCtx) || stop.due(); };
