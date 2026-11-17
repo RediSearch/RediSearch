@@ -74,7 +74,11 @@ void QueryRequestLimits_MarkTimedOut(QueryRequestLimits *limits) {
 }
 
 void QueryRequestLimits_RequestMemoryStop(QueryRequestLimits *limits) {
-  RS_AtomicBoolStoreRelaxed(&limits->memory.stopped, true);
+  // Every memory stop goes through here, from any thread; only the caller that sets the flag logs,
+  // so a query logs once however many sites see the pressure.
+  if (!atomic_exchange_explicit(&limits->memory.stopped, true, memory_order_relaxed)) {
+    RedisModule_Log(RSDummyContext, "notice", "Query stopped: memory pressure");
+  }
 }
 
 RS_Atomic(bool) *QueryRequestLimits_GetMemoryStopFlag(QueryRequestLimits *limits) {
