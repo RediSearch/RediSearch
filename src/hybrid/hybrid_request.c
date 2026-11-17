@@ -77,7 +77,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
 // Whether the subquery's term expansions sample memory: as the build reads, under every ON_OOM
 // policy, since a build stop is mapped per ON_OOM here.
 static bool subqueryChecksExpansionMemory(const AREQ *areq) {
-  return IsHybridSearchSubquery(areq);
+  return IsHybridSearchSubquery(areq) || IsHybridVectorSubquery(areq);
 }
 
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
