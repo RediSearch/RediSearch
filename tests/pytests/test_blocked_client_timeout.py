@@ -6158,6 +6158,71 @@ class TestCoordinatorReducePause:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
 
+    def _run_timeout_mid_reply(self, policy, query_args, expect_timeout_error):
+        """Fires the blocked-client timeout while the reducer is parked before its 2nd row.
+
+        Every shard reply holds more rows than that, so rows merged after the timeout are
+        counted by the reduce counter: the per-row stop leaves it at the parked row.
+        """
+        env = self.env
+        pause_before_n = 2
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+        setPauseBeforeReduce(env, pause_before_n)
+
+        query_result = []
+        errors = []
+
+        def query_worker():
+            # Assertions raised in a worker thread are lost on join, so the error reply is
+            # captured here and checked on the test thread.
+            try:
+                query_result.append(env.cmd(*query_args))
+            except redis_exceptions.ResponseError as e:
+                errors.append(str(e))
+
+        t_query = threading.Thread(target=query_worker, daemon=True)
+        try:
+            t_query.start()
+            wait_for_condition(
+                lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
+                'Timeout while waiting for coordinator to pause during reduce'
+            )
+            blocked_client_id = wait_for_blocked_query_client(env, query_args[0])
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            if expect_timeout_error:
+                env.assertEqual(query_result, [], message=query_result)
+                env.assertEqual(len(errors), 1, message=errors)
+                env.assertContains(TIMEOUT_ERROR, errors[0])
+            else:
+                env.assertEqual(errors, [], message=errors)
+
+            env.assertEqual(getCoordReduceCount(env), pause_before_n,
+                            message="Rows were merged after the timeout")
+            env.assertEqual(env.cmd('PING'), True)
+            env.assertEqual(env.cmd('INFO', 'CLIENTS')['blocked_clients'], 0)
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+            self._cleanup_pause_state()
+        return query_result
+
+    def test_timeout_fail_mid_reply_stops_merging(self):
+        """An ON_TIMEOUT FAIL timeout fired while the reducer is inside one shard reply replies the
+        timeout error and stops merging that reply's remaining rows."""
+        self._run_timeout_mid_reply('fail', ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], True)
+
+    def test_timeout_return_strict_mid_reply_stops_merging(self):
+        """A RETURN-STRICT timeout fired while the reducer is inside one shard reply stops merging
+        that reply's remaining rows, and the reply holds only the rows merged before it."""
+        result = self._run_timeout_mid_reply(
+            'return-strict', ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], False)
+        self.env.assertEqual(len(result), 1, message="Expected 1 result from query thread")
+        self.env.assertEqual(result[0]['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
+        self.env.assertTrue(len(result[0]['results']) <= 2, message=result[0])
+
     def test_timeout_return_strict_after_last_reduce(self):
         """Test return-strict timeout policy when timeout occurs after all results are reduced.
 
