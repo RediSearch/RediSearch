@@ -317,8 +317,8 @@ private:
     std::pair<MetadataType, MetadataType> find_min_max(const DataType *input,
                                                        MetadataType &x_mean_ip) const;
     void quantize_four(const DataType *input, OUTPUT_TYPE *quantized, size_t i,
-                       MetadataType minimum, MetadataType prepared, uint32_t (&sums)[4],
-                       uint64_t (&squares)[4]) const;
+                       MetadataType minimum, MetadataType prepared, std::array<uint32_t, 4> &sums,
+                       std::array<uint64_t, 4> &squares) const;
     CodeSums quantize_codes(const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
                             MetadataType prepared) const;
     void assign_storage_metadata(OUTPUT_TYPE *quantized, MetadataType minimum, MetadataType delta,
@@ -413,7 +413,7 @@ public:
     }
 
     // Standard constructor (WithNorm == false): no mean vector.
-    QuantPreprocessor(std::shared_ptr<VecSimAllocator> allocator, size_t dim)
+    QuantPreprocessor(std::shared_ptr<VecSimAllocator> alloc, size_t dim)
         requires(!WithNorm);
 
     // WithNorm constructor: accepts a pre-computed mean vector (FP32, length == dim).
@@ -614,7 +614,7 @@ template <typename DataType, VecSimMetric Metric, bool WithNorm, typename Storag
     requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_four(
     const DataType *input, OUTPUT_TYPE *quantized, size_t i, MetadataType minimum,
-    MetadataType prepared, uint32_t (&sums)[4], uint64_t (&squares)[4]) const {
+    MetadataType prepared, std::array<uint32_t, 4> &sums, std::array<uint64_t, 4> &squares) const {
     const MetadataType x0 = transformed_value(input, i);
     const MetadataType x1 = transformed_value(input, i + 1);
     const MetadataType x2 = transformed_value(input, i + 2);
@@ -647,9 +647,9 @@ auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_codes(
     const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
     MetadataType prepared) const -> CodeSums {
     // Reconstruction metadata must describe the codes, not the original input values.
-    uint32_t sums[4] = {};
+    std::array<uint32_t, 4> sums = {};
     // Squared codes can overflow 32 bits at practical dimensions.
-    uint64_t squares[4] = {};
+    std::array<uint64_t, 4> squares = {};
     size_t i = 0;
     const size_t dim_round_down = this->dim & ~size_t(3);
     for (; i < dim_round_down; i += 4) {
@@ -743,9 +743,9 @@ void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::preprocessQuery
 template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
     requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::QuantPreprocessor(
-    std::shared_ptr<VecSimAllocator> allocator, size_t dim)
+    std::shared_ptr<VecSimAllocator> alloc, size_t dim)
     requires(!WithNorm)
-    : PreprocessorInterface(allocator), dim(dim),
+    : PreprocessorInterface(alloc), dim(dim),
       storage_bytes_count(StorageType::template storage_bytes_count<Metric>(dim)),
       query_bytes_count(dim * sizeof(QueryType) +
                         StorageType::template query_metadata_count<Metric>() *
