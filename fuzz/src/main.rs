@@ -7,23 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod bundle;
-mod judge;
-mod lower;
-mod program;
-mod resp;
-mod run;
-mod target;
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use crate::judge::Finding;
-use crate::program::Program;
-use crate::target::Env;
+use redisearch_fuzz::judge::Finding;
+use redisearch_fuzz::program::Program;
+use redisearch_fuzz::target::Env;
+use redisearch_fuzz::{bundle, judge, run};
 
 #[derive(Parser)]
 #[command(about = "Stateful fuzzer for RediSearch")]

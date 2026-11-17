@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "ops": [
+    {"op": "write", "key": "doc:1", "fields": [["t", "hello"]]},
+    {"op": "admin", "hook": {"scan_pause_before_scan": true}},
+    {"op": "create", "index": "i1", "prefix": "doc:", "fields": [{"name": "t", "type": "text"}]},
+    {"op": "barrier"},
+    {"op": "query", "index": "i1", "query": "all", "options": {"limit": [0, 0]}}
+  ]
+}

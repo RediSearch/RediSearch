@@ -7,20 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::lower::lower;
-use crate::program::{Argv, Bytes, Conn, Program, ReplyMode};
+use crate::lower::{DEBUG_COMMAND, lower, words};
+use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode};
 use crate::resp::Value;
 use crate::target::{Connection, Env, Received, Server, Status};
 
 const CONTROL_DEADLINE: Duration = Duration::from_secs(5);
 const DEATH_GRACE: Duration = Duration::from_secs(2);
 const REAP_DEADLINE: Duration = Duration::from_secs(10);
-const DEBUG_COMMAND: &str = "_FT.DEBUG";
+const BARRIER_POLL: Duration = Duration::from_millis(20);
+const BARRIER_ARGV: &str = "BARRIER";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Trace {
@@ -33,7 +35,10 @@ pub struct Trace {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub op: usize,
+    pub conn: Conn,
     pub argv: Argv,
+    pub sent: u32,
+    pub received: Option<u32>,
     pub reply: Reply,
     pub micros: u64,
 }
@@ -45,6 +50,8 @@ pub enum Reply {
     Timeout,
     Closed(String),
     Invalid(String),
+    Inconclusive,
+    NotRead,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -65,6 +72,12 @@ enum Interrupt {
     Broken,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Released {
+    No,
+    Yes,
+}
+
 pub fn run(program: &Program, env: &Env) -> Trace {
     let mut server = match Server::spawn(env, &program.setup) {
         Ok(server) => server,
@@ -80,24 +93,19 @@ pub fn run(program: &Program, env: &Env) -> Trace {
     let mut interpreter = Interpreter {
         env,
         conns: BTreeMap::new(),
+        pending: BTreeMap::new(),
         control: None,
         steps: Vec::new(),
+        sent_at: Vec::new(),
+        clock: 0,
+        started: Instant::now(),
     };
 
-    let mut interrupted = None;
-    'ops: for (index, op) in program.ops.iter().enumerate() {
-        assert_eq!(
-            op.reply,
-            ReplyMode::Await,
-            "deferred replies are not implemented yet"
-        );
-        for argv in lower(&op.kind) {
-            if let Some(interrupt) = interpreter.step(&mut server, index, op.conn, argv) {
-                interrupted = Some((index, interrupt));
-                break 'ops;
-            }
-        }
-    }
+    let interrupted = program
+        .ops
+        .iter()
+        .enumerate()
+        .find_map(|(index, op)| interpreter.exec(&mut server, index, op).map(|i| (index, i)));
 
     let end = program.ops.len();
     let exit = match interrupted {
@@ -110,18 +118,18 @@ pub fn run(program: &Program, env: &Env) -> Trace {
             server.wait_exit(env.shutdown_deadline);
             Exit::Hung { at_op }
         }
-        other => {
-            if interpreter.shutdown(&mut server) {
-                match other {
-                    Some((at_op, Interrupt::Stalled)) => Exit::Stalled { at_op },
-                    _ => Exit::Clean,
-                }
-            } else {
+        other => match interpreter.finish(&mut server) {
+            Some(Interrupt::Died) => Exit::Died { at_op: end },
+            Some(_) => {
                 server.abort();
                 server.wait_exit(env.shutdown_deadline);
                 Exit::Hung { at_op: end }
             }
-        }
+            None => match other {
+                Some((at_op, Interrupt::Stalled)) => Exit::Stalled { at_op },
+                _ => Exit::Clean,
+            },
+        },
     };
     let (status, log) = server.reap(REAP_DEADLINE);
     let exit = match exit {
@@ -139,56 +147,223 @@ pub fn run(program: &Program, env: &Env) -> Trace {
 struct Interpreter<'a> {
     env: &'a Env,
     conns: BTreeMap<Conn, Connection>,
+    pending: BTreeMap<Conn, VecDeque<usize>>,
     control: Option<Connection>,
     steps: Vec<Step>,
+    sent_at: Vec<u64>,
+    clock: u32,
+    started: Instant,
 }
 
 impl Interpreter<'_> {
-    fn step(
+    fn tick(&mut self) -> u32 {
+        self.clock += 1;
+        self.clock
+    }
+
+    fn exec(&mut self, server: &mut Server, index: usize, op: &Op) -> Option<Interrupt> {
+        if op.kind == OpKind::Barrier {
+            return self.barrier(server, index);
+        }
+        for argv in lower(&op.kind) {
+            if let Some(interrupt) = self.collect_conn(server, op.conn, Released::No) {
+                return Some(interrupt);
+            }
+            let step = self.send(server, index, op.conn, argv);
+            if self.steps[step].reply != Reply::NotRead {
+                if server.wait_exit(DEATH_GRACE).is_some() {
+                    return Some(Interrupt::Died);
+                }
+                continue;
+            }
+            self.pending.entry(op.conn).or_default().push_back(step);
+            if op.reply == ReplyMode::Await
+                && let Some(interrupt) = self.collect_conn(server, op.conn, Released::No)
+            {
+                return Some(interrupt);
+            }
+        }
+        None
+    }
+
+    fn send(&mut self, server: &Server, op: usize, conn: Conn, argv: Argv) -> usize {
+        let sent = self.tick();
+        let reply = match self.connection(server, conn) {
+            Ok(connection) => match connection.send(&argv) {
+                Ok(()) => Reply::NotRead,
+                Err(e) => Reply::Closed(e),
+            },
+            Err(e) => Reply::Closed(e),
+        };
+        if reply != Reply::NotRead {
+            self.conns.remove(&conn);
+        }
+        self.steps.push(Step {
+            op,
+            conn,
+            argv,
+            sent,
+            received: None,
+            reply,
+            micros: 0,
+        });
+        self.sent_at.push(self.elapsed_micros());
+        self.steps.len() - 1
+    }
+
+    fn collect_conn(
         &mut self,
         server: &mut Server,
-        op: usize,
         conn: Conn,
-        argv: Argv,
+        released: Released,
     ) -> Option<Interrupt> {
-        let start = Instant::now();
+        while let Some(&step) = self.pending.get(&conn).and_then(VecDeque::front) {
+            if let Some(interrupt) = self.collect(server, conn, step, released) {
+                return Some(interrupt);
+            }
+        }
+        None
+    }
+
+    fn collect_all(&mut self, server: &mut Server, released: Released) -> Option<Interrupt> {
+        let conns: Vec<Conn> = self.pending.keys().copied().collect();
+        conns
+            .into_iter()
+            .find_map(|conn| self.collect_conn(server, conn, released))
+    }
+
+    fn collect(
+        &mut self,
+        server: &mut Server,
+        conn: Conn,
+        step: usize,
+        released: Released,
+    ) -> Option<Interrupt> {
         let deadline = self.env.reply_deadline;
-        let received = match self.connection(server, conn) {
-            Ok(connection) => match connection.send(&argv) {
-                Ok(()) => connection.recv(deadline),
-                Err(e) => Received::Closed(e),
-            },
-            Err(e) => Received::Closed(e),
-        };
+        let mut received = self.read(conn, deadline);
+        let mut interrupt = None;
+        if matches!(received, Received::Timeout) && released == Released::No {
+            self.release(server);
+            received = self.read(conn, self.env.release_grace);
+            interrupt = Some(Interrupt::Stalled);
+        }
         let (reply, interrupt) = match received {
-            Received::Value(value) => (Reply::Value(value), None),
+            Received::Value(value) => (Reply::Value(value), interrupt),
             Received::Invalid(e) => (Reply::Invalid(e), Some(Interrupt::Broken)),
+            Received::Timeout => (Reply::Timeout, Some(Interrupt::Hung)),
             Received::Closed(e) => {
                 self.conns.remove(&conn);
+                let unread: Vec<usize> = self.pending.remove(&conn).into_iter().flatten().collect();
+                for other in unread {
+                    self.steps[other].reply = Reply::Closed(e.clone());
+                }
                 let died = server.wait_exit(DEATH_GRACE).is_some();
                 (Reply::Closed(e), died.then_some(Interrupt::Died))
             }
-            Received::Timeout => {
-                self.release(server);
-                match self
-                    .conns
-                    .get_mut(&conn)
-                    .map(|c| c.recv(self.env.release_grace))
-                {
-                    Some(Received::Value(value)) => (Reply::Value(value), Some(Interrupt::Stalled)),
-                    Some(Received::Invalid(e)) => (Reply::Invalid(e), Some(Interrupt::Broken)),
-                    Some(Received::Closed(e)) => (Reply::Closed(e), Some(Interrupt::Died)),
-                    _ => (Reply::Timeout, Some(Interrupt::Hung)),
-                }
+        };
+        if let Some(queue) = self.pending.get_mut(&conn) {
+            queue.retain(|&s| s != step);
+        }
+        let received_at = self.tick();
+        let micros = self.elapsed_micros().saturating_sub(self.sent_at[step]);
+        let entry = &mut self.steps[step];
+        entry.reply = reply;
+        entry.received = Some(received_at);
+        entry.micros = micros;
+        interrupt
+    }
+
+    fn read(&mut self, conn: Conn, deadline: Duration) -> Received {
+        match self.conns.get_mut(&conn) {
+            Some(connection) => connection.recv(deadline),
+            None => Received::Closed("connection is gone".to_owned()),
+        }
+    }
+
+    fn barrier(&mut self, server: &mut Server, index: usize) -> Option<Interrupt> {
+        if let Some(interrupt) = self.collect_all(server, Released::No) {
+            return Some(interrupt);
+        }
+        let sent = self.tick();
+        let start = self.elapsed_micros();
+        let deadline = Instant::now() + self.env.reply_deadline;
+        let quiet = loop {
+            match self.quiescent(server) {
+                Some(true) => break true,
+                Some(false) if Instant::now() < deadline => sleep(BARRIER_POLL),
+                _ => break false,
             }
         };
+        if quiet && let Some(control) = self.control(server) {
+            let _ = control.call(
+                &words(&[DEBUG_COMMAND, "GC_WAIT_FOR_JOBS"]),
+                CONTROL_DEADLINE,
+            );
+        }
+        let received = self.tick();
+        let micros = self.elapsed_micros().saturating_sub(start);
+        self.sent_at.push(start);
         self.steps.push(Step {
-            op,
-            argv,
-            reply,
-            micros: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
+            op: index,
+            conn: Conn::default(),
+            argv: words(&[BARRIER_ARGV]),
+            sent,
+            received: Some(received),
+            reply: if quiet {
+                Reply::Value(Value::Simple("OK".into()))
+            } else {
+                Reply::Inconclusive
+            },
+            micros,
         });
-        interrupt
+        if server.try_exit().is_some() {
+            return Some(Interrupt::Died);
+        }
+        None
+    }
+
+    fn quiescent(&mut self, server: &Server) -> Option<bool> {
+        let control = self.control(server)?;
+        let Ok(Value::Array(names)) = control.call(&words(&["FT._LIST"]), CONTROL_DEADLINE) else {
+            return None;
+        };
+        for name in names {
+            let (Value::Bulk(name) | Value::Simple(name)) = name else {
+                continue;
+            };
+            let mut info = words(&["FT.INFO"]);
+            info.push(name);
+            let Ok(reply) = control.call(&info, CONTROL_DEADLINE) else {
+                return None;
+            };
+            if field(&reply, "indexing").is_some_and(|v| v != 0) {
+                return Some(false);
+            }
+        }
+        let stats = control
+            .call(
+                &words(&[DEBUG_COMMAND, "WORKERS", "STATS"]),
+                CONTROL_DEADLINE,
+            )
+            .ok()?;
+        let busy = ["totalPendingJobs", "numJobsInProgress"]
+            .iter()
+            .any(|name| field(&stats, name).is_some_and(|v| v != 0));
+        Some(!busy)
+    }
+
+    fn finish(&mut self, server: &mut Server) -> Option<Interrupt> {
+        self.release(server);
+        if let Some(interrupt) = self.collect_all(server, Released::Yes) {
+            return Some(interrupt);
+        }
+        if let Some(control) = self.control(server) {
+            let _ = control.send(&words(&["SHUTDOWN", "NOSAVE"]));
+        }
+        match server.wait_exit(self.env.shutdown_deadline) {
+            Some(_) => None,
+            None => Some(Interrupt::Hung),
+        }
     }
 
     fn connection(&mut self, server: &Server, conn: Conn) -> Result<&mut Connection, String> {
@@ -210,32 +385,80 @@ impl Interpreter<'_> {
         let Some(control) = self.control(server) else {
             return;
         };
-        let _ = control.call(
-            &argv(&[DEBUG_COMMAND, "WORKERS", "RESUME"]),
-            CONTROL_DEADLINE,
-        );
-        let Ok(Value::Array(names)) = control.call(&argv(&["FT._LIST"]), CONTROL_DEADLINE) else {
+        for command in [
+            &[DEBUG_COMMAND, "WORKERS", "RESUME"][..],
+            &[
+                DEBUG_COMMAND,
+                "BG_SCAN_CONTROLLER",
+                "SET_PAUSE_BEFORE_SCAN",
+                "false",
+            ],
+            &[DEBUG_COMMAND, "BG_SCAN_CONTROLLER", "SET_BG_INDEX_RESUME"],
+            &[DEBUG_COMMAND, "SYNC_POINT", "CLEAR"],
+        ] {
+            let _ = control.call(&words(command), CONTROL_DEADLINE);
+        }
+        let Ok(Value::Array(names)) = control.call(&words(&["FT._LIST"]), CONTROL_DEADLINE) else {
             return;
         };
         for name in names {
             if let Value::Bulk(name) | Value::Simple(name) = name {
-                let mut command = argv(&[DEBUG_COMMAND, "GC_CONTINUE_SCHEDULE"]);
+                let mut command = words(&[DEBUG_COMMAND, "GC_CONTINUE_SCHEDULE"]);
                 command.push(name);
                 let _ = control.call(&command, CONTROL_DEADLINE);
             }
         }
     }
 
-    fn shutdown(&mut self, server: &mut Server) -> bool {
-        self.release(server);
-        let deadline = self.env.shutdown_deadline;
-        if let Some(control) = self.control(server) {
-            let _ = control.send(&argv(&["SHUTDOWN", "NOSAVE"]));
-        }
-        server.wait_exit(deadline).is_some()
+    fn elapsed_micros(&self) -> u64 {
+        u64::try_from(self.started.elapsed().as_micros()).unwrap_or(u64::MAX)
     }
 }
 
-fn argv(words: &[&str]) -> Argv {
-    words.iter().map(|w| Bytes::from(*w)).collect()
+fn field(reply: &Value, name: &str) -> Option<i64> {
+    let Value::Array(items) = reply else {
+        return None;
+    };
+    items.chunks(2).find_map(|pair| match pair {
+        [Value::Bulk(key) | Value::Simple(key), value] if key.as_slice() == name.as_bytes() => {
+            match value {
+                Value::Int(n) => Some(*n),
+                Value::Bulk(text) | Value::Simple(text) => std::str::from_utf8(text.as_slice())
+                    .ok()?
+                    .trim()
+                    .parse()
+                    .ok(),
+                _ => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pairs(items: &[(&str, Value)]) -> Value {
+        Value::Array(
+            items
+                .iter()
+                .flat_map(|(k, v)| [Value::Bulk((*k).into()), v.clone()])
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn field_reads_integers_and_numeric_strings() {
+        let reply = pairs(&[
+            ("indexing", Value::Int(0)),
+            ("numJobsInProgress", Value::Bulk("3".into())),
+            ("other", Value::Simple("x".into())),
+        ]);
+        assert_eq!(field(&reply, "indexing"), Some(0));
+        assert_eq!(field(&reply, "numJobsInProgress"), Some(3));
+        assert_eq!(field(&reply, "other"), None);
+        assert_eq!(field(&reply, "missing"), None);
+        assert_eq!(field(&Value::Nil, "indexing"), None);
+    }
 }

@@ -24,12 +24,13 @@ acceptance check for that PR.
 
 ## 2. Scheduling and multiple connections
 
-- [ ] 2.1 Implement `ReplyMode::Defer` with send and receive sequence numbers
-- [ ] 2.2 Implement the `Admin` hook table with effects
-- [ ] 2.3 Implement `Barrier` with its polling predicates and inconclusive outcome
-- [ ] 2.4 Implement `Drop` lowering
-- [ ] 2.5 Tests: `Stalled` versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
+- [x] 2.1 Implement `ReplyMode::Defer` with send and receive sequence numbers
+- [x] 2.2 Implement the `Admin` hook table (effects move to 8.1, their first user)
+- [x] 2.3 Implement `Barrier` with its polling predicates and inconclusive outcome
+- [x] 2.4 Implement `Drop` lowering
+- [x] 2.5 Tests: `Stalled` versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
 - **Done when:** a seed with workers enabled holds a query pending behind paused workers while another connection drops the index, and completes with exit `Clean`.
+- **Status:** done; `tests/programs/drop-under-pending-query.json`. The pending query is answered with `SEARCH_INDEX_DROPPED_BG` after the drop. `TTL_PAUSE` and `TTL_EXPIRE` apply only to temporary indexes, so their hooks arrive with temporary-index support in 7.2.
 
 ## 3. Coverage
 
@@ -73,7 +74,7 @@ acceptance check for that PR.
 
 ## 8. Logic rules
 
-- [ ] 8.1 Reply-confirmed scope in the judge and the skip conditions
+- [ ] 8.1 Reply-confirmed scope in the judge, the skip conditions, and each op's effect (`PreservesResults` or `ChangesResults`)
 - [ ] 8.2 Twin rule and the twin-index generator bias
 - [ ] 8.3 Equivalence rule
 - [ ] 8.4 Partition rule and the related-query edit

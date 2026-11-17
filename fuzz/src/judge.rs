@@ -447,7 +447,10 @@ mod tests {
         let mut broken = trace(Exit::Clean, "");
         broken.steps.push(Step {
             op: 0,
+            conn: Default::default(),
             argv: vec!["FT.SEARCH".into()],
+            sent: 1,
+            received: Some(2),
             reply: Reply::Invalid("bad".into()),
             micros: 1,
         });

@@ -103,3 +103,35 @@ not in CI:
   configure; run it once outside the sandbox.
 - The Boost tarball contains a `.gitmodules` file. A sandbox that forbids
   writing it cannot extract Boost; point `.install/boost` at an existing copy.
+- Header generation (`cheadergen`) opens Cargo's SQLite cache and fails with
+  `unable to open database file` where that is blocked. The committed headers
+  are current on master, so pass `REDISEARCH_GENERATE_HEADERS=OFF` to
+  `build.sh` unless the change touches FFI.
+
+## Running
+
+```bash
+source bin/fuzz/env.sh
+cd fuzz
+cargo run -- run seeds/smoke.json --verbose
+cargo run -- run <program.json> --repeat 10
+```
+
+`run` starts a fresh server, executes the program, and prints each finding.
+`--repeat N` runs it N times and reports how often each finding reproduced.
+Each distinct finding is written to `findings/<signature>/`: the program, the
+trace, the server log, and a manifest with the binaries, sanitizer settings,
+and reproduction rate. The exit code is 0 without findings, 1 with findings,
+and 2 on an error such as a server that fails to start.
+
+## Testing
+
+```bash
+cd fuzz
+cargo test                                         # unit tests, no server needed
+source ../bin/fuzz/env.sh && cargo test -- --ignored   # every program in tests/programs/ against a live server
+```
+
+The programs under `tests/programs/` exercise the harness itself: a crash, a
+Redis panic, a hang, a stall the harness resolves, a barrier that cannot
+complete, and a query left pending while another connection drops its index.

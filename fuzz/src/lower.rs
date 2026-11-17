@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::program::{Argv, Bound, Bytes, Field, FieldKind, OpKind, Query, QueryOptions};
+use crate::program::{Argv, Bound, Bytes, Field, FieldKind, Hook, OpKind, Query, QueryOptions};
+
+pub const DEBUG_COMMAND: &str = "_FT.DEBUG";
 
 pub fn lower(op: &OpKind) -> Vec<Argv> {
     match op {
@@ -30,7 +32,63 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             query,
             options,
         } => vec![search(index, query, options)],
+        OpKind::Drop { index, delete_docs } => {
+            let mut argv = vec!["FT.DROPINDEX".into(), index.clone()];
+            if *delete_docs {
+                argv.push("DD".into());
+            }
+            vec![argv]
+        }
+        OpKind::Admin { hook } => vec![admin(hook)],
+        OpKind::Barrier => Vec::new(),
         OpKind::Raw { argv } => vec![argv.clone()],
+    }
+}
+
+pub fn words(words: &[&str]) -> Argv {
+    words.iter().map(|w| Bytes::from(*w)).collect()
+}
+
+fn debug(args: &[&str], tail: &[&Bytes]) -> Argv {
+    let mut argv = words(&[DEBUG_COMMAND]);
+    argv.extend(words(args));
+    argv.extend(tail.iter().map(|b| (*b).clone()));
+    argv
+}
+
+fn admin(hook: &Hook) -> Argv {
+    match hook {
+        Hook::WorkersPause => debug(&["WORKERS", "PAUSE"], &[]),
+        Hook::WorkersResume => debug(&["WORKERS", "RESUME"], &[]),
+        Hook::WorkersDrain => debug(&["WORKERS", "DRAIN"], &[]),
+        Hook::GcStop { index } => debug(&["GC_STOP_SCHEDULE"], &[index]),
+        Hook::GcContinue { index } => debug(&["GC_CONTINUE_SCHEDULE"], &[index]),
+        Hook::GcForce { index } => debug(&["GC_FORCEINVOKE"], &[index]),
+        Hook::GcWait => debug(&["GC_WAIT_FOR_JOBS"], &[]),
+        Hook::ScanPauseBeforeScan(pause) => debug(
+            &[
+                "BG_SCAN_CONTROLLER",
+                "SET_PAUSE_BEFORE_SCAN",
+                if *pause { "true" } else { "false" },
+            ],
+            &[],
+        ),
+        Hook::ScanResume => debug(&["BG_SCAN_CONTROLLER", "SET_BG_INDEX_RESUME"], &[]),
+        Hook::SyncPointArm {
+            name,
+            auto_release_ms,
+        } => {
+            let mut argv = debug(&["SYNC_POINT", "ARM"], &[name]);
+            argv.push(auto_release_ms.to_string().into());
+            argv
+        }
+        Hook::SyncPointSignal { name } => debug(&["SYNC_POINT", "SIGNAL"], &[name]),
+        Hook::Reload => words(&["DEBUG", "RELOAD"]),
+        Hook::ConfigSet { setting, value } => {
+            let mut argv = words(&["CONFIG", "SET", setting.name()]);
+            argv.push(value.clone());
+            argv
+        }
     }
 }
 
@@ -231,6 +289,49 @@ mod tests {
             key: "doc:1".into(),
         };
         assert_eq!(strings(&lower(&delete)[0]), ["DEL", "doc:1"]);
+    }
+
+    #[test]
+    fn drop_and_hooks_lower_to_their_commands() {
+        let drop = OpKind::Drop {
+            index: "i".into(),
+            delete_docs: true,
+        };
+        assert_eq!(strings(&lower(&drop)[0]), ["FT.DROPINDEX", "i", "DD"]);
+        let cases: [(Hook, &[&str]); 5] = [
+            (Hook::WorkersPause, &["_FT.DEBUG", "WORKERS", "PAUSE"]),
+            (
+                Hook::GcForce { index: "i".into() },
+                &["_FT.DEBUG", "GC_FORCEINVOKE", "i"],
+            ),
+            (
+                Hook::ScanPauseBeforeScan(true),
+                &[
+                    "_FT.DEBUG",
+                    "BG_SCAN_CONTROLLER",
+                    "SET_PAUSE_BEFORE_SCAN",
+                    "true",
+                ],
+            ),
+            (
+                Hook::SyncPointArm {
+                    name: "p".into(),
+                    auto_release_ms: 500,
+                },
+                &["_FT.DEBUG", "SYNC_POINT", "ARM", "p", "500"],
+            ),
+            (
+                Hook::ConfigSet {
+                    setting: crate::program::Setting::OnTimeout,
+                    value: "fail".into(),
+                },
+                &["CONFIG", "SET", "search-on-timeout", "fail"],
+            ),
+        ];
+        for (hook, expected) in cases {
+            assert_eq!(strings(&lower(&OpKind::Admin { hook })[0]), expected);
+        }
+        assert!(lower(&OpKind::Barrier).is_empty());
     }
 
     #[test]

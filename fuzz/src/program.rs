@@ -175,9 +175,64 @@ pub enum OpKind {
         #[serde(default)]
         options: QueryOptions,
     },
+    Drop {
+        index: Bytes,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        delete_docs: bool,
+    },
+    Admin {
+        hook: Hook,
+    },
+    Barrier,
     Raw {
         argv: Argv,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hook {
+    WorkersPause,
+    WorkersResume,
+    WorkersDrain,
+    GcStop { index: Bytes },
+    GcContinue { index: Bytes },
+    GcForce { index: Bytes },
+    GcWait,
+    ScanPauseBeforeScan(bool),
+    ScanResume,
+    SyncPointArm { name: Bytes, auto_release_ms: u32 },
+    SyncPointSignal { name: Bytes },
+    Reload,
+    ConfigSet { setting: Setting, value: Bytes },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Setting {
+    Workers,
+    ForkGcRunInterval,
+    ForkGcCleanThreshold,
+    Timeout,
+    OnTimeout,
+    DefaultDialect,
+    MinPrefix,
+    MaxPrefixExpansions,
+}
+
+impl Setting {
+    pub fn name(self) -> &'static str {
+        match self {
+            Setting::Workers => "search-workers",
+            Setting::ForkGcRunInterval => "search-fork-gc-run-interval",
+            Setting::ForkGcCleanThreshold => "search-fork-gc-clean-threshold",
+            Setting::Timeout => "search-timeout",
+            Setting::OnTimeout => "search-on-timeout",
+            Setting::DefaultDialect => "search-default-dialect",
+            Setting::MinPrefix => "search-min-prefix",
+            Setting::MaxPrefixExpansions => "search-max-prefix-expansions",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
