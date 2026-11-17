@@ -3424,10 +3424,13 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // After the results, so a reply cut short for memory still carries its warning.
-    // Each distinct warning once: the shards', then the coordinator's own stops.
+    // Each distinct warning once: the shards', then the coordinator's own stops. Without a memory
+    // stop, shard warnings stand in for the timeout warning.
     RedisModule_Reply_SimpleString(reply, "warning");  // >warning
     const char *timeoutWarning = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
-    bool addTimeoutWarning = req->timedOut;
+    bool addTimeoutWarning =
+        req->timedOut &&
+        (rCtx->numWarnings == 0 || QueryRequestLimits_IsMemoryStopped(&req->base.limits));
     for (size_t i = 0; i < rCtx->numWarnings && addTimeoutWarning; ++i) {
       addTimeoutWarning = strcmp(MRReply_String(rCtx->warnings[i], NULL), timeoutWarning) != 0;
     }
