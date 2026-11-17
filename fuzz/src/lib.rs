@@ -13,6 +13,7 @@ pub mod edit;
 pub mod judge;
 pub mod lower;
 pub mod program;
+pub mod reduce;
 pub mod resp;
 pub mod run;
 pub mod target;

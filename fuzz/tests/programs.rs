@@ -18,6 +18,7 @@ use rand::rngs::SmallRng;
 use redisearch_fuzz::edit::generate;
 use redisearch_fuzz::judge::{Kind, judge};
 use redisearch_fuzz::program::{Op, OpKind, Program, ReplyMode, argv};
+use redisearch_fuzz::reduce::reduce;
 use redisearch_fuzz::resp::Value;
 use redisearch_fuzz::run::{Exit, Trace, run};
 use redisearch_fuzz::target::{Env, Reply};
@@ -29,9 +30,12 @@ fn load(path: &str) -> Program {
     Program::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+fn env() -> Env {
+    Env::from_env().expect("source bin/fuzz/env.sh first")
+}
+
 fn execute(program: &Program) -> (Trace, Vec<Kind>) {
-    let env = Env::from_env().expect("source bin/fuzz/env.sh first");
-    let trace = run(program, &env).unwrap();
+    let trace = run(program, &env()).unwrap();
     let kinds = judge(program, &trace).into_iter().map(|f| f.kind).collect();
     (trace, kinds)
 }
@@ -150,4 +154,22 @@ fn most_replies_to_generated_programs_are_not_errors() {
         errors * 5 <= replies,
         "{errors} of {replies} replies are errors"
     );
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
+    let segfault = Op {
+        conn: Default::default(),
+        reply: ReplyMode::Await,
+        kind: OpKind::Command {
+            argv: argv(&["DEBUG", "SEGFAULT"]),
+        },
+    };
+    let mut program = generate(&mut SmallRng::seed_from_u64(0));
+    program.ops.insert(program.ops.len() / 2, segfault.clone());
+    let finding = judge(&program, &run(&program, &env()).unwrap()).remove(0);
+    let reduced = reduce(&program, &finding, &env(), |_| {});
+    assert!(reduced.module_args.is_empty());
+    assert_eq!(reduced.ops, [segfault]);
 }

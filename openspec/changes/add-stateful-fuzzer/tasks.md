@@ -53,9 +53,10 @@ acceptance check for that PR.
 ## 5. Reduce
 
 - [ ] 5.0 Planted module bug: a test-only patch kept beside its seed, built into a separate module, giving a real sanitizer report and a real assertion
-- [ ] 5.1 Implement `reduce` with signature preservation and the reproduction rate
-- [ ] 5.2 Write `reduced.json` and update the manifest
+- [x] 5.1 Implement `reduce` with signature preservation and the reproduction rate
+- [x] 5.2 Write the reduced program with the original into the finding bundle
 - **Done when:** the planted-bug seed padded with 200 generated ops reduces to at most five ops with the same signature.
+- **Status:** `reduce` is done and checked on a real finding: a 33-op generated program hitting the racy `DebugIndexes_ScanProc` overflow reduced to 5 ops in 4 minutes, reproducing four times out of ten afterwards (three of three before). The planted bug (5.0) is open.
 
 ## 6. Campaign
 

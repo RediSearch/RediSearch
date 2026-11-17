@@ -243,8 +243,13 @@ field, hoisting a query node's child, deleting a token, and shortening a word
 or number. Each strictly decreases a size measure, so reduction terminates.
 
 `reduce` keeps a smaller candidate when `judge(run(candidate))` still contains
-the original signature, and repeats until none is kept. It then runs the result
-ten times and records the reproduction rate. Lowering a `Populate` exposes its
+the original finding, resumes at the same position in the new candidate list,
+and stops after a full pass keeps nothing. It then runs the result ten times
+and records the reproduction rate. Each candidate runs once. A racy finding can
+therefore shrink into a program that hits it less often; requiring two
+reproductions per candidate was tried and did not help, because luck still
+accumulates over dozens of kept candidates. The rate in the manifest is the
+signal. Lowering a `Populate` exposes its
 writes to range deletion.
 
 ## Campaign
@@ -274,8 +279,8 @@ directory and a findings directory.
 
 ```
 findings/<signature-hash>/
-  program.json     original failing program
-  reduced.json     written by reduce
+  program.json     the failing program, reduced if reduce wrote the bundle
+  original.json    written by reduce: the program before reduction
   trace.json
   server.log
   manifest.json    module git SHA, Redis version, sanitizer options, reproduction rate
@@ -338,6 +343,9 @@ to programs with one connection, no deferred replies, and no variables.
 - **Measured (macOS arm64, AddressSanitizer builds):** `redis-server` alone is
   ready in about 0.5 s; with the module loaded, about 1.6 s. A clean shutdown
   reports no sanitizer errors with leak detection on.
+- **Measured (reduce):** a 33-op generated program hitting the
+  `DebugIndexes_ScanProc` overflow, which reproduced three times out of three,
+  reduced to 5 ops in 4 minutes; the result reproduces four times out of ten.
 - **Measured (generator):** of 200 generated programs, 190 run clean and 10
   hit the same sanitizer finding (task 4 status); about 2.5% of replies are
   errors.

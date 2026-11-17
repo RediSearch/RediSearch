@@ -35,9 +35,11 @@ struct Manifest<'a> {
 
 /// Writes `<root>/<signature>/`: the program, the trace of its first failing
 /// run, the server log, and a manifest of the binaries and sanitizer settings.
+/// A reduced program is written with the program it was reduced from.
 pub fn write(
     root: &Path,
     program: &Program,
+    original: Option<&Program>,
     trace: &Trace,
     finding: &Finding,
     (reproduced, runs): (u32, u32),
@@ -78,7 +80,10 @@ pub fn write(
             serde_json::to_vec_pretty(&manifest).expect("manifests serialize"),
         ),
         ("server.log", trace.log.0.clone()),
-    ] {
+    ]
+    .into_iter()
+    .chain(original.map(|original| ("original.json", original.to_json().into_bytes())))
+    {
         let path = dir.join(file);
         std::fs::write(&path, contents).map_err(|e| format!("{}: {e}", path.display()))?;
     }
