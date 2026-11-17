@@ -9,6 +9,9 @@
 
 #include "gtest/gtest.h"
 #include "gtest/internal/gtest-port.h"  // For CaptureStderr/GetCapturedStderr
+extern "C" {
+#include "util/dict.h"
+}
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
@@ -717,7 +720,7 @@ static void addLegacyRule(const std::string &name, const char *scoreDefault) {
   rule->prefixes = (const char **)rm_malloc(sizeof(*rule->prefixes));
   rule->prefixes[0] = rm_strdup("legacy:");
   rule->score_default = scoreDefault ? rm_strdup(scoreDefault) : nullptr;
-  dictAdd(legacySpecRules, name.c_str(), rule);
+  dictAdd(legacySpecRules, const_cast<char *>(name.c_str()), rule);
 }
 
 TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRegistersAlias) {

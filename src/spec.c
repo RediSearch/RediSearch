@@ -2199,6 +2199,7 @@ void Indexes_UpgradeLegacyIndexes() {
     sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
     // clear index stats
+    IndexError_Clear(sp->stats.indexError);
     memset(&sp->stats, 0, sizeof(sp->stats));
     // Init the index error
     sp->stats.indexError = IndexError_Init();
@@ -2365,6 +2366,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  sp->stats.indexError = IndexError_Init();
   IndexSpec_MakeKeyless(sp);
   sp->numSortableFields = 0;
   sp->terms = NULL;
