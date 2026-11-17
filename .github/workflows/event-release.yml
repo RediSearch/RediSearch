@@ -270,7 +270,7 @@ jobs:
           import os
           import json
           import re
-          from collections import Counter, defaultdict
+          from collections import defaultdict
           from botocore.exceptions import ClientError
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
@@ -288,10 +288,27 @@ jobs:
           suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$")
           new_suffix = rf"\1.{cur_version}.zip"
 
-          # Package names from sbin/pack.sh: <package>[.debug].<os>-<osnick>-<arch>.<version>.zip
+          # Package names from sbin/pack.sh: <package>[.debug].<OS>-<OSNICK>-<arch>.<version>.zip
           release_name_pattern = re.compile(
-              rf"^[^.]+\.(?P<debug>debug\.)?(?P<os>[a-z]+)-.+-(?P<arch>[^-.]+)\.{re.escape(cur_version)}\.zip$"
+              rf"^[^.]+\.(?P<debug>debug\.)?(?P<platform>.+)-(?P<arch>[^-.]+)\.{re.escape(cur_version)}\.zip$"
           )
+
+          # The <OS>-<OSNICK> part of the package name each matrix platform produces. sbin/get-platform derives it
+          # from the build host at pack time, so it cannot be computed here; a platform missing from this table
+          # fails the release rather than being skipped.
+          PACKAGE_PLATFORMS = {
+              "ubuntu:resolute": "Linux-resolute",
+              "ubuntu:noble": "Linux-ubuntu24.04",
+              "ubuntu:jammy": "Linux-ubuntu22.04",
+              "rockylinux:8": "Linux-rhel8",
+              "rockylinux:9": "Linux-rhel9",
+              "rockylinux:10": "Linux-rocky10",
+              "debian:bookworm": "Linux-bookworm",
+              "debian:trixie": "Linux-trixie",
+              "alpine:3.23": "Linux-alpine3",
+              "macos-15": "macos-sequoia",
+              "macos-26": "macos-macos25",
+          }
 
           client = boto3.client("s3")
 
@@ -332,14 +349,14 @@ jobs:
               name_without_snapshots = name.replace("snapshots/", "", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
 
-          def family(dst):
+          def artifact_id(dst):
               m = release_name_pattern.match(os.path.basename(dst))
               if not m:
                   raise Exception(f"::error title=Unrecognized artifact name::{dst}")
-              return (m["os"], m["arch"], "debug" if m["debug"] else "release")
+              return (m["platform"], m["arch"], "debug" if m["debug"] else "release")
 
-          def family_str(fam):
-              return "/".join(fam)
+          def artifact_id_str(artifact):
+              return "/".join(artifact)
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
@@ -377,26 +394,32 @@ jobs:
           # Completeness gate: every build in the matrix must have its snapshots before anything is published.
           # Every platform yields a release package; Linux also yields a debug package.
           matrix = json.loads(os.environ["EXPECTED_MATRIX"])
-          expected = Counter()
+          unmapped = sorted({e["platform"] for e in matrix.get("include", [])} - PACKAGE_PLATFORMS.keys())
+          if unmapped:
+              raise Exception(
+                  f"::error title=Unknown package platform::Add {', '.join(unmapped)} to PACKAGE_PLATFORMS. Nothing was published."
+              )
+          expected = set()
           for entry in matrix.get("include", []):
-              os_name = "macos" if entry["platform"].startswith("macos") else "linux"
-              expected[(os_name, entry["architecture"], "release")] += 1
-              if os_name == "linux":
-                  expected[(os_name, entry["architecture"], "debug")] += 1
-          found = Counter(family(dst) for dst in sources_by_dst)
+              package_platform = PACKAGE_PLATFORMS[entry["platform"]]
+              expected.add((package_platform, entry["architecture"], "release"))
+              if package_platform.startswith("Linux-"):
+                  expected.add((package_platform, entry["architecture"], "debug"))
+          found = {artifact_id(dst) for dst in sources_by_dst}
 
-          shortfall = [f"{family_str(k)}: expected {n}, found {found[k]}" for k, n in sorted(expected.items()) if found[k] < n]
-          if shortfall:
+          missing = sorted(expected - found)
+          if missing:
               raise Exception(
                   "::error title=Incomplete release::Missing snapshots for "
-                  + "; ".join(shortfall) + ". Nothing was published. Rebuild the missing platforms and re-run."
+                  + ", ".join(map(artifact_id_str, missing))
+                  + ". Nothing was published. Rebuild the missing platforms and re-run."
               )
-          surplus = [f"{family_str(k)}: expected {expected[k]}, found {n}" for k, n in sorted(found.items()) if n > expected[k]]
-          if surplus:
+          extra = sorted(found - expected)
+          if extra:
               # Expected when dispatching from a ref whose matrix is narrower than the one that built the snapshots.
-              print("::warning title=More artifacts than the matrix::" + "; ".join(surplus))
+              print("::warning title=Artifacts outside the matrix::" + ", ".join(map(artifact_id_str, extra)))
           else:
-              print(f"✓ Verified: {len(sources_by_dst)} artifacts match {len(matrix.get('include', []))} matrix builds")
+              print(f"✓ Verified: {len(found)} artifacts match {len(matrix.get('include', []))} matrix builds")
 
           # Idempotency: a release that already exists is fine if it is byte-identical to one of its snapshots,
           # so a partially published release can be completed by re-running. Anything else fails before copying.
