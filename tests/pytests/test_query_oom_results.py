@@ -1015,8 +1015,8 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
             # Some stop must warn, or a shard that ignores every stop would pass.
             env.assertGreater(warned, 0, message=(workers, on_timeout))
 
-            # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
-            # standalone; everywhere else it is the OOM error.
+            # Under FAIL a shard never sends a cut reply: a stop anywhere is the OOM error, a stop
+            # that lands after every stage read everything leaves the reply complete.
             allShards_change_oom_policy(env, 'fail')
             # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
             calls = shard_calls()
@@ -1028,8 +1028,7 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
                                        message=(workers, on_timeout, at_call))
                     errors += 1
                 else:
-                    env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
-                                   (len(res['results']) == full and res['warnings'] == []),
+                    env.assertTrue(len(res['results']) == full and res['warnings'] == [],
                                    message=(workers, on_timeout, at_call, res))
             env.assertGreater(errors, 0, message=(workers, on_timeout))
     finally:
