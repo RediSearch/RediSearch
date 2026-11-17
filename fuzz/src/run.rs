@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::coverage::Coverage;
 use crate::lower::{DEBUG_COMMAND, lower, words};
 use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode};
 use crate::resp::Value;
@@ -30,6 +31,7 @@ pub struct Trace {
     pub exit: Exit,
     pub status: Option<Status>,
     pub log: Bytes,
+    pub coverage: Coverage,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -87,6 +89,7 @@ pub fn run(program: &Program, env: &Env) -> Trace {
                 exit: Exit::StartupFailed { reason },
                 status: None,
                 log: Bytes::default(),
+                coverage: Coverage::default(),
             };
         }
     };
@@ -131,16 +134,17 @@ pub fn run(program: &Program, env: &Env) -> Trace {
             },
         },
     };
-    let (status, log) = server.reap(REAP_DEADLINE);
+    let reaped = server.reap(REAP_DEADLINE);
     let exit = match exit {
-        Exit::Clean if !status.is_some_and(|s| s.success()) => Exit::Died { at_op: end },
+        Exit::Clean if !reaped.status.is_some_and(|s| s.success()) => Exit::Died { at_op: end },
         exit => exit,
     };
     Trace {
         steps: interpreter.steps,
         exit,
-        status,
-        log: Bytes(log),
+        status: reaped.status,
+        log: Bytes(reaped.log),
+        coverage: reaped.coverage,
     }
 }
 

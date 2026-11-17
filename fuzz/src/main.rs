@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -71,8 +71,16 @@ fn run_command(
     let env = Env::from_env()?;
 
     let mut counts: BTreeMap<Finding, u32> = BTreeMap::new();
+    let mut every_run: Option<BTreeSet<u32>> = None;
+    let mut any_run: BTreeSet<u32> = BTreeSet::new();
     for attempt in 1..=repeat {
         let trace = run::run(&program, &env);
+        let edges: BTreeSet<u32> = trace.coverage.edges.iter().copied().collect();
+        every_run = Some(match every_run {
+            Some(seen) => seen.intersection(&edges).copied().collect(),
+            None => edges.clone(),
+        });
+        any_run.extend(edges);
         if verbose {
             for step in &trace.steps {
                 println!("  [{}] {:?} -> {:?}", step.op, step.argv, step.reply);
@@ -80,9 +88,11 @@ fn run_command(
         }
         let findings = judge::judge(&program, &trace);
         println!(
-            "run {attempt}/{repeat}: exit {:?}, {} steps, {} findings",
+            "run {attempt}/{repeat}: exit {:?}, {} steps, {}/{} edges, {} findings",
             trace.exit,
             trace.steps.len(),
+            trace.coverage.edges.len(),
+            trace.coverage.guards,
             findings.len()
         );
         if let run::Exit::StartupFailed { reason } = &trace.exit {
@@ -100,6 +110,14 @@ fn run_command(
             }
             *counts.entry(finding).or_default() += 1;
         }
+    }
+    if repeat > 1 && !any_run.is_empty() {
+        let stable = every_run.map_or(0, |edges| edges.len());
+        println!(
+            "edges: {} in any run, {stable} in every run, {} unstable",
+            any_run.len(),
+            any_run.len() - stable
+        );
     }
     for (finding, count) in &counts {
         println!("{count}/{repeat} {:?} {}", finding.kind, finding.signature);

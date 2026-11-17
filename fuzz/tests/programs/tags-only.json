@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "ops": [
+    {"op": "create", "index": "i1", "prefix": "doc:", "fields": [{"name": "g", "type": "tag"}]},
+    {"op": "write", "key": "doc:1", "fields": [["g", "red"]]},
+    {"op": "query", "index": "i1", "query": {"tag": {"field": "g", "values": ["red"]}}, "options": {"no_content": true}}
+  ]
+}

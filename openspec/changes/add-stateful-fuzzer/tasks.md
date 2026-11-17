@@ -34,12 +34,13 @@ acceptance check for that PR.
 
 ## 3. Coverage
 
-- [ ] 3.1 Add `FUZZ_COV` to `build.sh` and CMake: imply `SAN=address`, force clang, reject test-building options, separate output directory
-- [ ] 3.2 Add the coverage shim with the header, capacity check, and edge-presence writes
-- [ ] 3.3 Create, zero, and read the segment in `target`; read only after the process group is reaped
-- [ ] 3.4 Add an optional guard-to-address dump for reporting unreached code
+- [x] 3.1 Add `FUZZ_COV` to `build.sh` and CMake: imply `SAN=address`, force clang, reject test-building options, separate output and Rust target directories
+- [x] 3.2 Add the coverage shim with the header, capacity check, and edge-presence writes
+- [x] 3.3 Create, zero, and read the segment in `target`; read only after the process group is reaped
+- [ ] 3.4 Add an optional guard-to-address dump for reporting unreached code (deferred until a report needs it)
 - [ ] 3.5 Verify the build and symbol binding on Linux with clang
 - **Done when:** two different seeds produce different edge sets, a forced-GC seed adds edges not seen without it, and ten runs of one seed report the fraction of unstable edges on both macOS and Linux.
+- **Status (macOS arm64):** the module has 718,275 guards. A tag-only program reaches 3,881 edges and the smoke seed 5,720. The same writes and deletes reach 5,086 edges without `GC_FORCEINVOKE` and 6,562 with it. Over ten smoke runs, 5,721 edges appear in any run and 5,718 in every run, so 3 are unstable. A run including server startup takes about 0.4 s. Linux is not yet verified.
 
 ## 4. Generator and edits
 

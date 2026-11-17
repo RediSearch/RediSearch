@@ -52,9 +52,16 @@ endif()
 
 # Determine the output library path based on profile and context
 if(DEFINED RUST_BINROOT)
-  # We're being built as part of the main RediSearch build
-  set(RUST_TARGET_DIR "${RUST_BINROOT}/redisearch_rs")
-  set(RUST_LIB_PATH "${RUST_BINROOT}/redisearch_rs/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
+  # We're being built as part of the main RediSearch build.
+  # The Rust build reruns only when Rust sources change, not when RUSTFLAGS do,
+  # so a FUZZ_COV build needs its own target directory: sharing one would link
+  # whichever instrumentation built last into every flavor.
+  if(FUZZ_COV)
+    set(RUST_TARGET_DIR "${RUST_BINROOT}/redisearch_rs_fuzz")
+  else()
+    set(RUST_TARGET_DIR "${RUST_BINROOT}/redisearch_rs")
+  endif()
+  set(RUST_LIB_PATH "${RUST_TARGET_DIR}/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 else()
   # We're being built standalone or as a subdirectory
   set(RUST_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/target")

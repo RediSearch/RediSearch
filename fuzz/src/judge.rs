@@ -292,6 +292,7 @@ mod tests {
                 signal: Some(6),
             }),
             log: Bytes::from(log),
+            coverage: Default::default(),
         }
     }
 

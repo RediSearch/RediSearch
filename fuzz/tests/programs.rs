@@ -123,3 +123,26 @@ fn a_pending_query_survives_its_index_being_dropped() {
         .expect("the drop ran");
     assert!(query.sent < drop.sent && drop.received < query.received);
 }
+
+fn edges(name: &str) -> std::collections::BTreeSet<u32> {
+    let trace = check(name, Expected::Clean, &[]);
+    assert!(
+        trace.coverage.guards > 0,
+        "{name}: the module has no coverage guards; build it with FUZZ_COV=1"
+    );
+    trace.coverage.edges.into_iter().collect()
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn different_programs_reach_different_edges() {
+    assert_ne!(edges("tags-only"), edges("gc-unforced"));
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn a_forced_gc_reaches_edges_the_same_writes_alone_do_not() {
+    let unforced = edges("gc-unforced");
+    let forced = edges("gc-forced");
+    assert!(forced.difference(&unforced).count() > 0);
+}

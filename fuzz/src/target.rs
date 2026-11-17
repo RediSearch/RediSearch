@@ -21,6 +21,7 @@ use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 
+use crate::coverage::{self, Coverage, Segment};
 use crate::program::{Argv, Setup};
 use crate::resp::{self, Decoded, Value};
 
@@ -36,6 +37,7 @@ pub struct Env {
     pub reply_deadline: Duration,
     pub release_grace: Duration,
     pub shutdown_deadline: Duration,
+    pub coverage_capacity: usize,
 }
 
 impl Env {
@@ -52,6 +54,7 @@ impl Env {
             reply_deadline: Duration::from_secs(10),
             release_grace: Duration::from_secs(5),
             shutdown_deadline: Duration::from_secs(30),
+            coverage_capacity: 1 << 24,
         })
     }
 }
@@ -83,7 +86,14 @@ pub struct Server {
     status: Option<ExitStatus>,
     socket: PathBuf,
     log: PathBuf,
+    coverage: Segment,
     _dir: tempfile::TempDir,
+}
+
+pub struct Reaped {
+    pub status: Option<Status>,
+    pub log: Vec<u8>,
+    pub coverage: Coverage,
 }
 
 impl Server {
@@ -96,6 +106,7 @@ impl Server {
         let log = dir.path().join(LOG_NAME);
         let out = File::create(&log).map_err(|e| format!("creating {}: {e}", log.display()))?;
         let err = out.try_clone().map_err(|e| e.to_string())?;
+        let coverage = Segment::create(env.coverage_capacity)?;
 
         let mut command = Command::new(&env.redis_server);
         command
@@ -116,6 +127,7 @@ impl Server {
             .arg("--loadmodule")
             .arg(&env.module)
             .args(setup.module_args.iter().map(|a| os_arg(a.as_slice())))
+            .env(coverage::SHM_ENV, coverage.name())
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err)
@@ -130,9 +142,17 @@ impl Server {
             status: None,
             socket,
             log,
+            coverage,
             _dir: dir,
         };
         server.wait_ready(env.startup_deadline)?;
+        let guards = server.coverage.guards();
+        if guards > u64::try_from(server.coverage.capacity()).unwrap_or(u64::MAX) {
+            return Err(format!(
+                "the module has {guards} coverage guards but the map holds {}",
+                server.coverage.capacity()
+            ));
+        }
         Ok(server)
     }
 
@@ -196,7 +216,7 @@ impl Server {
         let _ = kill(self.pgid, Signal::SIGABRT);
     }
 
-    pub fn reap(mut self, deadline: Duration) -> (Option<Status>, Vec<u8>) {
+    pub fn reap(mut self, deadline: Duration) -> Reaped {
         let _ = killpg(self.pgid, Signal::SIGKILL);
         if self.status.is_none() {
             self.status = self.child.wait().ok();
@@ -206,7 +226,14 @@ impl Server {
             let _ = killpg(self.pgid, Signal::SIGKILL);
             sleep(POLL_INTERVAL);
         }
-        (self.status.map(Status::from), self.read_log())
+        Reaped {
+            status: self.status.map(Status::from),
+            log: self.read_log(),
+            coverage: Coverage {
+                guards: self.coverage.guards(),
+                edges: self.coverage.edges(),
+            },
+        }
     }
 
     fn read_log(&self) -> Vec<u8> {

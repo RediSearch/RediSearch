@@ -189,10 +189,17 @@ class) hashed into a reserved tail of the same map.
 
 C and Rust share one id space. Writes go directly to shared memory, so edges
 from the fork-GC child and from a crashing server are kept. The segment has a
-header holding the guard count; the shim aborts at load if the count exceeds the
+header holding a magic number, the capacity, and the guard count the shim
+records at load. The shim never aborts: edges past the capacity are dropped,
+and the fuzzer fails the run at startup when the guard count exceeds the
 capacity. The feature tail starts at the capacity. The build option is rejected
 together with any test-building option, because test binaries would not link
 the shim.
+
+The `FUZZ_COV` build has its own build directory (`*-debug-asan-fuzz`) and its
+own Rust target directory (`bin/redisearch_rs_fuzz`). The CMake rule that runs
+Cargo depends on Rust sources, not on `RUSTFLAGS`, so a shared target directory
+would link whichever instrumentation built last into every flavor.
 
 Edge presence is used instead of hit counts. Unsynchronised counters written by
 worker threads and a forked child make scheduling variation look like new

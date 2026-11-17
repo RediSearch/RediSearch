@@ -8,6 +8,7 @@
 */
 
 pub mod bundle;
+pub mod coverage;
 pub mod judge;
 pub mod lower;
 pub mod program;

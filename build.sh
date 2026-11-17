@@ -23,6 +23,7 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
+FUZZ_COV=${FUZZ_COV:-0} # Edge coverage for the stateful fuzzer (fuzz/); implies SAN=address
 BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
 # Enable Rust/C LTO. Requires Clang and lld (Linux only).
 # Clang needs to have the same version as the LLVM version used by Rust.
@@ -171,6 +172,9 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
+      FUZZ_COV=*)
+        FUZZ_COV="${arg#*=}"
+        ;;
       FORCE?(=1))
         FORCE=1
         ;;
@@ -225,6 +229,20 @@ setup_test_configuration() {
     RUN_RUST_TESTS=1
     RUN_PYTEST=1
   fi
+
+  # The coverage callbacks live in fuzz/shim/coverage.c, which only the module
+  # links; instrumented test binaries would have no definition for them.
+  if [[ "$FUZZ_COV" == "1" ]]; then
+    if [[ "$BUILD_TESTS" == "1" ]]; then
+      echo "Error: FUZZ_COV builds only the module; it cannot be combined with test builds or runs" >&2
+      exit 1
+    fi
+    if [[ -n "$SAN" && "$SAN" != "address" ]]; then
+      echo "Error: FUZZ_COV requires SAN=address" >&2
+      exit 1
+    fi
+    SAN=address
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -247,7 +265,9 @@ setup_build_environment() {
   fi
 
   # Determine build flavor
-  if [ "$SAN" == "address" ]; then
+  if [[ "$FUZZ_COV" == "1" ]]; then
+    FLAVOR="debug-asan-fuzz"
+  elif [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
   elif [[ "$SAN" == "alignment" ]]; then
     FLAVOR="debug-alignment"
@@ -671,6 +691,12 @@ prepare_cmake_arguments() {
     DEBUG="1"
   fi
 
+  if [[ "$FUZZ_COV" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DFUZZ_COV=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DFUZZ_COV=OFF"
+  fi
+
   if [[ "$COV" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOV=1"
     DEBUG=1
@@ -789,6 +815,9 @@ prepare_cmake_arguments() {
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
+  if [[ "$FUZZ_COV" == "1" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard"
   fi
 
   # Workaround for macOS 14:

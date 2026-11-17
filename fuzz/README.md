@@ -34,8 +34,12 @@ source bin/fuzz/env.sh
    commit pinned in the script, into `bin/fuzz/redis-<sha>-asan/`. The pin
    matches the default in `.github/workflows/task-build-redis.yml`; update both
    together.
-3. Builds the module with `./build.sh SAN=address`, which is a Debug build, so
-   assertions are enabled.
+3. Builds the module with `./build.sh FUZZ_COV=1` into
+   `bin/<os>-<arch>-debug-asan-fuzz/`. `FUZZ_COV` implies `SAN=address`, which
+   is a Debug build, so assertions are enabled. It also instruments C, C++ and
+   Rust for edge coverage and links `fuzz/shim/coverage.c` into the module; see
+   [Edge coverage](#edge-coverage). Arguments to `setup.sh` are passed on to
+   `build.sh`.
 4. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
    and the sanitizer settings below.
 
@@ -103,10 +107,29 @@ not in CI:
   configure; run it once outside the sandbox.
 - The Boost tarball contains a `.gitmodules` file. A sandbox that forbids
   writing it cannot extract Boost; point `.install/boost` at an existing copy.
+- A new build directory, such as the first `FUZZ_COV` build, clones its CMake
+  dependencies the same way. If another build directory already has them,
+  pass `FETCHCONTENT_SOURCE_DIR_<NAME>=<that directory>/_deps/<name>-src` for
+  each (`CPU_FEATURES`, `EVE`, `FMT`, `ROBINMAP`, `SPDLOG`, `TOMLPLUSPLUS`).
 - Header generation (`cheadergen`) opens Cargo's SQLite cache and fails with
   `unable to open database file` where that is blocked. The committed headers
   are current on master, so pass `REDISEARCH_GENERATE_HEADERS=OFF` to
   `build.sh` unless the change touches FFI.
+
+## Edge coverage
+
+`FUZZ_COV=1` compiles C and C++ with `-fsanitize-coverage=trace-pc-guard` and
+Rust with the equivalent `sancov-module` passes, so both languages number their
+edges in one id space. It needs clang, and is rejected together with any option
+that builds or runs tests, because test binaries do not link the shim.
+
+For each server the fuzzer creates a POSIX shared-memory segment and names it
+in `REDISEARCH_COV_SHM`. When the module loads, the shim maps that segment and
+records each edge it reaches by setting one byte. Because the bytes go straight
+to shared memory, edges reached by a forked GC child or just before a crash are
+kept. The fuzzer reads the map only after the whole process group has exited,
+and fails the run at startup if the module has more edges than the map holds.
+A module built without `FUZZ_COV` runs normally with an empty edge set.
 
 ## Running
 

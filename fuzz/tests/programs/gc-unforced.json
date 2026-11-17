@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "ops": [
+    {"op": "create", "index": "i1", "prefix": "doc:", "fields": [{"name": "t", "type": "text"}, {"name": "n", "type": "numeric"}, {"name": "g", "type": "tag"}]},
+    {"op": "write", "key": "doc:1", "fields": [["t", "hello world"], ["n", "1"], ["g", "red"]]},
+    {"op": "write", "key": "doc:2", "fields": [["t", "hello there"], ["n", "2"], ["g", "blue"]]},
+    {"op": "write", "key": "doc:3", "fields": [["t", "goodbye"], ["n", "3"], ["g", "red"]]},
+    {"op": "delete", "key": "doc:1"},
+    {"op": "delete", "key": "doc:3"},
+    {"op": "barrier"},
+    {"op": "query", "index": "i1", "query": {"term": "hello"}, "options": {"no_content": true}}
+  ]
+}

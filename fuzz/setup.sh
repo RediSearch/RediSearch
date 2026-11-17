@@ -46,10 +46,10 @@ else
   make -j"$JOBS" -C "$redis_dir/src" redis-server SANITIZER=address MALLOC=libc CC="$CLANG"
 fi
 
-echo "==> redisearch.so: building with SAN=address"
-PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" SAN=address
+echo "==> redisearch.so: building with SAN=address FUZZ_COV=1"
+PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
 
-module="$(find "$ROOT"/bin/*-debug-asan -maxdepth 0 -type d -not -type l | head -1)/search-community/redisearch.so"
+module="$(find "$ROOT"/bin/*-debug-asan-fuzz -maxdepth 0 -type d -not -type l | head -1)/search-community/redisearch.so"
 [[ -f $module ]] || { echo "setup.sh: module not found at $module" >&2; exit 1; }
 
 preload=""
