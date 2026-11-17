@@ -454,9 +454,10 @@ TEST_F(AggTest, testGroupByWidestOnSmallStack) {
       << "grouping a " << WIDEST_GROUPBY << "-key row on a small stack";
 }
 
-TEST_F(AggTest, testGroupSplitEndsOnABlockedClientTimeout) {
-  // A blocked-client timeout fired while a row's array values expand into groups ends the
-  // accumulation with a timeout and yields no partial groups.
+TEST_F(AggTest, testGroupSplitEndsOnAMemoryStop) {
+  // A memory stop requested while a row's array values expand into groups ends the accumulation
+  // and yields no partial groups. A blocked-client timeout does not: the memory checkpoints are
+  // memory-only.
   TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
   QueryRequestLimits limits = {};
   QueryRequestLimits_Init(&limits, &config);
@@ -491,7 +492,7 @@ TEST_F(AggTest, testGroupSplitEndsOnABlockedClientTimeout) {
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
-  QueryRequestLimits_MarkTimedOut(&limits);
+  QueryRequestLimits_RequestMemoryStop(&limits);
   SearchResult res = SearchResult_New();
   EXPECT_EQ(gp->Next(gp, &res), RS_RESULT_STOPPED);
   EXPECT_EQ(gen.counter, 1);
