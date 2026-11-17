@@ -73,8 +73,8 @@ impl<'index, 'params> BatchIterator<'index, 'params> {
     /// Fetch the next batch of at most `n` results.
     ///
     /// Returns `Ok(None)` if VecSim returned a null reply (depleted iterator
-    /// or out-of-memory) and `Err(QueryError::TimedOut)` if the reply code is
-    /// `VecSim_QueryReply_TimedOut`. The reply is freed by this call in both
+    /// or out-of-memory) and `Err(QueryError::Stopped)` if the reply code is
+    /// `VecSim_QueryReply_Stopped`. The reply is freed by this call in both
     /// non-`Ok(Some(_))` paths.
     pub fn next(
         &mut self,
