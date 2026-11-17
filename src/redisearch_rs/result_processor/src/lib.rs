@@ -188,6 +188,39 @@ impl Context<'_> {
             parent.totalResults = parent.totalResults.saturating_sub(n);
         }
     }
+
+    /// Marks the reply as cut by a memory stop ([`ffi::QueryProcessingCtx::oomCut`]): this
+    /// processor keeps emitting rows it held when the stop arrived, so the reply carries the OOM
+    /// warning even if it ends at EOF. The Rust side of `RP_HoldStop`.
+    ///
+    /// No-op unless the parent has request limits that are memory-stopped, as in C.
+    pub fn hold_stop(&mut self) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor and the chain runs on a
+        // single thread. Provenance comes from the raw pointer C provided, so writing through it
+        // is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor.
+            let limits = unsafe { (*parent).limits };
+            if limits.is_null() {
+                return;
+            }
+            // SAFETY: `limits` is non-null and is the request's `QueryRequestLimits`, which
+            // outlives the pipeline; this only takes the address of its field.
+            let flag = unsafe { &raw mut (*limits).memory.stopped };
+            // SAFETY: `flag` points to the live, aligned `bool` that other threads set atomically,
+            // so it is read atomically, as C `QueryRequestLimits_IsMemoryStopped` does.
+            let stopped = unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if stopped {
+                // SAFETY: as above for `parent`; the chain runs on a single thread, so a plain
+                // store to `oomCut`, as C `RP_HoldStop` does, is sound.
+                unsafe { (*parent).oomCut = true };
+            }
+        }
+    }
 }
 
 /// The previous result processor in the pipeline.
@@ -712,6 +745,55 @@ pub(crate) mod test {
         rp.next(cx, &mut res).unwrap().unwrap();
 
         assert_eq!(res.score(), 42.0);
+    }
+
+    #[test]
+    fn hold_stop_marks_the_parent_cut_on_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
+        let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
+        limits.memory.stopped = true;
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+        chain.set_limits(&raw mut limits);
+        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
+        assert!(!cx.parent().unwrap().oomCut);
+
+        cx.hold_stop();
+
+        assert!(cx.parent().unwrap().oomCut);
+    }
+
+    #[test]
+    fn hold_stop_leaves_the_parent_alone_without_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
+        let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+        chain.set_limits(&raw mut limits);
+        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
+
+        cx.hold_stop();
+        assert!(!cx.parent().unwrap().oomCut);
+    }
+
+    #[test]
+    fn hold_stop_without_limits_leaves_the_parent_alone() {
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
+
+        cx.hold_stop();
+        assert!(!cx.parent().unwrap().oomCut);
+    }
+
+    #[test]
+    fn hold_stop_without_a_parent_is_a_no_op() {
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let mut cx = Context::new(rp.as_mut().project().header);
+
+        cx.hold_stop();
+
+        assert!(cx.parent().is_none());
     }
 
     #[test]

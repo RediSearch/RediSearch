@@ -495,56 +495,58 @@ def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
 @env_spec(protocol=3)
 def test_sorter_stop_over_cursor_reads(env):
     """A sorted prefix longer than a cursor read is read to its end, and the read that ends it
-    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
-        env.flush()
-        create_index(env)
-        k = 4
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
-        try:
-            res, cursor = env.cmd(*SORTED_AGGREGATE, 'WITHCURSOR', 'COUNT', 3)
-        finally:
-            memory_pressure(env, 'RESET')
-        rows = [r['extra_attributes']['n'] for r in res['results']]
-        env.assertEqual(res['warning'], [], message=res)
-        env.assertNotEqual(cursor, 0)
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        rows += [r['extra_attributes']['n'] for r in res['results']]
-        env.assertEqual(rows, [str(i) for i in reversed(range(k))])
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
-        env.assertEqual(cursor, 0)
+        for _ in worker_counts(env):
+            env.flush()
+            create_index(env)
+            k = 4
+            memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+            try:
+                res, cursor = env.cmd(*SORTED_AGGREGATE, 'WITHCURSOR', 'COUNT', 3)
+            finally:
+                memory_pressure(env, 'RESET')
+            rows = [r['extra_attributes']['n'] for r in res['results']]
+            env.assertEqual(res['warning'], [], message=res)
+            env.assertNotEqual(cursor, 0)
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += [r['extra_attributes']['n'] for r in res['results']]
+            env.assertEqual(rows, [str(i) for i in reversed(range(k))])
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+            env.assertEqual(cursor, 0)
 
 
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_normalizer_stop_over_cursor_reads(env):
     """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
-    the max among them; the read that ends them carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    the max among them; the read that ends them carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
-        env.flush()
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
-        conn = getConnectionByEnv(env)
-        for i in range(N_DOCS):
-            conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
-        query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
-                 'LOAD', 1, '@__key')
-        k = 4
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
-        try:
-            res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
-        finally:
-            memory_pressure(env, 'RESET')
-        rows = res['results']
-        env.assertEqual(len(rows), 3, message=res)
-        env.assertEqual(res['warning'], [], message=res)
-        env.assertNotEqual(cursor, 0)
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        rows += res['results']
-        env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
-                        [f'doc{i}' for i in range(k)], message=rows)
-        env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
-        env.assertEqual(cursor, 0)
+        for _ in worker_counts(env):
+            env.flush()
+            env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
+            conn = getConnectionByEnv(env)
+            for i in range(N_DOCS):
+                conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
+            query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
+                     'LOAD', 1, '@__key')
+            k = 4
+            memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+            try:
+                res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
+            finally:
+                memory_pressure(env, 'RESET')
+            rows = res['results']
+            env.assertEqual(len(rows), 3, message=res)
+            env.assertEqual(res['warning'], [], message=res)
+            env.assertNotEqual(cursor, 0)
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += res['results']
+            env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
+                            [f'doc{i}' for i in range(k)], message=rows)
+            env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+            env.assertEqual(cursor, 0)
 
 
 @skip(cluster=False)
@@ -715,25 +717,26 @@ def test_withcount_depleter_stop_past_the_limit_warns(env):
 @env_spec(protocol=3)
 def test_withcount_depleter_stop_over_cursor_reads(env):
     """Depleted rows read over several cursor reads keep coming, and the read that ends them
-    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy."""
+    carries the OOM warning and closes the cursor. It holds under every ON_TIMEOUT policy and worker count."""
     for _ in timeout_policies(env):
-        env.flush()
-        create_index(env)
-        k = 4
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
-        try:
-            res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n',
-                                  'WITHCURSOR', 'COUNT', 3)
-        finally:
-            memory_pressure(env, 'RESET')
-        rows = [r['extra_attributes']['n'] for r in res['results']]
-        env.assertEqual(res['warning'], [], message=res)
-        env.assertNotEqual(cursor, 0)
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        rows += [r['extra_attributes']['n'] for r in res['results']]
-        env.assertEqual(sorted(rows), [str(i) for i in range(k)], message=res)
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
-        env.assertEqual(cursor, 0)
+        for _ in worker_counts(env):
+            env.flush()
+            create_index(env)
+            k = 4
+            memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+            try:
+                res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n',
+                                      'WITHCURSOR', 'COUNT', 3)
+            finally:
+                memory_pressure(env, 'RESET')
+            rows = [r['extra_attributes']['n'] for r in res['results']]
+            env.assertEqual(res['warning'], [], message=res)
+            env.assertNotEqual(cursor, 0)
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += [r['extra_attributes']['n'] for r in res['results']]
+            env.assertEqual(sorted(rows), [str(i) for i in range(k)], message=res)
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+            env.assertEqual(cursor, 0)
 
 
 @skip(cluster=False)
