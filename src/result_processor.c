@@ -57,7 +57,6 @@
 #include "rqe_core.h"
 #include "score_explain.h"
 #include "search_disk_api.h"
-#include "score_bound.h"
 #include "search_result_rs.h"
 #include "shard_window_ratio.h"
 #include "slot_ranges.h"
@@ -153,8 +152,7 @@ readCandidate(QueryIterator *it, bool withThreshold, double minCompetitiveScore)
     return it->Read(it);
   }
   const IteratorStatus rc = QueryIterator_ReadWithThreshold(it, minCompetitiveScore);
-  RS_ASSERT(rc != ITERATOR_OK ||
-            !ScoreBound_CanDrop(QueryIterator_CurrentMaxScore(it), minCompetitiveScore));
+  RS_ASSERT(rc != ITERATOR_OK || QueryIterator_CurrentMaxScore(it) >= minCompetitiveScore);
   // TODO(MOD-21193): once the metadata of a candidate is read, compare its exact score with the
   // threshold to count reads caused by bound quantization.
   return rc;
@@ -962,16 +960,18 @@ static void rpsortFree(ResultProcessor *rp) {
 
 /**
  * Pull the next result from upstream into the pooled result. Once a score heap is full, nothing
- * scoring below its minimum can enter it, so that minimum goes upstream as the threshold.
+ * scoring below its minimum can enter it, so that minimum goes upstream as the threshold. Only a
+ * positive one does: leaves report bounds only under scorers that never score below 0, so a
+ * threshold that is not positive (NaN included) could not drop anything.
  */
 static inline int pullCandidate(RPSorter *self) {
   ResultProcessor *upstream = self->base.upstream;
-  double minCompetitiveScore;
   if (RPSorter_IsByScore(&self->base) && self->pq->size > 0 && self->pq->count == self->pq->size &&
-      RSGlobalConfig.diskScoreSkippingQuery &&
-      ScoreBound_MinCompetitive(SearchResult_GetScore(mmh_peek_min(self->pq)),
-                                &minCompetitiveScore)) {
-    return RP_NextWithThreshold(upstream, self->pooledResult, minCompetitiveScore);
+      RSGlobalConfig.diskScoreSkippingQuery) {
+    const double minCompetitiveScore = SearchResult_GetScore(mmh_peek_min(self->pq));
+    if (minCompetitiveScore > 0) {
+      return RP_NextWithThreshold(upstream, self->pooledResult, minCompetitiveScore);
+    }
   }
   return upstream->Next(upstream, self->pooledResult);
 }

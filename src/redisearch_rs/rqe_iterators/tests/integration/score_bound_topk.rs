@@ -76,10 +76,10 @@ impl TopK {
     }
 }
 
-/// The threshold the sorter passes down for heap minimum `theta`, as `ScoreBound_MinCompetitive`
-/// computes it: `None` when it could not drop anything.
+/// The threshold the sorter passes down for heap minimum `theta`: the minimum itself, or `None`
+/// when it could not drop anything.
 fn min_competitive(theta: f64) -> Option<MinCompetitiveScore> {
-    MinCompetitiveScore::new(theta * (1.0 - ffi::SCORE_BOUND_REL_EPSILON))
+    MinCompetitiveScore::new(theta)
 }
 
 /// What one sorter run saw.

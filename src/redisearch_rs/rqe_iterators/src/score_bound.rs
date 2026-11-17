@@ -29,9 +29,7 @@ pub struct BlockBound {
 /// [`RQEIterator::read_with_threshold`].
 ///
 /// Always positive, so a value of this type always applies: a caller with no threshold, or with
-/// one that could not drop anything, calls [`read`](RQEIterator::read) instead. The caller has
-/// already taken the rounding margin (`SCORE_BOUND_REL_EPSILON` in `score_bound.h`) off the heap
-/// minimum.
+/// one that could not drop anything, calls [`read`](RQEIterator::read) instead.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct MinCompetitiveScore(f64);
 
@@ -55,7 +53,9 @@ impl MinCompetitiveScore {
 /// Whether a document, or a window of them, whose score is at most `bound` cannot reach
 /// `min_competitive_score`.
 ///
-/// The same strict comparison as the C `ScoreBound_CanDrop`.
+/// A plain strict comparison, with no margin: a bound equal to the threshold is kept, so a
+/// document tying the heap minimum still reaches the sorter's tie-break. A bound computed
+/// separately from the scorer must therefore never round below the score the scorer computes.
 #[inline(always)]
 pub fn can_drop(bound: f64, min_competitive_score: MinCompetitiveScore) -> bool {
     bound < min_competitive_score.0

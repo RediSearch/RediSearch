@@ -28,11 +28,9 @@ use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, tree}
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
 
-/// The threshold the score sorter passes down for heap minimum `theta`, as
-/// `ScoreBound_MinCompetitive` computes it.
+/// The threshold the score sorter passes down for heap minimum `theta`: the minimum itself.
 fn min_competitive(theta: f64) -> MinCompetitiveScore {
-    MinCompetitiveScore::new(theta * (1.0 - ffi::SCORE_BOUND_REL_EPSILON))
-        .expect("a positive heap minimum")
+    MinCompetitiveScore::new(theta).expect("a positive heap minimum")
 }
 
 fn leaf(blocks: Vec<Block>) -> (Blocked, Log) {
@@ -437,8 +435,7 @@ struct EdgeCase {
     skipped: bool,
 }
 
-fn edge_cases() -> [EdgeCase; 4] {
-    let at_margin = min_competitive(4.0);
+fn edge_cases() -> [EdgeCase; 2] {
     [
         EdgeCase {
             name: "equal to the threshold",
@@ -446,18 +443,8 @@ fn edge_cases() -> [EdgeCase; 4] {
             skipped: false,
         },
         EdgeCase {
-            name: "inside the margin",
-            window_bound: 4.0 * (1.0 - ffi::SCORE_BOUND_REL_EPSILON / 2.0),
-            skipped: false,
-        },
-        EdgeCase {
-            name: "at the margin",
-            window_bound: at_margin.get(),
-            skipped: false,
-        },
-        EdgeCase {
-            name: "just below the margin",
-            window_bound: at_margin.get().next_down(),
+            name: "one ulp below the threshold",
+            window_bound: 4.0_f64.next_down(),
             skipped: true,
         },
     ]
@@ -491,7 +478,7 @@ fn assert_edge(
 }
 
 #[test]
-fn intersection_keeps_windows_that_reach_the_margin() {
+fn intersection_keeps_windows_that_reach_the_threshold() {
     for case in edge_cases() {
         let (a, a_log) = edge_leaf(case.window_bound);
         let (b, _) = leaf(vec![Block::uniform(1..=10, 0.0)]);
@@ -503,7 +490,7 @@ fn intersection_keeps_windows_that_reach_the_margin() {
 }
 
 #[test]
-fn unions_keep_windows_that_reach_the_margin() {
+fn unions_keep_windows_that_reach_the_threshold() {
     for union in UNIONS {
         for case in edge_cases() {
             let (a, a_log) = edge_leaf(case.window_bound);
