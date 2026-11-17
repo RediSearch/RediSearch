@@ -211,8 +211,9 @@ def test_knn_batches_stop_for_oom(env):
 @env_spec(protocol=3)
 def test_knn_batches_stop_for_oom_on_shards(env):
     """Shards stopped at their second checkpoint, past the first batch, report the OOM to the
-    coordinator. That call is the read before a further batch, or an interval poll inside the first batch if it
-    runs long: the reply cannot tell them apart, so batch_memory.rs pins the former."""
+    coordinator. That call is the read before a further batch, or an interval poll inside the
+    first batch if it runs long: the reply cannot tell them apart, so batch_memory.rs pins the
+    former."""
     _create_indexed_hash_index(env)
     query = _batches_queries()['hnsw']
     calls = _checkpoint_calls(env, query)
