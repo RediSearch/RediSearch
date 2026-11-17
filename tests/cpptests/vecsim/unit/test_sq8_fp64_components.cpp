@@ -274,19 +274,28 @@ TEST(SQ8FP64Components, SymmetricL2PreservesCloseLargeDeltas) {
 
 TEST(SQ8FP64Components, TinyDeltaUsesDirectDivision) {
     const auto allocator = VecSimAllocator::newVecsimAllocator();
-    SQ8FP64Preprocessor<VecSimMetric_L2> preprocessor(allocator, 3);
-    const double input[] = {0.0, 6.4e-309, 2.55e-308};
-    const auto original = std::to_array(input);
-    void *storage = nullptr;
-    size_t size = sizeof(input);
-    preprocessor.preprocessForStorage(input, storage, size, 0);
-    const auto *codes = static_cast<const uint8_t *>(storage);
-    EXPECT_EQ(size, 3 + 2 * sizeof(double));
-    EXPECT_EQ(codes[0], 0);
-    EXPECT_EQ(codes[1], 64);
-    EXPECT_EQ(codes[2], 255);
-    EXPECT_EQ(std::memcmp(input, original.data(), sizeof(input)), 0);
-    allocator->free_allocation(storage);
+    for (size_t dim : {3, 4, 5, 7, 9}) {
+        SQ8FP64Preprocessor<VecSimMetric_L2> preprocessor(allocator, dim);
+        std::vector<double> input(dim, 6.4e-309);
+        input[0] = 0.0;
+        input[dim - 1] = 2.55e-308;
+        auto in_place = input;
+        const auto original = input;
+        void *storage = nullptr;
+        size_t size = input.size() * sizeof(double);
+        preprocessor.preprocessForStorage(input.data(), storage, size, 0);
+        const auto *codes = static_cast<const uint8_t *>(storage);
+        EXPECT_EQ(size, dim + 2 * sizeof(double));
+        EXPECT_EQ(codes[0], 0);
+        for (size_t i = 1; i + 1 < dim; ++i) {
+            EXPECT_EQ(codes[i], 64);
+        }
+        EXPECT_EQ(codes[dim - 1], 255);
+        EXPECT_EQ(std::memcmp(input.data(), original.data(), input.size() * sizeof(double)), 0);
+        preprocessor.preprocessStorageInPlace(in_place.data(), in_place.size() * sizeof(double));
+        EXPECT_EQ(std::memcmp(in_place.data(), storage, size), 0);
+        allocator->free_allocation(storage);
+    }
 }
 
 #ifndef NDEBUG

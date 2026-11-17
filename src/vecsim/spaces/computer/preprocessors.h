@@ -10,6 +10,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <concepts>
@@ -294,6 +295,9 @@ public:
 private:
     using OUTPUT_TYPE = uint8_t;
     using MetadataType = typename StorageType::metadata_type;
+    static constexpr bool has_sums =
+        StorageType::template storage_metadata_count<Metric, WithNorm>() >
+        vecsim_types::quantized_metadata::SUM;
 
     static_assert(Metric == VecSimMetric_L2 || Metric == VecSimMetric_IP ||
                       Metric == VecSimMetric_Cosine,
@@ -308,13 +312,15 @@ private:
 
     static OUTPUT_TYPE to_byte(MetadataType scaled);
     void quantize(const DataType *input, OUTPUT_TYPE *quantized) const;
-    void quantize_fp32(const DataType *input, OUTPUT_TYPE *quantized) const;
-    void quantize_fp64(const DataType *input, OUTPUT_TYPE *quantized) const;
+    static MetadataType convert_input(DataType value);
+    MetadataType transformed_value(const DataType *input, size_t i) const;
+    std::pair<MetadataType, MetadataType> find_min_max(const DataType *input,
+                                                       MetadataType &x_mean_ip) const;
     void quantize_four(const DataType *input, OUTPUT_TYPE *quantized, size_t i,
-                       MetadataType minimum, MetadataType inv_delta, uint32_t (&sums)[4],
+                       MetadataType minimum, MetadataType prepared, uint32_t (&sums)[4],
                        uint64_t (&squares)[4]) const;
     CodeSums quantize_codes(const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
-                            MetadataType inv_delta) const;
+                            MetadataType prepared) const;
     void assign_storage_metadata(OUTPUT_TYPE *quantized, MetadataType minimum, MetadataType delta,
                                  CodeSums sums, MetadataType x_mean_ip) const;
 
@@ -513,40 +519,6 @@ public:
     }
 
 private:
-    inline float transformed_value(const DataType *input, size_t i) const {
-        float value = to_fp32<DataType>(input[i]);
-        if constexpr (WithNorm) {
-            value -= mean[i];
-        }
-        return value;
-    }
-
-    std::pair<float, float> find_min_max(const DataType *input, float &x_mean_ip) const {
-        if constexpr (!WithNorm) {
-            auto [min_it, max_it] = std::minmax_element(input, input + dim);
-            return {to_fp32<DataType>(*min_it), to_fp32<DataType>(*max_it)};
-        } else {
-            const float first_input_value = to_fp32<DataType>(input[0]);
-            float value = first_input_value - mean[0];
-            float min_val = value;
-            float max_val = value;
-            // Use the original input for the IP correction: a correction from reconstructed
-            // values would also multiply quantization error by the mean. L2 needs no correction.
-            if constexpr (Metric == VecSimMetric_IP)
-                x_mean_ip = first_input_value * mean[0];
-
-            for (size_t i = 1; i < dim; ++i) {
-                const float input_value = to_fp32<DataType>(input[i]);
-                value = input_value - mean[i];
-                min_val = std::min(min_val, value);
-                max_val = std::max(max_val, value);
-                if constexpr (Metric == VecSimMetric_IP)
-                    x_mean_ip += input_value * mean[i];
-            }
-            return {min_val, max_val};
-        }
-    }
-
     // Mean vector for WithNorm=true; zero-size placeholder otherwise (no runtime overhead).
     [[no_unique_address]] std::conditional_t<WithNorm, vecsim_stl::vector<float>, std::monostate>
         mean;
@@ -558,8 +530,60 @@ private:
 
 template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
     requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::convert_input(DataType value)
+    -> MetadataType {
+    if constexpr (std::is_same_v<DataType, double>) {
+        return value;
+    } else {
+        return to_fp32<DataType>(value);
+    }
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::transformed_value(
+    const DataType *input, size_t i) const -> MetadataType {
+    MetadataType value = convert_input(input[i]);
+    if constexpr (WithNorm) {
+        value -= mean[i];
+    }
+    return value;
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
+auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::find_min_max(
+    const DataType *input, MetadataType &x_mean_ip) const -> std::pair<MetadataType, MetadataType> {
+    if constexpr (!WithNorm) {
+        const auto [min_it, max_it] = std::minmax_element(input, input + dim);
+        return {convert_input(*min_it), convert_input(*max_it)};
+    } else {
+        const MetadataType first_input_value = convert_input(input[0]);
+        MetadataType value = first_input_value - mean[0];
+        MetadataType min_val = value;
+        MetadataType max_val = value;
+        // Use the original input for the IP correction: a correction from reconstructed
+        // values would also multiply quantization error by the mean. L2 needs no correction.
+        if constexpr (Metric == VecSimMetric_IP)
+            x_mean_ip = first_input_value * mean[0];
+
+        for (size_t i = 1; i < dim; ++i) {
+            const MetadataType input_value = convert_input(input[i]);
+            value = input_value - mean[i];
+            min_val = std::min(min_val, value);
+            max_val = std::max(max_val, value);
+            if constexpr (Metric == VecSimMetric_IP)
+                x_mean_ip += input_value * mean[i];
+        }
+        return {min_val, max_val};
+    }
+}
+
+template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
+    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::to_byte(MetadataType scaled)
     -> OUTPUT_TYPE {
+    // Clamp before casting: out-of-range and NaN floating-point conversions are undefined.
     if (!(scaled > MetadataType{0})) {
         return OUTPUT_TYPE{0};
     }
@@ -576,24 +600,13 @@ template <typename DataType, VecSimMetric Metric, bool WithNorm, typename Storag
 void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize(
     const DataType *input, OUTPUT_TYPE *quantized) const {
     assert(input && quantized);
-    if constexpr (std::is_same_v<MetadataType, double>) {
-        quantize_fp64(input, quantized);
-    } else {
-        quantize_fp32(input, quantized);
-    }
-}
-
-template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
-    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
-void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_fp32(
-    const DataType *input, OUTPUT_TYPE *quantized) const {
-    float x_mean_ip = 0.0f;
+    MetadataType x_mean_ip = 0;
     const auto [min_val, max_val] = find_min_max(input, x_mean_ip);
     const MetadataType diff = max_val - min_val;
     const MetadataType delta =
-        diff == 0.0f ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
-    const MetadataType inv_delta = MetadataType{1} / delta;
-    const CodeSums sums = quantize_codes(input, quantized, min_val, inv_delta);
+        diff == MetadataType{0} ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
+    const MetadataType prepared = StorageType::prepare_encode(delta);
+    const CodeSums sums = quantize_codes(input, quantized, min_val, prepared);
     assign_storage_metadata(quantized, min_val, delta, sums, x_mean_ip);
 }
 
@@ -601,28 +614,30 @@ template <typename DataType, VecSimMetric Metric, bool WithNorm, typename Storag
     requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_four(
     const DataType *input, OUTPUT_TYPE *quantized, size_t i, MetadataType minimum,
-    MetadataType inv_delta, uint32_t (&sums)[4], uint64_t (&squares)[4]) const {
-    const float x0 = transformed_value(input, i);
-    const float x1 = transformed_value(input, i + 1);
-    const float x2 = transformed_value(input, i + 2);
-    const float x3 = transformed_value(input, i + 3);
-    const OUTPUT_TYPE a0 = to_byte((x0 - minimum) * inv_delta);
-    const OUTPUT_TYPE a1 = to_byte((x1 - minimum) * inv_delta);
-    const OUTPUT_TYPE a2 = to_byte((x2 - minimum) * inv_delta);
-    const OUTPUT_TYPE a3 = to_byte((x3 - minimum) * inv_delta);
+    MetadataType prepared, uint32_t (&sums)[4], uint64_t (&squares)[4]) const {
+    const MetadataType x0 = transformed_value(input, i);
+    const MetadataType x1 = transformed_value(input, i + 1);
+    const MetadataType x2 = transformed_value(input, i + 2);
+    const MetadataType x3 = transformed_value(input, i + 3);
+    const OUTPUT_TYPE a0 = to_byte(StorageType::encode(x0 - minimum, prepared));
+    const OUTPUT_TYPE a1 = to_byte(StorageType::encode(x1 - minimum, prepared));
+    const OUTPUT_TYPE a2 = to_byte(StorageType::encode(x2 - minimum, prepared));
+    const OUTPUT_TYPE a3 = to_byte(StorageType::encode(x3 - minimum, prepared));
     StorageType::set_code(quantized, i, a0);
     StorageType::set_code(quantized, i + 1, a1);
     StorageType::set_code(quantized, i + 2, a2);
     StorageType::set_code(quantized, i + 3, a3);
-    sums[0] += a0;
-    sums[1] += a1;
-    sums[2] += a2;
-    sums[3] += a3;
-    if constexpr (Metric == VecSimMetric_L2) {
-        squares[0] += uint64_t{a0} * a0;
-        squares[1] += uint64_t{a1} * a1;
-        squares[2] += uint64_t{a2} * a2;
-        squares[3] += uint64_t{a3} * a3;
+    if constexpr (has_sums) {
+        sums[0] += a0;
+        sums[1] += a1;
+        sums[2] += a2;
+        sums[3] += a3;
+        if constexpr (Metric == VecSimMetric_L2) {
+            squares[0] += uint64_t{a0} * a0;
+            squares[1] += uint64_t{a1} * a1;
+            squares[2] += uint64_t{a2} * a2;
+            squares[3] += uint64_t{a3} * a3;
+        }
     }
 }
 
@@ -630,26 +645,32 @@ template <typename DataType, VecSimMetric Metric, bool WithNorm, typename Storag
     requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
 auto QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_codes(
     const DataType *input, OUTPUT_TYPE *quantized, MetadataType minimum,
-    MetadataType inv_delta) const -> CodeSums {
+    MetadataType prepared) const -> CodeSums {
+    // Reconstruction metadata must describe the codes, not the original input values.
     uint32_t sums[4] = {};
+    // Squared codes can overflow 32 bits at practical dimensions.
     uint64_t squares[4] = {};
     size_t i = 0;
     const size_t dim_round_down = this->dim & ~size_t(3);
     for (; i < dim_round_down; i += 4) {
-        quantize_four(input, quantized, i, minimum, inv_delta, sums, squares);
+        quantize_four(input, quantized, i, minimum, prepared, sums, squares);
     }
     CodeSums result;
-    result.sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
-    if constexpr (Metric == VecSimMetric_L2) {
-        result.squares = (squares[0] + squares[1]) + (squares[2] + squares[3]);
+    if constexpr (has_sums) {
+        result.sum = (sums[0] + sums[1]) + (sums[2] + sums[3]);
+        if constexpr (Metric == VecSimMetric_L2) {
+            result.squares = (squares[0] + squares[1]) + (squares[2] + squares[3]);
+        }
     }
     for (; i < this->dim; ++i) {
-        const float x = transformed_value(input, i);
-        const OUTPUT_TYPE code = to_byte((x - minimum) * inv_delta);
+        const MetadataType x = transformed_value(input, i);
+        const OUTPUT_TYPE code = to_byte(StorageType::encode(x - minimum, prepared));
         StorageType::set_code(quantized, i, code);
-        result.sum += code;
-        if constexpr (Metric == VecSimMetric_L2) {
-            result.squares += uint64_t{code} * code;
+        if constexpr (has_sums) {
+            result.sum += code;
+            if constexpr (Metric == VecSimMetric_L2) {
+                result.squares += uint64_t{code} * code;
+            }
         }
     }
     return result;
@@ -660,41 +681,31 @@ template <typename DataType, VecSimMetric Metric, bool WithNorm, typename Storag
 void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::assign_storage_metadata(
     OUTPUT_TYPE *quantized, MetadataType minimum, MetadataType delta, CodeSums sums,
     MetadataType x_mean_ip) const {
-    const double d_min = minimum;
-    const double d_delta = delta;
-    const double d_dim = static_cast<double>(this->dim);
-    const MetadataType sum = static_cast<MetadataType>(d_dim * d_min + d_delta * sums.sum);
-    MetadataType sum_squares{};
-    if constexpr (Metric == VecSimMetric_L2) {
-        sum_squares =
-            static_cast<MetadataType>(d_dim * d_min * d_min + 2.0 * d_min * d_delta * sums.sum +
-                                      d_delta * d_delta * sums.squares);
+    constexpr size_t metadata_count =
+        StorageType::template storage_metadata_count<Metric, WithNorm>();
+    static_assert(metadata_count == 2 || metadata_count == 3 || metadata_count == 4);
+    std::array<MetadataType, metadata_count> metadata{};
+    metadata[vecsim_types::quantized_metadata::MIN_VAL] = minimum;
+    metadata[vecsim_types::quantized_metadata::DELTA] = delta;
+    if constexpr (has_sums) {
+        // Double precision preserves the cross term in the reconstruction expansion.
+        const double d_min = minimum;
+        const double d_delta = delta;
+        const double d_dim = static_cast<double>(this->dim);
+        metadata[vecsim_types::quantized_metadata::SUM] =
+            static_cast<MetadataType>(d_dim * d_min + d_delta * sums.sum);
+        if constexpr (Metric == VecSimMetric_L2) {
+            metadata[vecsim_types::quantized_metadata::SUM_SQUARES] =
+                static_cast<MetadataType>(d_dim * d_min * d_min + 2.0 * d_min * d_delta * sums.sum +
+                                          d_delta * d_delta * sums.squares);
+        }
+        if constexpr (WithNorm && Metric == VecSimMetric_IP) {
+            metadata[StorageType::template mean_ip_index<Metric>()] = x_mean_ip;
+        }
     }
+    // The metadata following the code bytes may be unaligned.
     void *meta_dst = quantized + StorageType::data_bytes_count(this->dim);
-    MetadataType metadata[5] = {minimum, delta, sum};
-    size_t n = 3;
-    if constexpr (Metric == VecSimMetric_L2) {
-        metadata[n++] = sum_squares;
-    }
-    if constexpr (WithNorm && Metric == VecSimMetric_IP) {
-        metadata[n++] = x_mean_ip;
-    }
-    memcpy(meta_dst, metadata, n * sizeof(MetadataType));
-}
-
-template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
-    requires QuantPreprocessorInput<DataType, StorageType, WithNorm>
-void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize_fp64(
-    const DataType *input, OUTPUT_TYPE *quantized) const {
-    const auto [min_it, max_it] = std::minmax_element(input, input + dim);
-    const MetadataType minimum = *min_it;
-    const MetadataType range = *max_it - minimum;
-    const MetadataType delta = range == 0.0 ? 1.0 : range / StorageType::max_code;
-    for (size_t i = 0; i < dim; ++i) {
-        quantized[i] = to_byte((input[i] - minimum) / delta);
-    }
-    const MetadataType metadata[] = {minimum, delta};
-    memcpy(quantized + StorageType::data_bytes_count(dim), metadata, sizeof(metadata));
+    memcpy(meta_dst, metadata.data(), metadata.size() * sizeof(MetadataType));
 }
 
 template <typename DataType, VecSimMetric Metric, bool WithNorm, typename StorageType>
