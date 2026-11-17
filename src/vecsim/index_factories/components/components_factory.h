@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <stdexcept>
+#include <cassert>
 #include "vecsim/spaces/spaces.h"
 #include "vecsim/vec_sim_common.h"
 #include "vecsim/vec_sim_index.h"
@@ -55,9 +55,7 @@ CreateQuantizedIndexComponents(const std::shared_ptr<VecSimAllocator> &allocator
     using Preprocessor = QuantPreprocessor<DataType, Metric, WithMean, StorageType>;
     using QueryType = typename Preprocessor::QueryType;
     if constexpr (std::same_as<DistType, double>) {
-        if (mean_ptr) {
-            throw std::invalid_argument("FP64 quantization does not support mean training");
-        }
+        assert(!mean_ptr && "FP64 quantization does not support mean training");
     }
     unsigned char storage_alignment = 0;
     unsigned char asym_storage_alignment = 0;

@@ -289,18 +289,22 @@ TEST(SQ8FP64Components, TinyDeltaUsesDirectDivision) {
     allocator->free_allocation(storage);
 }
 
-TEST(SQ8FP64Components, SharedFactoryRejectsMeanBeforeAllocation) {
+#ifndef NDEBUG
+TEST(SQ8FP64ComponentsDeathTest, SharedFactoryRejectsMean) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     const auto allocator = VecSimAllocator::newVecsimAllocator();
     const float mean[] = {0.0f, 0.0f, 0.0f};
-    const size_t before = allocator->getAllocationSize();
-    EXPECT_THROW(
+    EXPECT_DEATH(
         (CreateQuantizedIndexComponents<double, VecSimMetric_L2, sq8_fp64>(allocator, 3, mean)),
-        std::invalid_argument);
-    EXPECT_EQ(allocator->getAllocationSize(), before);
-    EXPECT_THROW((CreateQuantizedIndexComponents<double, VecSimMetric_L2, false, sq8_fp64>(
+        "!mean_ptr.*FP64 quantization does not support mean training");
+    EXPECT_DEATH((CreateQuantizedIndexComponents<double, VecSimMetric_L2, false, sq8_fp64>(
                      allocator, 3, mean)),
-                 std::invalid_argument);
-    EXPECT_EQ(allocator->getAllocationSize(), before);
+                 "!mean_ptr.*FP64 quantization does not support mean training");
+}
+#endif
+
+TEST(SQ8FP64Components, SharedFactoryAcceptsNullMean) {
+    const auto allocator = VecSimAllocator::newVecsimAllocator();
     const auto components =
         CreateQuantizedIndexComponents<double, VecSimMetric_L2, sq8_fp64>(allocator, 3, nullptr);
     const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
