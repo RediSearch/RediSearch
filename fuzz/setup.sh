@@ -52,6 +52,20 @@ PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
 module="$(find "$ROOT"/bin/*-debug-asan-fuzz -maxdepth 0 -type d -not -type l | head -1)/search-community/redisearch.so"
 [[ -f $module ]] || { echo "setup.sh: module not found at $module" >&2; exit 1; }
 
+# The planted module is the same build with fuzz/planted/planted.patch applied:
+# known bugs for testing the fuzzer itself. Both rebuilds are incremental.
+echo "==> planted redisearch.so"
+patch="$ROOT/fuzz/planted/planted.patch"
+planted="$OUT/planted/redisearch.so"
+git -C "$ROOT" apply "$patch"
+trap 'git -C "$ROOT" apply -R "$patch"' EXIT
+PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
+mkdir -p "$(dirname "$planted")"
+cp "$module" "$planted"
+git -C "$ROOT" apply -R "$patch"
+trap - EXIT
+PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
+
 preload=""
 if [[ $OS != Darwin ]] && command -v g++ > /dev/null; then
   preload="$(g++ -print-file-name=libstdc++.so.6)"
@@ -60,6 +74,7 @@ fi
 cat > "$OUT/env.sh" <<EOF
 export REDIS_SERVER="$redis_server"
 export REDISEARCH_MODULE="$module"
+export REDISEARCH_PLANTED_MODULE="$planted"
 export RS_GLOBAL_DTORS=1
 export ASAN_OPTIONS="halt_on_error=1:detect_odr_violation=0:detect_leaks=1"
 export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0"

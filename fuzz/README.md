@@ -40,8 +40,14 @@ source bin/fuzz/env.sh
    Rust for edge coverage and links `fuzz/shim/coverage.c` into the module; see
    [Edge coverage](#edge-coverage). Arguments to `setup.sh` are passed on to
    `build.sh`.
-4. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
-   and the sanitizer settings below.
+4. Builds the planted module, `bin/fuzz/planted/redisearch.so`: the same build
+   with `fuzz/planted/planted.patch` applied, which adds two known bugs for
+   testing the fuzzer itself. The patch is applied to the working tree for the
+   duration of one incremental build and reverted afterwards, then the module
+   is rebuilt clean; do not commit or snapshot while it runs. If the patch no
+   longer applies after a change on master, refresh its context lines.
+5. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
+   `REDISEARCH_PLANTED_MODULE`, and the sanitizer settings below.
 
 Variables:
 
@@ -164,5 +170,7 @@ source ../bin/fuzz/env.sh && cargo test -- --ignored   # every program in tests/
 The live tests run the smoke seed and the programs under `tests/programs/`,
 which exercise the harness itself: a crash, a hang, a stall the harness
 resolves, a barrier that cannot complete, a query left pending while another
-connection drops its index, and the edges a forced GC adds. One more runs
-generated programs and checks that most replies are not errors.
+connection drops its index, and the edges a forced GC adds. Others check that
+most replies to generated programs are not errors, that a crash inside a
+generated program reduces to the crashing command, and that the seeds under
+`planted/` trigger the planted bugs as a sanitizer report and an assertion.

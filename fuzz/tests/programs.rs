@@ -173,3 +173,25 @@ fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
     assert!(reduced.module_args.is_empty());
     assert_eq!(reduced.ops, [segfault]);
 }
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
+    let env = Env {
+        module: std::env::var_os("REDISEARCH_PLANTED_MODULE")
+            .expect("rerun fuzz/setup.sh")
+            .into(),
+        ..env()
+    };
+    for (seed, kind) in [
+        ("planted/overflow.json", Kind::Sanitizer),
+        ("planted/assert.json", Kind::Assertion),
+    ] {
+        let program = load(seed);
+        let kinds: Vec<Kind> = judge(&program, &run(&program, &env).unwrap())
+            .into_iter()
+            .map(|f| f.kind)
+            .collect();
+        assert_eq!(kinds, [kind], "{seed}");
+    }
+}

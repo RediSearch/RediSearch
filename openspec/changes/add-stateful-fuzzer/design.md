@@ -275,6 +275,19 @@ a seen-edges table, a weighted pick) behind the same `campaign` interface.
 Several cores are used by running several processes that share a corpus
 directory and a findings directory.
 
+## Planted bugs
+
+`fuzz/planted/planted.patch` adds two deterministic bugs that each need a few
+ops of state: a range query on a sortable numeric field of an index with a TEXT
+or TAG field and at least three documents reads past a buffer, and
+`FT.DROPINDEX … DD` of an index with a TAG field and at least two documents
+fails an assertion. `setup.sh` applies the patch for one incremental build in
+the fuzz build directory, copies the module to `bin/fuzz/planted/`, reverts the
+patch, and rebuilds; a second build directory would cost a full build. Seeds
+beside the patch trigger each bug. They are the targets for the reduce and
+campaign checks, and the only real sanitizer and assertion reports the judge is
+tested against while master has no known bug.
+
 ## Findings
 
 ```
@@ -343,7 +356,10 @@ to programs with one connection, no deferred replies, and no variables.
 - **Measured (macOS arm64, AddressSanitizer builds):** `redis-server` alone is
   ready in about 0.5 s; with the module loaded, about 1.6 s. A clean shutdown
   reports no sanitizer errors with leak detection on.
-- **Measured (reduce):** a 33-op generated program hitting the
+- **Measured (reduce, planted bugs):** each planted seed spread through 200
+  generated ops reduced to at most five ops in under seven minutes, reproducing
+  ten times out of ten.
+- **Measured (reduce, real bug):** a 33-op generated program hitting the
   `DebugIndexes_ScanProc` overflow, which reproduced three times out of three,
   reduced to 5 ops in 4 minutes; the result reproduces four times out of ten.
 - **Measured (generator):** of 200 generated programs, 190 run clean and 10

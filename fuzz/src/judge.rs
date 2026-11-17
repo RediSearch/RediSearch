@@ -95,16 +95,26 @@ pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
 
 /// `heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free` becomes
 /// `heap-use-after-free:IndexSpec_Free:spec.c:123`.
+/// Without debug information the location is a binary and an offset, which
+/// change with every build, so only the binary's name is kept.
 fn sanitizer_summary(summary: &str) -> String {
     let mut words = summary.split_whitespace();
     let bug = words.next().unwrap_or_default();
-    let location: Vec<&str> = basename(words.next().unwrap_or_default())
-        .split(':')
-        .take(2)
-        .collect();
+    let location = words.next().unwrap_or_default();
+    let location = match location.strip_prefix('(') {
+        Some(binary) => binary.split(':').next().unwrap_or_default().to_owned(),
+        None => basename(location)
+            .split(':')
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(":"),
+    };
     match summary.split_once(" in ") {
-        Some((_, function)) => format!("{bug}:{function}:{}", location.join(":")),
-        None => format!("{bug}:{}", location.join(":")),
+        Some((_, function)) => {
+            let function = function.split("+0x").next().unwrap_or(function);
+            format!("{bug}:{function}:{location}")
+        }
+        None => format!("{bug}:{location}"),
     }
 }
 
@@ -214,6 +224,11 @@ mod tests {
                 "SUMMARY: AddressSanitizer: heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free\n\
                  ==> /src/util/workers.c:180 'x' is not true\n",
                 "asan:heap-use-after-free:IndexSpec_Free:spec.c:123",
+            ),
+            (
+                Exit::Died { at_op: 0 },
+                "SUMMARY: AddressSanitizer: heap-buffer-overflow (redisearch.so:arm64+0x2f5564) in QueryNode_CheckIsValid+0x1374\n",
+                "asan:heap-buffer-overflow:QueryNode_CheckIsValid:redisearch.so",
             ),
             (
                 Exit::Died { at_op: 0 },
