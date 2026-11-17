@@ -218,7 +218,6 @@ fn run_rust_filtered(
         ASCENDING,
         RANGE_BATCH_SIZE,
         index.n,
-        child_estimate,
     );
     // Fresh owned copies each call, mirroring the C side's per-run allocation.
     let mut count = 0usize;
