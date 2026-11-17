@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use crate::program::{
-    Argv, Bound, Bytes, CursorAction, Field, FieldKind, OpKind, Query, Var, argv,
+    Algorithm, Argv, Bound, Bytes, CursorAction, Field, FieldKind, Metric, OpKind, Query, Var, argv,
 };
 
 /// The cursor ids bound so far.
@@ -67,12 +67,15 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
             pipeline,
             cursor,
         } => {
-            let mut text = Vec::new();
-            render(query, &mut text);
-            let mut command = vec!["FT.AGGREGATE".into(), index.clone(), Bytes(text)];
+            let (text, params) = rendered(query);
+            let mut command = vec!["FT.AGGREGATE".into(), index.clone(), text];
             command.extend(pipeline.iter().cloned());
             if let Some(cursor) = cursor {
                 command.extend(argv(&["WITHCURSOR", "COUNT", &cursor.count.to_string()]));
+            }
+            if !params.is_empty() {
+                command.extend(params);
+                command.extend(argv(&["DIALECT", "2"]));
             }
             vec![command]
         }
@@ -98,16 +101,17 @@ pub fn lower(op: &OpKind, cursors: &Cursors) -> Vec<Argv> {
             query,
             options,
         } => {
-            let mut text = Vec::new();
-            render(query, &mut text);
-            let mut command = vec!["FT.SEARCH".into(), index.clone(), Bytes(text)];
+            let (text, params) = rendered(query);
+            let mut command = vec!["FT.SEARCH".into(), index.clone(), text];
             if options.no_content {
                 command.push("NOCONTENT".into());
             }
             if let Some((offset, count)) = options.limit {
                 command.extend(argv(&["LIMIT", &offset.to_string(), &count.to_string()]));
             }
-            if let Some(dialect) = options.dialect {
+            let dialect = options.dialect.or((!params.is_empty()).then_some(2));
+            command.extend(params);
+            if let Some(dialect) = dialect {
                 command.extend(argv(&["DIALECT", &dialect.to_string()]));
             }
             vec![command]
@@ -169,8 +173,20 @@ impl SplitMix {
     }
 }
 
+/// A FLOAT32 blob of `dim` components between -10 and 10, in tenths.
+pub fn vector(dim: u16, mut component: impl FnMut() -> i16) -> Bytes {
+    Bytes(
+        (0..dim)
+            .flat_map(|_| (f32::from(component()) / 10.0).to_le_bytes())
+            .collect(),
+    )
+}
+
 fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
     match field.kind {
+        FieldKind::Vector { dim, .. } => vector(dim, || {
+            i16::try_from(rng.next() % 201).expect("small") - 100
+        }),
         FieldKind::Text => rng.words(" ", 3),
         FieldKind::Tag => rng.words(",", 2),
         FieldKind::Numeric => match rng.next() % 2 {
@@ -192,21 +208,56 @@ fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
 
 fn schema_field(field: &Field, command: &mut Argv) {
     command.push(field.name.clone());
-    command.push(
-        match field.kind {
-            FieldKind::Text => "TEXT",
-            FieldKind::Numeric => "NUMERIC",
-            FieldKind::Tag => "TAG",
-            FieldKind::Geo => "GEO",
-        }
-        .into(),
-    );
+    match &field.kind {
+        FieldKind::Text => command.push("TEXT".into()),
+        FieldKind::Numeric => command.push("NUMERIC".into()),
+        FieldKind::Tag => command.push("TAG".into()),
+        FieldKind::Geo => command.push("GEO".into()),
+        FieldKind::Vector {
+            algorithm,
+            dim,
+            metric,
+        } => command.extend(argv(&[
+            "VECTOR",
+            match algorithm {
+                Algorithm::Flat => "FLAT",
+                Algorithm::Hnsw => "HNSW",
+            },
+            "6",
+            "TYPE",
+            "FLOAT32",
+            "DIM",
+            &dim.to_string(),
+            "DISTANCE_METRIC",
+            match metric {
+                Metric::L2 => "L2",
+                Metric::Ip => "IP",
+                Metric::Cosine => "COSINE",
+            },
+        ])),
+    }
     if field.sortable {
         command.push("SORTABLE".into());
     }
 }
 
-fn render(query: &Query, out: &mut Vec<u8>) {
+/// The query text, and the `PARAMS` arguments its vectors need, if any.
+fn rendered(query: &Query) -> (Bytes, Argv) {
+    let mut text = Vec::new();
+    let mut vectors = Vec::new();
+    render(query, &mut text, &mut vectors);
+    if vectors.is_empty() {
+        return (Bytes(text), Vec::new());
+    }
+    let mut params = argv(&["PARAMS", &(2 * vectors.len()).to_string()]);
+    for (i, vector) in vectors.into_iter().enumerate() {
+        params.push(format!("v{i}").into());
+        params.push(vector);
+    }
+    (Bytes(text), params)
+}
+
+fn render(query: &Query, out: &mut Vec<u8>, vectors: &mut Vec<Bytes>) {
     match query {
         Query::All => out.push(b'*'),
         Query::Term(term) => escape(term, out),
@@ -233,17 +284,35 @@ fn render(query: &Query, out: &mut Vec<u8>) {
             bound(*max, b"+inf", out);
             out.push(b']');
         }
-        Query::And(children) => group(children, b" ", out),
-        Query::Or(children) => group(children, b" | ", out),
+        Query::And(children) => group(children, b" ", out, vectors),
+        Query::Or(children) => group(children, b" | ", out, vectors),
+        Query::Knn {
+            filter,
+            field,
+            k,
+            vector,
+        } => {
+            if **filter == Query::All {
+                out.push(b'*');
+            } else {
+                out.push(b'(');
+                render(filter, out, vectors);
+                out.push(b')');
+            }
+            out.extend_from_slice(format!("=>[KNN {k} @").as_bytes());
+            escape(field, out);
+            out.extend_from_slice(format!(" $v{}]", vectors.len()).as_bytes());
+            vectors.push(vector.clone());
+        }
         Query::Not(child) => {
             out.extend_from_slice(b"-(");
-            render(child, out);
+            render(child, out, vectors);
             out.push(b')');
         }
     }
 }
 
-fn group(children: &[Query], separator: &[u8], out: &mut Vec<u8>) {
+fn group(children: &[Query], separator: &[u8], out: &mut Vec<u8>, vectors: &mut Vec<Bytes>) {
     if children.is_empty() {
         out.push(b'*');
         return;
@@ -253,7 +322,7 @@ fn group(children: &[Query], separator: &[u8], out: &mut Vec<u8>) {
         if i > 0 {
             out.extend_from_slice(separator);
         }
-        render(child, out);
+        render(child, out, vectors);
     }
     out.push(b')');
 }
@@ -354,6 +423,36 @@ mod tests {
                 Query::Not(Box::new(Query::Or(vec![]))),
             ])),
             "(@t:a (b | c) -(*))"
+        );
+        let knn = lower(
+            &OpKind::Query {
+                index: "i".into(),
+                query: Query::Knn {
+                    filter: Box::new(Query::Tag {
+                        field: "g".into(),
+                        values: vec!["red".into()],
+                    }),
+                    field: "v".into(),
+                    k: 3,
+                    vector: Bytes(vec![0, 0, 128, 63]),
+                },
+                options: Default::default(),
+            },
+            &Cursors::new(),
+        );
+        assert_eq!(
+            knn,
+            [vec![
+                "FT.SEARCH".into(),
+                "i".into(),
+                "(@g:{red})=>[KNN 3 @v $v0]".into(),
+                "PARAMS".into(),
+                "2".into(),
+                "v0".into(),
+                Bytes(vec![0, 0, 128, 63]),
+                "DIALECT".into(),
+                "2".into(),
+            ]]
         );
     }
 }

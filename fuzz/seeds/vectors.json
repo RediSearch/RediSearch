@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "ops": [
+    {"op": "create", "index": "i0", "prefix": "d0:", "fields": [
+      {"name": "f0", "type": "vector", "algorithm": "hnsw", "dim": 4, "metric": "l2"},
+      {"name": "f1", "type": "tag"},
+      {"name": "f2", "type": "vector", "algorithm": "flat", "dim": 2, "metric": "cosine"}
+    ]},
+    {"op": "populate", "prefix": "d0:", "fields": [
+      {"name": "f0", "type": "vector", "algorithm": "hnsw", "dim": 4, "metric": "l2"},
+      {"name": "f1", "type": "tag"},
+      {"name": "f2", "type": "vector", "algorithm": "flat", "dim": 2, "metric": "cosine"}
+    ], "n": 300, "seed": 3},
+    {"op": "barrier"},
+    {"op": "query", "index": "i0", "query": {"knn": {"filter": "all", "field": "f0", "k": 5, "vector": {"hex": "0000803f000000c00000403f0000a040"}}}, "options": {"no_content": true}},
+    {"op": "query", "index": "i0", "query": {"knn": {"filter": {"tag": {"field": "f1", "values": ["red", "blue"]}}, "field": "f2", "k": 3, "vector": {"hex": "0000803f0000803f"}}}},
+    {"op": "aggregate", "index": "i0", "query": {"knn": {"filter": "all", "field": "f0", "k": 10, "vector": {"hex": "000000000000803f0000000000000000"}}},
+     "pipeline": ["GROUPBY", "1", "@f1", "REDUCE", "COUNT", "0", "AS", "count"]},
+    {"op": "command", "argv": ["DEL", "d0:1", "d0:2", "d0:3", "d0:4", "d0:5", "d0:6", "d0:7", "d0:8"]},
+    {"op": "command", "argv": ["_FT.DEBUG", "GC_FORCEINVOKE", "i0"]},
+    {"op": "barrier"},
+    {"op": "query", "index": "i0", "query": {"knn": {"filter": "all", "field": "f0", "k": 5, "vector": {"hex": "0000803f000000c00000403f0000a040"}}}, "options": {"no_content": true}}
+  ]
+}

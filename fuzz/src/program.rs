@@ -231,6 +231,27 @@ pub enum FieldKind {
     Numeric,
     Tag,
     Geo,
+    /// FLOAT32 vectors of `dim` components.
+    Vector {
+        algorithm: Algorithm,
+        dim: u16,
+        metric: Metric,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Algorithm {
+    Flat,
+    Hnsw,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Metric {
+    L2,
+    Ip,
+    Cosine,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -254,6 +275,14 @@ pub enum Query {
     And(Vec<Query>),
     Or(Vec<Query>),
     Not(Box<Query>),
+    /// The `k` nearest neighbours of `vector`, a FLOAT32 blob, among the
+    /// documents matching `filter`. Valid only as the whole query.
+    Knn {
+        filter: Box<Query>,
+        field: Bytes,
+        k: u32,
+        vector: Bytes,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

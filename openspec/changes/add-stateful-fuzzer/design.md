@@ -62,9 +62,11 @@ enum OpKind {
   Deleting an op never changes what another op sends. An op that refers to a
   missing index is still sent and draws an ordinary error.
 - **`Bytes`** serialises as a JSON string when it is valid UTF-8 and as
-  `{"hex": "…"}` otherwise, so invalid UTF-8 is representable. Floats are stored
-  as bit patterns, so NaN, infinities, and negative zero survive and the type is
-  hashable.
+  `{"hex": "…"}` otherwise, so invalid UTF-8 is representable. A vector is a
+  FLOAT32 blob in `Bytes`, so NaN, infinities, and negative zero survive and
+  the type is hashable. A `Knn` query node is valid only as the whole query;
+  lowering adds the `PARAMS` its vectors need and `DIALECT 2` unless the
+  options name a dialect.
 - **`Populate`** carries its own key prefix and field list, so it does not
   depend on an earlier `Create`. It expands to `n` writes of keys
   `<prefix>0` to `<prefix>n-1`, with values drawn from the fixed dictionary in

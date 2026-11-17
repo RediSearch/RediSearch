@@ -16,10 +16,10 @@ use std::ops::RangeInclusive;
 use rand::Rng;
 use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
 
-use crate::lower::{Cursors, NUMBERS, WORDS, lower};
+use crate::lower::{Cursors, NUMBERS, WORDS, lower, vector};
 use crate::program::{
-    Argv, Bound, Bytes, Conn, CursorAction, CursorSpec, FORMAT_VERSION, Field, FieldKind, Op,
-    OpKind, Program, Query, QueryOptions, ReplyMode, Var, argv,
+    Algorithm, Argv, Bound, Bytes, Conn, CursorAction, CursorSpec, FORMAT_VERSION, Field,
+    FieldKind, Metric, Op, OpKind, Program, Query, QueryOptions, ReplyMode, Var, argv,
 };
 
 const CONNS: u8 = 3;
@@ -27,6 +27,7 @@ const GENERATED_OPS: RangeInclusive<usize> = 4..=40;
 const STACKED_EDITS: RangeInclusive<usize> = 1..=3;
 const POPULATE_BITS: RangeInclusive<u32> = 0..=9;
 const VARS: u8 = 2;
+const VECTOR_DIMS: [u16; 3] = [2, 4, 8];
 const PIPELINE_STEPS: RangeInclusive<usize> = 0..=3;
 const KEYS: u32 = 16;
 const QUERY_DEPTH: u32 = 2;
@@ -304,18 +305,25 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> OpKind {
 }
 
 fn field(name: &str, rng: &mut impl Rng) -> Field {
-    let kind = [
-        FieldKind::Text,
-        FieldKind::Numeric,
-        FieldKind::Tag,
-        FieldKind::Geo,
-    ]
-    .choose(rng)
-    .expect("never empty")
-    .clone();
+    let kind = match rng.random_range(0..5) {
+        0 => FieldKind::Text,
+        1 => FieldKind::Numeric,
+        2 => FieldKind::Tag,
+        3 => FieldKind::Geo,
+        _ => FieldKind::Vector {
+            algorithm: *[Algorithm::Flat, Algorithm::Hnsw]
+                .choose(rng)
+                .expect("never empty"),
+            dim: *VECTOR_DIMS.choose(rng).expect("never empty"),
+            metric: *[Metric::L2, Metric::Ip, Metric::Cosine]
+                .choose(rng)
+                .expect("never empty"),
+        },
+    };
     Field {
         name: name.into(),
-        sortable: kind != FieldKind::Geo && rng.random_ratio(1, 4),
+        sortable: matches!(kind, FieldKind::Text | FieldKind::Numeric | FieldKind::Tag)
+            && rng.random_ratio(1, 4),
         kind,
     }
 }
@@ -406,6 +414,7 @@ fn value(kind: &FieldKind, pools: &Pools, rng: &mut impl Rng) -> Bytes {
             rng.random_range(-85.0..=85.0)
         )
         .into(),
+        FieldKind::Vector { dim, .. } => vector(*dim, || rng.random_range(-100..=100)),
     }
 }
 
@@ -429,6 +438,25 @@ fn query(schema: &Schema, pools: &Pools, rng: &mut impl Rng, depth: u32) -> Quer
             .choose(rng)
             .map(|f| f.name.clone())
     };
+    let vector_field = schema.fields.iter().find_map(|f| match f.kind {
+        FieldKind::Vector { dim, .. } => Some((f.name.clone(), dim)),
+        _ => None,
+    });
+    if let Some((field, dim)) = vector_field
+        && depth == QUERY_DEPTH
+        && rng.random_ratio(1, 3)
+    {
+        return Query::Knn {
+            filter: Box::new(if rng.random_bool(0.5) {
+                Query::All
+            } else {
+                query(schema, pools, rng, depth - 1)
+            }),
+            field,
+            k: rng.random_range(1..=10),
+            vector: vector(dim, || rng.random_range(-100..=100)),
+        };
+    }
     let leaves = if depth == 0 { 5 } else { 8 };
     match rng.random_range(0..leaves) {
         0 if depth == QUERY_DEPTH => Query::All,
@@ -728,6 +756,21 @@ fn hoists(query: &Query) -> Vec<Query> {
             out.extend(hoists(child).into_iter().map(|q| Query::Not(Box::new(q))));
             out
         }
+        Query::Knn {
+            filter,
+            field,
+            k,
+            vector,
+        } => {
+            let mut out = vec![(**filter).clone()];
+            out.extend(hoists(filter).into_iter().map(|q| Query::Knn {
+                filter: Box::new(q),
+                field: field.clone(),
+                k: *k,
+                vector: vector.clone(),
+            }));
+            out
+        }
         _ => Vec::new(),
     }
 }
@@ -763,7 +806,7 @@ pub fn size(program: &Program) -> usize {
 fn nodes(query: &Query) -> usize {
     1 + match query {
         Query::And(children) | Query::Or(children) => children.iter().map(nodes).sum(),
-        Query::Not(child) => nodes(child),
+        Query::Not(child) | Query::Knn { filter: child, .. } => nodes(child),
         _ => 0,
     }
 }
@@ -807,7 +850,7 @@ fn visit_query(query: &mut Query, f: &mut dyn FnMut(Leaf<'_>)) {
         Query::And(children) | Query::Or(children) => {
             children.iter_mut().for_each(|child| visit_query(child, f))
         }
-        Query::Not(child) => visit_query(child, f),
+        Query::Not(child) | Query::Knn { filter: child, .. } => visit_query(child, f),
     }
 }
 
