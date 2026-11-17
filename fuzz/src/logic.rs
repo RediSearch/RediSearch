@@ -7,34 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Logic rules: relations between replies that must hold whatever the data.
+//! Relations between search results that must hold whatever the data:
 //!
-//! Two replies are compared only when nothing that changes results can have
-//! happened between them: both queries lie in one settled period, which starts
-//! at a barrier that completed and ends at the next op that changes results,
-//! and no such op was sent while either query was in flight. `DEBUG RELOAD`
-//! must not change results, so it does not end a period, but it needs a
-//! barrier before the next comparable query. Rules apply only when the server
-//! fails a query that times out instead of returning partial results.
+//! - equivalence: the same query on the same index returns the same result;
+//! - twin: the same query on two indexes with equal [`Key`]s does too;
+//! - partition: `q p` and `q -p` add up to `q`.
+//!
+//! Results are compared only within one comparison window, which opens at a
+//! barrier that completed and closes at the next step that can change results;
+//! no such step may run while either query is in flight. `DEBUG RELOAD` must
+//! not change results, but the index is rebuilding afterwards, so a window
+//! opens only at the next barrier. Without `ON_TIMEOUT FAIL` a slow query
+//! returns partial results, so no rule applies.
 
 use std::collections::BTreeSet;
 
 use crate::judge::{Finding, Kind};
-use crate::program::{Bytes, OpKind, Program, Query, QueryOptions};
+use crate::program::{Bytes, DEBUG, OpKind, Program, Query, QueryOptions};
 use crate::resp::Value;
 use crate::run::{Step, Trace};
 use crate::scope::{Key, Scope};
 use crate::target::Reply;
 
-/// RediSearch's default stopwords; see [`vanishes`].
+/// RediSearch's default stopwords.
 const STOPWORDS: [&str; 33] = [
     "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into",
     "it", "no", "not", "of", "on", "or", "such", "that", "their", "then", "there", "these", "they",
     "this", "to", "was", "will", "with",
 ];
-
-/// Commands that cannot change what a query returns.
-const NEUTRAL_COMMANDS: [&str; 10] = [
+const READ_ONLY_COMMANDS: [&str; 10] = [
     "FT.INFO",
     "FT._LIST",
     "FT.EXPLAIN",
@@ -46,9 +47,8 @@ const NEUTRAL_COMMANDS: [&str; 10] = [
     "HGETALL",
     "JSON.GET",
 ];
-
 /// `_FT.DEBUG` subcommands that change scheduling, not results.
-const NEUTRAL_HOOKS: [&str; 5] = [
+const SCHEDULING_HOOKS: [&str; 5] = [
     "GC_FORCEINVOKE",
     "GC_STOP_SCHEDULE",
     "GC_CONTINUE_SCHEDULE",
@@ -58,20 +58,20 @@ const NEUTRAL_HOOKS: [&str; 5] = [
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Effect {
-    Neutral,
-    /// Must not change results, but leaves the index rebuilding.
-    Transparent,
-    Changing,
+    Harness,
+    KeepsResults,
+    RebuildsIndex,
+    ChangesResults,
 }
 
-struct Observation<'a> {
-    period: u32,
+struct SearchResult<'a> {
+    window: u32,
     index: &'a Bytes,
     key: Option<Key>,
     query: &'a Query,
     options: &'a QueryOptions,
     total: i64,
-    /// The matching keys, when the reply listed all of them.
+    /// Present when the reply listed every match.
     keys: Option<BTreeSet<Bytes>>,
 }
 
@@ -83,11 +83,11 @@ pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
     if !fails_on_timeout {
         return Vec::new();
     }
-    let seen = observations(program, trace);
+    let results = comparable_results(program, trace);
     let mut findings = Vec::new();
-    for (i, a) in seen.iter().enumerate() {
-        for b in &seen[i + 1..] {
-            if a.period != b.period || a.query != b.query || a.options != b.options {
+    for (i, a) in results.iter().enumerate() {
+        for b in &results[i + 1..] {
+            if a.window != b.window || a.query != b.query || a.options != b.options {
                 continue;
             }
             let rule = if a.index == b.index {
@@ -103,24 +103,23 @@ pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
             }
         }
     }
-    for whole in &seen {
-        let comparable = |o: &&Observation| {
-            o.period == whole.period && o.index == whole.index && o.options == whole.options
-        };
-        let parts: Vec<(&Query, bool, i64)> = seen
+    for whole in &results {
+        let parts: Vec<(&Query, bool, i64)> = results
             .iter()
-            .filter(comparable)
-            .filter_map(|o| {
-                let (rest, p, negated) = split(o.query)?;
-                (rest == whole.query).then_some((p, negated, o.total))
+            .filter(|r| {
+                r.window == whole.window && r.index == whole.index && r.options == whole.options
+            })
+            .filter_map(|r| {
+                let (rest, part, negated) = split(r.query)?;
+                (rest == whole.query).then_some((part, negated, r.total))
             })
             .collect();
-        for &(p, _, total) in parts.iter().filter(|(_, negated, _)| !negated) {
+        for &(part, _, total) in parts.iter().filter(|(_, negated, _)| !negated) {
             let checkable = !vanishes(whole.query)
-                && !vanishes(p)
+                && !vanishes(part)
                 && known_fields(whole.query, &whole.key)
-                && known_fields(p, &whole.key);
-            let complement = parts.iter().find(|(q, negated, _)| *negated && *q == p);
+                && known_fields(part, &whole.key);
+            let complement = parts.iter().find(|(p, negated, _)| *negated && *p == part);
             if checkable
                 && let Some(&(_, _, complement)) = complement
                 && total + complement != whole.total
@@ -132,7 +131,7 @@ pub fn check(program: &Program, trace: &Trace) -> Vec<Finding> {
     findings
 }
 
-/// `q p` as `(q, p, false)` and `q -p` as `(q, p, true)`; a lone `p` or `-p`
+/// `q p` is `(q, p, false)` and `q -p` is `(q, p, true)`; a lone `p` or `-p`
 /// splits `*`.
 fn split(query: &Query) -> Option<(&Query, &Query, bool)> {
     const ALL: &Query = &Query::All;
@@ -149,8 +148,8 @@ fn split(query: &Query) -> Option<(&Query, &Query, bool)> {
     })
 }
 
-/// The signature names the rule and the query's structure without its
-/// values, so one bug found through different terms keeps one signature.
+/// Names the query's structure without its values, so one bug reached
+/// through different terms keeps one signature.
 fn finding(rule: &str, query: &Query) -> Finding {
     fn shape(query: &Query) -> String {
         let group = |name, children: &[Query]| {
@@ -175,10 +174,8 @@ fn finding(rule: &str, query: &Query) -> Finding {
     }
 }
 
-/// Whether the query has a term that can become an empty node: an empty
-/// term, a stopword, or one the tokenizer would split. An empty node drops
-/// out of its group, so `q p` and `q -p` both become `q` and a partition
-/// over it does not add up.
+/// Whether a term can drop out of its group: an empty term, a stopword, or
+/// one the tokenizer splits. Then `q p` and `q -p` are both `q`.
 fn vanishes(query: &Query) -> bool {
     match query {
         Query::Term(term) | Query::InField { term, .. } => {
@@ -197,8 +194,7 @@ fn vanishes(query: &Query) -> bool {
     }
 }
 
-/// Whether every field the query names is in the confirmed schema. Dialect 1
-/// drops a clause on an unknown field instead of failing the query.
+/// Dialect 1 drops a clause on an unknown field instead of failing.
 fn known_fields(query: &Query, key: &Option<Key>) -> bool {
     let Some((_, _, fields)) = key else {
         return false;
@@ -217,37 +213,38 @@ fn known_fields(query: &Query, key: &Option<Key>) -> bool {
     }
 }
 
-/// The settled, exact search replies, each with its period and the schema of
-/// its index at the time, from folding the ops the server accepted.
-fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'a>> {
-    let effects: Vec<Option<Effect>> = trace.steps.iter().map(effect).collect();
+/// Exact `FT.SEARCH` results inside a comparison window, each with the key
+/// of its index as the commands the server accepted left it. KNN results
+/// are approximate and left out.
+fn comparable_results<'a>(program: &'a Program, trace: &'a Trace) -> Vec<SearchResult<'a>> {
+    let effects: Vec<Effect> = trace.steps.iter().map(effect).collect();
     let mut scope = Scope::new(&program.module_args);
-    let mut period = 0;
-    let mut settled = false;
-    let mut seen = Vec::new();
-    for (i, step) in trace.steps.iter().enumerate() {
+    let mut window = 0;
+    let mut open = false;
+    let mut results = Vec::new();
+    for (step, &effect) in trace.steps.iter().zip(&effects) {
         let succeeded = matches!(
             &step.reply,
             Some(Reply::Value(value)) if !matches!(value, Value::Error(_))
         );
-        match effects[i] {
-            None if step.argv[0] == "BARRIER".into() => settled = succeeded,
-            None | Some(Effect::Neutral) => {}
-            Some(Effect::Transparent) => settled = false,
-            Some(Effect::Changing) => {
-                period += 1;
-                settled = false;
+        match effect {
+            Effect::Harness if step.argv[0] == "BARRIER".into() => open = succeeded,
+            Effect::Harness | Effect::KeepsResults => {}
+            Effect::RebuildsIndex => open = false,
+            Effect::ChangesResults => {
+                window += 1;
+                open = false;
             }
         }
         let op = &program.ops[step.op];
-        if succeeded && effects[i].is_some() {
+        if succeeded && effect != Effect::Harness {
             scope.add(op);
         }
-        let quiet = step.received.is_some_and(|received| {
+        let undisturbed = step.received.is_some_and(|received| {
             trace.steps.iter().zip(&effects).all(|(other, effect)| {
                 other.sent <= step.sent
                     || other.sent >= received
-                    || matches!(effect, None | Some(Effect::Neutral))
+                    || matches!(effect, Effect::Harness | Effect::KeepsResults)
             })
         });
         if let OpKind::Query {
@@ -255,13 +252,13 @@ fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'
             query,
             options,
         } = &op.kind
-            && settled
-            && quiet
+            && open
+            && undisturbed
             && !matches!(query, Query::Knn { .. })
-            && let Some((total, keys)) = step.reply.as_ref().and_then(result)
+            && let Some((total, keys)) = step.reply.as_ref().and_then(search_result)
         {
-            seen.push(Observation {
-                period,
+            results.push(SearchResult {
+                window,
                 index,
                 key: scope.key(index),
                 query,
@@ -271,12 +268,10 @@ fn observations<'a>(program: &'a Program, trace: &'a Trace) -> Vec<Observation<'
             });
         }
     }
-    seen
+    results
 }
 
-/// How a step can change what queries return; `None` for the harness's own
-/// barrier and release steps.
-fn effect(step: &Step) -> Option<Effect> {
+fn effect(step: &Step) -> Effect {
     let word = |i: usize| {
         step.argv
             .get(i)
@@ -284,24 +279,21 @@ fn effect(step: &Step) -> Option<Effect> {
             .unwrap_or_default()
     };
     let command = word(0);
-    Some(
-        if step.argv.len() == 1 && (command == "BARRIER" || command == "RELEASE") {
-            return None;
-        } else if NEUTRAL_COMMANDS.contains(&command.as_str())
-            || (command == "_FT.DEBUG" && NEUTRAL_HOOKS.contains(&word(1).as_str()))
-        {
-            Effect::Neutral
-        } else if command == "DEBUG" && word(1) == "RELOAD" {
-            Effect::Transparent
-        } else {
-            Effect::Changing
-        },
-    )
+    if step.argv.len() == 1 && (command == "BARRIER" || command == "RELEASE") {
+        Effect::Harness
+    } else if READ_ONLY_COMMANDS.contains(&command.as_str())
+        || (command == DEBUG && SCHEDULING_HOOKS.contains(&word(1).as_str()))
+    {
+        Effect::KeepsResults
+    } else if command == "DEBUG" && word(1) == "RELOAD" {
+        Effect::RebuildsIndex
+    } else {
+        Effect::ChangesResults
+    }
 }
 
-/// The total and, when the reply lists every match, the keys of an
-/// `FT.SEARCH` reply: `[total, key, fields?, key, fields?, …]`.
-fn result(reply: &Reply) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
+/// `FT.SEARCH` replies `[total, key, fields?, key, fields?, …]`.
+fn search_result(reply: &Reply) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
     let Reply::Value(Value::Array(items)) = reply else {
         return None;
     };
@@ -322,22 +314,17 @@ fn result(reply: &Reply) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coverage::Coverage;
     use crate::lower::lower;
     use crate::program::{DataType, FORMAT_VERSION, Field, FieldKind, Op, argv};
     use crate::run::Exit;
     use crate::target::Status;
 
-    /// The rules' verdicts on a trace in which every op succeeded and each
-    /// query matched the paired number of documents.
-    fn signatures(fail: bool, ops: &[(OpKind, i64)]) -> Vec<String> {
+    /// The findings for a run in which every op succeeded and each query
+    /// matched the paired number of documents.
+    fn signatures(module_args: &[&str], ops: &[(OpKind, i64)]) -> Vec<String> {
         let program = Program {
             version: FORMAT_VERSION,
-            module_args: if fail {
-                argv(&["ON_TIMEOUT", "FAIL"])
-            } else {
-                Vec::new()
-            },
+            module_args: argv(module_args),
             ops: ops
                 .iter()
                 .map(|(kind, _)| Op {
@@ -379,7 +366,7 @@ mod tests {
                 signal: None,
             },
             log: Bytes::default(),
-            coverage: Coverage::default(),
+            coverage: Default::default(),
         };
         check(&program, &trace)
             .into_iter()
@@ -388,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn each_rule_passes_consistent_replies_and_flags_doctored_ones() {
+    fn each_rule_passes_consistent_results_and_flags_inconsistent_ones() {
         let create = |index: &str| OpKind::Create {
             index: index.into(),
             on: DataType::Hash,
@@ -410,10 +397,13 @@ mod tests {
             field: "t".into(),
             term: "world".into(),
         };
+        let setup = |extra: Vec<(OpKind, i64)>| {
+            let mut ops = vec![(create("i"), 0), (create("j"), 0), (OpKind::Barrier, 0)];
+            ops.extend(extra);
+            ops
+        };
         let partition = |rest| {
-            vec![
-                (create("i"), 0),
-                (OpKind::Barrier, 0),
+            setup(vec![
                 (search("i", hello()), 5),
                 (search("i", Query::And(vec![hello(), world()])), 2),
                 (
@@ -423,46 +413,48 @@ mod tests {
                     ),
                     rest,
                 ),
-            ]
+            ])
         };
         let repeated = |between, second| {
-            vec![
-                (create("i"), 0),
-                (OpKind::Barrier, 0),
+            setup(vec![
                 (search("i", hello()), 3),
                 (between, 0),
                 (search("i", hello()), second),
-            ]
+            ])
         };
         let twin = |second| {
-            vec![
-                (create("i"), 0),
-                (create("j"), 0),
-                (OpKind::Barrier, 0),
+            setup(vec![
                 (search("i", hello()), 3),
                 (search("j", hello()), second),
-            ]
+            ])
         };
-        let gc = || command(&["_FT.DEBUG", "GC_FORCEINVOKE", "i"]);
-        let none: [&str; 0] = [];
-        assert_eq!(signatures(true, &partition(3)), none);
-        assert_eq!(signatures(true, &partition(2)), ["logic:partition:term"]);
-        assert_eq!(signatures(true, &repeated(gc(), 3)), none);
-        assert_eq!(
-            signatures(true, &repeated(gc(), 2)),
-            ["logic:equivalence:term"]
-        );
-        assert_eq!(signatures(true, &twin(3)), none);
-        assert_eq!(signatures(true, &twin(2)), ["logic:twin:term"]);
-        for skipped in [
-            signatures(true, &repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
-            signatures(true, &repeated(command(&["DEBUG", "RELOAD"]), 2)),
-            signatures(false, &twin(2)),
-        ] {
-            assert_eq!(
-                skipped, none,
-                "a write, a reload without a barrier, or partial results"
-            );
+        let gc = || command(&[DEBUG, "GC_FORCEINVOKE", "i"]);
+        let fail = ["ON_TIMEOUT", "FAIL"];
+        let cases = [
+            (signatures(&fail, &partition(3)), vec![]),
+            (
+                signatures(&fail, &partition(2)),
+                vec!["logic:partition:term"],
+            ),
+            (signatures(&fail, &repeated(gc(), 3)), vec![]),
+            (
+                signatures(&fail, &repeated(gc(), 2)),
+                vec!["logic:equivalence:term"],
+            ),
+            (signatures(&fail, &twin(3)), vec![]),
+            (signatures(&fail, &twin(2)), vec!["logic:twin:term"]),
+            (
+                signatures(&fail, &repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
+                vec![],
+            ),
+            (
+                signatures(&fail, &repeated(command(&["DEBUG", "RELOAD"]), 2)),
+                vec![],
+            ),
+            (signatures(&[], &twin(2)), vec![]),
+        ];
+        for (i, (found, expected)) in cases.into_iter().enumerate() {
+            assert_eq!(found, expected, "case {i}");
         }
     }
 }

@@ -7,30 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! The commands an op sends.
+
+use rand::RngCore;
+
 use crate::program::{
     Algorithm, Argv, Bound, Bytes, DataType, Field, FieldKind, Metric, OpKind, Query, argv,
 };
-
-/// The values generated programs draw from. Changing them changes what every
-/// `Populate` expands to.
-pub const WORDS: [&str; 14] = [
-    "hello",
-    "world",
-    "hell",
-    "running",
-    "runs",
-    "red",
-    "green",
-    "blue",
-    "the",
-    "a",
-    "x-y",
-    "hello world",
-    "é",
-    "日本語",
-];
-pub const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
-const POPULATE_NUMBERS: u64 = 10_000;
+use crate::vocabulary::Vocabulary;
 
 pub fn lower(op: &OpKind) -> Vec<Argv> {
     match op {
@@ -40,29 +24,22 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             prefix,
             fields,
         } => {
-            let mut command = argv(&["FT.CREATE"]);
-            command.push(index.clone());
-            command.push("ON".into());
-            command.push(
-                match on {
-                    DataType::Hash => "HASH",
-                    DataType::Json => "JSON",
-                }
-                .into(),
-            );
-            command.extend(argv(&["PREFIX", "1"]));
-            command.push(prefix.clone());
-            command.push("SCHEMA".into());
-            fields
-                .iter()
-                .for_each(|field| schema_field(*on, field, &mut command));
+            let data_type = match on {
+                DataType::Hash => "HASH",
+                DataType::Json => "JSON",
+            };
+            let mut command = vec!["FT.CREATE".into(), index.clone()];
+            command.extend(argv(&["ON", data_type, "PREFIX", "1"]));
+            command.extend([prefix.clone(), "SCHEMA".into()]);
+            for field in fields {
+                command.extend(schema_field(*on, field));
+            }
             vec![command]
         }
         OpKind::Alter { index, on, field } => {
-            let mut command = argv(&["FT.ALTER"]);
-            command.push(index.clone());
+            let mut command = vec!["FT.ALTER".into(), index.clone()];
             command.extend(argv(&["SCHEMA", "ADD"]));
-            schema_field(*on, field, &mut command);
+            command.extend(schema_field(*on, field));
             vec![command]
         }
         OpKind::Query {
@@ -85,8 +62,6 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             }
             vec![command]
         }
-        OpKind::Barrier => Vec::new(),
-        OpKind::Command { argv } => vec![argv.clone()],
         OpKind::Populate {
             on,
             prefix,
@@ -94,28 +69,34 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
             n,
             seed,
         } => {
+            let vocabulary = Vocabulary::fixed();
             let mut rng = SplitMix(*seed);
             (0..*n)
                 .map(|i| {
-                    let mut key = prefix.clone();
-                    key.0.extend_from_slice(i.to_string().as_bytes());
                     let values: Vec<(&Field, Bytes)> = fields
                         .iter()
-                        .map(|field| (field, populated(field, &mut rng)))
+                        .map(|field| (field, vocabulary.value(&field.kind, &mut rng)))
                         .collect();
-                    write(*on, key, &values)
+                    write(*on, key(prefix, i), &values)
                 })
                 .collect()
         }
+        OpKind::Barrier => Vec::new(),
+        OpKind::Command { argv } => vec![argv.clone()],
     }
 }
 
-/// SplitMix64: a fixed algorithm, so an expansion never changes with a
-/// dependency. Only raw integer draws are used.
+pub fn key(prefix: &Bytes, i: u32) -> Bytes {
+    let mut key = prefix.clone();
+    key.0.extend_from_slice(i.to_string().as_bytes());
+    key
+}
+
+/// SplitMix64, so a `Populate` expansion never changes with a dependency.
 struct SplitMix(u64);
 
-impl SplitMix {
-    fn next(&mut self) -> u64 {
+impl RngCore for SplitMix {
+    fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -123,69 +104,25 @@ impl SplitMix {
         z ^ (z >> 31)
     }
 
-    fn below(&mut self, n: usize) -> usize {
-        let n = u64::try_from(n).expect("fits");
-        usize::try_from(self.next() % n).expect("below a usize")
+    fn next_u32(&mut self) -> u32 {
+        u32::try_from(self.next_u64() >> 32).expect("32 bits")
     }
 
-    fn word(&mut self) -> &'static str {
-        WORDS[self.below(WORDS.len())]
-    }
-
-    fn words(&mut self, separator: &str, most: usize) -> Bytes {
-        let count = 1 + self.below(most);
-        (0..count)
-            .map(|_| self.word())
-            .collect::<Vec<_>>()
-            .join(separator)
-            .into()
-    }
-}
-
-/// A FLOAT32 blob of `dim` components between -10 and 10, in tenths.
-pub fn vector(dim: u16, mut component: impl FnMut() -> i16) -> Bytes {
-    Bytes(
-        (0..dim)
-            .flat_map(|_| (f32::from(component()) / 10.0).to_le_bytes())
-            .collect(),
-    )
-}
-
-fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
-    match field.kind {
-        FieldKind::Vector { dim, .. } => vector(dim, || {
-            i16::try_from(rng.next() % 201).expect("small") - 100
-        }),
-        FieldKind::Text => rng.words(" ", 3),
-        FieldKind::Tag => rng.words(",", 2),
-        FieldKind::Numeric => match rng.next() % 2 {
-            0 => NUMBERS[rng.below(NUMBERS.len())].to_string().into(),
-            _ => (rng.next() % POPULATE_NUMBERS).to_string().into(),
-        },
-        FieldKind::Geo => {
-            let lon = i64::try_from(rng.next() % 359).expect("small") - 179;
-            let lat = i64::try_from(rng.next() % 169).expect("small") - 84;
-            format!(
-                "{lon}.{:04},{lat}.{:04}",
-                rng.next() % 10_000,
-                rng.next() % 10_000
-            )
-            .into()
+    fn fill_bytes(&mut self, dst: &mut [u8]) {
+        for chunk in dst.chunks_mut(8) {
+            chunk.copy_from_slice(&self.next_u64().to_le_bytes()[..chunk.len()]);
         }
     }
 }
 
-/// A write of `values` to `key`: `HSET`, or `JSON.SET` of an object whose
-/// members are the values as JSON. Text and geo points are strings, tags an
-/// array of strings, numbers stay numbers, and a vector blob becomes an array
-/// of floats.
+/// `HSET`, or `JSON.SET` of an object in which tags are arrays of strings
+/// and vectors arrays of numbers.
 pub fn write(on: DataType, key: Bytes, values: &[(&Field, Bytes)]) -> Argv {
     match on {
         DataType::Hash => {
             let mut command = vec!["HSET".into(), key];
             for (field, value) in values {
-                command.push(field.name.clone());
-                command.push(value.clone());
+                command.extend([field.name.clone(), value.clone()]);
             }
             command
         }
@@ -197,19 +134,16 @@ pub fn write(on: DataType, key: Bytes, values: &[(&Field, Bytes)]) -> Argv {
                     format!("{}:{}", json_string(&name), json_value(&field.kind, value))
                 })
                 .collect();
-            vec![
-                "JSON.SET".into(),
-                key,
-                "$".into(),
-                format!("{{{}}}", members.join(",")).into(),
-            ]
+            let object = format!("{{{}}}", members.join(","));
+            vec!["JSON.SET".into(), key, "$".into(), object.into()]
         }
     }
 }
 
 fn json_value(kind: &FieldKind, value: &Bytes) -> String {
+    let text = String::from_utf8_lossy(value.as_slice());
     match kind {
-        FieldKind::Numeric => String::from_utf8_lossy(value.as_slice()).into_owned(),
+        FieldKind::Numeric => text.into_owned(),
         FieldKind::Vector { .. } => {
             let floats: Vec<String> = value
                 .as_slice()
@@ -219,13 +153,10 @@ fn json_value(kind: &FieldKind, value: &Bytes) -> String {
             format!("[{}]", floats.join(","))
         }
         FieldKind::Tag => {
-            let tags: Vec<String> = String::from_utf8_lossy(value.as_slice())
-                .split(',')
-                .map(json_string)
-                .collect();
+            let tags: Vec<String> = text.split(',').map(json_string).collect();
             format!("[{}]", tags.join(","))
         }
-        FieldKind::Text | FieldKind::Geo => json_string(&String::from_utf8_lossy(value.as_slice())),
+        FieldKind::Text | FieldKind::Geo => json_string(&text),
     }
 }
 
@@ -233,24 +164,24 @@ fn json_string(text: &str) -> String {
     serde_json::to_string(text).expect("strings serialize")
 }
 
-fn schema_field(on: DataType, field: &Field, command: &mut Argv) {
+fn schema_field(on: DataType, field: &Field) -> Argv {
+    let mut out = Vec::new();
     if on == DataType::Json {
         let mut path = Bytes::from("$.");
         path.0.extend_from_slice(field.name.as_slice());
-        command.push(path);
-        command.push("AS".into());
+        out.extend([path, "AS".into()]);
     }
-    command.push(field.name.clone());
-    match &field.kind {
-        FieldKind::Text => command.push("TEXT".into()),
-        FieldKind::Numeric => command.push("NUMERIC".into()),
-        FieldKind::Tag => command.push("TAG".into()),
-        FieldKind::Geo => command.push("GEO".into()),
+    out.push(field.name.clone());
+    out.extend(match &field.kind {
+        FieldKind::Text => argv(&["TEXT"]),
+        FieldKind::Numeric => argv(&["NUMERIC"]),
+        FieldKind::Tag => argv(&["TAG"]),
+        FieldKind::Geo => argv(&["GEO"]),
         FieldKind::Vector {
             algorithm,
             dim,
             metric,
-        } => command.extend(argv(&[
+        } => argv(&[
             "VECTOR",
             match algorithm {
                 Algorithm::Flat => "FLAT",
@@ -267,11 +198,12 @@ fn schema_field(on: DataType, field: &Field, command: &mut Argv) {
                 Metric::Ip => "IP",
                 Metric::Cosine => "COSINE",
             },
-        ])),
-    }
+        ]),
+    });
     if field.sortable {
-        command.push("SORTABLE".into());
+        out.push("SORTABLE".into());
     }
+    out
 }
 
 /// The query text, and the `PARAMS` arguments its vectors need, if any.
@@ -284,8 +216,7 @@ pub fn rendered(query: &Query) -> (Bytes, Argv) {
     }
     let mut params = argv(&["PARAMS", &(2 * vectors.len()).to_string()]);
     for (i, vector) in vectors.into_iter().enumerate() {
-        params.push(format!("v{i}").into());
-        params.push(vector);
+        params.extend([format!("v{i}").into(), vector]);
     }
     (Bytes(text), params)
 }
@@ -319,6 +250,12 @@ fn render(query: &Query, out: &mut Vec<u8>, vectors: &mut Vec<Bytes>) {
         }
         Query::And(children) => group(children, b" ", out, vectors),
         Query::Or(children) => group(children, b" | ", out, vectors),
+        // Dialect 1 parses `-(a) b` as `-(a b)`.
+        Query::Not(child) => {
+            out.extend_from_slice(b"(-(");
+            render(child, out, vectors);
+            out.extend_from_slice(b"))");
+        }
         Query::Knn {
             filter,
             field,
@@ -336,13 +273,6 @@ fn render(query: &Query, out: &mut Vec<u8>, vectors: &mut Vec<Bytes>) {
             escape(field, out);
             out.extend_from_slice(format!(" $v{}]", vectors.len()).as_bytes());
             vectors.push(vector.clone());
-        }
-        // Dialect 1 parses `-(a) b` as `-(a b)`; the outer parentheses
-        // keep the negation to its own operand in every dialect.
-        Query::Not(child) => {
-            out.extend_from_slice(b"(-(");
-            render(child, out, vectors);
-            out.extend_from_slice(b"))");
         }
     }
 }
@@ -397,6 +327,10 @@ mod tests {
         }
     }
 
+    fn words(line: &str) -> Argv {
+        line.split(';').map(Bytes::from).collect()
+    }
+
     #[test]
     fn a_populate_expansion_never_changes() {
         let op = OpKind::Populate {
@@ -411,88 +345,85 @@ mod tests {
             n: 3,
             seed: 7,
         };
-        let words = |line: &str| -> Argv { line.split('|').map(Bytes::from).collect() };
         assert_eq!(
             lower(&op),
             [
-                words("HSET|k:0|t|x-y|n|7|g|日本語|p|-84.7985,27.4425"),
-                words("HSET|k:1|t|the green|n|0|g|red|p|9.1000,3.3743"),
-                words("HSET|k:2|t|running running hello|n|906|g|red,日本語|p|68.5272,35.7618"),
+                words("HSET;k:0;t;x-y;n;7;g;日本語;p;-84.9182,66.4425"),
+                words("HSET;k:1;t;the green;n;0;g;red;p;9.9797,-54.3743"),
+                words("HSET;k:2;t;running running hello;n;906;g;red,日本語;p;68.1820,13.7618"),
             ]
         );
     }
 
     #[test]
-    fn queries_schemas_and_writes_render_to_redisearch_syntax() {
-        let text = |query: Query| {
-            let (text, _) = rendered(&query);
-            String::from_utf8(text.0).unwrap()
-        };
-        assert_eq!(text(Query::Term("a-b c".into())), r"a\-b\ c");
-        assert_eq!(
-            text(Query::And(vec![
+    fn ops_lower_to_redisearch_syntax() {
+        let n = field("n", FieldKind::Numeric);
+        let v = field(
+            "v",
+            FieldKind::Vector {
+                algorithm: Algorithm::Flat,
+                dim: 1,
+                metric: Metric::L2,
+            },
+        );
+        let query = Query::Knn {
+            filter: Box::new(Query::And(vec![
                 Query::Tag {
                     field: "g".into(),
                     values: vec!["red".into(), "a b".into()],
                 },
-                Query::Or(vec![Query::Term("b".into()), Query::Term("c".into())]),
+                Query::Or(vec![Query::Term("a-b".into()), Query::Term("c".into())]),
                 Query::Not(Box::new(Query::Range {
                     field: "n".into(),
                     min: Bound::Exclusive(-3),
                     max: Bound::Unbounded,
                 })),
             ])),
-            r"(@g:{red | a\ b} (b | c) (-(@n:[(-3 +inf])))"
-        );
-        let knn = OpKind::Query {
-            index: "i".into(),
-            query: Query::Knn {
-                filter: Box::new(Query::All),
-                field: "v".into(),
-                k: 3,
-                vector: vector(1, || 10),
-            },
-            options: Default::default(),
+            field: "v".into(),
+            k: 3,
+            vector: Bytes(1.5f32.to_le_bytes().to_vec()),
         };
-        let mut expected = argv(&["FT.SEARCH", "i", "*=>[KNN 3 @v $v0]", "PARAMS", "2", "v0"]);
-        expected.extend([vector(1, || 10), "DIALECT".into(), "2".into()]);
-        assert_eq!(lower(&knn), [expected]);
-
-        let n = field("n", FieldKind::Numeric);
-        let create = OpKind::Create {
-            index: "i".into(),
-            on: DataType::Json,
-            prefix: "j:".into(),
-            fields: vec![n.clone()],
-        };
-        let schema = "FT.CREATE i ON JSON PREFIX 1 j: SCHEMA $.n AS n NUMERIC";
-        assert_eq!(
-            lower(&create),
-            [argv(&schema.split(' ').collect::<Vec<_>>())]
+        let mut search = words(
+            r"FT.SEARCH;i;((@g:{red | a\ b} (a\-b | c) (-(@n:[(-3 +inf]))))=>[KNN 3 @v $v0];PARAMS;2;v0",
         );
-        let (text_field, tag) = (field("t", FieldKind::Text), field("g", FieldKind::Tag));
-        let v = field(
-            "v",
-            FieldKind::Vector {
-                algorithm: Algorithm::Flat,
-                dim: 2,
-                metric: Metric::L2,
-            },
-        );
+        search.extend([
+            Bytes(1.5f32.to_le_bytes().to_vec()),
+            "DIALECT".into(),
+            "2".into(),
+        ]);
+        let ops = [
+            (
+                OpKind::Query {
+                    index: "i".into(),
+                    query,
+                    options: Default::default(),
+                },
+                search,
+            ),
+            (
+                OpKind::Create {
+                    index: "i".into(),
+                    on: DataType::Json,
+                    prefix: "j:".into(),
+                    fields: vec![n.clone(), v.clone()],
+                },
+                words(
+                    "FT.CREATE;i;ON;JSON;PREFIX;1;j:;SCHEMA;$.n;AS;n;NUMERIC;$.v;AS;v;VECTOR;FLAT;6;TYPE;FLOAT32;DIM;1;DISTANCE_METRIC;L2",
+                ),
+            ),
+        ];
+        for (op, expected) in ops {
+            assert_eq!(lower(&op), [expected]);
+        }
+        let tag = field("g", FieldKind::Tag);
         let values = [
-            (&text_field, Bytes::from("say \"hi\"")),
-            (&tag, Bytes::from("red,blue")),
+            (&tag, Bytes::from("red,\"x\"")),
             (&n, Bytes::from("-7")),
-            (&v, vector(2, || 15)),
+            (&v, Bytes(1.5f32.to_le_bytes().to_vec())),
         ];
         assert_eq!(
             write(DataType::Json, "j:1".into(), &values),
-            argv(&[
-                "JSON.SET",
-                "j:1",
-                "$",
-                r#"{"t":"say \"hi\"","g":["red","blue"],"n":-7,"v":[1.5,1.5]}"#
-            ])
+            words(r#"JSON.SET;j:1;$;{"g":["red","\"x\""],"n":-7,"v":[1.5]}"#)
         );
     }
 }

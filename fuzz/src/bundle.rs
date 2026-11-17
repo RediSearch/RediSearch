@@ -81,8 +81,6 @@ pub fn write(
     Ok(dir)
 }
 
-/// The directory name for a signature: the signature with every character a
-/// file name might not allow replaced by `_`.
 pub fn dir_name(signature: &str) -> String {
     signature
         .chars()

@@ -34,18 +34,17 @@ pub struct Finding {
     pub signature: String,
 }
 
-/// Runs `program` on a fresh server and judges the run: the one way every
-/// command executes a program. An error means the server could not start.
+/// Runs `program` on a fresh server. An error means the server did not start.
 pub fn execute(program: &Program, env: &Env) -> Result<(Trace, Vec<Finding>), String> {
     let trace = run(program, env)?;
     let findings = judge(program, &trace);
     Ok((trace, findings))
 }
 
-pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
+fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
     let log = String::from_utf8_lossy(trace.log.as_slice());
-    // Only the first report counts: printing a crash report runs module code
-    // that can trip further assertions.
+    // Printing a crash report runs module code that can trip further
+    // assertions, so only the first report counts.
     let mut findings: Vec<Finding> = log
         .lines()
         .find_map(|line| {
@@ -106,9 +105,9 @@ pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
 }
 
 /// `heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free` becomes
-/// `heap-use-after-free:IndexSpec_Free:spec.c:123`.
-/// Without debug information the location is a binary and an offset, which
-/// change with every build, so only the binary's name is kept.
+/// `heap-use-after-free:IndexSpec_Free:spec.c:123`. Without debug
+/// information the location is a binary and an offset that changes with
+/// every build, so only the binary's name is kept.
 fn sanitizer_summary(summary: &str) -> String {
     let mut words = summary.split_whitespace();
     let bug = words.next().unwrap_or_default();
@@ -130,7 +129,7 @@ fn sanitizer_summary(summary: &str) -> String {
     }
 }
 
-/// The first frame of each leak that is not an allocator.
+/// Names each leak by its first frame outside an allocator.
 fn leaks(log: &str) -> Vec<Finding> {
     log.split("leak of ")
         .skip(1)
@@ -186,8 +185,8 @@ fn crash_frame(log: &str) -> Option<String> {
         .map(|(binary, symbol)| format!("{binary}:{symbol}"))
 }
 
-/// Parses a frame in macOS (`3 redis-server 0x1 call + 12`) or Linux
-/// (`/bin/redis-server *:6379(call+0xc)[0x1]`) backtrace format.
+/// Parses a macOS (`3 redis-server 0x1 call + 12`) or Linux
+/// (`/bin/redis-server *:6379(call+0xc)[0x1]`) backtrace line.
 fn stack_frame(line: &str) -> Option<(&str, &str)> {
     let words: Vec<&str> = line.split_whitespace().collect();
     if let [index, binary, address, symbol, ..] = words.as_slice()

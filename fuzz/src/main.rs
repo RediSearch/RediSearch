@@ -18,12 +18,11 @@ use rand::rngs::SmallRng;
 
 use redisearch_fuzz::bundle;
 use redisearch_fuzz::campaign::{Campaign, fuzz};
-use redisearch_fuzz::edit::size;
 use redisearch_fuzz::generate::generate;
 use redisearch_fuzz::judge::{Finding, execute};
 use redisearch_fuzz::program::Program;
-use redisearch_fuzz::reduce::reduce;
 use redisearch_fuzz::run::Trace;
+use redisearch_fuzz::shrink::{reduce, size};
 use redisearch_fuzz::target::Env;
 
 #[derive(Parser)]
@@ -35,25 +34,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run one program against a fresh server and report its findings.
+    /// Run a program on a fresh server and write a bundle per finding.
     Run {
         program: PathBuf,
-        /// Run the program this many times and report how often each finding
-        /// and each edge recurs.
+        /// Run the program this many times and report how often each
+        /// finding recurs.
         #[arg(long, default_value_t = 1)]
         repeat: u32,
-        /// Directory that receives a bundle per distinct finding.
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
         /// Print every step and its reply.
         #[arg(long)]
         verbose: bool,
     },
-    /// Shrink a failing program while it still yields the same finding, then
-    /// run the result repeatedly and report it like `run`.
+    /// Shrink a program while it still yields a finding, then run the result
+    /// like `run`.
     Reduce {
         program: PathBuf,
-        /// The finding to keep; by default the first one the program yields.
+        /// The finding to keep; by default the program's first.
         #[arg(long)]
         signature: Option<String>,
         #[arg(long, default_value_t = 10)]
@@ -61,12 +59,12 @@ enum Command {
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
     },
-    /// Run a coverage-guided campaign until stopped or for `--duration`.
+    /// Run coverage-guided campaigns until stopped or for `--duration`.
     Fuzz {
         /// Directories of seed programs.
         #[arg(long, default_value = "seeds")]
         seeds: Vec<PathBuf>,
-        /// Directory that keeps the corpus across campaigns.
+        /// Keeps each worker's corpus under `<corpus>/<worker>`.
         #[arg(long, default_value = "corpus")]
         corpus: PathBuf,
         #[arg(long, default_value = "findings")]
@@ -74,12 +72,9 @@ enum Command {
         /// Stop after this many seconds.
         #[arg(long)]
         duration: Option<u64>,
-        /// Worker processes, each an independent campaign with its own
-        /// corpus under `<corpus>/<worker>`; by default one per core.
+        /// Independent campaigns to run at once; by default one per core.
         #[arg(long)]
         jobs: Option<usize>,
-        #[arg(long, hide = true)]
-        worker: Option<usize>,
     },
     /// Print a generated program.
     Generate {
@@ -109,21 +104,8 @@ fn main() -> ExitCode {
             corpus,
             findings,
             duration,
-            jobs: _,
-            worker: Some(worker),
-        } => Env::from_env().and_then(|env| {
-            fuzz(Campaign {
-                worker,
-                env,
-                seeds: &seeds,
-                corpus: &corpus.join(worker.to_string()),
-                findings: &findings,
-                duration: duration.map(Duration::from_secs),
-            })
-            .map(|()| false)
-            .map_err(|e| e.to_string())
-        }),
-        Command::Fuzz { jobs, .. } => spawn_workers(jobs),
+            jobs,
+        } => fuzz_command(&seeds, &corpus, &findings, duration, jobs),
         Command::Generate { seed } => {
             println!("{}", generate(&mut SmallRng::seed_from_u64(seed)).to_json());
             Ok(false)
@@ -139,32 +121,40 @@ fn main() -> ExitCode {
     }
 }
 
-/// Starts the workers with this process's arguments plus `--worker`, and
-/// waits for all of them.
-fn spawn_workers(jobs: Option<usize>) -> Result<bool, String> {
+fn fuzz_command(
+    seeds: &[PathBuf],
+    corpus: &Path,
+    findings: &Path,
+    duration: Option<u64>,
+    jobs: Option<usize>,
+) -> Result<bool, String> {
+    let env = Env::from_env()?;
     let jobs = jobs
         .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
         .unwrap_or(1);
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let workers = (0..jobs)
-        .map(|worker| {
-            std::process::Command::new(&exe)
-                .args(&args)
-                .args(["--worker", &worker.to_string()])
-                .spawn()
-                .map_err(|e| e.to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut failed = false;
-    for mut worker in workers {
-        failed |= !worker.wait().map_err(|e| e.to_string())?.success();
-    }
-    if failed {
-        Err("a worker failed".into())
-    } else {
-        Ok(false)
-    }
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..jobs)
+            .map(|worker| {
+                let env = &env;
+                scope.spawn(move || {
+                    fuzz(Campaign {
+                        worker,
+                        env,
+                        seeds,
+                        corpus: &corpus.join(worker.to_string()),
+                        findings,
+                        duration: duration.map(Duration::from_secs),
+                    })
+                    .map_err(|e| format!("worker {worker}: {e}"))
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("workers do not panic"))
+            .collect::<Result<Vec<()>, String>>()
+    })?;
+    Ok(false)
 }
 
 fn load(path: &Path) -> Result<Program, String> {
@@ -186,7 +176,7 @@ fn reduce_command(
         .into_iter()
         .find(|finding| signature.is_none_or(|s| s == finding.signature))
         .ok_or("the program does not yield that finding")?;
-    println!("reducing {:?} {}", finding.kind, finding.signature);
+    println!("reducing {}", finding.signature);
     let reduced = reduce(program, &finding, &env, |kept| {
         println!("  kept: {} ops, size {}", kept.ops.len(), size(kept));
     });
@@ -201,9 +191,8 @@ fn run_command(
     verbose: bool,
 ) -> Result<bool, String> {
     let env = Env::from_env()?;
-
     let mut found: BTreeMap<Finding, (u32, Trace)> = BTreeMap::new();
-    let mut edges: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut runs_per_edge: BTreeMap<u32, u32> = BTreeMap::new();
     for attempt in 1..=repeat {
         let (trace, findings) = execute(program, &env)?;
         if verbose {
@@ -220,15 +209,21 @@ fn run_command(
             findings.len()
         );
         for &edge in &trace.coverage.edges {
-            *edges.entry(edge).or_default() += 1;
+            *runs_per_edge.entry(edge).or_default() += 1;
         }
         for finding in findings {
             found.entry(finding).or_insert_with(|| (0, trace.clone())).0 += 1;
         }
     }
     if repeat > 1 {
-        let stable = edges.values().filter(|&&runs| runs == repeat).count();
-        println!("edges: {} in any run, {stable} in every run", edges.len());
+        let stable = runs_per_edge
+            .values()
+            .filter(|&&runs| runs == repeat)
+            .count();
+        println!(
+            "edges: {} in any run, {stable} in every run",
+            runs_per_edge.len()
+        );
     }
     for (finding, (reproduced, trace)) in &found {
         let dir = bundle::write(
@@ -241,8 +236,7 @@ fn run_command(
             &env,
         )?;
         println!(
-            "{reproduced}/{repeat} {:?} {} -> {}",
-            finding.kind,
+            "{reproduced}/{repeat} {} -> {}",
             finding.signature,
             dir.display()
         );

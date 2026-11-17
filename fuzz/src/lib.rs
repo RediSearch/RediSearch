@@ -10,14 +10,15 @@
 pub mod bundle;
 pub mod campaign;
 pub mod coverage;
-pub mod edit;
 pub mod generate;
 pub mod judge;
 pub mod logic;
 pub mod lower;
+pub mod mutate;
 pub mod program;
-pub mod reduce;
 pub mod resp;
 pub mod run;
 pub mod scope;
+pub mod shrink;
 pub mod target;
+pub mod vocabulary;

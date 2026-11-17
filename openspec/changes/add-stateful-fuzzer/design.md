@@ -15,18 +15,20 @@ types carry everything between components, and one component performs IO.
 
 | Module | Responsibility |
 |---|---|
-| `program` | The types, the JSON format, and the one visitor over an op's values |
+| `program` | The types, the JSON format, and an op's literals |
+| `vocabulary` | The words and numbers programs are built from, and field values drawn from them |
 | `lower` | An op as the commands it sends: query, schema, and write syntax, `Populate` |
 | `scope` | What a sequence of ops set up: indexes and schemas, worker state, cursors |
-| `generate` | Ops and programs well-typed against a scope, and the value pools |
-| `edit` | One edit set: `mutate` and `smaller`, with the size measure |
+| `generate` | Ops and programs well-typed against a scope |
+| `mutate` | Random edits |
+| `shrink` | The size measure, `smaller`, and `reduce` |
 | `target`, `resp`, `coverage` | Server process, connections, the RESP reader, coverage memory |
 | `run` | The interpreter: `Program` → `Trace` |
 | `judge`, `logic` | `(Program, Trace)` → findings: safety from the log and exit, logic from replies |
-| `reduce`, `bundle`, `campaign` | Consumers of `judge::execute` |
+| `bundle`, `campaign` | Finding directories, and the coverage-guided loop |
 
-`judge::execute(program, env)` runs and judges a program; `run`, `reduce`,
-and `fuzz` all go through it. `scope` serves both the generator, which folds
+`judge::execute(program, env)` runs and judges a program; the `run`,
+`reduce`, and `fuzz` commands all go through it. `scope` serves both the generator, which folds
 every op of a prefix, and the logic rules, which fold only the ops the server
 accepted. Only `campaign` depends on LibAFL.
 
@@ -74,9 +76,10 @@ enum OpKind {
   options name a dialect.
 - **`Populate`** carries its own key prefix and field list, so it does not
   depend on an earlier `Create`. It expands to `n` writes of keys
-  `<prefix>0` to `<prefix>n-1`, with values drawn from the fixed dictionary in
-  `lower` by SplitMix64 seeded with `seed`, using raw integer draws only, so a
-  dependency update cannot change it. A golden test freezes the expansion. The
+  `<prefix>0` to `<prefix>n-1`, with values drawn from the fixed vocabulary by
+  SplitMix64 seeded with `seed`, using raw 64-bit draws only, so a dependency
+  update cannot change it. Generated writes draw their values the same way
+  from the generator's RNG. A golden test freezes the expansion. The
   generator draws `n` up to 513, log-uniformly.
 - **`Var`** holds a server-chosen value, a cursor id. An op with `bind` stores
   the id in its reply (`[results, id]`) in that variable when the reply is
@@ -170,7 +173,7 @@ makes logic rules across it inconclusive and is never a finding.
 
 ## Judge
 
-`judge(&Program, &Trace) -> Verdict { findings, features }` is pure.
+`judge(&Program, &Trace) -> Vec<Finding>` is pure.
 
 **Safety findings**: the server died; a sanitizer report appears anywhere in the
 log (reports from forked children land there); an assertion failed; the exit is
@@ -179,19 +182,19 @@ signature is the sanitizer summary line, the assertion location, or the leading
 module frames of the abort backtrace.
 
 **Logic findings** are rules over `FT.SEARCH` replies already in the trace
-(`logic`). Two replies are compared only inside one *settled period*: it
-starts at a barrier that completed and ends at the next op that can change
-results, and neither query may have had such an op sent while it was in
-flight. Ops are classed by their effect on results:
+(`logic`). Two replies are compared only inside one *comparison window*: it
+opens at a barrier that completed and closes at the next step that can change
+results, and no such step may be sent while either query is in flight. Steps
+are classed by their effect on results:
 
-- **Neutral**: queries, aggregates, cursors, inspection commands (`FT.INFO`,
-  `FT.EXPLAIN`, and the like), and the `FT.DEBUG` GC, worker, and scan-control
-  hooks. They do not end a period, so a forced GC between two queries is
-  checked.
-- **Transparent**: `DEBUG RELOAD`. It must not change results, but leaves the
-  index rebuilding, so the next comparable query needs a barrier after it;
-  the period continues across it.
-- **Changing**: everything else, including every unknown command.
+- **Keeps results**: queries, aggregates, cursors, inspection commands
+  (`FT.INFO`, `FT.EXPLAIN`, and the like), and the `FT.DEBUG` GC, worker, and
+  scan-control hooks. They do not close a window, so a forced GC between two
+  queries is checked.
+- **Rebuilds index**: `DEBUG RELOAD`. It must not change results, but leaves
+  the index rebuilding, so the next comparable query needs a barrier after
+  it; the window stays the same.
+- **Changes results**: everything else, including every unknown command.
 
 The rules:
 
@@ -258,9 +261,9 @@ behaviour, and each false novelty costs a server start.
 `generate` draws each op against the `Scope` of the ops before it: writes and
 queries name existing indexes and use fields of the right type, a `Create`
 takes an unused name, and while workers are paused queries are deferred and a
-resume is likely. Values come from pools: a fixed dictionary plus every word
-and number already in the programs being mutated, so values that reached new
-code are reused.
+resume is likely. Values come from a vocabulary: the fixed words and numbers
+plus every literal already in the programs being mutated, so values that
+reached new code are reused.
 
 One edit set serves both mutation and reduction:
 
@@ -268,21 +271,21 @@ One edit set serves both mutation and reduction:
 |---|---|
 | Delete a range of ops | yes |
 | Replace an op with its lowered `Command` ops (`Lower`) | no |
-| Simplify a leaf (shorter bytes, 0 or 1, fewer fields, smaller `n`) | yes |
+| Simplify a literal (shorter bytes, a smaller number), drop a field, halve `n` | yes |
 | Insert a generated op, typed against `Scope` | no |
 | Splice a range from another program | no |
-| Regenerate one field from the pools | no |
+| Replace one literal from the vocabulary | no |
 | Insert a related-query group | no |
-| Edit `Command` argv tokens: delete, duplicate, swap, replace from a pool | no |
+| Edit `Command` argv tokens: delete, duplicate, swap, replace from the vocabulary | no |
 
-Changing an op's connection or reply mode counts as regenerating a field, and
+Changing an op's connection or reply mode counts as replacing a literal, and
 editing a token's bytes (inserting query syntax, deleting a byte, splicing in a
-pool word) as a token edit. `Lower` does not apply to ops that define or use a
+vocabulary word) as a token edit. `Lower` does not apply to ops that define or use a
 `Var`. `mutate` applies one to three edits, because each run costs a server
 start. `smaller` enumerates the smaller edits, largest first: dropping the
 module arguments, deleting ranges of ops halving in length, removing a schema
-field, hoisting a query node's child, deleting a token, and shortening a word
-or number. Each strictly decreases a size measure, so reduction terminates.
+field, replacing a query node by its child, deleting a token, and shortening
+a word or number. Each strictly decreases a size measure, so reduction terminates.
 
 `reduce` keeps a smaller candidate when `judge(run(candidate))` still contains
 the original finding, resumes at the same position in the new candidate list,
@@ -300,19 +303,16 @@ LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
 
 - `Program` implements `Input` with JSON `to_file` and `from_file`, and
   `HasLen` as the size measure `smaller` decreases.
-- One executor calls `run` then `judge`, sets one byte per edge in a map
-  observer of 2^20 entries (more than the module has guards), and stores the
-  trace and findings in a second observer. Judge features join the map with
-  the logic rules (task 8).
-- Feedback is max-map novelty over that one map.
-- The objective is a finding whose signature has no directory under
-  `findings/` yet: creating the directory claims it, so a known bug is marked
-  by its directory, and of several workers only one reports a finding. The
-  objective writes the bundle itself, so LibAFL's solutions corpus stays in
-  memory.
+- The executor calls `judge::execute` and sets one byte per edge in a map
+  observer of 2^20 entries (more than the module has guards). It also writes
+  each finding whose signature has no directory under `findings/` yet:
+  creating the directory claims it, so a known bug is marked by its
+  directory, and of several workers only one reports a finding.
+- Feedback is max-map novelty over that one map. There is no LibAFL
+  objective; findings never enter a corpus.
 - The scheduler is the length-and-time minimizer over a queue.
 - One mutational stage, at most eight mutations per scheduled program, wraps a
-  mutator that calls `edit::mutate` with a donor drawn from the corpus, seeded
+  mutator that calls `mutate` with a donor drawn from the corpus, seeded
   from LibAFL's state RNG.
 - The corpus is kept on disk as program JSON without metadata files, and is
   reloaded with the seeds when a campaign starts again.
@@ -323,7 +323,7 @@ If this wiring is not running within the budget set in the tasks, it is
 replaced by a hand-written loop of about two hundred lines (a corpus directory,
 a seen-edges table, a weighted pick) behind the same `campaign` interface.
 
-`fuzz --jobs N` (by default one per core) starts N worker processes, each an
+`fuzz --jobs N` (by default one per core) starts N worker threads, each an
 independent campaign with its own corpus under `corpus/<worker>` and a shared
 findings directory; creating a finding's directory claims it. Workers do not
 exchange corpus entries while running: LibAFL imports a program by running

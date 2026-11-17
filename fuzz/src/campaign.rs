@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The coverage-guided loop. LibAFL supplies the corpus, edge novelty, and
-//! scheduling; everything it runs goes through [`run`] and [`judge`].
+//! The coverage-guided loop. LibAFL keeps the corpus of programs that reached
+//! new edges and picks which to mutate next; findings never enter it.
 
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
@@ -18,41 +18,39 @@ use std::time::{Duration, Instant};
 use libafl::corpus::{Corpus, CorpusId, InMemoryCorpus, InMemoryOnDiskCorpus};
 use libafl::events::SimpleEventManager;
 use libafl::executors::{Executor, ExitKind, HasObservers};
-use libafl::feedbacks::{Feedback, MaxMapFeedback, StateInitializer};
+use libafl::feedbacks::MaxMapFeedback;
 use libafl::fuzzer::{Fuzzer, StdFuzzer};
 use libafl::inputs::Input;
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{MutationResult, Mutator};
-use libafl::observers::{CanTrack, ExplicitTracking, Observer, OwnedMapObserver};
+use libafl::observers::{CanTrack, ExplicitTracking, OwnedMapObserver};
 use libafl::schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler};
 use libafl::stages::StdMutationalStage;
 use libafl::state::{HasCorpus, HasExecutions, HasRand, StdState};
 use libafl::{Error, random_corpus_id};
 use libafl_bolts::rands::{Rand, StdRand};
-use libafl_bolts::tuples::{Handle, Handled, MatchName, MatchNameRef, RefIndexable, tuple_list};
+use libafl_bolts::tuples::{RefIndexable, tuple_list, tuple_list_type};
 use libafl_bolts::{HasLen, Named, current_nanos};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use serde::{Deserialize, Serialize};
 
 use crate::bundle;
-use crate::edit::{mutate, size};
-use crate::judge::{Finding, execute};
+use crate::judge::execute;
+use crate::mutate::mutate;
 use crate::program::Program;
-use crate::run::{Exit, Trace};
+use crate::shrink::size;
 use crate::target::Env;
 
-/// Edge ids are guard numbers, fewer than this in the module.
+/// Larger than the number of edges in the module.
 const MAP: usize = 1 << 20;
 const MUTATIONS_PER_PICK: usize = 8;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
 
-/// One worker's campaign. A signature that already has a directory under
-/// `findings` is known and not reported again; workers share `findings`, so a
-/// new finding belongs to the worker that creates its directory first.
+/// Workers share `findings`: the first to create a finding's directory
+/// reports it, and a signature that already has one is not reported again.
 pub struct Campaign<'a> {
     pub worker: usize,
-    pub env: Env,
+    pub env: &'a Env,
     pub seeds: &'a [PathBuf],
     pub corpus: &'a Path,
     pub findings: &'a Path,
@@ -75,33 +73,25 @@ impl HasLen for Program {
     }
 }
 
-type Observers = (
-    ExplicitTracking<OwnedMapObserver<u8>, true, false>,
-    (Verdict, ()),
-);
+type Edges = ExplicitTracking<OwnedMapObserver<u8>, true, false>;
 
 pub fn fuzz(campaign: Campaign<'_>) -> Result<(), Error> {
     let edges = OwnedMapObserver::new("edges", vec![0u8; MAP]).track_indices();
-    let verdict = Verdict::default();
     let mut feedback = MaxMapFeedback::new(&edges);
     std::fs::create_dir_all(campaign.findings)?;
-    let mut objective = NewFinding {
-        verdict: verdict.handle(),
-        findings: campaign.findings.to_owned(),
-        env: campaign.env.clone(),
-    };
     let mut state = StdState::new(
         StdRand::with_seed(current_nanos()),
         InMemoryOnDiskCorpus::with_meta_format(campaign.corpus, None)?,
         InMemoryCorpus::new(),
         &mut feedback,
-        &mut objective,
+        &mut (),
     )?;
     let scheduler = IndexesLenTimeMinimizerScheduler::new(&edges, QueueScheduler::new());
-    let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
-    let mut executor = Target {
+    let mut fuzzer = StdFuzzer::new(scheduler, feedback, ());
+    let mut executor = ServerExecutor {
         env: campaign.env,
-        observers: tuple_list!(edges, verdict),
+        findings: campaign.findings,
+        observers: tuple_list!(edges),
     };
     let worker = campaign.worker;
     let mut last_status = Instant::now();
@@ -112,7 +102,7 @@ pub fn fuzz(campaign: Campaign<'_>) -> Result<(), Error> {
         }
     }));
     let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
-        Edits,
+        ProgramMutator,
         NonZeroUsize::new(MUTATIONS_PER_PICK).expect("non-zero"),
     ));
 
@@ -129,44 +119,25 @@ pub fn fuzz(campaign: Campaign<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// The last run's trace and findings, for [`NewFinding`].
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct Verdict {
-    last: Option<(Trace, Vec<Finding>)>,
+struct ServerExecutor<'a> {
+    env: &'a Env,
+    findings: &'a Path,
+    observers: tuple_list_type!(Edges),
 }
 
-impl Named for Verdict {
-    fn name(&self) -> &Cow<'static, str> {
-        static NAME: Cow<'static, str> = Cow::Borrowed("verdict");
-        &NAME
-    }
-}
+impl HasObservers for ServerExecutor<'_> {
+    type Observers = tuple_list_type!(Edges);
 
-impl<I, S> Observer<I, S> for Verdict {
-    fn pre_exec(&mut self, _state: &mut S, _input: &I) -> Result<(), Error> {
-        self.last = None;
-        Ok(())
-    }
-}
-
-struct Target {
-    env: Env,
-    observers: Observers,
-}
-
-impl HasObservers for Target {
-    type Observers = Observers;
-
-    fn observers(&self) -> RefIndexable<&Observers, Observers> {
+    fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
         RefIndexable::from(&self.observers)
     }
 
-    fn observers_mut(&mut self) -> RefIndexable<&mut Observers, Observers> {
+    fn observers_mut(&mut self) -> RefIndexable<&mut Self::Observers, Self::Observers> {
         RefIndexable::from(&mut self.observers)
     }
 }
 
-impl<EM, S: HasExecutions, Z> Executor<EM, Program, S, Z> for Target {
+impl<EM, S: HasExecutions, Z> Executor<EM, Program, S, Z> for ServerExecutor<'_> {
     fn run_target(
         &mut self,
         _fuzzer: &mut Z,
@@ -175,92 +146,42 @@ impl<EM, S: HasExecutions, Z> Executor<EM, Program, S, Z> for Target {
         program: &Program,
     ) -> Result<ExitKind, Error> {
         *state.executions_mut() += 1;
-        let (trace, findings) = execute(program, &self.env).map_err(Error::unknown)?;
+        let (trace, findings) = execute(program, self.env).map_err(Error::unknown)?;
         let map = self.observers.0.as_mut();
         for &edge in &trace.coverage.edges {
-            if let Ok(edge) = usize::try_from(edge) {
-                map[edge % MAP] = 1;
-            }
+            map[usize::try_from(edge).expect("fits") % MAP] = 1;
         }
-        let exit = match trace.exit {
-            Exit::Clean => ExitKind::Ok,
-            Exit::Died { .. } => ExitKind::Crash,
-            Exit::Hung { .. } => ExitKind::Timeout,
-        };
-        self.observers.1.0.last = Some((trace, findings));
-        Ok(exit)
-    }
-}
-
-/// The objective: a finding whose directory this worker could create.
-struct NewFinding {
-    verdict: Handle<Verdict>,
-    findings: PathBuf,
-    env: Env,
-}
-
-impl Named for NewFinding {
-    fn name(&self) -> &Cow<'static, str> {
-        static NAME: Cow<'static, str> = Cow::Borrowed("new_finding");
-        &NAME
-    }
-}
-
-impl<S> StateInitializer<S> for NewFinding {}
-
-impl<EM, OT: MatchName, S> Feedback<EM, Program, OT, S> for NewFinding {
-    fn is_interesting(
-        &mut self,
-        _state: &mut S,
-        _manager: &mut EM,
-        program: &Program,
-        observers: &OT,
-        _exit: &ExitKind,
-    ) -> Result<bool, Error> {
-        let verdict = observers
-            .get(&self.verdict)
-            .ok_or_else(|| Error::illegal_state("the verdict observer is missing"))?;
-        let Some((trace, findings)) = &verdict.last else {
-            return Ok(false);
-        };
-        let mut new = false;
         for finding in findings {
             let claimed = self.findings.join(bundle::dir_name(&finding.signature));
             if std::fs::create_dir(claimed).is_ok() {
                 let dir = bundle::write(
-                    &self.findings,
+                    self.findings,
                     program,
                     None,
-                    trace,
-                    finding,
+                    &trace,
+                    &finding,
                     (1, 1),
-                    &self.env,
+                    self.env,
                 )
                 .map_err(Error::unknown)?;
-                println!(
-                    "new finding: {:?} {} -> {}",
-                    finding.kind,
-                    finding.signature,
-                    dir.display()
-                );
-                new = true;
+                println!("new finding: {} -> {}", finding.signature, dir.display());
             }
         }
-        Ok(new)
+        Ok(ExitKind::Ok)
     }
 }
 
-/// [`mutate`], with a donor for splicing drawn from the corpus.
-struct Edits;
+/// [`mutate`], splicing from a random corpus entry.
+struct ProgramMutator;
 
-impl Named for Edits {
+impl Named for ProgramMutator {
     fn name(&self) -> &Cow<'static, str> {
-        static NAME: Cow<'static, str> = Cow::Borrowed("edits");
+        static NAME: Cow<'static, str> = Cow::Borrowed("program_mutator");
         &NAME
     }
 }
 
-impl<S: HasRand + HasCorpus<Program>> Mutator<Program, S> for Edits {
+impl<S: HasRand + HasCorpus<Program>> Mutator<Program, S> for ProgramMutator {
     fn mutate(&mut self, state: &mut S, program: &mut Program) -> Result<MutationResult, Error> {
         let mut rng = SmallRng::seed_from_u64(state.rand_mut().next());
         let id = random_corpus_id!(state.corpus(), state.rand_mut());

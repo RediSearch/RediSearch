@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Runs programs against a live server built by `fuzz/setup.sh`. Ignored by
-//! default; run with `source bin/fuzz/env.sh && cargo test -- --ignored`.
+//! Needs the binaries from `fuzz/setup.sh`; run with
+//! `source bin/fuzz/env.sh && cargo test -- --ignored`.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -20,9 +20,9 @@ use redisearch_fuzz::campaign::{Campaign, fuzz};
 use redisearch_fuzz::generate::generate;
 use redisearch_fuzz::judge::{Kind, execute};
 use redisearch_fuzz::program::{Op, OpKind, Program, argv};
-use redisearch_fuzz::reduce::reduce;
 use redisearch_fuzz::resp::Value;
 use redisearch_fuzz::run::{Exit, Trace};
+use redisearch_fuzz::shrink::reduce;
 use redisearch_fuzz::target::{Env, Reply};
 
 const GENERATED: usize = 50;
@@ -183,7 +183,7 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     let dir = tempfile::tempdir().unwrap();
     fuzz(Campaign {
         worker: 0,
-        env: planted(),
+        env: &planted(),
         seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
         corpus: &dir.path().join("corpus"),
         findings: &dir.path().join("findings"),

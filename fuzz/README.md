@@ -161,8 +161,8 @@ how many edges were reached in every run versus in any run.
 Each distinct finding is written to `findings/<signature>/`: the program, the
 trace, the server log, and a manifest with the binaries, sanitizer settings,
 and reproduction rate. The exit code is 0 without findings, 1 with findings,
-and 2 on an error such as a server that fails to start. `fuzz` runs a coverage-guided campaign in one worker process per core
-(`--jobs N` to change), each from the programs in `seeds/` and its own corpus
+and 2 on an error such as a server that fails to start. `fuzz` runs a
+coverage-guided campaign in one worker thread per core (`--jobs N` to change), each from the programs in `seeds/` and its own corpus
 kept in `corpus/<worker>/`, writing each finding whose signature is new to
 `findings/`. A signature that already has a directory there is not reported
 again, so creating an empty directory marks a known bug.

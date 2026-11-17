@@ -15,16 +15,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::coverage::Coverage;
 use crate::lower::lower;
-use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode, Var, argv};
+use crate::program::{Argv, Bytes, Conn, DEBUG, Op, OpKind, Program, ReplyMode, Var, argv};
 use crate::resp::Value;
 use crate::target::{Connection, Env, Reply, Server, Status};
 
-const SETTLE: Duration = Duration::from_secs(2);
+/// How long a reply may take before the harness lifts the pauses and hooks
+/// the program set, which may be what holds it back.
+const RELEASE_AFTER: Duration = Duration::from_secs(2);
 const REPLY_DEADLINE: Duration = Duration::from_secs(10);
-const GRACE: Duration = Duration::from_secs(5);
+const HARNESS_DEADLINE: Duration = Duration::from_secs(5);
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(20);
-const DEBUG: &str = "_FT.DEBUG";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Trace {
@@ -35,9 +36,9 @@ pub struct Trace {
     pub coverage: Coverage,
 }
 
-/// One command, or one barrier. `sent` and `received` are positions on a
-/// single clock, so a deferred reply shows which steps ran while it was
-/// pending. `reply` is `None` when the reply was never read.
+/// A command the program sent, or a `BARRIER` or `RELEASE` the harness ran.
+/// `sent` and `received` are ticks of one clock, so the steps between them
+/// ran while the reply was pending. `reply` is `None` if it was never read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub op: usize,
@@ -57,35 +58,33 @@ pub enum Exit {
 }
 
 pub fn run(program: &Program, env: &Env) -> Result<Trace, String> {
-    let mut it = Interpreter {
+    let mut interpreter = Interpreter {
         server: Server::spawn(env, &program.module_args)?,
         conns: BTreeMap::new(),
         pending: BTreeMap::new(),
         vars: BTreeMap::new(),
-        control: None,
+        harness: None,
         steps: Vec::new(),
         clock: 0,
     };
     let end = program.ops.len();
-    let mut exit = program
+    let exit = program
         .ops
         .iter()
         .enumerate()
-        .find_map(|(at, op)| it.exec(at, op));
-    if !matches!(exit, Some(Exit::Died { .. } | Exit::Hung { .. })) {
-        exit = it.finish(end).or(exit);
-    }
+        .find_map(|(at, op)| interpreter.exec(at, op))
+        .or_else(|| interpreter.finish(end));
     if matches!(exit, Some(Exit::Hung { .. })) {
-        it.server.abort();
+        interpreter.server.abort();
     }
-    let reaped = it.server.reap();
+    let reaped = interpreter.server.reap();
     let exit = exit.unwrap_or(if reaped.status.code == Some(0) {
         Exit::Clean
     } else {
         Exit::Died { at_op: end }
     });
     Ok(Trace {
-        steps: it.steps,
+        steps: interpreter.steps,
         exit,
         status: reaped.status,
         log: Bytes(reaped.log),
@@ -100,34 +99,33 @@ struct Interpreter {
     /// reply binds.
     pending: BTreeMap<Conn, VecDeque<(usize, Option<Var>)>>,
     vars: BTreeMap<Var, i64>,
-    control: Option<Connection>,
+    /// The harness's own connection, outside the program's steps.
+    harness: Option<Connection>,
     steps: Vec<Step>,
     clock: u32,
 }
 
+/// Each method returns `Some` when the program cannot go on.
 impl Interpreter {
     fn exec(&mut self, at: usize, op: &Op) -> Option<Exit> {
         if op.kind == OpKind::Barrier {
             return self.barrier(at);
         }
-        if let Some(exit) = self.drain(op.conn, at) {
-            return Some(exit);
-        }
         lower(&op.kind).into_iter().find_map(|command| {
             let command = command
                 .into_iter()
-                .map(|token| self.resolve(token))
+                .map(|token| self.substitute(token))
                 .collect();
-            self.drain(op.conn, at)
+            self.read_replies(op.conn, at)
                 .or_else(|| self.send(op.conn, at, command, op.bind))
                 .or_else(|| match op.reply {
-                    ReplyMode::Await => self.drain(op.conn, at),
+                    ReplyMode::Await => self.read_replies(op.conn, at),
                     ReplyMode::Defer => None,
                 })
         })
     }
 
-    fn send(&mut self, conn: Conn, at: usize, command: Argv, binds: Option<Var>) -> Option<Exit> {
+    fn send(&mut self, conn: Conn, at: usize, command: Argv, bind: Option<Var>) -> Option<Exit> {
         let sent = self.tick();
         let result = match self.conns.get_mut(&conn) {
             Some(connection) => connection.send(&command),
@@ -151,38 +149,38 @@ impl Interpreter {
                 self.pending
                     .entry(conn)
                     .or_default()
-                    .push_back((step, binds));
+                    .push_back((step, bind));
                 None
             }
-            Err(e) => self.dropped(conn, step, Reply::Closed(e), at),
+            Err(e) => self.forget_connection(conn, step, Reply::Closed(e), at),
         }
     }
 
-    /// Reads every pending reply on `conn`. A reply that does not arrive in
-    /// time gets one more chance after the harness releases the scheduling
-    /// controls the program holds, and the program then carries on.
-    fn drain(&mut self, conn: Conn, at: usize) -> Option<Exit> {
-        while let Some((step, binds)) = self.pending.get_mut(&conn).and_then(VecDeque::pop_front) {
-            let mut reply = self.read(conn, SETTLE);
+    /// A reply that does not arrive within [`RELEASE_AFTER`] gets
+    /// [`REPLY_DEADLINE`] more after a release; one that still does not
+    /// arrive is a hang.
+    fn read_replies(&mut self, conn: Conn, at: usize) -> Option<Exit> {
+        while let Some((step, bind)) = self.pending.get_mut(&conn).and_then(VecDeque::pop_front) {
+            let mut reply = self.receive(conn, RELEASE_AFTER);
             if reply == Reply::Timeout {
                 let sent = self.tick();
                 let released = self.release().is_some();
-                self.marker(at, "RELEASE", sent, released);
-                reply = self.read(conn, REPLY_DEADLINE);
+                self.record_harness_step(at, "RELEASE", sent, released);
+                reply = self.receive(conn, REPLY_DEADLINE);
             }
             match reply {
                 Reply::Value(ref value) => {
-                    if let (Some(var), Some(id)) = (binds, cursor_id(value)) {
+                    if let (Some(var), Some(id)) = (bind, cursor_id(value)) {
                         self.vars.insert(var, id);
                     }
-                    self.record(step, reply);
+                    self.record_reply(step, reply);
                 }
                 Reply::Timeout => {
-                    self.record(step, reply);
+                    self.record_reply(step, reply);
                     return Some(Exit::Hung { at_op: at });
                 }
                 Reply::Closed(_) | Reply::Invalid(_) => {
-                    if let Some(exit) = self.dropped(conn, step, reply, at) {
+                    if let Some(exit) = self.forget_connection(conn, step, reply, at) {
                         return Some(exit);
                     }
                 }
@@ -191,58 +189,68 @@ impl Interpreter {
         None
     }
 
-    fn drain_all(&mut self, at: usize) -> Option<Exit> {
+    fn read_all_replies(&mut self, at: usize) -> Option<Exit> {
         let conns: Vec<Conn> = self.pending.keys().copied().collect();
-        conns.into_iter().find_map(|conn| self.drain(conn, at))
+        conns
+            .into_iter()
+            .find_map(|conn| self.read_replies(conn, at))
     }
 
-    fn read(&mut self, conn: Conn, deadline: Duration) -> Reply {
+    fn receive(&mut self, conn: Conn, deadline: Duration) -> Reply {
         self.conns
             .get_mut(&conn)
             .expect("a connection with pending replies is open")
             .recv(deadline)
     }
 
-    fn record(&mut self, step: usize, reply: Reply) {
+    fn record_reply(&mut self, step: usize, reply: Reply) {
         let received = self.tick();
         self.steps[step].received = Some(received);
         self.steps[step].reply = Some(reply);
     }
 
-    /// Records why `conn` stopped working and forgets it; its next use opens a
-    /// new one. The program ends here only if the server is exiting.
-    fn dropped(&mut self, conn: Conn, step: usize, reply: Reply, at: usize) -> Option<Exit> {
-        self.record(step, reply);
+    /// The connection's next use opens a new one. The program ends here only
+    /// if the server is exiting.
+    fn forget_connection(
+        &mut self,
+        conn: Conn,
+        step: usize,
+        reply: Reply,
+        at: usize,
+    ) -> Option<Exit> {
+        self.record_reply(step, reply);
         self.conns.remove(&conn);
         self.pending.remove(&conn);
         self.server
-            .wait_exit(GRACE)
+            .wait_exit(HARNESS_DEADLINE)
             .map(|_| Exit::Died { at_op: at })
     }
 
+    /// Reads every pending reply, then waits up to [`RELEASE_AFTER`] for the
+    /// server to be idle. A barrier that times out is recorded, not a finding:
+    /// the program may have paused what it waits for.
     fn barrier(&mut self, at: usize) -> Option<Exit> {
-        if let Some(exit) = self.drain_all(at) {
+        if let Some(exit) = self.read_all_replies(at) {
             return Some(exit);
         }
         let sent = self.tick();
-        let deadline = Instant::now() + SETTLE;
-        let quiet = loop {
-            match self.quiescent() {
+        let deadline = Instant::now() + RELEASE_AFTER;
+        let idle = loop {
+            match self.is_idle() {
                 Some(true) => break true,
                 Some(false) if Instant::now() < deadline => sleep(POLL),
                 _ => break false,
             }
         };
-        if quiet {
-            self.control(argv(&[DEBUG, "GC_WAIT_FOR_JOBS"]));
+        if idle {
+            self.harness_call(argv(&[DEBUG, "GC_WAIT_FOR_JOBS"]));
         }
-        self.marker(at, "BARRIER", sent, quiet);
+        self.record_harness_step(at, "BARRIER", sent, idle);
         self.server.exited().map(|_| Exit::Died { at_op: at })
     }
 
-    /// Records an action of the harness itself as a step: `OK` if it
-    /// completed, `Timeout` if it did not.
-    fn marker(&mut self, at: usize, name: &str, sent: u32, completed: bool) {
+    /// Records `OK` if the harness action completed, `Timeout` if not.
+    fn record_harness_step(&mut self, at: usize, name: &str, sent: u32, completed: bool) {
         let received = self.tick();
         self.steps.push(Step {
             op: at,
@@ -258,15 +266,14 @@ impl Interpreter {
         });
     }
 
-    fn quiescent(&mut self) -> Option<bool> {
+    fn is_idle(&mut self) -> Option<bool> {
         for name in self.indexes()? {
-            let mut info = argv(&["FT.INFO"]);
-            info.push(name);
-            if field(&self.control(info)?, "indexing") != Some(0) {
+            let info = vec!["FT.INFO".into(), name];
+            if field(&self.harness_call(info)?, "indexing") != Some(0) {
                 return Some(false);
             }
         }
-        let stats = self.control(argv(&[DEBUG, "WORKERS", "STATS"]))?;
+        let stats = self.harness_call(argv(&[DEBUG, "WORKERS", "STATS"]))?;
         Some(
             ["totalPendingJobs", "numJobsInProgress"]
                 .iter()
@@ -274,15 +281,13 @@ impl Interpreter {
         )
     }
 
-    /// Ends a program that ran to completion: releases held controls, reads
-    /// the replies still pending, and shuts the server down.
     fn finish(&mut self, end: usize) -> Option<Exit> {
         self.release();
-        if let Some(exit @ (Exit::Died { .. } | Exit::Hung { .. })) = self.drain_all(end) {
+        if let Some(exit) = self.read_all_replies(end) {
             return Some(exit);
         }
-        if let Some(control) = self.control.as_mut() {
-            let _ = control.send(&argv(&["SHUTDOWN", "NOSAVE"]));
+        if let Some(harness) = self.harness.as_mut() {
+            let _ = harness.send(&argv(&["SHUTDOWN", "NOSAVE"]));
         }
         match self.server.wait_exit(SHUTDOWN_DEADLINE) {
             Some(_) => None,
@@ -290,9 +295,9 @@ impl Interpreter {
         }
     }
 
-    /// Undoes every scheduling control a program can hold. Stops at the first
-    /// command the server does not answer: its main thread is blocked, and the
-    /// rest would time out too.
+    /// Lifts every pause and hook a program can set. Stops at the first
+    /// command the server does not answer: its main thread is blocked, so
+    /// the rest would time out too.
     fn release(&mut self) -> Option<()> {
         for command in [
             &[DEBUG, "WORKERS", "RESUME"][..],
@@ -305,46 +310,43 @@ impl Interpreter {
             &[DEBUG, "BG_SCAN_CONTROLLER", "SET_BG_INDEX_RESUME"],
             &[DEBUG, "SYNC_POINT", "CLEAR"],
         ] {
-            self.control(argv(command))?;
+            self.harness_call(argv(command))?;
         }
         for name in self.indexes()? {
             let mut command = argv(&[DEBUG, "GC_CONTINUE_SCHEDULE"]);
             command.push(name);
-            self.control(command)?;
+            self.harness_call(command)?;
         }
         Some(())
     }
 
     fn indexes(&mut self) -> Option<Vec<Bytes>> {
-        match self.control(argv(&["FT._LIST"]))? {
-            Value::Array(names) => Some(
-                names
-                    .into_iter()
-                    .filter_map(|name| match name {
-                        Value::Bulk(name) | Value::Simple(name) => Some(name),
-                        _ => None,
-                    })
-                    .collect(),
-            ),
-            _ => None,
-        }
+        let Value::Array(names) = self.harness_call(argv(&["FT._LIST"]))? else {
+            return None;
+        };
+        Some(
+            names
+                .into_iter()
+                .filter_map(|name| match name {
+                    Value::Bulk(name) | Value::Simple(name) => Some(name),
+                    _ => None,
+                })
+                .collect(),
+        )
     }
 
-    /// Sends a harness command on a connection of its own, outside the
-    /// program's steps.
-    fn control(&mut self, command: Argv) -> Option<Value> {
-        if self.control.is_none() {
-            self.control = self.server.connect().ok();
+    fn harness_call(&mut self, command: Argv) -> Option<Value> {
+        if self.harness.is_none() {
+            self.harness = self.server.connect().ok();
         }
-        let reply = self.control.as_mut()?.call(&command, GRACE);
+        let reply = self.harness.as_mut()?.call(&command, HARNESS_DEADLINE);
         if reply.is_err() {
-            self.control = None;
+            self.harness = None;
         }
         reply.ok()
     }
 
-    /// A `$<n>` token becomes the value bound to variable `n`, or 0.
-    fn resolve(&self, token: Bytes) -> Bytes {
+    fn substitute(&self, token: Bytes) -> Bytes {
         let var = std::str::from_utf8(token.as_slice())
             .ok()
             .and_then(|t| t.strip_prefix('$')?.parse().ok())
@@ -361,8 +363,7 @@ impl Interpreter {
     }
 }
 
-/// The cursor id in a reply to `FT.AGGREGATE … WITHCURSOR` or
-/// `FT.CURSOR READ`: `[results, id]`.
+/// `FT.AGGREGATE … WITHCURSOR` and `FT.CURSOR READ` reply `[results, id]`.
 fn cursor_id(reply: &Value) -> Option<i64> {
     match reply {
         Value::Array(items) => match items.as_slice() {
@@ -373,6 +374,7 @@ fn cursor_id(reply: &Value) -> Option<i64> {
     }
 }
 
+/// An integer in a flat `[name, value, …]` reply.
 fn field(reply: &Value, name: &str) -> Option<i64> {
     let Value::Array(items) = reply else {
         return None;

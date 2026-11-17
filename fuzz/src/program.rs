@@ -12,6 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub const FORMAT_VERSION: u32 = 1;
+pub const DEBUG: &str = "_FT.DEBUG";
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Bytes(pub Vec<u8>);
@@ -43,6 +44,7 @@ impl fmt::Debug for Bytes {
     }
 }
 
+/// Text when the bytes are UTF-8, `{"hex": …}` otherwise.
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum BytesRepr {
@@ -103,9 +105,9 @@ pub struct Program {
 )]
 pub struct Conn(pub u8);
 
-/// A slot for a value the server chooses, such as a cursor id. An op's `bind`
-/// stores the id in its reply there, and a command token `$<n>` reads slot
-/// `n` (0 while it is unset).
+/// Holds a value only the server knows, such as a cursor id. An op with
+/// `bind` stores the id from its reply in the variable, and a command token
+/// `$<n>` is replaced by variable `n` (0 while unset).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
@@ -122,6 +124,7 @@ impl Var {
 pub enum ReplyMode {
     #[default]
     Await,
+    /// Read the reply only when the connection is next used.
     Defer,
 }
 
@@ -141,7 +144,6 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
     *value == T::default()
 }
 
-/// The ops the fuzzer reasons about are typed; everything else is a `Command`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OpKind {
@@ -164,8 +166,8 @@ pub enum OpKind {
         #[serde(default)]
         options: QueryOptions,
     },
-    /// `n` writes under `prefix`, with values for `fields` drawn from the
-    /// fixed dictionary by a PRNG seeded with `seed`.
+    /// Writes keys `<prefix>0` to `<prefix><n-1>`, with values chosen by a
+    /// generator seeded with `seed`.
     Populate {
         #[serde(default, skip_serializing_if = "is_default")]
         on: DataType,
@@ -174,13 +176,13 @@ pub enum OpKind {
         n: u32,
         seed: u64,
     },
+    /// Waits until indexing and background jobs are done.
     Barrier,
     Command {
         argv: Argv,
     },
 }
 
-/// What an index covers: hashes, or JSON documents (with RedisJSON).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
 )]
@@ -207,7 +209,6 @@ pub enum FieldKind {
     Numeric,
     Tag,
     Geo,
-    /// FLOAT32 vectors of `dim` components.
     Vector {
         algorithm: Algorithm,
         dim: u16,
@@ -251,12 +252,12 @@ pub enum Query {
     And(Vec<Query>),
     Or(Vec<Query>),
     Not(Box<Query>),
-    /// The `k` nearest neighbours of `vector`, a FLOAT32 blob, among the
-    /// documents matching `filter`. Valid only as the whole query.
+    /// Valid only as the whole query.
     Knn {
         filter: Box<Query>,
         field: Bytes,
         k: u32,
+        /// FLOAT32 components, little-endian.
         vector: Bytes,
     },
 }
@@ -280,44 +281,45 @@ pub struct QueryOptions {
     pub dialect: Option<u8>,
 }
 
-/// A value inside an op that edits may replace or shrink.
-pub enum Leaf<'a> {
+/// A value inside an op that mutation may replace and shrinking may shorten:
+/// a query term, tag value, or range bound, or a command token.
+pub enum Literal<'a> {
     Word(&'a mut Bytes),
-    Int(&'a mut i64),
+    Number(&'a mut i64),
 }
 
 impl OpKind {
-    /// Calls `f` on every query term, tag value, range bound, and command
-    /// token, in a fixed order.
-    pub fn leaves(&mut self, f: &mut dyn FnMut(Leaf<'_>)) {
+    pub fn literals(&mut self) -> Vec<Literal<'_>> {
+        let mut out = Vec::new();
         match self {
-            OpKind::Query { query, .. } => query.leaves(f),
-            OpKind::Command { argv } => argv.iter_mut().for_each(|token| f(Leaf::Word(token))),
+            OpKind::Query { query, .. } => query.collect_literals(&mut out),
+            OpKind::Command { argv } => out.extend(argv.iter_mut().map(Literal::Word)),
             OpKind::Create { .. }
             | OpKind::Alter { .. }
             | OpKind::Populate { .. }
             | OpKind::Barrier => {}
         }
+        out
     }
 }
 
 impl Query {
-    fn leaves(&mut self, f: &mut dyn FnMut(Leaf<'_>)) {
+    fn collect_literals<'a>(&'a mut self, out: &mut Vec<Literal<'a>>) {
         match self {
             Query::All => {}
-            Query::Term(term) | Query::InField { term, .. } => f(Leaf::Word(term)),
-            Query::Tag { values, .. } => values.iter_mut().for_each(|v| f(Leaf::Word(v))),
+            Query::Term(term) | Query::InField { term, .. } => out.push(Literal::Word(term)),
+            Query::Tag { values, .. } => out.extend(values.iter_mut().map(Literal::Word)),
             Query::Range { min, max, .. } => {
                 for bound in [min, max] {
                     if let Bound::Inclusive(n) | Bound::Exclusive(n) = bound {
-                        f(Leaf::Int(n));
+                        out.push(Literal::Number(n));
                     }
                 }
             }
-            Query::And(children) | Query::Or(children) => {
-                children.iter_mut().for_each(|child| child.leaves(f))
-            }
-            Query::Not(child) | Query::Knn { filter: child, .. } => child.leaves(f),
+            Query::And(children) | Query::Or(children) => children
+                .iter_mut()
+                .for_each(|child| child.collect_literals(out)),
+            Query::Not(child) | Query::Knn { filter: child, .. } => child.collect_literals(out),
         }
     }
 }

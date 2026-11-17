@@ -7,14 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! What a sequence of ops has set up. The generator folds every op of a
-//! prefix; the logic rules fold only the ops the server accepted.
+//! What a sequence of ops has set up on the server.
 
 use std::collections::BTreeMap;
 
-use crate::program::{Bytes, DataType, Field, FieldKind, Op, OpKind, Var};
-
-const DEBUG: &str = "_FT.DEBUG";
+use crate::program::{Bytes, DEBUG, DataType, Field, FieldKind, Op, OpKind, Var};
 
 #[derive(Clone, Debug, Default)]
 pub struct Scope {
@@ -32,9 +29,9 @@ pub struct Schema {
     pub fields: Vec<Field>,
 }
 
-/// What decides which documents an index holds and how a query over it
-/// reads: its data type, prefix, and fields, in any order and regardless of
-/// `SORTABLE`. Two indexes with equal keys are twins.
+/// What decides which documents an index holds and how queries over it
+/// read; `SORTABLE` and field order do not. Indexes with equal keys are
+/// twins and must answer every query alike.
 pub type Key = (DataType, Bytes, Vec<(Bytes, FieldKind)>);
 
 impl Scope {
@@ -47,14 +44,12 @@ impl Scope {
         }
     }
 
-    pub fn of(module_args: &[Bytes], ops: &[Op]) -> Scope {
+    pub fn after(module_args: &[Bytes], ops: &[Op]) -> Scope {
         let mut scope = Scope::new(module_args);
         ops.iter().for_each(|op| scope.add(op));
         scope
     }
 
-    /// Folds in `op`. A `Create` of a name that exists fails on the server, so
-    /// it changes nothing here either.
     pub fn add(&mut self, op: &Op) {
         match &op.kind {
             OpKind::Create {
@@ -112,11 +107,10 @@ impl Scope {
         Some((schema.on, schema.prefix.clone(), fields))
     }
 
-    /// Another index with the same [`Key`].
     pub fn twin(&self, index: &Bytes) -> Option<&Bytes> {
-        let wanted = self.key(index)?;
+        let key = self.key(index)?;
         self.indexes
             .keys()
-            .find(|name| *name != index && self.key(name).as_ref() == Some(&wanted))
+            .find(|name| *name != index && self.key(name).as_ref() == Some(&key))
     }
 }
