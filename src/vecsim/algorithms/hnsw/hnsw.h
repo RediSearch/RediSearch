@@ -33,6 +33,7 @@
 
 #include <deque>
 #include <memory>
+#include <functional>
 #include <cassert>
 #include <climits>
 #include <queue>
@@ -159,11 +160,17 @@ protected:
     mutable std::shared_mutex indexDataGuard;
 
 #ifdef BUILD_TESTS
+    // Runs after a graph pointer is saved, before its node links lock is acquired.
+    std::function<void(idType)> afterCandidateGraphDataRead;
 #include "vecsim/algorithms/hnsw/hnsw_base_tests_friends.h"
 
 #include "hnsw_serializer_declarations.h"
 
 public:
+    void setAfterCandidateGraphDataReadHook(std::function<void(idType)> hook) {
+        afterCandidateGraphDataRead = std::move(hook);
+    }
+
     // Serialization-only fields for V5 format (SQ8 support)
     VecSimQuantType quantType = VecSimQuant_NONE;
     std::vector<float> serializedMeanVector; // Mean vector for SQ8 indices (empty if not SQ8)
@@ -333,8 +340,9 @@ public:
     // new element instead of appending one - the counterpart of `swapDeletedElement` that keeps
     // the slot - takes two steps:
     // 1. `clearDeletedSlot` frees the element's graph data and leaves an empty one (level 0, no
-    //    links) in its place. No graph scan may be in flight, as one may still hold a stale link to
-    //    it. The slot stays marked deleted, and is safe to be moved by a swap like any other.
+    //    links) in its place. The caller must detach the node and wait for every reader that may
+    //    hold a stale ID or graph pointer. Other graph scans may continue. The slot stays marked
+    //    deleted, and is safe to be moved by a swap like any other.
     // 2. `storeNewElementInClearedSlot` then stores the new element there, like `storeNewElement`
     //    appends one - with the index data guard held exclusively, and graph scans allowed. Unlike
     //    an in-place overwrite, the label no longer maps to this id (it was dropped when marked
@@ -718,6 +726,11 @@ void HNSWIndex<DataType, DistType>::processCandidate(
     candidatesMaxHeap<DistType> &candidate_set, DistType &lowerBound) const {
 
     ElementGraphData *cur_element = getGraphDataByInternalId(curNodeId);
+#ifdef BUILD_TESTS
+    if (afterCandidateGraphDataRead) {
+        afterCandidateGraphDataRead(curNodeId);
+    }
+#endif
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
     linkListSize num_links = node_level.getNumLinks();
@@ -802,6 +815,11 @@ void HNSWIndex<DataType, DistType>::processCandidate_RangeSearch(
     candidatesMaxHeap<DistType> &candidate_set, DistType dyn_range, DistType radius) const {
 
     auto *cur_element = getGraphDataByInternalId(curNodeId);
+#ifdef BUILD_TESTS
+    if (afterCandidateGraphDataRead) {
+        afterCandidateGraphDataRead(curNodeId);
+    }
+#endif
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
     linkListSize num_links = node_level.getNumLinks();
@@ -2038,9 +2056,8 @@ void HNSWIndex<DataType, DistType>::repairConnectionsAndEntryPoint(
 template <typename DataType, typename DistType>
 void HNSWIndex<DataType, DistType>::clearDeletedSlot(idType deletedId) {
     assert(isMarkedDeleted(deletedId) && "Only a marked-deleted element's slot may be reclaimed");
-    // Normally a no-op, since the last repair of a deleted element isolates it. Not when its
-    // repairs were invalidated instead of run (their node was disposed), which leaves its edges
-    // for whoever disposes of it - us, here.
+    // Deletion finalization isolates the element before releasing its graph data, including when
+    // its repairs were completed by invalidation because their node was disposed.
     isolateDeletedElement(deletedId);
     disposeElementData(deletedId);
     // Leave a valid, empty element rather than freed memory: the slot may still be read (or moved

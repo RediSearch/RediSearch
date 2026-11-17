@@ -702,10 +702,10 @@ TEST(CommonAPITest, testlogTieredIndex) {
         << "failed at log index:" << log_iter - 1 << std::endl
         << "expected log: " << buffer_as_string();
 
-    // defrag() summarizes the run at debug level. The elapsed time varies, so only the fixed part
+    // compact() summarizes the run at debug level. The elapsed time varies, so only the fixed part
     // of the message is compared.
     const std::string defrag_summary =
-        "debug: " + log.prefix + "Tiered HNSW index defrag: executed 1 swap jobs in ";
+        "debug: " + log.prefix + "Tiered HNSW index compact: executed 1 swap jobs in ";
     ASSERT_EQ(log.logBuffer[log_iter].rfind(defrag_summary, 0), 0)
         << "failed at log index:" << log_iter << std::endl
         << "expected log: " << buffer_as_string();
