@@ -14,7 +14,7 @@ use redis_module::RedisModuleString;
 use std::ffi::{c_char, c_double};
 use std::ops::Deref;
 use value::util::str_to_float;
-use value::{RedisString, SharedValue, String, Trio, Value};
+use value::{ElementNumbers, RedisString, SharedValue, String, Trio, Value};
 
 /// Creates and returns a new [`RSValue`] of type [`Value::Undefined`].
 ///
@@ -82,6 +82,47 @@ pub unsafe extern "C" fn RSValue_NewTrio(
     )));
 
     into_rs_value(shared)
+}
+
+/// Creates and returns the [`RSValue`] that a NUMERIC member of a NESTED group stores for one
+/// document: what [`ElementNumbers::store`] builds from the same arguments.
+///
+/// Takes ownership of `shown`.
+///
+/// The returned [`RSValue`] is heap-allocated. The caller must ensure it is eventually
+/// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
+/// transferred through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `elements` and `numbers` must each be [valid] for reads of `len` items, and `len`
+///    must not be zero.
+/// 2. Every item of `elements` must be below `num_elements`.
+/// 3. `shown` must be a [valid], non-null pointer to an [`RSValue`], and **must not** be used
+///    or freed after this call, as this function takes ownership.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewElementNumbers(
+    elements: *const u32,
+    numbers: *const c_double,
+    len: usize,
+    num_elements: u32,
+    shown: *mut RSValue,
+) -> *mut RSValue {
+    // SAFETY: ensured by caller (1.)
+    let elements = unsafe { std::slice::from_raw_parts(elements, len) };
+    // SAFETY: ensured by caller (1.)
+    let numbers = unsafe { std::slice::from_raw_parts(numbers, len) };
+    // SAFETY: ensured by caller (3.)
+    let shown = unsafe { into_shared_value(shown) };
+
+    into_rs_value(ElementNumbers::store(
+        elements,
+        numbers,
+        num_elements,
+        shown,
+    ))
 }
 
 /// Creates and returns a new [`RSValue`] of type [`Value::String`],

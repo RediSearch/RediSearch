@@ -66,7 +66,7 @@ static void checkPreprocessCStr(char sep, TagFieldFlags flags, FieldSpecOptions 
 }
 
 TEST_F(TagIndexTest, testCreate) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
+  TagIndex *idx = NewTagIndex(NULL, 0, false, false);
   ASSERT_FALSE(idx == NULL);
   // ASSERT_STRING_EQ(idx->)
   const size_t N = 100000;
@@ -117,7 +117,8 @@ TEST_F(TagIndexTest, testCreate) {
   ASSERT_EQ(N * v.size() + v2.size(), stats.numRecords);
 
   MockQueryEvalCtx mockQctx(N, N);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1,
+                                          RS_INVALID_FIELD_INDEX, TagElements_Hidden, NULL);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -138,7 +139,7 @@ TEST_F(TagIndexTest, testCreate) {
 }
 
 TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
+  TagIndex *idx = NewTagIndex(NULL, 0, false, false);
   const char *v[] = {"foo", "foo", "bar"};
   IndexStats stats = {0};
 
@@ -152,16 +153,65 @@ TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   TagIndex_Free(idx);
 }
 
+// A separator can give one array element the same tag twice. The entry of the tag holds the
+// number of that element once.
+TEST_F(TagIndexTest, testElementOfRepeatedTagIsRecordedOnce) {
+  TagIndex *idx = NewTagIndex(NULL, 0, false, true);
+  const char *v[] = {"foo", "foo", "foo"};
+  const uint32_t elements[] = {0, 0, 2};
+  IndexStats stats = {0};
+  TagIndexIndexCtx ctx = {NULL, &v[0], 3, 1, false, &stats, elements};
+  ASSERT_TRUE(TagIndex_Index(NULL, idx, &ctx));
+  ASSERT_EQ(1u, stats.numRecords);
+
+  MockQueryEvalCtx mockQctx(1, 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "foo", 3, 1,
+                                          RS_INVALID_FIELD_INDEX, TagElements_Reported, NULL);
+  ASSERT_TRUE(it != NULL);
+  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  RSOffsetIterator reported = RSIndexResult_IterateOffsets(it->current);
+  EXPECT_EQ(reported.Next(reported.ctx, NULL), 0u);
+  EXPECT_EQ(reported.Next(reported.ctx, NULL), 2u);
+  EXPECT_EQ(reported.Next(reported.ctx, NULL), RS_OFFSETVECTOR_EOF);
+  reported.Free(reported.ctx);
+  it->Free(it);
+  TagIndex_Free(idx);
+}
+
+// Element numbers that take one, two and three bytes in an entry, the last one above 16 bits.
+TEST_F(TagIndexTest, testElementNumbersOfEveryWidthAreReported) {
+  TagIndex *idx = NewTagIndex(NULL, 0, false, true);
+  const char *v[] = {"foo", "foo", "foo", "foo"};
+  const uint32_t elements[] = {1, 200, 20000, 70000};
+  IndexStats stats = {0};
+  TagIndexIndexCtx ctx = {NULL, &v[0], 4, 1, false, &stats, elements};
+  ASSERT_TRUE(TagIndex_Index(NULL, idx, &ctx));
+
+  MockQueryEvalCtx mockQctx(1, 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "foo", 3, 1,
+                                          RS_INVALID_FIELD_INDEX, TagElements_Reported, NULL);
+  ASSERT_TRUE(it != NULL);
+  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  RSOffsetIterator reported = RSIndexResult_IterateOffsets(it->current);
+  for (uint32_t element : elements) {
+    EXPECT_EQ(reported.Next(reported.ctx, NULL), element);
+  }
+  EXPECT_EQ(reported.Next(reported.ctx, NULL), RS_OFFSETVECTOR_EOF);
+  reported.Free(reported.ctx);
+  it->Free(it);
+  TagIndex_Free(idx);
+}
+
 TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
+  TagIndex *idx = NewTagIndex(NULL, 0, false, false);
   ASSERT_FALSE(idx == NULL);
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   IndexStats stats = {0};
   indexTags(idx, v, docId, &stats);
   MockQueryEvalCtx mockQctx(1, 1);
-  QueryIterator *it =
-      TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1,
+                                          RS_INVALID_FIELD_INDEX, TagElements_Hidden, NULL);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
   ASSERT_EQ(it->lastDocId, docId);
@@ -321,26 +371,26 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
 
   // NULL index -> NULL reader
   {
-    ASSERT_TRUE(
-        TagIndex_OpenReader(NULL, &mockQctx.sctx, "x", 1, 1, RS_INVALID_FIELD_INDEX, NULL) == NULL);
+    ASSERT_TRUE(TagIndex_OpenReader(NULL, &mockQctx.sctx, "x", 1, 1, RS_INVALID_FIELD_INDEX,
+                                    TagElements_Hidden, NULL) == NULL);
   }
 
   // Absent tag -> NULL reader
   {
-    TagIndex *idx = NewTagIndex(NULL, 0, false);
+    TagIndex *idx = NewTagIndex(NULL, 0, false, false);
     const char *v[] = {"hello"};
     IndexStats stats = {0};
     TagIndexIndexCtx ctx = {NULL, &v[0], 1, 1, false, &stats};
     TagIndex_Index(NULL, idx, &ctx);
 
     ASSERT_TRUE(TagIndex_OpenReader(idx, &mockQctx.sctx, "missing", 7, 1, RS_INVALID_FIELD_INDEX,
-                                    NULL) == NULL);
+                                    TagElements_Hidden, NULL) == NULL);
     TagIndex_Free(idx);
   }
 }
 
 TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
+  TagIndex *idx = NewTagIndex(NULL, 0, false, false);
   idx->suffix = NewTrieMap();
 
   const char *v[] = {"hello", "world"};
@@ -366,7 +416,7 @@ TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
 
 TEST_F(TagIndexTest, DiskCountsRemoveOnlyEmptyValues) {
   auto *diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
-  TagIndex *idx = NewTagIndex(diskSpec, 0, true);
+  TagIndex *idx = NewTagIndex(diskSpec, 0, true, false);
   IndexStats stats = {0};
   const char *first[] = {"hello", "world", ""};
   const char *second[] = {"hello"};
@@ -391,7 +441,7 @@ TEST_F(TagIndexTest, DiskCountsRemoveOnlyEmptyValues) {
 
 TEST_F(TagIndexTest, DiskCountsFreeAndDeleteWithoutFreeingIntegers) {
   auto *diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
-  TagIndex *idx = NewTagIndex(diskSpec, 0, false);
+  TagIndex *idx = NewTagIndex(diskSpec, 0, false, false);
   IndexStats stats = {0};
   const char *values[] = {"hello", "world"};
   TagIndex_Commit(idx, values, 2, &stats);

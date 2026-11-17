@@ -25,6 +25,7 @@ use query_types::QueryNodeType;
 use rqe_core::FieldIndex;
 use rqe_iterators::{
     c2rust::CRQEIterator,
+    inverted_index::TagElements,
     union_opaque::{build_union, build_union_with_q_str},
     utils::duration_from_redis_timespec,
 };
@@ -80,11 +81,14 @@ fn suffix_lookup_timeout(ctx: &QueryEvalContext) -> (ffi::timespec, bool) {
 
 /// `QN_TAG` — evaluate exact values and tag-specific expansions against a tag
 /// field's own index.
+///
+/// With [`TagElements::Reported`] the results report every tag that matches a document.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
     field_index: FieldIndex,
     config: Config,
+    elements: TagElements,
 ) -> Option<Evaluated<'index>> {
     let spec = ctx.spec();
     assert!(
@@ -107,7 +111,7 @@ pub(crate) fn eval<'index>(
     let index = NonNull::new(unsafe { field.__bindgen_anon_1.tagOpts.tagIndex })?;
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
-    let index = unsafe { TagIndexRef::new(index) };
+    let index = unsafe { TagIndexRef::new(index, elements) };
 
     let weight = node.opts().weight;
     let min_term_prefix = ctx.config().min_term_prefix as usize;
@@ -130,7 +134,7 @@ pub(crate) fn eval<'index>(
     // We want results from every matching child (`quick_exit == false`) unless
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
-    let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let quick_exit = index.allows_quick_exit() && (ctx.in_not_sub_tree() || weight == 0.0);
     let children = (0..num_children)
         .map(|i| {
             let child = node.child_mut(i);
@@ -348,7 +352,7 @@ fn eval_prefix<'index>(
     let iter = unsafe {
         build_union_with_q_str(
             children,
-            true,
+            index.allows_quick_exit(),
             config.min_union_iter_heap,
             QueryNodeType::Prefix,
             q_str,
@@ -409,7 +413,7 @@ fn eval_lex_range<'index>(
         Some(q_str) => unsafe {
             build_union_with_q_str(
                 children,
-                true,
+                index.allows_quick_exit(),
                 config.min_union_iter_heap,
                 QueryNodeType::LexRange,
                 q_str,
@@ -418,7 +422,7 @@ fn eval_lex_range<'index>(
         },
         None => build_union(
             children,
-            true,
+            index.allows_quick_exit(),
             config.min_union_iter_heap,
             QueryNodeType::LexRange,
             effective_weight,
@@ -606,7 +610,7 @@ fn eval_wildcard<'index>(
     let iter = unsafe {
         build_union_with_q_str(
             children,
-            true,
+            index.allows_quick_exit(),
             config.min_union_iter_heap,
             QueryNodeType::WildcardQuery,
             q_str,
@@ -743,6 +747,7 @@ fn open_reader(
             value.len(),
             weight,
             field_index,
+            index.elements as ffi::TagElements,
             ctx.status_ptr(),
         )
     })
@@ -763,9 +768,13 @@ fn open_reader_child(
     Some(unsafe { CRQEIterator::new(reader) })
 }
 
-/// A tag index that stays alive for the whole query evaluation.
+/// A tag index that stays alive for the whole query evaluation, and what the readers that
+/// the evaluation opens on it report.
 #[derive(Clone, Copy)]
-struct TagIndexRef(NonNull<ffi::TagIndex>);
+struct TagIndexRef {
+    index: NonNull<ffi::TagIndex>,
+    elements: TagElements,
+}
 
 impl TagIndexRef {
     /// Wrap a tag index pointer.
@@ -774,13 +783,19 @@ impl TagIndexRef {
     ///
     /// `index` must point to a tag index that stays alive and is not
     /// restructured for as long as the query is being evaluated.
-    const unsafe fn new(index: NonNull<ffi::TagIndex>) -> Self {
-        Self(index)
+    const unsafe fn new(index: NonNull<ffi::TagIndex>, elements: TagElements) -> Self {
+        Self { index, elements }
+    }
+
+    /// Whether a union over the readers may report only one of those that match a
+    /// document, when nothing else needs the others.
+    const fn allows_quick_exit(self) -> bool {
+        matches!(self.elements, TagElements::Hidden)
     }
 
     /// The raw pointer to the tag index.
     const fn as_ptr(self) -> *mut ffi::TagIndex {
-        self.0.as_ptr()
+        self.index.as_ptr()
     }
 
     /// The index's values trie, mapping each tag value to its postings.

@@ -21,7 +21,8 @@ enum {
     IndexSize = MAX_OBFUSCATED_INDEX_NAME,
     FieldSize = MAX_OBFUSCATED_FIELD_NAME,
     FieldPathSize = MAX_OBFUSCATED_PATH_NAME,
-    DocumentSize = MAX_OBFUSCATED_DOCUMENT_NAME
+    DocumentSize = MAX_OBFUSCATED_DOCUMENT_NAME,
+    NestedGroupSize = MAX_OBFUSCATED_NESTED_GROUP_NAME
 };
 
 #define DEFINE_OBJECT_OBFUSCATION_TESTS(name)                      \
@@ -39,6 +40,7 @@ int testMax ## name ## Obfuscation() {                             \
 DEFINE_OBJECT_OBFUSCATION_TESTS(Field)
 DEFINE_OBJECT_OBFUSCATION_TESTS(FieldPath)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Document)
+DEFINE_OBJECT_OBFUSCATION_TESTS(NestedGroup)
 
 int testSimpleIndexObfuscation() {
   Sha1 sha;
@@ -117,6 +119,8 @@ TEST_MAIN({
     TESTFUNC(testMaxFieldPathObfuscation);
     TESTFUNC(testSimpleDocumentObfuscation);
     TESTFUNC(testMaxDocumentObfuscation);
+    TESTFUNC(testSimpleNestedGroupObfuscation);
+    TESTFUNC(testMaxNestedGroupObfuscation);
     TESTFUNC(testTextObfuscation);
     TESTFUNC(testNumberObfuscation);
     TESTFUNC(testVectorObfuscation);

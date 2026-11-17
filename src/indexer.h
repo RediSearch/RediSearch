@@ -27,6 +27,8 @@ typedef struct FieldIndexerData {
     // Single value
     double numeric;  // i.e. the numeric value of the field
     arrayof(char*) tags;
+    // Element number of each tag, for a member of a NESTED group. NULL otherwise.
+    arrayof(uint32_t) tagElements;
     struct {
       const void *vector;
       size_t vecLen;

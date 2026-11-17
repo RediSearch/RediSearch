@@ -31,6 +31,10 @@ void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
   sprintf(buffer, "FieldPath@%" PRIu64, fieldId);
 }
 
+void Obfuscate_NestedGroup(t_uniqueId position, char* buffer) {
+  sprintf(buffer, "NestedGroup@%" PRIu64, position);
+}
+
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
   sprintf(buffer, "Document@%" PRIu64, docId);
 }

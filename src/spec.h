@@ -21,6 +21,7 @@
 #include "gc/gc.h"
 #include "synonym_map.h"
 #include "field_spec.h"
+#include "nested_group.h"
 #include "util/dict.h"
 #include "util/charbuf.h"
 #include "util/rs_atomic.h"
@@ -53,6 +54,8 @@ struct IndexesScanner;
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_VECTOR_STR "VECTOR"
 #define SPEC_NUMERIC_STR "NUMERIC"
+#define SPEC_NESTED_STR "NESTED"
+#define SPEC_NESTED_PATH_STR "NESTED_PATH"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -200,7 +203,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 29
+#define INDEX_CURRENT_VERSION 30
+// Versions below this cannot hold a NESTED group.
+#define INDEX_NESTED_GROUP_VERSION 30
 #define INDEX_SST_SPEC_ID_VERSION 29
 #define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
@@ -376,6 +381,9 @@ typedef struct IndexSpec {
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
+  // The NESTED groups of the schema. NULL when it has none.
+  arrayof(NestedGroup) nestedGroups;
+
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
@@ -504,6 +512,11 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp);
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
 const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char* name, size_t len);
+
+/* Whether the JSON path of `fs` compiled when the field was created. Sets the error in
+ * `status` when it did not. */
+bool IndexSpec_ValidateJsonFieldPath(const IndexSpec *sp, const FieldSpec *fs,
+                                     QueryError *status);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 

@@ -13,8 +13,8 @@ use ffi::RedisSearchCtx;
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore,
-    opaque::OpaqueEncoding,
+    DecodedBy, IndexReader, IndexReaderCore, RawIndexReaderCore, doc_ids_only::DocIdsOnly,
+    offsets_only::OffsetsOnly, opaque::OpaqueEncoding, raw_doc_ids_only::RawDocIdsOnly,
 };
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
@@ -35,6 +35,22 @@ pub trait TagLookup<E> {
     fn find(&self, tag: &[u8]) -> Option<&inverted_index::InvertedIndex<E>>;
 }
 
+/// The encodings of the inverted indexes that a tag index holds: document ids only, or
+/// document ids with the element numbers that a member of a NESTED group records, which
+/// [`ElementTag`](super::ElementTag) reads.
+pub trait TagEncoding: DecodedBy + sealed::Sealed {}
+
+impl TagEncoding for DocIdsOnly {}
+impl TagEncoding for RawDocIdsOnly {}
+impl TagEncoding for OffsetsOnly {}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::DocIdsOnly {}
+    impl Sealed for super::RawDocIdsOnly {}
+    impl Sealed for super::OffsetsOnly {}
+}
+
 /// An iterator over documents matching a specific tag value, parameterised
 /// over a [`Ref`] mode. See [`Tag`] for the [`Active`] instantiation that
 /// implements [`RQEIterator`].
@@ -49,7 +65,7 @@ pub trait TagLookup<E> {
 /// # Type Parameters
 ///
 /// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
-/// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
+/// * `E` - The [`TagEncoding`] of the inverted index.
 /// * `C` - The expiration checker type.
 /// * `L` - The [`TagLookup`] used to detect GC changes during revalidation.
 #[repr(C)]
@@ -73,8 +89,7 @@ impl<'query, Rf: Ref, E, L, C> RawTag<'query, Rf, E, L, C> {
 
 impl<'query, Rf: Ref, E, L, C> RawTag<'query, Rf, E, L, C>
 where
-    E: DecodedBy,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    E: TagEncoding,
     L: TagLookup<E>,
 {
     /// The inverted index currently stored for this iterator's tag value,
@@ -113,8 +128,7 @@ where
 
 impl<'index, E, L, C> Tag<'index, E, L, C>
 where
-    E: DecodedBy + 'index,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    E: TagEncoding + 'index,
     C: ExpirationChecker,
     L: TagLookup<E>,
 {
@@ -186,8 +200,7 @@ where
 
 impl<'index, E, L, C> RQEIterator<'index> for Tag<'index, E, L, C>
 where
-    E: DecodedBy + 'index,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    E: TagEncoding + 'index,
     C: ExpirationChecker,
     L: TagLookup<E>,
 {
@@ -260,8 +273,7 @@ where
 
 impl<'index, E, L, C> ProfilePrint for Tag<'index, E, L, C>
 where
-    E: inverted_index::DecodedBy + 'index,
-    <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
+    E: TagEncoding + 'index,
     C: crate::expiration_checker::ExpirationChecker,
     L: TagLookup<E>,
 {
@@ -277,8 +289,7 @@ where
 
 impl<'index, E, L, C> RQEIteratorBoxed<'index> for Tag<'index, E, L, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    E: TagEncoding + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     C: ExpirationChecker + 'static,
     L: TagLookup<E> + 'static,
 {
@@ -300,8 +311,7 @@ where
 
 impl<'query, E, L, C> RQESuspendedIterator<'query> for RawTag<'query, Suspended, E, L, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    E: TagEncoding + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     C: ExpirationChecker + 'static,
     L: TagLookup<E> + 'static,
 {

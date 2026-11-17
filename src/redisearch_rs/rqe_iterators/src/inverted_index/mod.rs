@@ -10,6 +10,7 @@
 //! Supporting types for [`Missing`], [`Numeric`], [`Term`], and [`Wildcard`].
 
 mod core;
+mod element_tag;
 mod geo;
 mod missing;
 mod numeric;
@@ -28,6 +29,7 @@ pub use numeric::{
     open_numeric_or_geo_index,
 };
 
-pub use tag::{Tag, TagLookup};
+pub use element_tag::{ElementTag, TagElements};
+pub use tag::{Tag, TagEncoding, TagLookup};
 pub use term::{Term, TermIndexReader, build_term_iterator};
 pub use wildcard::{RawWildcard, Wildcard};

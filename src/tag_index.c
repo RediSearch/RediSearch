@@ -31,6 +31,7 @@
 #include "query.h"
 #include "redisearch.h"
 #include "util/strconv.h"
+#include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -40,13 +41,14 @@ static uint32_t tagUniqueId = 0;
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
 TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex,
-                      bool withSuffix) {
+                      bool withSuffix, bool storesElements) {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
   idx->suffix = withSuffix ? NewTrieMap() : NULL;
   idx->diskSpec = diskSpec;
   idx->fieldIndex = fieldIndex;
+  idx->storesElements = storesElements;
   return idx;
 }
 
@@ -181,7 +183,13 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     break;
   case FLD_VAR_T_ARRAY:
     for (int i = 0; i < data->arrayLen; i++) {
+      uint32_t numTags = array_len(arr);
       tokenizeTagString(data->multiVal[i], fs, &arr);
+      if (data->elements) {
+        for (; numTags < array_len(arr); ++numTags) {
+          array_ensure_append_1(fdata->tagElements, data->elements[i]);
+        }
+      }
     }
     break;
   case FLD_VAR_T_NULL:
@@ -205,29 +213,95 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create_if_missing) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, sz);
+      iv = NewInvertedIndex(idx->storesElements ? Index_StoreTermOffsets : Index_DocIdsOnly, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
   return iv;
 }
 
-// Encode a single docId into a specific tag value
+// Write `rec` to the inverted index of a specific tag value
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
-static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  bool hasFieldExpiration, IndexStats *stats, size_t *numRecords) {
+static inline size_t tagIndex_WriteRecord(TagIndex *idx, const char *value, size_t len,
+                                          RSIndexResult *rec, IndexStats *stats,
+                                          size_t *numRecords) {
   size_t sz;
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .hasFieldExpiration = hasFieldExpiration, .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   uint32_t numDocs = InvertedIndex_NumDocs(iv);
-  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, rec);
   if (InvertedIndex_NumDocs(iv) > numDocs) {
     (*numRecords)++;
   }
   IndexStats_BlockCountAdd(stats, r.blocks_added);
   return r.mem_growth + sz;
+}
+
+// Encode a single docId into a specific tag value
+static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
+                                  bool hasFieldExpiration, IndexStats *stats, size_t *numRecords) {
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .hasFieldExpiration = hasFieldExpiration, .metrics = MetricsVec_New()};
+  return tagIndex_WriteRecord(idx, value, len, &rec, stats, numRecords);
+}
+
+// One occurrence of a tag in a document: the tag and the number of the element that holds it.
+typedef struct {
+  const char *tok;
+  uint32_t element;
+} TagOccurrence;
+
+static int cmpTagOccurrence(const void *a, const void *b) {
+  const TagOccurrence *ta = a, *tb = b;
+  int rc = strcmp(ta->tok, tb->tok);
+  return rc ? rc : (ta->element > tb->element) - (ta->element < tb->element);
+}
+
+// Initial capacity, in bytes, of the writer of the element numbers of one entry. It grows.
+#define ELEMENT_NUMBERS_INITIAL_CAP 8
+
+/* Memory-mode helper for a member of a NESTED group: write one entry per distinct tag, holding
+ * the element numbers where the tag occurs. The inverted index drops a second entry for the
+ * same document, so all the element numbers of a tag must go into one entry. */
+static void TagIndex_WriteElementPostings(TagIndex *idx, const TagIndexIndexCtx *indexCtx) {
+  TagOccurrence *sorted = rm_malloc(indexCtx->n * sizeof(*sorted));
+  size_t n = 0;
+  for (size_t ii = 0; ii < indexCtx->n; ++ii) {
+    if (indexCtx->values[ii]) {
+      sorted[n++] =
+          (TagOccurrence){.tok = indexCtx->values[ii], .element = indexCtx->elements[ii]};
+    }
+  }
+  qsort(sorted, n, sizeof(*sorted), cmpTagOccurrence);
+
+  IndexStats *stats = indexCtx->stats;
+  VarintVectorWriter *vw = NewVarintVectorWriter(ELEMENT_NUMBERS_INITIAL_CAP);
+  size_t numRecords = 0;
+  for (size_t start = 0; start < n;) {
+    const char *tok = sorted[start].tok;
+    VVW_Reset(vw);
+    size_t end = start;
+    for (; end < n && !strcmp(sorted[end].tok, tok); ++end) {
+      if (end == start || sorted[end].element != sorted[end - 1].element) {
+        VVW_Write(vw, sorted[end].element);
+      }
+    }
+    start = end;
+
+    RSIndexResult rec = {.data.term_tag = RSResultData_Term,
+                         .data.term.borrowed.tag = RSTermRecord_Borrowed,
+                         .docId = indexCtx->docId,
+                         .freq = 1,
+                         .fieldMask = RS_FIELDMASK_ALL,
+                         .hasFieldExpiration = indexCtx->hasFieldExpiration,
+                         .metrics = MetricsVec_New()};
+    rec.data.term.borrowed.offsets.data = (uint8_t *)VVW_GetByteData(vw);
+    rec.data.term.borrowed.offsets.len = VVW_GetByteLength(vw);
+    stats->invertedSize += tagIndex_WriteRecord(idx, tok, strlen(tok), &rec, stats, &numRecords);
+  }
+  stats->numRecords += numRecords;
+  VVW_Free(vw);
+  rm_free(sorted);
 }
 
 /* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
@@ -293,24 +367,35 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *
     return SearchDisk_IndexTags(ctx, idx->diskSpec, indexCtx->batch, indexCtx->values, indexCtx->n,
                                 indexCtx->docId, idx->fieldIndex);
   }
+  if (idx->storesElements) {
+    if (indexCtx->n) {
+      RS_LOG_ASSERT(indexCtx->elements,
+                    "a tag index that stores elements needs the element of each tag");
+      TagIndex_WriteElementPostings(idx, indexCtx);
+    }
+    return true;
+  }
   TagIndex_WritePostings(idx, indexCtx->values, indexCtx->n, indexCtx->docId,
                          indexCtx->hasFieldExpiration, indexCtx->stats);
   return true;
 }
 
-static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,
-                                         const char *value, size_t len, double weight, t_fieldIndex fieldIndex) {
+static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx,
+                                         InvertedIndex *iv, const char *value, size_t len,
+                                         double weight, t_fieldIndex fieldIndex,
+                                         TagElements elements) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex};
-  return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
+  return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight, elements);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
  * NULL and populates `status` (when non-null) with the cause. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex, QueryError *status) {
+                                   double weight, t_fieldIndex fieldIndex, TagElements elements,
+                                   QueryError *status) {
   if (!idx) {
     return NULL;
   }
@@ -326,7 +411,7 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
+  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex, elements);
 }
 
 /* Open the tag index, returning NULL if it doesn't exist. */
@@ -339,7 +424,8 @@ TagIndex *TagIndex_Open(const FieldSpec *spec) {
 TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
   if (!spec->tagOpts.tagIndex) {
-    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index, withSuffix);
+    spec->tagOpts.tagIndex =
+        NewTagIndex(diskSpec, spec->index, withSuffix, FieldSpec_IsNestedMember(spec));
   }
   return spec->tagOpts.tagIndex;
 }

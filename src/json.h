@@ -60,6 +60,14 @@ RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key);
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
+/* Load the values of `fs`, a member of a NESTED group, from the elements of the group's array in
+ * the document at `root`. `elementsIter` holds the array's elements; it is read from its start
+ * and stays the caller's, to use again for the next member of the group. A value that is missing
+ * or null in an element is skipped. `df` is left untouched when no element has a value. For a
+ * NUMERIC member, `df->multisv` gets the field's sortable value. */
+int JSON_LoadNestedMember(RedisModuleCtx *ctx, RedisJSON root, JSONResultsIterator elementsIter,
+                          const FieldSpec *fs, struct DocumentField *df, QueryError *status);
+
 /* Creates a Redis Module String from JSONType string, int, double, bool */
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *fs,
                            struct DocumentField *df, RedisModuleCtx *ctx, bool rejectMultiValue,

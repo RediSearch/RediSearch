@@ -86,6 +86,8 @@ typedef struct DocumentField {
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
   };
+  // For a member of a NESTED group: the element number of each value in the multi-value array.
+  arrayof(uint32_t) elements;
   RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;
   FieldType indexAs;

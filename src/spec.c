@@ -1270,8 +1270,8 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
   return false;
 }
 
-// Field creation already parsed the path; validation only checks its result.
-static bool validateJsonFieldPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+bool IndexSpec_ValidateJsonFieldPath(const IndexSpec *sp, const FieldSpec *fs,
+                                     QueryError *status) {
   if (fs->compiledPath) {
     return true;
   }
@@ -1293,7 +1293,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
   if (isSpecJson(sp)) {
-    if (!validateJsonFieldPath(sp, fs, status)) {
+    if (!IndexSpec_ValidateJsonFieldPath(sp, fs, status)) {
       return 0;
     }
     multi = !japi->pathIsSingle(fs->compiledPath);
@@ -1516,7 +1516,7 @@ static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, Query
     return true;
   }
 
-  if (!validateJsonFieldPath(sp, fs, status)) {
+  if (!IndexSpec_ValidateJsonFieldPath(sp, fs, status)) {
     return false;
   }
 
@@ -1589,6 +1589,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   Trie *prevSuffix = sp->suffix;
   const t_fieldMask prevSuffixMask = sp->suffixMask;
 
+  const uint32_t prevNumNestedGroups = array_len(sp->nestedGroups);
+  size_t nestedMembersRemaining = 0;
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is limited to %d fields",
@@ -1600,13 +1602,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     size_t pathlen, namelen;
     const char *fieldPath = AC_GetStringNC(ac, &pathlen);
     const char *fieldName = fieldPath;
-    if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+    const bool hasAlias = AC_AdvanceIfMatch(ac, SPEC_AS_STR);
+    if (hasAlias) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_AS_STR " requires an argument");
         goto reset;
       }
       fieldName = AC_GetStringNC(ac, &namelen);
-      sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
       namelen = pathlen;
@@ -1617,8 +1619,32 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
+    if (AC_AdvanceIfMatch(ac, SPEC_NESTED_STR)) {
+      if (nestedMembersRemaining) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            SPEC_NESTED_STR " group inside a " SPEC_NESTED_STR " group");
+        goto reset;
+      }
+      if (!IndexSpec_ParseNestedGroup(ac, sp, fieldName, namelen,
+                                      fieldPath ? fieldPath : fieldName, isNew,
+                                      &nestedMembersRemaining, status)) {
+        goto reset;
+      }
+      continue;
+    }
+    if (hasAlias) {
+      sp->flags |= Index_HasFieldAlias;
+    }
+
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Duplicate field in schema", " - %s", fieldName);
+      goto reset;
+    }
+    // A query tells a group from a field by its name.
+    if (IndexSpec_FindNestedGroup(sp, fieldName, namelen) >= 0) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                    "Duplicate " SPEC_NESTED_STR " group or field in schema",
+                                    " - %s", fieldName);
       goto reset;
     }
 
@@ -1630,6 +1656,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
+    }
+    if (nestedMembersRemaining) {
+      if (!IndexSpec_AddNestedMember(sp, fs, array_len(sp->nestedGroups) - 1, status)) {
+        goto reset;
+      }
+      --nestedMembersRemaining;
     }
 
     if (isSpecOnDiskForValidation(sp))
@@ -1675,7 +1707,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fs->ftId = textId;
       if isSpecJson (sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
-          if (!validateJsonFieldPath(sp, fs, status)) {
+          if (!IndexSpec_ValidateJsonFieldPath(sp, fs, status)) {
             goto reset;
           }
           if (japi->pathHasDefinedOrder(fs->compiledPath)) {
@@ -1715,6 +1747,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
+  if (nestedMembersRemaining) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        SPEC_NESTED_STR " group has fewer fields than declared");
+    goto reset;
+  }
+
   // If we successfully modified the schema, we need to update the spec cache
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -1735,6 +1773,7 @@ reset:
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
+  IndexSpec_FreeNestedGroups(sp, prevNumNestedGroups);
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
   array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
@@ -2033,8 +2072,8 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
 }
 
 // Copy the rule's special-field names into the cache (a fresh cache holds
-// NULLs). The RDB loaders build the cache before the rule loads and call this
-// afterwards — the cache is not yet shared at that point, so the patch does
+// NULLs). The legacy RDB loader builds the cache before the rule loads and calls
+// this afterwards — the cache is not yet shared at that point, so the patch does
 // not violate its published-immutable contract.
 static void IndexSpecCache_CopyRuleFields(IndexSpecCache *c, const struct SchemaRule *rule) {
   if (!rule) {
@@ -2056,12 +2095,19 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
-    // The live field owns its compiled path for indexing and keeps it across snapshot rebuilds.
-    // Query loaders own their compiled paths, so this snapshot needs no indexing handle.
+    // The live field owns its compiled paths for indexing and keeps them across snapshot
+    // rebuilds. Query loaders own their compiled paths, so this snapshot needs no indexing handle.
     field->compiledPath = NULL;
+    field->nestedValuesPath = NULL;
+    field->nestedValuesPathText = NULL;
     field->fieldName = HiddenString_Duplicate(fs->fieldName);
-    // if name & path are pointing to the same string, copy only pointer
-    if (fs->fieldName != fs->fieldPath) {
+    if (fs->nestedValuesPathText) {
+      // A query loads a field by its path from the document root, which for a field of a
+      // NESTED group is not the path it is indexed by.
+      field->fieldPath =
+          NewHiddenString(fs->nestedValuesPathText, strlen(fs->nestedValuesPathText), true);
+    } else if (fs->fieldName != fs->fieldPath) {
+      // if name & path are pointing to the same string, copy only pointer
       field->fieldPath = HiddenString_Duplicate(fs->fieldPath);
     } else {
       // use the same pointer for both name and path
@@ -2155,6 +2201,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
+  IndexSpec_FreeNestedGroups(spec, 0);
 
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
@@ -2719,6 +2766,9 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   f->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
   if (encver >= 4) {
     f->options = LoadUnsigned_IOError(rdb, goto fail);
+    if (FieldSpec_IsNestedMember(f)) {
+      goto fail;
+    }
     f->sortIdx = LoadSigned_IOError(rdb, goto fail);
   }
   return REDISMODULE_OK;
@@ -2780,6 +2830,9 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   }
+  if (FieldSpec_IsNestedMember(f)) {
+    RedisModule_SaveUnsigned(rdb, f->nestedGroup);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2823,6 +2876,9 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   }
   f->types = types;
   f->options = LoadUnsigned_IOError(rdb, goto fail);
+  if (encver < INDEX_NESTED_GROUP_VERSION && FieldSpec_IsNestedMember(f)) {
+    goto fail;
+  }
   f->sortIdx = LoadSigned_IOError(rdb, goto fail);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
@@ -2970,6 +3026,16 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     }
+  }
+
+  if (FieldSpec_IsNestedMember(f)) {
+    // IndexSpec_PrepareLoadedNestedGroups checks the position against the groups, which follow
+    // the fields.
+    uint64_t group = LoadUnsigned_IOError(rdb, goto fail);
+    if (group > UINT16_MAX) {
+      goto fail;
+    }
+    f->nestedGroup = group;
   }
 
   return REDISMODULE_OK;
@@ -3336,10 +3402,19 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
 
   // Save the name plus the null terminator
   HiddenString_SaveToRdb(sp->specName, rdb);
-  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
+  const uint32_t numNestedGroups = array_len(sp->nestedGroups);
+  RedisModule_SaveUnsigned(rdb,
+                           (uint64_t)sp->flags | (numNestedGroups ? Index_HasNestedGroups : 0));
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
+  }
+  if (numNestedGroups) {
+    RedisModule_SaveUnsigned(rdb, numNestedGroups);
+    for (uint32_t i = 0; i < numNestedGroups; ++i) {
+      HiddenString_SaveToRdb(sp->nestedGroups[i].name, rdb);
+      HiddenString_SaveToRdb(sp->nestedGroups[i].path, rdb);
+    }
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3419,6 +3494,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexSpec *sp = NULL;
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
+  bool hasNestedGroups = false;
   int16_t numFields = 0;
   uint64_t numFields_u64 = 0;
   size_t narr = 0;
@@ -3435,6 +3511,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
   if (flags & Index_StoreNumeric) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid index storage flags");
+    goto cleanup_name;
+  }
+  hasNestedGroups = flags & Index_HasNestedGroups;
+  flags &= ~Index_HasNestedGroups;
+  if (encver < INDEX_NESTED_GROUP_VERSION && hasNestedGroups) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Invalid " SPEC_NESTED_STR " group in the loaded schema");
     goto cleanup_name;
   }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -3475,8 +3558,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
-  // After loading all the fields, we can build the spec cache
-  sp->spcache = IndexSpec_BuildSpecCache(sp);
+  if (hasNestedGroups && IndexSpec_RdbLoadNestedGroups(rdb, sp) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Failed to load the " SPEC_NESTED_STR " groups");
+    goto cleanup;
+  }
 
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
@@ -3485,8 +3571,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (isSpecJson(sp)) {
     compileLoadedJsonPaths(sp);
   }
-  // The cache was built before the rule loaded; fill in its rule names.
-  IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
+  if (!IndexSpec_PrepareLoadedNestedGroups(sp)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Invalid " SPEC_NESTED_STR " group in the loaded schema");
+    goto cleanup;
+  }
+  // The cache holds the rule's names, and the paths that a group gives its members.
+  sp->spcache = IndexSpec_BuildSpecCache(sp);
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
@@ -3667,7 +3758,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
-  if (sp->flags & Index_StoreNumeric) {
+  if (sp->flags & (Index_StoreNumeric | Index_HasNestedGroups)) {
     RedisModule_LogIOError(rdb, "warning", "RDB Load: Invalid index storage flags");
     StrongRef_Release(spec_ref);
     return NULL;
@@ -3880,6 +3971,9 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isD
   Sha1_UpdateU64(hash, field->types);
   Sha1_UpdateU64(hash, field->options);
   Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
+  if (FieldSpec_IsNestedMember(field)) {
+    Sha1_UpdateU64(hash, field->nestedGroup);
+  }
   if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) || (field->options & FieldSpec_Dynamic)) {
     Sha1_UpdateU64(hash, field->ftId);
     Sha1_UpdateDouble(hash, field->ftWeight);
@@ -3927,6 +4021,10 @@ static void schemaFingerprint(Sha1Context *hash, const void *value) {
   Sha1_UpdateU64(hash, sp->numFields);
   for (int i = 0; i < sp->numFields; ++i) {
     fingerprintField(hash, &sp->fields[i], sp->diskSpec != NULL);
+  }
+  for (uint32_t i = 0; i < array_len(sp->nestedGroups); ++i) {
+    fingerprintHiddenString(hash, sp->nestedGroups[i].name);
+    fingerprintHiddenString(hash, sp->nestedGroups[i].path);
   }
   fingerprintRule(hash, sp->rule);
   if (sp->flags & Index_HasCustomStopwords) {

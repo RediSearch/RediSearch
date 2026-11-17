@@ -221,13 +221,15 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *
  * # Parameters
  *
- * * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
+ * * `idx` - Pointer to the tag's inverted index, in one of the encodings of [`TagIterator`].
  * * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
  * * `sctx` - Pointer to the Redis search context.
  * * `field_mask_or_index` - Field mask or field index to filter on.
  * * `term` - Pointer to the query term representing the tag value. Ownership is
  *   transferred to the iterator.
  * * `weight` - Weight to apply to the term results.
+ * * `elements` - The [`TagElements`] of the iterator. Read only for the index of a member
+ *   of a NESTED group.
  *
  * # Returns
  *
@@ -239,8 +241,8 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *
  * The following invariants must be upheld when calling this function:
  *
- * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
- *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
+ * 1. `idx` must be a valid pointer to an [`InvertedIndex`](ffi::InvertedIndex) in one of the
+ *    encodings of [`TagIterator`] and cannot be NULL.
  * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
@@ -251,7 +253,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
-QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight, enum TagElements elements);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.

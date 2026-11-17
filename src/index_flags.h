@@ -36,4 +36,8 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
+  // Only in an RDB: the NESTED groups of the schema follow its fields. IndexSpec.flags never
+  // has it; IndexSpec.nestedGroups says whether a schema has groups.
+  Index_HasNestedGroups = 0x100000,
 } IndexFlags;

@@ -17,6 +17,22 @@ typedef enum MetricType {
 } MetricType;
 
 /**
+ * Whether an [`ElementTag`] reports, as the positions of its results, the array elements
+ * where the tag occurs.
+ */
+typedef enum TagElements {
+  /**
+   * Every result is a plain tag result: no positions, and matching in every field.
+   */
+  TagElements_Hidden,
+  /**
+   * The positions of a result are the element numbers. Only a reader that looks for a
+   * common element asks for them, because they are not word positions.
+   */
+  TagElements_Reported,
+} TagElements;
+
+/**
  * Context passed through recursive profile printing calls.
  */
 typedef struct ProfilePrintCtx ProfilePrintCtx;

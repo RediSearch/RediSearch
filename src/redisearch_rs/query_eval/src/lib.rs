@@ -26,6 +26,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
     Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    inverted_index::TagElements,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -344,7 +345,9 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Fuzzy { tok, max_dist } => {
             fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
         }
-        QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        QueryNode::Tag { field_index } => {
+            tag::eval(ctx, node, field_index, config, TagElements::Hidden)
+        }
         // A lex range only ever hangs off a tag node, whose evaluator dispatches
         // its own children, so reaching it from here is a bug.
         QueryNode::LexRange { .. } => {

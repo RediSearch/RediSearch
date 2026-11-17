@@ -322,6 +322,7 @@ fn index_values(
                 docId: doc_id,
                 hasFieldExpiration: field_expiration_docs.contains(&doc_id),
                 stats: &mut stats,
+                elements: ptr::null(),
             };
             // SAFETY: `idx` is a valid, non-null `TagIndex` just created by
             // `TagIndex_Ensure`; `index_ctx.values` points at one live,

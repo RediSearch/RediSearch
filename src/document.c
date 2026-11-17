@@ -327,6 +327,10 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
       if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
+        if (aCtx->fdatas[ii].tagElements) {
+          array_free(aCtx->fdatas[ii].tagElements);
+          aCtx->fdatas[ii].tagElements = NULL;
+        }
       } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
                  aCtx->fdatas[ii].arrNumeric && !FIELD_IS_NULL(aCtx, ii)) {
         array_free(aCtx->fdatas[ii].arrNumeric);
@@ -874,6 +878,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   TagIndexIndexCtx indexCtx = {
       .batch = aCtx->disk.batch,
       .values = (const char **)fdata->tags,
+      .elements = fdata->tagElements,
       .n = array_len(fdata->tags),
       .docId = aCtx->doc->docId,
       .hasFieldExpiration = fieldHasExpiration,
