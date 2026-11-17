@@ -9,6 +9,8 @@
 pressure on the n-th checkpoint call of the process. The fake pressure works on any Redis, so these
 tests do not depend on the server exporting the memory API."""
 
+import threading
+
 from common import *
 from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
@@ -1138,7 +1140,6 @@ def test_profile_build_checkpoint_stop(env):
 def run_at_call_within(env, n, timeout, *query):
     """Like run_at_call, but fails the test instead of hanging when the reply takes over
     `timeout` seconds."""
-    import threading
     out = {}
 
     def run():
@@ -1157,6 +1158,7 @@ def run_at_call_within(env, n, timeout, *query):
         env.assertFalse(t.is_alive(), message=f'no reply to {query} stopped at call {n}')
     finally:
         memory_pressure(env, 'RESET')
+    env.assertNotContains('err', out, message=f'{query} stopped at call {n}: {out.get("err")}')
     return out.get('res')
 
 
@@ -1184,7 +1186,7 @@ def test_coordinator_profile_aggregate_stop_does_not_spin(env):
         coord_stops = 0
         for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
             res = run_at_call_within(env, n, 30, *query)
-            if res is None:
+            if res is None:  # the hang is already reported
                 return
             env.assertContains('Profile', res)
             if COORD_OOM_WARNING in res['Results']['warning']:
