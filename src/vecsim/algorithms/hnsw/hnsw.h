@@ -39,6 +39,7 @@
 #include <random>
 #include <iostream>
 #include <algorithm>
+#include <array>
 #include <unordered_map>
 #include <sys/resource.h>
 #include <fstream>
@@ -755,7 +756,7 @@ void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelD
         }
     };
 
-    idType batch[BATCH_SIZE];
+    std::array<idType, BATCH_SIZE> batch;
     for (size_t start = 0; start < num_links; start += BATCH_SIZE) {
         const size_t end = std::min(num_links, start + BATCH_SIZE);
         size_t batch_size = 0;
@@ -791,27 +792,28 @@ void HNSWIndex<DataType, DistType>::processCandidate(
     ElementGraphData *cur_element = getGraphDataByInternalId(curNodeId);
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
-    forEachUnvisitedNeighbor(
-        node_level, elements_tags, visited_tag, [&](idType candidate_id, const char *cur_data) {
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (lowerBound > cur_dist || top_candidates.size() < ef) {
+    auto visit = [this, query_data, ef, &top_candidates, &candidate_set,
+                  &lowerBound](idType candidate_id, const char *cur_data) {
+        DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
+        if (lowerBound > cur_dist || top_candidates.size() < ef) {
 
-                candidate_set.emplace(-cur_dist, candidate_id);
+            candidate_set.emplace(-cur_dist, candidate_id);
 
-                // Insert the candidate to the top candidates heap only if it is not marked as
-                // deleted.
-                if (!isMarkedDeleted(candidate_id))
-                    emplaceToHeap(top_candidates, cur_dist, candidate_id);
+            // Insert the candidate to the top candidates heap only if it is not marked as
+            // deleted.
+            if (!isMarkedDeleted(candidate_id))
+                emplaceToHeap(top_candidates, cur_dist, candidate_id);
 
-                if (top_candidates.size() > ef)
-                    top_candidates.pop();
+            if (top_candidates.size() > ef)
+                top_candidates.pop();
 
-                // If we have marked deleted elements, we need to verify that `top_candidates` is
-                // not empty (since we might have not added any non-deleted element yet).
-                if (!top_candidates.empty())
-                    lowerBound = top_candidates.top().first;
-            }
-        });
+            // If we have marked deleted elements, we need to verify that `top_candidates` is
+            // not empty (since we might have not added any non-deleted element yet).
+            if (!top_candidates.empty())
+                lowerBound = top_candidates.top().first;
+        }
+    };
+    forEachUnvisitedNeighbor(node_level, elements_tags, visited_tag, visit);
     unlockNodeLinks(curNodeId);
 }
 
@@ -824,18 +826,19 @@ void HNSWIndex<DataType, DistType>::processCandidate_RangeSearch(
     auto *cur_element = getGraphDataByInternalId(curNodeId);
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
-    forEachUnvisitedNeighbor(
-        node_level, elements_tags, visited_tag, [&](idType candidate_id, const char *cur_data) {
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (cur_dist < dyn_range) {
-                candidate_set.emplace(-cur_dist, candidate_id);
+    auto visit = [this, query_data, dyn_range, radius, &candidate_set,
+                  &results](idType candidate_id, const char *cur_data) {
+        DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
+        if (cur_dist < dyn_range) {
+            candidate_set.emplace(-cur_dist, candidate_id);
 
-                // If the new candidate is in the requested radius, add it to the results set.
-                if (cur_dist <= radius && !isMarkedDeleted(candidate_id)) {
-                    results->emplace(getExternalLabel(candidate_id), cur_dist);
-                }
+            // If the new candidate is in the requested radius, add it to the results set.
+            if (cur_dist <= radius && !isMarkedDeleted(candidate_id)) {
+                results->emplace(getExternalLabel(candidate_id), cur_dist);
             }
-        });
+        }
+    };
+    forEachUnvisitedNeighbor(node_level, elements_tags, visited_tag, visit);
     unlockNodeLinks(curNodeId);
 }
 
