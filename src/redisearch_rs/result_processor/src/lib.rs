@@ -749,6 +749,7 @@ pub(crate) mod test {
 
     #[test]
     fn hold_stop_marks_the_parent_cut_on_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
         let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
         limits.memory.stopped = true;
         let mut chain = Chain::new();
@@ -764,6 +765,7 @@ pub(crate) mod test {
 
     #[test]
     fn hold_stop_leaves_the_parent_alone_without_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
         let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_some());
