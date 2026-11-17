@@ -120,6 +120,21 @@ def testPartialOverlapRanksFirst(env):
     env.assertEqual(search(env, '@sp:[SPARSE $q]', [(77, 1.0)]), [0])
 
 
+def testSparseScorerCannotBeNamed(env):
+    """SPARSE is only ever chosen by the query itself: as a default scorer it
+    would score every text query 0, and naming it adds nothing."""
+    enable_unstable_features(env)
+    create_index(env)
+    error = 'selected automatically for sparse vector queries'
+    env.expect('CONFIG', 'SET', 'search-default-scorer', 'SPARSE').error().contains(error)
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'SPARSE').error().contains(error)
+    for query in ['hello', '@sp:[SPARSE $q]']:
+        env.expect('FT.SEARCH', 'idx', query, 'SCORER', 'SPARSE', 'PARAMS', 2,
+                   'q', sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(error)
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'SPARSE', 'ADDSCORES',
+               'DIALECT', 2).error().contains(error)
+
+
 def testCombinedWithOtherClauses(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)

@@ -185,7 +185,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
 
   RS_ASSERT(RSGlobalConfig.defaultScorer);
   ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
-  if (scoreCtx == NULL) {
+  if (scoreCtx == NULL || Extensions_IsAutomaticScorer(RSGlobalConfig.defaultScorer)) {
     DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
     return REDISMODULE_ERR;
   }

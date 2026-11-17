@@ -448,6 +448,11 @@ static int set_default_scorer_config(const char *name, RedisModuleString *val, v
       *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
       return REDISMODULE_ERR;
     }
+    if (Extensions_IsAutomaticScorer(newScorerName)) {
+      RS_ASSERT(err);
+      *err = RedisModule_CreateString(NULL, AUTOMATIC_SCORER_ERR, strlen(AUTOMATIC_SCORER_ERR));
+      return REDISMODULE_ERR;
+    }
   }
 
   // Validation passed, now allocate and apply it to RSGlobalConfig
@@ -1017,6 +1022,10 @@ CONFIG_SETTER(setDefaultScorer) {
       ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
       if (scoreCtx == NULL) {
         QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid default scorer value");
+        return REDISMODULE_ERR;
+      }
+      if (Extensions_IsAutomaticScorer(scorerName)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, AUTOMATIC_SCORER_ERR);
         return REDISMODULE_ERR;
       }
     }

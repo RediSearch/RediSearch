@@ -1739,14 +1739,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   const bool scorerDefaulted = !opts->scorerName;
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s",
+                                       opts->scorerName);
+      return REDISMODULE_ERR;
+    }
+    if (Extensions_IsAutomaticScorer(opts->scorerName)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, AUTOMATIC_SCORER_ERR);
       return REDISMODULE_ERR;
     }
   } else {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
-
-
 
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
