@@ -69,7 +69,8 @@ std::string chunk(bool resp3, const std::string &score) {
     return sequence('%', {str("id"), str(id), str("score"), score});
   };
   return sequence(
-      '%', {str("total_results"), ":3\r\n", str("warning"), "*0\r\n", str("results"),
+      '%', {str("format"), str("STRING"), str("total_results"), ":3\r\n", str("warning"), "*0\r\n",
+            str("results"),
             sequence('*', {row("first", ",1\r\n"), row("bad", score), row("unread", ",1\r\n")})});
 }
 }  // namespace
