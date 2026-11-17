@@ -891,7 +891,7 @@ def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
 def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
     """Same as above, but the pressure stays on through the cursor reads, so the loader's own
     checkpoint fires first in every read after the sorter's stop. The loader must still see the
-    sorter's hold (the stop flag is cleared per read) and leave the end of the stream to it. It holds under every ON_TIMEOUT policy."""
+    sorter's hold (the stop is sticky across cursor reads) and leave the end of the stream to it. It holds under every ON_TIMEOUT policy."""
     for _ in timeout_policies(env):
         env.flush()
         create_index(env)

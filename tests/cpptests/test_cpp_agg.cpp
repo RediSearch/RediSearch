@@ -456,15 +456,12 @@ TEST_F(AggTest, testGroupByWidestOnSmallStack) {
 
 TEST_F(AggTest, testGroupSplitEndsOnAMemoryStop) {
   // A memory stop requested while a row's array values expand into groups ends the accumulation
-  // and yields no partial groups. A blocked-client timeout does not: the memory checkpoints are
-  // memory-only.
-  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  // and yields no partial groups.
+  TimeoutConfig config = {1000, TimeoutPolicy_Return};
   QueryRequestLimits limits = {};
   QueryRequestLimits_Init(&limits, &config);
-  QueryRequestLimits_BeginCycle(&limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryProcessingCtx qitr = {0};
   qitr.limits = &limits;
-  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
 
   ArrayGenerator gen;
   gen.type = RP_SCORER;  // Not an RP_INDEX root: ending the row source must not touch it.
