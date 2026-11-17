@@ -175,7 +175,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a main-thread timeout flag at the row boundary: buffering
      // stages (safe loader, sorter yield) can keep emitting from internal
      // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
+     if (QueryRequestLimits_IsBlockedClientTimedOut(ctx->limits)) {
        *rc = RS_RESULT_STOPPED;
        break;
      }
