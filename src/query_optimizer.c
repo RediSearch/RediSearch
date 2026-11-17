@@ -68,12 +68,16 @@ void QOptimizer_Parse(AREQ *req) {
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
+      // The optimizer reader yields only each match's numeric value, dropping the term records
+      // HIGHLIGHT and SUMMARIZE build their fragments from.
+      const bool needsTermRecords = AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT;
+      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC &&
+          !needsTermRecords) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
       } else {
-        // sortby other fields, or more than one sort key, no optimization
+        // sortby other fields, more than one sort key, or highlighting: no optimization
         opt->type = Q_OPT_NONE;
       }
     }
