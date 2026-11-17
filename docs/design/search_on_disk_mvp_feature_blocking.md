@@ -14,7 +14,7 @@ and compares them against the actual implementation status in the codebase.
 |---------|--------|-------|
 | `FT.CREATE` | ✅ Allowed | Requires `SKIPINITIALSCAN`; only HASH type; only TEXT/TAG/VECTOR fields |
 | `FT.DROPINDEX` | ✅ Allowed | `DD` option blocked |
-| `FT.SEARCH` | ✅ Allowed | Requires `NOCONTENT` or `RETURN 0`; no SLOP/INORDER/HIGHLIGHT/SUMMARIZE/LOAD |
+| `FT.SEARCH` | ✅ Allowed | Requires `NOCONTENT` or `RETURN 0`; no HIGHLIGHT/SUMMARIZE/LOAD |
 | `FT.PROFILE SEARCH` | ✅ Allowed | Only with `SEARCH` subcommand |
 | `FT.INFO` | ✅ Allowed | — |
 | `FT._LIST` | ✅ Allowed | — |
@@ -126,8 +126,8 @@ Once the MVP is complete, the following features should be unblocked:
 |----------|---------------|-------------------|---------------|
 | Without `NOCONTENT` or `RETURN 0` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:764-767` |
 | `LOAD` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1004-1008` |
-| `SLOP` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:698-704` |
-| `INORDER` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:705-708` |
+| `SLOP` | No | ➖ Allowed | Phrases filter by the term offsets that disk indexes store, as on memory |
+| `INORDER` | No | ➖ Allowed | Same as `SLOP` |
 | `HIGHLIGHT` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:639-642` |
 | `SUMMARIZE` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:627-630` |
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
@@ -140,9 +140,9 @@ The following table lists all available scorers and their Disk mode compatibilit
 
 | Scorer | Should Block? | Actually Blocked? | Reason | Code Location |
 |--------|---------------|-------------------|--------|---------------|
-| `TFIDF` | ✅ Yes | ✅ BLOCKED | Uses SLOP in calculation (`tfidf /= slop`) | `aggregate_request.c:1433-1437`, `default.c:116-117` |
-| `TFIDF.DOCNORM` | ✅ Yes | ✅ BLOCKED | Uses SLOP (same as TFIDF, different normalization) | `aggregate_request.c:1438-1442`, `default.c:116-117` |
-| `BM25` | ✅ Yes | ✅ BLOCKED | Uses SLOP in calculation (`score /= slop`) - **deprecated** | `aggregate_request.c:1443-1447`, `default.c:211-212` |
+| `TFIDF` | No | ➖ Allowed | Divides by the term distance (`tfidf /= slop`), see the note below | — |
+| `TFIDF.DOCNORM` | No | ➖ Allowed | Same as TFIDF, different normalization | — |
+| `BM25` | No | ➖ Allowed | Divides by the term distance (`score /= slop`) - **deprecated** | — |
 | `BM25STD` | No | ➖ Allowed | **Default scorer** - does not use SLOP | — |
 | `BM25STD.TANH` | No | ➖ Allowed | Normalized BM25STD with tanh - does not use SLOP | — |
 | `BM25STD.NORM` | No | ➖ Allowed | Normalized BM25STD - does not use SLOP | — |
@@ -150,8 +150,9 @@ The following table lists all available scorers and their Disk mode compatibilit
 | `DOCSCORE` | No | ➖ Allowed | Returns raw document score only - does not use SLOP | — |
 | `HAMMING` | No | ➖ Allowed | Hamming distance scorer - does not use SLOP | — |
 
-**Note:** Scorers that use SLOP require term offset information to calculate proximity between matched terms.
-Since SLOP is blocked for Disk mode (see above), any scorer that relies on SLOP must also be blocked.
+**Note:** The `slop` these scorers divide by is the smallest distance between the matched terms' offsets
+in each document, not the `SLOP` argument. Disk indexes store term offsets, so they compute the same value
+as memory indexes.
 
 ---
 
