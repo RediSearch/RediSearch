@@ -303,6 +303,7 @@ static inline void ASM_StateMachine_Init() {
 */
 static inline void ASM_StateMachine_End() {
   ASM_KeySpaceVersionTracker_Destroy();
+  slots_tracker_reset();
 }
 
 /*

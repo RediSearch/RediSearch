@@ -2995,6 +2995,8 @@ name = "slots_tracker"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "proptest",
+ "rdb_io",
  "workspace_hack",
 ]
 
@@ -3002,6 +3004,7 @@ dependencies = [
 name = "slots_tracker_ffi"
 version = "0.0.1"
 dependencies = [
+ "redis-module",
  "slots_tracker",
  "workspace_hack",
 ]

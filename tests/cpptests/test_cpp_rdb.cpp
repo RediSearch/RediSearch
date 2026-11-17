@@ -516,6 +516,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     for (int i = 0; i < 30; i++) {
         IndexSpec_RdbSave(io, spec, 0);
     }
+    RMCK_SaveUnsigned(io, 0);  // No import deletion records.
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Remove the original spec from globals before loading from RDB
@@ -654,6 +655,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoadWithRegisteredAlias) {
   for (size_t i = 0; i < nCopies; i++) {
     IndexSpec_RdbSave(io, spec, 0);
   }
+  RMCK_SaveUnsigned(io, 0);  // No import deletion records.
   io->read_pos = 0;
 
   dirtyStackForUninitializedQueryError();

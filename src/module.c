@@ -772,7 +772,13 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   sp->dropMode = dropMode;
 
-  DropIndex_ReplicateDropIfExists(ctx, argv[1]);
+  slots_tracker_record_index_drop(HiddenString_GetUnsafe(sp->specName, NULL));
+  size_t canonicalNameLen;
+  const char *canonicalName = HiddenString_GetUnsafe(sp->specName, &canonicalNameLen);
+  RedisModuleString *replicatedName =
+      RedisModule_CreateString(ctx, canonicalName, canonicalNameLen);
+  DropIndex_ReplicateDropIfExists(ctx, replicatedName);
+  RedisModule_FreeString(ctx, replicatedName);
 
   if (sp->dropMode == IndexDrop_DeleteDocs) {
     // We take a strong reference to the index, so it will not be freed
@@ -812,6 +818,14 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
+    const bool dropCommand =
+        RMUtil_StringEqualsCaseC(argv[0], CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD));
+    const bool validOption = argc == 2 || RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS") ||
+                             (dropCommand ? RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")
+                                          : RMUtil_StringEqualsCaseC(argv[2], "DD"));
+    if (validOption && slots_tracker_record_index_drop(RedisModule_StringPtrLen(argv[1], NULL))) {
+      DropIndex_ReplicateDropIfExists(ctx, argv[1]);
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 

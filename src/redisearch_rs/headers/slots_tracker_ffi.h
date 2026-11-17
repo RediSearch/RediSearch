@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
+typedef struct RedisModuleIO RedisModuleIO;
+
 /**
  * C-compatible slot range array structure.
  *
@@ -34,6 +36,11 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Clears pre-snapshot records without relying on another import-start notification.
+ */
+void slots_tracker_begin_loading(void);
+
+/**
  * Checks if all requested slots are available and returns version information.
  *
  * Return values (via OptionSlotTrackerVersion):
@@ -48,6 +55,17 @@ extern "C" {
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Ends an ASM import's schema-deletion tracking on completion or failure.
+ *
+ * # Safety
+ * 1. Call on the main thread.
+ * 2. `task_id` must point to a [valid], NUL-terminated string for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void slots_tracker_end_import(const char *task_id);
 
 /**
  * Returns the current local slot ranges as a newly allocated array.
@@ -76,6 +94,22 @@ struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 bool slots_tracker_has_fully_available_overlap(const struct RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Whether import deletion records require auxiliary RDB persistence.
+ */
+bool slots_tracker_has_import_drops(void);
+
+/**
+ * Loads records for the active import, returning false on malformed data or IO errors.
+ *
+ * # Safety
+ * 1. Call on the main thread.
+ * 2. `io` must point to a [valid] [`RedisModuleIO`] for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool slots_tracker_load_imports(struct RedisModuleIO *io);
 
 /**
  * Marks the given slot ranges as fully available non-owned.
@@ -134,6 +168,18 @@ uint32_t slots_tracker_mark_partially_available_slots(const struct RedisModuleSl
 void slots_tracker_promote_to_local_slots(const struct RedisModuleSlotRangeArray *ranges);
 
 /**
+ * Prevents active imports from replaying a schema for the dropped name.
+ * Returns whether a record was added, so an otherwise empty drop can be replicated.
+ *
+ * # Safety
+ * 1. Call on the main thread.
+ * 2. `name` must point to a [valid], NUL-terminated string for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool slots_tracker_record_index_drop(const char *name);
+
+/**
  * Removes deleted slot ranges from the partially available slots.
  *
  * This function removes the given slot ranges from "partially available slots" only.
@@ -161,6 +207,17 @@ void slots_tracker_remove_deleted_slots(const struct RedisModuleSlotRangeArray *
 void slots_tracker_reset(void);
 
 /**
+ * Saves import deletion records, including when the index registry is empty.
+ *
+ * # Safety
+ * 1. Call on the main thread or its RDB child.
+ * 2. `io` must point to a [valid] [`RedisModuleIO`] for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void slots_tracker_save_imports(struct RedisModuleIO *io);
+
+/**
  * Sets the local slot ranges this shard is responsible for.
  *
  * This function updates the "local slots" set to match the provided ranges.
@@ -181,6 +238,28 @@ void slots_tracker_reset(void);
  * All ranges must be sorted and have start <= end, with values in [0, 16383].
  */
 uint32_t slots_tracker_set_local_slots(const struct RedisModuleSlotRangeArray *ranges);
+
+/**
+ * Starts an ASM import's schema-deletion tracking.
+ *
+ * # Safety
+ * 1. Call on the main thread.
+ * 2. `task_id` must point to a [valid], NUL-terminated string for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void slots_tracker_start_import(const char *task_id);
+
+/**
+ * Whether schema replay must ignore the name during an active ASM import.
+ *
+ * # Safety
+ * 1. Call on the main thread.
+ * 2. `name` must point to a [valid], NUL-terminated string for the call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool slots_tracker_was_index_dropped(const char *name);
 
 #ifdef __cplusplus
 }  // extern "C"

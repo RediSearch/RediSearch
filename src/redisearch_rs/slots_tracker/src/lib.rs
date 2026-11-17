@@ -10,9 +10,11 @@
 //! A slots tracker implementation.
 //! This module provides a way to track and manage slots in a system.
 
+mod import_schemas;
 mod slot_set;
 mod slots_tracker;
 
+pub use import_schemas::ImportSchemas;
 pub use slots_tracker::{SlotsTracker, Version};
 
 /// Number of Redis Cluster hash slots.
