@@ -19,6 +19,7 @@ use crate::program::{Argv, Bytes, Conn, Op, OpKind, Program, ReplyMode, argv};
 use crate::resp::Value;
 use crate::target::{Connection, Env, Reply, Server, Status};
 
+const SETTLE: Duration = Duration::from_secs(2);
 const REPLY_DEADLINE: Duration = Duration::from_secs(10);
 const GRACE: Duration = Duration::from_secs(5);
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(30);
@@ -51,17 +52,8 @@ pub struct Step {
 #[serde(rename_all = "snake_case")]
 pub enum Exit {
     Clean,
-    Died {
-        at_op: usize,
-    },
-    Hung {
-        at_op: usize,
-    },
-    /// A reply arrived only after the harness released the scheduling
-    /// controls the program held. Not a finding.
-    Stalled {
-        at_op: usize,
-    },
+    Died { at_op: usize },
+    Hung { at_op: usize },
 }
 
 pub fn run(program: &Program, env: &Env) -> Result<Trace, String> {
@@ -153,22 +145,19 @@ impl Interpreter {
     }
 
     /// Reads every pending reply on `conn`. A reply that does not arrive in
-    /// time gets one more chance after the harness releases its controls.
+    /// time gets one more chance after the harness releases the scheduling
+    /// controls the program holds, and the program then carries on.
     fn drain(&mut self, conn: Conn, at: usize) -> Option<Exit> {
         while let Some(step) = self.pending.get_mut(&conn).and_then(VecDeque::pop_front) {
-            let mut reply = self.read(conn, REPLY_DEADLINE);
-            let stalled = reply == Reply::Timeout;
-            if stalled {
-                self.release();
-                reply = self.read(conn, GRACE);
+            let mut reply = self.read(conn, SETTLE);
+            if reply == Reply::Timeout {
+                let sent = self.tick();
+                let released = self.release().is_some();
+                self.marker(at, "RELEASE", sent, released);
+                reply = self.read(conn, REPLY_DEADLINE);
             }
             match reply {
-                Reply::Value(_) => {
-                    self.record(step, reply);
-                    if stalled {
-                        return Some(Exit::Stalled { at_op: at });
-                    }
-                }
+                Reply::Value(_) => self.record(step, reply),
                 Reply::Timeout => {
                     self.record(step, reply);
                     return Some(Exit::Hung { at_op: at });
@@ -217,7 +206,7 @@ impl Interpreter {
             return Some(exit);
         }
         let sent = self.tick();
-        let deadline = Instant::now() + REPLY_DEADLINE;
+        let deadline = Instant::now() + SETTLE;
         let quiet = loop {
             match self.quiescent() {
                 Some(true) => break true,
@@ -228,20 +217,26 @@ impl Interpreter {
         if quiet {
             self.control(argv(&[DEBUG, "GC_WAIT_FOR_JOBS"]));
         }
+        self.marker(at, "BARRIER", sent, quiet);
+        self.server.exited().map(|_| Exit::Died { at_op: at })
+    }
+
+    /// Records an action of the harness itself as a step: `OK` if it
+    /// completed, `Timeout` if it did not.
+    fn marker(&mut self, at: usize, name: &str, sent: u32, completed: bool) {
         let received = self.tick();
         self.steps.push(Step {
             op: at,
             conn: Conn::default(),
-            argv: argv(&["BARRIER"]),
+            argv: argv(&[name]),
             sent,
             received: Some(received),
-            reply: Some(if quiet {
+            reply: Some(if completed {
                 Reply::Value(Value::Simple("OK".into()))
             } else {
                 Reply::Timeout
             }),
         });
-        self.server.exited().map(|_| Exit::Died { at_op: at })
     }
 
     fn quiescent(&mut self) -> Option<bool> {

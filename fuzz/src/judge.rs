@@ -33,9 +33,11 @@ pub struct Finding {
 
 pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
     let log = String::from_utf8_lossy(trace.log.as_slice());
+    // Only the first report counts: printing a crash report runs module code
+    // that can trip further assertions.
     let mut findings: Vec<Finding> = log
         .lines()
-        .filter_map(|line| {
+        .find_map(|line| {
             if let Some(summary) = line.split("SUMMARY: AddressSanitizer: ").nth(1)
                 && !summary.contains(" leaked in ")
             {
@@ -51,6 +53,7 @@ pub fn judge(program: &Program, trace: &Trace) -> Vec<Finding> {
                 })
             }
         })
+        .into_iter()
         .chain(leaks(&log))
         .collect();
 
@@ -208,7 +211,8 @@ mod tests {
         let cases = [
             (
                 Exit::Clean,
-                "SUMMARY: AddressSanitizer: heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free\n",
+                "SUMMARY: AddressSanitizer: heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free\n\
+                 ==> /src/util/workers.c:180 'x' is not true\n",
                 "asan:heap-use-after-free:IndexSpec_Free:spec.c:123",
             ),
             (

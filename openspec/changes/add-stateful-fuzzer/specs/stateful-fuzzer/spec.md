@@ -47,7 +47,7 @@ if the server responds after the harness releases its controls.
 #### Scenario: Workers left paused
 - **WHEN** a program pauses the worker pool, issues a query, and never resumes
 - **AND** the query replies after the harness sends its release list
-- **THEN** the run SHALL be recorded as stalled
+- **THEN** the release SHALL be recorded and the program SHALL continue
 - **AND** no finding SHALL be reported for it
 
 ### Requirement: Sanitizer reports from child processes are detected

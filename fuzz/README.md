@@ -137,6 +137,7 @@ source bin/fuzz/env.sh
 cd fuzz
 cargo run -- run seeds/smoke.json --verbose
 cargo run -- run <program.json> --repeat 10
+cargo run -- generate --seed 7 > program.json
 ```
 
 `run` starts a fresh server, executes the program, and prints each finding.
@@ -145,7 +146,8 @@ how many edges were reached in every run versus in any run.
 Each distinct finding is written to `findings/<signature>/`: the program, the
 trace, the server log, and a manifest with the binaries, sanitizer settings,
 and reproduction rate. The exit code is 0 without findings, 1 with findings,
-and 2 on an error such as a server that fails to start.
+and 2 on an error such as a server that fails to start. `generate` prints a
+generated program; the same seed gives the same program.
 
 ## Testing
 
@@ -158,4 +160,5 @@ source ../bin/fuzz/env.sh && cargo test -- --ignored   # every program in tests/
 The live tests run the smoke seed and the programs under `tests/programs/`,
 which exercise the harness itself: a crash, a hang, a stall the harness
 resolves, a barrier that cannot complete, a query left pending while another
-connection drops its index, and the edges a forced GC adds.
+connection drops its index, and the edges a forced GC adds. One more runs
+generated programs and checks that most replies are not errors.

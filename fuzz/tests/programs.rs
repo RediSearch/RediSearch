@@ -13,11 +13,16 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use redisearch_fuzz::edit::generate;
 use redisearch_fuzz::judge::{Kind, judge};
 use redisearch_fuzz::program::{Op, OpKind, Program, ReplyMode, argv};
 use redisearch_fuzz::resp::Value;
 use redisearch_fuzz::run::{Exit, Trace, run};
 use redisearch_fuzz::target::{Env, Reply};
+
+const GENERATED: usize = 50;
 
 fn load(path: &str) -> Program {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
@@ -61,10 +66,15 @@ fn a_command_that_never_returns_is_a_hang() {
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_reply_the_program_held_back_is_a_stall_not_a_finding() {
+fn a_reply_the_program_held_back_is_released_and_the_program_carries_on() {
     let (trace, kinds) = execute(&load("tests/programs/stall.json"));
-    assert_eq!(trace.exit, Exit::Stalled { at_op: 3 });
+    assert_eq!(trace.exit, Exit::Clean);
     assert!(kinds.is_empty());
+    let [.., query, release, ping] = trace.steps.as_slice() else {
+        panic!("{:?}", trace.steps);
+    };
+    assert_eq!(release.argv, argv(&["RELEASE"]));
+    assert!(release.received < query.received && query.received < ping.received);
 }
 
 #[test]
@@ -117,4 +127,27 @@ fn a_forced_gc_reaches_edges_the_same_writes_alone_do_not() {
         },
     );
     assert!(edges(&forced).difference(&edges(&unforced)).count() > 0);
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn most_replies_to_generated_programs_are_not_errors() {
+    let mut rng = SmallRng::seed_from_u64(0);
+    let (mut replies, mut errors) = (0, 0);
+    for _ in 0..GENERATED {
+        let (trace, _) = execute(&generate(&mut rng));
+        for step in &trace.steps {
+            if [argv(&["BARRIER"]), argv(&["RELEASE"])].contains(&step.argv) {
+                continue;
+            }
+            replies += 1;
+            if !matches!(&step.reply, Some(Reply::Value(v)) if !matches!(v, Value::Error(_))) {
+                errors += 1;
+            }
+        }
+    }
+    assert!(
+        errors * 5 <= replies,
+        "{errors} of {replies} replies are errors"
+    );
 }

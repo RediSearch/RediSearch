@@ -12,8 +12,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
 
 use redisearch_fuzz::bundle;
+use redisearch_fuzz::edit::generate;
 use redisearch_fuzz::judge::{Finding, judge};
 use redisearch_fuzz::program::Program;
 use redisearch_fuzz::run::{Trace, run};
@@ -42,16 +45,27 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+    /// Print a generated program.
+    Generate {
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+    },
 }
 
 fn main() -> ExitCode {
-    let Command::Run {
-        program,
-        repeat,
-        findings,
-        verbose,
-    } = Cli::parse().command;
-    match run_command(&program, repeat, &findings, verbose) {
+    let result = match Cli::parse().command {
+        Command::Run {
+            program,
+            repeat,
+            findings,
+            verbose,
+        } => run_command(&program, repeat, &findings, verbose),
+        Command::Generate { seed } => {
+            println!("{}", generate(&mut SmallRng::seed_from_u64(seed)).to_json());
+            Ok(false)
+        }
+    };
+    match result {
         Ok(false) => ExitCode::SUCCESS,
         Ok(true) => ExitCode::from(1),
         Err(e) => {

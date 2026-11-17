@@ -27,7 +27,7 @@ acceptance check for that PR.
 - [x] 2.1 Implement `ReplyMode::Defer` with send and receive sequence numbers
 - [x] 2.2 Drive the `FT.DEBUG` scheduling hooks, `DEBUG RELOAD`, and `CONFIG SET` as `Command` ops
 - [x] 2.3 Implement `Barrier` with its polling predicates and timeout
-- [x] 2.4 Tests: `Stalled` versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
+- [x] 2.4 Tests: a released stall versus `Hung` on a program that never resumes workers; barrier timeout is not a finding
 - **Done when:** a seed with workers enabled holds a query pending behind paused workers while another connection drops the index, and completes with exit `Clean`.
 - **Status:** done; `tests/programs/drop-under-pending-query.json`. The pending query is answered with `SEARCH_INDEX_DROPPED_BG` after the drop. `TTL_PAUSE` and `TTL_EXPIRE` apply only to temporary indexes, so their hooks arrive with temporary-index support in 7.2.
 
@@ -43,11 +43,12 @@ acceptance check for that PR.
 
 ## 4. Generator and edits
 
-- [ ] 4.1 Implement `Scope` and the value pools
-- [ ] 4.2 Implement `generate`
-- [ ] 4.3 Implement the edit set, `mutate`, and `smaller`
-- [ ] 4.4 Property tests: every edit yields a program that round-trips; every `smaller` candidate strictly decreases a size measure
+- [x] 4.1 Implement `Scope` and the value pools
+- [x] 4.2 Implement `generate`
+- [x] 4.3 Implement the edit set, `mutate`, and `smaller`
+- [x] 4.4 Property tests: every edit yields a program that round-trips; every `smaller` candidate strictly decreases a size measure
 - **Done when:** at least 80% of replies are not errors across 200 generated programs run against a live server.
+- **Status:** about 97.5% of replies are not errors (93 errors across 200 programs; the live test checks 50). 190 programs run clean; the other 10 hit one module bug, a heap-buffer-overflow in `DebugIndexes_ScanProc` (`indexes_scan.c`): `_FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_SCAN` turns on debug mode while a scan created with the plain scanner is queued, and the scan then reads it as the larger debug scanner. It is reachable only through `_FT.DEBUG`. Stalls no longer end a program: the harness releases its controls, records a `RELEASE` step, and carries on, and it waits only a short settle time before releasing.
 
 ## 5. Reduce
 

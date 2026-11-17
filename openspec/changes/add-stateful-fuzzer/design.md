@@ -7,7 +7,7 @@ workspace-wide test, miri, and coverage runs do not build it. Two plain data
 types carry everything between components, and one component performs IO.
 
 ```
- gen (pure)             run (only IO)               judge (pure)
+ edit (pure)            run (only IO)               judge (pure)
  generate ─┐
  mutate   ─┼─▶ Program ─▶ interpreter ─▶ Trace ─▶ findings + features
  smaller  ─┘      ▲                                    │
@@ -16,12 +16,12 @@ types carry everything between components, and one component performs IO.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `program` | Program and trace types, JSON format, `lower`, `Scope` | serde |
-| `gen` | Generate, mutate, and shrink programs | `program` |
+| `program` | Program types, JSON format, `lower` | serde |
+| `edit` | `Scope`; generate, mutate, and shrink programs | `program` |
 | `target` | Server process, connections, log, coverage memory | a small RESP reader of its own |
 | `run` | The interpreter: `Program` → `Trace` | `program`, `target` |
 | `judge` | `(Program, Trace)` → findings and features | `program` |
-| `reduce` | Shrink a failing program | `gen`, `run`, `judge` |
+| `reduce` | Shrink a failing program | `edit`, `run`, `judge` |
 | `campaign` | Corpus, novelty, scheduling | all of the above, LibAFL |
 
 `fuzz`, `run <file>`, `reduce <file>`, and `export <file>` all go through the
@@ -30,8 +30,7 @@ same `judge(run(program))`. Only `campaign` depends on LibAFL.
 ## Program
 
 ```rust
-struct Program { version: u32, module_args: Vec<Bytes>, pools: Pools, ops: Vec<Op> }
-struct Pools   { terms: Vec<Bytes>, tags: Vec<Bytes>, nums: Vec<F64Bits>, vecs: Vec<Vec<F32Bits>> }
+struct Program { version: u32, module_args: Vec<Bytes>, ops: Vec<Op> }
 struct Op      { conn: Conn, reply: ReplyMode, kind: OpKind }
 enum ReplyMode { Await, Defer }
 enum OpKind {
@@ -63,8 +62,8 @@ enum OpKind {
   as bit patterns, so NaN, infinities, and negative zero survive and the type is
   hashable.
 - **`Populate`** carries its own field list, so it does not depend on an earlier
-  `Create`. It expands to `n` writes drawn from `pools` with a pinned PRNG, using
-  raw integer draws only. A golden test freezes the expansion.
+  `Create`. It expands to `n` writes drawn from the fixed dictionary in `edit` with a
+  pinned PRNG, using raw integer draws only. A golden test freezes the expansion.
 - **`Var`** binds a server-chosen value (a cursor id). If its source op was
   deleted, failed, or is still deferred, the op using it is recorded as skipped.
 - **`conn`** is taken modulo a small fixed number of connections.
@@ -72,9 +71,10 @@ enum OpKind {
 `lower(&OpKind) -> Vec<Argv>` turns an op into the commands it sends; `Barrier`
 lowers to none.
 
-`Scope` is a pure fold over a prefix of a program: declared indexes and schemas,
-configuration, and twin indexes. The generator uses it to produce well-typed
-ops. The judge uses a second fold over only those ops whose recorded reply
+`Scope` is a pure fold over a prefix of a program: the indexes that exist and
+their schemas (a `Create` of an existing name changes nothing, `FT.DROPINDEX`
+removes one), whether workers are configured, and whether they are paused. The
+generator uses it to produce well-typed ops. The judge uses a second fold over only those ops whose recorded reply
 succeeded.
 
 ## Execution
@@ -92,8 +92,9 @@ own commands.
 2. **Execute** ops in order. For `Await`, send and read the reply. For `Defer`,
    send and leave the reply pending. Pending replies on a connection are read
    when that connection is next used, at a `Barrier`, and at the end. A reply
-   that misses its deadline gets one more chance after the harness releases its
-   controls (below). A connection that closes or sends an invalid reply is
+   that does not arrive within a short settle time gets a full deadline after
+   the harness releases its controls (below); the release is recorded as a
+   `RELEASE` step and the program carries on. A connection that closes or sends an invalid reply is
    recorded and reopened on next use; the program stops only if the server is
    exiting.
 3. **Release.** The harness connection sends a fixed list: resume workers,
@@ -108,11 +109,10 @@ own commands.
    the log.
 
 ```rust
-enum Exit { Clean, Died { at_op }, Hung { at_op }, Stalled { at_op } }
+enum Exit { Clean, Died { at_op }, Hung { at_op } }
 ```
 
-`Stalled` means a reply arrived only after the release: the program held its
-own controls. It is not a finding. `Hung` means it did not arrive at all. A run
+`Hung` means a reply did not arrive even after the release. A run
 that reaches the end but whose server exits non-zero, for example with a leak
 report, is `Died` at the end.
 
@@ -213,6 +213,13 @@ behaviour, and each false novelty costs a server start.
 
 ## Generation, mutation, reduction
 
+`generate` draws each op against the `Scope` of the ops before it: writes and
+queries name existing indexes and use fields of the right type, a `Create`
+takes an unused name, and while workers are paused queries are deferred and a
+resume is likely. Values come from pools: a fixed dictionary plus every word
+and number already in the programs being mutated, so values that reached new
+code are reused.
+
 One edit set serves both mutation and reduction:
 
 | Edit | Smaller? |
@@ -226,8 +233,14 @@ One edit set serves both mutation and reduction:
 | Insert a related-query group | no |
 | Edit `Command` argv tokens: delete, duplicate, swap, replace from a pool | no |
 
-`Lower` does not apply to ops that define or use a `Var`. `mutate` samples one
-edit. `smaller` enumerates the smaller edits, largest first.
+Changing an op's connection or reply mode counts as regenerating a field, and
+editing a token's bytes (inserting query syntax, deleting a byte, splicing in a
+pool word) as a token edit. `Lower` does not apply to ops that define or use a
+`Var`. `mutate` applies one to three edits, because each run costs a server
+start. `smaller` enumerates the smaller edits, largest first: dropping the
+module arguments, deleting ranges of ops halving in length, removing a schema
+field, hoisting a query node's child, deleting a token, and shortening a word
+or number. Each strictly decreases a size measure, so reduction terminates.
 
 `reduce` keeps a smaller candidate when `judge(run(candidate))` still contains
 the original signature, and repeats until none is kept. It then runs the result
@@ -275,7 +288,8 @@ to programs with one connection, no deferred replies, and no variables.
 
 - **Server fails to start.** `run` returns an error, never a finding; the
   campaign stops after repeated failures.
-- **Program leaves workers paused.** Resolved by the release list; `Stalled`.
+- **Program leaves workers paused.** Resolved by the release list, recorded as
+  a `RELEASE` step; the program carries on.
 - **Hook errors** (for example pausing workers when none are configured). An
   ordinary error reply.
 - **Crash in the fork-GC child.** The parent does not inspect the child's exit
@@ -324,6 +338,9 @@ to programs with one connection, no deferred replies, and no variables.
 - **Measured (macOS arm64, AddressSanitizer builds):** `redis-server` alone is
   ready in about 0.5 s; with the module loaded, about 1.6 s. A clean shutdown
   reports no sanitizer errors with leak detection on.
+- **Measured (generator):** of 200 generated programs, 190 run clean and 10
+  hit the same sanitizer finding (task 4 status); about 2.5% of replies are
+  errors.
 - **Not verified:** the coverage build on Linux, including symbol binding
   against an AddressSanitizer `redis-server`; the reproduction rate and
   stability of real programs.
