@@ -24,6 +24,7 @@
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_flags::QEFlag;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
@@ -752,4 +753,22 @@ fn eval_fuzzy_does_not_expand_to_the_empty_term_beyond_max_dist() {
         .eval()
         .expect("a fuzzy token with matches must build an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1]);
+}
+
+#[test]
+fn eval_fuzzy_memory_counter_persists_across_nodes() {
+    // Each expansion is far below the read interval, so memory is ever read only if the
+    // amortization counter lives on the context and not on the expansion.
+    let mut fixture = FuzzyFixture::new("world", 1);
+    // SAFETY: the fixture exclusively owns the `QueryEvalCtx`, and nothing is evaluating.
+    unsafe {
+        (*fixture._context.qctx().as_ptr()).reqFlags = QEFlag::IsSearch as u32;
+    }
+
+    drop(fixture.eval());
+    let after_first = *fixture.ctx.memory_counter_mut();
+    assert!(after_first > 0, "the fuzzy expansion must sample memory");
+
+    drop(fixture.eval());
+    assert_eq!(*fixture.ctx.memory_counter_mut(), 2 * after_first);
 }

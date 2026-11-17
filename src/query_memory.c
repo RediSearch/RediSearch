@@ -12,6 +12,8 @@
 #include <stdatomic.h>
 
 #include "config.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
 #include "util/redis_mem_info.h"
 
 static _Atomic(uint32_t) ratioReadInterval = QUERY_MEMORY_RATIO_READ_INTERVAL;
@@ -120,4 +122,15 @@ bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
     return true;
   }
   return memoryStops(limits, isPressureAtThisCall());
+}
+
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
+                                     QueryError *err) {
+  RS_ASSERT(timeout);
+  if (!QueryMemory_CheckpointExact(timeout) || oomPolicy != OomPolicy_Fail ||
+      !QueryRequestLimits_IsMemoryStopped(timeout)) {
+    return REDISMODULE_OK;
+  }
+  QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  return REDISMODULE_ERR;
 }
