@@ -79,8 +79,12 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
   return true;
 }
 
-bool StoredResults_StopBeforeReply(RSOomPolicy oomPolicy, QueryError *err) {
-  if (!QueryMemory_CheckpointExact(NULL)) {
+bool StoredResults_StopBeforeReply(QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                                   QueryError *err) {
+  // A blocked-client timeout's callback owns the reply, as in ApplyOomStop. A stop requested
+  // while buffering was already applied (a RETURN prefix is kept), so only a new one counts here.
+  if (QueryRequestLimits_IsBlockedClientTimedOut(limits) ||
+      QueryRequestLimits_IsMemoryStopped(limits) || !QueryMemory_CheckpointExact(limits)) {
     return false;
   }
   if (oomPolicy == OomPolicy_Fail) {

@@ -57,9 +57,11 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
  * rows. A reply that has started cannot become an error, so ON_OOM FAIL decides
  * here: on a stop `err` gets the OOM error and the replay must not start, and
  * the replay itself then never checks memory. Under RETURN a stop sets the OOM
- * warning and the reply carries no rows.
+ * warning and the reply carries no rows. A blocked-client timeout owns its reply:
+ * no stop is reported then.
  */
-bool StoredResults_StopBeforeReply(RSOomPolicy oomPolicy, QueryError *err);
+bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                                   QueryError *err);
 
 /**
  * Per-row stop check of the inline reply loops, before each upstream read: a

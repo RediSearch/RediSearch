@@ -544,7 +544,8 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
   if (*results != NULL && !err && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF)) {
     // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
     QueryError oomErr = QueryError_Default();
-    replayStopped = StoredResults_StopBeforeReply(hreq->base.reqConfig.oomPolicy, &oomErr);
+    replayStopped = StoredResults_StopBeforeReply(&hreq->base.limits,
+                                                  hreq->base.reqConfig.oomPolicy, &oomErr);
     if (replayStopped && QueryError_HasError(&oomErr)) {
       handleSendChunkError_hybrid(hreq, reply, &oomErr, rc);
       QueryError_ClearError(&oomErr);
