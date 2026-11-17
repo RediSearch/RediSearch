@@ -3074,8 +3074,10 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     }
   }
 
-  // Load sparse vector attributes. The type bit cannot appear in an older encoding.
+  // Load sparse vector attributes.
   if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    // No build writes the type bit at an older encoding, so this fires only on a corrupt or
+    // foreign file. Rejecting it here beats reading attributes that were never written.
     if (encver < INDEX_SPARSE_VECTOR_VERSION) {
       RedisModule_LogIOError(rdb, "warning", "Sparse vector field in encoding version %d", encver);
       goto fail;
