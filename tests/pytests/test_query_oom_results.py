@@ -63,6 +63,10 @@ def _expect_complete_after_the_pre_header_call(env, query, fail_calls):
     return res
 
 
+def _queries_processed(env):
+    return int(env.cmd('INFO', 'MODULES')['search_total_queries_processed'])
+
+
 def _oom_counters(env):
     section = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
     return int(section[OOM_ERROR_COORD_METRIC]), int(section[OOM_WARNING_COORD_METRIC])
@@ -476,9 +480,14 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
 
             _set_policies(env, 'fail', 'fail', workers)
             errors, warnings = _oom_counters(env)
+            processed = _queries_processed(env)
             _memory_pressure(env, 'AT_CALL', buffering_calls)
             env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
+            # A query that failed with the pre-header OOM error is not a processed one.
+            env.assertEqual(_queries_processed(env), processed, message=workers)
+            env.cmd(*HYBRID)
+            env.assertEqual(_queries_processed(env), processed + 1, message=workers)
 
             env.assertEqual(_checkpoint_calls(env, HYBRID), buffering_calls, message=workers)
     finally:
