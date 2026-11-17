@@ -190,13 +190,14 @@ def test_search_fanout_stop_keeps_earlier_replies():
     def checkpoint_calls():
         return coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
 
-    # Calls up to and including the first shard reply's read: all fan-out calls (shard 1's pipeline,
-    # the same count on every run of this query and data) but the other shard replies' reads.
-    first_reply_read = coordinator_calls_after_fanout(env, coord, SEARCH, N_DOCS) - 1 - len(others)
-
     try:
         for oom_policy in ('return', 'fail'):
             allShards_change_oom_policy(env, oom_policy)
+            # Calls up to and including the first shard reply's read: all fan-out calls (shard 1's
+            # pipeline, the same count on every run of this query, data and ON_OOM policy) but the
+            # other shard replies' reads.
+            first_reply_read = (coordinator_calls_after_fanout(env, coord, SEARCH, N_DOCS, oom_policy)
+                                - 1 - len(others))
             for shard in others:
                 sync_point(shard, 'CLEAR')
                 sync_point(shard, 'ARM', 'BeforeFirstRead')
@@ -266,13 +267,13 @@ def _test_knn_search_fanout_stop_keeps_earlier_replies(env):
     def checkpoint_calls():
         return coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
 
-    # As in test_search_fanout_stop_keeps_earlier_replies: the calls up to the first shard reply's
-    # read, the reply rows being the K nearest.
-    first_reply_read = coordinator_calls_after_fanout(env, coord, KNN_QUERY, len(full)) - 1 - len(others)
-
     try:
         for oom_policy in ('return', 'fail'):
             allShards_change_oom_policy(env, oom_policy)
+            # As in test_search_fanout_stop_keeps_earlier_replies: the calls up to the first shard
+            # reply's read, the reply rows being the K nearest.
+            first_reply_read = (coordinator_calls_after_fanout(env, coord, KNN_QUERY, len(full),
+                                                               oom_policy) - 1 - len(others))
             errors, warnings = coord_oom_counters(coord)
             for shard in others:
                 sync_point(shard, 'CLEAR')
@@ -1194,23 +1195,28 @@ def test_aggregate_withcount_io_thread_stop_dispatches_resp2():
 
 
 def _test_aggregate_withcount_reader_stop(env):
+    skipIfNoEnableAssert(env)
     create_index(env)
     coord = env.getConnection(1)
     query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
     try:
         for oom_policy in ('return', 'fail'):
             allShards_change_oom_policy(env, oom_policy)
-            # The WITHCOUNT pipeline starts once every shard replied, so its memory reads (one
-            # per fetch: a reply per shard, then the end of the stream) are the coordinator
-            # process's last checkpoint calls. Every shard answers in one chunk, so the IO thread
+            # The WITHCOUNT pipeline starts once every shard replied, so the coordinator process
+            # makes no other checkpoint call once its pipeline waits for the first fetch: the count
+            # there ends with that fetch's read. Every shard answers in one chunk, so the IO thread
             # never reads.
+            sync_point(coord, 'CLEAR')
+            sync_point(coord, 'ARM', 'RpnetWaitingForReply')
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
             try:
-                coord.execute_command(*query)
-                calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+                thread, _ = run_in_thread(coord, query)
+                wait_for_sync_point(coord, 'RpnetWaitingForReply')
+                first_fetch_read = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
             finally:
+                sync_point(coord, 'CLEAR')
                 coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-            first_fetch_read = calls - env.shardsCount
+            thread.join(timeout=30)
             errors, warnings = coord_oom_counters(coord)
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', first_fetch_read)
             try:
