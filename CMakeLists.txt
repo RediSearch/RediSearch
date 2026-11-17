@@ -436,7 +436,7 @@ set_target_properties(redisearch
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 if(FUZZ_COV)
-    target_sources(redisearch PRIVATE ${root}/fuzz/shim/coverage.c)
+    target_sources(redisearch PRIVATE ${root}/fuzz/procfuzz/shim/coverage.c)
 endif()
 
 # Link the final library - redisearch_c brings in all C dependencies transitively

@@ -2,49 +2,79 @@
 
 ## Overview
 
-One standalone crate, `fuzz/`, outside the `src/redisearch_rs/` workspace so that
-workspace-wide test, miri, and coverage runs do not build it. Two plain data
-types carry everything between components, and one component performs IO.
+A Cargo workspace at `fuzz/`, outside the `src/redisearch_rs/` workspace so
+that workspace-wide test, miri, and coverage runs do not build it. It has two
+layers:
 
-```
- generate ─┐                 run (only IO)            judge, logic (pure)
- mutate   ─┼─▶ Program ─▶ interpreter ─▶ Trace ─▶ findings
- smaller  ─┘      ▲                                    │
-                  └───────── reduce, campaign ◀────────┘
+- **`procfuzz`** knows nothing about RediSearch or Redis and is meant to be
+  reusable. It owns the stateful program model (connections, deferred
+  replies, variables, barriers, raw commands, literals), the interpreter, the
+  edit engine (mutation, shrinking, reduction), edge coverage and its C shim,
+  sanitizer reports, finding directories, and the LibAFL loop.
+- **`redisearch-fuzz`** plugs RediSearch into it through two traits and a
+  closure: `TypedOp` for its own ops (create, alter, query, populate),
+  `Server` for `redis-server` (RESP, idle checks, the release list, Redis
+  crash reports), and a generator. It adds the logic rules.
+
+```rust
+trait TypedOp {          // the target's own ops
+    fn lower(&self) -> Vec<Argv>;
+    fn literals(&mut self) -> Vec<Literal<'_>>;
+    fn simpler(&self) -> Vec<Self>;
+    fn size(&self) -> usize;
+}
+trait Server {           // the server under test
+    type Value;
+    fn command(&self, dir, socket, args) -> Command;
+    fn encode(&Argv) -> Vec<u8>;
+    fn decode(&[u8]) -> Result<Option<(Value, usize)>, String>;
+    fn ping(&self) -> Argv;
+    fn shutdown(&self) -> Argv;
+    fn bound(&self, &Value) -> Option<i64>;
+    fn idle(&self, &mut Harness<Self>) -> Option<bool>;
+    fn release(&self, &mut Harness<Self>) -> Option<()>;
+    fn failure(&self, line: &str) -> Option<String>;   // optional
+    fn crash_frame(&self, log: &str) -> Option<String>; // optional
+}
 ```
 
-| Module | Responsibility |
+| `procfuzz` module | Responsibility |
 |---|---|
-| `program` | The types, the JSON format, and an op's literals |
-| `vocabulary` | The words and numbers programs are built from, and field values drawn from them |
-| `lower` | An op as the commands it sends: query, schema, and write syntax, `Populate` |
-| `scope` | What a sequence of ops set up: indexes and schemas, worker state, cursors |
-| `generate` | Ops and programs well-typed against a scope |
-| `mutate` | Random edits |
-| `shrink` | The size measure, `smaller`, and `reduce` |
-| `target`, `resp`, `coverage` | Server process, connections, the RESP reader, coverage memory |
-| `run` | The interpreter: `Program` → `Trace` |
-| `judge`, `logic` | `(Program, Trace)` → findings: safety from the log and exit, logic from replies |
-| `bundle`, `campaign` | Finding directories, and the coverage-guided loop |
+| `program` | `Program<T>`, ops, connections, variables, literals, `Bytes`, `TypedOp` |
+| `vocabulary` | Words and numbers to draw from, learned from programs |
+| `edit` | `mutate`, `smaller`, and `reduce` |
+| `server` | The `Server` trait, connections, the harness connection |
+| `run` | The interpreter and `execute`: program → `Execution` (trace, log, coverage, findings) |
+| `judge` | Sanitizer reports, crashes, hangs, protocol violations |
+| `process`, `coverage` | The process under test and its coverage segment (`shim/coverage.c` writes it) |
+| `findings`, `campaign`, `session` | Finding directories, the LibAFL loop, replay/reduce/parallel fuzzing |
 
-`judge::execute(program, env)` runs and judges a program; the `run`,
-`reduce`, and `fuzz` commands all go through it. `scope` serves both the generator, which folds
-every op of a prefix, and the logic rules, which fold only the ops the server
-accepted. Only `campaign` depends on LibAFL.
+| `redisearch-fuzz` module | Responsibility |
+|---|---|
+| `action` | Create, alter, query, populate: types, lowering, simplification, the fixed vocabulary |
+| `scope`, `generate` | What a prefix set up; ops well-typed against it |
+| `redis` | `Env` as a `Server`: command line, RESP, idle and release, crash reports |
+| `logic` | Equivalence, twin, and partition rules over search results |
+| `main` | The command line |
+
+Findings are signatures `<kind>:<detail>`. `scope` serves both the generator,
+which folds every op of a prefix, and the logic rules, which fold only the
+ops the server accepted. Only `procfuzz::campaign` depends on LibAFL.
 
 ## Program
 
 ```rust
-struct Program { version: u32, module_args: Vec<Bytes>, ops: Vec<Op> }
-struct Op      { conn: Conn, reply: ReplyMode, bind: Option<Var>, kind: OpKind }
-enum ReplyMode { Await, Defer }
-enum OpKind {
+// procfuzz
+struct Program<T> { args: Vec<Bytes>, ops: Vec<Op<T>> }
+struct Op<T>      { conn: Conn, reply: ReplyMode, bind: Option<Var>, kind: Kind<T> }
+enum ReplyMode    { Await, Defer }
+enum Kind<T>      { Barrier, Command(Argv), Typed(T) }
+// redisearch-fuzz
+enum Action {
     Create { index, on, prefix, fields },
     Alter { index, on, field },
     Query { index, query: QueryAst, options },
     Populate { on, prefix, fields, n, seed },
-    Barrier,
-    Command { argv: Vec<Bytes> },
 }
 ```
 
@@ -62,7 +92,7 @@ enum OpKind {
   of strings, numbers as numbers, and vectors as arrays of floats. The
   generator makes about a third of its indexes JSON, on prefixes of their own,
   so writes of one type rarely meet keys of the other.
-- **`module_args`** holds only what must exist before the server starts: some
+- **`args`** holds only what must exist before the server starts: some
   `search-*` settings are immutable after load. Runtime configuration is a
   `CONFIG SET` command.
 - **Explicit names.** Indexes, keys, and cursors are named in the program.
@@ -90,8 +120,8 @@ enum OpKind {
   connection, so a binding made earlier on the same connection is seen.
 - **`conn`** is taken modulo a small fixed number of connections.
 
-`lower(&OpKind) -> Vec<Argv>` turns an op into the commands it sends; `Barrier`
-lowers to none.
+`Kind::lower` turns an op into the commands it sends; `Barrier` lowers to
+none, and an `Action` lowers through `TypedOp::lower`.
 
 `Scope` is a pure fold over a prefix of a program: the indexes that exist and
 their schemas (a `Create` of an existing name changes nothing, `FT.DROPINDEX`
@@ -235,7 +265,7 @@ plateaus.
   -Cllvm-args=-sanitizer-coverage-trace-pc-guard`.
 - A shim of about fifty lines of C, excluded from instrumentation and linked
   into `redisearch.so`. At guard initialisation it numbers the guards and maps
-  the POSIX shared-memory segment named by `REDISEARCH_COV_SHM`. On each edge it
+  the POSIX shared-memory segment named by `PROCFUZZ_COVERAGE_SHM`. On each edge it
   stores `1` at the guard's index.
 
 C and Rust share one id space. Writes go directly to shared memory, so edges
@@ -287,7 +317,7 @@ module arguments, deleting ranges of ops halving in length, removing a schema
 field, replacing a query node by its child, deleting a token, and shortening
 a word or number. Each strictly decreases a size measure, so reduction terminates.
 
-`reduce` keeps a smaller candidate when `judge(run(candidate))` still contains
+`reduce` keeps a smaller candidate when `Target::execute` still yields
 the original finding, resumes at the same position in the new candidate list,
 and stops after a full pass keeps nothing. It then runs the result ten times
 and records the reproduction rate. Each candidate runs once. A racy finding can
@@ -301,9 +331,9 @@ writes to range deletion.
 
 LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
 
-- `Program` implements `Input` with JSON `to_file` and `from_file`, and
-  `HasLen` as the size measure `smaller` decreases.
-- The executor calls `judge::execute` and sets one byte per edge in a map
+- A wrapper around the target's program implements `Input` with JSON files and
+  `HasLen` as `Program::size`.
+- The executor calls `Target::execute` and sets one byte per edge in a map
   observer of 2^20 entries (more than the module has guards). It also writes
   each finding whose signature has no directory under `findings/` yet:
   creating the directory claims it, so a known bug is marked by its
@@ -312,7 +342,7 @@ LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
   objective; findings never enter a corpus.
 - The scheduler is the length-and-time minimizer over a queue.
 - One mutational stage, at most eight mutations per scheduled program, wraps a
-  mutator that calls `mutate` with a donor drawn from the corpus, seeded
+  mutator that calls `Target::mutate` with a donor drawn from the corpus, seeded
   from LibAFL's state RNG.
 - The corpus is kept on disk as program JSON without metadata files, and is
   reloaded with the seeds when a campaign starts again.
@@ -332,7 +362,7 @@ importing from eleven siblings would cost more runs than fuzzing.
 
 ## Planted bugs
 
-`fuzz/planted/planted.patch` adds two deterministic bugs that each need a few
+`fuzz/redisearch/planted/planted.patch` adds two deterministic bugs that each need a few
 ops of state: a range query on a sortable numeric field of an index with a TEXT
 or TAG field and at least three documents reads past a buffer, and
 `FT.DROPINDEX … DD` of an index with a TAG field and at least two documents

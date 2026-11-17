@@ -1,0 +1,16 @@
+[package]
+name = "redisearch-fuzz"
+version = "0.0.1"
+edition = "2024"
+publish = false
+license-file = "../../LICENSE.txt"
+
+[dependencies]
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+procfuzz.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

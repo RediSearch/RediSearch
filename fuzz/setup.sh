@@ -52,10 +52,10 @@ PATH="$(dirname "$CLANG"):$PATH" "$ROOT/build.sh" FUZZ_COV=1 "$@"
 module="$(find "$ROOT"/bin/*-debug-asan-fuzz -maxdepth 0 -type d -not -type l | head -1)/search-community/redisearch.so"
 [[ -f $module ]] || { echo "setup.sh: module not found at $module" >&2; exit 1; }
 
-# The planted module is the same build with fuzz/planted/planted.patch applied:
+# The planted module is the same build with fuzz/redisearch/planted/planted.patch applied:
 # known bugs for testing the fuzzer itself. Both rebuilds are incremental.
 echo "==> planted redisearch.so"
-patch="$ROOT/fuzz/planted/planted.patch"
+patch="$ROOT/fuzz/redisearch/planted/planted.patch"
 planted="$OUT/planted/redisearch.so"
 git -C "$ROOT" apply "$patch"
 trap 'git -C "$ROOT" apply -R "$patch"' EXIT
