@@ -89,7 +89,7 @@ pub fn argv(words: &[&str]) -> Argv {
     words.iter().map(|w| Bytes::from(*w)).collect()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Program {
     pub version: u32,
@@ -103,7 +103,7 @@ pub struct Program {
 )]
 pub struct Conn(pub u8);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyMode {
     #[default]
@@ -111,7 +111,7 @@ pub enum ReplyMode {
     Defer,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Op {
     #[serde(default, skip_serializing_if = "is_default")]
     pub conn: Conn,
@@ -126,7 +126,7 @@ fn is_default<T: Default + PartialEq>(value: &T) -> bool {
 }
 
 /// The ops the fuzzer reasons about are typed; everything else is a `Command`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OpKind {
     Create {
@@ -146,7 +146,7 @@ pub enum OpKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Field {
     pub name: Bytes,
     #[serde(flatten)]
@@ -155,7 +155,7 @@ pub struct Field {
     pub sortable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FieldKind {
     Text,
@@ -164,7 +164,7 @@ pub enum FieldKind {
     Geo,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Query {
     All,
@@ -187,7 +187,7 @@ pub enum Query {
     Not(Box<Query>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Bound {
     Unbounded,
@@ -195,7 +195,7 @@ pub enum Bound {
     Exclusive(i64),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueryOptions {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

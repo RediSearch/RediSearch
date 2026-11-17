@@ -45,18 +45,7 @@ pub fn write(
     (reproduced, runs): (u32, u32),
     env: &Env,
 ) -> Result<PathBuf, String> {
-    let name: String = finding
-        .signature
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || "._-".contains(c) {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let dir = root.join(name);
+    let dir = root.join(dir_name(&finding.signature));
     let manifest = Manifest {
         finding,
         reproduced,
@@ -88,4 +77,19 @@ pub fn write(
         std::fs::write(&path, contents).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok(dir)
+}
+
+/// The directory name for a signature: the signature with every character a
+/// file name might not allow replaced by `_`.
+pub fn dir_name(signature: &str) -> String {
+    signature
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

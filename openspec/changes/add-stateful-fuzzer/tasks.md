@@ -60,10 +60,11 @@ acceptance check for that PR.
 
 ## 6. Campaign
 
-- [ ] 6.1 Implement `Input` and `HasLen` for `Program`, the executor, and the two observers
-- [ ] 6.2 Wire feedback, objective, scheduler, the capped mutational stage, and the known-signatures file
-- [ ] 6.3 Add the `fuzz` command with a corpus directory and a findings directory
-- [ ] 6.4 If not running within five working days, replace with the hand-written loop behind the same interface
+- [x] 6.1 Implement `Input` and `HasLen` for `Program`, the executor, and the two observers
+- [x] 6.2 Wire feedback, objective, scheduler, the capped mutational stage, and the known-signatures file
+- [x] 6.3 Add the `fuzz` command with a corpus directory and a findings directory
+- [x] 6.4 If not running within five working days, replace with the hand-written loop behind the same interface (not needed: the LibAFL wiring ran on the first day)
+- **Status:** three 30-minute single-worker campaigns from `seeds/` against the planted module each found the planted overflow (after 2, 5, and 30 s), the planted assertion (35 to 79 s), and the real `DebugIndexes_ScanProc` overflow (268 to 505 s). Each reached about 11,000 edges, against 5,720 for the smoke seed, at 1.3 programs per second. The planted bugs are close to the smoke seed, which already has a sortable numeric field, a TEXT field, and a TAG field; the real bug is the stronger signal. With `--jobs 12` on a 12-core machine, a campaign runs 12.4 programs per second.
 - **Done when:** from the committed seeds, three runs out of three find the planted bug within thirty minutes on one core, and edge count exceeds the seeds' own.
 
 ## 7. Depth operations
@@ -85,7 +86,7 @@ acceptance check for that PR.
 
 ## 9. Scale-out
 
-- [ ] 9.1 Run several processes over shared corpus and findings directories
+- [ ] 9.1 Run several processes over shared corpus and findings directories (workers with a shared findings directory and separate corpora are done; corpus sharing waits on fewer unstable edges, since importing a program costs a run)
 - [ ] 9.2 Convert recorded command streams from the Python tests into `Command` seed programs
 - [ ] 9.3 Add the `export` command for single-connection programs
 - **Done when:** four processes reach a higher edge count than one process in the same wall time.

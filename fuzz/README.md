@@ -143,6 +143,7 @@ source bin/fuzz/env.sh
 cd fuzz
 cargo run -- run seeds/smoke.json --verbose
 cargo run -- run <program.json> --repeat 10
+cargo run -- fuzz --duration 3600
 cargo run -- reduce <program.json>
 cargo run -- generate --seed 7 > program.json
 ```
@@ -153,7 +154,13 @@ how many edges were reached in every run versus in any run.
 Each distinct finding is written to `findings/<signature>/`: the program, the
 trace, the server log, and a manifest with the binaries, sanitizer settings,
 and reproduction rate. The exit code is 0 without findings, 1 with findings,
-and 2 on an error such as a server that fails to start. `reduce` shrinks a failing program while each smaller version still yields
+and 2 on an error such as a server that fails to start. `fuzz` runs a coverage-guided campaign in one worker process per core
+(`--jobs N` to change), each from the programs in `seeds/` and its own corpus
+kept in `corpus/<worker>/`, writing each finding whose signature is new to
+`findings/`. Signatures listed in a `--known` file, one per line, are ignored,
+as is any signature that already has a directory under `findings/`.
+
+`reduce` shrinks a failing program while each smaller version still yields
 the same finding (the first one, or the one named by `--signature`), then runs
 the result ten times and bundles it like `run`, with the input as
 `original.json`. `generate` prints a generated program; the same seed gives the

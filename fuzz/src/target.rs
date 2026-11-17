@@ -31,6 +31,7 @@ const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
 const EXIT_DEADLINE: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(20);
 
+#[derive(Clone, Debug)]
 pub struct Env {
     pub redis_server: PathBuf,
     pub module: PathBuf,

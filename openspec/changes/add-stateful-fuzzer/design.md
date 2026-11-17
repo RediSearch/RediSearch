@@ -256,15 +256,22 @@ writes to range deletion.
 
 LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
 
-- `Program` implements `Input` with JSON `to_file` and `from_file`, and `HasLen`.
-- One executor calls `run` then `judge`, copies `edges` and the features into a
-  map observer, and stores the verdict in a second observer.
+- `Program` implements `Input` with JSON `to_file` and `from_file`, and
+  `HasLen` as the size measure `smaller` decreases.
+- One executor calls `run` then `judge`, sets one byte per edge in a map
+  observer of 2^20 entries (more than the module has guards), and stores the
+  trace and findings in a second observer. Judge features join the map with
+  the logic rules (task 8).
 - Feedback is max-map novelty over that one map.
 - The objective is a finding whose signature is neither in a known-signatures
-  file nor already present as a finding directory.
+  file nor already present as a finding directory. It writes the finding's
+  bundle itself, so LibAFL's solutions corpus stays in memory.
 - The scheduler is the length-and-time minimizer over a queue.
-- One mutational stage with a small iteration cap wraps a mutator that calls
-  `gen::mutate`, seeded from LibAFL's state RNG.
+- One mutational stage, at most eight mutations per scheduled program, wraps a
+  mutator that calls `edit::mutate` with a donor drawn from the corpus, seeded
+  from LibAFL's state RNG.
+- The corpus is kept on disk as program JSON without metadata files, and is
+  reloaded with the seeds when a campaign starts again.
 - Calibration, input and corpus minimisation, the fork server, the restarting
   manager, and the launcher are not used.
 
@@ -272,8 +279,12 @@ If this wiring is not running within the budget set in the tasks, it is
 replaced by a hand-written loop of about two hundred lines (a corpus directory,
 a seen-edges table, a weighted pick) behind the same `campaign` interface.
 
-Several cores are used by running several processes that share a corpus
-directory and a findings directory.
+`fuzz --jobs N` (by default one per core) starts N worker processes, each an
+independent campaign with its own corpus under `corpus/<worker>` and a shared
+findings directory; creating a finding's directory claims it. Workers do not
+exchange corpus entries while running: LibAFL imports a program by running
+it, and while unstable edges make about one run in seven a new corpus entry,
+importing from eleven siblings would cost more runs than fuzzing.
 
 ## Planted bugs
 

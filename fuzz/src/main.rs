@@ -10,12 +10,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 use redisearch_fuzz::bundle;
+use redisearch_fuzz::campaign::{Campaign, fuzz};
 use redisearch_fuzz::edit::{generate, size};
 use redisearch_fuzz::judge::{Finding, judge};
 use redisearch_fuzz::program::Program;
@@ -58,6 +60,29 @@ enum Command {
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
     },
+    /// Run a coverage-guided campaign until stopped or for `--duration`.
+    Fuzz {
+        /// Directories of seed programs.
+        #[arg(long, default_value = "seeds")]
+        seeds: Vec<PathBuf>,
+        /// Directory that keeps the corpus across campaigns.
+        #[arg(long, default_value = "corpus")]
+        corpus: PathBuf,
+        #[arg(long, default_value = "findings")]
+        findings: PathBuf,
+        /// File of signatures to ignore, one per line.
+        #[arg(long)]
+        known: Option<PathBuf>,
+        /// Stop after this many seconds.
+        #[arg(long)]
+        duration: Option<u64>,
+        /// Worker processes, each an independent campaign with its own
+        /// corpus under `<corpus>/<worker>`; by default one per core.
+        #[arg(long)]
+        jobs: Option<usize>,
+        #[arg(long, hide = true)]
+        worker: Option<usize>,
+    },
     /// Print a generated program.
     Generate {
         #[arg(long, default_value_t = 0)]
@@ -81,6 +106,28 @@ fn main() -> ExitCode {
             findings,
         } => load(&program)
             .and_then(|program| reduce_command(&program, signature.as_deref(), repeat, &findings)),
+        Command::Fuzz {
+            seeds,
+            corpus,
+            findings,
+            known,
+            duration,
+            jobs: _,
+            worker: Some(worker),
+        } => Env::from_env().and_then(|env| {
+            fuzz(Campaign {
+                worker,
+                env,
+                seeds: &seeds,
+                corpus: &corpus.join(worker.to_string()),
+                findings: &findings,
+                known: known.as_deref(),
+                duration: duration.map(Duration::from_secs),
+            })
+            .map(|()| false)
+            .map_err(|e| e.to_string())
+        }),
+        Command::Fuzz { jobs, .. } => spawn_workers(jobs),
         Command::Generate { seed } => {
             println!("{}", generate(&mut SmallRng::seed_from_u64(seed)).to_json());
             Ok(false)
@@ -93,6 +140,34 @@ fn main() -> ExitCode {
             eprintln!("error: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+/// Starts the workers with this process's arguments plus `--worker`, and
+/// waits for all of them.
+fn spawn_workers(jobs: Option<usize>) -> Result<bool, String> {
+    let jobs = jobs
+        .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+        .unwrap_or(1);
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let workers = (0..jobs)
+        .map(|worker| {
+            std::process::Command::new(&exe)
+                .args(&args)
+                .args(["--worker", &worker.to_string()])
+                .spawn()
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut failed = false;
+    for mut worker in workers {
+        failed |= !worker.wait().map_err(|e| e.to_string())?.success();
+    }
+    if failed {
+        Err("a worker failed".into())
+    } else {
+        Ok(false)
     }
 }
 

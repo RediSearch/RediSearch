@@ -12,9 +12,11 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::time::Duration;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
+use redisearch_fuzz::campaign::{Campaign, fuzz};
 use redisearch_fuzz::edit::generate;
 use redisearch_fuzz::judge::{Kind, judge};
 use redisearch_fuzz::program::{Op, OpKind, Program, ReplyMode, argv};
@@ -24,10 +26,20 @@ use redisearch_fuzz::run::{Exit, Trace, run};
 use redisearch_fuzz::target::{Env, Reply};
 
 const GENERATED: usize = 50;
+const CAMPAIGN_SECS: u64 = 60;
 
 fn load(path: &str) -> Program {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
     Program::from_json(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn planted() -> Env {
+    Env {
+        module: std::env::var_os("REDISEARCH_PLANTED_MODULE")
+            .expect("rerun fuzz/setup.sh")
+            .into(),
+        ..env()
+    }
 }
 
 fn env() -> Env {
@@ -177,12 +189,7 @@ fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
-    let env = Env {
-        module: std::env::var_os("REDISEARCH_PLANTED_MODULE")
-            .expect("rerun fuzz/setup.sh")
-            .into(),
-        ..env()
-    };
+    let env = planted();
     for (seed, kind) in [
         ("planted/overflow.json", Kind::Sanitizer),
         ("planted/assert.json", Kind::Assertion),
@@ -194,4 +201,30 @@ fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
             .collect();
         assert_eq!(kinds, [kind], "{seed}");
     }
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
+    let dir = tempfile::tempdir().unwrap();
+    fuzz(Campaign {
+        worker: 0,
+        env: planted(),
+        seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
+        corpus: &dir.path().join("corpus"),
+        findings: &dir.path().join("findings"),
+        known: None,
+        duration: Some(Duration::from_secs(CAMPAIGN_SECS)),
+    })
+    .unwrap();
+    let found: Vec<_> = std::fs::read_dir(dir.path().join("findings"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(
+        found
+            .iter()
+            .any(|name| name.contains("QueryNode_CheckIsValid") || name.contains("module.c")),
+        "{found:?}"
+    );
 }
