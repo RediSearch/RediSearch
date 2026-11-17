@@ -35,12 +35,12 @@ def _load(env):
         conn.execute_command('JSON.SET', key, '$', json.dumps({'n': arr}))
 
 
-def _search(env, idx, direction, optimized):
-    query = ['ft.search', idx, '@n:[-inf +inf]', 'SORTBY', 'n', direction,
-             'LIMIT', 0, 10, 'NOCONTENT']
+def _search(env, idx, direction, optimized, query='@n:[-inf +inf]', limit=10):
+    cmd = ['ft.search', idx, query, 'SORTBY', 'n', direction,
+           'LIMIT', 0, limit, 'NOCONTENT']
     if optimized:
-        query.append('WITHOUTCOUNT')
-    return env.cmd(*query)
+        cmd.append('WITHOUTCOUNT')
+    return env.cmd(*cmd)
 
 
 @skip(no_json=True, cluster=True)
@@ -72,3 +72,104 @@ def testMultivalueOptimizerMatchesNonOptimized(env):
             # plain carries the real count; compare id lists only.
             env.assertEqual(opt[1:], plain[1:],
                             message=f'{idx} {direction} optimized vs plain')
+
+
+# Fillers 1..30 split the range tree into several leaves, so the multivalue docs'
+# values straddle leaves. As in DOCS, `dB`'s first element is neither its min nor
+# its max.
+SPLIT_FILLERS = {f'f{i:02d}': [i] for i in range(1, 31)}
+SPLIT_MULTI = {'dA': [1, 30], 'dB': [28, 3], 'dC': [1, 3]}
+
+
+@skip(no_json=True)
+def testMultivalueDedupAcrossSplitLeaves(env):
+    """A multivalue doc whose values sit in different range-tree leaves is still
+    returned once, ranked by its first array element, by both SORTBY paths."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.n[*]', 'AS', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for key, arr in {**SPLIT_FILLERS, **SPLIT_MULTI}.items():
+        conn.execute_command('JSON.SET', key, '$', json.dumps({'n': arr}))
+    waitForIndex(env, 'idx')
+
+    def multi(ids):
+        return [i for i in ids if i in SPLIT_MULTI]
+
+    # `dC` has no value in [10 30].
+    for query, present in (('@n:[-inf +inf]', ['dA', 'dB', 'dC']), ('@n:[10 30]', ['dA', 'dB'])):
+        for direction in ('ASC', 'DESC'):
+            plain = _search(env, 'idx', direction, False, query, 100)[1:]
+            opt = _search(env, 'idx', direction, True, query, 100)[1:]
+            msg = f'{query} {direction}'
+            for ids in (plain, opt):
+                env.assertEqual(len(ids), len(set(ids)), message=f'duplicate: {msg}')
+                env.assertEqual(sorted(multi(ids)), present, message=msg)
+            env.assertEqual(sorted(opt), sorted(plain), message=f'id set: {msg}')
+            env.assertEqual(multi(opt), multi(plain), message=f'order: {msg}')
+
+    asc = _search(env, 'idx', 'ASC', True, limit=100)[1:]
+    desc = _search(env, 'idx', 'DESC', True, limit=100)[1:]
+    env.assertEqual([i for i in asc if i in ('dA', 'dB')], ['dA', 'dB'])
+    env.assertEqual([i for i in desc if i in ('dA', 'dB')], ['dB', 'dA'])
+
+
+@skip(no_json=True)
+def testMultivalueCrossWindowDedup(env):
+    """A multivalue doc matched in two windows of the filtered expand-and-retry
+    path takes a single top-k slot.
+
+    The tag clause makes the query an intersection, routing it to the filtered
+    path, and the numeric bound excludes 1 and 150 so the tree root is not fully
+    contained and the window subdivides. Two matchers sit at the low end and the
+    rest at the top, so the first window drains short of k and the source
+    expands; `dX`'s values (3 and 140) land in different windows.
+    """
+    k = 3
+    matchers = {'mlo': [2], 'dX': [3, 140], **{f'mhi{v}': [v] for v in range(141, 149)}}
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'xw', 'ON', 'JSON', 'SCHEMA',
+               '$.n[*]', 'AS', 'n', 'NUMERIC', 'SORTABLE',
+               '$.t', 'AS', 't', 'TAG').ok()
+    matcher_values = {v for arr in matchers.values() for v in arr}
+    # Fillers take every other value in 1..150, so the tree splits into several leaves.
+    for v in range(1, 151):
+        if v not in matcher_values:
+            conn.execute_command('JSON.SET', f'x{v:03d}', '$',
+                                 json.dumps({'n': [v], 't': 'x'}))
+    for key, arr in matchers.items():
+        conn.execute_command('JSON.SET', key, '$', json.dumps({'n': arr, 't': 'm'}))
+    waitForIndex(env, 'xw')
+
+    for extra in ((), ('WITHOUTCOUNT',)):
+        ids = env.cmd('FT.SEARCH', 'xw', '@n:[2 149] @t:{m}', 'SORTBY', 'n', 'ASC',
+                      'LIMIT', 0, k, 'NOCONTENT', *extra)[1:]
+        env.assertEqual(len(ids), len(set(ids)), message=f'duplicate: {extra}')
+        env.assertEqual(sorted(ids), sorted(['mlo', 'dX', 'mhi141']), message=f'{extra}')
+
+
+@skip(cluster=True, no_json=True)
+def testFilteredRetryReachesMatchPastMultivalueInflatedRanges(env):
+    """The retry window is sized from document entries, not unique documents.
+
+    A multivalue field counts a doc once per value range, so capping the retry
+    at the unique doc count would stop short of a selective filter's only match
+    in a low range past the inflated high ranges.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vals[*]', 'AS', 'v', 'NUMERIC',
+               '$.tag', 'AS', 'tag', 'TAG').ok()
+
+    conn.execute_command('JSON.SET', 'doc:match', '$',
+                         json.dumps({'vals': [0.5], 'tag': 'want'}))
+    # Each filler holds 100 high values interleaved across the high span, so
+    # every high leaf holds all four fillers.
+    for d in range(1, 5):
+        vals = [1000 + 100 * j + d for j in range(100)]
+        conn.execute_command('JSON.SET', f'doc:f{d}', '$',
+                             json.dumps({'vals': vals, 'tag': 'other'}))
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{want}',
+                  'SORTBY', 'v', 'DESC', 'LIMIT', '0', '1',
+                  'NOCONTENT', 'DIALECT', '4')
+    env.assertEqual(res, [1, 'doc:match'])

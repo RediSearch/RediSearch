@@ -14,6 +14,7 @@
 #include "query.h"
 #include "vecsim/vec_sim.h"
 #include "field.h"
+#include "numeric_score_source.h"
 #include "query_types.h"
 #include "rqe_core.h"
 #include "rqe_iterators.h"
@@ -394,7 +395,8 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  * initial value-window and drives the expand-and-retry path.
  *
  * `filter` is read once to copy the numeric range parameters; it is not
- * retained after this call.
+ * retained after this call. `mode` is the [`NumericOptimizerMode`] the query
+ * plan chose.
  *
  * Documents the doc table no longer shows (deleted, or hidden by a pending slot
  * deletion) are dropped before they can take a top-k slot.
@@ -418,7 +420,7 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new iterator over a list of sorted document IDs.
