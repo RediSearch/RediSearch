@@ -155,13 +155,16 @@ typedef struct QueryIterator {
   bool (*ReportsScoreBounds)(const struct QueryIterator *self);
 
   /* Upper bound on the final score of the document the iterator is positioned on, under the
-   * query's scorer, computed only from data the iterator already holds. Root callers drop a
-   * candidate below the threshold without reading its document, so it must never be less than
-   * the score the scorer would compute. Unlike `CurrentBlockBound` it covers this one document,
-   * so it may be exact: the exact score, when computable, is the tightest valid value. It only
-   * decides drops: a kept candidate is still read and scored as usual, even when it is exact.
-   * `+INFINITY` means "unknown" and is always correct. Only valid while positioned on a result.
-   * NULL means `+INFINITY`; use `QueryIterator_CurrentMaxScore`. */
+   * query's scorer, computed only from data the iterator already holds: it must not cost I/O, and
+   * must never be less than the score the scorer would compute. `+INFINITY` means "unknown" and is
+   * always correct. `ReadWithThreshold` drops a document whose value cannot reach the threshold, so
+   * how tight it is decides how many candidates are dropped before their document is read. It
+   * covers this one document, where `CurrentBlockBound` covers a whole block: any value from the
+   * exact score up is valid, and the block maximum is the loosest useful one. The block maximum
+   * drops nothing beyond what skipping blocks already does; a per-document bound, or the exact
+   * score when computable, also drops weak documents inside kept blocks. It only decides drops: a
+   * kept candidate is still read and scored as usual, even when it is exact. Only valid while
+   * positioned on a result. NULL means `+INFINITY`; use `QueryIterator_CurrentMaxScore`. */
   double (*CurrentMaxScore)(const struct QueryIterator *self);
 
   /* Bound on the scores of every document the iterator can yield from the current result up to

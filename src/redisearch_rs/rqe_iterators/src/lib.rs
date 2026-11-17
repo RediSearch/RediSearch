@@ -348,16 +348,19 @@ pub trait RQEIterator<'index> {
     /// Upper bound on the final score of the document the iterator is positioned on, under the
     /// query's scorer.
     ///
-    /// Computed only from data the iterator already holds: it must not cost I/O. Root callers drop
-    /// a candidate whose bound is below the threshold they pass to
-    /// [`read_with_threshold`](Self::read_with_threshold), without reading its document, so an
-    /// implementation must never return less than the score the scorer would compute.
-    /// [`f64::INFINITY`] means "unknown" and is always correct.
+    /// Computed only from data the iterator already holds: it must not cost I/O, and must never be
+    /// less than the score the scorer would compute. [`f64::INFINITY`] means "unknown" and is
+    /// always correct.
     ///
-    /// Unlike [`current_block_bound`](Self::current_block_bound) it covers this one document, so
-    /// it may be exact: a tighter value drops more candidates, and the exact score, when the
-    /// iterator can compute it, is the tightest valid one. It only decides drops: a kept candidate
-    /// is still read and scored as usual, even when the value is exact.
+    /// [`read_with_threshold`](Self::read_with_threshold) drops a document whose value cannot reach
+    /// the threshold, so how tight it is decides how many candidates are dropped before their
+    /// document is read. It covers this one document, where
+    /// [`current_block_bound`](Self::current_block_bound) covers a whole block: any value from the
+    /// exact score up is valid, and the block maximum is the loosest useful one. The block maximum
+    /// drops nothing beyond what skipping blocks already does; a per-document bound, or the exact
+    /// score when the iterator can compute it, also drops weak documents inside blocks that are
+    /// kept. It only decides drops: a kept candidate is still read and scored as usual, even when
+    /// the value is exact.
     ///
     /// Only meaningful while the iterator is positioned on a result.
     fn current_max_score(&self) -> f64 {
