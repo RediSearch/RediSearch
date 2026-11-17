@@ -31,8 +31,8 @@ pub struct ProducedResults {
 
 /// A closure that produces an iterator's results on first access.
 ///
-/// Returns [`RQEIteratorError::Stopped`] if the underlying computation timed out before
-/// producing results.
+/// Returns [`RQEIteratorError::Stopped`] if the underlying computation ended early on a
+/// timeout or a requested stop, before producing results.
 ///
 /// # Lifetime
 ///
