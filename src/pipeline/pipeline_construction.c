@@ -642,36 +642,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-// Whether `expr` (or any sub-expression) calls a function that reads the
-// result's RSIndexResult. matched_terms() is currently the only such function;
-// an APPLY/FILTER using it after a buffering step needs the index result kept
-// alive, so the buffering RP must deep-copy rather than drop the borrow.
-static bool exprReadsIndexResult(const RSExpr *expr) {
-  if (!expr) return false;
-  switch (expr->t) {
-    case RSExpr_Function:
-      if (expr->func.name && !strcasecmp(expr->func.name, "matched_terms")) {
-        return true;
-      }
-      if (expr->func.args) {
-        for (size_t i = 0; i < expr->func.args->len; i++) {
-          if (exprReadsIndexResult(expr->func.args->args[i])) return true;
-        }
-      }
-      return false;
-    case RSExpr_Op:
-      return exprReadsIndexResult(expr->op.left) || exprReadsIndexResult(expr->op.right);
-    case RSExpr_Predicate:
-      return exprReadsIndexResult(expr->pred.left) || exprReadsIndexResult(expr->pred.right);
-    case RSExpr_Inverted:
-      return exprReadsIndexResult(expr->inverted.child);
-    case RSExpr_Literal:
-    case RSExpr_Property:
-      return false;
-  }
-  return false;
-}
-
 int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags, QueryError *status) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
@@ -718,9 +688,9 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
           goto error;
         }
 
-        // matched_terms() reads the result's index result; if any APPLY/FILTER
-        // needs it, buffering RPs must deep-copy it rather than drop the borrow.
-        if (exprReadsIndexResult(mstp->parsedExpr)) {
+        // If any APPLY/FILTER reads the result's index result, buffering RPs must
+        // deep-copy it rather than drop the borrow.
+        if (ExprAST_ReadsIndexResult(mstp->parsedExpr)) {
           pipeline->qctx.skipIndexResultDeepCopy = false;
         }
 

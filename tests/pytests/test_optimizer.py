@@ -794,6 +794,40 @@ def testScoresWithNumericSortby(env):
     env.assertTrue(all(float(to_dict(row)['__score']) > 0 for row in res[1:]), message=res)
 
 
+@skip(cluster=True)
+def testMatchedTermsWithNumericSortby(env):
+    """matched_terms() with a numeric SORTBY matches whether or not the optimizer runs.
+
+    The optimizer reads only each match's numeric value, so matched_terms() would
+    find no matched term in its results.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    sortby = ['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 3]
+    expected = [['n', '0', 'mt', ['foo']], ['n', '2', 'mt', ['foo']], ['n', '4', 'mt', ['foo']]]
+    apply = ['LOAD', 1, '@n', 'APPLY', 'matched_terms()', 'AS', 'mt', *sortby]
+
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', *apply)
+    env.assertEqual(res[1:], expected)
+    # DIALECT 4 optimizes without WITHOUTCOUNT. It must precede the pipeline steps to take effect.
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'DIALECT', 4, *apply)
+    env.assertEqual(res[1:], expected)
+
+    # Nested in another function: 1 when the document has matched terms, 0 otherwise.
+    has_terms = 'case(matched_terms(), 1, 0)'
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', 'LOAD', 1, '@n',
+                  'APPLY', has_terms, 'AS', 'mt', *sortby)
+    env.assertEqual(res[1:], [['n', '0', 'mt', '1'], ['n', '2', 'mt', '1'], ['n', '4', 'mt', '1']])
+
+    # In a FILTER, which drops the documents without matched terms.
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', 'LOAD', 1, '@n',
+                  'FILTER', has_terms, *sortby)
+    env.assertEqual(res[1:], [['n', '0'], ['n', '2'], ['n', '4']])
+
+
 def profile_iterator_types(env, query, params):
     """Collect the `Type` names of every iterator in the plan `query` compiles to."""
     res = env.cmd('ft.profile', query[1], 'search', 'QUERY', *query[2:], *params)
