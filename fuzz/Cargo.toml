@@ -1,0 +1,15 @@
+[package]
+name = "redisearch-fuzz"
+version = "0.0.1"
+edition = "2024"
+publish = false
+license-file = "../LICENSE.txt"
+
+[workspace]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+nix = { version = "0.30", features = ["signal", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"

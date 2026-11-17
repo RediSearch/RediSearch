@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "ops": [
+    {"op": "create", "index": "i1", "prefix": "doc:", "fields": [
+      {"name": "t", "type": "text"},
+      {"name": "n", "type": "numeric", "sortable": true},
+      {"name": "g", "type": "tag"}
+    ]},
+    {"op": "write", "key": "doc:1", "fields": [["t", "hello world"], ["n", "3"], ["g", "red"]]},
+    {"op": "write", "key": "doc:2", "fields": [["t", "hello there"], ["n", "7"], ["g", "blue"]]},
+    {"op": "query", "index": "i1", "query": {"term": "hello"}, "options": {"no_content": true}},
+    {"op": "query", "index": "i1", "query": {"and": [
+      {"in_field": {"field": "t", "term": "hello"}},
+      {"range": {"field": "n", "min": {"exclusive": 3}, "max": "unbounded"}},
+      {"not": {"tag": {"field": "g", "values": ["red"]}}}
+    ]}, "options": {"no_content": true, "dialect": 2}},
+    {"op": "delete", "key": "doc:1"},
+    {"op": "query", "index": "i1", "query": "all", "options": {"limit": [0, 0]}}
+  ]
+}
