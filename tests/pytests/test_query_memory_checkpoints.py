@@ -1024,27 +1024,31 @@ def test_hybrid_term_expansion_checks_memory_under_fail(env):
         conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}',
                              'v', np.array([i, 0]).astype(np.float32).tobytes())
     env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
-    query = ('FT.HYBRID', 'idx', 'SEARCH', '@t:pre*', 'VSIM', '@v', '$blob',
-             'PARAMS', 2, 'blob', np.array([0, 0]).astype(np.float32).tobytes())
+    params = ('PARAMS', 2, 'blob', np.array([0, 0]).astype(np.float32).tobytes())
+    # The expansion is in the text branch, or only in the vector branch's FILTER.
+    queries = (('FT.HYBRID', 'idx', 'SEARCH', '@t:pre*', 'VSIM', '@v', '$blob') + params,
+               ('FT.HYBRID', 'idx', 'SEARCH', '@t:pre0', 'VSIM', '@v', '$blob',
+                'FILTER', '@t:pre*') + params)
     try:
-        full = hybrid_result_count(env.cmd(*query))
-        env.assertGreater(full, 0)
-        for workers in worker_counts(env):
-            with oom_policy(env, 'fail'):
-                # Call 1 is the pre-build read; the later calls are the expanded terms.
-                for at_call in (5, 250):
-                    memory_pressure(env, 'AT_CALL', at_call)
-                    try:
-                        env.expect(*query).error().contains(OOM_QUERY_ERROR)
-                        env.assertEqual(checkpoint_calls(env), at_call)
-                    finally:
-                        memory_pressure(env, 'RESET')
-            memory_pressure(env, 'AT_CALL', 5)
-            try:
-                env.assertEqual(hybrid_result_count(env.cmd(*query)), full)
-                env.assertEqual(checkpoint_calls(env), 0)
-            finally:
-                memory_pressure(env, 'RESET')
+        for query in queries:
+            full = hybrid_result_count(env.cmd(*query))
+            env.assertGreater(full, 0, message=query)
+            for workers in worker_counts(env):
+                with oom_policy(env, 'fail'):
+                    # Call 1 is the pre-build read; the later calls are the expanded terms.
+                    for at_call in (5, 250):
+                        memory_pressure(env, 'AT_CALL', at_call)
+                        try:
+                            env.expect(*query).error().contains(OOM_QUERY_ERROR)
+                            env.assertEqual(checkpoint_calls(env), at_call, message=query)
+                        finally:
+                            memory_pressure(env, 'RESET')
+                memory_pressure(env, 'AT_CALL', 5)
+                try:
+                    env.assertEqual(hybrid_result_count(env.cmd(*query)), full)
+                    env.assertEqual(checkpoint_calls(env), 0, message=query)
+                finally:
+                    memory_pressure(env, 'RESET')
     finally:
         env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
 
