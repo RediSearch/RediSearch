@@ -747,43 +747,47 @@ pub(crate) mod test {
         assert_eq!(res.score(), 42.0);
     }
 
+    /// Runs [`Context::hold_stop`] on a processor whose parent has the given `limits`, and
+    /// returns the parent's `oomCut` afterwards.
+    ///
+    /// The parent pointer is derived once, mutably, and the context is not touched through
+    /// anything else in between: `hold_stop` writes through the pointer, as C does.
+    fn hold_stop_cut(limits: *mut ffi::QueryRequestLimits) -> bool {
+        let mut qctx = ffi::QueryProcessingCtx::new();
+        // SAFETY: the context is only accessed through this pointer and stays boxed, so it is
+        // never moved.
+        let qctx_ptr: *mut ffi::QueryProcessingCtx = unsafe { qctx.as_mut().get_unchecked_mut() };
+        // SAFETY: `qctx_ptr` is valid and exclusively ours.
+        unsafe { (*qctx_ptr).limits = limits };
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        rp.as_mut().project().header.parent = qctx_ptr;
+        let mut cx = Context::new(rp.as_mut().project().header);
+
+        cx.hold_stop();
+
+        cx.parent().unwrap().oomCut
+    }
+
     #[test]
     fn hold_stop_marks_the_parent_cut_on_a_memory_stop() {
         // SAFETY: all-zero is a valid initial QueryRequestLimits.
         let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
         limits.memory.stopped = true;
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_some());
-        chain.set_limits(&raw mut limits);
-        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
-        assert!(!cx.parent().unwrap().oomCut);
 
-        cx.hold_stop();
-
-        assert!(cx.parent().unwrap().oomCut);
+        assert!(hold_stop_cut(&raw mut limits));
     }
 
     #[test]
     fn hold_stop_leaves_the_parent_alone_without_a_memory_stop() {
         // SAFETY: all-zero is a valid initial QueryRequestLimits.
         let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_some());
-        chain.set_limits(&raw mut limits);
-        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
 
-        cx.hold_stop();
-        assert!(!cx.parent().unwrap().oomCut);
+        assert!(!hold_stop_cut(&raw mut limits));
     }
 
     #[test]
     fn hold_stop_without_limits_leaves_the_parent_alone() {
-        let mut chain = Chain::new();
-        chain.append(ResultRP::new_ok_some());
-        let (mut cx, _) = chain.last_as_context_and_inner::<ResultRP>();
-
-        cx.hold_stop();
-        assert!(!cx.parent().unwrap().oomCut);
+        assert!(!hold_stop_cut(ptr::null_mut()));
     }
 
     #[test]
