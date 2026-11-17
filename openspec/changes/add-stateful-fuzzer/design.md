@@ -38,7 +38,7 @@ enum OpKind {
     Query { index, query: QueryAst, options },
     Barrier,
     Command { argv: Vec<Bytes> },
-    Populate { index, fields, n, seed },
+    Populate { prefix, fields, n, seed },
     Aggregate { index, query: QueryAst, steps, cursor: Option<Var> },
     CursorRead { cursor: Var },
 }
@@ -61,9 +61,12 @@ enum OpKind {
   `{"hex": "…"}` otherwise, so invalid UTF-8 is representable. Floats are stored
   as bit patterns, so NaN, infinities, and negative zero survive and the type is
   hashable.
-- **`Populate`** carries its own field list, so it does not depend on an earlier
-  `Create`. It expands to `n` writes drawn from the fixed dictionary in `edit` with a
-  pinned PRNG, using raw integer draws only. A golden test freezes the expansion.
+- **`Populate`** carries its own key prefix and field list, so it does not
+  depend on an earlier `Create`. It expands to `n` writes of keys
+  `<prefix>0` to `<prefix>n-1`, with values drawn from the fixed dictionary in
+  `lower` by SplitMix64 seeded with `seed`, using raw integer draws only, so a
+  dependency update cannot change it. A golden test freezes the expansion. The
+  generator draws `n` up to 513, log-uniformly.
 - **`Var`** binds a server-chosen value (a cursor id). If its source op was
   deleted, failed, or is still deferred, the op using it is recorded as skipped.
 - **`conn`** is taken modulo a small fixed number of connections.
@@ -126,8 +129,8 @@ enum Reply   { Value(Value), Timeout, Closed(String), Invalid(String) }
 
 `sent` and `received` are positions on one harness-side clock, so the judge can
 tell which ops ran inside a deferred op's window. `reply` is `None` when the
-reply was never read because the server died first. `Populate` records a
-summary (count, error count, first error).
+reply was never read because the server died first. Each write a `Populate`
+expands to is an ordinary step.
 
 ### Barrier
 

@@ -16,7 +16,7 @@ use std::ops::RangeInclusive;
 use rand::Rng;
 use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
 
-use crate::lower::lower;
+use crate::lower::{NUMBERS, WORDS, lower};
 use crate::program::{
     Argv, Bound, Bytes, Conn, FORMAT_VERSION, Field, FieldKind, Op, OpKind, Program, Query,
     QueryOptions, ReplyMode, argv,
@@ -25,28 +25,12 @@ use crate::program::{
 const CONNS: u8 = 3;
 const GENERATED_OPS: RangeInclusive<usize> = 4..=40;
 const STACKED_EDITS: RangeInclusive<usize> = 1..=3;
+const POPULATE_BITS: RangeInclusive<u32> = 0..=9;
 const KEYS: u32 = 16;
 const QUERY_DEPTH: u32 = 2;
 const INDEXES: [&str; 3] = ["i0", "i1", "i2"];
 const PREFIXES: [&str; 2] = ["d0:", "d1:"];
 const FIELDS: [&str; 5] = ["f0", "f1", "f2", "f3", "f4"];
-const WORDS: [&str; 14] = [
-    "hello",
-    "world",
-    "hell",
-    "running",
-    "runs",
-    "red",
-    "green",
-    "blue",
-    "the",
-    "a",
-    "x-y",
-    "hello world",
-    "é",
-    "日本語",
-];
-const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
 const SYNTAX: &[u8] = b"@:{}[]()|-~*%\"\\$,.; ";
 const DEBUG: &str = "_FT.DEBUG";
 const HOOKS: [&[&str]; 5] = [
@@ -108,7 +92,7 @@ impl Scope {
                 }
                 _ => {}
             },
-            OpKind::Query { .. } | OpKind::Barrier => {}
+            OpKind::Query { .. } | OpKind::Barrier | OpKind::Populate { .. } => {}
         }
     }
 }
@@ -181,7 +165,13 @@ fn op(scope: &Scope, pools: &Pools, rng: &mut impl Rng) -> Op {
     let kind = match (index, rng.random_range(0..20)) {
         _ if scope.paused && rng.random_ratio(1, 3) => command(&[DEBUG, "WORKERS", "RESUME"], []),
         (None, _) | (_, 0) => create(scope, rng),
-        (Some((_, schema)), 1..=7) => write(schema, pools, rng),
+        (Some((_, schema)), 1..=6) => write(schema, pools, rng),
+        (Some((_, schema)), 7) => OpKind::Populate {
+            prefix: schema.prefix.clone(),
+            fields: schema.fields.clone(),
+            n: 1 << rng.random_range(POPULATE_BITS) | rng.random_range(0..2),
+            seed: rng.random(),
+        },
         (Some((_, schema)), 8..=13) => OpKind::Query {
             index: index.expect("matched Some").0.clone(),
             query: query(schema, pools, rng, QUERY_DEPTH),
@@ -503,16 +493,32 @@ pub fn smaller(program: &Program) -> Vec<Program> {
                 index,
                 prefix,
                 fields,
-            } => (0..fields.len())
-                .map(|i| {
-                    let mut fields = fields.clone();
-                    fields.remove(i);
-                    OpKind::Create {
-                        index: index.clone(),
-                        prefix: prefix.clone(),
-                        fields,
-                    }
+            } => without_each(fields)
+                .map(|fields| OpKind::Create {
+                    index: index.clone(),
+                    prefix: prefix.clone(),
+                    fields,
                 })
+                .collect(),
+            OpKind::Populate {
+                prefix,
+                fields,
+                n,
+                seed,
+            } => (*n > 1)
+                .then(|| OpKind::Populate {
+                    prefix: prefix.clone(),
+                    fields: fields.clone(),
+                    n: n / 2,
+                    seed: *seed,
+                })
+                .into_iter()
+                .chain(without_each(fields).map(|fields| OpKind::Populate {
+                    prefix: prefix.clone(),
+                    fields,
+                    n: *n,
+                    seed: *seed,
+                }))
                 .collect(),
             OpKind::Query {
                 index,
@@ -526,12 +532,8 @@ pub fn smaller(program: &Program) -> Vec<Program> {
                     options: options.clone(),
                 })
                 .collect(),
-            OpKind::Command { argv } if argv.len() > 1 => (0..argv.len())
-                .map(|i| {
-                    let mut argv = argv.clone();
-                    argv.remove(i);
-                    OpKind::Command { argv }
-                })
+            OpKind::Command { argv } if argv.len() > 1 => without_each(argv)
+                .map(|argv| OpKind::Command { argv })
                 .collect(),
             _ => Vec::new(),
         };
@@ -559,6 +561,14 @@ pub fn smaller(program: &Program) -> Vec<Program> {
         }
     }
     out
+}
+
+fn without_each<T: Clone>(items: &[T]) -> impl Iterator<Item = Vec<T>> + '_ {
+    (0..items.len()).map(|i| {
+        let mut rest = items.to_vec();
+        rest.remove(i);
+        rest
+    })
 }
 
 fn hoists(query: &Query) -> Vec<Query> {
@@ -592,12 +602,15 @@ fn hoists(query: &Query) -> Vec<Query> {
 }
 
 /// The measure [`smaller`] decreases: ops, module arguments, schema fields,
-/// query nodes, and the length of every word and number.
+/// query nodes, populated documents, and the length of every word and number.
 pub fn size(program: &Program) -> usize {
     let mut total = program.ops.len() + program.module_args.len();
     for op in &program.ops {
         match &op.kind {
             OpKind::Create { fields, .. } => total += fields.len(),
+            OpKind::Populate { fields, n, .. } => {
+                total += fields.len() + usize::try_from(*n).expect("fits")
+            }
             OpKind::Query { query, .. } => total += nodes(query),
             _ => {}
         }
@@ -631,7 +644,7 @@ fn visit(kind: &mut OpKind, f: &mut dyn FnMut(Leaf<'_>)) {
     match kind {
         OpKind::Query { query, .. } => visit_query(query, f),
         OpKind::Command { argv } => argv.iter_mut().for_each(|token| f(Leaf::Word(token))),
-        OpKind::Create { .. } | OpKind::Barrier => {}
+        OpKind::Create { .. } | OpKind::Barrier | OpKind::Populate { .. } => {}
     }
 }
 

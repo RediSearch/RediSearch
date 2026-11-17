@@ -7,7 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::program::{Argv, Bound, Bytes, FieldKind, OpKind, Query, argv};
+use crate::program::{Argv, Bound, Bytes, Field, FieldKind, OpKind, Query, argv};
+
+/// The values generated programs draw from. Changing them changes what every
+/// `Populate` expands to.
+pub const WORDS: [&str; 14] = [
+    "hello",
+    "world",
+    "hell",
+    "running",
+    "runs",
+    "red",
+    "green",
+    "blue",
+    "the",
+    "a",
+    "x-y",
+    "hello world",
+    "é",
+    "日本語",
+];
+pub const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
+const POPULATE_NUMBERS: u64 = 10_000;
 
 pub fn lower(op: &OpKind) -> Vec<Argv> {
     match op {
@@ -59,6 +80,79 @@ pub fn lower(op: &OpKind) -> Vec<Argv> {
         }
         OpKind::Barrier => Vec::new(),
         OpKind::Command { argv } => vec![argv.clone()],
+        OpKind::Populate {
+            prefix,
+            fields,
+            n,
+            seed,
+        } => {
+            let mut rng = SplitMix(*seed);
+            (0..*n)
+                .map(|i| {
+                    let mut key = prefix.clone();
+                    key.0.extend_from_slice(i.to_string().as_bytes());
+                    let mut command = vec!["HSET".into(), key];
+                    for field in fields {
+                        command.push(field.name.clone());
+                        command.push(populated(field, &mut rng));
+                    }
+                    command
+                })
+                .collect()
+        }
+    }
+}
+
+/// SplitMix64: a fixed algorithm, so an expansion never changes with a
+/// dependency. Only raw integer draws are used.
+struct SplitMix(u64);
+
+impl SplitMix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        let n = u64::try_from(n).expect("fits");
+        usize::try_from(self.next() % n).expect("below a usize")
+    }
+
+    fn word(&mut self) -> &'static str {
+        WORDS[self.below(WORDS.len())]
+    }
+
+    fn words(&mut self, separator: &str, most: usize) -> Bytes {
+        let count = 1 + self.below(most);
+        (0..count)
+            .map(|_| self.word())
+            .collect::<Vec<_>>()
+            .join(separator)
+            .into()
+    }
+}
+
+fn populated(field: &Field, rng: &mut SplitMix) -> Bytes {
+    match field.kind {
+        FieldKind::Text => rng.words(" ", 3),
+        FieldKind::Tag => rng.words(",", 2),
+        FieldKind::Numeric => match rng.next() % 2 {
+            0 => NUMBERS[rng.below(NUMBERS.len())].to_string().into(),
+            _ => (rng.next() % POPULATE_NUMBERS).to_string().into(),
+        },
+        FieldKind::Geo => {
+            let lon = i64::try_from(rng.next() % 359).expect("small") - 179;
+            let lat = i64::try_from(rng.next() % 169).expect("small") - 84;
+            format!(
+                "{lon}.{:04},{lat}.{:04}",
+                rng.next() % 10_000,
+                rng.next() % 10_000
+            )
+            .into()
+        }
     }
 }
 
@@ -148,6 +242,35 @@ mod tests {
             options: Default::default(),
         })[0];
         String::from_utf8(command[2].0.clone()).unwrap()
+    }
+
+    #[test]
+    fn a_populate_expansion_never_changes() {
+        let field = |name: &str, kind| Field {
+            name: name.into(),
+            kind,
+            sortable: false,
+        };
+        let op = OpKind::Populate {
+            prefix: "k:".into(),
+            fields: vec![
+                field("t", FieldKind::Text),
+                field("n", FieldKind::Numeric),
+                field("g", FieldKind::Tag),
+                field("p", FieldKind::Geo),
+            ],
+            n: 3,
+            seed: 7,
+        };
+        let words = |line: &str| -> Argv { line.split('|').map(Bytes::from).collect() };
+        assert_eq!(
+            lower(&op),
+            [
+                words("HSET|k:0|t|x-y|n|7|g|日本語|p|-84.7985,27.4425"),
+                words("HSET|k:1|t|the green|n|0|g|red|p|9.1000,3.3743"),
+                words("HSET|k:2|t|running running hello|n|906|g|red,日本語|p|68.5272,35.7618"),
+            ]
+        );
     }
 
     #[test]

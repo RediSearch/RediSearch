@@ -144,6 +144,14 @@ pub enum OpKind {
     Command {
         argv: Argv,
     },
+    /// `n` writes under `prefix`, with values for `fields` drawn from the
+    /// fixed dictionary by a PRNG seeded with `seed`.
+    Populate {
+        prefix: Bytes,
+        fields: Vec<Field>,
+        n: u32,
+        seed: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

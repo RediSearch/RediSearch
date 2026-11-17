@@ -54,14 +54,36 @@ fn execute(program: &Program) -> (Trace, Vec<Kind>) {
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn every_smoke_command_succeeds() {
-    let (trace, kinds) = execute(&load("seeds/smoke.json"));
-    assert_eq!(trace.exit, Exit::Clean);
-    assert!(kinds.is_empty());
-    assert!(trace.steps.iter().all(|step| matches!(
-        &step.reply,
-        Some(Reply::Value(value)) if !matches!(value, Value::Error(_))
-    )));
+fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
+    let seeds: Vec<(String, BTreeSet<u32>)> = std::fs::read_dir(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds"),
+    )
+    .unwrap()
+    .map(|entry| {
+        let name = format!("seeds/{}", entry.unwrap().file_name().to_string_lossy());
+        let (trace, kinds) = execute(&load(&name));
+        assert_eq!(trace.exit, Exit::Clean, "{name}");
+        assert!(kinds.is_empty(), "{name}: {kinds:?}");
+        for step in &trace.steps {
+            assert!(
+                matches!(&step.reply, Some(Reply::Value(v)) if !matches!(v, Value::Error(_))),
+                "{name}: {step:?}"
+            );
+        }
+        (name, trace.coverage.edges.into_iter().collect())
+    })
+    .collect();
+    for (name, edges) in &seeds {
+        let others: BTreeSet<u32> = seeds
+            .iter()
+            .filter(|(other, _)| other != name)
+            .flat_map(|(_, edges)| edges.iter().copied())
+            .collect();
+        assert!(
+            edges.difference(&others).count() > 0,
+            "{name} adds no edges"
+        );
+    }
 }
 
 #[test]
