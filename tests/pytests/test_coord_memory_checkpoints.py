@@ -327,6 +327,28 @@ def test_knn_search_fanout_stop_keeps_earlier_replies_resp2():
     _test_knn_search_fanout_stop_keeps_earlier_replies(Env(protocol=2, moduleArgs='WORKERS 1'))
 
 
+@skip(cluster=False)
+def test_knn_search_fills_k_rows():
+    """The coordinator K heap is full at K rows, whatever its allocated capacity, which may start
+    below a large K and grow: a K past that start still returns K rows."""
+    env = Env(protocol=3)
+    if env.shardsCount < 3:
+        env.skip()
+    k = 2000
+    n_docs = k + 100
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 's', 'TAG', 'SORTABLE',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(n_docs):
+        # `s` follows the distance order, so the nearest K come back in id order.
+        conn.execute_command('HSET', f'doc{i}', 's', f'{i:05d}',
+                             'v', np.array([i, 0], dtype=np.float32).tobytes())
+    res = env.getConnection(1).execute_command(
+        'FT.SEARCH', 'idx', f'*=>[KNN {k} @v $b]', 'NOCONTENT', 'LIMIT', 0, k, 'PARAMS', 2, 'b',
+        np.zeros(2, dtype=np.float32).tobytes(), 'SORTBY', 's', 'DIALECT', 2)
+    env.assertEqual(search_ids(env, res), [f'doc{i}' for i in range(k)])
+
+
 def _test_entry_guard_counts_the_oom_warning_once(env):
     create_index(env)
     coord = env.getConnection(1)

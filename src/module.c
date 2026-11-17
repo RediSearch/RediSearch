@@ -2962,7 +2962,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
 
 static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
-    if (heap_count(knnCtx->pq) < heap_size(knnCtx->pq)) {
+    if (heap_count(knnCtx->pq) < knnCtx->pqBound) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
@@ -3774,12 +3774,14 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         rCtx->postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx->reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          // The K heap gets the same bound: K is user supplied and may be huge. The heap's own
-          // capacity, not K, decides when it is full, so a smaller one only drops rows no reply holds.
+          // The K heap gets the same bound: K is user supplied and may be huge. The stored bound
+          // decides when the heap is full, never its capacity, which may start smaller and grow;
+          // a bound below K only drops rows no reply holds.
           size_t knnCap = knnCtx->knn.k;
           if (keptRowsBound < knnCap) {
             knnCap = keptRowsBound > 0 ? keptRowsBound : 1;
           }
+          knnCtx->knn.pqBound = knnCap;
           knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCap));
           heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCap);
           rCtx->processReply = (processReplyCB) ProcessKNNSearchReply;

@@ -23,6 +23,7 @@ typedef struct {
   bool shouldSort;        // Should run presort before the coordinator sort
   size_t offset;          // Reply offset
   heap_t *pq;             // Priority queue
+  size_t pqBound;         // Rows pq keeps: k, or the kept replies' rows after an OOM stop
   QueryNode* queryNode;   // Query node
 } knnContext;
 
