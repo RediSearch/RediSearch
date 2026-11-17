@@ -10,8 +10,9 @@
 //! Request limits forwarded by the `QN_NUMERIC` and `QN_GEO` disk paths.
 //!
 //! The real disk iterators are enterprise-only, so a recording stand-in is registered
-//! as [`SEARCH_ENTERPRISE_ITERATORS`]. The disk spec and snapshot are dangling
-//! placeholders, which the stand-in never dereferences.
+//! as [`SEARCH_ENTERPRISE_ITERATORS`]. The disk spec is a real, owned slot the stand-in
+//! never reads through, since the build takes a reference to it. The snapshot is a dangling
+//! placeholder, only ever carried as a [`NonNull`].
 //!
 //! Disabled under Miri: `TestContext` calls into the C library, which Miri cannot execute.
 #![cfg(not(miri))]
@@ -137,6 +138,9 @@ enum Request {
 /// not free a disk index and snapshot that do not exist.
 struct DiskBacked<'a> {
     context: &'a mut TestContext,
+    /// Backs `diskSpec`, so the `&mut` the disk build takes of it is valid. Dropped
+    /// after the pointer to it is reset.
+    _disk_spec: Box<ffi::RedisSearchDiskIndexSpec>,
 }
 
 impl<'a> DiskBacked<'a> {
@@ -153,29 +157,36 @@ impl<'a> DiskBacked<'a> {
                 true,
             ),
             // A fresh context has no limits; make that explicit rather than assumed.
-            Request::WithoutLimits => unsafe {
-                context.sctx.as_mut().limits = std::ptr::null_mut()
-            },
+            Request::WithoutLimits => {
+                // SAFETY: `sctx` is valid and exclusively owned.
+                unsafe { context.sctx.as_mut().limits = std::ptr::null_mut() }
+            }
         }
-        // SAFETY: `context` exclusively owns its spec and `sctx`, and the placeholders
-        // are never dereferenced (see the module docs).
-        unsafe {
-            (*context.spec).diskSpec = NonNull::dangling().as_ptr();
-            context.sctx.as_mut().diskSnapshot = NonNull::dangling().as_ptr();
-        }
+        let mut disk_spec = Box::new(std::ptr::null::<std::ffi::c_void>());
+        // SAFETY: `context` exclusively owns its spec, and `disk_spec` outlives the
+        // pointer to it (reset in `drop`).
+        unsafe { (*context.spec).diskSpec = &mut *disk_spec };
+        // SAFETY: `context` exclusively owns its `sctx`. The snapshot is never
+        // dereferenced, only carried as a `NonNull` (see the module docs).
+        unsafe { context.sctx.as_mut().diskSnapshot = NonNull::dangling().as_ptr() };
         // SAFETY: `sctx` is valid and exclusively owned.
         let limits = NonNull::new(unsafe { context.sctx.as_ref().limits });
-        (Self { context }, limits)
+        (
+            Self {
+                context,
+                _disk_spec: disk_spec,
+            },
+            limits,
+        )
     }
 }
 
 impl Drop for DiskBacked<'_> {
     fn drop(&mut self) {
-        // SAFETY: `context` exclusively owns its spec and `sctx`.
-        unsafe {
-            (*self.context.spec).diskSpec = std::ptr::null_mut();
-            self.context.sctx.as_mut().diskSnapshot = std::ptr::null_mut();
-        }
+        // SAFETY: `context` exclusively owns its spec.
+        unsafe { (*self.context.spec).diskSpec = std::ptr::null_mut() };
+        // SAFETY: `context` exclusively owns its `sctx`.
+        unsafe { self.context.sctx.as_mut().diskSnapshot = std::ptr::null_mut() };
     }
 }
 
@@ -203,7 +214,7 @@ fn numeric_node(field_index: FieldIndex, filter: &mut NumericFilter) -> MockQuer
 }
 
 fn numeric_limits_received(request: Request) -> (Limits, Limits) {
-    let _guard = GlobalGuard::default();
+    let _guard = GlobalGuard;
     let mut context = TestContext::numeric(
         (1..=3u64).map(|i| RSIndexResult::build_numeric(i as f64).doc_id(i).build()),
         false,
@@ -222,7 +233,7 @@ fn numeric_limits_received(request: Request) -> (Limits, Limits) {
 }
 
 fn geo_limits_received(request: Request) -> (Limits, Limits) {
-    let _guard = GlobalGuard::default();
+    let _guard = GlobalGuard;
     let points: [(DocId, f64, f64); 1] = [(1, 13.361389, 38.115556)];
     let mut context = TestContext::geo(points.into_iter());
     let mut gf = Box::new(ffi::GeoFilter {
