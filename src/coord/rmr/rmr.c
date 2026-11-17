@@ -32,7 +32,7 @@
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
 #include "asm_state_machine.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "hiredis/read.h"
 #include "query_error_ffi.h"
 #include "result_processor.h"

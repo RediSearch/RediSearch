@@ -289,6 +289,13 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       // document we must copy it
       if (!IS_SST_RDB_LOADING(ctx)) {
         key = RedisModule_CreateStringFromString(ctx, key);
+        // Without SST the index is rebuilt from the keyspace, so any D-ID the key
+        // arrived with names the saving process's documents. Clearing it here, rather
+        // than dropping it in docIdMetaRDBLoad, keeps that callback faithful for Flex,
+        // which reuses it to read keys back from flash during the load.
+        if (SearchDisk_IsEnabled()) {
+          DocIdMeta_Clear(ctx, key);
+        }
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields); //TODO: avoid getDocTypeFromString ?
         RedisModule_FreeString(ctx, key);
       }
@@ -1365,13 +1372,16 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     //  - disk strategy (driven by useSst): on an SST load the disk state
     //    arrives via the SST files and the streamed keys carry their DocIdMeta,
     //    so we KEEP the meta and reuse the on-disk index. On any non-SST load
-    //    the index is rebuilt from the keyspace and the stale docIds are
-    //    meaningless, so we FORGET. A replication or RDB-file load can be
-    //    either SST or non-SST, so source and strategy are independent.
+    //    the index is rebuilt from the keyspace, and the loaded_cmd handler
+    //    clears each key's stale DocIdMeta before reindexing it. A replication
+    //    or RDB-file load can be either SST or non-SST, so source and strategy
+    //    are independent.
+    // The DocIdMeta RDB callbacks stay on for the whole load: Flex swaps keys
+    // to and from flash through them, and a swap that dropped the meta would
+    // lose the docIds the reindex just assigned.
     const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
                          : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
                                                                                : "RDB_FILE";
-    DocIdMeta_SetForgetDocIdMetadata(!useSst);
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "LOAD start source=%s sst=%s disk=%s", source,
@@ -1392,8 +1402,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // (see g_sstLoadStaged), so decide from the latch as well as the flag.
     bool finishSst = useSst || g_sstLoadStaged;
     g_sstLoadStaged = false;
-    // Re-enable the DocIdMeta RDB callbacks now that this load is done.
-    DocIdMeta_SetForgetDocIdMetadata(false);
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
@@ -1412,7 +1420,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // staged for the round so the next attempt starts from a clean slate.
     // No-op when no specs are staged.
     g_sstLoadStaged = false;
-    DocIdMeta_SetForgetDocIdMetadata(false);
     if (SearchDisk_IsEnabled()) {
       Indexes_AbortSSTReplicationLoading(ctx);
     }

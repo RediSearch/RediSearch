@@ -31,7 +31,7 @@
 #include "metrics_ffi.h"
 #include "module.h"
 #include "util/workers.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "byte_offsets.h"
 #include "doc_table.h"
 #include "geometry_index.h"

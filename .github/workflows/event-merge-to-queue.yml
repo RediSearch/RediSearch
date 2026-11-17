@@ -122,9 +122,17 @@ jobs:
       separate-coordinator-job: true
       rejson-branch: master
 
+  vecsim:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/task-vecsim-checks.yml
+
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
+      - vecsim
       - get-latest-redis-tag
       - lint
       - build-unique-oses
@@ -141,5 +149,5 @@ jobs:
           profile: administrator
           profile-region: us-east-1
           async: true
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - if: needs.vecsim.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
