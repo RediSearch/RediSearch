@@ -404,12 +404,16 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
         // range tree only sheds at GC time.
-        Ok(self.scan.ranges.first_emission(doc_id)
+        Ok(!self.scan.ranges.is_retained(doc_id)
             && self.validity.is_valid(doc_id)
             && !(self.expiration.has_expiration()
                 && self
                     .expiration
                     .is_expired(&self.build_result(doc_id, score))))
+    }
+
+    fn admitted(&mut self, doc_id: DocId, evicted: Option<DocId>) {
+        self.scan.ranges.record_admission(doc_id, evicted);
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -437,7 +441,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         let scan = &mut self.scan;
         scan.num_iterations = 0;
         scan.heap_old_size = 0;
-        scan.ranges.forget_emitted();
+        scan.ranges.forget_retained();
         scan.ranges.refind(scan.initial_window);
     }
 

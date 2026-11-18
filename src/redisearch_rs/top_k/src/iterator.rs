@@ -28,7 +28,7 @@ use rqe_iterators::{
 };
 
 use crate::{
-    heap::{HeapResult, ScoredResult, TopKHeap},
+    heap::{HeapResult, Offer, ScoredResult, TopKHeap},
     order::{Ascending, ScoreOrdering},
     traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
@@ -618,7 +618,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     }
                     for &(doc_id, score) in &chunk[..len] {
                         if self.source.accept_candidate(doc_id, score)? {
-                            self.heap.push(doc_id, score);
+                            offer_accepted(&mut self.heap, &mut self.source, doc_id, score, || {
+                                None
+                            });
                         }
                     }
                     read_result?;
@@ -702,8 +704,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 // before the next `child.read()` reuses its storage, so the yield
                 // phase needn't re-walk the child. A discarded candidate skips the
                 // copy entirely.
-                self.heap
-                    .push_with_record_lazy(doc_id, score, || capture.apply(result));
+                offer_accepted(&mut self.heap, &mut *scope.0, doc_id, score, || {
+                    capture.apply(result)
+                });
             }
         }
 
@@ -1284,6 +1287,19 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
     owned
 }
 
+#[inline(always)]
+fn offer_accepted<'index, O: ScoreOrdering, S: ScoreSource>(
+    heap: &mut TopKHeap<'index, O>,
+    source: &mut S,
+    doc_id: DocId,
+    score: f64,
+    make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
+) {
+    if let Offer::Inserted { evicted } = heap.push_with_record_lazy(doc_id, score, make_record) {
+        source.admitted(doc_id, evicted);
+    }
+}
+
 /// Intersect one score-ordered batch with a child filter iterator,
 /// pushing matches into `heap`.
 ///
@@ -1315,7 +1331,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
                 // before advancing past it, so the yield phase can return it
                 // without re-reading the child. A discarded match skips the copy.
                 if source.accept_candidate(batch_doc, batch_score)? {
-                    heap.push_with_record_lazy(batch_doc, batch_score, || {
+                    offer_accepted(heap, source, batch_doc, batch_score, || {
                         child.current().and_then(|r| capture.apply(r))
                     });
                 }
