@@ -15,9 +15,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use procfuzz::legacy::judge::basename;
 use procfuzz::legacy::program::{Argv, Bytes, argv};
 use procfuzz::legacy::server::{Harness, Server};
+use procfuzz::sanitizer::basename;
 use serde::{Deserialize, Serialize};
 
 pub const DEBUG: &str = "_FT.DEBUG";

@@ -16,6 +16,8 @@ pub mod interrupt;
 pub mod legacy;
 pub mod model;
 pub mod process;
+pub mod sanitizer;
+pub mod service;
 pub mod system;
 
 #[cfg(test)]

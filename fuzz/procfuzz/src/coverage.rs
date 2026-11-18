@@ -77,17 +77,26 @@ impl CoverageMap {
 
     /// Complete only once the process and its children have exited.
     pub fn read(&self) -> Coverage {
-        let guards = u64::from_ne_bytes(self.map[8..HEADER].try_into().expect("8 bytes"));
-        // Guard ids start at 1, so the last one is `guards` itself.
-        let end = usize::try_from(guards)
-            .map_or(CAPACITY, |guards| guards.saturating_add(1).min(CAPACITY));
         Coverage {
-            guards,
-            edges: (0..end)
-                .filter(|&id| self.map[HEADER + id] != 0)
-                .filter_map(|id| u32::try_from(id).ok())
-                .collect(),
+            guards: self.guards(),
+            edges: self.edges().collect(),
         }
+    }
+
+    /// How many edges the binary has.
+    pub fn guards(&self) -> u64 {
+        u64::from_ne_bytes(self.map[8..HEADER].try_into().expect("8 bytes"))
+    }
+
+    /// The ids of the edges reached. Complete only once the process and its
+    /// children have exited.
+    pub fn edges(&self) -> impl Iterator<Item = u32> + '_ {
+        // Guard ids start at 1, so the last one is `guards` itself.
+        let end = usize::try_from(self.guards())
+            .map_or(CAPACITY, |guards| guards.saturating_add(1).min(CAPACITY));
+        (1..end)
+            .filter(|&id| self.map[HEADER + id] != 0)
+            .filter_map(|id| u32::try_from(id).ok())
     }
 }
 

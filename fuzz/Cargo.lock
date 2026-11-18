@@ -935,6 +935,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "procfuzz-redis"
+version = "0.0.1"
+dependencies = [
+ "procfuzz",
+ "serde",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
