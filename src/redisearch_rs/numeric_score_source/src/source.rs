@@ -162,11 +162,6 @@ struct NumericScan<'index> {
     /// Total documents in the index, the selectivity denominator that sizes
     /// each retry window's estimated limit.
     num_docs: usize,
-    /// Filter child's selectivity estimate, used to size the next window.
-    child_estimate: usize,
-    /// Limit of the window currently being consumed, the denominator of the
-    /// success ratio.
-    last_limit_estimate: usize,
     /// Heap count at the start of the current window, the baseline for counting
     /// hits collected from it.
     heap_old_size: usize,
@@ -205,7 +200,6 @@ impl<'index> NumericScoreSource<'index> {
             RangeWindow::UNBOUNDED,
             range_batch_size,
             0,
-            0,
             false,
         )
     }
@@ -213,8 +207,8 @@ impl<'index> NumericScoreSource<'index> {
     /// Build a filtered source with the expand-and-retry path enabled.
     ///
     /// `window` is the initial slice of the value-ordered stream to read.
-    /// `num_docs` is the total document count and `child_estimate` the filter
-    /// child's selectivity estimate; both size the retry windows.
+    /// `num_docs` is the total document count, which with each window's
+    /// observed hit rate sizes the retry windows.
     pub fn filtered(
         tree: impl Into<NumericTreeRef<'index>>,
         mut filter: NumericFilter,
@@ -222,18 +216,9 @@ impl<'index> NumericScoreSource<'index> {
         ascending: bool,
         range_batch_size: usize,
         num_docs: usize,
-        child_estimate: usize,
     ) -> Self {
         filter.ascending = ascending;
-        Self::build(
-            tree,
-            filter,
-            window,
-            range_batch_size,
-            num_docs,
-            child_estimate,
-            true,
-        )
+        Self::build(tree, filter, window, range_batch_size, num_docs, true)
     }
 
     fn build(
@@ -242,7 +227,6 @@ impl<'index> NumericScoreSource<'index> {
         window: RangeWindow,
         range_batch_size: usize,
         num_docs: usize,
-        child_estimate: usize,
         retry_enabled: bool,
     ) -> Self {
         let mut ranges = NumericRangeIterator::new(tree, &filter, window);
@@ -250,13 +234,11 @@ impl<'index> NumericScoreSource<'index> {
         Self {
             scan: NumericScan {
                 ranges,
-                last_limit_estimate: window.limit,
                 initial_window: window,
                 range_batch_size: range_batch_size.max(1),
                 num_estimated,
                 retry_enabled,
                 num_docs,
-                child_estimate,
                 heap_old_size: 0,
                 num_iterations: 0,
                 num_batches: 0,
@@ -340,9 +322,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             offset: 0,
             limit: k,
         };
-        scan.last_limit_estimate = k;
         scan.num_docs = scan.num_estimated;
-        scan.child_estimate = scan.num_estimated;
         scan.retry_enabled = true;
         scan.ranges.refind(scan.initial_window);
     }
@@ -355,15 +335,11 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
 }
 
 impl NumericScan<'_> {
-    /// Hit ratio of the window just consumed: results collected from it over the
-    /// window's limit. Returns `0.0` when the limit is `0`, guarding the
-    /// division.
-    fn success_ratio(&self, heap_count: usize) -> f64 {
-        if self.last_limit_estimate == 0 {
-            return 0.0;
-        }
+    /// Hit ratio of the window just consumed: results collected from it over
+    /// its non-zero `limit`.
+    fn success_ratio(&self, heap_count: usize, limit: usize) -> f64 {
         let collected = heap_count.saturating_sub(self.heap_old_size);
-        collected as f64 / self.last_limit_estimate as f64
+        collected as f64 / limit as f64
     }
 
     /// Advance the window past the drained one, size the next, and re-resolve
@@ -386,18 +362,19 @@ impl NumericScan<'_> {
             return false;
         }
 
+        let success_ratio = self.success_ratio(heap_count, window.limit);
         window.offset += self.ranges.total_docs_estimate();
-        let success_ratio = self.success_ratio(heap_count);
 
         if success_ratio < MIN_SUCCESS_RATIO || self.num_iterations + 1 >= MAX_ITERATIONS {
             // Hits are too sparse, or this is the last allowed retry: drop the
             // window limit so the retry reads every remaining range.
             window.limit = 0;
         } else {
+            // Feed the estimator the observed selectivity, as C does. A zero
+            // estimate yields a zero, i.e. unbounded, window.
             let results_missing = k.saturating_sub(heap_count);
-            let estimate = estimate_limit(self.num_docs, self.child_estimate, results_missing);
-            self.last_limit_estimate = ((estimate as f64) * success_ratio) as usize;
-            window.limit = self.last_limit_estimate.max(1);
+            let observed_estimate = (success_ratio * self.num_docs as f64) as usize;
+            window.limit = estimate_limit(self.num_docs, observed_estimate, results_missing);
         }
 
         self.ranges.refind(window);
@@ -478,7 +455,6 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // its own windows inside `expand_window`, so this is only reached for an
         // outer rewind that restarts the whole query.
         let scan = &mut self.scan;
-        scan.last_limit_estimate = scan.initial_window.limit;
         scan.num_iterations = 0;
         scan.num_batches = 0;
         scan.heap_old_size = 0;
@@ -542,8 +518,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     }
 }
 
-/// Estimate the window limit needed to collect `limit` more results, given the
-/// child's selectivity (`estimate`/`num_docs`).
+/// Estimate the window limit needed to collect `limit` more results at a
+/// selectivity of `estimate`/`num_docs`.
 ///
 /// Returns `0` when `num_docs` or `estimate` is `0`, guarding the division.
 pub(crate) fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
@@ -552,4 +528,53 @@ pub(crate) fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> 
     }
     let ratio = estimate as f64 / num_docs as f64;
     ((limit as f64 / ratio) as usize).saturating_add(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::{NumericRangeTree, RangeWindow};
+    use top_k::{BatchStrategy, ScoreSource};
+
+    use super::NumericScoreSource;
+
+    /// Drain a 100-doc first window over a 1000-doc tree, report `collected` of
+    /// `k` results, and return the retry window's limit.
+    fn retry_window_limit(num_docs: usize, collected: usize, k: usize) -> usize {
+        let mut tree = NumericRangeTree::new(false);
+        for id in 1..=1000 {
+            tree.add(id, id as f64, false, false, 0);
+        }
+        let window = RangeWindow {
+            offset: 0,
+            limit: 100,
+        };
+        let mut source = NumericScoreSource::filtered(
+            &tree,
+            NumericFilter::default(),
+            window,
+            true,
+            usize::MAX,
+            num_docs,
+        );
+        while source.next_batch().unwrap().is_some() {}
+        assert_eq!(
+            source.batch_strategy(collected, k),
+            BatchStrategy::ExpandWindow
+        );
+        source.scan.ranges.window().limit
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Too slow to run under miri")]
+    fn retry_window_holds_the_missing_results_at_the_observed_hit_rate() {
+        // 20 missing results at a 10% hit rate.
+        assert_eq!(retry_window_limit(1000, 10, 30), 201);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Too slow to run under miri")]
+    fn retry_window_is_unbounded_when_the_observed_estimate_truncates_to_zero() {
+        assert_eq!(retry_window_limit(40, 2, 30), 0);
+    }
 }

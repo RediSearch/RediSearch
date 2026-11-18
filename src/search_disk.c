@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "spec.h"
+#include "tag_index.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
@@ -281,6 +282,15 @@ static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_re
     IndexSpec_DecrementNumTerms(sp, num_terms_removed);
 }
 
+static bool Compaction_DecrementTagValueCount(void *update_ctx, t_fieldIndex field_index,
+                                              const char *tag, size_t tag_len, size_t count) {
+  IndexSpec *sp = update_ctx;
+  RS_ASSERT(sp && sp->diskSpec && field_index < sp->numFields);
+  TagIndex *idx = TagIndex_Open(&sp->fields[field_index]);
+  RS_ASSERT(idx);
+  return TagIndex_DecrementValueCount(idx, tag, tag_len, count);
+}
+
 static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
@@ -296,12 +306,13 @@ static void Compaction_EndUpdate(void *update_ctx) {
 // disk layer parks on them via `SyncPoint_Wait` directly, gated to the
 // `enable-assert` cargo feature, so they cost nothing here in any build.
 static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
-    return (SearchDiskCompactionCallbacks) {
-        .beginUpdate = Compaction_BeginUpdate,
-        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
-        .decrementNumTerms = Compaction_DecrementNumTerms,
-        .endUpdate = Compaction_EndUpdate,
-    };
+  return (SearchDiskCompactionCallbacks){
+      .beginUpdate = Compaction_BeginUpdate,
+      .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
+      .decrementNumTerms = Compaction_DecrementNumTerms,
+      .decrementTagValueCount = Compaction_DecrementTagValueCount,
+      .endUpdate = Compaction_EndUpdate,
+  };
 }
 
 // Basic API wrappers
@@ -506,12 +517,12 @@ bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *inde
     return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex);
 }
 
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, size_t numDocs, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {
     RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
     // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
-    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets, sctx->diskSnapshot, status);
+    return disk->index.newTermIterator(index, term, fieldMask, weight, numDocs, needsOffsets, sctx->diskSnapshot, status);
 }
 
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
@@ -676,7 +687,7 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 bool SearchDisk_SupportsMultiValue(FieldType types) {
-  return types == INDEXFLD_T_FULLTEXT;
+  return types == INDEXFLD_T_FULLTEXT || types == INDEXFLD_T_TAG;
 }
 
 // Vector API wrappers
