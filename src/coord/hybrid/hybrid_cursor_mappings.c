@@ -62,7 +62,8 @@ static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
       MRIterator_PushReply(target, warning);
       continue;
     }
-    if (QueryWarningCode_GetCodeFromMessage(warning_str) == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD) {
+    if (QueryWarningCode_GetCodeFromMessage(warning_str) ==
+        QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD) {
       flagShardOom(ctx);
     }
     // Clone before pushing the original: a push hands ownership to the
@@ -100,7 +101,8 @@ static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long sea
 // the resolving side's channel unblock cannot beat the error into the reader.
 // Consumes the error reply.
 static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *error) {
-  if (QueryError_GetCodeFromMessage(MRReply_String(error, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+  if (QueryError_GetCodeFromMessage(MRReply_String(error, NULL)) ==
+      QUERY_ERROR_CODE_OUT_OF_MEMORY) {
     flagShardOom(ctx);
   }
   MRIterator_PushReply(ctx->searchIt, MRReply_Clone(error));

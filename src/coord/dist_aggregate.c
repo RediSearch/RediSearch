@@ -333,14 +333,15 @@ static void rpnetCreateIterator(RPNet *nc) {
     .forProfiling = nc->cmd.forProfiling,
   };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
-    .successCB = cb,
-    .errorCB = errCb,
-    .cbPrivateData = iterCtx,
-    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
-    .commandModifier = cmdModifier,
-    .memoryCheckpoint = true,
-  });
+  MRIterator *it = MR_CreateIteratorTakingCmd(
+      &nc->cmd, &(MRIteratorConfig){
+                    .successCB = cb,
+                    .errorCB = errCb,
+                    .cbPrivateData = iterCtx,
+                    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
+                    .commandModifier = cmdModifier,
+                    .memoryCheckpoint = true,
+                });
   nc->cmd = replyShape;
 
   nc->it = it;
@@ -405,8 +406,8 @@ static void executeAggregateDeferred(void *arg) {
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
   // A memory stop releases the barrier before every shard's first reply is summed.
-  const bool barrierReleasedEarly = MRIterator_IsMemoryStopped(nc->it) &&
-                                    iterCtx->numResponded < MRIterator_GetNumShards(nc->it);
+  const bool barrierReleasedEarly =
+      MRIterator_IsMemoryStopped(nc->it) && iterCtx->numResponded < MRIterator_GetNumShards(nc->it);
 
   bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits);
 

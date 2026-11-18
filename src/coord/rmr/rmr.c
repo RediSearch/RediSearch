@@ -656,7 +656,7 @@ struct MRIteratorCtx {
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
   bool memoryCheckpoint;
-  bool memoryStopped;  // set on the IO thread, read by the reader
+  bool memoryStopped;        // set on the IO thread, read by the reader
   uint32_t shardOomReplies;  // counted on the IO thread, read by the reader
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
@@ -1025,21 +1025,22 @@ static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config)
   IORuntimeCtx *ioRuntime = config->ioRuntime ? config->ioRuntime
       : MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   *ret = (MRIterator){
-    .ctx = {
-      .chan = MR_NewChannel(),
-      .successCB = config->successCB,
-      .errorCB = config->errorCB,
-      .pending = 1,
-      .inProcess = 1,
-      .timedOut = false,
-      .itRefCount = 2,
-      .ioRuntime = ioRuntime,
-      .privateDataDestructor = config->cbPrivateDataDestructor,
-      .commandModifier = config->commandModifier,
-      .memoryCheckpoint = config->memoryCheckpoint,
-    },
-    .cbxs = rm_new(MRIteratorCallbackCtx),
-    .len = 1,
+      .ctx =
+          {
+              .chan = MR_NewChannel(),
+              .successCB = config->successCB,
+              .errorCB = config->errorCB,
+              .pending = 1,
+              .inProcess = 1,
+              .timedOut = false,
+              .itRefCount = 2,
+              .ioRuntime = ioRuntime,
+              .privateDataDestructor = config->cbPrivateDataDestructor,
+              .commandModifier = config->commandModifier,
+              .memoryCheckpoint = config->memoryCheckpoint,
+          },
+      .cbxs = rm_new(MRIteratorCallbackCtx),
+      .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = cmd,

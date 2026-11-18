@@ -64,7 +64,8 @@ bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
 
 bool ShardReply_ReportsOom(const MRCommand *cmd, MRReply *rep) {
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
-    return QueryError_GetCodeFromMessage(MRReply_String(rep, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY;
+    return QueryError_GetCodeFromMessage(MRReply_String(rep, NULL)) ==
+           QUERY_ERROR_CODE_OUT_OF_MEMORY;
   }
   if (MRReply_Type(rep) == MR_REPLY_STRING || MRReply_Type(rep) == MR_REPLY_STATUS) {
     const char *str = MRReply_String(rep, NULL);
@@ -77,8 +78,8 @@ bool ShardReply_ReportsOom(const MRCommand *cmd, MRReply *rep) {
   if (meta && cmd->forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
     meta = MRReply_MapElement(meta, "results");  // profile has an extra level
   }
-  MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
-                                                                  : NULL;
+  MRReply *warnings =
+      meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning") : NULL;
   const size_t len = warnings ? MRReply_Length(warnings) : 0;
   for (size_t i = 0; i < len; i++) {
     const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
@@ -110,7 +111,8 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
     // Before the push, so a reader that pops this reply sees the flag (release / acquire).
-    if (ShardReply_ReportsOom(cmd, rep)) MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
+    if (ShardReply_ReportsOom(cmd, rep))
+      MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
