@@ -9,10 +9,12 @@ publish.workspace = true
 anyhow.workspace = true
 cargo_metadata.workspace = true
 clap.workspace = true
-proc-macro2 = { workspace = true, features = ["span-locations"] }
 serde_json.workspace = true
-syn = { workspace = true, features = ["full", "visit"] }
 toml.workspace = true
+tree-sitter.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-cpp.workspace = true
+tree-sitter-rust.workspace = true
 walkdir.workspace = true
 
 [lints]

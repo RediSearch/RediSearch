@@ -10,12 +10,12 @@
 //! Scanning of the Rust workspace: production crates, their dependencies on
 //! each other, the C headers generated from them, and the C names they use.
 
+use crate::syntax::{Syntax, Walk};
 use anyhow::{Context, Result};
 use cargo_metadata::{DependencyKind, Metadata, Package};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use syn::spanned::Spanned;
-use syn::visit::Visit;
+use tree_sitter::Node;
 use walkdir::WalkDir;
 
 /// Crates that only support testing, benchmarking or the build.
@@ -154,110 +154,294 @@ pub fn generated_headers(
         .collect())
 }
 
-/// The names a crate's production code refers to through the bindings.
-/// The names a crate's production code uses through the bindings, and the
-/// functions it exports to C.
+/// The names a crate's production code uses through the bindings, the
+/// functions it exports to C, and its lines of code.
 fn scan_sources(src: &Path) -> Sources {
-    let mut names = BTreeSet::new();
-    let mut exported = BTreeSet::new();
-    let mut lines = 0;
+    let mut sources = Sources::default();
     for entry in WalkDir::new(src)
         .into_iter()
         .filter_entry(|e| e.file_name() != "tests")
         .filter_map(Result::ok)
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
     {
-        let path = entry.path();
-        let Ok(content) = std::fs::read_to_string(path) else {
+        let Ok(content) = std::fs::read(entry.path()) else {
             continue;
         };
-        let file = match syn::parse_file(&content) {
-            Ok(file) => file,
-            // Syntax accepted only once rewritten by an attribute macro, such
-            // as the pre-stabilization GAT syntax `#[gat]` takes.
-            Err(_) => {
-                if let Ok(tokens) = content.parse() {
-                    names.extend(qualified_names_in_tokens(tokens));
-                }
-                lines += code_lines(&content, &[]);
-                continue;
-            }
-        };
-        let mut tests = TestItems::default();
-        tests.visit_file(&file);
-        lines += code_lines(&content, &tests.lines);
-        let mut visitor = BindingUses::default();
-        visitor.visit_file(&file);
-        names.extend(visitor.qualified);
-        names.extend(visitor.imported);
-        names.extend(visitor.declared);
-        if visitor.glob_imported {
-            names.extend(visitor.bare);
+        if let Ok(file) = RustFile::parse(&content) {
+            file.scan(&mut sources);
         }
-        exported.extend(visitor.exported);
     }
-    Sources {
-        c_names: names,
-        exported,
-        lines,
-    }
+    sources
 }
 
 /// What [`scan_sources`] finds in a crate, see the fields of [`Crate`].
+#[derive(Default)]
 struct Sources {
     c_names: BTreeSet<String>,
     exported: BTreeSet<String>,
     lines: usize,
 }
 
-/// The lines holding code in `content`, leaving out blank and comment lines
-/// and those within `excluded`, inclusive 1-based line ranges.
-fn code_lines(content: &str, excluded: &[(usize, usize)]) -> usize {
-    content
-        .lines()
-        .enumerate()
-        .filter(|(i, line)| {
-            let line_number = i + 1;
-            let trimmed = line.trim();
-            !trimmed.is_empty()
-                && !trimmed.starts_with("//")
-                && !excluded
-                    .iter()
-                    .any(|(start, end)| (*start..=*end).contains(&line_number))
-        })
-        .count()
-}
+/// A Rust file's syntax tree. tree-sitter recovers from what it cannot parse,
+/// such as the syntax the `#[gat]` attribute macro takes, so that the rest of
+/// the file is still seen.
+struct RustFile<'a>(Syntax<'a>);
 
-/// The line ranges of a file's test-only items.
-#[derive(Default)]
-struct TestItems {
-    lines: Vec<(usize, usize)>,
-}
+impl<'a> RustFile<'a> {
+    fn parse(source: &'a [u8]) -> Result<Self> {
+        Ok(Self(Syntax::parse(
+            source,
+            &tree_sitter_rust::LANGUAGE.into(),
+        )?))
+    }
 
-impl<'ast> Visit<'ast> for TestItems {
-    fn visit_item(&mut self, item: &'ast syn::Item) {
-        let attrs: &[syn::Attribute] = match item {
-            syn::Item::Mod(i) => &i.attrs,
-            syn::Item::Fn(i) => &i.attrs,
-            syn::Item::Impl(i) => &i.attrs,
-            syn::Item::Use(i) => &i.attrs,
-            syn::Item::Const(i) => &i.attrs,
-            syn::Item::Static(i) => &i.attrs,
-            syn::Item::Struct(i) => &i.attrs,
-            syn::Item::Enum(i) => &i.attrs,
-            _ => &[],
-        };
-        if is_test_only(attrs) {
-            let span = item.span();
-            self.lines.push((span.start().line, span.end().line));
-        } else {
-            syn::visit::visit_item(self, item);
+    fn scan(&self, sources: &mut Sources) {
+        sources.lines += self.0.code_lines(|node| self.is_test_only(node));
+        let uses = self.binding_uses();
+        sources.c_names.extend(uses.qualified);
+        sources.c_names.extend(uses.imported);
+        sources.c_names.extend(uses.declared);
+        if uses.glob_imported {
+            sources.c_names.extend(uses.bare);
         }
+        sources.exported.extend(uses.exported);
+    }
+
+    /// Collects every name that may come from the bindings. Names that are
+    /// not C symbols are filtered out later, against the headers.
+    fn binding_uses(&self) -> BindingUses {
+        let mut uses = BindingUses::default();
+        self.0.walk(|node| {
+            if self.is_test_only(node) {
+                return Walk::Over;
+            }
+            match node.kind() {
+                "use_declaration" => {
+                    if let Some(argument) = node.child_by_field_name("argument") {
+                        self.collect_imports(false, argument, &mut uses);
+                    }
+                    Walk::Over
+                }
+                "function_item" => {
+                    if self.has_attribute(node, &["no_mangle", "unsafe(no_mangle)"])
+                        && let Some(name) = node.child_by_field_name("name")
+                    {
+                        uses.exported.insert(self.text(name));
+                    }
+                    Walk::Into
+                }
+                "foreign_mod_item" => {
+                    let body = node.child_by_field_name("body");
+                    for item in body.iter().flat_map(|b| named_children(*b)) {
+                        if matches!(item.kind(), "function_signature_item" | "static_item")
+                            && let Some(name) = item.child_by_field_name("name")
+                        {
+                            uses.declared.insert(self.text(name));
+                        }
+                    }
+                    Walk::Into
+                }
+                "scoped_identifier" | "scoped_type_identifier" => {
+                    // The inner paths of `a::b::c` are the same path.
+                    let is_inner =
+                        node.parent().and_then(|p| p.child_by_field_name("path")) == Some(node);
+                    if !is_inner
+                        && self.path_has_bindings(node)
+                        && let Some(name) = node.child_by_field_name("name")
+                    {
+                        uses.qualified.insert(self.text(name));
+                    }
+                    Walk::Into
+                }
+                "identifier" | "type_identifier" => {
+                    if !node
+                        .parent()
+                        .is_some_and(|p| p.kind().starts_with("scoped_"))
+                    {
+                        uses.bare.insert(self.text(node));
+                    }
+                    Walk::Over
+                }
+                "token_tree" => {
+                    self.token_paths(node, &mut uses.qualified);
+                    Walk::Into
+                }
+                _ => Walk::Into,
+            }
+        });
+        uses
+    }
+
+    fn collect_imports(&self, from_bindings: bool, node: Node, uses: &mut BindingUses) {
+        let through = |path: Option<Node>| {
+            from_bindings || path.is_some_and(|p| self.has_bindings_segment(p))
+        };
+        match node.kind() {
+            "identifier" if from_bindings => {
+                uses.imported.insert(self.text(node));
+            }
+            "scoped_identifier" => {
+                if through(node.child_by_field_name("path"))
+                    && let Some(name) = node.child_by_field_name("name")
+                {
+                    uses.imported.insert(self.text(name));
+                }
+            }
+            "use_as_clause" => {
+                if let Some(path) = node.child_by_field_name("path") {
+                    self.collect_imports(from_bindings, path, uses);
+                }
+            }
+            "scoped_use_list" => {
+                let from_bindings = through(node.child_by_field_name("path"));
+                if let Some(list) = node.child_by_field_name("list") {
+                    self.collect_imports(from_bindings, list, uses);
+                }
+            }
+            "use_list" => {
+                for item in named_children(node) {
+                    self.collect_imports(from_bindings, item, uses);
+                }
+            }
+            "use_wildcard" => {
+                if through(node.named_child(0)) {
+                    uses.glob_imported = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether a scoped path goes through the bindings crate.
+    fn path_has_bindings(&self, node: Node) -> bool {
+        node.child_by_field_name("path")
+            .is_some_and(|p| self.has_bindings_segment(p))
+    }
+
+    /// Whether a path, a segment or a scoped path, names the bindings crate.
+    fn has_bindings_segment(&self, mut node: Node) -> bool {
+        loop {
+            match node.kind() {
+                "identifier" => return self.0.text(node) == BINDINGS_CRATE,
+                "scoped_identifier" => {
+                    if node
+                        .child_by_field_name("name")
+                        .is_some_and(|n| self.0.text(n) == BINDINGS_CRATE)
+                    {
+                        return true;
+                    }
+                    match node.child_by_field_name("path") {
+                        Some(path) => node = path,
+                        None => return false,
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// The names used through the bindings crate in a macro's tokens, which
+    /// tree-sitter leaves unparsed: the last segment of each `ffi::a::B` path,
+    /// and every name of an `ffi::{A, B}` group.
+    fn token_paths(&self, tree: Node, names: &mut BTreeSet<String>) {
+        let tokens: Vec<Node> = children(tree);
+        let is_separator = |i: usize| tokens.get(i).is_some_and(|t| t.kind() == "::");
+        for (i, token) in tokens.iter().enumerate() {
+            if token.kind() != "identifier"
+                || self.0.text(*token) != BINDINGS_CRATE
+                || !is_separator(i + 1)
+            {
+                continue;
+            }
+            let mut j = i + 2;
+            let mut last = None;
+            while let Some(next) = tokens.get(j) {
+                match next.kind() {
+                    "identifier" => last = Some(self.text(*next)),
+                    "token_tree" => {
+                        names.extend(
+                            children(*next)
+                                .into_iter()
+                                .filter(|t| t.kind() == "identifier")
+                                .map(|t| self.text(t)),
+                        );
+                        break;
+                    }
+                    _ => break,
+                }
+                if !is_separator(j + 1) {
+                    break;
+                }
+                j += 2;
+            }
+            names.extend(last);
+        }
+    }
+
+    /// Whether `node` is an item existing only in tests, or an attribute of
+    /// one.
+    fn is_test_only(&self, node: Node) -> bool {
+        let mut item = node;
+        while item.kind() == "attribute_item" || COMMENTS.contains(&item.kind()) {
+            match item.next_named_sibling() {
+                Some(next) => item = next,
+                None => return false,
+            }
+        }
+        // An attribute applies to the next item only.
+        if item != node && node.kind() != "attribute_item" {
+            return false;
+        }
+        self.has_attribute(item, &["test", "cfg(test)"])
+    }
+
+    /// Whether one of the outer attributes of `item`, written without spaces,
+    /// is in `attributes`.
+    fn has_attribute(&self, item: Node, attributes: &[&str]) -> bool {
+        let mut sibling = item.prev_named_sibling();
+        while let Some(node) = sibling {
+            match node.kind() {
+                "attribute_item" => {
+                    let attribute: String = node
+                        .named_child(0)
+                        .map(|a| self.0.text(a))
+                        .unwrap_or("")
+                        .chars()
+                        .filter(|c| !c.is_whitespace())
+                        .collect();
+                    if attributes.contains(&attribute.as_str()) {
+                        return true;
+                    }
+                }
+                kind if COMMENTS.contains(&kind) => {}
+                _ => return false,
+            }
+            sibling = node.prev_named_sibling();
+        }
+        false
+    }
+
+    fn text(&self, node: Node) -> String {
+        self.0.text(node).to_owned()
     }
 }
 
-/// Collects, in one file, every name that may come from the bindings. Names
-/// that are not C symbols are filtered out later, against the headers.
+/// Comment node kinds of the Rust grammar, which may sit between an item and
+/// its attributes.
+const COMMENTS: &[&str] = &["line_comment", "block_comment"];
+
+fn children(node: Node) -> Vec<Node> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).collect()
+}
+
+fn named_children(node: Node) -> Vec<Node> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+/// The names one file may use from the bindings, see
+/// [`RustFile::binding_uses`].
 #[derive(Default)]
 struct BindingUses {
     /// Last segments of paths going through the bindings crate.
@@ -276,156 +460,21 @@ struct BindingUses {
     exported: BTreeSet<String>,
 }
 
-impl BindingUses {
-    fn collect_imports(&mut self, from_bindings: bool, tree: &syn::UseTree) {
-        match tree {
-            syn::UseTree::Path(p) => {
-                self.collect_imports(from_bindings || p.ident == BINDINGS_CRATE, &p.tree)
-            }
-            syn::UseTree::Name(n) if from_bindings => {
-                self.imported.insert(n.ident.to_string());
-            }
-            syn::UseTree::Rename(r) if from_bindings => {
-                self.imported.insert(r.ident.to_string());
-            }
-            syn::UseTree::Glob(_) if from_bindings => self.glob_imported = true,
-            syn::UseTree::Group(g) => {
-                for item in &g.items {
-                    self.collect_imports(from_bindings, item);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-impl<'ast> Visit<'ast> for BindingUses {
-    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-        if !is_test_only(&node.attrs) {
-            syn::visit::visit_item_mod(self, node);
-        }
-    }
-
-    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        if is_no_mangle(&node.attrs) {
-            self.exported.insert(node.sig.ident.to_string());
-        }
-        if !is_test_only(&node.attrs) {
-            syn::visit::visit_item_fn(self, node);
-        }
-    }
-
-    fn visit_item_use(&mut self, node: &'ast syn::ItemUse) {
-        self.collect_imports(false, &node.tree);
-    }
-
-    fn visit_foreign_item_fn(&mut self, node: &'ast syn::ForeignItemFn) {
-        self.declared.insert(node.sig.ident.to_string());
-    }
-
-    fn visit_foreign_item_static(&mut self, node: &'ast syn::ForeignItemStatic) {
-        self.declared.insert(node.ident.to_string());
-    }
-
-    fn visit_path(&mut self, node: &'ast syn::Path) {
-        let segments = &node.segments;
-        if segments.len() == 1 {
-            self.bare.insert(segments[0].ident.to_string());
-        } else if segments.iter().any(|s| s.ident == BINDINGS_CRATE)
-            && let Some(last) = segments.last()
-        {
-            self.qualified.insert(last.ident.to_string());
-        }
-        syn::visit::visit_path(self, node);
-    }
-}
-
-/// The names used through the bindings crate in a file that does not parse:
-/// the last segment of each path through it, and every name imported from it
-/// by a group. Less precise than [`BindingUses`], which also sees glob
-/// imports and leaves test-only code out.
-fn qualified_names_in_tokens(tokens: proc_macro2::TokenStream) -> BTreeSet<String> {
-    use proc_macro2::TokenTree;
-
-    let mut names = BTreeSet::new();
-    let tokens: Vec<TokenTree> = tokens.into_iter().collect();
-    let is_path_sep = |i: usize| {
-        matches!(
-            (tokens.get(i), tokens.get(i + 1)),
-            (Some(TokenTree::Punct(a)), Some(TokenTree::Punct(b)))
-                if a.as_char() == ':' && b.as_char() == ':'
-        )
-    };
-    for (i, token) in tokens.iter().enumerate() {
-        match token {
-            TokenTree::Ident(ident) if ident == BINDINGS_CRATE && is_path_sep(i + 1) => {
-                let mut j = i + 3;
-                let mut last = None;
-                while let Some(next) = tokens.get(j) {
-                    match next {
-                        TokenTree::Ident(segment) => last = Some(segment.to_string()),
-                        TokenTree::Group(group) => {
-                            names.extend(group.stream().into_iter().filter_map(|t| match t {
-                                TokenTree::Ident(name) => Some(name.to_string()),
-                                _ => None,
-                            }));
-                            break;
-                        }
-                        TokenTree::Punct(_) | TokenTree::Literal(_) => break,
-                    }
-                    if !is_path_sep(j + 1) {
-                        break;
-                    }
-                    j += 3;
-                }
-                names.extend(last);
-            }
-            TokenTree::Group(group) => names.extend(qualified_names_in_tokens(group.stream())),
-            _ => {}
-        }
-    }
-    names
-}
-
-/// Whether the attributes export an item under its own name: `#[no_mangle]`,
-/// or `#[unsafe(no_mangle)]` since edition 2024.
-fn is_no_mangle(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        attr.path().is_ident("no_mangle")
-            || (attr.path().is_ident("unsafe")
-                && attr
-                    .parse_args::<syn::Ident>()
-                    .is_ok_and(|i| i == "no_mangle"))
-    })
-}
-
-/// Whether the attributes make an item exist only in tests.
-fn is_test_only(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        if attr.path().is_ident("test") {
-            return true;
-        }
-        if !attr.path().is_ident("cfg") {
-            return false;
-        }
-        attr.parse_args::<syn::Ident>().is_ok_and(|i| i == "test")
-    })
-}
-
-#[cfg(test)]
+// Miri can't run the tree-sitter grammars, which are C code.
+#[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
 
+    fn scan(source: &str) -> Sources {
+        let mut sources = Sources::default();
+        RustFile::parse(source.as_bytes())
+            .unwrap()
+            .scan(&mut sources);
+        sources
+    }
+
     fn uses(source: &str) -> BTreeSet<String> {
-        let mut visitor = BindingUses::default();
-        visitor.visit_file(&syn::parse_file(source).unwrap());
-        let mut names = visitor.qualified;
-        names.extend(visitor.imported);
-        names.extend(visitor.declared);
-        if visitor.glob_imported {
-            names.extend(visitor.bare);
-        }
-        names
+        scan(source).c_names
     }
 
     #[test]
@@ -450,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_tokens_on_unparsable_files() {
+    fn recovers_from_unparsable_code() {
         let source = r#"
             use ffi::{Spec_Load, Spec_Free};
             #[gat]
@@ -459,10 +508,10 @@ mod tests {
                 fn next(&mut self) { unsafe { ffi::nested::JSON_Next(self.0) } }
             }
             "#;
-        assert!(syn::parse_file(source).is_err());
-        let names = qualified_names_in_tokens(source.parse().unwrap());
-        let expected = ["JSON_Next", "RedisJSON", "Spec_Free", "Spec_Load"];
-        assert_eq!(names, expected.map(String::from).into());
+        let names = uses(source);
+        for name in ["JSON_Next", "RedisJSON", "Spec_Free", "Spec_Load"] {
+            assert!(names.contains(name), "{name} missing from {names:?}");
+        }
     }
 
     #[test]
@@ -481,15 +530,13 @@ mod tests {
 
     #[test]
     fn collects_exported_functions() {
-        let mut visitor = BindingUses::default();
         let source = r#"
             #[unsafe(no_mangle)] pub extern "C" fn RLookup_Init() {}
             #[no_mangle] pub extern "C" fn Old_Style() {}
             pub fn not_exported() {}
         "#;
-        visitor.visit_file(&syn::parse_file(source).unwrap());
         assert_eq!(
-            visitor.exported,
+            scan(source).exported,
             ["Old_Style", "RLookup_Init"].map(String::from).into()
         );
     }
@@ -509,9 +556,24 @@ mod tests {
     fn t() {}
 }
 "#;
-        let mut tests = TestItems::default();
-        tests.visit_file(&syn::parse_file(source).unwrap());
-        assert_eq!(code_lines(source, &tests.lines), 3);
+        assert_eq!(scan(source).lines, 3);
+    }
+
+    #[test]
+    fn finds_bindings_in_macro_arguments() {
+        let names = uses(r#"fn f() { println!("{}", ffi::MAX_LEN); m!(ffi::{A, B}); }"#);
+        assert_eq!(names, ["A", "B", "MAX_LEN"].map(String::from).into());
+    }
+
+    #[test]
+    fn test_only_items_export_nothing() {
+        let source = r#"
+            #[cfg(test)]
+            // A stub for the linker.
+            #[unsafe(no_mangle)]
+            extern "C" fn Stub() {}
+        "#;
+        assert!(scan(source).exported.is_empty());
     }
 
     #[test]

@@ -115,8 +115,8 @@ saved in the URL fragment.
 
 Each module carries its lines of code, shown in the page, the DOT tooltips
 and the candidates table: blank lines and comments are left out, as are
-`#include` directives for C and test-only items (`#[cfg(test)]` modules,
-`#[test]` functions) for Rust. A C module counts its source and header files,
+`#include` directives for C and test-only items (marked `#[cfg(test)]` or
+`#[test]`) for Rust. A C module counts its source and header files,
 a crate its `src/`, a dependency its whole `deps/` directory.
 
 ## Candidates
@@ -135,14 +135,22 @@ alone is listed too.
 
 ## Limitations
 
-C files are scanned with a heuristic rather than a C parser, and some Rust
-files cannot be parsed, so a few edges may be missing or spurious, in
-particular:
+C, C++ and Rust files are parsed with tree-sitter, without running the C
+preprocessor nor expanding Rust macros, so a few edges may be missing or
+spurious, in particular:
 
 - Names are matched across the whole codebase: a local variable named like a
   global symbol of another module links to it.
 - Calls through function pointers are not seen.
-- Conditional compilation is ignored: both branches of an `#if` are scanned.
-- Rust files `syn` cannot parse, such as those written in the syntax the
-  `#[gat]` attribute takes, fall back to a token scan: only paths through
-  `ffi` are found there, test-only code included.
+- Conditional compilation is ignored: both branches of an `#if` are scanned,
+  except code only C++ compilers see (`#ifdef __cplusplus`), which is left out
+  of C files and of headers parsed as C.
+- Macros are not expanded: code a macro generates is not seen, and code
+  relying on one to be valid C may parse partly. A `.h` header is parsed as C,
+  or as C++ when that parses with fewer errors.
+- C and C++ share one namespace: a C++ function named like a C symbol of
+  another module links to it.
+- In Rust macro arguments, only paths through `ffi` (`ffi::NAME`,
+  `ffi::{A, B}`) are found. Code tree-sitter cannot parse, such as the syntax
+  the `#[gat]` attribute takes, is skipped, the rest of its file still
+  scanned.

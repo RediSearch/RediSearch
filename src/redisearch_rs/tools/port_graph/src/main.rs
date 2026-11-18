@@ -12,6 +12,7 @@
 
 mod c;
 mod rust;
+mod syntax;
 
 use anyhow::{Context, Result, bail};
 use cargo_metadata::MetadataCommand;
@@ -159,7 +160,7 @@ struct Graph {
     nodes: BTreeSet<Node>,
     /// The kind of each crate; crates missing from it are [`rust::CrateKind::Core`].
     crate_kinds: BTreeMap<String, rust::CrateKind>,
-    /// Lines of code of each node, see [`c::code_lines`].
+    /// Lines of code of each node, see [`c::CFile::lines`].
     lines: BTreeMap<Node, usize>,
     /// `(user, used)` pairs, with the symbols the user uses from the used
     /// module; empty for a Cargo dependency.

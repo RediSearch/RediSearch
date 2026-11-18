@@ -10,9 +10,11 @@
 //! Scanning of the C and C++ sources: modules, the headers they include, the
 //! names each file defines for others to use, and the names it uses.
 
+use crate::syntax::{Syntax, Walk, walk_from};
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
+use tree_sitter::Node;
 use walkdir::WalkDir;
 
 /// Extensions of the C and C++ files making up modules.
@@ -34,19 +36,6 @@ pub const INCLUDE_DIRS: &[&str] = &[
     "deps/VectorSimilarity/src",
     "deps/rmalloc",
     "",
-];
-
-/// Specifiers taking a parenthesized argument that are neither functions nor
-/// part of a function's type, so they are skipped along with their argument.
-const ATTRIBUTES: &[&str] = &["__attribute__", "__declspec", "alignas", "_Alignas"];
-
-/// Identifiers that can precede a `(` at file scope without naming a function.
-const NOT_FUNCTION_NAMES: &[&str] = &[
-    "_Static_assert",
-    "decltype",
-    "defined",
-    "sizeof",
-    "static_assert",
 ];
 
 /// A C or C++ file, part of a module.
@@ -125,28 +114,13 @@ pub fn scan(repo_root: &Path, dir: &str, skip: Option<&str>) -> Result<Vec<CFile
             continue;
         }
         let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-        let source = String::from_utf8_lossy(&bytes);
-        let (code, directives) = strip(&source);
         let relative = path.strip_prefix(repo_root)?.to_path_buf();
-        let kind = FileKind::of(&relative);
-        let tokens = tokenize(&code);
-        let mut symbols = file_symbols(&tokens, kind);
-        let macros: Vec<(String, &str)> =
-            directives.iter().filter_map(|d| parse_define(d)).collect();
-        if kind == FileKind::Header {
-            symbols
-                .defined
-                .extend(macros.iter().map(|(name, _)| name.clone()));
-        }
-        symbols.used = used_identifiers(&tokens);
-        for (_, body) in &macros {
-            symbols.used.extend(used_identifiers(&tokenize(body)));
-        }
+        let parsed = Parsed::new(&bytes, Grammar::of(&relative))?;
         files.push(CFile {
-            lines: count_lines(&code, &directives),
             module: module_name(&relative),
-            includes: directives.iter().filter_map(|d| parse_include(d)).collect(),
-            symbols,
+            includes: parsed.includes(),
+            symbols: parsed.symbols(FileKind::of(&relative)),
+            lines: parsed.code_lines(),
             path: relative,
         });
     }
@@ -155,17 +129,8 @@ pub fn scan(repo_root: &Path, dir: &str, skip: Option<&str>) -> Result<Vec<CFile
 
 /// The lines of code of a C or C++ source: blank lines, comments and
 /// `#include` directives left out.
-pub fn code_lines(source: &str) -> usize {
-    let (code, directives) = strip(source);
-    count_lines(&code, &directives)
-}
-
-fn count_lines(code: &str, directives: &[String]) -> usize {
-    let code = code.lines().filter(|l| !l.trim().is_empty()).count();
-    code + directives
-        .iter()
-        .filter(|d| !d.starts_with("include"))
-        .count()
+fn code_lines(source: &[u8], grammar: Grammar) -> Result<usize> {
+    Ok(Parsed::new(source, grammar)?.code_lines())
 }
 
 /// The lines of code of every C and C++ file under `dir`, see [`code_lines`].
@@ -180,8 +145,10 @@ pub fn dir_code_lines(dir: &Path) -> usize {
                     .and_then(|x| x.to_str())
                     .is_some_and(|x| EXTENSIONS.contains(&x))
         })
-        .filter_map(|e| std::fs::read(e.path()).ok())
-        .map(|bytes| code_lines(&String::from_utf8_lossy(&bytes)))
+        .filter_map(|e| {
+            let source = std::fs::read(e.path()).ok()?;
+            code_lines(&source, Grammar::of(e.path())).ok()
+        })
         .sum()
 }
 
@@ -223,384 +190,359 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// Splits a source into its code, with comments blanked out, and its
-/// preprocessor directives, with line continuations joined and the leading
-/// `#` dropped.
-fn strip(source: &str) -> (String, Vec<String>) {
-    #[derive(PartialEq)]
-    enum State {
-        Code,
-        LineComment,
-        BlockComment,
-        Literal(char),
+/// The grammar a file is parsed with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Grammar {
+    C,
+    Cpp,
+    /// A `.h` header, which may hold either language: parsed as C, and as C++
+    /// if that has fewer syntax errors.
+    Either,
+}
+
+impl Grammar {
+    fn of(path: &Path) -> Self {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("c") => Self::C,
+            Some("h") => Self::Either,
+            _ => Self::Cpp,
+        }
     }
-    let mut out = String::with_capacity(source.len());
-    let mut state = State::Code;
-    let mut chars = source.chars().peekable();
-    while let Some(c) = chars.next() {
-        match state {
-            State::Code => match (c, chars.peek()) {
-                ('/', Some('/')) => {
-                    chars.next();
-                    state = State::LineComment;
-                }
-                ('/', Some('*')) => {
-                    chars.next();
-                    state = State::BlockComment;
-                    out.push(' ');
-                }
-                ('"' | '\'', _) => {
-                    state = State::Literal(c);
-                    out.push(c);
-                }
-                _ => out.push(c),
-            },
-            State::LineComment => {
-                if c == '\n' {
-                    state = State::Code;
-                    out.push('\n');
-                }
-            }
-            State::BlockComment => {
-                if c == '*' && chars.peek() == Some(&'/') {
-                    chars.next();
-                    state = State::Code;
-                } else if c == '\n' {
-                    // Keeps directives following the comment on their own line.
-                    out.push('\n');
-                }
-            }
-            State::Literal(quote) => {
-                out.push(c);
-                if c == '\\' {
-                    if let Some(escaped) = chars.next() {
-                        out.push(escaped);
+}
+
+/// A C or C++ file's syntax tree.
+struct Parsed<'a>(Syntax<'a>);
+
+impl<'a> Parsed<'a> {
+    fn new(source: &'a [u8], grammar: Grammar) -> Result<Self> {
+        let c = || {
+            Syntax::parse_as(
+                source,
+                &without_cplusplus(source),
+                &tree_sitter_c::LANGUAGE.into(),
+            )
+        };
+        let cpp = || Syntax::parse(source, &tree_sitter_cpp::LANGUAGE.into());
+        let syntax = match grammar {
+            Grammar::C => c()?,
+            Grammar::Cpp => cpp()?,
+            Grammar::Either => {
+                let c = c()?;
+                if c.root().has_error() {
+                    let cpp = cpp()?;
+                    if cpp.error_count() < c.error_count() {
+                        cpp
+                    } else {
+                        c
                     }
-                } else if c == quote || c == '\n' {
-                    state = State::Code;
+                } else {
+                    c
+                }
+            }
+        };
+        Ok(Self(syntax))
+    }
+
+    fn text(&self, node: Node) -> &'a str {
+        self.0.text(node)
+    }
+
+    /// The `#include` operands, `#if` branches included.
+    fn includes(&self) -> Vec<Include> {
+        let mut includes = Vec::new();
+        self.0.walk(|node| {
+            if node.kind() != "preproc_include" {
+                return Walk::Into;
+            }
+            if let Some(path) = node.child_by_field_name("path") {
+                let text = self.text(path);
+                let quoted = match path.kind() {
+                    "string_literal" => Some(true),
+                    "system_lib_string" => Some(false),
+                    // An include computed by a macro.
+                    _ => None,
+                };
+                if let Some(quoted) = quoted
+                    && text.len() >= 2
+                {
+                    includes.push(Include {
+                        target: text[1..text.len() - 1].to_owned(),
+                        quoted,
+                    });
+                }
+            }
+            Walk::Over
+        });
+        includes
+    }
+
+    /// Lines holding something other than comments and `#include` directives.
+    fn code_lines(&self) -> usize {
+        self.0.code_lines(|node| node.kind() == "preproc_include")
+    }
+
+    fn symbols(&self, kind: FileKind) -> Symbols {
+        let mut symbols = Symbols::default();
+        self.definitions(self.0.root(), kind, &mut symbols);
+        self.0.walk(|node| match node.kind() {
+            "identifier" | "type_identifier" | "namespace_identifier" => {
+                symbols.used.insert(self.text(node).to_owned());
+                Walk::Over
+            }
+            "preproc_arg" => {
+                symbols.used.extend(macro_identifiers(self.text(node)));
+                Walk::Over
+            }
+            // A macro's parameters, and the names of members, which would
+            // match unrelated globals.
+            "preproc_params" | "field_identifier" => Walk::Over,
+            _ => Walk::Into,
+        });
+        symbols
+    }
+
+    /// Collects the file-scope definitions of `node`'s children, see
+    /// [`Symbols::defined`].
+    fn definitions(&self, node: Node, kind: FileKind, symbols: &mut Symbols) {
+        let in_header = kind == FileKind::Header;
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                // Their content is still at file scope.
+                "linkage_specification"
+                | "declaration_list"
+                | "namespace_definition"
+                | "template_declaration"
+                | "preproc_if"
+                | "preproc_ifdef"
+                | "preproc_else"
+                | "preproc_elif"
+                | "preproc_elifdef" => {
+                    self.definitions(child, kind, symbols);
+                }
+                "function_definition" => {
+                    symbols.has_function_bodies = true;
+                    // A header's static inline functions are shared with every
+                    // file including it.
+                    if (in_header || !has_storage_class(child, self, "static"))
+                        && let Some(name) = child
+                            .child_by_field_name("declarator")
+                            .and_then(|d| declarator_name(d, self))
+                    {
+                        symbols.defined.insert(name.to_owned());
+                    }
+                }
+                "type_definition" if in_header => {
+                    let mut cursor = child.walk();
+                    for declarator in child.children_by_field_name("declarator", &mut cursor) {
+                        symbols
+                            .defined
+                            .extend(declarator_name(declarator, self).map(str::to_owned));
+                    }
+                }
+                "declaration"
+                    if !in_header
+                        && !has_storage_class(child, self, "static")
+                        && !has_storage_class(child, self, "extern") =>
+                {
+                    let mut cursor = child.walk();
+                    for declarator in child.children_by_field_name("declarator", &mut cursor) {
+                        if !declares_function(declarator) {
+                            symbols
+                                .defined
+                                .extend(declarator_name(declarator, self).map(str::to_owned));
+                        }
+                    }
+                }
+                "preproc_def" | "preproc_function_def" if in_header => {
+                    symbols.defined.extend(
+                        child
+                            .child_by_field_name("name")
+                            .map(|n| self.text(n).to_owned()),
+                    );
+                }
+                _ => {}
+            }
+            if in_header {
+                self.tagged_types(child, symbols);
+            }
+        }
+    }
+
+    /// Collects the tagged types `node` defines, at any depth, and the
+    /// constants of its enums. Only definitions count: headers forward-declare
+    /// the types of other modules.
+    fn tagged_types(&self, node: Node, symbols: &mut Symbols) {
+        walk_from(node, |node| match node.kind() {
+            // Their definitions are collected by [`Self::definitions`].
+            "preproc_if"
+            | "preproc_ifdef"
+            | "preproc_else"
+            | "preproc_elif"
+            | "preproc_elifdef"
+            | "linkage_specification"
+            | "namespace_definition"
+            | "declaration_list"
+            | "template_declaration"
+            | "function_definition" => Walk::Over,
+            "struct_specifier" | "union_specifier" | "enum_specifier" | "class_specifier" => {
+                if let (Some(name), Some(_)) = (
+                    node.child_by_field_name("name"),
+                    node.child_by_field_name("body"),
+                ) {
+                    symbols.defined.insert(self.text(name).to_owned());
+                }
+                Walk::Into
+            }
+            "enumerator" => {
+                symbols.defined.extend(
+                    node.child_by_field_name("name")
+                        .map(|n| self.text(n).to_owned()),
+                );
+                Walk::Over
+            }
+            _ => Walk::Into,
+        });
+    }
+}
+
+/// `source` with the code only C++ compilers see blanked out, as C compilers
+/// never define `__cplusplus`. Generated headers put such code in the middle
+/// of declarations, as in `enum Code #ifdef __cplusplus : uint8_t #endif {`,
+/// which tree-sitter cannot parse. Offsets and lines are kept, so that the
+/// tree still maps onto `source`.
+fn without_cplusplus(source: &[u8]) -> Vec<u8> {
+    /// Whether the lines of an open conditional are blanked out.
+    #[derive(Clone, Copy)]
+    enum Branch {
+        /// A conditional not about `__cplusplus`.
+        Other,
+        /// The branch of a `__cplusplus` conditional, blanked if C++ only.
+        Cplusplus { blanked: bool },
+    }
+    let mut out = source.to_vec();
+    let mut open: Vec<Branch> = Vec::new();
+    let mut start = 0;
+    while start < source.len() {
+        let end = source[start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(source.len(), |p| start + p + 1);
+        let line = String::from_utf8_lossy(&source[start..end]);
+        let directive = line.trim_start().strip_prefix('#').map(|d| {
+            let d = d.trim();
+            let (name, rest) = d.split_once(char::is_whitespace).unwrap_or((d, ""));
+            (name, rest.trim())
+        });
+        let blanked_before = open
+            .iter()
+            .any(|b| matches!(b, Branch::Cplusplus { blanked: true }));
+        let mut blank_line = blanked_before;
+        match directive {
+            Some(("ifdef", "__cplusplus"))
+            | Some(("if", "defined(__cplusplus)" | "__cplusplus")) => {
+                open.push(Branch::Cplusplus { blanked: true });
+                blank_line = true;
+            }
+            Some(("ifndef", "__cplusplus")) | Some(("if", "!defined(__cplusplus)")) => {
+                open.push(Branch::Cplusplus { blanked: false });
+                blank_line = true;
+            }
+            Some(("if" | "ifdef" | "ifndef", _)) => open.push(Branch::Other),
+            Some(("else", _)) => {
+                if let Some(Branch::Cplusplus { blanked }) = open.last_mut() {
+                    *blanked = !*blanked;
+                    blank_line = true;
+                }
+            }
+            Some(("endif", _)) => {
+                if let Some(Branch::Cplusplus { .. }) = open.pop() {
+                    blank_line = true;
+                }
+            }
+            _ => {}
+        }
+        if blank_line {
+            for b in &mut out[start..end] {
+                if *b != b'\n' {
+                    *b = b' ';
                 }
             }
         }
+        start = end;
     }
+    out
+}
 
-    let mut code = String::with_capacity(out.len());
-    let mut directives = Vec::new();
-    let mut lines = out.lines();
-    while let Some(line) = lines.next() {
-        let mut line = line.to_owned();
-        while line.ends_with('\\') {
-            line.pop();
-            match lines.next() {
-                Some(next) => line.push_str(next),
-                None => break,
+fn has_storage_class(node: Node, parsed: &Parsed, class: &str) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|c| c.kind() == "storage_class_specifier" && parsed.text(c) == class)
+}
+
+/// The name a declarator declares, if it is a plain identifier: qualified C++
+/// names, operators and destructors are left out.
+fn declarator_name<'a>(mut node: Node, parsed: &Parsed<'a>) -> Option<&'a str> {
+    loop {
+        match node.kind() {
+            "identifier" | "type_identifier" | "primitive_type" => return Some(parsed.text(node)),
+            "parenthesized_declarator" | "reference_declarator" | "attributed_declarator" => {
+                node = node.named_child(0)?;
             }
-        }
-        match line.trim_start().strip_prefix('#') {
-            Some(directive) => directives.push(directive.trim_start().to_owned()),
-            None => {
-                code.push_str(&line);
-                code.push('\n');
-            }
+            _ => node = node.child_by_field_name("declarator")?,
         }
     }
-    (code, directives)
 }
 
-fn parse_include(directive: &str) -> Option<Include> {
-    let operand = directive.strip_prefix("include")?.trim();
-    let (quoted, close) = match operand.chars().next()? {
-        '"' => (true, '"'),
-        '<' => (false, '>'),
-        _ => return None,
-    };
-    let rest = &operand[1..];
-    let target = &rest[..rest.find(close)?];
-    Some(Include {
-        target: target.to_owned(),
-        quoted,
-    })
+/// Whether a declaration's declarator involves a function: a prototype, or a
+/// pointer to a function.
+fn declares_function(mut node: Node) -> bool {
+    loop {
+        if node.kind() == "function_declarator" {
+            return true;
+        }
+        match node.child_by_field_name("declarator").or_else(|| {
+            node.named_child(0)
+                .filter(|_| node.kind() == "parenthesized_declarator")
+        }) {
+            Some(inner) => node = inner,
+            None => return false,
+        }
+    }
 }
 
-/// A macro's name and body.
-fn parse_define(directive: &str) -> Option<(String, &str)> {
-    let rest = directive.strip_prefix("define")?.trim_start();
-    let name: String = rest
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .collect();
-    (!name.is_empty()).then(|| {
-        let body = &rest[name.len()..];
-        (name, body)
-    })
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Token<'a> {
-    Ident(&'a str),
-    Str,
-    Punct(char),
-}
-
-fn tokenize(code: &str) -> Vec<Token<'_>> {
-    let bytes = code.as_bytes();
-    let mut tokens = Vec::new();
+/// The identifiers in a macro body, which tree-sitter leaves unparsed, except
+/// those in literals and member names.
+fn macro_identifiers(body: &str) -> impl Iterator<Item = String> + '_ {
+    let bytes = body.as_bytes();
     let mut i = 0;
+    let mut names = Vec::new();
     while i < bytes.len() {
         let c = bytes[i];
-        if c.is_ascii_whitespace() {
-            i += 1;
-        } else if c.is_ascii_alphabetic() || c == b'_' {
+        if c.is_ascii_alphabetic() || c == b'_' {
             let start = i;
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                 i += 1;
             }
-            tokens.push(Token::Ident(&code[start..i]));
+            let before = body[..start].trim_end();
+            if !before.ends_with('.') && !before.ends_with("->") {
+                names.push(&body[start..i]);
+            }
         } else if c.is_ascii_digit() {
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.') {
                 i += 1;
             }
         } else if c == b'"' || c == b'\'' {
             i += 1;
-            while i < bytes.len() && bytes[i] != c && bytes[i] != b'\n' {
+            while i < bytes.len() && bytes[i] != c {
                 i += if bytes[i] == b'\\' { 2 } else { 1 };
             }
             i += 1;
-            if c == b'"' {
-                tokens.push(Token::Str);
-            }
         } else {
-            let ch = code[i..].chars().next().unwrap_or(' ');
-            i += ch.len_utf8();
-            tokens.push(Token::Punct(ch));
+            i += 1;
         }
     }
-    tokens
-}
-
-/// What an open brace delimits.
-#[derive(Clone, Copy, PartialEq)]
-enum Scope {
-    /// `extern "C"` or a namespace: its content is still at file scope.
-    Transparent,
-    /// An enum body, whose constants are symbols.
-    Enum,
-    /// A function body, not followed by a `;`.
-    FunctionBody,
-    Other,
-}
-
-/// The names a file defines for other files, see [`Symbols::defined`]. A
-/// heuristic, not a parser.
-fn file_symbols(tokens: &[Token], kind: FileKind) -> Symbols {
-    let mut symbols = Symbols::default();
-    let mut scopes: Vec<Scope> = Vec::new();
-    let mut statement: Vec<Token> = Vec::new();
-    let at_file_scope = |scopes: &[Scope]| scopes.iter().all(|s| *s == Scope::Transparent);
-    let in_header = kind == FileKind::Header;
-
-    for (i, token) in tokens.iter().enumerate() {
-        match token {
-            Token::Punct('{') => {
-                let scope = if !at_file_scope(&scopes) {
-                    Scope::Other
-                } else if statement == [Token::Ident("extern"), Token::Str]
-                    || statement.first() == Some(&Token::Ident("namespace"))
-                {
-                    Scope::Transparent
-                } else if is_function_definition(&statement) {
-                    symbols.has_function_bodies = true;
-                    // A header's static inline functions are shared with
-                    // every file including it.
-                    if let Some(name) = function_name(&statement)
-                        && (in_header || !statement.contains(&Token::Ident("static")))
-                    {
-                        symbols.defined.insert(name);
-                    }
-                    Scope::FunctionBody
-                } else if statement.contains(&Token::Ident("enum")) {
-                    Scope::Enum
-                } else {
-                    Scope::Other
-                };
-                if scope == Scope::Transparent {
-                    statement.clear();
-                }
-                scopes.push(scope);
-            }
-            Token::Punct('}') => {
-                if matches!(scopes.pop(), Some(Scope::Transparent | Scope::FunctionBody))
-                    && at_file_scope(&scopes)
-                {
-                    statement.clear();
-                }
-            }
-            Token::Punct(';') if at_file_scope(&scopes) => {
-                let name = match kind {
-                    FileKind::Header => typedef_name(&statement),
-                    FileKind::Source => global_variable(&statement),
-                };
-                symbols.defined.extend(name);
-                statement.clear();
-            }
-            Token::Ident(name)
-                if in_header
-                    && scopes.last() == Some(&Scope::Enum)
-                    && matches!(tokens[i - 1], Token::Punct('{' | ',')) =>
-            {
-                symbols.defined.insert((*name).to_owned());
-            }
-            _ if at_file_scope(&scopes) => statement.push(*token),
-            _ => {}
-        }
-        // Tagged types may be defined inside any statement, including nested
-        // ones. Only definitions count: headers forward-declare the types of
-        // other modules. Those defined in a source file are private to it.
-        if let (
-            true,
-            Some(Token::Ident("struct" | "union" | "enum" | "class")),
-            Token::Ident(name),
-            Some(Token::Punct('{')),
-        ) = (
-            in_header,
-            i.checked_sub(1).map(|p| &tokens[p]),
-            token,
-            tokens.get(i + 1),
-        ) {
-            symbols.defined.insert((*name).to_owned());
-        }
-    }
-    symbols
-}
-
-/// The identifiers in `tokens`, except member names, which follow a `.` or a
-/// `->` and would match unrelated globals.
-fn used_identifiers(tokens: &[Token]) -> BTreeSet<String> {
-    tokens
-        .iter()
-        .enumerate()
-        .filter_map(|(i, token)| {
-            let Token::Ident(name) = token else {
-                return None;
-            };
-            let previous = |back: usize| i.checked_sub(back).map(|p| tokens[p]);
-            let is_member = previous(1) == Some(Token::Punct('.'))
-                || (previous(1) == Some(Token::Punct('>'))
-                    && previous(2) == Some(Token::Punct('-')));
-            (!is_member).then(|| (*name).to_owned())
-        })
-        .collect()
-}
-
-/// Whether a file-scope statement followed by `{` opens a function body: its
-/// parameter list closes right before the brace, whatever its return type or
-/// parameters (`struct`, `enum`) mention.
-fn is_function_definition(statement: &[Token]) -> bool {
-    let mut end = statement.len();
-    // C++ qualifiers after the parameter list.
-    while let Some(Token::Ident("const" | "noexcept" | "override" | "final" | "volatile")) =
-        end.checked_sub(1).map(|i| statement[i])
-    {
-        end -= 1;
-    }
-    statement.first() != Some(&Token::Ident("typedef"))
-        && !statement.contains(&Token::Punct('='))
-        && end > 0
-        && statement[end - 1] == Token::Punct(')')
-}
-
-/// The first identifier called like a function after a type, if any.
-fn function_name(statement: &[Token]) -> Option<String> {
-    without_attributes(statement)
-        .windows(3)
-        .find_map(|w| match w {
-            [
-                Token::Ident(_) | Token::Punct('*' | '&'),
-                Token::Ident(name),
-                Token::Punct('('),
-            ] if !NOT_FUNCTION_NAMES.contains(name) => Some((*name).to_owned()),
-            _ => None,
-        })
-}
-
-fn without_attributes<'a>(statement: &[Token<'a>]) -> Vec<Token<'a>> {
-    let mut out = Vec::with_capacity(statement.len());
-    let mut tokens = statement.iter().peekable();
-    while let Some(token) = tokens.next() {
-        let is_attribute = matches!(token, Token::Ident(name) if ATTRIBUTES.contains(name));
-        if !is_attribute || tokens.peek() != Some(&&Token::Punct('(')) {
-            out.push(*token);
-            continue;
-        }
-        let mut depth = 0usize;
-        for t in tokens.by_ref() {
-            match t {
-                Token::Punct('(') => depth += 1,
-                Token::Punct(')') => depth -= 1,
-                _ => {}
-            }
-            if depth == 0 {
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// The name a `typedef` statement gives, if `statement` is one.
-fn typedef_name(statement: &[Token]) -> Option<String> {
-    if statement.first() != Some(&Token::Ident("typedef")) {
-        return None;
-    }
-    // A function type, `typedef int (Name)(...)`, or a pointer to one,
-    // `typedef void (*Name)(...)`: the name is the first in parentheses.
-    let function = statement.windows(4).find_map(|w| match w {
-        [
-            Token::Punct('('),
-            Token::Punct('*'),
-            Token::Ident(name),
-            Token::Punct(')'),
-        ]
-        | [
-            Token::Punct('('),
-            Token::Ident(name),
-            Token::Punct(')'),
-            Token::Punct('('),
-        ] => Some((*name).to_owned()),
-        _ => None,
-    });
-    function.or_else(|| last_ident(statement))
-}
-
-/// The global variable a file-scope statement of a source file defines for
-/// other files, if any.
-fn global_variable(statement: &[Token]) -> Option<String> {
-    let head = statement
-        .split(|t| *t == Token::Punct('='))
-        .next()
-        .unwrap_or_default();
-    let idents = head.iter().filter(|t| matches!(t, Token::Ident(_))).count();
-    let private_or_elsewhere = head.iter().any(|t| {
-        matches!(
-            t,
-            Token::Ident("static" | "extern" | "typedef") | Token::Punct('(')
-        )
-    });
-    // `struct Foo;` declares a type, not a variable.
-    let declares_type = idents == 2
-        && matches!(
-            head.first(),
-            Some(Token::Ident("struct" | "union" | "enum" | "class"))
-        );
-    (idents >= 2 && !private_or_elsewhere && !declares_type)
-        .then(|| last_ident(head))
-        .flatten()
-}
-
-fn last_ident(tokens: &[Token]) -> Option<String> {
-    tokens.iter().rev().find_map(|t| match t {
-        Token::Ident(name) => Some((*name).to_owned()),
-        _ => None,
-    })
+    names.into_iter().map(str::to_owned)
 }
 
 /// The modules holding a source file, as opposed to headers alone.
@@ -612,21 +554,21 @@ pub fn modules_with_source(files: &[CFile]) -> BTreeSet<&str> {
         .collect()
 }
 
-#[cfg(test)]
+// Miri can't run the tree-sitter grammars, which are C code.
+#[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
 
+    fn parse(source: &str, grammar: Grammar) -> Parsed<'_> {
+        Parsed::new(source.as_bytes(), grammar).unwrap()
+    }
+
     fn defined(source: &str, kind: FileKind) -> Vec<String> {
-        let (code, directives) = strip(source);
-        let mut symbols = file_symbols(&tokenize(&code), kind).defined;
-        if kind == FileKind::Header {
-            symbols.extend(
-                directives
-                    .iter()
-                    .filter_map(|d| parse_define(d))
-                    .map(|(n, _)| n),
-            );
-        }
+        let grammar = match kind {
+            FileKind::Header => Grammar::Either,
+            FileKind::Source => Grammar::C,
+        };
+        let symbols = parse(source, grammar).symbols(kind).defined;
         symbols.into_iter().collect()
     }
 
@@ -672,6 +614,45 @@ const char* __attribute__((pure)) Spec_Name(Spec *s);
     }
 
     #[test]
+    fn header_ignores_code_for_cplusplus_only() {
+        let header = r#"
+enum Code
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  CODE_OK = 0,
+  CODE_ERR,
+};
+#ifndef __cplusplus
+typedef uint8_t Code;
+#else
+typedef int CppOnly;
+#endif
+"#;
+        assert_eq!(
+            defined(header, FileKind::Header),
+            ["CODE_ERR", "CODE_OK", "Code"]
+        );
+    }
+
+    #[test]
+    fn cplusplus_header_defines_classes_and_templates() {
+        let header = r#"
+#pragma once
+namespace fs = std::filesystem;
+namespace vecsim {
+template <typename T> class Index : public Base<T> {
+  void *operator new(size_t size);
+  int size() const { return 0; }
+};
+template <bool partial> float L2_SVE(const void *a, size_t dim) { return 0; }
+}
+"#;
+        assert_eq!(defined(header, FileKind::Header), ["Index", "L2_SVE"]);
+    }
+
+    #[test]
     fn source_defines_non_static_functions_and_globals() {
         let source = r#"
 typedef struct Spec Spec;
@@ -692,24 +673,24 @@ int table[16];
 
     #[test]
     fn code_lines_skip_blanks_comments_and_includes() {
-        let source = "#include <stdio.h>\n\n/* a\n   comment */\n#define N 1\nint f(void) {\n  return N; // end\n}\n";
-        assert_eq!(code_lines(source), 4);
+        let source = "#include <stdio.h>\n\n/* a\n   comment */\n#define N \\\n  1\nint f(void) {\n  return N; // end\n}\n";
+        assert_eq!(parse(source, Grammar::C).code_lines(), 5);
     }
 
     #[test]
     fn used_identifiers_skip_member_names() {
-        let (code, _) = strip("void f(Spec *s) { s->size = obj.len + Spec_Size(s); }");
-        let used = used_identifiers(&tokenize(&code));
-        assert!(used.contains("Spec_Size") && used.contains("Spec"));
-        assert!(!used.contains("size") && !used.contains("len"));
+        let source = "#define LEN(o) ((o).len + o->cap)\nvoid f(Spec *s) { s->size = obj.len + Spec_Size(s); }";
+        let used = parse(source, Grammar::C).symbols(FileKind::Source).used;
+        assert!(used.contains("Spec_Size") && used.contains("Spec") && used.contains("obj"));
+        assert!(!used.contains("size") && !used.contains("len") && !used.contains("cap"));
     }
 
     #[test]
     fn parses_includes() {
-        let (_, directives) = strip("#include \"a/b.h\"\n#  include <c.h> // x\n#define X 1\n");
-        let includes: Vec<_> = directives
-            .iter()
-            .filter_map(|d| parse_include(d))
+        let source = "#include \"a/b.h\"\n#ifdef X\n#  include <c.h> // x\n#endif\n#define X 1\n";
+        let includes: Vec<_> = parse(source, Grammar::C)
+            .includes()
+            .into_iter()
             .map(|i| (i.target, i.quoted))
             .collect();
         assert_eq!(
