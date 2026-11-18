@@ -720,20 +720,28 @@ void HNSWIndex<DataType, DistType>::emplaceToHeap(
 // is first filtered against the visited tags, so no memory traffic is spent on the vectors of
 // neighbors that will be skipped, and then each surviving candidate's vector is prefetched
 // VECTOR_PREFETCH_AHEAD candidates before its distance is computed. A vector of up to
-// WHOLE_VECTOR_PREFETCH_MAX_LINES cache lines (e.g. SQ8 at dim 768) is prefetched whole; of a
-// larger one (e.g. FP32 at dim 768, 48 lines) only the first LARGE_VECTOR_PREFETCH_LINES lines are,
+// WHOLE_VECTOR_PREFETCH_MAX_BYTES (e.g. SQ8 at dim 768, 784 bytes) is prefetched whole; of a
+// larger one (e.g. FP32 at dim 768, 3072 bytes) only the first LARGE_VECTOR_PREFETCH_BYTES are,
 // since prefetching hundreds of lines ahead saturates the memory system and slowed such queries.
+// The limits are in bytes so they mean the same on every cache line size.
 template <typename DataType, typename DistType>
 template <typename Visitor>
 void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelData &node_level,
                                                              tag_t *elements_tags,
                                                              tag_t visited_tag,
                                                              Visitor &&visit) const {
-    constexpr size_t CACHE_LINE_SIZE = 64;
+    // The prefetch step. A wrong value only costs speed: a smaller step than the real line
+    // repeats prefetches of the same line, a larger one skips lines.
+#if defined(__APPLE__) && defined(__aarch64__)
+    constexpr size_t CACHE_LINE_SIZE = 128; // Apple M-series
+#else
+    constexpr size_t CACHE_LINE_SIZE = 64; // x86, Arm Neoverse (Graviton, Grace, Ampere)
+#endif
     constexpr size_t VECTOR_PREFETCH_AHEAD = 4;
     constexpr size_t BATCH_SIZE = 64;
-    constexpr size_t WHOLE_VECTOR_PREFETCH_MAX_LINES = 16;
-    constexpr size_t LARGE_VECTOR_PREFETCH_LINES = 4;
+    constexpr size_t WHOLE_VECTOR_PREFETCH_MAX_BYTES = 1024;
+    constexpr size_t LARGE_VECTOR_PREFETCH_BYTES = 256;
+    constexpr size_t LARGE_VECTOR_PREFETCH_LINES = LARGE_VECTOR_PREFETCH_BYTES / CACHE_LINE_SIZE;
 
     const size_t num_links = node_level.getNumLinks();
     if (num_links == 0) {
@@ -745,7 +753,7 @@ void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelD
     // byte to the line holding its last. The loop counts lines rather than comparing addresses;
     // GCC dropped an address-range form of it when the end was capped at run time.
     const size_t vector_size = this->getStoredDataSize();
-    const bool whole = vector_size <= WHOLE_VECTOR_PREFETCH_MAX_LINES * CACHE_LINE_SIZE;
+    const bool whole = vector_size <= WHOLE_VECTOR_PREFETCH_MAX_BYTES;
     auto prefetchVector = [vector_size, whole](const char *data) {
         const uintptr_t first = reinterpret_cast<uintptr_t>(data) / CACHE_LINE_SIZE;
         const uintptr_t last =

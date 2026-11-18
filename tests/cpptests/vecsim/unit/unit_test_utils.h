@@ -323,8 +323,8 @@ std::vector<std::string> getTieredHNSWFields();
 
 // Checks the HNSW neighbor scan against a brute-force pass for one element type. The index uses
 // M 48, so some layer-0 lists span more than one 64-link batch, and is built at two dimensions:
-// one whose stored vector fits in 16 cache lines (whole-vector prefetch) and one of 1200 bytes
-// (only the first lines are prefetched). With ef_runtime equal to the index size, top-k and range
+// one whose stored vector fits in 1 KB (whole-vector prefetch) and one of 1200 bytes (only the
+// first bytes are prefetched). With ef_runtime equal to the index size, top-k and range
 // scores must equal the sorted distances the index reports for every vector. Small-ef queries
 // also run so both sides of the result-heap updates are taken.
 template <typename data_t, typename dist_t>
