@@ -26,12 +26,11 @@ inputs:
       traceback or an RLTest `[FAIL]` summary far above the tail) survives
       truncation. The default targets common RediSearch CI failure signatures;
       pass an empty string to disable. Note that Rust panics need both
-      spellings. `RustPanicHook_Init` chains a `tracing` hook ahead of std's,
-      so a panic inside a loaded module emits both — but only the `tracing`
-      one, `A panic occurred in the Rust code`, routes through
-      `RedisModule_Log` into the redis logfile these patterns are applied to.
-      std's `panicked at` goes to stderr, which RLTest pipes and never reads,
-      and so only ever shows up for test binaries that log to the console.
+      spellings. `RustPanicHook_Init` replaces std's hook with a `tracing`
+      one, so a panic inside a loaded module emits only
+      `A panic occurred in the Rust code`, routed through `RedisModule_Log`
+      into the redis logfile these patterns are applied to. std's
+      `panicked at` only shows up for test binaries that log to the console.
     required: false
     default: |
       Traceback \(most recent call last\):
