@@ -34,7 +34,12 @@ extern "C" {
  *   deletes a document by docId, from the start of the overlay until the
  *   rebuild is done.
  *
- * Every function runs on the main thread.
+ * The window is driven by the ASM state machine (asm_state_machine.h), which opens it
+ * only when search runs on disk.
+ *
+ * Every function, and every read of the counters below, must run on the main thread or
+ * under the GIL: the stage events, keyspace notifications and the DocIdMeta unlink all
+ * do, so the state is not atomic. A reader off the GIL would need atomics.
  */
 typedef enum {
   ASM_IMPORT_SLOT_NONE = 0,

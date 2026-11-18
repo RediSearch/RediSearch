@@ -8,15 +8,15 @@
  */
 #include "asm_import_window.h"
 
-#include <string.h>
-
+#include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
 #define ASM_IMPORT_WINDOW_NUM_SLOTS 16384
 
 extern RedisModuleCtx *RSDummyContext;
 
-static uint8_t slotPhase[ASM_IMPORT_WINDOW_NUM_SLOTS];
+// Allocated while any slot is in the window, so a shard that never imports pays nothing.
+static uint8_t *slotPhase = NULL;
 uint32_t ASM_ImportWindow_overlaySlots_g = 0;
 uint32_t ASM_ImportWindow_windowSlots_g = 0;
 static size_t unexpectedUnlinks = 0;
@@ -35,6 +35,10 @@ static void setPhase(unsigned int slot, ASMImportSlotPhase phase) {
 static void transition(const RedisModuleSlotRangeArray *slots, bool anyFrom,
                        ASMImportSlotPhase from, ASMImportSlotPhase to) {
   if (!slots) return;
+  if (!slotPhase) {
+    if (to == ASM_IMPORT_SLOT_NONE || !anyFrom) return;  // nothing to leave or move
+    slotPhase = rm_calloc(ASM_IMPORT_WINDOW_NUM_SLOTS, sizeof(*slotPhase));
+  }
   for (int32_t r = 0; r < slots->num_ranges; r++) {
     const RedisModuleSlotRange *range = &slots->ranges[r];
     RS_LOG_ASSERT(range->start <= range->end && range->end < ASM_IMPORT_WINDOW_NUM_SLOTS,
@@ -44,6 +48,10 @@ static void transition(const RedisModuleSlotRangeArray *slots, bool anyFrom,
         setPhase(slot, to);
       }
     }
+  }
+  if (ASM_ImportWindow_windowSlots_g == 0) {
+    rm_free(slotPhase);
+    slotPhase = NULL;
   }
 }
 
@@ -60,7 +68,8 @@ void ASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots) {
 }
 
 void ASM_ImportWindow_Reset(void) {
-  memset(slotPhase, ASM_IMPORT_SLOT_NONE, sizeof(slotPhase));
+  rm_free(slotPhase);
+  slotPhase = NULL;
   ASM_ImportWindow_overlaySlots_g = 0;
   ASM_ImportWindow_windowSlots_g = 0;
   unexpectedUnlinks = 0;
@@ -68,7 +77,7 @@ void ASM_ImportWindow_Reset(void) {
 
 ASMImportSlotPhase ASM_ImportWindow_SlotPhase(unsigned int slot) {
   RS_LOG_ASSERT(slot < ASM_IMPORT_WINDOW_NUM_SLOTS, "invalid slot");
-  return (ASMImportSlotPhase)slotPhase[slot];
+  return slotPhase ? (ASMImportSlotPhase)slotPhase[slot] : ASM_IMPORT_SLOT_NONE;
 }
 
 static unsigned int keySlot(const RedisModuleString *key) {
@@ -78,11 +87,11 @@ static unsigned int keySlot(const RedisModuleString *key) {
 }
 
 bool ASM_ImportWindow_KeyInOverlay(const RedisModuleString *key) {
-  return slotPhase[keySlot(key)] == ASM_IMPORT_SLOT_OVERLAY;
+  return slotPhase && slotPhase[keySlot(key)] == ASM_IMPORT_SLOT_OVERLAY;
 }
 
 bool ASM_ImportWindow_AbsorbsUnlink(const RedisModuleString *key) {
-  if (ASM_ImportWindow_windowSlots_g == 0 || !key) return false;
+  if (!slotPhase || !key) return false;
   unsigned int slot = keySlot(key);
   switch ((ASMImportSlotPhase)slotPhase[slot]) {
     case ASM_IMPORT_SLOT_NONE:
