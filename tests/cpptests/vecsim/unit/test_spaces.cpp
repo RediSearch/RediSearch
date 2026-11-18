@@ -8,6 +8,7 @@
  */
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <utility>
@@ -69,6 +70,57 @@ protected:
 
     void TearDown() override {}
 };
+
+TEST_F(SpacesTest, FP32L2GroupedDispatcherFallsBack) {
+    for (size_t dim : {size_t(0), size_t(1), size_t(191), size_t(192), size_t(193)}) {
+        EXPECT_EQ(L2_FP32_GetDistFunc4(dim, nullptr), nullptr);
+        EXPECT_EQ(L2_FP32_GetDistFunc4(dim, FP32_L2Sqr), nullptr);
+        EXPECT_EQ(L2_FP32_GetDistFunc4(dim, IP_FP32_GetDistFunc(192)), nullptr);
+        if (dim < 192)
+            EXPECT_EQ(L2_FP32_GetDistFunc4(dim, L2_FP32_GetDistFunc(dim)), nullptr);
+    }
+#if !defined(CPU_FEATURES_ARCH_AARCH64) || !defined(OPT_SVE2)
+    EXPECT_EQ(L2_FP32_GetDistFunc4(192, L2_FP32_GetDistFunc(192)), nullptr);
+#else
+    if (!getCpuOptimizationFeatures().sve2)
+        EXPECT_EQ(L2_FP32_GetDistFunc4(192, L2_FP32_GetDistFunc(192)), nullptr);
+#endif
+}
+
+TEST_F(SpacesTest, FP32L2GroupedMatchesSelectedScalarTailsUnaligned) {
+#if defined(CPU_FEATURES_ARCH_AARCH64) && defined(OPT_SVE2)
+    if (!getCpuOptimizationFeatures().sve2)
+        GTEST_SKIP() << "SVE2 CPU required";
+    std::mt19937 rng(47);
+    std::uniform_real_distribution<float> random(-2, 2);
+    // All residual/accumulator classes even for the architectural maximum of 64 FP32 lanes.
+    for (size_t dim = 192; dim < 448; ++dim) {
+        auto scalar = L2_FP32_GetDistFunc(dim);
+        auto grouped = L2_FP32_GetDistFunc4(dim, scalar);
+        ASSERT_NE(grouped, nullptr) << "dim=" << dim;
+        std::array<std::vector<float>, 5> vectors;
+        for (auto &vector : vectors) {
+            vector.resize(dim + 1);
+            for (auto &value : vector)
+                value = random(rng);
+        }
+        std::array<float, 6> out{-1, -1, -1, -1, -1, -1};
+        grouped(vectors[0].data() + 1, vectors[1].data() + 1, vectors[2].data() + 1,
+                vectors[3].data() + 1, vectors[4].data() + 1, dim, out.data() + 1);
+        EXPECT_EQ(out.front(), -1);
+        EXPECT_EQ(out.back(), -1);
+        for (size_t candidate = 0; candidate < 4; ++candidate) {
+            const float expected =
+                scalar(vectors[candidate].data() + 1, vectors[4].data() + 1, dim);
+            ASSERT_EQ(std::bit_cast<uint32_t>(out[candidate + 1]),
+                      std::bit_cast<uint32_t>(expected))
+                << "dim=" << dim << " candidate=" << candidate;
+        }
+    }
+#else
+    GTEST_SKIP() << "SVE2 implementation is not built";
+#endif
+}
 
 TEST_F(SpacesTest, float_l2_no_optimization_func_test) {
     size_t dim = 5;
