@@ -9,6 +9,7 @@
 #include "SVE2.h"
 
 #include "vecsim/spaces/L2/L2_SVE_FP32.h"
+#include "vecsim/spaces/L2/L2_SVE_FP32_grouped.h"
 #include "vecsim/spaces/IP/IP_SVE_FP32.h"
 
 #include "vecsim/spaces/IP/IP_SVE_FP16.h" // using SVE implementation, but different compilation flags
@@ -43,6 +44,12 @@ dist_func_t<float> Choose_FP32_IP_implementation_SVE2(size_t dim) {
 dist_func_t<float> Choose_FP32_L2_implementation_SVE2(size_t dim) {
     dist_func_t<float> ret_dist_func;
     CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, FP32_L2SqrSIMD_SVE, dim, svcntw);
+    return ret_dist_func;
+}
+
+dist_func4_t Choose_FP32_L2_implementation4_SVE2(size_t dim) {
+    dist_func4_t ret_dist_func;
+    CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, FP32_L2SqrSIMD_SVE_Grouped4, dim, svcntw);
     return ret_dist_func;
 }
 

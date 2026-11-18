@@ -10,6 +10,14 @@
 #include "vecsim/spaces/spaces.h"
 
 namespace spaces {
+// Four candidates, one shared query, dimension, and four output distances in candidate order.
+using dist_func4_t = void (*)(const float *, const float *, const float *, const float *,
+                              const float *, size_t, float *);
+
+// Returns nullptr unless grouped FP32 L2 supports the active scalar dispatch. Select on the
+// searching thread; its SVE vector length must stay fixed until the query finishes.
+dist_func4_t L2_FP32_GetDistFunc4(size_t dim, dist_func_t<float> actual_scalar);
+
 dist_func_t<float> L2_FP32_GetDistFunc(size_t dim, unsigned char *alignment = nullptr,
                                        const void *arch_opt = nullptr);
 dist_func_t<double> L2_FP64_GetDistFunc(size_t dim, unsigned char *alignment = nullptr,
