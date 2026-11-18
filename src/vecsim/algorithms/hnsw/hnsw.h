@@ -40,6 +40,7 @@
 #include <iostream>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <unordered_map>
 #include <sys/resource.h>
 #include <fstream>
@@ -755,12 +756,12 @@ void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelD
     const size_t vector_size = this->getStoredDataSize();
     const bool whole = vector_size <= WHOLE_VECTOR_PREFETCH_MAX_BYTES;
     auto prefetchVector = [vector_size, whole](const char *data) {
-        const uintptr_t first = reinterpret_cast<uintptr_t>(data) / CACHE_LINE_SIZE;
-        const uintptr_t last =
-            (reinterpret_cast<uintptr_t>(data) + vector_size - 1) / CACHE_LINE_SIZE;
+        const uintptr_t address = std::bit_cast<uintptr_t>(data);
+        const uintptr_t first = address / CACHE_LINE_SIZE;
+        const uintptr_t last = (address + vector_size - 1) / CACHE_LINE_SIZE;
         const size_t lines = whole ? last - first + 1 : LARGE_VECTOR_PREFETCH_LINES;
         for (size_t i = 0; i < lines; i++) {
-            __builtin_prefetch(reinterpret_cast<const char *>((first + i) * CACHE_LINE_SIZE));
+            __builtin_prefetch(std::bit_cast<const char *>((first + i) * CACHE_LINE_SIZE));
         }
     };
 
