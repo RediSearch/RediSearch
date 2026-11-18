@@ -11,7 +11,7 @@ from common import *
 Behavioral tests for how the spellcheck dictionary (FT.DICTADD / FT.DICTDEL /
 FT.DICTDUMP) handles the full spectrum of byte inputs.
 
-Pipeline under test (src/dictionary.c -> src/trie/trie.c -> src/trie/rune_util.c):
+Pipeline under test (src/dictionary.c -> src/trie/trie.c -> string_utils::runes in Rust):
   DICTADD:  bytes --strToRunesN/nu_utf8_read--> uint16 runes --> rune trie
   DICTDEL:  bytes --same decode as DICTADD--> runes --> trie removal
   DICTDUMP: runes --runesToStr/nu_utf8_write--> UTF-8 bytes
