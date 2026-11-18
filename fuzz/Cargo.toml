@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["procfuzz", "procfuzz-redis", "redisearch"]
+members = ["kvd", "procfuzz", "procfuzz-redis", "redisearch"]
 default-members = ["redisearch"]
 
 [workspace.dependencies]
