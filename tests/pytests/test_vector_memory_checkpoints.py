@@ -142,6 +142,9 @@ def test_range_stops_for_oom(env):
     """A vector range query checks memory once VecSim has its reply and before copying it; under
     pressure it stops for memory, with and without workers and under either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
+    # Counted without workers: an aggregation with workers also counts its rows' calls at LIMIT 0 0.
+    positions = {name: _vector_checkpoint_positions(env, query)
+                 for name, query in _range_queries().items()}
     try:
         for workers in (0, 2):
             set_workers(env, workers)
@@ -149,9 +152,8 @@ def test_range_stops_for_oom(env):
                 allShards_change_timeout_policy(env, timeout_policy)
                 for name, query in _range_queries().items():
                     env.debugPrint(f'{name} WORKERS {workers} ON_TIMEOUT {timeout_policy}')
-                    # The last checkpoint call of a range query is the one after VecSim returns.
-                    _expect_stopped_by_policy(env, query, RANGE_MATCHES,
-                                              _checkpoint_calls(env, query))
+                    for at_call in positions[name]:
+                        _expect_stopped_by_policy(env, query, RANGE_MATCHES, [at_call])
     finally:
         allShards_change_timeout_policy(env, 'return')
         set_workers(env, 0)
