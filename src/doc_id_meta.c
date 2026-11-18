@@ -13,7 +13,7 @@
 #include <assert.h>
 #include <stddef.h>
 
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -104,8 +104,9 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   if (dictSize(specIdToDocId) == 0) return;
 
   // The key may hold the docIds of a slot migration's source, which can name unrelated documents
-  // here. See asm_import_window.h.
-  const bool keepDocs = ctx && ASM_ImportWindow_ContainsKey(RedisModule_GetKeyNameFromOptCtx(ctx));
+  // here. See disk_asm_import_window.h.
+  const bool keepDocs = SearchDisk_IsEnabled() && ctx &&
+                        ASM_ImportWindow_ContainsKey(RedisModule_GetKeyNameFromOptCtx(ctx));
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;

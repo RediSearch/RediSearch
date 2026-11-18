@@ -10,7 +10,7 @@
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
 
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 #include "asm_state_machine.h"
 #include "spec.h"
 #include "rmalloc.h"
@@ -130,7 +130,7 @@ TEST_F(ASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
   isFlex = true;
   apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
   EXPECT_TRUE(ASM_ImportWindow_ContainsSlot(5));
-  apply(ASM_StateMachine_EndImport, {{0, 15}});
+  apply(ASM_StateMachine_FailImport, {{0, 15}});
   EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
 
   isFlex = savedFlex;

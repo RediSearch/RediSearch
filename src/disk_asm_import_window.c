@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"

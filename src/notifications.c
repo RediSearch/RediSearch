@@ -28,7 +28,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "asm_state_machine.h"
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 #include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
@@ -566,7 +566,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
-      ASM_StateMachine_EndImport(slots);
+      ASM_StateMachine_FailImport(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.

@@ -10,7 +10,7 @@
 
 #include "slots_tracker_ffi.h"
 #include "slot_ranges.h"
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 #include "search_disk.h"
 #include "util/khash.h"
 #include "rmutil/rm_assert.h"
@@ -95,7 +95,7 @@ static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray 
 
 /**
  * The RAM overlay of an SST import starts restoring the slots' keys. On disk, the slots
- * enter the import window (asm_import_window.h) until they are rebuilt.
+ * enter the import window (disk_asm_import_window.h) until they are rebuilt.
  */
 static inline void ASM_StateMachine_StartImportOverlay(const RedisModuleSlotRangeArray *slots) {
   if (SearchDisk_IsEnabled()) {
@@ -111,9 +111,10 @@ static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArr
 }
 
 /**
- * The import attempt of the slots ended, completed or failed: they leave the import window.
+ * The import of the slots failed: they leave the import window. A completed import falls through
+ * to it after ASM_StateMachine_CompleteImport, since the window closes either way.
  */
-static inline void ASM_StateMachine_EndImport(const RedisModuleSlotRangeArray *slots) {
+static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *slots) {
   ASM_ImportWindow_Close(slots);
 }
 

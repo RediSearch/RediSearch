@@ -50,7 +50,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
-#include "asm_import_window.h"
+#include "disk_asm_import_window.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/rmr.h"
 #include "vecsim/info_iterator.h"
@@ -2923,7 +2923,7 @@ DEBUG_COMMAND(GCTimerArms) {
  * FT.DEBUG ASM_IMPORT_WINDOW CONTAINS <slot>
  * FT.DEBUG ASM_IMPORT_WINDOW RESET
  *
- * Drives the slot window of an SST import (asm_import_window.h) through the ASM state machine
+ * Drives the slot window of an SST import (disk_asm_import_window.h) through the ASM state machine
  * steps the import's events take, without a migration.
  */
 DEBUG_COMMAND(ASMImportWindow) {
@@ -2962,7 +2962,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     }
     apply = ASM_StateMachine_StartImportOverlay;
   } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
-    apply = ASM_StateMachine_EndImport;
+    apply = ASM_StateMachine_FailImport;
   } else {
     return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
