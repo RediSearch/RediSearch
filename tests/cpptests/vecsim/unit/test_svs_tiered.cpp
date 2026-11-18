@@ -2572,7 +2572,7 @@ TYPED_TEST(SVSTieredIndexTestBasic, KNNSearch) {
     GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, n, n);
 
     // Set timeout callback to always return 1 (will fail while querying the flat buffer).
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 1; }); // Always times out
 
     res = VecSimIndex_TopKQuery(tiered_index, query_0, k, nullptr, BY_SCORE);
     ASSERT_TRUE(res->results.empty());
@@ -2583,7 +2583,7 @@ TYPED_TEST(SVSTieredIndexTestBasic, KNNSearch) {
     // Brute-force index checks for timeout after each vector.
     size_t checks_in_flat = flat_index->indexSize();
     VecSimQueryParams qparams = {.timeoutCtx = &checks_in_flat};
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) {
+    VecSim_SetStopCallbackFunction([](void *ctx) {
         auto count = static_cast<size_t *>(ctx);
         if (*count == 0) {
             return 1;
@@ -2602,7 +2602,7 @@ TYPED_TEST(SVSTieredIndexTestBasic, KNNSearch) {
     VecSimQueryReply_Free(res);
 
     // Clean up.
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; });
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 0; });
 }
 
 TYPED_TEST(SVSTieredIndexTestBasic, KNNSearchCosine) {
@@ -3437,7 +3437,7 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorReturnsAFlatStop) {
 
     static std::atomic<bool> stop_requested;
     stop_requested = false;
-    VecSim_SetTimeoutCallbackFunction([](void *) { return stop_requested.load() ? 1 : 0; });
+    VecSim_SetStopCallbackFunction([](void *) { return stop_requested.load() ? 1 : 0; });
     VecSimBatchIterator *it = VecSimBatchIterator_New(tiered_index, query, nullptr);
     VecSimQueryReply *rep = VecSimBatchIterator_Next(it, 2, BY_SCORE);
     ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_OK);
@@ -3450,7 +3450,7 @@ TYPED_TEST(SVSTieredIndexTest, BatchIteratorReturnsAFlatStop) {
     ASSERT_EQ(VecSimQueryReply_Len(rep), 0);
     VecSimQueryReply_Free(rep);
     VecSimBatchIterator_Free(it);
-    VecSim_SetTimeoutCallbackFunction([](void *) { return 0; });
+    VecSim_SetStopCallbackFunction([](void *) { return 0; });
 }
 
 TYPED_TEST(SVSTieredIndexTest, BatchIteratorReset) {
@@ -4222,7 +4222,7 @@ TYPED_TEST(SVSTieredIndexTest, RangeSearch) {
     GenerateAndAddVector<TEST_DATA_T>(svs_index, dim, n, n);
 
     // Set timeout callback to always return 1 (will fail while querying the flat buffer).
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 1; }); // Always times out
 
     res = VecSimIndex_RangeQuery(tiered_index, query_0, range, nullptr, BY_ID);
     ASSERT_EQ(VecSimQueryReply_GetCode(res), VecSim_QueryReply_Stopped);
@@ -4232,7 +4232,7 @@ TYPED_TEST(SVSTieredIndexTest, RangeSearch) {
     // Brute-force index checks for timeout after each vector.
     size_t checks_in_flat = flat_index->indexSize();
     VecSimQueryParams qparams = {.timeoutCtx = &checks_in_flat};
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) {
+    VecSim_SetStopCallbackFunction([](void *ctx) {
         auto count = static_cast<size_t *>(ctx);
         if (*count == 0) {
             return 1;
@@ -4261,7 +4261,7 @@ TYPED_TEST(SVSTieredIndexTest, RangeSearch) {
     VecSimQueryReply_Free(res);
 
     // Clean up.
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; });
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 0; });
 }
 
 TYPED_TEST(SVSTieredIndexTest, parallelRangeSearch) {

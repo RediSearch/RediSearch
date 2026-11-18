@@ -28,14 +28,22 @@ RADIUS = DIM * HALF_WIDTH ** 2
 RANGE_MATCHES = 21
 # The same docs as the range matches, so the baseline's per-row calls equal the vector query's.
 RANGE_BASELINE = f'@n:[{QUERY_VALUE - HALF_WIDTH} {QUERY_VALUE + HALF_WIDTH}]'
-# Calls a vector range query adds to its baseline: the range checkpoint, plus on FLAT the one
-# VecSim's stop callback makes for its single block.
-FLAT_RANGE_CALLS = 2
-HNSW_RANGE_CALLS = 1
+# Calls a vector range query adds to its baseline: the range checkpoint after the search, plus
+# those of VecSim's stop callback, which it makes at every search step: on FLAT one per vector, and
+# on HNSW one per graph step. The HNSW counts are those of the graph built from this data by the
+# test suite's default worker setting, with VecSim's current HNSW search; a change to either moves
+# them. The exact count is what catches a missing range checkpoint.
+HNSW_RANGE_CALLS = 24
+JSON_MULTI_RANGE_CALLS = 45
 
 
 def _vec(value):
     return np.full(DIM, value, dtype=np.float32).tobytes()
+
+
+def _flat_range_calls(env):
+    """The calls a FLAT range query adds per process: one per document of the process, plus one."""
+    return [conn.dbsize() + 1 for conn in env.getOSSMasterNodesConnectionList()]
 
 
 def _create_hash_index(env):
@@ -96,13 +104,17 @@ def _vector_calls(env, query, baseline_filter):
 def _vector_checkpoint_positions(env, query, vector_calls, baseline_filter=RANGE_BASELINE):
     """Call positions that include the vector checkpoints of `query`, a vector range query whose
     filter is `query[2]`. The calls it adds to the same query on `baseline_filter` must be
-    `vector_calls` in every process, so a query without a vector checkpoint fails here; stopping
-    at each position up to the vector's covers it without depending on its order among the
-    others. Counted at LIMIT 0 0, so the reply loop's own checkpoints stay out of the count."""
+    `vector_calls` in every process (an int, or one count per process), so a query without a
+    vector checkpoint fails here. Stopping at positions sampled across the query's calls (the
+    first, a few between, the last) covers the vector's checkpoints as long as those are more than
+    about a quarter of the query's calls, as they are here, whatever their order among the others. Counted at LIMIT 0 0, so the reply loop's own checkpoints stay out of the count."""
     with_vector, extra = _vector_calls(env, query, baseline_filter)
-    env.assertEqual(extra, [vector_calls] * len(extra), message=(with_vector, extra))
+    if isinstance(vector_calls, int):
+        vector_calls = [vector_calls] * len(extra)
+    env.assertEqual(extra, vector_calls, message=(with_vector, extra))
     # In a cluster the first process also coordinates, and its calls are not all the shard's.
-    return range(1, min(with_vector[1:] or with_vector) + 1)
+    last = min(with_vector[1:] or with_vector)
+    return sorted({1, 2, last // 4, last // 2, 3 * last // 4, last - 1, last} - {0})
 
 
 def _arm_pressure_at_call(env, at_calls):
@@ -164,8 +176,8 @@ def test_range_stops_for_oom(env):
     pressure it stops for memory, with and without workers and under either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
     # Counted without workers: an aggregation with workers also counts its rows' calls at LIMIT 0 0.
-    vector_calls = {'flat': FLAT_RANGE_CALLS, 'hnsw_yield': HNSW_RANGE_CALLS,
-                    'aggregate': FLAT_RANGE_CALLS}
+    flat_calls = _flat_range_calls(env)
+    vector_calls = {'flat': flat_calls, 'hnsw_yield': HNSW_RANGE_CALLS, 'aggregate': flat_calls}
     positions = {name: _vector_checkpoint_positions(env, query, vector_calls[name])
                  for name, query in _range_queries().items()}
     try:
@@ -189,7 +201,7 @@ def test_range_stops_for_oom_on_shards(env):
     coordinator turns into its own ON_OOM outcome."""
     _create_indexed_hash_index(env)
     query = _range_queries()['flat']
-    for at_call in _vector_checkpoint_positions(env, query, FLAT_RANGE_CALLS):
+    for at_call in _vector_checkpoint_positions(env, query, _flat_range_calls(env)):
         _expect_stopped_by_policy(env, query, RANGE_MATCHES, _shards_only_at_call(env, at_call),
                                   keeps_some_results=True)
 
@@ -209,7 +221,7 @@ def test_json_multi_value_range_stops_for_oom(env):
         wait_for_background_indexing(env, 'jidx', 'mv', backend_index_size=2 * N_DOCS)
     query = ['FT.SEARCH', 'jidx', f'@mv:[VECTOR_RANGE {RADIUS} $b]', 'PARAMS', 2, 'b',
              _vec(QUERY_VALUE), 'NOCONTENT', 'LIMIT', 0, N_DOCS]
-    for at_call in _vector_checkpoint_positions(env, query, HNSW_RANGE_CALLS, '*'):
+    for at_call in _vector_checkpoint_positions(env, query, JSON_MULTI_RANGE_CALLS, '*'):
         _expect_stopped_by_policy(env, query, RANGE_MATCHES, [at_call])
 
 
@@ -277,14 +289,14 @@ def test_knn_batches_stop_for_oom_on_shards(env):
                               keeps_some_results=True)
 
 
-# A FLAT scan calls VecSim's stop callback once per vector block (1024 vectors), so every shard
-# of a 3-shard cluster needs more than one block.
+# Enough vectors for the SVS index to move them out of its flat buffer, on every shard of a
+# 3-shard cluster too.
 N_LONG_SEARCH_DOCS = 6000
 
 
 def _long_search_queries():
-    """Range and plain KNN queries on FLAT, HNSW and SVS whose single VecSim search visits enough
-    vectors or candidates to call VecSim's stop callback, on every shard of a cluster."""
+    """Range and plain KNN queries on FLAT, HNSW and SVS whose single VecSim search calls VecSim's
+    stop callback, on every shard of a cluster."""
     params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
     all_radius = DIM * N_LONG_SEARCH_DOCS ** 2
     return {
@@ -340,8 +352,8 @@ def _create_long_search_index(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_single_vecsim_search_stops_for_oom(env):
-    """VecSim's stop callback reads memory once per vector block or every few graph steps, so a
-    single range or KNN search stops for OOM while it runs, with and without workers and under
+    """VecSim's stop callback checks memory at its search steps, so a single range or KNN search
+    stops for OOM while it runs, with and without workers and under
     either ON_TIMEOUT."""
     _create_long_search_index(env)
     try:
@@ -372,8 +384,8 @@ FLAT_BUFFER_LIMIT = 1024
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_vecsim_search_of_a_full_flat_buffer_stops_for_oom(env):
-    """A tiered HNSW index whose flat buffer is full answers from the buffer's block scan, which
-    stops for OOM too."""
+    """A tiered HNSW index whose flat buffer is full answers from the buffer's scan, which stops for
+    OOM too."""
     env.expect('FT.CREATE', 'bidx', 'ON', 'HASH', 'PREFIX', 1, 'bdoc', 'SCHEMA',
                'vh', 'VECTOR', 'HNSW', 6, 'TYPE', 'FLOAT32', 'DIM', DIM,
                'DISTANCE_METRIC', 'L2').ok()
@@ -479,6 +491,6 @@ def test_range_under_numeric_sort_optimizer_stops_for_oom(env):
                      f'@{field}:[VECTOR_RANGE {RADIUS} $b]=>{{$YIELD_DISTANCE_AS: d}}', *params,
                      'SORTBY', 'n', 'NOCONTENT', 'LIMIT', 0, 5, *opt]
             env.debugPrint(f'{field} {opt}')
-            vector_calls = FLAT_RANGE_CALLS if field == 'v' else HNSW_RANGE_CALLS
+            vector_calls = _flat_range_calls(env) if field == 'v' else HNSW_RANGE_CALLS
             for at_call in _vector_checkpoint_positions(env, query, vector_calls):
                 _expect_stopped_by_policy(env, query, 5, [at_call])

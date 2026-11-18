@@ -25,6 +25,8 @@
 extern "C" int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                             QueryError *err, int rc);
 
+extern "C" int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
+
 namespace {
 
 float fakeRatio = 0;
@@ -272,17 +274,33 @@ TEST_F(QueryMemoryTest, PressureAtCallHonorsOnOomIgnore) {
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
-// VecSim amortizes its stop callback itself, so the callback reads memory on every call.
-TEST_F(QueryMemoryTest, VecSimStopCallbackReadsMemoryOnEveryCall) {
+// VecSim calls the stop callback at every search step, so memory is read once per interval of
+// calls, not on each of them.
+TEST_F(QueryMemoryTest, VecSimStopCallbackReadsMemoryOncePerInterval) {
+  const uint32_t interval = QueryMemory_GetRatioReadInterval();
   fakeRatio = 0.5f;
-  EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
-  EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
-  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  for (uint32_t i = 0; i < interval; ++i) {
+    EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
+  }
+  EXPECT_EQ(fakeRatioReads.load(), 1u);
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   fakeRatio = 1.0f;
-  EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
+  bool stopped = false;
+  for (uint32_t i = 0; i < interval && !stopped; ++i) {
+    stopped = RS_VecSimShouldStop(&timeout_) != 0;
+  }
+  EXPECT_TRUE(stopped);
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+}
+
+TEST_F(QueryMemoryTest, VecSimStopCallbackStopsOnTimeoutWithoutReadingMemory) {
+  auto *saved = vecsimTimeoutCallback;
+  vecsimTimeoutCallback = [](QueryRequestLimits *) -> int { return 1; };
+  EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
+  vecsimTimeoutCallback = saved;
+  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, VecSimStopCallbackReportsAnEarlierStopWithoutReading) {

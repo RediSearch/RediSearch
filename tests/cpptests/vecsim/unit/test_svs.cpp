@@ -2084,7 +2084,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_topK) {
     VecSimIndex *index = this->CreateNewIndex(params);
     ASSERT_INDEX(index);
 
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 1; }); // Always times out
 
     TEST_DATA_T vec[dim];
     GenerateVector<TEST_DATA_T>(vec, dim);
@@ -2097,7 +2097,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_topK) {
     VecSimQueryReply_Free(rep);
 
     VecSimIndex_Free(index);
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; }); // cleanup
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 0; }); // cleanup
 }
 
 TYPED_TEST(SVSTest, testTimeoutReturn_range) {
@@ -2120,7 +2120,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_range) {
     VecSimIndex *index = this->CreateNewIndex(params);
     ASSERT_INDEX(index);
 
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 1; }); // Always times out
 
     TEST_DATA_T vec[dim];
     GenerateVector<TEST_DATA_T>(vec, dim);
@@ -2134,7 +2134,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_range) {
     VecSimQueryReply_Free(rep);
 
     VecSimIndex_Free(index);
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; }); // cleanup
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 0; }); // cleanup
 }
 
 TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
@@ -2174,7 +2174,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
     ASSERT_NE(VecSimQueryReply_Len(rep), 0);
     VecSimQueryReply_Free(rep);
 
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 1; }); // Always times out
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 1; }); // Always times out
     rep = VecSimBatchIterator_Next(batchIterator, 1, BY_ID);
     ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_Stopped);
     ASSERT_EQ(VecSimQueryReply_Len(rep), 0);
@@ -2194,7 +2194,7 @@ TYPED_TEST(SVSTest, testTimeoutReturn_batch_iterator) {
     VecSimBatchIterator_Free(batchIterator);
 
     VecSimIndex_Free(index);
-    VecSim_SetTimeoutCallbackFunction([](void *ctx) { return 0; }); // cleanup
+    VecSim_SetStopCallbackFunction([](void *ctx) { return 0; }); // cleanup
 }
 
 TYPED_TEST(SVSTest, rangeQuery) {
