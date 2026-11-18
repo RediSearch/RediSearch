@@ -2782,8 +2782,9 @@ static bool RPHybridMerger_UpstreamTimedOutBesideStop(const ResultProcessor *ups
  * reason and return code. */
 static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
+    const QueryProcessingCtx *parent = self->upstreams[i]->parent;
     if (self->upstreamReturnCodes[i] == RS_RESULT_STOPPED &&
-        (!self->upstreams[i]->parent || !RP_UpstreamHold(self->upstreams[i]) ||
+        (!parent || !parent->limits || !QueryRequestLimits_IsMemoryStopped(parent->limits) ||
          RPHybridMerger_UpstreamTimedOutBesideStop(self->upstreams[i]))) {
       return true;
     }
