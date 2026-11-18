@@ -774,7 +774,9 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
             rebased += (res['total_results'] == len(res['results'])
                         and len(res['results']) < FILTER_BOUND)
     env.assertGreater(stopped, 0)
-    env.assertGreater(rebased, 0)
+    # The shard's own depleter, in the coordinator's process, can match once without the
+    # coordinator's rebase; the coordinator's depleter holding 1 to 4 rows matches several times.
+    env.assertGreater(rebased, 1)
 
 
 @skip(cluster=False)
