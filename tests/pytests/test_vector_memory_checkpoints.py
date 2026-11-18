@@ -73,12 +73,13 @@ def _checkpoint_calls(env, query):
 
 
 def _vector_checkpoint_positions(env, query):
-    """Call positions that include the vector checkpoint of `query`, a vector range query whose
+    """Call positions that include the vector checkpoints of `query`, a vector range query whose
     filter is `query[2]`. Rows are not replied (LIMIT 0 0), so the calls made before the reply
     are the same on every build whatever else checkpoints in the reply loop. The calls beyond
-    those of the same query on a numeric filter are the vector's, so the query must make more;
-    stopping at each position up to the vector's covers it without depending on its order among
-    the others."""
+    those of the same query on a numeric filter are the vector's: the range checkpoint, plus the
+    one VecSim's stop callback makes for the single block of the FLAT field `v`. Their number is
+    pinned, so a query without the range checkpoint fails here; stopping at each position up to
+    the vector's covers it without depending on its order among the others."""
     def calls(q):
         q = list(q)
         at = q.index('LIMIT')
@@ -87,8 +88,9 @@ def _vector_checkpoint_positions(env, query):
 
     with_vector = calls(query)
     baseline = calls([*query[:2], '@n:[40 60]', *query[3:]])
-    for shard_calls, shard_baseline in zip(with_vector, baseline, strict=True):
-        env.assertGreater(shard_calls, shard_baseline, message=(with_vector, baseline))
+    expected = 2 if query[2].startswith('@v:') else 1
+    env.assertEqual([c - b for c, b in zip(with_vector, baseline, strict=True)],
+                    [expected] * len(with_vector), message=(with_vector, baseline))
     # In a cluster the first process also coordinates, and its calls are not all the shard's.
     return range(1, min(with_vector[1:] or with_vector) + 1)
 
