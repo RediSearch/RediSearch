@@ -7,14 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! RediSearch's own ops: index schemas, queries, and batches of writes.
+//! RediSearch's ops, and the commands they send.
 
-use procfuzz::legacy::program::{Argv, Bytes, Literal, TypedOp, argv};
-use procfuzz::legacy::vocabulary::{Vocabulary, below};
-use rand::RngCore;
+use procfuzz::draw::Draw;
+use procfuzz::service::Input;
+use procfuzz_redis::resp::{Argv, Bytes, argv};
 use serde::{Deserialize, Serialize};
 
-const WORDS: [&str; 14] = [
+use crate::state::State;
+
+pub const WORDS: [&str; 14] = [
     "hello",
     "world",
     "hell",
@@ -30,18 +32,32 @@ const WORDS: [&str; 14] = [
     "é",
     "日本語",
 ];
-const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
-const SMALL_NUMBERS: usize = 10_000;
+pub const NUMBERS: [i64; 10] = [0, 1, -1, 7, 100, -100, 1 << 31, 1 << 53, i64::MAX, i64::MIN];
+const SMALL_NUMBERS: u64 = 10_000;
+/// Vector components are tenths between -10 and 10.
+const VECTOR_TENTHS: u64 = 201;
 
-/// The words and numbers programs start from. `Populate` expands through
-/// them, so changing them changes what existing programs write.
-pub fn vocabulary() -> Vocabulary {
-    Vocabulary::new(&WORDS, &NUMBERS)
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Op {
+    /// The connection it is sent on.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub conn: u8,
+    /// Leaves the reply to be read when the connection is next used. An op
+    /// whose reply names a cursor is always awaited, so that later ops can
+    /// use the cursor.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub defer: bool,
+    #[serde(flatten)]
+    pub action: Action,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "snake_case")]
 pub enum Action {
+    /// Module arguments; they count only before every other op.
+    Boot {
+        args: Vec<String>,
+    },
     Create {
         index: Bytes,
         #[serde(default, skip_serializing_if = "is_default")]
@@ -61,8 +77,27 @@ pub enum Action {
         #[serde(default)]
         options: QueryOptions,
     },
-    /// Writes keys `<prefix>0` to `<prefix><n-1>`, with values chosen by a
-    /// generator seeded with `seed`.
+    /// `FT.AGGREGATE` with `pipeline` after the query, keeping a cursor in
+    /// `cursor` if it has one.
+    Aggregate {
+        index: Bytes,
+        query: Query,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pipeline: Argv,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cursor: Option<CursorSlot>,
+    },
+    /// Reads the next page of the cursor kept in `slot`.
+    CursorRead {
+        slot: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u32>,
+    },
+    CursorDel {
+        slot: u8,
+    },
+    /// Writes keys `<prefix>0` to `<prefix><n-1>`, with values drawn from
+    /// `seed`.
     Populate {
         #[serde(default, skip_serializing_if = "is_default")]
         on: DataType,
@@ -71,7 +106,23 @@ pub enum Action {
         n: u32,
         seed: u64,
     },
+    /// Waits until the server has no background work left.
+    Settle,
+    Command {
+        argv: Command,
+    },
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CursorSlot {
+    pub slot: u8,
+    pub count: u32,
+}
+
+/// A command of at least one word.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "Argv", into = "Argv")]
+pub struct Command(Argv);
 
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
@@ -171,155 +222,187 @@ pub struct QueryOptions {
     pub dialect: Option<u8>,
 }
 
-impl TypedOp for Action {
-    fn lower(&self) -> Vec<Argv> {
-        lower(self)
-    }
-
-    fn literals(&mut self) -> Vec<Literal<'_>> {
-        let mut out = Vec::new();
-        if let Action::Query { query, .. } = self {
-            query.collect_literals(&mut out);
+impl Op {
+    pub fn new(action: Action) -> Op {
+        Op {
+            conn: 0,
+            defer: false,
+            action,
         }
-        out
     }
 
-    /// A field fewer, half the documents, or a simpler query.
-    fn simpler(&self) -> Vec<Action> {
-        let edited = |edit: &dyn Fn(&mut Action)| {
-            let mut candidate = self.clone();
-            edit(&mut candidate);
-            candidate
+    /// The input it sends, with cursor ids from `state`.
+    pub fn lower(&self, state: &State) -> Input<Argv> {
+        let send = |request: Argv| Input::Send {
+            conn: self.conn,
+            wait: !self.defer || self.action.names_a_cursor(),
+            request,
         };
-        let mut out = Vec::new();
-        match self {
-            Action::Create { fields, .. } | Action::Populate { fields, .. } => {
-                for i in 0..fields.len() {
-                    out.push(edited(&|a| {
-                        if let Action::Create { fields, .. } | Action::Populate { fields, .. } = a {
-                            fields.remove(i);
-                        }
-                    }));
-                }
-                if let Action::Populate { n, .. } = self
-                    && *n > 1
-                {
-                    out.push(edited(&|a| {
-                        if let Action::Populate { n, .. } = a {
-                            *n /= 2;
-                        }
-                    }));
-                }
-            }
-            Action::Query { query, .. } => {
-                for simpler in simpler_queries(query) {
-                    out.push(edited(&|a| {
-                        if let Action::Query { query, .. } = a {
-                            *query = simpler.clone();
-                        }
-                    }));
-                }
-            }
-            Action::Alter { .. } => {}
-        }
-        out
-    }
-
-    fn size(&self) -> usize {
-        match self {
-            Action::Create { fields, .. } => fields.len(),
-            Action::Populate { fields, n, .. } => fields.len() + usize::try_from(*n).expect("fits"),
-            Action::Query { query, .. } => nodes(query),
-            Action::Alter { .. } => 0,
+        match &self.action {
+            Action::Boot { args } => Input::Boot(args.clone()),
+            Action::Settle => Input::Settle,
+            Action::Populate { .. } => Input::Batch {
+                conn: self.conn,
+                requests: self.action.commands(state),
+            },
+            action => send(action.commands(state).remove(0)),
         }
     }
 }
 
-impl Query {
-    fn collect_literals<'a>(&'a mut self, out: &mut Vec<Literal<'a>>) {
-        match self {
-            Query::All => {}
-            Query::Term(term) | Query::InField { term, .. } => out.push(Literal::Word(term)),
-            Query::Tag { values, .. } => out.extend(values.iter_mut().map(Literal::Word)),
-            Query::Range { min, max, .. } => {
-                for bound in [min, max] {
-                    if let Bound::Inclusive(n) | Bound::Exclusive(n) = bound {
-                        out.push(Literal::Number(n));
-                    }
-                }
-            }
-            Query::And(children) | Query::Or(children) => children
-                .iter_mut()
-                .for_each(|child| child.collect_literals(out)),
-            Query::Not(child) | Query::Knn { filter: child, .. } => child.collect_literals(out),
+impl Action {
+    pub fn command(words: &[&str]) -> Action {
+        Action::Command {
+            argv: Command(argv(words)),
         }
     }
-}
 
-fn lower(action: &Action) -> Vec<Argv> {
-    match action {
-        Action::Create {
-            index,
-            on,
-            prefix,
-            fields,
-        } => {
-            let data_type = match on {
-                DataType::Hash => "HASH",
-                DataType::Json => "JSON",
-            };
-            let mut command = vec!["FT.CREATE".into(), index.clone()];
-            command.extend(argv(&["ON", data_type, "PREFIX", "1"]));
-            command.extend([prefix.clone(), "SCHEMA".into()]);
-            for field in fields {
+    fn names_a_cursor(&self) -> bool {
+        matches!(
+            self,
+            Action::Aggregate {
+                cursor: Some(_),
+                ..
+            } | Action::CursorRead { .. }
+        )
+    }
+
+    /// The commands it sends; none for a boot argument or a settle.
+    pub fn commands(&self, state: &State) -> Vec<Argv> {
+        match self {
+            Action::Boot { .. } | Action::Settle => Vec::new(),
+            Action::Command { argv } => vec![argv.0.clone()],
+            Action::Create {
+                index,
+                on,
+                prefix,
+                fields,
+            } => {
+                let mut command = vec!["FT.CREATE".into(), index.clone()];
+                command.extend(argv(&["ON", on.name(), "PREFIX", "1"]));
+                command.extend([prefix.clone(), "SCHEMA".into()]);
+                for field in fields {
+                    command.extend(schema_field(*on, field));
+                }
+                vec![command]
+            }
+            Action::Alter { index, on, field } => {
+                let mut command = vec!["FT.ALTER".into(), index.clone()];
+                command.extend(argv(&["SCHEMA", "ADD"]));
                 command.extend(schema_field(*on, field));
+                vec![command]
             }
-            vec![command]
+            Action::Query {
+                index,
+                query,
+                options,
+            } => {
+                let (text, params) = rendered(query);
+                let mut command = vec!["FT.SEARCH".into(), index.clone(), text];
+                if options.no_content {
+                    command.push("NOCONTENT".into());
+                }
+                if let Some((offset, count)) = options.limit {
+                    command.extend(argv(&["LIMIT", &offset.to_string(), &count.to_string()]));
+                }
+                let dialect = options.dialect.or((!params.is_empty()).then_some(2));
+                command.extend(params);
+                if let Some(dialect) = dialect {
+                    command.extend(argv(&["DIALECT", &dialect.to_string()]));
+                }
+                vec![command]
+            }
+            Action::Aggregate {
+                index,
+                query,
+                pipeline,
+                cursor,
+            } => {
+                let (text, params) = rendered(query);
+                let mut command = vec!["FT.AGGREGATE".into(), index.clone(), text];
+                command.extend(pipeline.iter().cloned());
+                if let Some(cursor) = cursor {
+                    command.extend(argv(&["WITHCURSOR", "COUNT", &cursor.count.to_string()]));
+                }
+                if !params.is_empty() {
+                    command.extend(params);
+                    command.extend(argv(&["DIALECT", "2"]));
+                }
+                vec![command]
+            }
+            Action::CursorRead { slot, count } => {
+                let mut command = cursor_command("READ", state, *slot);
+                if let Some(count) = count {
+                    command.extend(argv(&["COUNT", &count.to_string()]));
+                }
+                vec![command]
+            }
+            Action::CursorDel { slot } => vec![cursor_command("DEL", state, *slot)],
+            Action::Populate {
+                on,
+                prefix,
+                fields,
+                n,
+                seed,
+            } => {
+                let mut draw = Draw::new(*seed);
+                (0..*n)
+                    .map(|i| {
+                        let values: Vec<(&Field, Bytes)> = fields
+                            .iter()
+                            .map(|field| (field, value(&field.kind, &mut draw)))
+                            .collect();
+                        write(*on, key(prefix, i), &values)
+                    })
+                    .collect()
+            }
         }
-        Action::Alter { index, on, field } => {
-            let mut command = vec!["FT.ALTER".into(), index.clone()];
-            command.extend(argv(&["SCHEMA", "ADD"]));
-            command.extend(schema_field(*on, field));
-            vec![command]
+    }
+}
+
+/// `FT.CURSOR <action> <index> <id>` for the cursor kept in `slot`, or for
+/// cursor 0 if there is none.
+fn cursor_command(action: &str, state: &State, slot: u8) -> Argv {
+    let cursor = state.cursors.get(&slot);
+    let index = cursor.map_or_else(|| Bytes::from("i0"), |cursor| cursor.index.clone());
+    let id = cursor.and_then(|cursor| cursor.id).unwrap_or(0);
+    vec![
+        "FT.CURSOR".into(),
+        action.into(),
+        index,
+        id.to_string().into(),
+    ]
+}
+
+impl Command {
+    pub fn words(&self) -> &Argv {
+        &self.0
+    }
+}
+
+impl TryFrom<Argv> for Command {
+    type Error = &'static str;
+
+    fn try_from(argv: Argv) -> Result<Command, &'static str> {
+        if argv.is_empty() {
+            Err("a command needs at least one word")
+        } else {
+            Ok(Command(argv))
         }
-        Action::Query {
-            index,
-            query,
-            options,
-        } => {
-            let (text, params) = rendered(query);
-            let mut command = vec!["FT.SEARCH".into(), index.clone(), text];
-            if options.no_content {
-                command.push("NOCONTENT".into());
-            }
-            if let Some((offset, count)) = options.limit {
-                command.extend(argv(&["LIMIT", &offset.to_string(), &count.to_string()]));
-            }
-            let dialect = options.dialect.or((!params.is_empty()).then_some(2));
-            command.extend(params);
-            if let Some(dialect) = dialect {
-                command.extend(argv(&["DIALECT", &dialect.to_string()]));
-            }
-            vec![command]
-        }
-        Action::Populate {
-            on,
-            prefix,
-            fields,
-            n,
-            seed,
-        } => {
-            let vocabulary = vocabulary();
-            let mut rng = SplitMix(*seed);
-            (0..*n)
-                .map(|i| {
-                    let values: Vec<(&Field, Bytes)> = fields
-                        .iter()
-                        .map(|field| (field, value(&field.kind, &vocabulary, &mut rng)))
-                        .collect();
-                    write(*on, key(prefix, i), &values)
-                })
-                .collect()
+    }
+}
+
+impl From<Command> for Argv {
+    fn from(command: Command) -> Argv {
+        command.0
+    }
+}
+
+impl DataType {
+    fn name(self) -> &'static str {
+        match self {
+            DataType::Hash => "HASH",
+            DataType::Json => "JSON",
         }
     }
 }
@@ -328,29 +411,6 @@ pub fn key(prefix: &Bytes, i: u32) -> Bytes {
     let mut key = prefix.clone();
     key.0.extend_from_slice(i.to_string().as_bytes());
     key
-}
-
-/// SplitMix64, so a `Populate` expansion never changes with a dependency.
-struct SplitMix(u64);
-
-impl RngCore for SplitMix {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    fn next_u32(&mut self) -> u32 {
-        u32::try_from(self.next_u64() >> 32).expect("32 bits")
-    }
-
-    fn fill_bytes(&mut self, dst: &mut [u8]) {
-        for chunk in dst.chunks_mut(8) {
-            chunk.copy_from_slice(&self.next_u64().to_le_bytes()[..chunk.len()]);
-        }
-    }
 }
 
 /// `HSET`, or `JSON.SET` of an object in which tags are arrays of strings
@@ -553,89 +613,51 @@ fn escape(token: &Bytes, out: &mut Vec<u8>) {
     }
 }
 
-/// A value for a field of `kind`, as `HSET` takes it. Tags are separated
-/// by commas.
-pub fn value(kind: &FieldKind, vocabulary: &Vocabulary, rng: &mut impl RngCore) -> Bytes {
-    let words = |separator: &str, most: usize, rng: &mut _| -> Bytes {
-        let count = 1 + below(rng, most);
+pub fn word(draw: &mut Draw) -> Bytes {
+    (*draw.pick(&WORDS).expect("never empty")).into()
+}
+
+pub fn number(draw: &mut Draw) -> i64 {
+    *draw.pick(&NUMBERS).expect("never empty")
+}
+
+/// A value for a field of `kind`, as `HSET` takes it. Tags are separated by
+/// commas.
+pub fn value(kind: &FieldKind, draw: &mut Draw) -> Bytes {
+    let words = |separator: &str, most: u64, draw: &mut Draw| -> Bytes {
+        let count = 1 + draw.below(most);
         let words: Vec<String> = (0..count)
-            .map(|_| String::from_utf8_lossy(vocabulary.word(rng).as_slice()).into_owned())
+            .map(|_| String::from_utf8_lossy(word(draw).as_slice()).into_owned())
             .collect();
         words.join(separator).into()
     };
     match kind {
-        FieldKind::Text => words(" ", 3, rng),
-        FieldKind::Tag => words(",", 2, rng),
-        FieldKind::Numeric if below(rng, 2) == 0 => vocabulary.number(rng).to_string().into(),
-        FieldKind::Numeric => below(rng, SMALL_NUMBERS).to_string().into(),
+        FieldKind::Text => words(" ", 3, draw),
+        FieldKind::Tag => words(",", 2, draw),
+        FieldKind::Numeric if draw.below(2) == 0 => number(draw).to_string().into(),
+        FieldKind::Numeric => draw.below(SMALL_NUMBERS).to_string().into(),
         FieldKind::Geo => {
-            let mut coordinate = |degrees: i64| {
-                let span = usize::try_from(2 * degrees + 1).expect("positive");
-                let whole = i64::try_from(below(rng, span)).expect("small") - degrees;
-                format!("{whole}.{:04}", below(rng, 10_000))
+            let mut coordinate = |degrees: u64| {
+                let whole = i128::from(draw.below(2 * degrees + 1)) - i128::from(degrees);
+                format!("{whole}.{:04}", draw.below(10_000))
             };
             let longitude = coordinate(179);
             format!("{longitude},{}", coordinate(84)).into()
         }
-        FieldKind::Vector { dim, .. } => vector(*dim, rng),
+        FieldKind::Vector { dim, .. } => vector(*dim, draw),
     }
 }
 
 /// `dim` FLOAT32 components between -10 and 10, in steps of a tenth.
-pub fn vector(dim: u16, rng: &mut impl RngCore) -> Bytes {
+pub fn vector(dim: u16, draw: &mut Draw) -> Bytes {
     Bytes(
         (0..dim)
             .flat_map(|_| {
-                let tenths = f32::from(u8::try_from(below(rng, 201)).expect("at most 200"));
-                ((tenths - 100.0) / 10.0).to_le_bytes()
+                let tenths = u8::try_from(draw.below(VECTOR_TENTHS)).expect("at most 200");
+                ((f32::from(tenths) - 100.0) / 10.0).to_le_bytes()
             })
             .collect(),
     )
-}
-
-/// The query with a node replaced by one of its children, or a child of a
-/// group dropped, anywhere in the tree.
-fn simpler_queries(query: &Query) -> Vec<Query> {
-    match query {
-        Query::And(children) | Query::Or(children) => {
-            let rebuild = |children| match query {
-                Query::And(_) => Query::And(children),
-                _ => Query::Or(children),
-            };
-            let mut out = children.clone();
-            for (i, child) in children.iter().enumerate() {
-                let mut fewer = children.clone();
-                fewer.remove(i);
-                out.push(rebuild(fewer));
-                for simpler in simpler_queries(child) {
-                    let mut replaced = children.clone();
-                    replaced[i] = simpler;
-                    out.push(rebuild(replaced));
-                }
-            }
-            out
-        }
-        Query::Not(child) | Query::Knn { filter: child, .. } => {
-            let mut out = vec![(**child).clone()];
-            for simpler in simpler_queries(child) {
-                let mut query = query.clone();
-                if let Query::Not(child) | Query::Knn { filter: child, .. } = &mut query {
-                    **child = simpler;
-                }
-                out.push(query);
-            }
-            out
-        }
-        _ => Vec::new(),
-    }
-}
-
-fn nodes(query: &Query) -> usize {
-    1 + match query {
-        Query::And(children) | Query::Or(children) => children.iter().map(nodes).sum(),
-        Query::Not(child) | Query::Knn { filter: child, .. } => nodes(child),
-        _ => 0,
-    }
 }
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {
@@ -673,7 +695,7 @@ mod tests {
             seed: 7,
         };
         assert_eq!(
-            op.lower(),
+            op.commands(&State::default()),
             [
                 words("HSET;k:0;t;x-y;n;7;g;日本語;p;-84.9182,66.4425"),
                 words("HSET;k:1;t;the green;n;0;g;red;p;9.9797,-54.3743"),
@@ -723,7 +745,7 @@ mod tests {
                 Action::Query {
                     index: "i".into(),
                     query,
-                    options: Default::default(),
+                    options: QueryOptions::default(),
                 },
                 search,
             ),
@@ -740,7 +762,7 @@ mod tests {
             ),
         ];
         for (op, expected) in ops {
-            assert_eq!(op.lower(), [expected]);
+            assert_eq!(op.commands(&State::default()), [expected]);
         }
         let tag = field("g", FieldKind::Tag);
         let values = [
@@ -752,5 +774,29 @@ mod tests {
             write(DataType::Json, "j:1".into(), &values),
             words(r#"JSON.SET;j:1;$;{"g":["red","\"x\""],"n":-7,"v":[1.5]}"#)
         );
+    }
+
+    #[test]
+    fn an_op_that_names_a_cursor_is_awaited_even_when_deferred() {
+        let aggregate = Op {
+            conn: 1,
+            defer: true,
+            action: Action::Aggregate {
+                index: "i".into(),
+                query: Query::All,
+                pipeline: Vec::new(),
+                cursor: Some(CursorSlot { slot: 0, count: 1 }),
+            },
+        };
+        assert!(matches!(
+            aggregate.lower(&State::default()),
+            Input::Send { wait: true, .. }
+        ));
+    }
+
+    #[test]
+    fn a_command_without_words_does_not_load() {
+        let error = serde_json::from_str::<Op>(r#"{"op": "command", "argv": []}"#).unwrap_err();
+        assert!(error.to_string().contains("at least one word"), "{error}");
     }
 }

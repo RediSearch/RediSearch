@@ -7,40 +7,50 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! RediSearch as a `procfuzz` target: its own ops ([`action`]), a generator
-//! that keeps them well-typed ([`generate`], [`scope`]), the server
-//! ([`redis`]), and logic rules over search results ([`logic`]).
+//! RediSearch as a procfuzz [`Model`]: its ops ([`op`]), what they set up
+//! ([`state`]), which make sense when ([`generate`]), what each command does
+//! ([`effect`]), the logic rules over search results ([`logic`]), and the
+//! server ([`server`]).
 
-pub mod action;
+pub mod effect;
 pub mod generate;
 pub mod logic;
-pub mod redis;
-pub mod scope;
+pub mod op;
+pub mod server;
+pub mod state;
 
-use rand::rngs::SmallRng;
+use procfuzz::draw::Draw;
+use procfuzz::model::Model;
+use procfuzz::service::Input;
+use procfuzz::system::{Notes, Step};
+use procfuzz_redis::resp::{Argv, Value};
 
-use crate::action::{Action, vocabulary};
-use crate::redis::{Env, Value};
+use crate::op::Op;
+use crate::state::State;
 
-pub type Program = procfuzz::legacy::program::Program<Action>;
-pub type Op = procfuzz::legacy::program::Op<Action>;
-pub type Execution = procfuzz::legacy::run::Execution<Value>;
+pub type Program = procfuzz::model::Program<Op>;
 
-pub fn execute(env: &Env, program: &Program) -> Result<Execution, String> {
-    let mut execution = procfuzz::legacy::run::execute(env, program)?;
-    execution
-        .findings
-        .extend(logic::check(program, &execution.trace));
-    execution.findings.sort();
-    execution.findings.dedup();
-    Ok(execution)
-}
+pub struct RediSearch;
 
-pub fn mutate(program: &Program, donor: &Program, rng: &mut SmallRng) -> Program {
-    let mut words = vocabulary();
-    words.learn(program);
-    words.learn(donor);
-    let mut generate =
-        |args: &[_], prefix: &[Op], rng: &mut SmallRng| generate::ops(args, prefix, &words, rng);
-    procfuzz::legacy::edit::mutate(program, donor, &words, &mut generate, rng)
+impl Model for RediSearch {
+    type Op = Op;
+    type State = State;
+    type Input = Input<Argv>;
+    type Reply = Value;
+
+    fn next(&self, state: &State, draw: &mut Draw) -> Op {
+        generate::next(state, draw)
+    }
+
+    fn apply(&self, state: &mut State, op: &Op, reply: Option<&Value>) {
+        state.apply(op, reply);
+    }
+
+    fn lower(&self, state: &State, op: &Op) -> Input<Argv> {
+        op.lower(state)
+    }
+
+    fn check(&self, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
+        logic::check(self, ops, steps, notes);
+    }
 }

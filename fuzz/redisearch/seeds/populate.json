@@ -1,130 +1,148 @@
 {
   "ops": [
     {
-      "op": "create",
-      "index": "i0",
-      "prefix": "d0:",
-      "fields": [
-        {
-          "name": "f0",
-          "type": "text"
-        },
-        {
-          "name": "f1",
-          "type": "numeric",
-          "sortable": true
-        },
-        {
-          "name": "f2",
-          "type": "tag"
-        }
-      ]
-    },
-    {
-      "op": "populate",
-      "prefix": "d0:",
-      "fields": [
-        {
-          "name": "f0",
-          "type": "text"
-        },
-        {
-          "name": "f1",
-          "type": "numeric"
-        },
-        {
-          "name": "f2",
-          "type": "tag"
-        }
-      ],
-      "n": 500,
-      "seed": 1
-    },
-    {
-      "op": "barrier"
-    },
-    {
-      "op": "query",
-      "index": "i0",
-      "query": {
-        "range": {
-          "field": "f1",
-          "min": {
-            "inclusive": 100
+      "op": {
+        "op": "create",
+        "index": "i0",
+        "prefix": "d0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "text"
           },
-          "max": {
-            "exclusive": 5000
+          {
+            "name": "f1",
+            "type": "numeric",
+            "sortable": true
+          },
+          {
+            "name": "f2",
+            "type": "tag"
           }
-        }
-      },
-      "options": {
-        "no_content": true,
-        "limit": [
-          0,
-          5
         ]
       }
     },
     {
-      "op": "query",
-      "index": "i0",
-      "query": {
-        "and": [
+      "op": {
+        "op": "populate",
+        "prefix": "d0:",
+        "fields": [
           {
-            "term": "hello"
+            "name": "f0",
+            "type": "text"
           },
           {
-            "not": {
-              "tag": {
-                "field": "f2",
-                "values": [
-                  "red"
-                ]
-              }
+            "name": "f1",
+            "type": "numeric"
+          },
+          {
+            "name": "f2",
+            "type": "tag"
+          }
+        ],
+        "n": 500,
+        "seed": 1
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": {
+          "range": {
+            "field": "f1",
+            "min": {
+              "inclusive": 100
+            },
+            "max": {
+              "exclusive": 5000
             }
           }
-        ]
-      },
-      "options": {
-        "no_content": true
+        },
+        "options": {
+          "no_content": true,
+          "limit": [
+            0,
+            5
+          ]
+        }
       }
     },
     {
-      "op": "command",
-      "argv": [
-        "DEL",
-        "d0:1",
-        "d0:2",
-        "d0:3",
-        "d0:4",
-        "d0:5",
-        "d0:6",
-        "d0:7",
-        "d0:8",
-        "d0:9",
-        "d0:10"
-      ]
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": {
+          "and": [
+            {
+              "term": "hello"
+            },
+            {
+              "not": {
+                "tag": {
+                  "field": "f2",
+                  "values": [
+                    "red"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "options": {
+          "no_content": true
+        }
+      }
     },
     {
-      "op": "command",
-      "argv": [
-        "_FT.DEBUG",
-        "GC_FORCEINVOKE",
-        "i0"
-      ]
-    },
-    {
-      "op": "barrier"
-    },
-    {
-      "op": "query",
-      "index": "i0",
-      "query": "all",
-      "options": {
-        "limit": [
-          0,
-          0
+      "op": {
+        "op": "command",
+        "argv": [
+          "DEL",
+          "d0:1",
+          "d0:2",
+          "d0:3",
+          "d0:4",
+          "d0:5",
+          "d0:6",
+          "d0:7",
+          "d0:8",
+          "d0:9",
+          "d0:10"
         ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "_FT.DEBUG",
+          "GC_FORCEINVOKE",
+          "i0"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": "all",
+        "options": {
+          "limit": [
+            0,
+            0
+          ]
+        }
       }
     }
   ]

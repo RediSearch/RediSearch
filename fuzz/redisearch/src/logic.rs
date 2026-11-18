@@ -14,22 +14,21 @@
 //! - partition: `q p` and `q -p` add up to `q`.
 //!
 //! Results are compared only within one comparison window, which opens at a
-//! barrier that completed and closes at the next step that can change results;
-//! no such step may run while either query is in flight. `DEBUG RELOAD` must
-//! not change results, but the index is rebuilding afterwards, so a window
-//! opens only at the next barrier. Without `ON_TIMEOUT FAIL` a slow query
-//! returns partial results, so no rule applies.
+//! settle that completed and closes at the next step that can change
+//! results; no such step may run while either search is in flight. `DEBUG
+//! RELOAD` must not change results, but the index is rebuilding afterwards,
+//! so a window opens only at the next settle. Without `ON_TIMEOUT FAIL` a
+//! slow search returns partial results, so no rule applies.
 
 use std::collections::BTreeSet;
 
-use procfuzz::legacy::program::{Bytes, Kind};
-use procfuzz::legacy::run::{Step, Trace};
-use procfuzz::legacy::server::Reply;
+use procfuzz::system::{Notes, Step, in_completion_order};
+use procfuzz_redis::resp::{Bytes, Value};
 
-use crate::Program;
-use crate::action::{Action, Query, QueryOptions};
-use crate::redis::{DEBUG, Value};
-use crate::scope::{Key, Scope};
+use crate::RediSearch;
+use crate::effect::{Effect, effect};
+use crate::op::{Action, Op, Query, QueryOptions};
+use crate::state::{Key, State};
 
 /// RediSearch's default stopwords.
 const STOPWORDS: [&str; 33] = [
@@ -37,34 +36,6 @@ const STOPWORDS: [&str; 33] = [
     "it", "no", "not", "of", "on", "or", "such", "that", "their", "then", "there", "these", "they",
     "this", "to", "was", "will", "with",
 ];
-const READ_ONLY_COMMANDS: [&str; 10] = [
-    "FT.INFO",
-    "FT._LIST",
-    "FT.EXPLAIN",
-    "FT.TAGVALS",
-    "FT.SEARCH",
-    "FT.AGGREGATE",
-    "PING",
-    "EXISTS",
-    "HGETALL",
-    "JSON.GET",
-];
-/// `_FT.DEBUG` subcommands that change scheduling, not results.
-const SCHEDULING_HOOKS: [&str; 5] = [
-    "GC_FORCEINVOKE",
-    "GC_STOP_SCHEDULE",
-    "GC_CONTINUE_SCHEDULE",
-    "WORKERS",
-    "BG_SCAN_CONTROLLER",
-];
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Effect {
-    Harness,
-    KeepsResults,
-    RebuildsIndex,
-    ChangesResults,
-}
 
 struct SearchResult<'a> {
     window: u32,
@@ -77,16 +48,15 @@ struct SearchResult<'a> {
     keys: Option<BTreeSet<Bytes>>,
 }
 
-pub fn check(program: &Program, trace: &Trace<Value>) -> Vec<String> {
-    let fails_on_timeout = program.args.windows(2).any(|pair| {
-        pair[0].as_slice().eq_ignore_ascii_case(b"ON_TIMEOUT")
-            && pair[1].as_slice().eq_ignore_ascii_case(b"FAIL")
+pub fn check(model: &RediSearch, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
+    let mut fails_on_timeout = false;
+    in_completion_order(model, ops, steps, |_, state| {
+        fails_on_timeout |= state.fails_on_timeout;
     });
     if !fails_on_timeout {
-        return Vec::new();
+        return;
     }
-    let results = comparable_results(program, trace);
-    let mut findings = Vec::new();
+    let results = comparable_results(model, ops, steps);
     for (i, a) in results.iter().enumerate() {
         for b in &results[i + 1..] {
             if a.window != b.window || a.query != b.query || a.options != b.options {
@@ -101,7 +71,7 @@ pub fn check(program: &Program, trace: &Trace<Value>) -> Vec<String> {
             };
             let keys_differ = matches!((&a.keys, &b.keys), (Some(x), Some(y)) if x != y);
             if a.total != b.total || keys_differ {
-                findings.push(finding(rule, a.query));
+                notes.fail("logic", key(rule, a.query));
             }
         }
     }
@@ -126,11 +96,10 @@ pub fn check(program: &Program, trace: &Trace<Value>) -> Vec<String> {
                 && let Some(&(_, _, complement)) = complement
                 && total + complement != whole.total
             {
-                findings.push(finding("partition", whole.query));
+                notes.fail("logic", key("partition", whole.query));
             }
         }
     }
-    findings
 }
 
 /// `q p` is `(q, p, false)` and `q -p` is `(q, p, true)`; a lone `p` or `-p`
@@ -151,8 +120,8 @@ fn split(query: &Query) -> Option<(&Query, &Query, bool)> {
 }
 
 /// Names the query's structure without its values, so one bug reached
-/// through different terms keeps one signature.
-fn finding(rule: &str, query: &Query) -> String {
+/// through different terms keeps one finding.
+fn key(rule: &str, query: &Query) -> String {
     fn shape(query: &Query) -> String {
         let group = |name, children: &[Query]| {
             let inner: Vec<String> = children.iter().map(shape).collect();
@@ -170,7 +139,7 @@ fn finding(rule: &str, query: &Query) -> String {
             Query::Knn { filter, .. } => format!("knn({})", shape(filter)),
         }
     }
-    format!("logic:{rule}:{}", shape(query))
+    format!("{rule}:{}", shape(query))
 }
 
 /// Whether a term can drop out of its group: an empty term, a stopword, or
@@ -212,47 +181,57 @@ fn known_fields(query: &Query, key: &Option<Key>) -> bool {
     }
 }
 
+/// What an op does to search results; a settle has no effect of its own.
+fn op_effect(op: &Op, state: &State) -> Effect {
+    match op.action.commands(state).first() {
+        Some(command) => effect(command),
+        None => Effect::Reads,
+    }
+}
+
 /// Exact `FT.SEARCH` results inside a comparison window, each with the key
 /// of its index as the commands the server accepted left it. KNN results
 /// are approximate and left out.
-fn comparable_results<'a>(program: &'a Program, trace: &'a Trace<Value>) -> Vec<SearchResult<'a>> {
-    let effects: Vec<Effect> = trace.steps.iter().map(effect).collect();
-    let mut scope = Scope::new(&program.args);
+fn comparable_results<'a>(
+    model: &RediSearch,
+    ops: &'a [Op],
+    steps: &[Step<Value>],
+) -> Vec<SearchResult<'a>> {
+    let mut effects = vec![Effect::Reads; steps.len()];
+    in_completion_order(model, ops, steps, |at, state| {
+        effects[at] = op_effect(&ops[at], state);
+    });
+    // A step that never completed may still have changed results.
+    for (at, step) in steps.iter().enumerate() {
+        if step.done.is_none() && !matches!(ops[at].action, Action::Settle) {
+            effects[at] = Effect::Writes;
+        }
+    }
     let mut window = 0;
     let mut open = false;
     let mut results = Vec::new();
-    for (step, &effect) in trace.steps.iter().zip(&effects) {
-        let succeeded = matches!(
-            &step.reply,
-            Some(Reply::Value(value)) if !matches!(value, Value::Error(_))
-        );
-        match effect {
-            Effect::Harness if step.argv[0] == "BARRIER".into() => {
-                open = step.reply == Some(Reply::Done);
-            }
-            Effect::Harness | Effect::KeepsResults => {}
-            Effect::RebuildsIndex => open = false,
-            Effect::ChangesResults => {
+    in_completion_order(model, ops, steps, |at, state| {
+        let step = &steps[at];
+        match (&ops[at].action, effects[at]) {
+            (Action::Settle, _) => open = true,
+            (_, Effect::Reads | Effect::Schedules) => {}
+            (_, Effect::Rebuilds) => open = false,
+            (_, Effect::Writes) => {
                 window += 1;
                 open = false;
             }
         }
-        let op = &program.ops[step.op];
-        if succeeded && effect != Effect::Harness {
-            scope.add(op);
-        }
-        let undisturbed = step.received.is_some_and(|received| {
-            trace.steps.iter().zip(&effects).all(|(other, effect)| {
-                other.sent <= step.sent
-                    || other.sent >= received
-                    || matches!(effect, Effect::Harness | Effect::KeepsResults)
-            })
+        let done = step.done.expect("completed");
+        let undisturbed = steps.iter().zip(&effects).all(|(other, effect)| {
+            other.sent <= step.sent
+                || other.sent >= done
+                || matches!(effect, Effect::Reads | Effect::Schedules)
         });
-        if let Kind::Typed(Action::Query {
+        if let Action::Query {
             index,
             query,
             options,
-        }) = &op.kind
+        } = &ops[at].action
             && open
             && undisturbed
             && !matches!(query, Query::Knn { .. })
@@ -261,41 +240,20 @@ fn comparable_results<'a>(program: &'a Program, trace: &'a Trace<Value>) -> Vec<
             results.push(SearchResult {
                 window,
                 index,
-                key: scope.key(index),
+                key: state.key(index),
                 query,
                 options,
                 total,
                 keys,
             });
         }
-    }
+    });
     results
 }
 
-fn effect(step: &Step<Value>) -> Effect {
-    let word = |i: usize| {
-        step.argv
-            .get(i)
-            .map(|w| String::from_utf8_lossy(w.as_slice()).to_ascii_uppercase())
-            .unwrap_or_default()
-    };
-    let command = word(0);
-    if step.is_harness() {
-        Effect::Harness
-    } else if READ_ONLY_COMMANDS.contains(&command.as_str())
-        || (command == DEBUG && SCHEDULING_HOOKS.contains(&word(1).as_str()))
-    {
-        Effect::KeepsResults
-    } else if command == "DEBUG" && word(1) == "RELOAD" {
-        Effect::RebuildsIndex
-    } else {
-        Effect::ChangesResults
-    }
-}
-
 /// `FT.SEARCH` replies `[total, key, fields?, key, fields?, …]`.
-fn search_result(reply: &Reply<Value>) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
-    let Reply::Value(Value::Array(items)) = reply else {
+fn search_result(reply: &Value) -> Option<(i64, Option<BTreeSet<Bytes>>)> {
+    let Value::Array(items) = reply else {
         return None;
     };
     let (Value::Int(total), rest) = items.split_first()? else {
@@ -314,150 +272,188 @@ fn search_result(reply: &Reply<Value>) -> Option<(i64, Option<BTreeSet<Bytes>>)>
 
 #[cfg(test)]
 mod tests {
-    use procfuzz::legacy::program::argv;
-    use procfuzz::legacy::run::{Exit, Status};
+    use procfuzz::system::Finding;
 
     use super::*;
-    use crate::Op;
-    use crate::action::{DataType, Field, FieldKind};
+    use crate::op::{DataType, Field, FieldKind};
 
-    /// The findings for a run in which every op succeeded and each query
-    /// matched the paired number of documents.
-    fn signatures(args: &[&str], ops: &[(Kind<Action>, i64)]) -> Vec<String> {
-        let program = Program {
-            args: argv(args),
-            ops: ops
-                .iter()
-                .map(|(kind, _)| Op {
-                    conn: Default::default(),
-                    reply: Default::default(),
-                    bind: None,
-                    kind: kind.clone(),
-                })
-                .collect(),
-        };
-        let steps = ops
+    fn run(ops: &[(Action, i64)]) -> Vec<String> {
+        run_until(ops, ops.len())
+    }
+
+    /// The findings for a run in which every op succeeded in turn and each
+    /// search matched the paired number of documents. The ops after
+    /// `ended_after` have no steps, as when the server died.
+    fn run_until(ops: &[(Action, i64)], ended_after: usize) -> Vec<String> {
+        let steps: Vec<Step<Value>> = ops
             .iter()
+            .take(ended_after)
             .enumerate()
-            .map(|(at, (kind, total))| {
-                let clock = u32::try_from(2 * at).unwrap();
-                let (argv, reply) = match kind {
-                    Kind::Barrier => (argv(&["BARRIER"]), Reply::Done),
-                    Kind::Typed(Action::Query { .. }) => (
-                        kind.lower().remove(0),
-                        Reply::Value(Value::Array(vec![Value::Int(*total)])),
-                    ),
-                    _ => (
-                        kind.lower().remove(0),
-                        Reply::Value(Value::Simple("OK".into())),
-                    ),
+            .map(|(at, (action, total))| {
+                let tick = u32::try_from(2 * at + 1).unwrap();
+                let reply = match action {
+                    Action::Query { .. } => Some(Value::Array(vec![Value::Int(*total)])),
+                    Action::Settle | Action::Boot { .. } => None,
+                    _ => Some(Value::Simple("OK".into())),
                 };
                 Step {
-                    op: at,
-                    conn: Default::default(),
-                    argv,
-                    sent: clock,
-                    received: Some(clock + 1),
-                    reply: Some(reply),
+                    sent: tick,
+                    done: Some(tick + 1),
+                    reply,
                 }
             })
             .collect();
-        let trace = Trace {
-            steps,
-            exit: Exit::Clean,
-            status: Status {
-                code: Some(0),
-                signal: None,
-            },
-        };
-        check(&program, &trace)
+        let ops: Vec<Op> = ops
+            .iter()
+            .map(|(action, _)| Op::new(action.clone()))
+            .collect();
+        let mut notes = Notes::default();
+        check(&RediSearch, &ops, &steps, &mut notes);
+        notes.findings.iter().map(Finding::to_string).collect()
     }
 
     #[test]
     fn each_rule_passes_consistent_results_and_flags_inconsistent_ones() {
-        let create = |index: &str| {
-            Kind::Typed(Action::Create {
-                index: index.into(),
-                on: DataType::Hash,
-                prefix: "d:".into(),
-                fields: vec![Field {
-                    name: "t".into(),
-                    kind: FieldKind::Text,
-                    sortable: false,
-                }],
-            })
+        let create = |index: &str| Action::Create {
+            index: index.into(),
+            on: DataType::Hash,
+            prefix: "d:".into(),
+            fields: vec![Field {
+                name: "t".into(),
+                kind: FieldKind::Text,
+                sortable: false,
+            }],
         };
-        let search = |index: &str, query| {
-            Kind::Typed(Action::Query {
-                index: index.into(),
-                query,
-                options: QueryOptions::default(),
-            })
+        let search = |index: &str, query| Action::Query {
+            index: index.into(),
+            query,
+            options: QueryOptions::default(),
         };
-        let command = |words: &[&str]| Kind::Command(argv(words));
         let hello = || Query::Term("hello".into());
         let world = || Query::InField {
             field: "t".into(),
             term: "world".into(),
         };
-        let setup = |extra: Vec<(Kind<Action>, i64)>| {
-            let mut ops = vec![(create("i"), 0), (create("j"), 0), (Kind::Barrier, 0)];
+        let fail = || Action::Boot {
+            args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
+        };
+        let setup = |boot: bool, extra: Vec<(Action, i64)>| {
+            let mut ops = Vec::new();
+            if boot {
+                ops.push((fail(), 0));
+            }
+            ops.extend([(create("i"), 0), (create("j"), 0), (Action::Settle, 0)]);
             ops.extend(extra);
             ops
         };
         let partition = |rest| {
-            setup(vec![
-                (search("i", hello()), 5),
-                (search("i", Query::And(vec![hello(), world()])), 2),
-                (
-                    search(
-                        "i",
-                        Query::And(vec![hello(), Query::Not(Box::new(world()))]),
+            setup(
+                true,
+                vec![
+                    (search("i", hello()), 5),
+                    (search("i", Query::And(vec![hello(), world()])), 2),
+                    (
+                        search(
+                            "i",
+                            Query::And(vec![hello(), Query::Not(Box::new(world()))]),
+                        ),
+                        rest,
                     ),
-                    rest,
-                ),
-            ])
+                ],
+            )
         };
         let repeated = |between, second| {
-            setup(vec![
-                (search("i", hello()), 3),
-                (between, 0),
-                (search("i", hello()), second),
-            ])
+            setup(
+                true,
+                vec![
+                    (search("i", hello()), 3),
+                    (between, 0),
+                    (search("i", hello()), second),
+                ],
+            )
         };
-        let twin = |second| {
-            setup(vec![
-                (search("i", hello()), 3),
-                (search("j", hello()), second),
-            ])
+        let twin = |boot, second| {
+            setup(
+                boot,
+                vec![(search("i", hello()), 3), (search("j", hello()), second)],
+            )
         };
-        let gc = || command(&[DEBUG, "GC_FORCEINVOKE", "i"]);
-        let fail = ["ON_TIMEOUT", "FAIL"];
+        let gc = || Action::command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
         let cases = [
-            (signatures(&fail, &partition(3)), vec![]),
+            (run(&partition(3)), vec![]),
+            (run(&partition(2)), vec!["logic:partition:term"]),
+            (run(&repeated(gc(), 3)), vec![]),
+            (run(&repeated(gc(), 2)), vec!["logic:equivalence:term"]),
+            (run(&twin(true, 3)), vec![]),
+            (run(&twin(true, 2)), vec!["logic:twin:term"]),
             (
-                signatures(&fail, &partition(2)),
-                vec!["logic:partition:term"],
-            ),
-            (signatures(&fail, &repeated(gc(), 3)), vec![]),
-            (
-                signatures(&fail, &repeated(gc(), 2)),
-                vec!["logic:equivalence:term"],
-            ),
-            (signatures(&fail, &twin(3)), vec![]),
-            (signatures(&fail, &twin(2)), vec!["logic:twin:term"]),
-            (
-                signatures(&fail, &repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
+                run(&repeated(
+                    Action::command(&["HSET", "d:1", "t", "hello"]),
+                    2,
+                )),
                 vec![],
             ),
             (
-                signatures(&fail, &repeated(command(&["DEBUG", "RELOAD"]), 2)),
+                run(&repeated(Action::command(&["DEBUG", "RELOAD"]), 2)),
                 vec![],
             ),
-            (signatures(&[], &twin(2)), vec![]),
+            (
+                run(&repeated(Action::command(&["FT.ALTER", "j", "SCHEMA"]), 3)),
+                vec![],
+            ),
+            (run(&twin(false, 2)), vec![]),
         ];
         for (i, (found, expected)) in cases.into_iter().enumerate() {
             assert_eq!(found, expected, "case {i}");
         }
+    }
+
+    #[test]
+    fn a_raw_schema_change_leaves_its_index_without_a_twin() {
+        let create = |index: &str| Action::Create {
+            index: index.into(),
+            on: DataType::Hash,
+            prefix: "d:".into(),
+            fields: Vec::new(),
+        };
+        let search = |index: &str| Action::Query {
+            index: index.into(),
+            query: Query::Term("hello".into()),
+            options: QueryOptions::default(),
+        };
+        let ops = [
+            (
+                Action::Boot {
+                    args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
+                },
+                0,
+            ),
+            (create("i"), 0),
+            (create("j"), 0),
+            (
+                Action::command(&["FT.ALTER", "j", "SCHEMA", "ADD", "t", "TEXT"]),
+                0,
+            ),
+            (Action::Settle, 0),
+            (search("i"), 3),
+            (search("j"), 2),
+        ];
+        assert_eq!(run(&ops), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_run_that_ended_early_is_judged_on_the_steps_it_has() {
+        let ops = [
+            (
+                Action::Boot {
+                    args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
+                },
+                0,
+            ),
+            (Action::Settle, 0),
+            (Action::command(&["DEBUG", "SEGFAULT"]), 0),
+            (Action::Settle, 0),
+        ];
+        assert_eq!(run_until(&ops, 3), Vec::<String>::new());
     }
 }

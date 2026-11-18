@@ -1013,7 +1013,7 @@ dependencies = [
  "env_logger",
  "log",
  "procfuzz",
- "rand",
+ "procfuzz-redis",
  "serde",
  "serde_json",
  "tempfile",

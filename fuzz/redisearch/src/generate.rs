@@ -7,36 +7,34 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Ops that make sense after what the ops before them set up.
+//! Ops that make sense after what the ops before them set up. Every name an
+//! op uses, such as an index or a cursor slot, comes from the state.
 
-use std::ops::RangeInclusive;
+use procfuzz::draw::Draw;
+use procfuzz_redis::resp::{Argv, Bytes, argv};
 
-use rand::Rng;
-use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
-
-use procfuzz::legacy::program::{Argv, Bytes, Conn, Kind, ReplyMode, Var, argv};
-use procfuzz::legacy::vocabulary::Vocabulary;
-
-use crate::action::{
-    Action, Algorithm, Bound, DataType, Field, FieldKind, Metric, Query, QueryOptions, key,
-    rendered, value, vector, vocabulary,
+use crate::effect::DEBUG;
+use crate::op::{
+    Action, Algorithm, Bound, CursorSlot, DataType, Field, FieldKind, Metric, Op, Query,
+    QueryOptions, key, number, value, vector, word, write,
 };
-use crate::redis::DEBUG;
-use crate::scope::{Schema, Scope};
-use crate::{Op, Program};
+use crate::state::{Comparable, Schema, State};
 
-const VARS: u8 = 2;
-const PROGRAM_OPS: RangeInclusive<usize> = 4..=40;
-const POPULATE_BITS: RangeInclusive<u32> = 0..=9;
-const RELATED_QUERIES_ONE_IN: u32 = 6;
-const RELATED_QUERIES_LIMIT: u32 = 1000;
+const CONNS: u64 = 3;
+const CURSOR_SLOTS: u64 = 2;
+const MOST_CURSOR_COUNT: u64 = 10;
+const MOST_POPULATE_BITS: u64 = 9;
+/// Lists every match of a comparable search.
+const COMPARABLE_LIMIT: u32 = 1000;
 const VECTOR_DIMS: [u16; 3] = [2, 4, 8];
-const KEYS: u32 = 16;
+const KEYS: u64 = 16;
 const QUERY_DEPTH: u32 = 2;
 const INDEXES: [&str; 3] = ["i0", "i1", "i2"];
 const HASH_PREFIXES: [&str; 2] = ["d0:", "d1:"];
 const JSON_PREFIXES: [&str; 2] = ["j0:", "j1:"];
 const FIELDS: [&str; 5] = ["f0", "f1", "f2", "f3", "f4"];
+const BOOT_ARGS: [[&str; 2]; 2] = [["ON_TIMEOUT", "FAIL"], ["WORKERS", "2"]];
+/// Hooks into background work; `{index}` stands for the index.
 const HOOKS: [&[&str]; 5] = [
     &[DEBUG, "GC_FORCEINVOKE", "{index}"],
     &[DEBUG, "GC_STOP_SCHEDULE", "{index}"],
@@ -45,208 +43,171 @@ const HOOKS: [&[&str]; 5] = [
     &["DEBUG", "RELOAD"],
 ];
 
-pub fn generate(rng: &mut impl Rng) -> Program {
-    let vocabulary = vocabulary();
-    let mut args = Vec::new();
-    if rng.random_ratio(3, 4) {
-        args.extend(argv(&["ON_TIMEOUT", "FAIL"]));
-    }
-    if rng.random_bool(0.5) {
-        args.extend(argv(&["WORKERS", "2"]));
-    }
-    let mut scope = Scope::new(&args);
-    let mut ops = Vec::new();
-    for _ in 0..rng.random_range(PROGRAM_OPS) {
-        for op in ops_after(&scope, &vocabulary, rng) {
-            scope.add(&op);
-            ops.push(op);
+pub fn next(state: &State, draw: &mut Draw) -> Op {
+    if !state.started {
+        // Usually a query that times out fails, as the logic rules need.
+        let boot = match draw.below(4) {
+            0 => None,
+            1 | 2 => Some(BOOT_ARGS[0]),
+            _ => Some(BOOT_ARGS[1]),
+        };
+        if let Some(args) = boot {
+            let args = args.iter().map(|&arg| arg.to_owned()).collect();
+            return Op::new(Action::Boot { args });
         }
     }
-    Program { args, ops }
-}
-
-/// Ops that make sense after `prefix`: usually one, sometimes a group of
-/// related queries.
-pub fn ops(args: &[Bytes], prefix: &[Op], vocabulary: &Vocabulary, rng: &mut impl Rng) -> Vec<Op> {
-    ops_after(&Scope::after(args, prefix), vocabulary, rng)
-}
-
-fn ops_after(scope: &Scope, vocabulary: &Vocabulary, rng: &mut impl Rng) -> Vec<Op> {
-    if rng.random_ratio(1, RELATED_QUERIES_ONE_IN) {
-        related_queries(scope, vocabulary, rng)
-    } else {
-        vec![next_op(scope, vocabulary, rng)]
+    if state.paused && draw.one_in(3) {
+        return Op::new(Action::command(&[DEBUG, "WORKERS", "RESUME"]));
     }
-}
-
-fn next_op(scope: &Scope, vocabulary: &Vocabulary, rng: &mut impl Rng) -> Op {
-    let index = scope.indexes.iter().choose(rng);
-    let mut bind = None;
-    let kind = match (index, rng.random_range(0..20)) {
-        _ if scope.paused && rng.random_ratio(1, 3) => command(&[DEBUG, "WORKERS", "RESUME"]),
-        (None, _) | (_, 0) => create(scope, rng),
-        (Some((_, schema)), 1..=6) => write(schema, vocabulary, rng),
-        (Some((_, schema)), 7) => Kind::Typed(Action::Populate {
+    if let Some(comparable) = &state.comparable
+        && let Some(schema) = state.indexes.get(&comparable.index)
+        && draw.one_in(2)
+    {
+        return Op::new(related(state, comparable, schema, draw));
+    }
+    let indexes: Vec<(&Bytes, &Schema)> = state.indexes.iter().collect();
+    let Some(&(name, schema)) = draw.pick(&indexes) else {
+        return Op::new(create(state, draw));
+    };
+    let action = match draw.below(20) {
+        0 => Action::Settle,
+        1..=6 => write_key(schema, draw),
+        7 => Action::Populate {
             on: schema.on,
             prefix: schema.prefix.clone(),
             fields: schema.fields.clone(),
-            n: 1 << rng.random_range(POPULATE_BITS) | rng.random_range(0..2),
-            seed: rng.random(),
-        }),
-        (Some((name, schema)), 8..=11) => Kind::Typed(Action::Query {
-            index: name.clone(),
-            query: query(schema, vocabulary, rng, QUERY_DEPTH),
-            options: options(rng),
-        }),
-        (Some(_), 13) if !scope.cursors.is_empty() => {
-            let (&var, index) = scope.cursors.iter().choose(rng).expect("not empty");
-            let action = if rng.random_ratio(1, 5) {
-                "DEL"
+            n: 1 << draw.below(MOST_POPULATE_BITS + 1) | u32::from(draw.one_in(2)),
+            seed: draw.raw(),
+        },
+        8..=11 => {
+            let options = if draw.one_in(2) {
+                comparable_options(draw)
             } else {
-                bind = Some(var);
-                "READ"
+                options(draw)
             };
-            Kind::Command(vec![
-                "FT.CURSOR".into(),
-                action.into(),
-                index.clone(),
-                var.token(),
-            ])
-        }
-        (Some((name, schema)), 12 | 13) => {
-            let (text, params) = rendered(&query(schema, vocabulary, rng, QUERY_DEPTH));
-            let mut command = vec!["FT.AGGREGATE".into(), name.clone(), text];
-            command.extend(pipeline(schema, vocabulary, rng));
-            if rng.random_ratio(1, 3) {
-                let count = rng.random_range(1..=10).to_string();
-                command.extend(argv(&["WITHCURSOR", "COUNT", &count]));
-                bind = Some(Var(rng.random_range(0..VARS)));
+            Action::Query {
+                index: name.clone(),
+                query: query(schema, draw, QUERY_DEPTH),
+                options,
             }
-            if !params.is_empty() {
-                command.extend(params);
-                command.extend(argv(&["DIALECT", "2"]));
-            }
-            Kind::Command(command)
         }
-        (Some((_, schema)), 14) => Kind::Command(vec!["DEL".into(), random_key(schema, rng)]),
-        (Some(_), 15) => Kind::Barrier,
-        (Some((name, _)), 16) => {
-            let mut argv = vec!["FT.DROPINDEX".into(), name.clone()];
-            if rng.random_bool(0.5) {
-                argv.push("DD".into());
+        12 => aggregate(name, schema, draw),
+        13 => {
+            let slots: Vec<u8> = state.cursors.keys().copied().collect();
+            match draw.pick(&slots).copied() {
+                Some(slot) if draw.one_in(5) => Action::CursorDel { slot },
+                Some(slot) => Action::CursorRead {
+                    slot,
+                    count: draw
+                        .one_in(2)
+                        .then(|| small(draw.between(1, MOST_CURSOR_COUNT))),
+                },
+                None => aggregate(name, schema, draw),
             }
-            Kind::Command(argv)
         }
-        (Some(_), 17) if scope.workers && !scope.paused => command(&[DEBUG, "WORKERS", "PAUSE"]),
-        (Some((name, schema)), 17) => {
+        14 => {
+            let key = key(&schema.prefix, small(draw.below(KEYS)));
+            Action::Command {
+                argv: vec!["DEL".into(), key].try_into().expect("not empty"),
+            }
+        }
+        15 => create(state, draw),
+        16 => {
+            let mut drop = vec!["FT.DROPINDEX".into(), name.clone()];
+            if draw.one_in(2) {
+                drop.push("DD".into());
+            }
+            command(drop)
+        }
+        17 if state.workers && !state.paused => Action::command(&[DEBUG, "WORKERS", "PAUSE"]),
+        17 => {
             let unused = FIELDS
                 .iter()
                 .find(|&&f| schema.fields.iter().all(|s| s.name != f.into()));
-            Kind::Typed(Action::Alter {
+            Action::Alter {
                 index: name.clone(),
                 on: schema.on,
-                field: field(unused.unwrap_or(&FIELDS[0]), rng),
-            })
+                field: field(unused.unwrap_or(&FIELDS[0]), draw),
+            }
         }
-        (Some((name, _)), _) => Kind::Command(
-            HOOKS
-                .choose(rng)
-                .expect("never empty")
-                .iter()
-                .map(|&word| match word {
-                    "{index}" => name.clone(),
-                    word => word.into(),
-                })
-                .collect(),
-        ),
+        _ => {
+            let hook = HOOKS[draw.index(HOOKS.len())];
+            command(
+                hook.iter()
+                    .map(|&word| match word {
+                        "{index}" => name.clone(),
+                        word => word.into(),
+                    })
+                    .collect(),
+            )
+        }
     };
-    let searches = matches!(&kind, Kind::Typed(Action::Query { .. }))
-        || matches!(&kind, Kind::Command(argv) if argv[0] == "FT.AGGREGATE".into());
-    // A search waits on paused workers, so awaiting it would stall the program.
-    let reply = if (searches && scope.paused) || rng.random_ratio(1, 8) {
-        ReplyMode::Defer
+    let searches = matches!(action, Action::Query { .. } | Action::Aggregate { .. });
+    let conn = if draw.one_in(2) {
+        tiny(draw.below(CONNS))
     } else {
-        ReplyMode::Await
+        0
     };
     Op {
-        conn: Conn::random(rng),
-        reply,
-        bind,
-        kind,
+        conn,
+        // A search waits on paused workers, so awaiting it would stall the
+        // program.
+        defer: (searches && state.paused) || draw.one_in(8),
+        action,
     }
 }
 
-/// Queries the logic rules can relate, after a barrier and on one
-/// connection: `q`, `q p`, `q -p`, sometimes a forced GC, `q` again, and `q`
-/// on a twin index if there is one.
-fn related_queries(scope: &Scope, vocabulary: &Vocabulary, rng: &mut impl Rng) -> Vec<Op> {
-    let Some((name, schema)) = scope.indexes.iter().choose(rng) else {
-        return vec![next_op(scope, vocabulary, rng)];
+/// A search the logic rules can relate to the last comparable one: the same
+/// query again, on the same index or a twin, or with a part added or
+/// subtracted; or something that should not change its results.
+fn related(state: &State, last: &Comparable, schema: &Schema, draw: &mut Draw) -> Action {
+    let search = |index: &Bytes, query: Query| Action::Query {
+        index: index.clone(),
+        query,
+        options: last.options.clone(),
     };
-    let q = match query(schema, vocabulary, rng, QUERY_DEPTH) {
-        Query::Knn { filter, .. } => *filter,
-        q => q,
-    };
-    let p = query(schema, vocabulary, rng, 0);
-    let with = |part: Query| match &q {
+    let part = |draw: &mut Draw| last.part.clone().unwrap_or_else(|| query(schema, draw, 0));
+    let with = |part: Query| match &last.query {
         Query::All => part,
-        q => Query::And(vec![q.clone(), part]),
+        query => Query::And(vec![query.clone(), part]),
     };
-    let options = QueryOptions {
-        no_content: true,
-        limit: Some((0, RELATED_QUERIES_LIMIT)),
-        dialect: rng.random_bool(0.5).then_some(2),
-    };
-    let search = |index: &Bytes, query: Query| {
-        Kind::Typed(Action::Query {
-            index: index.clone(),
-            query,
-            options: options.clone(),
-        })
-    };
-    let mut kinds = vec![
-        Kind::Barrier,
-        search(name, q.clone()),
-        search(name, with(p.clone())),
-        search(name, with(Query::Not(Box::new(p)))),
-    ];
-    if rng.random_bool(0.5) {
-        let mut gc = argv(&[DEBUG, "GC_FORCEINVOKE"]);
-        gc.push(name.clone());
-        kinds.push(Kind::Command(gc));
+    match draw.below(6) {
+        0 => search(&last.index, last.query.clone()),
+        1 => search(&last.index, with(part(draw))),
+        2 => search(&last.index, with(Query::Not(Box::new(part(draw))))),
+        3 => search(
+            state.twin(&last.index).unwrap_or(&last.index),
+            last.query.clone(),
+        ),
+        4 => Action::Settle,
+        _ => {
+            let mut gc = argv(&[DEBUG, "GC_FORCEINVOKE"]);
+            gc.push(last.index.clone());
+            command(gc)
+        }
     }
-    kinds.push(search(name, q.clone()));
-    if let Some(twin) = scope.twin(name) {
-        kinds.push(search(twin, q));
-    }
-    kinds
-        .into_iter()
-        .map(|kind| Op {
-            conn: Conn::default(),
-            reply: ReplyMode::Await,
-            bind: None,
-            kind,
-        })
-        .collect()
 }
 
-fn command(words: &[&str]) -> Kind<Action> {
-    Kind::Command(argv(words))
+fn command(argv: Argv) -> Action {
+    Action::Command {
+        argv: argv.try_into().expect("not empty"),
+    }
 }
 
 /// A new index, or a third of the time a twin of an existing one with
 /// `SORTABLE` drawn afresh.
-fn create(scope: &Scope, rng: &mut impl Rng) -> Kind<Action> {
-    let index = INDEXES
+fn create(state: &State, draw: &mut Draw) -> Action {
+    let unused: Vec<&str> = INDEXES
         .iter()
-        .map(|&name| Bytes::from(name))
-        .filter(|name| !scope.indexes.contains_key(name))
-        .choose(rng)
-        .unwrap_or_else(|| (*INDEXES.choose(rng).expect("never empty")).into());
-    if let Some(original) = scope.indexes.values().choose(rng)
-        && rng.random_ratio(1, 3)
+        .copied()
+        .filter(|&name| !state.indexes.contains_key(&name.into()))
+        .collect();
+    let index: Bytes = (*draw.pick(&unused).unwrap_or_else(|| &INDEXES[0])).into();
+    let schemas: Vec<&Schema> = state.indexes.values().collect();
+    if let Some(original) = draw.pick(&schemas)
+        && draw.one_in(3)
     {
-        return Kind::Typed(Action::Create {
+        return Action::Create {
             index,
             on: original.on,
             prefix: original.prefix.clone(),
@@ -254,124 +215,128 @@ fn create(scope: &Scope, rng: &mut impl Rng) -> Kind<Action> {
                 .fields
                 .iter()
                 .map(|f| Field {
-                    sortable: sortable(&f.kind, rng),
+                    sortable: sortable(&f.kind, draw),
                     ..f.clone()
                 })
                 .collect(),
-        });
+        };
     }
-    let mut names = FIELDS;
-    names.shuffle(rng);
-    let (on, prefixes) = if rng.random_ratio(1, 3) {
+    let (on, prefixes) = if draw.one_in(3) {
         (DataType::Json, JSON_PREFIXES)
     } else {
         (DataType::Hash, HASH_PREFIXES)
     };
-    Kind::Typed(Action::Create {
+    let prefix = prefixes[draw.index(prefixes.len())].into();
+    let mut names = FIELDS.to_vec();
+    let count = draw.between(1, 4);
+    let fields = (0..count)
+        .map(|_| {
+            let name = names.remove(draw.index(names.len()));
+            field(name, draw)
+        })
+        .collect();
+    Action::Create {
         index,
         on,
-        prefix: (*prefixes.choose(rng).expect("never empty")).into(),
-        fields: names[..rng.random_range(1..=4)]
-            .iter()
-            .map(|name| field(name, rng))
-            .collect(),
-    })
+        prefix,
+        fields,
+    }
 }
 
-fn field(name: &str, rng: &mut impl Rng) -> Field {
-    let kind = match rng.random_range(0..5) {
+fn field(name: &str, draw: &mut Draw) -> Field {
+    let kind = match draw.below(5) {
         0 => FieldKind::Text,
         1 => FieldKind::Numeric,
         2 => FieldKind::Tag,
         3 => FieldKind::Geo,
         _ => FieldKind::Vector {
-            algorithm: *[Algorithm::Flat, Algorithm::Hnsw]
-                .choose(rng)
-                .expect("never empty"),
-            dim: *VECTOR_DIMS.choose(rng).expect("never empty"),
-            metric: *[Metric::L2, Metric::Ip, Metric::Cosine]
-                .choose(rng)
-                .expect("never empty"),
+            algorithm: [Algorithm::Flat, Algorithm::Hnsw][draw.index(2)],
+            dim: VECTOR_DIMS[draw.index(VECTOR_DIMS.len())],
+            metric: [Metric::L2, Metric::Ip, Metric::Cosine][draw.index(3)],
         },
     };
     Field {
         name: name.into(),
-        sortable: sortable(&kind, rng),
+        sortable: sortable(&kind, draw),
         kind,
     }
 }
 
-fn sortable(kind: &FieldKind, rng: &mut impl Rng) -> bool {
-    matches!(kind, FieldKind::Text | FieldKind::Numeric | FieldKind::Tag) && rng.random_ratio(1, 4)
+fn sortable(kind: &FieldKind, draw: &mut Draw) -> bool {
+    matches!(kind, FieldKind::Text | FieldKind::Numeric | FieldKind::Tag) && draw.one_in(4)
+}
+
+fn aggregate(index: &Bytes, schema: &Schema, draw: &mut Draw) -> Action {
+    Action::Aggregate {
+        index: index.clone(),
+        query: query(schema, draw, QUERY_DEPTH),
+        pipeline: pipeline(schema, draw),
+        cursor: draw.one_in(3).then(|| CursorSlot {
+            slot: tiny(draw.below(CURSOR_SLOTS)),
+            count: small(draw.between(1, MOST_CURSOR_COUNT)),
+        }),
+    }
 }
 
 /// Aggregation steps in a fixed order. After `GROUPBY` only its key and
 /// `count` remain to sort by.
-fn pipeline(schema: &Schema, vocabulary: &Vocabulary, rng: &mut impl Rng) -> Argv {
+fn pipeline(schema: &Schema, draw: &mut Draw) -> Argv {
     let reference = |field: &Field| format!("@{}", String::from_utf8_lossy(field.name.as_slice()));
-    let any = schema.fields.choose(rng).map(reference);
-    let numeric = schema
+    let any = draw.pick(&schema.fields).map(reference);
+    let numeric: Vec<&Field> = schema
         .fields
         .iter()
         .filter(|f| f.kind == FieldKind::Numeric)
-        .choose(rng)
-        .map(reference);
+        .collect();
+    let numeric = draw.pick(&numeric).map(|field| reference(field));
     let mut steps = Vec::new();
     if let Some(numeric) = &numeric {
-        if rng.random_ratio(1, 3) {
+        if draw.one_in(3) {
             steps.extend(argv(&["APPLY", &format!("{numeric} * 2"), "AS", "doubled"]));
         }
-        if rng.random_ratio(1, 3) {
-            let bound = vocabulary.number(rng);
+        if draw.one_in(3) {
+            let bound = number(draw);
             steps.extend(argv(&["FILTER", &format!("{numeric} > {bound}")]));
         }
     }
     let mut sort_key = any.clone();
     if let Some(any) = &any
-        && rng.random_ratio(1, 3)
+        && draw.one_in(3)
     {
         steps.extend(argv(&["GROUPBY", "1", any, "REDUCE", "COUNT", "0", "AS"]));
         steps.push("count".into());
         sort_key = Some("@count".into());
     }
     if let Some(sort_key) = sort_key
-        && rng.random_ratio(1, 3)
+        && draw.one_in(3)
     {
-        let order = if rng.random_bool(0.5) { "ASC" } else { "DESC" };
+        let order = if draw.one_in(2) { "DESC" } else { "ASC" };
         steps.extend(argv(&["SORTBY", "2", &sort_key, order]));
     }
-    if rng.random_ratio(1, 3) {
-        steps.extend(argv(&["LIMIT", "0", &rng.random_range(1..20).to_string()]));
+    if draw.one_in(3) {
+        steps.extend(argv(&["LIMIT", "0", &draw.between(1, 19).to_string()]));
     }
     steps
 }
 
-fn random_key(schema: &Schema, rng: &mut impl Rng) -> Bytes {
-    key(&schema.prefix, rng.random_range(0..KEYS))
-}
-
 /// A write to one key that sets at least one field.
-fn write(schema: &Schema, vocabulary: &Vocabulary, rng: &mut impl Rng) -> Kind<Action> {
-    let key = random_key(schema, rng);
+fn write_key(schema: &Schema, draw: &mut Draw) -> Action {
+    let key = key(&schema.prefix, small(draw.below(KEYS)));
     let mut values = Vec::new();
     for field in &schema.fields {
-        if values.is_empty() || !rng.random_ratio(1, 4) {
-            values.push((field, value(&field.kind, vocabulary, rng)));
+        if values.is_empty() || !draw.one_in(4) {
+            values.push((field, value(&field.kind, draw)));
         }
     }
-    Kind::Command(crate::action::write(schema.on, key, &values))
+    command(write(schema.on, key, &values))
 }
 
 /// `All` appears only as the whole query, since `*` inside a group is a
 /// syntax error.
-fn query(schema: &Schema, vocabulary: &Vocabulary, rng: &mut impl Rng, depth: u32) -> Query {
-    let field = |kind: FieldKind, rng: &mut _| {
-        schema
-            .fields
-            .iter()
-            .filter(|f| f.kind == kind)
-            .choose(rng)
-            .map(|f| f.name.clone())
+fn query(schema: &Schema, draw: &mut Draw, depth: u32) -> Query {
+    let field = |kind: FieldKind, draw: &mut Draw| {
+        let fields: Vec<&Field> = schema.fields.iter().filter(|f| f.kind == kind).collect();
+        draw.pick(&fields).map(|f| f.name.clone())
     };
     let vector_field = schema.fields.iter().find_map(|f| match f.kind {
         FieldKind::Vector { dim, .. } => Some((f.name.clone(), dim)),
@@ -379,99 +344,132 @@ fn query(schema: &Schema, vocabulary: &Vocabulary, rng: &mut impl Rng, depth: u3
     });
     if let Some((field, dim)) = vector_field
         && depth == QUERY_DEPTH
-        && rng.random_ratio(1, 3)
+        && draw.one_in(3)
     {
+        let filter = if draw.one_in(2) {
+            query(schema, draw, depth - 1)
+        } else {
+            Query::All
+        };
         return Query::Knn {
-            filter: Box::new(if rng.random_bool(0.5) {
-                Query::All
-            } else {
-                query(schema, vocabulary, rng, depth - 1)
-            }),
+            filter: Box::new(filter),
             field,
-            k: rng.random_range(1..=10),
-            vector: vector(dim, rng),
+            k: small(draw.between(1, 10)),
+            vector: vector(dim, draw),
         };
     }
     let choices = if depth == 0 { 5 } else { 8 };
-    match rng.random_range(0..choices) {
+    match draw.below(choices) {
         0 if depth == QUERY_DEPTH => Query::All,
-        2 => match field(FieldKind::Text, rng) {
+        2 => match field(FieldKind::Text, draw) {
             Some(field) => Query::InField {
                 field,
-                term: vocabulary.word(rng),
+                term: word(draw),
             },
-            None => Query::Term(vocabulary.word(rng)),
+            None => Query::Term(word(draw)),
         },
-        3 => match field(FieldKind::Tag, rng) {
+        3 => match field(FieldKind::Tag, draw) {
             Some(field) => Query::Tag {
                 field,
-                values: (0..rng.random_range(1..=2))
-                    .map(|_| vocabulary.word(rng))
-                    .collect(),
+                values: (0..draw.between(1, 2)).map(|_| word(draw)).collect(),
             },
-            None => Query::Term(vocabulary.word(rng)),
+            None => Query::Term(word(draw)),
         },
-        4 => match field(FieldKind::Numeric, rng) {
+        4 => match field(FieldKind::Numeric, draw) {
             Some(field) => Query::Range {
                 field,
-                min: bound(vocabulary, rng),
-                max: bound(vocabulary, rng),
+                min: bound(draw),
+                max: bound(draw),
             },
-            None => Query::Term(vocabulary.word(rng)),
+            None => Query::Term(word(draw)),
         },
         5 | 6 => {
-            let children = (0..rng.random_range(2..=3))
-                .map(|_| query(schema, vocabulary, rng, depth - 1))
+            let children = (0..draw.between(2, 3))
+                .map(|_| query(schema, draw, depth - 1))
                 .collect();
-            if rng.random_bool(0.5) {
-                Query::And(children)
-            } else {
+            if draw.one_in(2) {
                 Query::Or(children)
+            } else {
+                Query::And(children)
             }
         }
-        7 => Query::Not(Box::new(query(schema, vocabulary, rng, depth - 1))),
-        _ => Query::Term(vocabulary.word(rng)),
+        7 => Query::Not(Box::new(query(schema, draw, depth - 1))),
+        _ => Query::Term(word(draw)),
     }
 }
 
-fn bound(vocabulary: &Vocabulary, rng: &mut impl Rng) -> Bound {
-    match rng.random_range(0..3) {
+fn bound(draw: &mut Draw) -> Bound {
+    match draw.below(3) {
         0 => Bound::Unbounded,
-        1 => Bound::Inclusive(vocabulary.number(rng)),
-        _ => Bound::Exclusive(vocabulary.number(rng)),
+        1 => Bound::Inclusive(number(draw)),
+        _ => Bound::Exclusive(number(draw)),
     }
 }
 
-fn options(rng: &mut impl Rng) -> QueryOptions {
+fn options(draw: &mut Draw) -> QueryOptions {
     QueryOptions {
-        no_content: rng.random_bool(0.5),
-        limit: rng
-            .random_ratio(1, 4)
-            .then(|| (rng.random_range(0..10), rng.random_range(1..20))),
-        dialect: rng.random_bool(0.5).then(|| rng.random_range(1..=4)),
+        no_content: draw.one_in(2),
+        limit: draw
+            .one_in(4)
+            .then(|| (small(draw.below(10)), small(draw.between(1, 19)))),
+        dialect: draw
+            .one_in(2)
+            .then(|| u8::try_from(draw.between(1, 4)).expect("small")),
     }
+}
+
+/// Options under which a search lists every match.
+fn comparable_options(draw: &mut Draw) -> QueryOptions {
+    QueryOptions {
+        no_content: true,
+        limit: Some((0, COMPARABLE_LIMIT)),
+        dialect: draw.one_in(2).then_some(2),
+    }
+}
+
+fn small(value: u64) -> u32 {
+    u32::try_from(value).expect("small")
+}
+
+fn tiny(value: u64) -> u8 {
+    u8::try_from(value).expect("tiny")
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
+    use std::path::Path;
+
+    use procfuzz::commands::load;
+    use procfuzz::edit::mutate;
+    use procfuzz::model::generate;
 
     use super::*;
-    use crate::mutate;
+    use crate::{Program, RediSearch};
 
-    const PROGRAMS: u64 = 30;
+    const PROGRAMS: usize = 30;
+    const PROGRAM_OPS: usize = 30;
 
     #[test]
-    fn mutants_round_trip_and_every_shrinking_step_is_strictly_smaller() {
-        let mut rng = SmallRng::seed_from_u64(0);
+    fn generated_programs_and_their_mutants_round_trip() {
+        let mut draw = Draw::new(0);
         for _ in 0..PROGRAMS {
-            let donor = generate(&mut rng);
-            let program = mutate(&generate(&mut rng), &donor, &mut rng);
+            let donor = generate(&RediSearch, &mut draw, PROGRAM_OPS);
+            let parent = generate(&RediSearch, &mut draw, PROGRAM_OPS);
+            let program = mutate(&RediSearch, &parent, &donor, &mut draw);
             let json = serde_json::to_string(&program).unwrap();
             assert_eq!(serde_json::from_str::<Program>(&json).unwrap(), program);
-            for candidate in procfuzz::legacy::edit::smaller(&program) {
-                assert!(candidate.size() < program.size(), "{candidate:?}");
+        }
+    }
+
+    #[test]
+    fn every_program_file_loads() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for dir in ["seeds", "tests/programs", "planted"] {
+            for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+                let path = entry.unwrap().path();
+                if path.extension().is_some_and(|e| e == "json") {
+                    load::<Op>(&path).unwrap();
+                }
             }
         }
     }

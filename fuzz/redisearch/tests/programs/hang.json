@@ -1,12 +1,14 @@
 {
   "ops": [
     {
-      "op": "command",
-      "argv": [
-        "DEBUG",
-        "SLEEP",
-        "60"
-      ]
+      "op": {
+        "op": "command",
+        "argv": [
+          "DEBUG",
+          "SLEEP",
+          "60"
+        ]
+      }
     }
   ]
 }

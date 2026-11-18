@@ -15,23 +15,23 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use procfuzz::legacy::campaign::{Campaign, fuzz};
-use procfuzz::legacy::edit::reduce;
-use procfuzz::legacy::program::{Kind, argv};
-use procfuzz::legacy::run::Exit;
-use procfuzz::legacy::server::Reply;
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
-use redisearch_fuzz::generate::generate;
-use redisearch_fuzz::redis::{Env, Value};
-use redisearch_fuzz::{Execution, Op, Program, execute, mutate};
+use procfuzz::campaign::{Campaign, fuzz};
+use procfuzz::commands::{load, reduce};
+use procfuzz::draw::Draw;
+use procfuzz::edit::mutate;
+use procfuzz::model::{Made, generate};
+use procfuzz::system::{Run, run};
+use procfuzz_redis::resp::Value;
+use redisearch_fuzz::op::{Action, Op};
+use redisearch_fuzz::server::Env;
+use redisearch_fuzz::{Program, RediSearch};
 
 const GENERATED: usize = 50;
+const PROGRAM_OPS: usize = 30;
 const CAMPAIGN_SECS: u64 = 60;
 
-fn load(path: &str) -> Program {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+fn program(path: &str) -> Program {
+    load(&Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
 }
 
 fn redisearch() -> Env {
@@ -48,44 +48,54 @@ fn planted() -> Env {
     }
 }
 
-/// The run and the kinds of its findings.
-fn kinds(program: &Program, env: &Env) -> (Execution, Vec<String>) {
-    let execution = execute(env, program).unwrap();
-    let kinds = execution
-        .findings
-        .iter()
-        .map(|f| f.split(':').next().unwrap().to_owned())
-        .collect();
-    (execution, kinds)
+fn execute(env: &Env, program: &Program) -> Run<Value> {
+    run(&RediSearch, &env.service(), program).unwrap()
 }
 
-fn succeeded(reply: &Option<Reply<Value>>) -> bool {
-    matches!(reply, Some(Reply::Value(v)) if !matches!(v, Value::Error(_)))
+fn findings(run: &Run<Value>) -> Vec<String> {
+    run.notes.findings.iter().map(ToString::to_string).collect()
+}
+
+fn kinds(run: &Run<Value>) -> Vec<&'static str> {
+    run.notes
+        .findings
+        .iter()
+        .map(|finding| finding.kind)
+        .collect()
+}
+
+fn is_error(reply: &Option<Value>) -> bool {
+    matches!(reply, Some(Value::Error(_)))
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
-    let seeds: Vec<(String, BTreeSet<u32>)> =
+    let seeds: Vec<(String, BTreeSet<u64>)> =
         std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds"))
             .unwrap()
             .map(|entry| {
                 let name = format!("seeds/{}", entry.unwrap().file_name().to_string_lossy());
-                let (execution, kinds) = kinds(&load(&name), &redisearch());
-                assert_eq!(
-                    (execution.trace.exit, kinds),
-                    (Exit::Clean, vec![]),
-                    "{name}"
-                );
-                for step in &execution.trace.steps {
-                    let barrier = step.is_harness() && step.reply == Some(Reply::Done);
-                    assert!(barrier || succeeded(&step.reply), "{name}: {step:?}");
+                let run = execute(&redisearch(), &program(&name));
+                assert_eq!(findings(&run), Vec::<String>::new(), "{name}");
+                for step in &run.steps {
+                    assert!(
+                        step.done.is_some() && !is_error(&step.reply),
+                        "{name}: {step:?}"
+                    );
                 }
-                (name, execution.coverage.edges.into_iter().collect())
+                let edges = run
+                    .notes
+                    .features
+                    .iter()
+                    .filter(|feature| feature.space == "edge")
+                    .map(|feature| feature.id)
+                    .collect();
+                (name, edges)
             })
             .collect();
     for (name, edges) in &seeds {
-        let others: BTreeSet<u32> = seeds
+        let others: BTreeSet<u64> = seeds
             .iter()
             .filter(|(other, _)| other != name)
             .flat_map(|(_, edges)| edges.iter().copied())
@@ -97,66 +107,84 @@ fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_command_that_never_returns_is_a_hang() {
-    let (execution, kinds) = kinds(&load("tests/programs/hang.json"), &redisearch());
-    assert_eq!(
-        (execution.trace.exit, kinds),
-        (Exit::Hung { at_op: 0 }, vec!["hang".to_owned()])
-    );
+    let run = execute(&redisearch(), &program("tests/programs/hang.json"));
+    assert_eq!(kinds(&run), ["hang"]);
+    assert_eq!(run.steps[0].done, None);
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_reply_the_program_held_back_is_released_and_the_program_carries_on() {
-    let (execution, kinds) = kinds(&load("tests/programs/stall.json"), &redisearch());
-    assert_eq!((&execution.trace.exit, kinds), (&Exit::Clean, vec![]));
-    let [.., query, release, ping] = execution.trace.steps.as_slice() else {
-        panic!("{:?}", execution.trace.steps);
+    let run = execute(&redisearch(), &program("tests/programs/stall.json"));
+    assert_eq!(findings(&run), Vec::<String>::new());
+    let [.., query, ping] = run.steps.as_slice() else {
+        panic!("{:?}", run.steps);
     };
-    assert_eq!(release.argv, argv(&["RELEASE"]));
-    assert!(release.received < query.received && query.received < ping.received);
+    assert!(
+        query.done.is_some() && query.done < ping.done,
+        "{:?}",
+        run.steps
+    );
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_barrier_that_cannot_complete_times_out_without_a_finding() {
-    let (execution, kinds) = kinds(
-        &load("tests/programs/barrier-blocked-scan.json"),
+fn a_settle_that_cannot_complete_times_out_without_a_finding() {
+    let run = execute(
         &redisearch(),
+        &program("tests/programs/barrier-blocked-scan.json"),
     );
-    assert_eq!((&execution.trace.exit, kinds), (&Exit::Clean, vec![]));
-    assert_eq!(
-        execution.trace.steps.last().unwrap().reply,
-        Some(Reply::Timeout)
-    );
+    assert_eq!(findings(&run), Vec::<String>::new());
+    assert_eq!(run.steps.last().unwrap().done, None);
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_deferred_query_is_answered_after_another_connection_drops_its_index() {
-    let (execution, kinds) = kinds(
-        &load("tests/programs/drop-under-pending-query.json"),
+    let run = execute(
         &redisearch(),
+        &program("tests/programs/drop-under-pending-query.json"),
     );
-    assert_eq!((&execution.trace.exit, kinds), (&Exit::Clean, vec![]));
-    let [.., query, drop, _resume, _barrier] = execution.trace.steps.as_slice() else {
-        panic!("{:?}", execution.trace.steps);
+    assert_eq!(findings(&run), Vec::<String>::new());
+    let [.., query, drop, _resume, _settle] = run.steps.as_slice() else {
+        panic!("{:?}", run.steps);
     };
-    assert!(query.sent < drop.sent && drop.received < query.received);
+    assert!(
+        query.sent < drop.sent && drop.done < query.done,
+        "{:?}",
+        run.steps
+    );
+}
+
+#[test]
+#[ignore = "needs bin/fuzz/env.sh"]
+fn a_cursor_is_read_by_the_id_the_server_chose() {
+    let run = execute(&redisearch(), &program("seeds/aggregate.json"));
+    let reads: Vec<_> = program("seeds/aggregate.json")
+        .ops()
+        .iter()
+        .zip(&run.steps)
+        .filter(|(op, _)| matches!(op.action, Action::CursorRead { .. }))
+        .map(|(_, step)| step.reply.clone())
+        .collect();
+    assert!(!reads.is_empty());
+    for reply in reads {
+        assert!(matches!(reply, Some(Value::Array(_))), "{reply:?}");
+    }
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn most_replies_to_generated_programs_are_not_errors() {
     let env = redisearch();
-    let mut rng = SmallRng::seed_from_u64(0);
+    let mut draw = Draw::new(0);
     let (mut replies, mut errors) = (0, 0);
     for _ in 0..GENERATED {
-        let (execution, _) = kinds(&generate(&mut rng), &env);
-        for step in &execution.trace.steps {
-            if !step.is_harness() {
-                replies += 1;
-                errors += usize::from(!succeeded(&step.reply));
-            }
+        let program = generate(&RediSearch, &mut draw, PROGRAM_OPS);
+        let run = execute(&env, &program);
+        for step in run.steps.iter().filter(|step| step.reply.is_some()) {
+            replies += 1;
+            errors += usize::from(is_error(&step.reply));
         }
     }
     assert!(
@@ -169,31 +197,30 @@ fn most_replies_to_generated_programs_are_not_errors() {
 #[ignore = "needs bin/fuzz/env.sh"]
 fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
     let env = redisearch();
-    let segfault = Op {
-        conn: Default::default(),
-        reply: Default::default(),
-        bind: None,
-        kind: Kind::Command(argv(&["DEBUG", "SEGFAULT"])),
+    let segfault = Made {
+        op: Op::new(Action::command(&["DEBUG", "SEGFAULT"])),
+        from: Vec::new(),
     };
-    let mut program = generate(&mut SmallRng::seed_from_u64(0));
+    let mut program = generate(&RediSearch, &mut Draw::new(0), PROGRAM_OPS);
     program.ops.insert(program.ops.len() / 2, segfault.clone());
-    let finding = execute(&env, &program).unwrap().findings.remove(0);
+    let finding = findings(&execute(&env, &program)).remove(0);
     assert!(finding.starts_with("crash:"), "{finding}");
-    let reduced = reduce(&program, |candidate| {
-        execute(&env, candidate).is_ok_and(|e| e.findings.contains(&finding))
-    });
-    assert!(reduced.args.is_empty());
+    let reduced = reduce(&RediSearch, &env.service(), &program, Some(&finding)).unwrap();
     assert_eq!(reduced.ops, [segfault]);
 }
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
 fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
-    for (program, kind) in [
+    for (path, kind) in [
         ("planted/overflow.json", "asan"),
         ("planted/assert.json", "assert"),
     ] {
-        assert_eq!(kinds(&load(program), &planted()).1, [kind], "{program}");
+        assert_eq!(
+            kinds(&execute(&planted(), &program(path))),
+            [kind],
+            "{path}"
+        );
     }
 }
 
@@ -202,6 +229,7 @@ fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
 fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     let dir = tempfile::tempdir().unwrap();
     let env = planted();
+    let service = env.service();
     let mut found = Vec::new();
     let campaign = Campaign {
         seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
@@ -209,10 +237,12 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
         duration: Some(Duration::from_secs(CAMPAIGN_SECS)),
     };
     let execute = |program: &Program| {
-        let execution = execute(&env, program)?;
-        found.extend(execution.findings);
-        Ok::<_, String>(execution.coverage.edges)
+        let run = run(&RediSearch, &service, program)?;
+        found.extend(findings(&run));
+        Ok::<_, std::io::Error>(run.notes.features)
     };
+    let mutate =
+        |parent: &Program, donor: &Program, rng: &mut Draw| mutate(&RediSearch, parent, donor, rng);
     fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
     assert!(
         found
