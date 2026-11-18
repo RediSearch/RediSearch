@@ -45,14 +45,20 @@ typedef enum {
   ASM_IMPORT_SLOT_NONE = 0,
   // The RAM overlay is restoring the slot's keys.
   ASM_IMPORT_SLOT_OVERLAY,
-  // The overlay ended, the rebuild of the slot has not finished. Flex deletes no key in the slot
-  // meanwhile, so an unlink here is unexpected.
+  // The overlay ended, the rebuild of the slot has not finished. Nothing writes the slot: clients
+  // are redirected and Flex deletes no key in it while the import gate is held, so notifications
+  // are processed again. Unlinks stay absorbed because the keys the rebuild has not reached still
+  // carry the source's docIds, and deleting by them would remove unrelated local documents. An
+  // unlink here breaks Flex's guarantee; absorbing it costs at worst one leftover document of a key
+  // already rebuilt, and it is reported (ASM_ImportWindow_AbsorbsUnlink).
   ASM_IMPORT_SLOT_REBUILD,
 } ASMImportSlotPhase;
 
 // Slot counts, exposed only for the inline fast paths below.
-extern uint32_t ASM_ImportWindow_overlaySlots_g;  // in ASM_IMPORT_SLOT_OVERLAY
-extern uint32_t ASM_ImportWindow_windowSlots_g;   // in any phase but ASM_IMPORT_SLOT_NONE
+// Slots in ASM_IMPORT_SLOT_OVERLAY, whose keyspace notifications are ignored.
+extern uint32_t ASM_ImportWindow_overlayWindowSlots_g;
+// Slots in any phase but ASM_IMPORT_SLOT_NONE, whose unlinks are absorbed.
+extern uint32_t ASM_ImportWindow_fullASMWindowSlots_g;
 
 // Every slot of `slots` enters ASM_IMPORT_SLOT_OVERLAY.
 void ASM_ImportWindow_OnOverlayStart(const RedisModuleSlotRangeArray *slots);
@@ -73,21 +79,20 @@ bool ASM_ImportWindow_KeyInOverlay(const RedisModuleString *key);
 
 // Whether keyspace notifications for `key` must be ignored.
 static inline bool ASM_ImportWindow_IgnoresNotification(const RedisModuleString *key) {
-  return ASM_ImportWindow_overlaySlots_g != 0 && ASM_ImportWindow_KeyInOverlay(key);
+  return ASM_ImportWindow_overlayWindowSlots_g != 0 && ASM_ImportWindow_KeyInOverlay(key);
 }
 
 // Whether any slot is in the window.
 static inline bool ASM_ImportWindow_IsOpen(void) {
-  return ASM_ImportWindow_windowSlots_g != 0;
+  return ASM_ImportWindow_fullASMWindowSlots_g != 0;
 }
 
 /*
  * Whether the DocIdMeta unlink of `key` must only invalidate its entries, without
  * deleting documents. `key` may be NULL, which is never absorbed.
  *
- * An absorbed unlink in ASM_IMPORT_SLOT_REBUILD is counted
- * (ASM_ImportWindow_UnexpectedUnlinks), logged and asserted in debug builds: if the
- * rebuild had already indexed the key, its document is left behind.
+ * An absorbed unlink in ASM_IMPORT_SLOT_REBUILD is unexpected, so it is counted
+ * (ASM_ImportWindow_UnexpectedUnlinks), logged and asserted in debug builds.
  */
 bool ASM_ImportWindow_AbsorbsUnlink(const RedisModuleString *key);
 
