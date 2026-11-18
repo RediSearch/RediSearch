@@ -3394,7 +3394,14 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   rs_wall_clock_init(&start);
 
   // Deplete all results from upstream
+  bool ownStop = false;
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // A row read after this stage's own stop was cut: an upstream stage that holds rows (a safe
+    // loader) keeps replaying them, and only a read that finds EOF means nothing was lost.
+    if (ownStop) {
+      rc = RS_RESULT_STOPPED;
+      break;
+    }
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
     SearchResult_BufferIndexResult(&self->base, r);
@@ -3402,12 +3409,13 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
-    // An upstream stage that holds rows past its own stop keeps yielding them; only this stage's
-    // own stop cuts them.
-    if (RP_FillShouldCut(&self->base, &self->memoryCheckCalls)) {
+    const QueryRequestLimits *limits = self->base.parent->limits;
+    const bool heldUpstream = limits && QueryRequestLimits_IsMemoryStopped(limits);
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
       rc = RS_RESULT_STOPPED;
       break;
     }
+    ownStop = !heldUpstream && limits && QueryRequestLimits_IsMemoryStopped(limits);
   }
   if (rc == RS_RESULT_STOPPED) {
     RP_HoldStop(&self->base);
