@@ -20,9 +20,9 @@ from test_info_modules import (
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
-# FT.SEARCH and FT.AGGREGATE read memory before building the iterators, after them, and after the
-# pipeline; the pipeline checkpoints count from there.
-BUILD_CHECKPOINTS = 3
+# FT.SEARCH and FT.AGGREGATE read memory once, after the pipeline is built; the pipeline
+# checkpoints count from there.
+BUILD_CHECKPOINTS = 1
 N_DOCS = 10
 
 SEARCH = ('FT.SEARCH', 'idx', '*', 'NOCONTENT')
@@ -96,10 +96,10 @@ def expect_empty_with_oom_warning(env, res):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_build_checkpoints_stop_before_execution(env):
-    """Every build stage reads memory once: under pressure ON_OOM RETURN replies an empty result
-    with the OOM warning and ON_OOM FAIL the OOM error, before any row is read, with and without
-    workers. The first call past the build stages is a runtime checkpoint (the reply loop's,
-    before the second row), so it truncates instead."""
+    """The build reads memory once, after the pipeline is built: under pressure ON_OOM RETURN
+    replies an empty result with the OOM warning and ON_OOM FAIL the OOM error, before any row is
+    read, with and without workers. The first call past the build is a runtime checkpoint (the
+    reply loop's, before the second row), so it truncates instead."""
     create_index(env)
     for workers in worker_counts(env):
         for at_call in range(1, BUILD_CHECKPOINTS + 1):
@@ -200,17 +200,16 @@ def hybrid_result_count(res):
 
 @skip(cluster=True)
 def test_hybrid_build_checkpoint_fails_before_execution(env):
-    """Under ON_OOM FAIL, FT.HYBRID reads memory before building the first subquery (where a
-    queued job starts) and after building each one, and pressure at any of them fails the query
-    with the OOM error before it runs. Under ON_OOM RETURN a stop there replies the OOM warning
-    instead."""
+    """Under ON_OOM FAIL, FT.HYBRID reads memory after building each subquery, and pressure at
+    either fails the query with the OOM error before it runs. Under ON_OOM RETURN a stop there
+    replies the OOM warning instead."""
     create_hybrid_index(env)
     full = hybrid_result_count(env.cmd(*HYBRID))
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            # Calls from 4 on are runtime checkpoints, which fail it the same way.
-            for at_call in (1, 2, 3, 4):
+            # Calls from 3 on are runtime checkpoints, which fail it the same way.
+            for at_call in (1, 2, 3):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
     # Under ON_OOM RETURN a subquery stopped at build reads nothing and the query replies the
     # OOM warning.
@@ -438,8 +437,8 @@ def test_grouper_stop_inside_one_rows_groups(env):
     query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
              'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
     env.assertEqual(env.cmd(*query)[0], parts)
-    # Calls past the build checkpoints land inside the row's expansion: the grouper's per-row
-    # check runs once per read interval, and at most one other checkpoint runs per row upstream.
+    # Calls past the build checkpoint land inside the row's expansion: the grouper's per-row check
+    # follows it, and at most one other checkpoint runs per row upstream.
     at_call = BUILD_CHECKPOINTS + 3
     for workers in worker_counts(env):
         env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
@@ -774,7 +773,9 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
             rebased += (res['total_results'] == len(res['results'])
                         and len(res['results']) < FILTER_BOUND)
     env.assertGreater(stopped, 0)
-    env.assertGreater(rebased, 0)
+    # The shard's own depleter, in the coordinator's process, can match once without the
+    # coordinator's rebase; the coordinator's depleter holding 1 to 4 rows matches several times.
+    env.assertGreater(rebased, 1)
 
 
 @skip(cluster=False)
@@ -829,6 +830,23 @@ def test_expression_stop_ends_the_stream(env):
                 expect_oom_error_at_call(env, at_call, *query)
             with oom_policy(env, 'ignore'):
                 env.assertEqual(len(run_at_call(env, at_call, *query)['results']), N_DOCS)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_expression_passes_the_rows_a_stopped_sorter_holds(env):
+    """A sorter stopped while filling its heap holds rows that APPLY and FILTER downstream must
+    still pass: the stop is the sorter's, not theirs, so they cut only a stop of their own."""
+    create_index(env)
+    k = 5
+    load = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@t', '@n', 'SORTBY', 2, '@n', 'DESC',
+            'MAX', N_DOCS)
+    for tail in (('APPLY', 'upper(@t)', 'AS', 'u'), ('FILTER', 'startswith(@t, "hello")')):
+        res = run_at_call(env, BUILD_CHECKPOINTS + k, *(load + tail))
+        # The k-th call after the build stops the query with k - 1 rows held.
+        env.assertEqual([r['extra_attributes']['n'] for r in res['results']],
+                        [str(i) for i in reversed(range(k - 1))], message=(tail, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(tail, res))
 
 
 @skip(cluster=True)
@@ -1050,7 +1068,7 @@ def test_hybrid_term_expansion_checks_memory_under_fail(env):
             env.assertGreater(full, 0, message=query)
             for workers in worker_counts(env):
                 with oom_policy(env, 'fail'):
-                    # Call 1 is the pre-build read; the later calls are the expanded terms.
+                    # The calls are the expanded terms, then the subquery's build read.
                     for at_call in (5, 250):
                         memory_pressure(env, 'AT_CALL', at_call)
                         try:
