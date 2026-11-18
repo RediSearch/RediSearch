@@ -2,16 +2,21 @@
 
 Design and plan: [`openspec/changes/add-stateful-fuzzer/`](../openspec/changes/add-stateful-fuzzer/).
 
-The fuzzer is two crates in one Cargo workspace:
+The fuzzer is four crates in one Cargo workspace:
 
-- [`procfuzz/`](procfuzz/) knows nothing about RediSearch or Redis. It owns
-  the stateful program model, the interpreter, mutation and reduction, edge
-  coverage through a small C shim, sanitizer reports, finding directories,
-  and the LibAFL loop.
-- [`redisearch/`](redisearch/) plugs RediSearch into it: its own ops (create,
-  alter, query, populate), a generator, `redis-server` as a
-  `procfuzz::server::Server`, and logic rules over search results. Its seeds,
-  live-test programs, and planted bugs live next to it.
+- [`procfuzz/`](procfuzz/) knows nothing about RediSearch, Redis, or RESP. A
+  target writes one `Model`; `procfuzz` runs, mutates, and shrinks its
+  programs, measures edge coverage through a small C shim, reads sanitizer
+  reports, keeps finding directories, and runs the LibAFL loop.
+- [`procfuzz-redis/`](procfuzz-redis/) holds what any Redis module target
+  shares: the RESP2 codec, launching `redis-server` with modules, and reading
+  Redis crash reports.
+- [`redisearch/`](redisearch/) is RediSearch as a model: its ops, what they set
+  up, which make sense when, one table of what each command does, and logic
+  rules over search results. Its seeds, live-test programs, and planted bugs
+  live next to it.
+- [`kvd/`](kvd/) is a small server with planted bugs that tests `procfuzz`
+  without a sanitizer build.
 
 ## Setup
 
@@ -120,84 +125,55 @@ Mac: `redis-server` alone is ready in about 0.5 s; with the module, about 1.6 s.
   built with another can hang or abort at startup. Rebuild both with the same
   `CC`.
 
-### Running inside a restricted sandbox
-
-These apply only when the build runs inside a filesystem and network sandbox,
-not in CI:
-
-- `redis-server` must be allowed to listen on a local socket.
-- CMake fetches several sources with `git clone`, which writes `.git/config`
-  and `.git/hooks`. A sandbox that forbids those writes cannot run the first
-  configure; run it once outside the sandbox.
-- The Boost tarball contains a `.gitmodules` file. A sandbox that forbids
-  writing it cannot extract Boost; point `.install/boost` at an existing copy.
-- A new build directory, such as the first `FUZZ_COV` build, clones its CMake
-  dependencies the same way. If another build directory already has them,
-  pass `FETCHCONTENT_SOURCE_DIR_<NAME>=<that directory>/_deps/<name>-src` for
-  each (`CPU_FEATURES`, `EVE`, `FMT`, `ROBINMAP`, `SPDLOG`, `TOMLPLUSPLUS`).
-- Header generation (`cheadergen`) opens Cargo's SQLite cache and fails with
-  `unable to open database file` where that is blocked. The committed headers
-  are current on master, so pass `REDISEARCH_GENERATE_HEADERS=OFF` to
-  `build.sh` unless the change touches FFI.
-
-## Edge coverage
-
-`FUZZ_COV=1` compiles C and C++ with `-fsanitize-coverage=trace-pc-guard` and
-Rust with the equivalent `sancov-module` passes, so both languages number their
-edges in one id space. It needs clang, and is rejected together with any option
-that builds or runs tests, because test binaries do not link the shim.
-
-For each server the fuzzer creates a POSIX shared-memory segment and names it
-in `PROCFUZZ_COVERAGE_SHM`. When the module loads, the shim maps that segment and
-records each edge it reaches by setting one byte. Because the bytes go straight
-to shared memory, edges reached by a forked GC child or just before a crash are
-kept. The fuzzer reads the map only after the whole process group has exited.
-A module built without `FUZZ_COV` runs normally with an empty edge set.
-
-## Running
+### Running
 
 ```bash
 source bin/fuzz/env.sh
 cd fuzz/redisearch
 RUST_LOG=debug cargo run -- run seeds/smoke.json
 cargo run -- run <program.json> --repeat 10
-cargo run -- fuzz --duration 3600
+cargo run -- fuzz --seeds seeds --duration 3600
 cargo run -- reduce <program.json>
-cargo run -- generate --seed 7 > program.json
+cargo run -- generate --seed 7 --ops 30 > program.json
 ```
+
+The binaries come from `REDIS_SERVER`, `REDISEARCH_MODULE`, and
+`REJSON_MODULE`, or from `--redis-server`, `--module`, and `--rejson`.
 
 `run` starts a fresh server, executes the program, and logs each finding;
 `RUST_LOG=debug` also logs every step. `--repeat N` runs it N times and
-reports how often each finding reproduced and how many edges were reached in
-every run versus in any run. Each distinct finding is written to
-`findings/<signature>/`: the program, the trace, the server log, and a
-manifest with the binaries, sanitizer settings, and reproduction rate. The exit code is 0 without findings, 1 with findings,
-and 2 on an error such as a server that fails to start. `fuzz` runs a
-coverage-guided campaign in one worker thread per core (`--jobs N` to
-change), each from the programs in `seeds/` and its own corpus kept in
-`corpus/<worker>/`, writing each finding whose signature is new to
-`findings/`. A signature that already has a directory there is not reported
-again, so creating an empty directory marks a known bug.
+reports how often each finding reproduced and how many features were reached
+in every run versus in any run. Each distinct finding is written to
+`findings/<finding>/`: the program, the steps, the server log, and a manifest
+with the binaries, sanitizer settings, and reproduction rate. The exit code is
+0 without findings, 1 with findings, and 2 on an error such as a server that
+fails to start. `fuzz` runs a coverage-guided campaign in one worker thread
+per core (`--jobs N` to change), each from the programs in `--seeds` and its
+own corpus kept in `corpus/<worker>/`, writing each finding that is new to
+`findings/`. A finding that already has a directory there is not reported
+again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
+in progress finish and cleans up their servers.
 
 `reduce` shrinks a failing program while each smaller version still yields
-the same finding (the first one, or the one named by `--signature`), then runs
+the same finding (the first one, or the one named by `--finding`), then runs
 the result ten times and bundles it like `run`, with the input as
-`original.json`. `generate` prints a generated program; the same seed gives the
-same program.
+`original.json`. `generate` prints a generated program; the same seed gives
+the same program.
 
 ## Testing
 
 ```bash
 cd fuzz
-cargo test --workspace                                       # unit tests, no server needed
+cargo test --workspace                                       # unit tests and kvd, no server needed
 source ../bin/fuzz/env.sh && cargo test -- --ignored         # live tests against a real server
 ```
 
 The live tests check that every seed runs without an error reply and reaches
 code no other seed does; exercise the harness with the programs under
-`tests/programs/` (a hang, a stall the harness releases, a barrier that cannot
-complete, a query left pending while another connection drops its index);
-check that most replies to generated programs are not errors, that a crash
-inside a generated program reduces to the crashing command, that the programs
-under `planted/` give a real sanitizer report and a real assertion, and that a
+`tests/programs/` (a hang, a stall that healing releases, a settle that
+cannot complete, a query left pending while another connection drops its
+index); check that a cursor is read by the id the server chose, that most
+replies to generated programs are not errors, that a crash inside a
+generated program reduces to the crashing command, that the programs under
+`planted/` give a real sanitizer report and a real assertion, and that a
 short campaign from the seeds finds a planted bug.

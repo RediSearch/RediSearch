@@ -1,35 +1,46 @@
 # procfuzz
 
-Coverage-guided fuzzing of stateful programs against a server process.
+Coverage-guided fuzzing of stateful systems: servers, and anything else a
+program of ops can drive.
 
-A program is a sequence of ops sent over several connections to one server.
-Each op awaits its reply or leaves it for later, and can bind a value from
-its reply (such as a cursor id) to a variable that later commands use. Ops
-are raw commands, barriers that wait for background work, or the target's
-own typed ops, which lower to commands.
+A target implements one trait, `model::Model`:
 
-A target supplies three things:
+- `next` makes an op that makes sense in the current state, from the random
+  decisions in a `Draw`;
+- `apply` folds an op, and its reply if there is one, into that state;
+- `lower` turns an op into the one input it sends, with names such as a
+  server-chosen cursor id resolved against the live state;
+- `check` judges a finished run and may record features worth reaching.
 
-- its typed ops, implementing `program::TypedOp`: the commands each sends,
-  its literals, and how it gets simpler;
-- `server::Server`: how to start the server, its wire protocol, how to tell
-  it is idle, how to lift pauses a program set, and optionally how to read
-  its own crash reports;
-- a generator, as a closure that proposes ops to follow a prefix.
+The engine stores the draws that made each op, so it mutates a program by
+changing a draw and shrinks one by deleting ops and lowering draws. A target
+writes no mutator and no shrinker.
 
-`procfuzz` supplies the rest, each piece usable on its own:
+A system is anything that starts sessions (`system::System`; any
+`Fn() -> io::Result<impl Session>` is one). `service::Service` is the system
+for a process answering requests on a Unix socket, assembled from a `Codec`,
+a launch command, and hooks that heal pauses, tell when the process is idle,
+and read findings from its log. It records edge coverage, sanitizer reports,
+crashes, and hangs.
 
-- `run::execute` starts a fresh server with edge coverage, runs a program,
-  and finds sanitizer reports, crashes, hangs, and protocol violations.
-- `edit` mutates programs, lists strictly smaller ones, and reduces a failing
-  one.
-- `campaign::fuzz` searches for programs that reach new edges (LibAFL).
-- `findings::Findings` keeps one directory per finding, shared by workers.
-- `session` composes these: replay a program, reduce one to a finding, fuzz
-  in parallel threads.
+The rest is usable on its own:
 
-Coverage comes from SanitizerCoverage's `trace-pc-guard`: build the server
+- `system::run` runs a program and judges it;
+- `edit::mutate` and `edit::shrink`;
+- `campaign::fuzz` searches for programs that reach new features (LibAFL);
+- `findings::Findings` keeps one directory per finding, shared by workers;
+- `commands` replays a program, reduces one to a finding, fuzzes in parallel
+  threads, and generates programs;
+- with the `cli` feature, `cli::Command` is those commands as a clap
+  subcommand, for a target's own parser beside its own flags;
+- `interrupt::on_signals` makes SIGINT and SIGTERM stop cleanly.
+
+Coverage comes from SanitizerCoverage's `trace-pc-guard`: build the target
 with `-fsanitize-coverage=trace-pc-guard` and link `shim/coverage.c` into it
 uninstrumented. The shim writes edges to the shared memory named in
 `PROCFUZZ_COVERAGE_SHM`, so edges from forked children and from a crashing
 process are kept. Progress is logged with the `log` crate.
+
+`procfuzz-redis` adds Redis: the RESP2 codec and `redis-server` with modules
+as a `Service`. `kvd` is a small target with planted bugs that tests all of
+the above without a sanitizer build.

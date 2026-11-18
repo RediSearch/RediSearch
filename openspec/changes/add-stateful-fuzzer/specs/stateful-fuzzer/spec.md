@@ -19,9 +19,9 @@ The `fuzz`, `run`, and `reduce` commands SHALL execute and judge programs with
 the same code.
 
 #### Scenario: A finding is replayed
-- **WHEN** the campaign records a finding with signature `S` for a program
+- **WHEN** the campaign records finding `S` for a program
 - **AND** that program is passed to the `run` command against the same builds
-- **THEN** the reported finding SHALL carry signature `S`, subject to the reproduction rate recorded in the finding's manifest
+- **THEN** the run SHALL report finding `S`, subject to the reproduction rate recorded in the finding's manifest
 
 ### Requirement: Programs are stable under deletion
 Deleting an operation from a program SHALL NOT change the commands sent by any
@@ -34,7 +34,7 @@ remaining operation.
 
 ### Requirement: Byte-exact programs
 The program format SHALL represent arbitrary byte strings and every `f32` and
-`f64` bit pattern, and SHALL carry a format version.
+`f64` bit pattern.
 
 #### Scenario: Invalid UTF-8 round-trips
 - **WHEN** a program containing an argument that is not valid UTF-8 is written and read back
@@ -42,12 +42,12 @@ The program format SHALL represent arbitrary byte strings and every `f32` and
 
 ### Requirement: Harness-held controls are not findings
 A program that leaves a scheduling control held SHALL NOT be reported as a hang
-if the server responds after the harness releases its controls.
+if the server responds after the harness heals them.
 
 #### Scenario: Workers left paused
 - **WHEN** a program pauses the worker pool, issues a query, and never resumes
-- **AND** the query replies after the harness sends its release list
-- **THEN** the release SHALL be recorded and the program SHALL continue
+- **AND** the query replies after the harness undoes the pauses a program can set
+- **THEN** the program SHALL continue
 - **AND** no finding SHALL be reported for it
 
 ### Requirement: Sanitizer reports from child processes are detected
@@ -56,7 +56,7 @@ reported as a finding.
 
 #### Scenario: Report in the fork-GC child
 - **WHEN** the fork-GC child writes a sanitizer report and the parent keeps running
-- **THEN** the run SHALL report a finding whose signature is derived from that report
+- **THEN** the run SHALL report a finding identified by that report
 
 ### Requirement: Logic rules are conservative
 A logic rule SHALL be skipped when its preconditions are not confirmed by the
@@ -66,16 +66,16 @@ server's replies.
 - **WHEN** one of the queries compared by a logic rule returned a timeout error
 - **THEN** that rule instance SHALL be skipped and no finding reported
 
-#### Scenario: Inconclusive barrier
-- **WHEN** a barrier between two compared queries timed out
+#### Scenario: Inconclusive settle
+- **WHEN** a settle between two compared queries timed out
 - **THEN** that rule instance SHALL be skipped and no finding reported
 
 ### Requirement: Reduction preserves the finding
 The `reduce` command SHALL only accept a smaller program that still produces the
-original signature, and SHALL record how often the result reproduces.
+original finding, and SHALL record how often the result reproduces.
 
 #### Scenario: A different bug appears during reduction
-- **WHEN** a smaller candidate fails with a signature other than the original
+- **WHEN** a smaller candidate fails with a finding other than the original
 - **THEN** the candidate SHALL be rejected
 
 ### Requirement: Coverage instrumentation is opt-in

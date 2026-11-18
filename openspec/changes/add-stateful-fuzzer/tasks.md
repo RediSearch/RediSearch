@@ -98,3 +98,23 @@ acceptance check for that PR.
 - [ ] 10.1 Add a contributor guide for building with `FUZZ_COV`, running a campaign, and replaying a finding
 - [ ] 10.2 Update the delta spec under `specs/stateful-fuzzer/spec.md` to match what shipped
 - [ ] 10.3 Confirm the release-notes checkbox reflects that no shipped behaviour changed
+
+## 11. Review: a model-driven core
+
+An external review asked for a core that assumes no Redis, RESP, or single
+process, with the RediSearch layer reduced to what is RediSearch-specific.
+
+- [x] 11.1 Fix the bugs that survive the redesign: a worker failure stops the campaign at once; SIGINT and SIGTERM stop cleanly; an empty RESP line is a protocol violation; poll exit every millisecond and size the edge map once
+- [x] 11.2 Add `Draw`, `Model`, `System`, `Session`, `Program`, `Run`, and draw-based `mutate` and `shrink`, tested against an in-memory store
+- [x] 11.3 Hand `check` the state each completed step saw
+- [x] 11.4 Add `Service`, the sanitizer probe, and `procfuzz-redis` with the RESP2 codec and Redis crash reports
+- [x] 11.5 Add `kvd` with three planted bugs as `procfuzz`'s own target
+- [x] 11.6 Ship the commands in `procfuzz` and the clap subcommand behind the `cli` feature
+- [x] 11.7 Port RediSearch to `Model`, with one table of command effects
+- [x] 11.8 Delete the first core
+- [ ] 11.9 Put the engine behind one function from program to features, and add a stability check before keeping a program
+- [ ] 11.10 Record a reproduction rate for every finding the campaign writes
+- [ ] 11.11 Rerun the engine comparison on RediSearch, at least 8 trials per setup, before choosing an engine or a per-feature score
+- [ ] 11.12 Try multi-core corpus sharing through LibAFL's LLMP
+- **Status:** `kvd`'s tests reproduce each planted bug from a fixed program and shrink padded programs to exactly the planted 5, 7, and 7 ops. Against the AddressSanitizer build, every live test passes except the seed-coverage check, which needs the module rebuilt with the renamed `PROCFUZZ_COVERAGE_SHM`; the short campaign was not run for the same reason.
+
