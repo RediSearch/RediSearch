@@ -27,7 +27,7 @@ use crate::{QueryError, QueryReply, ReplyOrder};
 ///   iterators store a raw index pointer and dereference it on every
 ///   [`next`](Self::next) and [`Drop`] call.
 /// - `'params`: the `VecSimQueryParams` borrow passed at construction. The
-///   iterator copies `queryParams->timeoutCtx` and reads that pointer on every
+///   iterator copies `queryParams->stopCtx` and reads that pointer on every
 ///   [`next`](Self::next) call; `'params` acts as a conservative lower bound
 ///   on the lifetime of the stop-context object.
 pub struct BatchIterator<'index, 'params> {

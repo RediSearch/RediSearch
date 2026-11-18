@@ -380,9 +380,9 @@ typedef struct {
     };
     size_t batchSize;
     VecSearchMode searchMode;
-    void *timeoutCtx; // The opaque context VecSim passes to the stop callback. Not exposed
-                      // directly to the user, and we shouldn't expect to get it from the
-                      // parameters resolve function.
+    void *stopCtx; // The opaque context VecSim passes to the stop callback. Not exposed
+                   // directly to the user, and we shouldn't expect to get it from the
+                   // parameters resolve function.
 } VecSimQueryParams;
 
 /**
@@ -529,7 +529,7 @@ typedef struct {
 /**
  * @brief A 3rd party function that tells Vecsimlib to stop a running query, on a timeout or memory
  * pressure. Called at every search step, so it should be cheap or amortize.
- * @param ctx the query's timeoutCtx (VecSimQueryParams::timeoutCtx)
+ * @param ctx the query's stopCtx (VecSimQueryParams::stopCtx)
  * @return the function should return a non-zero value to stop the query
  */
 typedef int (*stopCallbackFunction)(void *ctx);

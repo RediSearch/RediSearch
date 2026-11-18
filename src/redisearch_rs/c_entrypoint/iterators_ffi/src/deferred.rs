@@ -77,21 +77,21 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
         unsafe { std::slice::from_raw_parts(query_vector.cast::<u8>(), vector_byte_len) }.to_vec();
     // SAFETY: guaranteed by 2.
     let query_vector = unsafe { QueryVector::new(index, blob) };
-    query_params.timeoutCtx = timeout.cast();
+    query_params.stopCtx = timeout.cast();
     // Read now, while the caller still holds the spec lock.
     let num_estimated = index.size();
 
     // The query may return vectors added after construction. They are not filtered here: their
     // documents are dropped downstream, when the doc-table lookup finds no metadata for them.
     let producer: Producer<'static> = Box::new(move || {
-        // SAFETY: `query_params.timeoutCtx` is `timeout`, which 3 keeps valid for the iterator's
+        // SAFETY: `query_params.stopCtx` is `timeout`, which 3 keeps valid for the iterator's
         // lifetime and so for this call, made by the iterator.
         let reply = unsafe { index.range_query(&query_vector, radius, &mut query_params, order) }
             .map_err(|QueryError::Stopped| RQEIteratorError::Stopped)?;
         // The reply holds every match and the copy below doubles it, so check memory first; the
         // reply is freed on the way out.
-        // SAFETY: `timeoutCtx` is `timeout`, which 3 keeps valid for this call.
-        if unsafe { RS_VecSimCheckMemory(query_params.timeoutCtx.cast()) } != 0 {
+        // SAFETY: `stopCtx` is `timeout`, which 3 keeps valid for this call.
+        if unsafe { RS_VecSimCheckMemory(query_params.stopCtx.cast()) } != 0 {
             return Err(RQEIteratorError::Stopped);
         }
         Ok(collect_results(reply, yields_metric))

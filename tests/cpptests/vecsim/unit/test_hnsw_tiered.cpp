@@ -959,7 +959,7 @@ TYPED_TEST(HNSWTieredIndexTestBasic, KNNSearch) {
     // Set timeout callback to return 1 after n checks (will fail while querying the HNSW index).
     // Brute-force index checks for timeout after each vector.
     size_t checks_in_flat = flat_index->indexSize();
-    VecSimQueryParams qparams = {.timeoutCtx = &checks_in_flat};
+    VecSimQueryParams qparams = {.stopCtx = &checks_in_flat};
     VecSim_SetStopCallbackFunction([](void *ctx) {
         auto count = static_cast<size_t *>(ctx);
         if (*count == 0) {
@@ -4274,7 +4274,7 @@ TYPED_TEST(HNSWTieredIndexTest, RangeSearch) {
     // Set timeout callback to return 1 after n checks (will fail while querying the HNSW index).
     // Brute-force index checks for timeout after each vector.
     size_t checks_in_flat = flat_index->indexSize();
-    VecSimQueryParams qparams = {.timeoutCtx = &checks_in_flat};
+    VecSimQueryParams qparams = {.stopCtx = &checks_in_flat};
     VecSim_SetStopCallbackFunction([](void *ctx) {
         auto count = static_cast<size_t *>(ctx);
         if (*count == 0) {

@@ -188,11 +188,11 @@ protected:
                                             size_t ef) const;
     candidatesLabelsMaxHeap<DistType> *
     searchBottomLayer_WithTimeout(idType ep_id, const void *data_point, size_t ef, size_t k,
-                                  void *timeoutCtx, VecSimQueryReply_Code *rc) const;
+                                  void *stopCtx, VecSimQueryReply_Code *rc) const;
     VecSimQueryResultContainer searchRangeBottomLayer_WithTimeout(idType ep_id,
                                                                   const void *data_point,
                                                                   double epsilon, DistType radius,
-                                                                  void *timeoutCtx,
+                                                                  void *stopCtx,
                                                                   VecSimQueryReply_Code *rc) const;
     idType getNeighborsByHeuristic2(candidatesList<DistType> &top_candidates, size_t M) const;
     void getNeighborsByHeuristic2(candidatesList<DistType> &top_candidates, size_t M,
@@ -218,7 +218,7 @@ protected:
 
     template <bool running_query>
     void greedySearchLevel(const void *vector_data, size_t level, idType &curObj, DistType &curDist,
-                           void *timeoutCtx = nullptr, VecSimQueryReply_Code *rc = nullptr) const;
+                           void *stopCtx = nullptr, VecSimQueryReply_Code *rc = nullptr) const;
     void repairConnectionsForDeletion(idType element_internal_id, idType neighbour_id,
                                       ElementLevelData &node_level,
                                       ElementLevelData &neighbor_level, size_t level,
@@ -304,7 +304,7 @@ public:
     ElementGraphData *getGraphDataByInternalId(idType internal_id) const;
     ElementLevelData &getElementLevelData(idType internal_id, size_t level) const;
     ElementLevelData &getElementLevelData(ElementGraphData *element, size_t level) const;
-    idType searchBottomLayerEP(const void *query_data, void *timeoutCtx,
+    idType searchBottomLayerEP(const void *query_data, void *stopCtx,
                                VecSimQueryReply_Code *rc) const;
 
     void indexVector(const void *vector_data, const labelType label,
@@ -1387,14 +1387,14 @@ void HNSWIndex<DataType, DistType>::SwapLastIdWithDeletedId(idType element_inter
 // This function is greedily searching for the closest candidate to the given data point at the
 // given level, starting at the given node. It sets `curObj` to the closest node found, and
 // `curDist` to the distance to this node. If `running_query` is true, the search will check for
-// a stop and return if it has occurred. `timeoutCtx` and `rc` must be valid if `running_query` is
+// a stop and return if it has occurred. `stopCtx` and `rc` must be valid if `running_query` is
 // true. *Note that we assume that level is higher than 0*. Also, if we're not running a query (we
 // are searching neighbors for a new vector), then bestCand should be a non-deleted element!
 template <typename DataType, typename DistType>
 template <bool running_query>
 void HNSWIndex<DataType, DistType>::greedySearchLevel(const void *vector_data, size_t level,
                                                       idType &bestCand, DistType &curDist,
-                                                      void *timeoutCtx,
+                                                      void *stopCtx,
                                                       VecSimQueryReply_Code *rc) const {
     bool changed;
     // Don't allow choosing a deleted node as an entry point upon searching for neighbors
@@ -1402,7 +1402,7 @@ void HNSWIndex<DataType, DistType>::greedySearchLevel(const void *vector_data, s
     idType bestNonDeletedCand = bestCand;
 
     do {
-        if (running_query && VECSIM_STOP(timeoutCtx)) {
+        if (running_query && VECSIM_STOP(stopCtx)) {
             *rc = VecSim_QueryReply_Stopped;
             bestCand = INVALID_ID;
             return;
@@ -2235,7 +2235,7 @@ auto HNSWIndex<DataType, DistType>::safeGetEntryPointState() const {
 }
 
 template <typename DataType, typename DistType>
-idType HNSWIndex<DataType, DistType>::searchBottomLayerEP(const void *query_data, void *timeoutCtx,
+idType HNSWIndex<DataType, DistType>::searchBottomLayerEP(const void *query_data, void *stopCtx,
                                                           VecSimQueryReply_Code *rc) const {
     *rc = VecSim_QueryReply_OK;
 
@@ -2245,7 +2245,7 @@ idType HNSWIndex<DataType, DistType>::searchBottomLayerEP(const void *query_data
 
     DistType cur_dist = this->calcDistanceForQuery(getDataByInternalId(curr_element), query_data);
     for (size_t level = max_level; level > 0 && curr_element != INVALID_ID; --level) {
-        greedySearchLevel<true>(query_data, level, curr_element, cur_dist, timeoutCtx, rc);
+        greedySearchLevel<true>(query_data, level, curr_element, cur_dist, stopCtx, rc);
     }
     return curr_element;
 }
@@ -2253,7 +2253,7 @@ idType HNSWIndex<DataType, DistType>::searchBottomLayerEP(const void *query_data
 template <typename DataType, typename DistType>
 candidatesLabelsMaxHeap<DistType> *
 HNSWIndex<DataType, DistType>::searchBottomLayer_WithTimeout(idType ep_id, const void *data_point,
-                                                             size_t ef, size_t k, void *timeoutCtx,
+                                                             size_t ef, size_t k, void *stopCtx,
                                                              VecSimQueryReply_Code *rc) const {
 
     auto *visited_nodes_handler = getVisitedList();
@@ -2285,7 +2285,7 @@ HNSWIndex<DataType, DistType>::searchBottomLayer_WithTimeout(idType ep_id, const
         if ((-curr_el_pair.first) > lowerBound && top_candidates->size() >= ef) {
             break;
         }
-        if (VECSIM_STOP(timeoutCtx)) {
+        if (VECSIM_STOP(stopCtx)) {
             returnVisitedList(visited_nodes_handler);
             *rc = VecSim_QueryReply_Stopped;
             return top_candidates;
@@ -2317,19 +2317,19 @@ VecSimQueryReply *HNSWIndex<DataType, DistType>::topKQuery(const void *query_dat
 
     auto processed_query_ptr = this->preprocessQuery(query_data);
     const void *processed_query = processed_query_ptr.get();
-    void *timeoutCtx = nullptr;
+    void *stopCtx = nullptr;
 
     // Get original efRuntime and store it.
     size_t query_ef = this->ef;
 
     if (queryParams) {
-        timeoutCtx = queryParams->timeoutCtx;
+        stopCtx = queryParams->stopCtx;
         if (queryParams->hnswRuntimeParams.efRuntime != 0) {
             query_ef = queryParams->hnswRuntimeParams.efRuntime;
         }
     }
 
-    idType bottom_layer_ep = searchBottomLayerEP(processed_query, timeoutCtx, &rep->code);
+    idType bottom_layer_ep = searchBottomLayerEP(processed_query, stopCtx, &rep->code);
     if (VecSim_OK != rep->code || bottom_layer_ep == INVALID_ID) {
         // Although we checked that the index is not empty (curElementCount == 0), it might be
         // that another thread deleted all the elements or didn't finish inserting the first element
@@ -2340,7 +2340,7 @@ VecSimQueryReply *HNSWIndex<DataType, DistType>::topKQuery(const void *query_dat
     // We now oun the results heap, we need to free (delete) it when we done
     candidatesLabelsMaxHeap<DistType> *results;
     results = searchBottomLayer_WithTimeout(bottom_layer_ep, processed_query, std::max(query_ef, k),
-                                            k, timeoutCtx, &rep->code);
+                                            k, stopCtx, &rep->code);
 
     if (VecSim_OK == rep->code) {
         rep->results.resize(results->size());
@@ -2355,7 +2355,7 @@ VecSimQueryReply *HNSWIndex<DataType, DistType>::topKQuery(const void *query_dat
 
 template <typename DataType, typename DistType>
 VecSimQueryResultContainer HNSWIndex<DataType, DistType>::searchRangeBottomLayer_WithTimeout(
-    idType ep_id, const void *data_point, double epsilon, DistType radius, void *timeoutCtx,
+    idType ep_id, const void *data_point, double epsilon, DistType radius, void *stopCtx,
     VecSimQueryReply_Code *rc) const {
 
     *rc = VecSim_QueryReply_OK;
@@ -2395,7 +2395,7 @@ VecSimQueryResultContainer HNSWIndex<DataType, DistType>::searchRangeBottomLayer
         if ((-curr_el_pair.first) > dynamic_range_search_boundaries) {
             break;
         }
-        if (VECSIM_STOP(timeoutCtx)) {
+        if (VECSIM_STOP(stopCtx)) {
             *rc = VecSim_QueryReply_Stopped;
             break;
         }
@@ -2431,17 +2431,17 @@ VecSimQueryReply *HNSWIndex<DataType, DistType>::rangeQuery(const void *query_da
     }
     auto processed_query_ptr = this->preprocessQuery(query_data);
     const void *processed_query = processed_query_ptr.get();
-    void *timeoutCtx = nullptr;
+    void *stopCtx = nullptr;
 
     double query_epsilon = epsilon;
     if (queryParams) {
-        timeoutCtx = queryParams->timeoutCtx;
+        stopCtx = queryParams->stopCtx;
         if (queryParams->hnswRuntimeParams.epsilon != 0.0) {
             query_epsilon = queryParams->hnswRuntimeParams.epsilon;
         }
     }
 
-    idType bottom_layer_ep = searchBottomLayerEP(processed_query, timeoutCtx, &rep->code);
+    idType bottom_layer_ep = searchBottomLayerEP(processed_query, stopCtx, &rep->code);
     // Although we checked that the index is not empty (curElementCount == 0), it might be
     // that another thread deleted all the elements or didn't finish inserting the first element
     // yet. Anyway, we observed that the index is empty, so we return an empty result list.
@@ -2451,8 +2451,8 @@ VecSimQueryReply *HNSWIndex<DataType, DistType>::rangeQuery(const void *query_da
 
     // search bottom layer
     // Here we send the radius as double to match the function arguments type.
-    rep->results = searchRangeBottomLayer_WithTimeout(
-        bottom_layer_ep, processed_query, query_epsilon, radius, timeoutCtx, &rep->code);
+    rep->results = searchRangeBottomLayer_WithTimeout(bottom_layer_ep, processed_query,
+                                                      query_epsilon, radius, stopCtx, &rep->code);
     return rep;
 }
 

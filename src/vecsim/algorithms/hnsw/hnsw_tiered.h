@@ -1228,7 +1228,7 @@ TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator::TieredHNSW_BatchI
     // copies: flat_iterator copy is created during TieredHNSW_BatchIterator construction When
     // TieredHNSW_BatchIterator::getNextResults() is called and hnsw_iterator is not initialized, it
     // retrieves the blob from flat_iterator
-    : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->timeoutCtx : nullptr,
+    : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->stopCtx : nullptr,
                                 std::move(allocator)),
       index(index), backend_index_lock(index->mainIndexGuard, std::defer_lock),
       flat_iterator(UNINITIALIZED), hnsw_iterator(UNINITIALIZED) {

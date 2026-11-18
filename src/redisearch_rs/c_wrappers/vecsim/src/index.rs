@@ -177,7 +177,7 @@ impl<'index> IndexRef<'index> {
 
     /// Run a single-shot top-`k` query.
     ///
-    /// `params` is mutated by VecSim (e.g. it reads/writes `timeoutCtx`). See
+    /// `params` is mutated by VecSim (e.g. it reads/writes `stopCtx`). See
     /// [`QueryReply::from_raw_checked`] for the timeout/null handling contract.
     pub fn top_k_query(
         &self,
@@ -210,7 +210,7 @@ impl<'index> IndexRef<'index> {
     ///
     /// # Safety
     ///
-    /// The `timeoutCtx` referenced by `params` must be [valid] for this call:
+    /// The `stopCtx` referenced by `params` must be [valid] for this call:
     /// VecSim passes it to the registered stop callback, which reads it as a
     /// `QueryRequestLimits`.
     ///
@@ -237,7 +237,7 @@ impl<'index> IndexRef<'index> {
         // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
         //    invariant, so the pointer is valid for the bytes VecSim reads.
         // 3. `params` is exclusively borrowed for this call, and the caller keeps
-        //    its `timeoutCtx` valid for it.
+        //    its `stopCtx` valid for it.
         let raw = unsafe {
             VecSimIndex_RangeQuery(
                 self.inner.as_ptr(),
@@ -258,7 +258,7 @@ impl<'index> IndexRef<'index> {
     /// # Safety
     ///
     /// - `params` must point to a valid `VecSimQueryParams` for this call.
-    /// - The `timeoutCtx` referenced by `*params` must remain valid for the
+    /// - The `stopCtx` referenced by `*params` must remain valid for the
     ///   whole of `'params`, since the iterator copies it and reads it on every
     ///   [`BatchIterator::next`] call.
     pub unsafe fn batch_iterator_unchecked<'params>(
@@ -283,7 +283,7 @@ impl<'index> IndexRef<'index> {
         // 1. `inner` invariant: `ptr` is non-null and freshly returned by
         //    `VecSimBatchIterator_New`.
         // 2. `'index` is bounded by the index lifetime.
-        // 3. `'params` is caller-chosen; the caller guarantees the `timeoutCtx`
+        // 3. `'params` is caller-chosen; the caller guarantees the `stopCtx`
         //    referent outlives it.
         Some(unsafe { BatchIterator::from_raw(ptr) })
     }

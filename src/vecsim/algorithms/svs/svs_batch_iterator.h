@@ -35,8 +35,8 @@ private:
 
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
-        auto timeoutCtx = this->getTimeoutCtx();
-        auto cancel = [timeoutCtx]() { return VECSIM_STOP(timeoutCtx); };
+        auto stopCtx = this->getStopCtx();
+        auto cancel = [stopCtx]() { return VECSIM_STOP(stopCtx); };
 
         if (cancel()) {
             rep->code = VecSim_QueryReply_Stopped;
@@ -68,7 +68,7 @@ private:
 public:
     SVS_BatchIterator(void *query_vector, const Index *index, const VecSimQueryParams *queryParams,
                       std::shared_ptr<VecSimAllocator> allocator, bool is_two_level_lvq)
-        : VecSimBatchIterator{query_vector, queryParams ? queryParams->timeoutCtx : nullptr,
+        : VecSimBatchIterator{query_vector, queryParams ? queryParams->stopCtx : nullptr,
                               std::move(allocator)},
           dim{index->dimensions()}, impl_{index->make_batch_iterator(std::span{
                                         static_cast<const DataType *>(query_vector), dim})},
@@ -101,7 +101,7 @@ private:
 public:
     NullSVS_BatchIterator(void *query_vector, const VecSimQueryParams *queryParams,
                           std::shared_ptr<VecSimAllocator> allocator)
-        : VecSimBatchIterator{query_vector, queryParams ? queryParams->timeoutCtx : nullptr,
+        : VecSimBatchIterator{query_vector, queryParams ? queryParams->stopCtx : nullptr,
                               allocator} {}
 
     VecSimQueryReply *getNextResults(size_t n_res, VecSimQueryReply_Order order) override {

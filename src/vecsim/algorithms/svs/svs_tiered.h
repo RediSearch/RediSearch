@@ -354,7 +354,7 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
             // own copies: flat_iterator copy is created during TieredSVS_BatchIterator
             // construction When TieredSVS_BatchIterator::getNextResults() is called and
             // svs_iterator is not initialized, it retrieves the blob from flat_iterator
-            : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->timeoutCtx : nullptr,
+            : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->stopCtx : nullptr,
                                         std::move(allocator)),
               index(index),
               flat_iterator(index->frontendIndex->newBatchIterator(query_vector, queryParams)),

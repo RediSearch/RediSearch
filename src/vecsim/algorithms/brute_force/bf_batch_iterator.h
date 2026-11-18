@@ -169,7 +169,7 @@ template <typename DataType, typename DistType>
 BF_BatchIterator<DataType, DistType>::BF_BatchIterator(
     void *query_vector, const BruteForceIndex<DataType, DistType> *bf_index,
     VecSimQueryParams *queryParams, std::shared_ptr<VecSimAllocator> allocator)
-    : VecSimBatchIterator(query_vector, queryParams ? queryParams->timeoutCtx : nullptr, allocator),
+    : VecSimBatchIterator(query_vector, queryParams ? queryParams->stopCtx : nullptr, allocator),
       index(bf_index), index_label_count(index->indexLabelCount()), scores(allocator),
       scores_valid_start_pos(0) {}
 
@@ -187,7 +187,7 @@ BF_BatchIterator<DataType, DistType>::getNextResults(size_t n_res, VecSimQueryRe
             return new VecSimQueryReply(this->allocator, rc);
         }
     }
-    if (VECSIM_STOP(this->getTimeoutCtx())) {
+    if (VECSIM_STOP(this->getStopCtx())) {
         return new VecSimQueryReply(this->allocator, VecSim_QueryReply_Stopped);
     }
     VecSimQueryReply *rep = searchByHeuristics(n_res, order);

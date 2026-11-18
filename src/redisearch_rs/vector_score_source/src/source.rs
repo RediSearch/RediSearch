@@ -93,7 +93,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// on rewind.
     ///
     /// Both lifetime slots are `'index`: the iterator borrows the index and may read the
-    /// request-owned timeout referenced by [`VecSimQueryParams::timeoutCtx`]. The
+    /// request-owned timeout referenced by [`VecSimQueryParams::stopCtx`]. The
     /// [`VectorScoreSource::new`] contract guarantees that both outlive this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed over the whole evaluation.
@@ -214,7 +214,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     }
 
     /// Return the request-owned timeout as the opaque context expected by VecSim.
-    fn timeout_ctx_ptr(&self) -> *mut c_void {
+    fn stop_ctx_ptr(&self) -> *mut c_void {
         self.timeout.as_ptr().cast()
     }
 
@@ -264,7 +264,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         if self.unfiltered_consumed {
             return Ok(None);
         }
-        self.query_params.timeoutCtx = self.timeout_ctx_ptr();
+        self.query_params.stopCtx = self.stop_ctx_ptr();
         let reply = self
             .index
             .top_k_query(
@@ -284,7 +284,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // The stop context is propagated via self.query_params.timeoutCtx. VecSim checks it
+        // The stop context is propagated via self.query_params.stopCtx. VecSim checks it
         // internally and returns VecSim_QueryReply_Stopped from Next/New.
 
         let further_batch = self.batch_iter.is_some();
@@ -294,7 +294,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 return Ok(None);
             }
             // Pass the stop context via query params so VecSim handles it.
-            self.query_params.timeoutCtx = self.timeout_ctx_ptr();
+            self.query_params.stopCtx = self.stop_ctx_ptr();
             // Raw pointer rather than `&mut self.query_params`: the iterator is
             // stored back into `self`, so a `'params` borrow of our own field
             // would be self-referential. `batch_iterator_unchecked` lets us pick
@@ -303,7 +303,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             // SAFETY:
             // - `params` points to `self.query_params`, valid for this call.
             // - The returned iterator's `'params` is unified with `'index`. The constructor
-            //   contract guarantees that the request-owned timeout referenced by `timeoutCtx`
+            //   contract guarantees that the request-owned timeout referenced by `stopCtx`
             //   outlives the iterator despite the widened `'index`.
             self.batch_iter = unsafe {
                 self.index
@@ -848,7 +848,7 @@ mod tests {
 
         source.next_batch().unwrap();
         assert_eq!(
-            source.query_params.timeoutCtx.cast::<QueryRequestLimits>(),
+            source.query_params.stopCtx.cast::<QueryRequestLimits>(),
             index.timeout_ptr(),
             "VecSim must be handed the same timeout storage"
         );

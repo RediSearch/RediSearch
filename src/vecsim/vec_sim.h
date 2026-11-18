@@ -334,7 +334,7 @@ void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions);
 
 /**
  * @brief Allow a 3rd party callback to stop a running query early, on a timeout or memory
- * pressure. VecSim calls it with the query's timeoutCtx at every search step (per vector in brute
+ * pressure. VecSim calls it with the query's stopCtx at every search step (per vector in brute
  * force scans, per candidate in graph searches), so the caller amortizes any costly work.
  * A search it stops returns VecSim_QueryReply_Stopped.
  *
