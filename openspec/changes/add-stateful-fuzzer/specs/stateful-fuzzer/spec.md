@@ -33,12 +33,20 @@ remaining operation.
 - **AND** operations that name `i1` SHALL receive an ordinary server error
 
 ### Requirement: Byte-exact programs
-The program format SHALL represent arbitrary byte strings and every `f32` and
-`f64` bit pattern.
+The program format SHALL represent arbitrary byte strings, including vectors
+with any `f32` bit pattern.
 
 #### Scenario: Invalid UTF-8 round-trips
 - **WHEN** a program containing an argument that is not valid UTF-8 is written and read back
 - **THEN** the argument SHALL be byte-for-byte identical
+
+### Requirement: Exported programs are exact
+A program on one connection that awaits every reply and uses no cursor SHALL
+export to `redis-cli` lines that `import` reads back as the same commands.
+
+#### Scenario: Binary arguments
+- **WHEN** an exported program has an argument that is not valid UTF-8
+- **THEN** its line SHALL carry the argument as escapes that `redis-cli` reads back byte for byte
 
 ### Requirement: Harness-held controls are not findings
 A program that leaves a scheduling control held SHALL NOT be reported as a hang

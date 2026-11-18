@@ -31,11 +31,12 @@ reproduction first, and depth of state second.
 Add a standalone developer tool under `fuzz/` and one build option. No shipped
 behaviour, command, reply, configuration default, or persistence format changes.
 
-- **A fuzzer binary** with four subcommands: `fuzz` (run a campaign), `run`
-  (replay one program), `reduce` (shrink a failing program), and `export`
-  (render a simple program as a script). All four share one execution path.
-- **A test-case format.** A program is a readable, versioned JSON file: load-time
-  module settings plus a list of typed operations with explicit object names.
+- **A fuzzer binary** with the subcommands `fuzz` (run a campaign), `run`
+  (replay one program), `reduce` (shrink a failing program), `generate`,
+  `export` (print a program as `redis-cli` commands), and `import` (the
+  reverse). The first three share one execution path.
+- **A test-case format.** A program is a readable JSON file: a list of typed
+  operations with explicit object names, including load-time module settings.
   Programs are the corpus, the seeds, and the reproducers.
 - **Hermetic execution.** Every program runs against a freshly started
   `redis-server`, which is never reused.

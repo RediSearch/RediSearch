@@ -13,10 +13,11 @@ crates:
   commands `run`, `reduce`, `fuzz`, and `generate`, as plain functions and,
   behind the `cli` feature, as a clap subcommand.
 - **`procfuzz-redis`** holds what any Redis module target shares: the RESP2
-  codec, launching `redis-server` with modules, and reading Redis assertion,
-  panic, and crash reports.
+  codec, commands as `redis-cli` and `MONITOR` lines, launching `redis-server`
+  with modules, and reading Redis assertion, panic, and crash reports.
 - **`redisearch-fuzz`** is RediSearch as a model: its ops, what they set up,
-  which make sense when, what each command does, and the logic rules.
+  which make sense when, what each command does, and the logic rules. Its
+  binary adds `export` and `import` to the core's commands.
 - **`kvd`** is a small RESP server with planted bugs and its model:
   `procfuzz`'s own target, tested without a sanitizer build.
 
@@ -388,8 +389,12 @@ findings/<finding>/
   manifest.json    the finding, reproduction rate, binaries, sanitizer options
 ```
 
-The native `run` command is the authoritative reproducer. `export` is limited
-to programs with one connection, no deferred replies, and no cursors.
+The native `run` command is the authoritative reproducer. `export` prints a
+program as `redis-cli` lines, for a bug report; it refuses programs that use
+a second connection, a deferred reply, or a cursor. `import` is the reverse:
+it reads `redis-cli` lines, or a `MONITOR` recording of a Python test, into a
+program of `Command` ops on one connection. Several seeds were recorded that
+way, for features the generator does not reach.
 
 ## Edge cases
 

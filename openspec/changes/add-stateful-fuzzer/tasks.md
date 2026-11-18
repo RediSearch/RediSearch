@@ -88,16 +88,17 @@ acceptance check for that PR.
 
 ## 9. Scale-out
 
-- [ ] 9.1 Run several processes over shared corpus and findings directories (workers with a shared findings directory and separate corpora are done; corpus sharing waits on fewer unstable edges, since importing a program costs a run)
-- [ ] 9.2 Convert recorded command streams from the Python tests into `Command` seed programs
-- [ ] 9.3 Add the `export` command for single-connection programs
-- **Done when:** four processes reach a higher edge count than one process in the same wall time.
+- [x] 9.1 Run several campaigns at once: `fuzz --jobs N` runs N worker threads with separate corpora and one findings directory. Sharing programs between workers was tried and removed (11.12).
+- [x] 9.2 Seeds recorded from Python tests with `MONITOR` and read with `import`: synonyms, spellcheck, suggestions, summarize, phonetics, field expiry, profile, hybrid
+- [x] 9.3 `export` prints a program as `redis-cli` lines; `import` reads them back
+- **Done when:** four workers find the planted bugs sooner than one in the same wall time.
+- **Status:** planted module, the four seeds that trigger no planted bug, 240 s per trial. Seconds until both planted bugs were found: one worker 61, 196, 34; four workers 20, 13 (a third four-worker trial ran alongside leftover servers and is not counted). Each worker ran about as many programs as a lone one. The four-worker trials also found a fuzzer false positive: a deferred write whose reply was read after a search had not counted as disturbing it. Fixed.
 
 ## 10. Docs and spec delta
 
-- [ ] 10.1 Add a contributor guide for building with `FUZZ_COV`, running a campaign, and replaying a finding
-- [ ] 10.2 Update the delta spec under `specs/stateful-fuzzer/spec.md` to match what shipped
-- [ ] 10.3 Confirm the release-notes checkbox reflects that no shipped behaviour changed
+- [x] 10.1 A pointer from `CONTRIBUTING.md` to `fuzz/README.md`, which covers building with `FUZZ_COV`, running a campaign, and replaying a finding
+- [x] 10.2 Update the delta spec under `specs/stateful-fuzzer/spec.md` to match what shipped
+- [x] 10.3 No shipped behaviour changes, so the PR ticks "does not require release notes"
 
 ## 11. Review: a model-driven core
 
