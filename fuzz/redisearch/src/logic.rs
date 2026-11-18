@@ -30,6 +30,9 @@ use crate::effect::{Effect, effect};
 use crate::op::{Action, Op, Query, QueryOptions};
 use crate::state::{Key, State};
 
+/// From this dialect on, a search's total is the number of results it
+/// returned rather than the number that matched.
+const EXACT_TOTALS_BEFORE_DIALECT: u8 = 4;
 /// RediSearch's default stopwords.
 const STOPWORDS: [&str; 33] = [
     "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into",
@@ -191,7 +194,8 @@ fn op_effect(op: &Op, state: &State) -> Effect {
 
 /// Exact `FT.SEARCH` results inside a comparison window, each with the key
 /// of its index as the commands the server accepted left it. KNN results
-/// are approximate and left out.
+/// are approximate and left out, and so are results under dialect 4 and
+/// later, whose total counts only the results returned.
 fn comparable_results<'a>(
     model: &RediSearch,
     ops: &'a [Op],
@@ -235,6 +239,9 @@ fn comparable_results<'a>(
             && open
             && undisturbed
             && !matches!(query, Query::Knn { .. })
+            && options
+                .dialect
+                .is_none_or(|dialect| dialect < EXACT_TOTALS_BEFORE_DIALECT)
             && let Some((total, keys)) = step.reply.as_ref().and_then(search_result)
         {
             results.push(SearchResult {
@@ -378,6 +385,17 @@ mod tests {
                 vec![(search("i", hello()), 3), (search("j", hello()), second)],
             )
         };
+        let dialect_4_twin = |second| {
+            let search = |index: &str| Action::Query {
+                index: index.into(),
+                query: hello(),
+                options: QueryOptions {
+                    dialect: Some(4),
+                    ..QueryOptions::default()
+                },
+            };
+            setup(true, vec![(search("i"), 3), (search("j"), second)])
+        };
         let gc = || Action::command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
         let cases = [
             (run(&partition(3)), vec![]),
@@ -402,6 +420,7 @@ mod tests {
                 vec![],
             ),
             (run(&twin(false, 2)), vec![]),
+            (run(&dialect_4_twin(2)), vec![]),
         ];
         for (i, (found, expected)) in cases.into_iter().enumerate() {
             assert_eq!(found, expected, "case {i}");

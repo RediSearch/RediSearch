@@ -114,7 +114,16 @@ process, with the RediSearch layer reduced to what is RediSearch-specific.
 - [x] 11.8 Delete the first core
 - [x] 11.9 Put the engine behind one function from program to features, with a plain loop beside LibAFL, and add a stability check before counting a new feature
 - [x] 11.10 Record a reproduction rate for every finding the campaign writes
-- [ ] 11.11 Rerun the engine comparison on RediSearch, at least 8 trials per setup, before choosing an engine or a per-feature score
+- [x] 11.11 Rerun the engine comparison on RediSearch, at least 8 trials per setup, before choosing an engine or a per-feature score
+- **Measured (RediSearch, planted module, the four seeds that do not hit a planted bug, 8 trials of 500 runs per setup, reruns counted):**
+
+  | Setup | Kept | Planted overflow | Planted assertion | `DebugIndexes_ScanProc` | `TrieMap_Find` crash |
+  |---|---|---|---|---|---|
+  | `libafl` | 168 | 8/8, median run 30 | 8/8, median 157 | 4/8 | 2/8 |
+  | `libafl+confirm` | 121 | 8/8, median 16 | 8/8, median 37 | 5/8 | 1/8 |
+  | `basic+confirm` | 126 | 8/8, median 34 | 8/8, median 133 | 3/8 | 0/8 |
+
+  Confirming new features keeps 28% fewer programs and, although its reruns count against the budget, reaches both planted bugs in about half the runs or fewer. LibAFL with confirmation stays the default engine. LibAFL's length-and-time minimizing scheduler is kept; no other per-feature score was tried.
 - [x] 11.12 Share kept programs between workers without rerunning them (in-process, as LLMP's receiving side does: the workers are threads of one process, so LLMP's inter-process transport is not needed)
 - **Measured (`kvd` with edge coverage, 8 trials of 5,000 runs per setup):** confirming new features cuts the programs kept from 124 to 70 with LibAFL and from 119 to 69 with the plain loop. Bugs found per setup, out of 8 trials (crash, hang, wrong answer): `libafl` 1, 6, 1; `libafl+confirm` 0, 6, 2; `basic` 0, 5, 1; `basic+confirm` 1, 5, 1. That is too few to separate the setups, so the default stays LibAFL with confirmation until the comparison runs on RediSearch (11.11).
 - **Status:** `kvd`'s tests reproduce each planted bug from a fixed program and shrink padded programs to exactly the planted 5, 7, and 7 ops. Against the AddressSanitizer build, every live test passes except the seed-coverage check, which needs the module rebuilt with the renamed `PROCFUZZ_COVERAGE_SHM`; the short campaign was not run for the same reason.

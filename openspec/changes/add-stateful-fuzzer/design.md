@@ -371,7 +371,11 @@ the directory is written with how often it reproduces in five runs.
 `compare` runs several trials of each setup (engine, with or without
 confirmation) with a fixed run budget and reports which findings each setup
 found in how many trials, at which run, and how many programs it kept. An
-engine or a per-feature score is chosen only from such a comparison.
+engine or a per-feature score is chosen only from such a comparison. On
+RediSearch, 8 trials of 500 runs per setup against the planted module chose
+LibAFL with confirmation: it kept 28% fewer programs than without, and
+reached both planted bugs in half the runs or fewer than either other
+setup (tasks, 11.11).
 
 ## Planted bugs
 
