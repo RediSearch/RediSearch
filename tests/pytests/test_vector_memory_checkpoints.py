@@ -104,6 +104,12 @@ def _arm_pressure_at_call(env, at_calls):
         conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', at_call)
 
 
+def _shards_only_at_call(env, at_call):
+    """AT_CALL for `_expect_stopped_by_policy` with the first process unarmed: it also
+    coordinates, and its calls race with its shard's, so which one hits `at_call` varies."""
+    return [2 ** 62] + [at_call] * (env.shardsCount - 1)
+
+
 def _expect_stopped_by_policy(env, query, n_results, at_calls=None, keeps_some_results=False):
     """Under memory pressure at checkpoint call `at_calls` (see `_arm_pressure_at_call`), `query`
     replies per ON_OOM: RETURN an empty result with the OOM warning, FAIL the OOM error, IGNORE
@@ -119,7 +125,8 @@ def _expect_stopped_by_policy(env, query, n_results, at_calls=None, keeps_some_r
         _arm_pressure_at_call(env, at_calls)
         res = env.cmd(*query)
         if keeps_some_results:
-            env.assertLess(len(res['results']), n_results, message=res)
+            if n_results is not None:
+                env.assertLess(len(res['results']), n_results, message=res)
         else:
             env.assertEqual(res['results'], [], message=res)
         env.assertEqual(res['warning'], [warning], message=res)
@@ -169,10 +176,8 @@ def test_range_stops_for_oom_on_shards(env):
     _create_indexed_hash_index(env)
     query = _range_queries()['flat']
     for at_call in _vector_checkpoint_positions(env, query):
-        # The first process also coordinates, and its calls race with its shard's, so it is left
-        # unarmed.
-        at_calls = [2 ** 62] + [at_call] * (env.shardsCount - 1)
-        _expect_stopped_by_policy(env, query, RANGE_MATCHES, at_calls, keeps_some_results=True)
+        _expect_stopped_by_policy(env, query, RANGE_MATCHES, _shards_only_at_call(env, at_call),
+                                  keeps_some_results=True)
 
 
 @skip(cluster=True, no_json=True)
@@ -251,7 +256,8 @@ def test_knn_batches_stop_for_oom_on_shards(env):
     query = _batches_queries()['hnsw']
     calls = _checkpoint_calls(env, query)
     env.assertTrue(all(c >= 2 for c in calls), message=calls)
-    _expect_stopped_by_policy(env, query, None, [2] * len(calls))
+    _expect_stopped_by_policy(env, query, None, _shards_only_at_call(env, 2),
+                              keeps_some_results=True)
 
 
 # A FLAT scan calls VecSim's stop callback once per vector block (1024 vectors), so every shard
@@ -282,7 +288,7 @@ def _long_search_queries():
     }
 
 
-def _expect_stopped_inside_vecsim(env, queries=None):
+def _expect_stopped_inside_vecsim(env, queries=None, at_calls=None, keeps_some_results=False):
     """Each query first reaches a checkpoint inside its VecSim search: a range query calls one more
     after the search, a plain KNN none. Pressure at that first call stops it per ON_OOM."""
     for name, query in (queries or _long_search_queries()).items():
@@ -290,7 +296,8 @@ def _expect_stopped_inside_vecsim(env, queries=None):
         after_search = 1 if name.endswith('range') else 0
         for calls in _checkpoint_calls(env, query):
             env.assertGreater(calls, after_search, message=name)
-        _expect_stopped_by_policy(env, query, RANGE_MATCHES if name == 'flat_range' else None)
+        _expect_stopped_by_policy(env, query, RANGE_MATCHES if name == 'flat_range' else None,
+                                  at_calls, keeps_some_results)
 
 
 def _create_long_search_index(env):
@@ -335,7 +342,8 @@ def test_single_vecsim_search_stops_for_oom(env):
 def test_single_vecsim_search_stops_for_oom_on_shards(env):
     """Shards stopped inside a VecSim search report the OOM to the coordinator."""
     _create_long_search_index(env)
-    _expect_stopped_inside_vecsim(env)
+    _expect_stopped_inside_vecsim(env, at_calls=_shards_only_at_call(env, 1),
+                                  keeps_some_results=True)
 
 
 # The default tiered HNSW flat buffer limit: one VecSim block.
