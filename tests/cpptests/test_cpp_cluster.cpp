@@ -351,9 +351,9 @@ TEST_F(AsmSchemaImportTest, FullSyncWithoutIndexesPreservesDropBeforeDelayedSche
   RMCK_SaveAux(IndexSpecType, io);
   ASSERT_FALSE(io->buffer.empty());
   slots_tracker_reset();
-    asm_schema_registry_reset();
+  asm_schema_registry_reset();
   asm_schema_registry_begin_loading();
-  asm_schema_registry_start_import("task");
+  asm_schema_registry_start_import();
   ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_CURRENT_VERSION), REDISMODULE_OK);
   EXPECT_EQ(io->read_pos, io->buffer.size());
   RMCK_FreeRdbIO(io);
@@ -370,7 +370,7 @@ TEST_F(AsmSchemaImportTest, FullSyncLoadsReplacementDespiteDeletionRecord) {
   RMCK_SaveAux(IndexSpecType, io);
   Indexes_Free(ctx, specDict_g, false);
   asm_schema_registry_begin_loading();
-  asm_schema_registry_start_import("task");
+  asm_schema_registry_start_import();
   ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_CURRENT_VERSION), REDISMODULE_OK);
   RMCK_FreeRdbIO(io);
   ASSERT_NE(lookup(), nullptr);
@@ -378,6 +378,32 @@ TEST_F(AsmSchemaImportTest, FullSyncLoadsReplacementDespiteDeletionRecord) {
   EXPECT_TRUE(asm_schema_registry_was_dropped("asm_idx"));
   restore(serialized);
   EXPECT_STREQ(HiddenString_GetUnsafe(lookup()->fields[0].fieldName, nullptr), "new");
+}
+
+TEST_F(AsmSchemaImportTest, LegacyAuxiliaryRecordsLoadWithoutTaskIdentity) {
+  auto *io = RMCK_CreateRdbIO();
+  RedisModule_SaveUnsigned(io, 0);  // No indexes, only deletion records.
+  RedisModule_SaveUnsigned(io, 1);
+  RedisModule_SaveStringBuffer(io, "legacy-task", 11);
+  RedisModule_SaveUnsigned(io, 1);
+  RedisModule_SaveStringBuffer(io, "asm_idx", 7);
+  startImport();
+  ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_IMPORT_DROPS_VERSION), REDISMODULE_OK);
+  EXPECT_EQ(io->read_pos, io->buffer.size());
+  EXPECT_TRUE(asm_schema_registry_was_dropped("asm_idx"));
+  RMCK_FreeRdbIO(io);
+}
+
+TEST_F(AsmSchemaImportTest, CompletionClearsDeletionRecordsBeforeNextImport) {
+  auto serialized = snapshot(create());
+  startImport();
+  drop();
+  finishImport();
+  EXPECT_FALSE(asm_schema_registry_was_dropped("asm_idx"));
+  EXPECT_FALSE(asm_schema_registry_record_drop("after"));
+  startImport();
+  restore(serialized);
+  EXPECT_NE(lookup(), nullptr);
 }
 
 TEST_F(AsmSchemaImportTest, PreviousRdbVersionLoadsWithoutImportRecords) {

@@ -98,6 +98,7 @@ dependencies = [
 name = "asm_schema_registry"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "proptest",
  "rdb_io",
  "workspace_hack",

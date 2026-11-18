@@ -9,7 +9,7 @@
 
 //! Schema replay suppression for indexes dropped during an ASM import.
 
-use asm_schema_registry::AsmSchemaRegistry;
+use asm_schema_registry::{AsmSchemaRegistry, SchemaRegistryEncoding};
 use redis_module::{RedisModuleIO as RmIo, raw::RedisModuleIO};
 use std::cell::RefCell;
 use std::ffi::{CStr, c_char};
@@ -38,36 +38,18 @@ pub extern "C" fn asm_schema_registry_reset() {
     IMPORT_SCHEMAS.with_borrow_mut(|imports| *imports = AsmSchemaRegistry::default());
 }
 
-/// Starts an ASM import's schema-deletion tracking.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `task_id` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// Starts schema-deletion tracking. Call on the main thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn asm_schema_registry_start_import(task_id: *const c_char) {
+pub extern "C" fn asm_schema_registry_start_import() {
     assert_owner_thread();
-    debug_assert_non_null(task_id);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let task_id = unsafe { CStr::from_ptr(task_id) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.start(task_id));
+    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.start());
 }
 
-/// Ends an ASM import's schema-deletion tracking on completion or failure.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `task_id` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// Releases schema-deletion tracking on completion or failure. Call on the main thread.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn asm_schema_registry_end_import(task_id: *const c_char) {
+pub extern "C" fn asm_schema_registry_end_import() {
     assert_owner_thread();
-    debug_assert_non_null(task_id);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let task_id = unsafe { CStr::from_ptr(task_id) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.end(task_id));
+    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.end());
 }
 
 /// Prevents active imports from replaying a schema for the dropped name.
@@ -145,9 +127,12 @@ pub unsafe extern "C" fn asm_schema_registry_save(io: *mut RedisModuleIO) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn asm_schema_registry_load(io: *mut RedisModuleIO) -> bool {
+pub unsafe extern "C" fn asm_schema_registry_load(
+    io: *mut RedisModuleIO,
+    encoding: SchemaRegistryEncoding,
+) -> bool {
     assert_owner_thread();
     debug_assert_non_null(io);
     let mut io = RmIo::new(io);
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.load(&mut io).is_ok())
+    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.load(&mut io, encoding).is_ok())
 }

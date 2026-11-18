@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
+#include "asm_schema_registry.h"
 
 typedef struct RedisModuleIO RedisModuleIO;
 
@@ -21,15 +22,9 @@ extern "C" {
 void asm_schema_registry_begin_loading(void);
 
 /**
- * Ends an ASM import's schema-deletion tracking on completion or failure.
- *
- * # Safety
- * 1. Call on the main thread.
- * 2. `task_id` must point to a [valid], NUL-terminated string for the call.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * Releases schema-deletion tracking on completion or failure. Call on the main thread.
  */
-void asm_schema_registry_end_import(const char *task_id);
+void asm_schema_registry_end_import(void);
 
 /**
  * Whether import deletion records require auxiliary RDB persistence.
@@ -45,7 +40,7 @@ bool asm_schema_registry_has_drops(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool asm_schema_registry_load(struct RedisModuleIO *io);
+bool asm_schema_registry_load(struct RedisModuleIO *io, enum SchemaRegistryEncoding encoding);
 
 /**
  * Prevents active imports from replaying a schema for the dropped name.
@@ -76,15 +71,9 @@ void asm_schema_registry_reset(void);
 void asm_schema_registry_save(struct RedisModuleIO *io);
 
 /**
- * Starts an ASM import's schema-deletion tracking.
- *
- * # Safety
- * 1. Call on the main thread.
- * 2. `task_id` must point to a [valid], NUL-terminated string for the call.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * Starts schema-deletion tracking. Call on the main thread.
  */
-void asm_schema_registry_start_import(const char *task_id);
+void asm_schema_registry_start_import(void);
 
 /**
  * Whether schema replay must ignore the name during an active ASM import.

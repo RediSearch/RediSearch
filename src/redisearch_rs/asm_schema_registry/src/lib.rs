@@ -11,123 +11,103 @@ use rdb_io::RdbIO;
 use std::collections::BTreeSet;
 use std::io;
 
-/// Names dropped while an ASM import may still deliver an older schema.
-///
-/// Core serializes destination imports. Local creation does not clear records:
-/// they suppress imported schemas, never delete the replacement index.
-#[derive(Default)]
-pub struct AsmSchemaRegistry {
-    active: Option<Import>,
+/// Auxiliary RDB layouts for schema deletion records.
+#[derive(Clone, Copy)]
+#[repr(C)]
+#[cheadergen::config(prefix_with_name)]
+pub enum SchemaRegistryEncoding {
+    /// Legacy payload with a task ID before the names.
+    TaskIdAndNames,
+    /// Payload containing only the names.
+    Names,
 }
 
-struct Import {
-    task_id: Vec<u8>,
-    dropped: BTreeSet<Vec<u8>>,
+/// Names dropped while an ASM import may still deliver an older schema.
+///
+/// Core serializes imports and delivers their lifecycle events synchronously.
+/// Local creation does not clear records: they suppress imported schemas,
+/// never delete the replacement index.
+#[derive(Default)]
+pub struct AsmSchemaRegistry {
+    dropped: Option<BTreeSet<Vec<u8>>>,
 }
 
 impl AsmSchemaRegistry {
-    /// Starts an import, preserving records on duplicate notifications.
-    ///
-    /// # Panics
-    /// Panics if switching tasks would discard deletion records. Core serializes
-    /// imports; full sync clears pre-snapshot records with [`Self::begin_loading`].
-    pub fn start(&mut self, task_id: &[u8]) {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.task_id == task_id)
-        {
-            return;
-        }
-        assert!(
-            self.active
-                .as_ref()
-                .is_none_or(|active| active.dropped.is_empty()),
-            "ASM task changed without ending the previous import or beginning full sync"
-        );
-        self.active = Some(Import {
-            task_id: task_id.to_vec(),
-            dropped: BTreeSet::new(),
-        });
+    /// Starts tracking an import, preserving records on duplicate notifications.
+    pub fn start(&mut self) {
+        self.dropped.get_or_insert_default();
     }
 
-    /// Ends the matching import; stale terminal notifications are ignored.
-    pub fn end(&mut self, task_id: &[u8]) {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.task_id == task_id)
-        {
-            self.active = None;
-        }
+    /// Releases deletion records on import completion or failure.
+    pub fn end(&mut self) {
+        self.dropped = None;
     }
 
     /// Records a drop, returning whether a new record was inserted.
     pub fn record_drop(&mut self, name: &[u8]) -> bool {
-        self.active
+        self.dropped
             .as_mut()
-            .is_some_and(|active| active.dropped.insert(name.to_vec()))
+            .is_some_and(|names| names.insert(name.to_vec()))
     }
 
     /// Whether schema replay must ignore this name.
     pub fn was_dropped(&self, name: &[u8]) -> bool {
-        self.active
+        self.dropped
             .as_ref()
-            .is_some_and(|active| active.dropped.contains(name))
+            .is_some_and(|names| names.contains(name))
     }
 
     /// Whether an RDB must carry deletion records even without any indexes.
     pub fn has_drops(&self) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| !active.dropped.is_empty())
+        self.dropped.as_ref().is_some_and(|names| !names.is_empty())
     }
 
-    /// Clears pre-snapshot records while retaining the active task.
+    /// Clears pre-snapshot records while retaining active-import state.
     ///
     /// Core may suppress a duplicate start notification during full sync.
     pub fn begin_loading(&mut self) {
-        if let Some(active) = &mut self.active {
-            active.dropped.clear();
+        if let Some(names) = &mut self.dropped {
+            names.clear();
         }
     }
 
-    /// Saves the active import's deletion records in the module auxiliary payload.
+    /// Saves deletion records using [`SchemaRegistryEncoding::Names`].
     pub fn save(&self, io: &mut impl RdbIO) {
-        let active = self
-            .active
-            .as_ref()
-            .filter(|active| !active.dropped.is_empty());
-        io.write_u64(u64::from(active.is_some()));
-        if let Some(active) = active {
-            io.write_buffer(&active.task_id);
-            io.write_u64(active.dropped.len() as u64);
-            for name in &active.dropped {
+        let saved = self.dropped.as_ref().filter(|names| !names.is_empty());
+        io.write_u64(u64::from(saved.is_some()));
+        if let Some(names) = saved {
+            io.write_u64(names.len() as u64);
+            for name in names {
                 io.write_buffer(name);
             }
         }
     }
 
-    /// Replaces records only for the task restored by Core before module auxiliary loading.
+    /// Replaces records when Core has established an active import.
     ///
-    /// Core's `cluster-asm-task` RDB field precedes module auxiliary data. It restores
-    /// the serialized task ID and notifies Search before this call; duplicate start
-    /// notifications may be suppressed. Cold recovery and snapshots from another
-    /// task consume but discard the records.
+    /// Core restores its import state before module auxiliary loading. Together
+    /// with [`Self::begin_loading`], this also handles suppressed duplicate start
+    /// notifications. Cold recovery consumes but discards the saved records.
     ///
     /// # Errors
-    /// Returns an error on malformed framing or failed IO, without changing the tracker.
-    pub fn load(&mut self, io: &mut impl RdbIO) -> io::Result<()> {
+    /// Returns an error on malformed framing or failed IO, without changing the registry.
+    pub fn load(
+        &mut self,
+        io: &mut impl RdbIO,
+        encoding: SchemaRegistryEncoding,
+    ) -> io::Result<()> {
         let saved = match io.read_u64()? {
-            0 => None,
+            0 => BTreeSet::new(),
             1 => {
-                let task_id = io.read_buffer()?;
-                let count = io.read_u64()?;
-                let mut dropped = BTreeSet::new();
-                for _ in 0..count {
-                    dropped.insert(io.read_buffer()?);
+                if matches!(encoding, SchemaRegistryEncoding::TaskIdAndNames) {
+                    let _ = io.read_buffer()?;
                 }
-                Some(Import { task_id, dropped })
+                let count = io.read_u64()?;
+                let mut names = BTreeSet::new();
+                for _ in 0..count {
+                    names.insert(io.read_buffer()?);
+                }
+                names
             }
             _ => {
                 return Err(io::Error::new(
@@ -136,11 +116,8 @@ impl AsmSchemaRegistry {
                 ));
             }
         };
-        self.begin_loading();
-        if let (Some(active), Some(saved)) = (&mut self.active, saved)
-            && active.task_id == saved.task_id
-        {
-            active.dropped = saved.dropped;
+        if let Some(names) = &mut self.dropped {
+            *names = saved;
         }
         Ok(())
     }
