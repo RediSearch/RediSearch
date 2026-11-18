@@ -108,13 +108,12 @@ static inline void ASM_StateMachine_StartImportOverlay(const RedisModuleSlotRang
 */
 static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_promote_to_local_slots(slots);
-  ASM_ImportWindow_Close(slots);
 }
 
 /**
- * The import of the slots failed. Ownership is unchanged, the slots leave the import window.
+ * The import attempt of the slots ended, completed or failed: they leave the import window.
  */
-static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *slots) {
+static inline void ASM_StateMachine_EndImport(const RedisModuleSlotRangeArray *slots) {
   ASM_ImportWindow_Close(slots);
 }
 
