@@ -347,12 +347,6 @@ static void RP_HoldStop(const ResultProcessor *rp) {
   }
 }
 
-// Whether an upstream stage holds rows past a memory stop. The stop lasts the whole request.
-static bool RP_UpstreamHold(const ResultProcessor *rp) {
-  const QueryRequestLimits *limits = rp->parent->limits;
-  return limits && QueryRequestLimits_IsMemoryStopped(limits);
-}
-
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
   if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits, counter)) {
     return false;
@@ -362,14 +356,16 @@ bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
 }
 
 bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter) {
-  const bool heldUpstream = RP_UpstreamHold(rp);
+  const QueryRequestLimits *limits = rp->parent->limits;
+  // The stop lasts the whole request, so one already requested belongs to an upstream stage that
+  // holds rows past it.
+  const bool heldUpstream = limits && QueryRequestLimits_IsMemoryStopped(limits);
   if (RP_FillShouldStop(rp, counter)) {
     return true;
   }
   // The checkpoint's stop under RETURN is on a stage that holds no rows upstream of it unless
   // one was already stopped, so a fresh stop here is this processor's own.
-  const QueryRequestLimits *timeout = rp->parent->limits;
-  return !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+  return !heldUpstream && limits && QueryRequestLimits_IsMemoryStopped(limits);
 }
 
 typedef enum {
@@ -1492,7 +1488,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
   // with nothing held upstream, cuts the load.
-  const bool checkMemory = timeout && !RP_UpstreamHold(&self->base_loader.base);
+  const bool checkMemory = timeout && !QueryRequestLimits_IsMemoryStopped(timeout);
   bool stopped = false;
 
   // iterate the buffer.
@@ -3412,8 +3408,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     // never read later: with no rows held the total is rebased to zero.
     ResultProcessor *root = self->base.parent->rootProc;
     // A blocked-client timeout owns the reply and keeps the exact total, as in RP_StopPolicy.
-    if (RP_UpstreamHold(&self->base) &&
-        !QueryRequestLimits_IsBlockedClientTimedOut(self->base.parent->limits) && root &&
+    const QueryRequestLimits *limits = self->base.parent->limits;
+    if (limits && QueryRequestLimits_IsMemoryStopped(limits) &&
+        !QueryRequestLimits_IsBlockedClientTimedOut(limits) && root &&
         root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
       self->base.parent->totalResults = self->depleted_results;
     }
