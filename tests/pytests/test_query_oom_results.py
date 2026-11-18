@@ -1155,6 +1155,8 @@ def test_hybrid_merger_consume_stop_replies_by_on_oom_policy(env):
                     else:
                         res = env.cmd(*query)
                         env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=message)
+                        # The rows the merger already holds are the reply, never none.
+                        env.assertGreater(len(res['results']), 0, message=message)
                         env.assertLessEqual(len(res['results']), full, message=message)
                         if n == 1:
                             env.assertLess(len(res['results']), full, message=message)
