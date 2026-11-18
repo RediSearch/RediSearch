@@ -84,6 +84,7 @@ public:
     static const char *TIERED_HNSW_SWAP_JOBS_THRESHOLD_STRING;
     static const char *TIERED_HNSW_DEFRAG_RUNS_STRING;
     static const char *TIERED_HNSW_DEFRAG_TIME_NS_STRING;
+    static const char *TIERED_HNSW_NUM_ID_HOLES_STRING;
     // tiered SVS specific
     static const char *TIERED_SVS_TRAINING_THRESHOLD_STRING;
     static const char *TIERED_SVS_DEFRAG_RUNS_STRING;

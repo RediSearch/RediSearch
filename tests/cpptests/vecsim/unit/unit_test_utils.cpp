@@ -26,7 +26,7 @@ namespace DebugInfoIteratorFieldCount {
 constexpr size_t FLAT = 11;
 constexpr size_t HNSW = 18;
 constexpr size_t SVS = 25;
-constexpr size_t TIERED_HNSW = 18;
+constexpr size_t TIERED_HNSW = 19;
 constexpr size_t TIERED_SVS = 20;
 } // namespace DebugInfoIteratorFieldCount
 
@@ -504,6 +504,12 @@ void compareTieredIndexInfoToIterator(VecSimIndexDebugInfo info,
             ASSERT_EQ(infoField->fieldType, INFOFIELD_UINT64);
             ASSERT_EQ(infoField->fieldValue.uintegerValue,
                       info.tieredInfo.specificTieredBackendInfo.hnswTieredInfo.defragTimeNs);
+        } else if (!strcmp(infoField->fieldName,
+                           VecSimCommonStrings::TIERED_HNSW_NUM_ID_HOLES_STRING)) {
+            ASSERT_EQ(backendAlgo, VecSimAlgo_HNSWLIB);
+            ASSERT_EQ(infoField->fieldType, INFOFIELD_UINT64);
+            ASSERT_EQ(infoField->fieldValue.uintegerValue,
+                      info.tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles);
             // SVS specific fields
         } else if (!strcmp(infoField->fieldName,
                            VecSimCommonStrings::TIERED_SVS_TRAINING_THRESHOLD_STRING)) {
@@ -874,6 +880,7 @@ std::vector<std::string> getTieredHNSWFields() {
             TIERED_HNSW_SWAP_JOBS_THRESHOLD_STRING); // 15. TIERED_HNSW_SWAP_JOBS_THRESHOLD
     fields.push_back(VecSimCommonStrings::TIERED_HNSW_DEFRAG_RUNS_STRING);    // 16.
     fields.push_back(VecSimCommonStrings::TIERED_HNSW_DEFRAG_TIME_NS_STRING); // 17.
+    fields.push_back(VecSimCommonStrings::TIERED_HNSW_NUM_ID_HOLES_STRING);   // 18.
     fields.push_back(VecSimCommonStrings::SHARED_MEMORY_STRING);
     return fields;
 }
