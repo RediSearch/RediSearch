@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
-#include "redismodule.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
@@ -23,8 +22,6 @@ typedef enum tm_iter_mode {
   TM_SUFFIX_MODE = 2,
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
-
-typedef struct RedisModuleIO RedisModuleIO;
 
 /**
  * Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
@@ -320,33 +317,6 @@ size_t TrieMap_NNodes(const struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
-
-/**
- * Load a disk TAG dictionary, returning null on a read or validation error.
- *
- * The caller owns the result. Free it through [`crate::TrieMap_Free`] with a
- * callback that leaves count values alone. See [`load`] for validation rules.
- *
- * # Safety
- *
- * 1. `io` must be a [valid], exclusively accessible Redis RDB reader.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct TrieMap *TrieMap_RdbLoad(struct RedisModuleIO *io);
-
-/**
- * Save a disk TAG dictionary containing document counts, as described by [`save`].
- *
- * # Safety
- *
- * 1. `io` must be a [valid], exclusively accessible Redis RDB writer.
- * 2. `map` must point to a [valid] [`TrieMap`], immutably borrowed for this call,
- *    whose values encode positive counts rather than allocated objects.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TrieMap_RdbSave(struct RedisModuleIO *io, const struct TrieMap *map);
 
 #ifdef __cplusplus
 }  // extern "C"
