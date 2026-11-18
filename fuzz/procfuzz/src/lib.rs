@@ -19,7 +19,6 @@ pub mod edit;
 pub mod error;
 pub mod findings;
 pub mod interrupt;
-pub mod legacy;
 pub mod model;
 pub mod process;
 pub mod sanitizer;

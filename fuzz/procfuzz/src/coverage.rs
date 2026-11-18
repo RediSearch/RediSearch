@@ -31,14 +31,6 @@ const HEADER: usize = 16;
 
 static NEXT_MAP: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Coverage {
-    /// How many edges the binary has.
-    pub guards: u64,
-    /// The ids of the edges reached.
-    pub edges: Vec<u32>,
-}
-
 pub struct CoverageMap {
     name: String,
     map: MmapMut,
@@ -73,14 +65,6 @@ impl CoverageMap {
     /// Makes the process `command` starts write its edges here.
     pub fn attach(&self, command: &mut Command) {
         command.env(ENV, &self.name);
-    }
-
-    /// Complete only once the process and its children have exited.
-    pub fn read(&self) -> Coverage {
-        Coverage {
-            guards: self.guards(),
-            edges: self.edges().collect(),
-        }
     }
 
     /// How many edges the binary has.

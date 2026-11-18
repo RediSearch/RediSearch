@@ -204,3 +204,51 @@ where
     })?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::toy::{Store, Toy};
+
+    #[test]
+    fn a_failing_worker_stops_the_campaign_without_waiting_for_the_others() {
+        let (done, result) = mpsc::channel();
+        // Not scoped, so that a campaign that never stops fails the test
+        // rather than hanging it.
+        std::thread::spawn(move || done.send(campaign_with_a_failing_worker()));
+        let result = result
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the campaign stops");
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("runs in a row failed"), "{error}");
+    }
+
+    fn campaign_with_a_failing_worker() -> Result<(), Error> {
+        let dir = tempfile::tempdir().unwrap();
+        let findings = Findings::new(&dir.path().join("findings"), &()).unwrap();
+        let corpus = dir.path().join("corpus");
+        let campaign = Campaign {
+            seeds: &[],
+            corpus: &corpus,
+            duration: None,
+        };
+        let failing_worker_runs = AtomicUsize::new(0);
+        let start = || {
+            let name = std::thread::current().name().map(str::to_owned);
+            // Its first run succeeds, so the worker gets past loading the
+            // corpus.
+            if name.as_deref() == Some("worker 0")
+                && failing_worker_runs.fetch_add(1, Ordering::Relaxed) > 0
+            {
+                return Err(io::Error::other("the system did not start"));
+            }
+            Ok(Store::default())
+        };
+        fuzz(&Toy, &start, &findings, &campaign, 2)
+    }
+}
