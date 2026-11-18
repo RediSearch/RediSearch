@@ -18,7 +18,7 @@ use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator, utils:
 use top_k::{ChildReduction, TopKHeap, TopKIterator, TopKMode, reduce_child};
 
 use crate::{
-    DocValidity, NumericScoreSource, NumericTopKIterator, cmp_for,
+    DocValidity, NumericOptimizerMode, NumericScoreSource, NumericTopKIterator, cmp_for,
     range_iterator::NumericTreeRef,
     source::{DEFAULT_RANGE_BATCH_SIZE, estimate_limit},
 };
@@ -45,10 +45,12 @@ impl std::fmt::Debug for HeapReserveError {
 /// [`reduce_child`] and choosing the unfiltered or filtered construction.
 ///
 /// `num_docs` is the total document count; with the child's selectivity
-/// estimate it sizes the initial retry window. `validity`, `expiration` and
-/// `timeout` are the source's [`DocValidity`], [`ExpirationChecker`] and
-/// [`TimeoutContext`]. An empty child or `k == 0` returns [`None`]; callers raise
-/// a zero `LIMIT` to the default first, as C's `QOptimizer_Parse` does.
+/// estimate it sizes the initial retry window. `mode` is the strategy the query
+/// plan picked. `validity`,
+/// `expiration` and `timeout` are the source's [`DocValidity`],
+/// [`ExpirationChecker`] and [`TimeoutContext`]. An empty child or `k == 0`
+/// returns [`None`]; callers raise a zero `LIMIT` to the default first, as C's
+/// `QOptimizer_Parse` does.
 ///
 /// # Errors
 ///
@@ -61,6 +63,7 @@ pub fn new_numeric_top_k<'index, V, E, T>(
     ascending: bool,
     k: usize,
     num_docs: usize,
+    mode: NumericOptimizerMode,
     validity: V,
     expiration: E,
     timeout: T,
@@ -108,6 +111,7 @@ where
     };
     Ok(Some(TopKIterator::from_heap(
         source
+            .with_optimizer_mode(mode)
             .with_validity(validity)
             .with_expiration(expiration)
             .with_timeout(timeout),
