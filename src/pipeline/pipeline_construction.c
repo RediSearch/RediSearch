@@ -244,6 +244,17 @@ static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   return result;
 }
 
+// The coordinator's RPNet preloads the shard-summed WITHCOUNT total, which a stopped depleter
+// rebases (see RPDepleter_SetTotalPreloaded).
+static ResultProcessor *newDepleter(const AggregationPipelineParams *params) {
+  ResultProcessor *rp = RPDepleter_New();
+  if (IsCoordinator(&params->common) && IsAggregate(&params->common) &&
+      HasWithCount(&params->common)) {
+    RPDepleter_SetTotalPreloaded(rp);
+  }
+  return rp;
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -330,7 +341,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   if (astp->offset || (astp->limit && !rp)) {
     if (HasDepleter(&params->common)) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }
@@ -346,7 +357,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   if (HasDepleter(&params->common)) { // We need to add a RPDepleter
     if (!RPDepleterAdded) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }

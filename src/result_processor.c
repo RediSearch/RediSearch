@@ -17,7 +17,6 @@
 #include <sys/param.h>
 
 #include "aggregate/aggregate.h"
-#include "coord/rpnet.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
@@ -3368,6 +3367,7 @@ typedef struct {
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
   uint32_t memoryCheckCalls;        // QueryMemory_Checkpoint counter for the buffer
+  bool totalPreloaded;              // See RPDepleter_SetTotalPreloaded
 } RPDepleter;
 
 /**
@@ -3406,12 +3406,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     // as standalone does by counting rows as they stream. An ordinary deadline keeps the exact
     // total the WITHCOUNT barrier supplied. A memory stop is sticky, so rows upstream of it are
     // never read later: with no rows held the total is rebased to zero.
-    ResultProcessor *root = self->base.parent->rootProc;
     // A blocked-client timeout owns the reply and keeps the exact total, as in RP_StopPolicy.
     const QueryRequestLimits *limits = self->base.parent->limits;
-    if (limits && QueryRequestLimits_IsMemoryStopped(limits) &&
-        !QueryRequestLimits_IsBlockedClientTimedOut(limits) && root &&
-        root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
+    if (self->totalPreloaded && limits && QueryRequestLimits_IsMemoryStopped(limits) &&
+        !QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
       self->base.parent->totalResults = self->depleted_results;
     }
   }
@@ -3489,6 +3487,10 @@ ResultProcessor *RPDepleter_New() {
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
+}
+
+void RPDepleter_SetTotalPreloaded(ResultProcessor *base) {
+  ((RPDepleter *)base)->totalPreloaded = true;
 }
 
 void RPDepleter_StartDepletion(ResultProcessor *base) {
