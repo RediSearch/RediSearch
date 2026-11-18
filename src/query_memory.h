@@ -58,7 +58,7 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
 bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
 
 /**
- * The memory checkpoint between the build stages of a query, before it reads
+ * The memory checkpoint after a query is built, before it reads
  * its first row. Unless a stop is already requested, reads memory on this call,
  * whatever the read interval. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails

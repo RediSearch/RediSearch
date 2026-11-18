@@ -1418,7 +1418,8 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-// Memory checkpoint between build stages. FT.EXPLAIN builds a plan it never runs, so it is exempt.
+// Memory checkpoint once the query is built, which also covers the wait for a worker. FT.EXPLAIN
+// builds a plan it never runs, so it is exempt.
 static int checkBuildMemory(AREQ *req, QueryError *status) {
   if (!IsSearch(req) && !IsAggregate(req)) {
     return REDISMODULE_OK;
@@ -1434,11 +1435,6 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
-
-  // Memory may have grown since the entry guard, while the query waited for a worker.
-  if (checkBuildMemory(req, status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
 
   // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
   // This pins the on-disk view to the same point in time as the in-memory trie/stats that
@@ -1473,7 +1469,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (QueryError_HasError(status) || checkBuildMemory(req, status) != REDISMODULE_OK) {
+  if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
   }
 
