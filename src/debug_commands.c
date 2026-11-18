@@ -2988,8 +2988,8 @@ DEBUG_COMMAND(GCTimerArms) {
  * FT.DEBUG ASM_IMPORT_WINDOW CONTAINS <slot>
  * FT.DEBUG ASM_IMPORT_WINDOW RESET
  *
- * Drives the slot window of an SST import (asm_import_window.h) as the import's stage events
- * would, without a migration.
+ * Drives the slot window of an SST import (asm_import_window.h) through the ASM state machine
+ * steps the import's events take, without a migration.
  */
 DEBUG_COMMAND(ASMImportWindow) {
   if (!debugCommandsEnabled(ctx)) {
@@ -3027,8 +3027,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     }
     apply = ASM_StateMachine_StartImportOverlay;
   } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
-    // Not ASM_StateMachine_CompleteImport: that would also take ownership of the slots.
-    apply = ASM_ImportWindow_Close;
+    apply = ASM_StateMachine_EndImport;
   } else {
     return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
   }
