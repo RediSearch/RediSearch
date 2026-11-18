@@ -1469,8 +1469,7 @@ static int checkBuildMemory(AREQ *req, QueryError *status) {
   if (!IsSearch(req) && !IsAggregate(req)) {
     return REDISMODULE_OK;
   }
-  return QueryMemory_CheckBeforeExecution(&req->base.limits, req->base.reqConfig.oomPolicy,
-                                          status);
+  return QueryMemory_CheckBeforeExecution(&req->base.limits, req->base.reqConfig.oomPolicy, status);
 }
 
 // Assumes the spec is guarded by its own lock (for read), such that races with
