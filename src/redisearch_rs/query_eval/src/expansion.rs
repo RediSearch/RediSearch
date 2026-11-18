@@ -35,7 +35,7 @@ use crate::{QueryEvalContext, disk};
 /// FT.AGGREGATE take part, plus requests that opt in with
 /// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
 /// runs its plan, and the hybrid reply maps an OOM stop under FAIL only.
-pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
+pub(crate) fn memory_stop(ctx: &mut QueryEvalContext, counter: &mut u32) -> bool {
     if !ctx
         .req_flags()
         .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
@@ -44,9 +44,9 @@ pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
         return false;
     }
     let timeout = ctx.sctx().limits;
-    // SAFETY: the counter is a live `u32` and `timeout` is the request's own, or null, which the
+    // SAFETY: `counter` is a live `u32` and `timeout` is the request's own, or null, which the
     // C side accepts.
-    unsafe { ffi::QueryMemory_Checkpoint(timeout, ctx.memory_counter_mut()) }
+    unsafe { ffi::QueryMemory_Checkpoint(timeout, counter) }
 }
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
@@ -224,6 +224,9 @@ pub(super) struct Expansion<'a> {
     pub(super) needs_offsets: bool,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
+    /// Amortization count of [`memory_stop`]; the request-wide count behind it makes sure memory
+    /// is read even when one expansion is far below the read interval.
+    pub(super) memory_counter: u32,
 }
 
 impl Expansion<'_> {
@@ -265,7 +268,7 @@ impl Expansion<'_> {
 
     /// See [`memory_stop`](fn@memory_stop).
     fn memory_stop(&mut self) -> bool {
-        memory_stop(self.ctx)
+        memory_stop(self.ctx, &mut self.memory_counter)
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max

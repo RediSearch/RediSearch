@@ -136,7 +136,6 @@ impl MockQueryEvalCtx {
             (*qctx).config = (config as *mut IteratorsConfig).cast();
             (*qctx).tokenId = 0;
             (*qctx).inNotSubTree = false;
-            (*qctx).memoryCheckCounter = 0;
 
             Self {
                 sctx,
