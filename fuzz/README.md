@@ -133,6 +133,7 @@ cd fuzz/redisearch
 RUST_LOG=debug cargo run -- run seeds/smoke.json
 cargo run -- run <program.json> --repeat 10
 cargo run -- fuzz --seeds seeds --duration 3600
+cargo run -- compare --seeds seeds --runs 1000 --setup libafl --setup libafl+confirm
 cargo run -- reduce <program.json>
 cargo run -- generate --seed 7 --ops 30 > program.json
 ```
@@ -153,6 +154,14 @@ own corpus kept in `corpus/<worker>/`, writing each finding that is new to
 `findings/`. A finding that already has a directory there is not reported
 again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
 in progress finish and cleans up their servers.
+
+`--setup` picks the engine, `libafl` or `basic`, and whether it runs a
+program again before counting a feature it shows for the first time
+(`+confirm`, the default). `--runs N` ends each worker after N runs, and
+`--share` lets workers take each other's programs without running them.
+`compare --runs N --trials 8 --setup libafl+confirm --setup basic+confirm`
+runs eight campaigns of N runs per setup and reports, per setup, which
+findings it found in how many trials and how many programs it kept.
 
 `reduce` shrinks a failing program while each smaller version still yields
 the same finding (the first one, or the one named by `--finding`), then runs

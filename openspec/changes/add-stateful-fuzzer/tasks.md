@@ -112,9 +112,10 @@ process, with the RediSearch layer reduced to what is RediSearch-specific.
 - [x] 11.6 Ship the commands in `procfuzz` and the clap subcommand behind the `cli` feature
 - [x] 11.7 Port RediSearch to `Model`, with one table of command effects
 - [x] 11.8 Delete the first core
-- [ ] 11.9 Put the engine behind one function from program to features, and add a stability check before keeping a program
-- [ ] 11.10 Record a reproduction rate for every finding the campaign writes
+- [x] 11.9 Put the engine behind one function from program to features, with a plain loop beside LibAFL, and add a stability check before counting a new feature
+- [x] 11.10 Record a reproduction rate for every finding the campaign writes
 - [ ] 11.11 Rerun the engine comparison on RediSearch, at least 8 trials per setup, before choosing an engine or a per-feature score
-- [ ] 11.12 Try multi-core corpus sharing through LibAFL's LLMP
+- [x] 11.12 Share kept programs between workers without rerunning them (in-process, as LLMP's receiving side does: the workers are threads of one process, so LLMP's inter-process transport is not needed)
+- **Measured (`kvd` with edge coverage, 8 trials of 5,000 runs per setup):** confirming new features cuts the programs kept from 124 to 70 with LibAFL and from 119 to 69 with the plain loop. Bugs found per setup, out of 8 trials (crash, hang, wrong answer): `libafl` 1, 6, 1; `libafl+confirm` 0, 6, 2; `basic` 0, 5, 1; `basic+confirm` 1, 5, 1. That is too few to separate the setups, so the default stays LibAFL with confirmation until the comparison runs on RediSearch (11.11).
 - **Status:** `kvd`'s tests reproduce each planted bug from a fixed program and shrink padded programs to exactly the planted 5, 7, and 7 ops. Against the AddressSanitizer build, every live test passes except the seed-coverage check, which needs the module rebuilt with the renamed `PROCFUZZ_COVERAGE_SHM`; the short campaign was not run for the same reason.
 

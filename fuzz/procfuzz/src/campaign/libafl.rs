@@ -7,23 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A search for programs that reach new features, on LibAFL. The search
-//! keeps each such program and mutates the ones it keeps, preferring short
-//! and fast ones.
+//! The LibAFL engine: its corpus, max-map feedback over hashed features,
+//! and the length-and-time minimizing scheduler.
 
 use std::borrow::Cow;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use libafl::corpus::{Corpus, CorpusId, InMemoryCorpus, InMemoryOnDiskCorpus};
 use libafl::events::SimpleEventManager;
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::MaxMapFeedback;
-use libafl::fuzzer::{Evaluator, Fuzzer, StdFuzzer};
+use libafl::fuzzer::{Evaluator, ExecutionProcessor, Fuzzer, StdFuzzer};
 use libafl::inputs::Input;
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{MutationResult, Mutator};
@@ -35,11 +33,10 @@ use libafl::{Error, random_corpus_id};
 use libafl_bolts::rands::{Rand, StdRand};
 use libafl_bolts::tuples::{RefIndexable, tuple_list, tuple_list_type};
 use libafl_bolts::{HasLen, Named, current_nanos};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use super::{Campaign, Halt, Op, Outcome, Runner};
 use crate::draw::Draw;
-use crate::interrupt::interrupted;
 use crate::model::Program;
 use crate::system::Feature;
 
@@ -47,47 +44,15 @@ use crate::system::Feature;
 const MAP: usize = 1 << 20;
 const MUTATIONS_PER_PICK: usize = 8;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
-/// Runs that may fail in a row, as when the machine is briefly out of
-/// resources, before the campaign gives up.
-const FAILURES_IN_A_ROW: u32 = 3;
 
-pub struct Campaign<'a> {
-    /// Directories of programs to start from.
-    pub seeds: &'a [PathBuf],
-    /// Where the programs found are kept; a campaign starts from them too.
-    pub corpus: &'a Path,
-    /// Until stopped, if `None`.
-    pub duration: Option<Duration>,
-}
-
-/// What a campaign's programs are made of.
-pub trait Op: Clone + Debug + Hash + Serialize + DeserializeOwned {}
-
-impl<O: Clone + Debug + Hash + Serialize + DeserializeOwned> Op for O {}
-
-/// `execute` runs a program and returns the features it reached; anything
-/// else a run shows, such as findings, is for `execute` to handle. `mutate`
-/// edits a program, splicing from a donor program. Without seeds the search
-/// starts from the empty program. It returns without an error once `stop` is
-/// set or the process is [`interrupted`], after the run in progress.
-pub fn fuzz<O: Op, E: Display>(
+pub(super) fn search<O: Op, E: Display, F>(
     campaign: &Campaign<'_>,
-    stop: &AtomicBool,
-    execute: impl FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
+    runner: Runner<'_, F, O>,
     mutate: impl FnMut(&Program<O>, &Program<O>, &mut Draw) -> Program<O>,
-) -> Result<(), Error> {
-    match search(campaign, stop, execute, mutate) {
-        Err(Error::ShuttingDown) => Ok(()),
-        result => result,
-    }
-}
-
-fn search<O: Op, E: Display>(
-    campaign: &Campaign<'_>,
-    stop: &AtomicBool,
-    execute: impl FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
-    mutate: impl FnMut(&Program<O>, &Program<O>, &mut Draw) -> Program<O>,
-) -> Result<(), Error> {
+) -> Result<Outcome, crate::error::Error>
+where
+    F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
+{
     let features = OwnedMapObserver::new("features", vec![0u8; MAP]).track_indices();
     let mut feedback = MaxMapFeedback::new(&features);
     let mut state = StdState::new(
@@ -99,10 +64,8 @@ fn search<O: Op, E: Display>(
     )?;
     let scheduler = IndexesLenTimeMinimizerScheduler::new(&features, QueueScheduler::new());
     let mut fuzzer = StdFuzzer::new(scheduler, feedback, ());
-    let mut executor = ClosureExecutor {
-        execute,
-        stop,
-        failures: 0,
+    let mut executor = RunnerExecutor {
+        runner,
         observers: tuple_list!(features),
     };
     let mut last_status = Instant::now();
@@ -119,20 +82,42 @@ fn search<O: Op, E: Display>(
 
     let mut dirs = campaign.seeds.to_vec();
     dirs.push(campaign.corpus.to_owned());
-    state.load_initial_inputs(&mut fuzzer, &mut executor, &mut manager, &dirs)?;
-    if state.corpus().count() == 0 {
-        fuzzer.add_input(
-            &mut state,
-            &mut executor,
-            &mut manager,
-            Entry(Program::default()),
-        )?;
+    let result: Result<(), Error> = (|| {
+        state.load_initial_inputs(&mut fuzzer, &mut executor, &mut manager, &dirs)?;
+        if state.corpus().count() == 0 {
+            fuzzer.add_input(
+                &mut state,
+                &mut executor,
+                &mut manager,
+                Entry(Program::default()),
+            )?;
+        }
+        loop {
+            for (program, features) in executor.runner.imports() {
+                let map = executor.observers.0.as_mut();
+                map.fill(0);
+                for feature in features {
+                    map[slot(feature)] = 1;
+                }
+                fuzzer.evaluate_execution(
+                    &mut state,
+                    &mut manager,
+                    &Entry(program),
+                    &executor.observers,
+                    &ExitKind::Ok,
+                    false,
+                )?;
+            }
+            fuzzer.fuzz_one(&mut stages, &mut executor, &mut state, &mut manager)?;
+        }
+    })();
+    match result {
+        Ok(()) | Err(Error::ShuttingDown) => Ok(Outcome {
+            runs: executor.runner.runs,
+            kept: state.corpus().count(),
+        }),
+        Err(e) => Err(e.into()),
     }
-    let deadline = campaign.duration.map(|d| Instant::now() + d);
-    while deadline.is_none_or(|deadline| Instant::now() < deadline) {
-        fuzzer.fuzz_one(&mut stages, &mut executor, &mut state, &mut manager)?;
-    }
-    Ok(())
 }
 
 /// LibAFL's input traits are foreign, so they are implemented on a wrapper.
@@ -164,15 +149,12 @@ impl<O> HasLen for Entry<O> {
 
 type Features = ExplicitTracking<OwnedMapObserver<u8>, true, false>;
 
-struct ClosureExecutor<'a, F> {
-    execute: F,
-    stop: &'a AtomicBool,
-    /// In a row.
-    failures: u32,
+struct RunnerExecutor<'a, F, O> {
+    runner: Runner<'a, F, O>,
     observers: tuple_list_type!(Features),
 }
 
-impl<F> HasObservers for ClosureExecutor<'_, F> {
+impl<F, O> HasObservers for RunnerExecutor<'_, F, O> {
     type Observers = tuple_list_type!(Features);
 
     fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
@@ -184,8 +166,9 @@ impl<F> HasObservers for ClosureExecutor<'_, F> {
     }
 }
 
-impl<EM, S, Z, O, E, F> Executor<EM, Entry<O>, S, Z> for ClosureExecutor<'_, F>
+impl<EM, S, Z, O, E, F> Executor<EM, Entry<O>, S, Z> for RunnerExecutor<'_, F, O>
 where
+    O: Clone,
     S: HasExecutions,
     E: Display,
     F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
@@ -197,29 +180,21 @@ where
         _manager: &mut EM,
         entry: &Entry<O>,
     ) -> Result<ExitKind, Error> {
-        if self.stop.load(Ordering::Relaxed) || interrupted() {
-            return Err(Error::shutting_down());
-        }
-        *state.executions_mut() += 1;
-        match (self.execute)(&entry.0) {
-            Ok(features) => {
-                self.failures = 0;
+        let before = self.runner.runs;
+        let observed = self.runner.observe(&entry.0);
+        *state.executions_mut() += self.runner.runs - before;
+        match observed {
+            Ok(Some(observed)) => {
                 let map = self.observers.0.as_mut();
-                for feature in features {
+                for feature in observed.features {
                     map[slot(feature)] = 1;
                 }
+                Ok(ExitKind::Ok)
             }
-            Err(e) => {
-                self.failures += 1;
-                if self.failures == FAILURES_IN_A_ROW {
-                    return Err(Error::unknown(format!(
-                        "{FAILURES_IN_A_ROW} runs in a row failed, the last with: {e}"
-                    )));
-                }
-                log::warn!("run failed: {e}");
-            }
+            Ok(None) => Ok(ExitKind::Ok),
+            Err(Halt::Done) => Err(Error::shutting_down()),
+            Err(Halt::Failed(e)) => Err(Error::unknown(e)),
         }
-        Ok(ExitKind::Ok)
     }
 }
 

@@ -330,33 +330,48 @@ is the signal.
 
 ## Campaign
 
-LibAFL 0.16.1 supplies the corpus, novelty, scheduling, and statistics.
+An engine sees a program only through one function from program to
+features, so engines can be swapped and compared. Between the engine and
+that function sits a runner, shared by both engines, that:
 
-- A wrapper around a program implements `Input` with JSON files and `HasLen`
-  as its op count.
-- The executor runs a program and hashes each feature into a map observer of
-  2^20 entries. The command layer writes each finding that has no directory
-  under `findings/` yet: creating the directory claims it, so a known bug is
-  marked by its directory, and of several workers only one reports a finding.
-- Feedback is max-map novelty over that one map. There is no LibAFL
+- counts runs and ends the campaign when its duration or run budget is
+  spent, a sibling failed, or the process was interrupted;
+- lets a run fail three times in a row before giving up;
+- **confirms new features**: when a run shows a feature not seen before, it
+  runs the program again, counts only the features both runs showed, and
+  never counts the others again. Edges that depend on timing would otherwise
+  make many programs look new;
+- shares, when asked to, each program that shows a new feature with the other
+  workers, with the confirmed features that made it worth keeping. A worker
+  takes a shared program into its corpus without running it.
+
+Two engines sit behind it:
+
+- **`libafl`** (the default): LibAFL 0.16.1's on-disk corpus, max-map
+  feedback over features hashed into 2^20 entries, the length-and-time
+  minimizing scheduler over a queue, and one mutational stage of at most
+  eight mutations per scheduled program. A shared program is evaluated with
+  `evaluate_execution` over the features it came with, as LibAFL does for a
+  testcase another client sent with its observers. There is no LibAFL
   objective; findings never enter a corpus.
-- The scheduler is the length-and-time minimizer over a queue.
-- One mutational stage, at most eight mutations per scheduled program, calls
-  `mutate` with a donor drawn from the corpus and a `Draw` seeded from
-  LibAFL's state RNG.
-- The corpus is kept on disk as program JSON, and is reloaded with the seeds
-  when a campaign starts again. Without seeds the campaign starts from the
-  empty program.
-- A run may fail three times in a row before the worker gives up; a worker
-  that gives up stops the others after their current run. The first SIGINT or
-  SIGTERM does the same, so every server, coverage segment, and directory is
-  cleaned up.
+- **`basic`**: keeps every program that shows a new feature and mutates one
+  picked uniformly, with a donor picked the same way, cutting mutants to 40
+  ops.
 
-`fuzz --jobs N` (by default one per core) starts N worker threads, each an
-independent campaign with its own corpus under `corpus/<worker>` and a shared
-findings directory. Workers do not exchange corpus entries yet. LibAFL's LLMP
-can share them without rerunning an imported program when the clients share a
-configuration; that is to be tried.
+Without seeds a campaign starts from the empty program. The corpus is kept on
+disk as program JSON and reloaded with the seeds when a campaign starts again.
+The first SIGINT or SIGTERM ends every worker after its current run, so every
+server, coverage segment, and directory is cleaned up.
+
+`fuzz --jobs N` (by default one per core) starts N worker threads, each a
+campaign with its own corpus under `corpus/<worker>` and a shared findings
+directory; `--share` lets them take each other's programs. Each finding new to
+the directory is written with how often it reproduces in five runs.
+
+`compare` runs several trials of each setup (engine, with or without
+confirmation) with a fixed run budget and reports which findings each setup
+found in how many trials, at which run, and how many programs it kept. An
+engine or a per-feature score is chosen only from such a comparison.
 
 ## Planted bugs
 

@@ -12,20 +12,24 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use log::{debug, error, info};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::campaign::{self, Campaign};
+use crate::campaign::{self, Campaign, Exchange, Outcome, Setup};
 use crate::draw::Draw;
 use crate::edit::{mutate, shrink};
 use crate::error::Error;
 use crate::findings::{Findings, Rate};
 use crate::model::{Model, Program, generate};
 use crate::system::{Run, System, run};
+
+/// Runs of a new finding's program that tell how often it reproduces.
+pub const REPRODUCTIONS: u32 = 5;
 
 pub fn load<O: DeserializeOwned>(path: &Path) -> Result<Program<O>, Error> {
     let text = std::fs::read_to_string(path)?;
@@ -141,7 +145,9 @@ where
 
 /// Runs `jobs` independent campaigns in threads named `worker <n>`, each
 /// keeping its corpus in `<campaign.corpus>/<n>`, and writes each new finding
-/// to `findings`. A worker that fails stops the others, and its error is
+/// to `findings`, with how often it reproduces in [`REPRODUCTIONS`] runs.
+/// With `share`, each worker takes the programs the others keep, without
+/// running them. A worker that fails stops the others, and its error is
 /// returned.
 pub fn fuzz<M, S>(
     model: &M,
@@ -149,13 +155,15 @@ pub fn fuzz<M, S>(
     findings: &Findings,
     campaign: &Campaign<'_>,
     jobs: usize,
-) -> Result<(), Error>
+    share: bool,
+) -> Result<Vec<Outcome>, Error>
 where
     M: Model,
     M::Reply: Serialize,
     S: System<Input = M::Input, Reply = M::Reply>,
 {
     let stop = &AtomicBool::new(false);
+    let exchange = &Exchange::new();
     let worker = |n: usize| {
         let corpus = campaign.corpus.join(n.to_string());
         let campaign = Campaign {
@@ -167,10 +175,7 @@ where
             for finding in &run.notes.findings {
                 let name = finding.to_string();
                 if findings.claim(&name) {
-                    let rate = Rate {
-                        reproduced: 1,
-                        runs: 1,
-                    };
+                    let rate = reproduce(model, system, program, &name);
                     let dir = findings.write(&name, program, None, &run, rate)?;
                     info!("new finding: {name} -> {}", dir.display());
                 }
@@ -180,7 +185,8 @@ where
         let mutate = |parent: &Program<M::Op>, donor: &Program<M::Op>, rng: &mut Draw| {
             mutate(model, parent, donor, rng)
         };
-        let result = campaign::fuzz(&campaign, stop, execute, mutate);
+        let peer = share.then(|| exchange.peer(n));
+        let result = campaign::fuzz(&campaign, stop, peer, execute, mutate);
         if let Err(e) = &result {
             error!("{e}");
             stop.store(true, Ordering::Relaxed);
@@ -200,9 +206,131 @@ where
         workers
             .into_iter()
             .map(|worker| worker.join().expect("workers do not panic"))
-            .collect::<Result<Vec<()>, _>>()
-    })?;
-    Ok(())
+            .collect()
+    })
+}
+
+/// How often `finding` shows in [`REPRODUCTIONS`] runs of `program`, the
+/// first of which already showed it.
+fn reproduce<M, S>(model: &M, system: &S, program: &Program<M::Op>, finding: &str) -> Rate
+where
+    M: Model,
+    S: System<Input = M::Input, Reply = M::Reply>,
+{
+    let again = (1..REPRODUCTIONS)
+        .filter(|_| {
+            run(model, system, program).is_ok_and(|run| {
+                run.notes
+                    .findings
+                    .iter()
+                    .any(|found| found.to_string() == finding)
+            })
+        })
+        .count();
+    Rate {
+        reproduced: 1 + u32::try_from(again).expect("small"),
+        runs: REPRODUCTIONS,
+    }
+}
+
+/// How one setup did over repeated trials.
+#[derive(Debug, Serialize)]
+pub struct Trials {
+    pub setup: Setup,
+    pub outcomes: Vec<Outcome>,
+    /// Per finding, the run at which each trial that showed it first did.
+    pub found: BTreeMap<String, Vec<u64>>,
+}
+
+/// Runs `trials` campaigns of `runs` runs each per setup, from `seeds`, at
+/// most `jobs` at once, and reports what each setup found and kept. Nothing
+/// is written to a findings directory.
+pub fn compare<M, S>(
+    model: &M,
+    system: &S,
+    setups: &[Setup],
+    trials: u32,
+    seeds: &[PathBuf],
+    runs: u64,
+    jobs: usize,
+) -> Result<Vec<Trials>, Error>
+where
+    M: Model,
+    S: System<Input = M::Input, Reply = M::Reply>,
+{
+    let plan: Vec<(usize, u32)> = (0..setups.len())
+        .flat_map(|setup| (0..trials).map(move |trial| (setup, trial)))
+        .collect();
+    let next = AtomicUsize::new(0);
+    let stop = &AtomicBool::new(false);
+    let results = Mutex::new(Vec::new());
+    let trial = |setup: Setup| -> Result<(Outcome, BTreeMap<String, u64>), Error> {
+        let corpus = tempfile::tempdir()?;
+        let campaign = Campaign {
+            seeds,
+            corpus: corpus.path(),
+            duration: None,
+            runs: Some(runs),
+            setup,
+        };
+        let mut found = BTreeMap::new();
+        let mut done = 0;
+        let execute = |program: &Program<M::Op>| {
+            done += 1;
+            let run = run(model, system, program)?;
+            for finding in &run.notes.findings {
+                found.entry(finding.to_string()).or_insert(done);
+            }
+            Ok::<_, Error>(run.notes.features)
+        };
+        let mutate = |parent: &Program<M::Op>, donor: &Program<M::Op>, rng: &mut Draw| {
+            mutate(model, parent, donor, rng)
+        };
+        let outcome = campaign::fuzz(&campaign, stop, None, execute, mutate)?;
+        Ok((outcome, found))
+    };
+    std::thread::scope(|scope| {
+        for n in 0..jobs.max(1) {
+            let (next, results, plan, trial) = (&next, &results, &plan, &trial);
+            std::thread::Builder::new()
+                .name(format!("worker {n}"))
+                .spawn_scoped(scope, move || {
+                    while let Some(&(setup, number)) =
+                        plan.get(next.fetch_add(1, Ordering::Relaxed))
+                    {
+                        let result = trial(setups[setup]);
+                        match &result {
+                            Ok((outcome, found)) => info!(
+                                "{} trial {number}: {} runs, kept {}, found {:?}",
+                                setups[setup], outcome.runs, outcome.kept, found
+                            ),
+                            Err(e) => {
+                                error!("{e}");
+                                stop.store(true, Ordering::Relaxed);
+                            }
+                        }
+                        results.lock().expect("not poisoned").push((setup, result));
+                    }
+                })
+                .expect("threads start");
+        }
+    });
+    let mut report: Vec<Trials> = setups
+        .iter()
+        .map(|&setup| Trials {
+            setup,
+            outcomes: Vec::new(),
+            found: BTreeMap::new(),
+        })
+        .collect();
+    for (setup, result) in results.into_inner().expect("not poisoned") {
+        let (outcome, found) = result?;
+        report[setup].outcomes.push(outcome);
+        for (finding, at) in found {
+            report[setup].found.entry(finding).or_default().push(at);
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -213,6 +341,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::campaign::Setup;
     use crate::toy::{Store, Toy};
 
     #[test]
@@ -228,7 +357,7 @@ mod tests {
         assert!(error.contains("runs in a row failed"), "{error}");
     }
 
-    fn campaign_with_a_failing_worker() -> Result<(), Error> {
+    fn campaign_with_a_failing_worker() -> Result<Vec<Outcome>, Error> {
         let dir = tempfile::tempdir().unwrap();
         let findings = Findings::new(&dir.path().join("findings"), &()).unwrap();
         let corpus = dir.path().join("corpus");
@@ -236,6 +365,8 @@ mod tests {
             seeds: &[],
             corpus: &corpus,
             duration: None,
+            runs: None,
+            setup: Setup::default(),
         };
         let failing_worker_runs = AtomicUsize::new(0);
         let start = || {
@@ -249,6 +380,6 @@ mod tests {
             }
             Ok(Store::default())
         };
-        fuzz(&Toy, &start, &findings, &campaign, 2)
+        fuzz(&Toy, &start, &findings, &campaign, 2, false)
     }
 }
