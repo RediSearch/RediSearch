@@ -72,6 +72,27 @@ def _checkpoint_calls(env, query):
     return [status[5] for status in statuses]
 
 
+def _vector_checkpoint_positions(env, query):
+    """Call positions that include the vector checkpoint of `query`, a vector range query whose
+    filter is `query[2]`. Rows are not replied (LIMIT 0 0), so the calls made before the reply
+    are the same on every build whatever else checkpoints in the reply loop. The calls beyond
+    those of the same query on a numeric filter are the vector's, so the query must make more;
+    stopping at each position up to the vector's covers it without depending on its order among
+    the others."""
+    def calls(q):
+        q = list(q)
+        at = q.index('LIMIT')
+        q[at + 1:at + 3] = [0, 0]
+        return _checkpoint_calls(env, q)
+
+    with_vector = calls(query)
+    baseline = calls([*query[:2], '@n:[40 60]', *query[3:]])
+    for shard_calls, shard_baseline in zip(with_vector, baseline, strict=True):
+        env.assertGreater(shard_calls, shard_baseline, message=(with_vector, baseline))
+    # In a cluster the first process also coordinates, and its calls are not all the shard's.
+    return range(1, min(with_vector[1:] or with_vector) + 1)
+
+
 def _arm_pressure_at_call(env, at_calls):
     """AT_CALL per process: `at_calls` lists one position per shard, None means 1 everywhere."""
     if at_calls is None:
@@ -81,11 +102,12 @@ def _arm_pressure_at_call(env, at_calls):
         conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', at_call)
 
 
-def _expect_stopped_by_policy(env, query, n_results, at_calls=None):
+def _expect_stopped_by_policy(env, query, n_results, at_calls=None, keeps_some_results=False):
     """Under memory pressure at checkpoint call `at_calls` (see `_arm_pressure_at_call`), `query`
     replies per ON_OOM: RETURN an empty result with the OOM warning, FAIL the OOM error, IGNORE
     the same results as without pressure, which are `n_results` (None: not checked). The cluster
-    FT.SEARCH coordinator relays the shards' warning."""
+    FT.SEARCH coordinator relays the shards' warning. `keeps_some_results`: processes left unarmed
+    reply, so RETURN keeps their rows instead of none."""
     warning = SHARD_OOM_WARNING if env.isCluster() else COORD_OOM_WARNING
     unpressured = env.cmd(*query)
     env.assertEqual(unpressured['warning'], [], message=unpressured)
@@ -94,7 +116,10 @@ def _expect_stopped_by_policy(env, query, n_results, at_calls=None):
     try:
         _arm_pressure_at_call(env, at_calls)
         res = env.cmd(*query)
-        env.assertEqual(res['results'], [], message=res)
+        if keeps_some_results:
+            env.assertLess(len(res['results']), n_results, message=res)
+        else:
+            env.assertEqual(res['results'], [], message=res)
         env.assertEqual(res['warning'], [warning], message=res)
 
         allShards_change_oom_policy(env, 'fail')
@@ -139,7 +164,11 @@ def test_range_stops_for_oom_on_shards(env):
     coordinator turns into its own ON_OOM outcome."""
     _create_indexed_hash_index(env)
     query = _range_queries()['flat']
-    _expect_stopped_by_policy(env, query, RANGE_MATCHES, _checkpoint_calls(env, query))
+    for at_call in _vector_checkpoint_positions(env, query):
+        # The first process also coordinates, and its calls race with its shard's, so it is left
+        # unarmed.
+        at_calls = [2 ** 62] + [at_call] * (env.shardsCount - 1)
+        _expect_stopped_by_policy(env, query, RANGE_MATCHES, at_calls, keeps_some_results=True)
 
 
 @skip(cluster=True, no_json=True)
@@ -408,4 +437,5 @@ def test_range_under_numeric_sort_optimizer_stops_for_oom(env):
                      f'@{field}:[VECTOR_RANGE {RADIUS} $b]=>{{$YIELD_DISTANCE_AS: d}}', *params,
                      'SORTBY', 'n', 'NOCONTENT', 'LIMIT', 0, 5, *opt]
             env.debugPrint(f'{field} {opt}')
-            _expect_stopped_by_policy(env, query, 5, _checkpoint_calls(env, query))
+            for at_call in _vector_checkpoint_positions(env, query):
+                _expect_stopped_by_policy(env, query, 5, [at_call])
