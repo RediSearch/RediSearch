@@ -149,7 +149,6 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
-  VecSim_SetStopCallbackFunction(RS_VecSimShouldStop);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.

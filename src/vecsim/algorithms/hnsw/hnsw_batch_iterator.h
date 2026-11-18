@@ -93,7 +93,6 @@ HNSW_BatchIterator<DataType, DistType>::HNSW_BatchIterator(
 template <typename DataType, typename DistType>
 VecSimQueryReply_Code HNSW_BatchIterator<DataType, DistType>::scanGraphInternal(
     candidatesLabelsMaxHeap<DistType> *top_candidates) {
-    VecSimStopPoller stop(this->getTimeoutCtx(), VECSIM_STOP_CHECK_INTERVAL);
     while (!candidates.empty()) {
         DistType curr_node_dist = candidates.top().first;
         idType curr_node_id = candidates.top().second;
@@ -105,7 +104,7 @@ VecSimQueryReply_Code HNSW_BatchIterator<DataType, DistType>::scanGraphInternal(
         if (curr_node_dist > this->lower_bound && top_candidates->size() >= this->ef) {
             break;
         }
-        if (VECSIM_TIMEOUT(this->getTimeoutCtx()) || stop.due()) {
+        if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
             return VecSim_QueryReply_Stopped;
         }
         // Checks if we need to add the current id to the top_candidates heap,
@@ -185,7 +184,7 @@ HNSW_BatchIterator<DataType, DistType>::scanGraph(VecSimQueryReply_Code *rc) {
         candidates.emplace(this->lower_bound, this->entry_point);
     }
     // Checks that we didn't got timeout between iterations.
-    if (VECSIM_TIMEOUT(this->getTimeoutCtx()) || VECSIM_STOP(this->getTimeoutCtx())) {
+    if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
         *rc = VecSim_QueryReply_Stopped;
         return top_candidates;
     }

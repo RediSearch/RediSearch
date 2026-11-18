@@ -2415,19 +2415,22 @@ TYPED_TEST(HNSWTieredIndexTest, BatchIteratorReturnsAFlatStop) {
     TEST_DATA_T query[d];
     GenerateVector<TEST_DATA_T>(query, d, 0);
 
-    CountingQueryCallbacks callbacks;
+    static std::atomic<bool> stop_requested;
+    stop_requested = false;
+    VecSim_SetTimeoutCallbackFunction([](void *) { return stop_requested.load() ? 1 : 0; });
     VecSimBatchIterator *it = VecSimBatchIterator_New(tiered_index, query, nullptr);
     VecSimQueryReply *rep = VecSimBatchIterator_Next(it, 2, BY_SCORE);
     ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_OK);
     VecSimQueryReply_Free(rep);
 
     // A stop on a later flat batch ends the batch instead of retrying it forever.
-    CountingQueryCallbacks::stopAt = CountingQueryCallbacks::stopCalls + 1;
+    stop_requested = true;
     rep = VecSimBatchIterator_Next(it, 2, BY_SCORE);
     ASSERT_EQ(VecSimQueryReply_GetCode(rep), VecSim_QueryReply_Stopped);
     ASSERT_EQ(VecSimQueryReply_Len(rep), 0);
     VecSimQueryReply_Free(rep);
     VecSimBatchIterator_Free(it);
+    VecSim_SetTimeoutCallbackFunction([](void *) { return 0; });
 }
 
 TYPED_TEST(HNSWTieredIndexTest, BatchIteratorReset) {

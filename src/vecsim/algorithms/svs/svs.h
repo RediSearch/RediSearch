@@ -754,13 +754,10 @@ public:
                                                     is_two_level_lvq);
 
             auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            VecSimSharedStopPoller stop(timeoutCtx, VECSIM_STOP_CHECK_INTERVAL);
-            auto cancel = [timeoutCtx, &stop]() {
-                return VECSIM_TIMEOUT(timeoutCtx) || stop.due();
-            };
+            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
 
             impl->search(result.view(), query, sp, cancel);
-            if (VECSIM_TIMEOUT(timeoutCtx) || stop.hasStopped()) {
+            if (cancel()) {
                 rep->code = VecSim_QueryReply_Stopped;
                 return rep;
             }
@@ -795,10 +792,7 @@ public:
         }
         {
             auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            VecSimSharedStopPoller stop(timeoutCtx, VECSIM_STOP_CHECK_INTERVAL);
-            auto cancel = [timeoutCtx, &stop]() {
-                return VECSIM_TIMEOUT(timeoutCtx) || stop.due();
-            };
+            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
 
             // Prepare query blob for SVS
             auto processed_query_ptr = this->preprocessQuery(queryBlob);
@@ -817,7 +811,7 @@ public:
             // Search result is cached in the iterator and can be accessed by the user
             auto svs_it = impl->make_batch_iterator(query);
             svs_it.next(batch_size, cancel);
-            if (VECSIM_TIMEOUT(timeoutCtx) || stop.hasStopped()) {
+            if (cancel()) {
                 rep->code = VecSim_QueryReply_Stopped;
                 return rep;
             }
@@ -845,7 +839,7 @@ public:
                 // next batch
                 if (keep_searching) {
                     svs_it.next(batch_size, cancel);
-                    if (VECSIM_TIMEOUT(timeoutCtx) || stop.hasStopped()) {
+                    if (cancel()) {
                         rep->code = VecSim_QueryReply_Stopped;
                         return rep;
                     }

@@ -36,8 +36,7 @@ private:
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
         auto timeoutCtx = this->getTimeoutCtx();
-        VecSimSharedStopPoller stop(timeoutCtx, VECSIM_STOP_CHECK_INTERVAL);
-        auto cancel = [timeoutCtx, &stop]() { return VECSIM_TIMEOUT(timeoutCtx) || stop.due(); };
+        auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
 
         if (cancel()) {
             rep->code = VecSim_QueryReply_Stopped;
@@ -49,7 +48,7 @@ private:
         for (size_t i = 0; i < n_res; i++) {
             if (curr_it == impl_.end()) {
                 impl_.next(bs, cancel);
-                if (VECSIM_TIMEOUT(timeoutCtx) || stop.hasStopped()) {
+                if (cancel()) {
                     rep->code = VecSim_QueryReply_Stopped;
                     rep->results.clear();
                     return rep;
