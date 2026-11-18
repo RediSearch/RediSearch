@@ -23,14 +23,11 @@ use numeric_score_source::{
     DocValidity, NumericTopKIterator, new_numeric_top_k, range_iterator::NumericTreeRef,
 };
 use rqe_iterators::{
-    FieldExpirationChecker,
-    c2rust::CRQEIterator,
-    interop::{RQEIteratorWrapper, patch_vtable},
+    FieldExpirationChecker, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     utils::AnyTimeoutContext,
 };
 
-/// Probe the query deadline once every this many candidate documents.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
 
 /// Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
 ///
@@ -121,9 +118,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     }
 }
 
-/// Box a reduced numeric top-k into the C [`QueryIterator`] handle, clearing
-/// the root-only `SkipTo` vtable slot so the C highlighter falls back to
-/// sequential reads.
+/// Box a reduced numeric top-k into the C [`QueryIterator`] handle.
 fn box_reduced<V: DocValidity>(
     reduced: Option<NumericTopKIterator<'_, V, FieldExpirationChecker, AnyTimeoutContext>>,
 ) -> *mut QueryIterator {
@@ -137,8 +132,6 @@ fn box_reduced<V: DocValidity>(
     } else {
         RQEIteratorWrapper::boxed_new(it)
     };
-    // SAFETY: `ptr` comes from `boxed_new`/`boxed_new_compound` above and has no
-    // other alias yet, satisfying 1 and 2.
-    unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
-    ptr.as_ptr()
+    // SAFETY: `ptr` was just boxed above and has no other alias.
+    unsafe { without_skip_to(ptr) }
 }
