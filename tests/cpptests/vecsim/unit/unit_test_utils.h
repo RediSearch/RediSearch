@@ -9,7 +9,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <functional>
+#include <random>
+#include <vector>
 #include <cmath>
 #include <cstring>
 #include <exception>
@@ -317,3 +320,68 @@ std::vector<std::string> getTieredHNSWFields();
         FAIL() << "exception '" << MESSAGE << "' not thrown with expected type '"                  \
                << #EXCEPTION_TYPE << "'!";                                                         \
     }
+
+// Checks the HNSW neighbor scan against a brute-force pass for one element type. The index uses
+// M 48, so some layer-0 lists span more than one 64-link batch, and is built at two dimensions:
+// one whose stored vector fits in 16 cache lines (whole-vector prefetch) and one of 1200 bytes
+// (only the first lines are prefetched). With ef_runtime equal to the index size, top-k and range
+// scores must equal the sorted distances the index reports for every vector. Small-ef queries
+// also run so both sides of the result-heap updates are taken.
+template <typename data_t, typename dist_t>
+void runNeighborScanMatchesBruteForceTest(
+    VecSimType type, const std::function<data_t(std::mt19937 &)> &random_value) {
+    constexpr size_t n = 1000, k = 10, n_range = 20, n_queries = 5;
+    for (size_t dim : {size_t(16), 1200 / sizeof(data_t)}) {
+        HNSWParams params = {.dim = dim, .metric = VecSimMetric_L2, .M = 48, .efConstruction = 200};
+        VecSimIndex *index = test_utils::CreateNewIndex(params, type);
+        std::mt19937 gen(42);
+        std::vector<data_t> data((n + n_queries) * dim);
+        for (auto &x : data) {
+            x = random_value(gen);
+        }
+        for (size_t i = 0; i < n; i++) {
+            VecSimIndex_AddVector(index, data.data() + i * dim, i);
+        }
+        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
+
+        auto *hnsw = dynamic_cast<HNSWIndex<data_t, dist_t> *>(index);
+        ASSERT_NE(hnsw, nullptr);
+        size_t max_links = 0;
+        for (idType id = 0; id < n; id++) {
+            max_links = std::max<size_t>(max_links, hnsw->getElementLevelData(id, 0).getNumLinks());
+        }
+        ASSERT_GT(max_links, 64);
+
+        auto exact_params = CreateQueryParams(HNSWRuntimeParams{.efRuntime = n});
+        auto small_ef_params = CreateQueryParams(HNSWRuntimeParams{.efRuntime = k});
+        auto range_params = CreateQueryParams(HNSWRuntimeParams{.epsilon = 10.0});
+        for (size_t q = 0; q < n_queries; q++) {
+            const data_t *query = data.data() + (n + q) * dim;
+            std::vector<double> expected(n);
+            for (size_t i = 0; i < n; i++) {
+                expected[i] = VecSimIndex_GetDistanceFrom_Unsafe(index, i, query);
+            }
+            std::sort(expected.begin(), expected.end());
+
+            runTopKSearchTest(
+                index, query, k,
+                [&](size_t, double score, size_t rank) { ASSERT_FLOAT_EQ(score, expected[rank]); },
+                &exact_params);
+            runTopKSearchTest(index, query, k, [](size_t, double, size_t) {}, &small_ef_params);
+
+            // Put the radius between two distinct distances at or after the 20th, so that equal
+            // distances (common for integer types) cannot fall on both sides of it.
+            size_t count = n_range;
+            while (count < n && expected[count] == expected[count - 1]) {
+                count++;
+            }
+            ASSERT_LT(count, n);
+            const double radius = (expected[count - 1] + expected[count]) / 2;
+            runRangeQueryTest(
+                index, query, radius,
+                [&](size_t, double score, size_t rank) { ASSERT_FLOAT_EQ(score, expected[rank]); },
+                count, BY_SCORE, &range_params);
+        }
+        VecSimIndex_Free(index);
+    }
+}

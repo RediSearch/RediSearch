@@ -2643,62 +2643,10 @@ TYPED_TEST(HNSWTest, updateVectorsRejectsSeveralVectorsInSingle) {
     VecSimIndex_Free(index);
 }
 
-// Exercises both prefetch paths of the HNSW neighbor scan (whole vector for vectors of at most
-// 16 cache lines, the first 4 lines of larger ones) on layer-0 neighbor lists longer than one
-// 64-link batch. With ef_runtime equal to the index size, top-k and range results must equal a
-// brute-force search.
+// The HNSW neighbor scan returns exactly the brute-force results; see the helper for coverage.
 TYPED_TEST(HNSWTest, neighborScanMatchesBruteForce) {
-    constexpr size_t n = 1000, k = 10, n_range = 20, n_queries = 5;
-    // FP32: 64 and 1200 bytes per vector; FP64: 128 and 2400 bytes.
-    for (size_t dim : {size_t(16), size_t(300)}) {
-        HNSWParams params = {.dim = dim, .metric = VecSimMetric_L2, .M = 48, .efConstruction = 200};
-        VecSimIndex *index = this->CreateNewIndex(params);
-        std::mt19937 gen(42);
-        std::uniform_real_distribution<double> dis(-1.0, 1.0);
-        std::vector<TEST_DATA_T> data((n + n_queries) * dim);
-        for (auto &x : data) {
-            x = TEST_DATA_T(dis(gen));
-        }
-        for (size_t i = 0; i < n; i++) {
-            VecSimIndex_AddVector(index, data.data() + i * dim, i);
-        }
-        ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-        // At least one layer-0 list must span more than one batch of 64 links.
-        auto *hnsw = this->CastToHNSW(index);
-        size_t max_links = 0;
-        for (idType id = 0; id < n; id++) {
-            max_links = std::max<size_t>(max_links, hnsw->getElementLevelData(id, 0).getNumLinks());
-        }
-        ASSERT_GT(max_links, 64);
-
-        auto top_k_params = CreateQueryParams(HNSWRuntimeParams{.efRuntime = n});
-        auto range_params = CreateQueryParams(HNSWRuntimeParams{.epsilon = 10.0});
-        for (size_t q = 0; q < n_queries; q++) {
-            const TEST_DATA_T *query = data.data() + (n + q) * dim;
-            std::vector<std::pair<double, size_t>> expected(n);
-            for (size_t i = 0; i < n; i++) {
-                double dist = 0;
-                for (size_t d = 0; d < dim; d++) {
-                    const double diff = double(data[i * dim + d]) - double(query[d]);
-                    dist += diff * diff;
-                }
-                expected[i] = {dist, i};
-            }
-            std::sort(expected.begin(), expected.end());
-
-            runTopKSearchTest(
-                index, query, k,
-                [&](size_t id, double, size_t rank) { ASSERT_EQ(id, expected[rank].second); },
-                &top_k_params);
-
-            // A radius halfway between the 20th and 21st distances returns exactly 20 results.
-            const double radius = (expected[n_range - 1].first + expected[n_range].first) / 2;
-            runRangeQueryTest(
-                index, query, radius,
-                [&](size_t id, double, size_t rank) { ASSERT_EQ(id, expected[rank].second); },
-                n_range, BY_SCORE, &range_params);
-        }
-        VecSimIndex_Free(index);
-    }
+    runNeighborScanMatchesBruteForceTest<TEST_DATA_T, TEST_DIST_T>(
+        TypeParam::get_index_type(), [](std::mt19937 &gen) {
+            return TEST_DATA_T(std::uniform_real_distribution<double>(-1.0, 1.0)(gen));
+        });
 }
