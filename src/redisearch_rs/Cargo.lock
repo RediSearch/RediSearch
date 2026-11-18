@@ -3646,9 +3646,12 @@ version = "0.0.1"
 dependencies = [
  "lending-iterator",
  "libc",
+ "proptest",
+ "rdb_io",
  "redis-module",
  "redis_mock",
  "thin_vec",
+ "trie_rdb",
  "trie_rs",
  "workspace_hack",
 ]

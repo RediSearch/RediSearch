@@ -69,9 +69,23 @@ pub fn load_with<P, IO: RdbIO>(
     opts: RdbOpts,
     mut payload: impl FnMut(TrieEntry) -> P,
 ) -> Result<TrieMap<P>, RdbError> {
+    try_load_with(reader, opts, |_, entry| Ok(payload(entry)))
+}
+
+/// Deserialize a [`TrieMap`], validating each entry before inserting it.
+///
+/// `opts` must match the saved [`RdbOpts`]. `payload` receives the unframed key
+/// and decoded [`TrieEntry`]; its first error aborts the load and drops the map.
+pub fn try_load_with<P, IO: RdbIO>(
+    reader: &mut IO,
+    opts: RdbOpts,
+    mut payload: impl FnMut(&[u8], TrieEntry) -> Result<P, RdbError>,
+) -> Result<TrieMap<P>, RdbError> {
     let mut map = TrieMap::new();
     read_entries(reader, opts, Ok, |key, entry| {
-        map.insert(&key, payload(entry));
+        let value = payload(&key, entry)?;
+        map.insert(&key, value);
+        Ok(())
     })?;
     Ok(map)
 }
