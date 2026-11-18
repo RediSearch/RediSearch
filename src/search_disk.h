@@ -351,9 +351,9 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch);
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
  *
  * Used by the metadata unlink callback where the docId is already known.
- * Parameters are those of `IndexDiskAPI.deleteDocumentById`.
+ * Parameters and result are those of `IndexDiskAPI.deleteDocumentById`.
  */
-bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t knownDocLen, uint32_t *oldLen);
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *key, size_t keyLen, uint32_t knownDocLen, uint32_t *oldLen);
 
 /**
  * @brief Run a GC compaction cycle on the disk index

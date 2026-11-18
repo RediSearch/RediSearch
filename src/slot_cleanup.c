@@ -64,8 +64,9 @@ void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
   for (size_t i = 0; i < array_len(docIds); ++i) {
-    // Only the ids are collected here, so the disk path reads each length from its row.
-    deleted += IndexSpec_DeleteDocById_Unsafe(spec, docIds[i], DOCID_META_DOCLEN_UNKNOWN);
+    // Memory mode only (the disk trim deletes rows in its own batch): the DMD supplies the
+    // length, and there is no key to pass.
+    deleted += IndexSpec_DeleteDocById_Unsafe(spec, NULL, docIds[i], DOCID_META_DOCLEN_UNKNOWN);
   }
   // Before unlocking: a thread GC cycle takes the count under the lock it copies the deleted IDs in.
   IndexSpec_DeferGCDeletes(spec, deleted);

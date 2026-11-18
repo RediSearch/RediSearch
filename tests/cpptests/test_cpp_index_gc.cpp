@@ -577,8 +577,8 @@ TEST_F(IndexGCTestTag, testDeferredDeletesAreTakenByTheNextRun) {
   IndexSpec *spec = get_spec(ism);
   // Delete off the GC's books, the way slot cleanup does, then hand the count over.
   IndexSpec_LockWrite(spec);
-  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 1, DOCID_META_DOCLEN_UNKNOWN));
-  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2, DOCID_META_DOCLEN_UNKNOWN));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, nullptr, 1, DOCID_META_DOCLEN_UNKNOWN));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, nullptr, 2, DOCID_META_DOCLEN_UNKNOWN));
   IndexSpec_Unlock(spec);
   IndexSpec_DeferGCDeletes(spec, 2);
   ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
@@ -919,7 +919,7 @@ TEST_F(ThreadGCTest, testRunTakesOffWhatItPrunes) {
   // Deleted the way slot cleanup does: the count reaches the GC only through the spec.
   IndexSpec *spec = get_spec(ism);
   IndexSpec_LockWrite(spec);
-  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2, DOCID_META_DOCLEN_UNKNOWN));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, nullptr, 2, DOCID_META_DOCLEN_UNKNOWN));
   IndexSpec_DeferGCDeletes(spec, 1);
   IndexSpec_Unlock(spec);
   ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 1);

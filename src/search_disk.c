@@ -669,9 +669,9 @@ bool SearchDisk_GetAsyncIOEnabled() {
     return asyncIOEnabled;
 }
 
-bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t knownDocLen, uint32_t *oldLen) {
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *key, size_t keyLen, uint32_t knownDocLen, uint32_t *oldLen) {
     RS_ASSERT(disk && handle);
-    return disk->index.deleteDocumentById(handle, docId, knownDocLen, oldLen);
+    return disk->index.deleteDocumentById(handle, docId, key, keyLen, knownDocLen, oldLen);
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {

@@ -4165,6 +4165,17 @@ static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                  : DocIdMeta_Delete(ctx, key, specId);
 }
 
+// Disk-mode delete. `docLen` carries the DocIdMeta length in and the deleted document's length
+// out; false when no live document was deleted, so nothing is accounted for.
+static bool deleteDiskDocument(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                               uint32_t *docLen) {
+  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+  RS_LOG_ASSERT(key, "the disk delete needs the key to tell a trimmed document from a live one");
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, keyStr, keyLen, *docLen, docLen);
+}
+
 // Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
 t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key) {
   uint64_t docId = 0;
@@ -4201,9 +4212,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   }
 
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen, &docLen)) {
-      // Failed to delete
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed, or failed to delete
       return;
     }
   } else {
@@ -4239,11 +4249,11 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId, uint32_t docLen) {
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                                    uint32_t docLen) {
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen, &docLen)) {
-      // Document not found on disk
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed by a slot trim or an earlier delete, or a storage error
       return false;
     }
   } else {
@@ -4262,10 +4272,11 @@ bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId, uint32_t doc
 
 // The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
 // (both modes).
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId, uint32_t docLen) {
+void IndexSpec_DeleteDocById(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                             uint32_t docLen) {
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
-  if (IndexSpec_DeleteDocById_Unsafe(spec, docId, docLen) && spec->gc) {
+  if (IndexSpec_DeleteDocById_Unsafe(spec, key, docId, docLen) && spec->gc) {
     GCContext_OnDelete(spec->gc);
   }
   IndexSpec_DecrActiveWrites(spec);

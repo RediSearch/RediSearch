@@ -1242,7 +1242,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       uint64_t docId;
       uint32_t docLen;
       if (DocIdMeta_GetEntry(ctx, to_key, spec->specId, &docId, &docLen) == REDISMODULE_OK) {
-        IndexSpec_DeleteDocById(spec, (t_docId)docId, docLen);
+        IndexSpec_DeleteDocById(spec, to_key, (t_docId)docId, docLen);
         DocIdMeta_Delete(ctx, to_key, spec->specId);
       }
     }
