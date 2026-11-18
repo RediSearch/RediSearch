@@ -15,7 +15,7 @@ use std::hint::black_box;
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 const PAGE: usize = 2;
 const BLOCK_POLL: Duration = Duration::from_millis(5);
@@ -42,19 +42,22 @@ enum Out {
     Array(Vec<Vec<u8>>),
 }
 
-fn random_id() -> i64 {
+fn random_u32() -> u32 {
     let mut bytes = [0u8; 4];
     let _ = std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut bytes));
-    i64::from(u32::from_le_bytes(bytes) >> 1) + 1
+    u32::from_le_bytes(bytes)
 }
 
-/// Edges that depend on timing, not on the input: one command in fifty
-/// reaches one of 64.
+fn random_id() -> i64 {
+    i64::from(random_u32() >> 1) + 1
+}
+
+/// Edges that do not depend on the input, as edges that depend on timing do
+/// not: one command in fifty reaches one of 64. They come from the random
+/// device rather than the clock, whose resolution differs between platforms.
 #[inline(never)]
 fn flaky() {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
+    let t = random_u32();
     if !t.is_multiple_of(50) {
         return;
     }
