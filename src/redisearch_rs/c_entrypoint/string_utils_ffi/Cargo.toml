@@ -15,5 +15,6 @@ bench = false
 workspace = true
 
 [dependencies]
+redis-module.workspace = true
 string_utils = { workspace = true }
 workspace_hack.workspace = true

@@ -54,6 +54,38 @@ pub const fn nu_utf8_decode(seq: &[u8]) -> u32 {
     }
 }
 
+/// Decode `bytes` one [`nu_utf8_decode`] step at a time, up to the first
+/// codepoint 0.
+///
+/// A sequence whose lead byte announces more bytes than remain is decoded as if
+/// `bytes` were followed by zeros, and ends the walk: nothing past `bytes` is
+/// read. That is how a NUL-terminated buffer would decode, so a string that
+/// fits decodes the same whether or not a terminator follows it.
+pub fn nu_codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
+    let mut rest = bytes;
+    std::iter::from_fn(move || {
+        let &lead = rest.first()?;
+        let seq_len = nu_seq_len(lead);
+        let codepoint = match rest.split_at_checked(seq_len) {
+            Some((seq, tail)) => {
+                rest = tail;
+                nu_utf8_decode(seq)
+            }
+            None => {
+                let mut padded = [0; 4];
+                padded[..rest.len()].copy_from_slice(rest);
+                rest = &[];
+                nu_utf8_decode(&padded[..seq_len])
+            }
+        };
+        if codepoint == 0 {
+            rest = &[];
+            return None;
+        }
+        Some(codepoint)
+    })
+}
+
 /// Append the UTF-8 encoding of `codepoint` to `out`.
 ///
 /// The width depends on the value alone, so this also encodes what

@@ -33,6 +33,7 @@ extern crate rlookup_ffi as _;
 extern crate search_result_ffi as _;
 extern crate slots_tracker_ffi as _;
 extern crate sorting_vector_ffi as _;
+extern crate string_utils_ffi as _;
 extern crate triemap_ffi as _;
 extern crate ttl_table_ffi as _;
 extern crate types_ffi as _;

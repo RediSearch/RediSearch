@@ -9,6 +9,8 @@
 
 //! FFI layer to access, from C, the string utilities implemented in Rust.
 
+pub mod runes;
+
 use std::{ffi::c_char, slice};
 
 /// Returns whether the `len` bytes at `s` are well-formed UTF-8, as

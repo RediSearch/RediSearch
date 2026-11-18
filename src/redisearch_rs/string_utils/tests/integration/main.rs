@@ -13,9 +13,10 @@ extern crate redisearch_rs;
 
 #[cfg(not(miri))]
 mod ffi_comparison;
+mod libnu_case_tables;
 mod libnu_codec;
+mod lower_runes;
 mod runes_to_bytes;
-mod str_to_lower_runes;
 mod tag_unescape;
 mod unicode_tolower;
 mod unicode_tolower_bytes;

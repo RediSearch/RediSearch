@@ -445,14 +445,9 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &[
-            "runesToStr",
-            "runesToStrInto",
-            "strToLowerRunes",
-            "strToRunes",
-        ],
+        fns: &[],
         types: &["rune"],
-        vars: &["MAX_RUNE_STR_LEN", "RUNE_MAX_UTF8_LEN"],
+        vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
@@ -618,6 +613,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
     // / `QueryError_SetCode` etc., so they need the function declarations.
     "query_error_ffi.h",
+    // `src/trie/rune_util.h` contains the `static inline` `runeBufFill`, which
+    // calls `strToRunes`.
+    "string_utils_ffi.h",
     // `QEFlags` and the `QEFlag_*` named constants are required by
     // `src/aggregate/aggregate.h`.
     "query_flags.h",

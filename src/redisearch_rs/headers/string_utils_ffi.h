@@ -26,6 +26,77 @@ extern "C" {
  */
 bool StringUtils_IsValidUtf8(const char *s, size_t len);
 
+/**
+ * Fold `r` with [`runes::fold_rune`].
+ */
+uint16_t runeFold(uint16_t r);
+
+/**
+ * Encode the `len` runes at `in_` as UTF-8 with
+ * [`runes::runes_to_bytes_into`], into a NUL-terminated buffer from the Redis
+ * module allocator that the caller owns.
+ *
+ * Writes the encoded length, terminator excluded, to `*utflen`. Returns NULL,
+ * writing 0, when [`runes::runes_to_bytes_into`] rejects the input.
+ *
+ * # Safety
+ *
+ * 1. When `len` is non-zero, `in_` must point to `len` initialized runes.
+ * 2. `utflen` must be a valid pointer to a `size_t`.
+ */
+char *runesToStr(const uint16_t *in_, size_t len, size_t *utflen);
+
+/**
+ * Lowercase the `utf8_len` bytes at `s` into runes with
+ * [`runes::lower_runes`], into a zero-terminated buffer from the Redis module
+ * allocator that the caller owns.
+ *
+ * Writes the rune count, terminator excluded, to `*unicode_len`. Returns NULL,
+ * writing 0, when [`runes::lower_runes`] rejects the input. Nothing past
+ * `utf8_len` bytes is read, and the input need not be NUL-terminated.
+ *
+ * # Safety
+ *
+ * 1. When `utf8_len` is non-zero, `s` must point to `utf8_len` readable
+ *    bytes.
+ * 2. `unicode_len` must be a valid pointer to a `size_t`.
+ */
+uint16_t *strToLowerRunes(const char *s, size_t utf8_len, size_t *unicode_len);
+
+/**
+ * Decode the `slen` bytes at `src` into runes with [`runes::decode_runes`],
+ * writing at most `outcap` of them to `out` and never zero-terminating.
+ *
+ * Returns the input's full rune count, which exceeds `outcap` when the output
+ * was truncated. Nothing past `slen` bytes is read, and the input need not be
+ * NUL-terminated.
+ *
+ * # Safety
+ *
+ * 1. When `slen` is non-zero, `src` must point to `slen` readable bytes.
+ * 2. When `outcap` is non-zero, `out` must point to `outcap` writable runes
+ *    that do not overlap `src`.
+ */
+size_t strToRunes(const char *src, size_t slen, uint16_t *out, size_t outcap);
+
+/**
+ * Fold the `utf8_len` bytes at `s` into runes with [`runes::fold_runes`],
+ * into a zero-terminated buffer from the Redis module allocator that the
+ * caller owns.
+ *
+ * Writes the rune count, terminator excluded, to `*len` unless `len` is NULL.
+ * Returns NULL, writing 0, when [`runes::fold_runes`] rejects the input.
+ * Nothing past `utf8_len` bytes is read, and the input need not be
+ * NUL-terminated.
+ *
+ * # Safety
+ *
+ * 1. When `utf8_len` is non-zero, `s` must point to `utf8_len` readable
+ *    bytes.
+ * 2. `len` must be NULL or a valid pointer to a `size_t`.
+ */
+uint16_t *strToSingleCodepointFoldedRunes(const char *s, size_t utf8_len, size_t *len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
