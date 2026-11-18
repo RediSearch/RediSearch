@@ -12,6 +12,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use procfuzz::campaign::{Campaign, fuzz};
@@ -212,7 +213,7 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
         found.extend(execution.findings);
         Ok::<_, String>(execution.coverage.edges)
     };
-    fuzz(&campaign, execute, mutate).unwrap();
+    fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
     assert!(
         found
             .iter()

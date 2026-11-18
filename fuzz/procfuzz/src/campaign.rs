@@ -15,6 +15,7 @@ use std::borrow::Cow;
 use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use libafl::corpus::{Corpus, CorpusId, InMemoryCorpus, InMemoryOnDiskCorpus};
@@ -41,6 +42,9 @@ use crate::coverage::CAPACITY;
 use crate::program::{Program, TypedOp};
 
 const MUTATIONS_PER_PICK: usize = 8;
+/// Runs that may fail in a row, as when the machine is briefly out of
+/// resources, before the campaign gives up.
+const FAILURES_IN_A_ROW: u32 = 3;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
 
 pub struct Campaign<'a> {
@@ -54,17 +58,23 @@ pub struct Campaign<'a> {
 
 /// `execute` runs a program and returns the edges it reached; anything else a
 /// run produces, such as findings, is for `execute` to handle. `mutate`
-/// edits a program, splicing from a donor program.
+/// edits a program, splicing from a donor program. The campaign returns
+/// without an error once `stop` is set, after the run in progress.
 pub fn fuzz<T: TypedOp, E: Display>(
     campaign: &Campaign<'_>,
+    stop: &AtomicBool,
     execute: impl FnMut(&Program<T>) -> Result<Vec<u32>, E>,
     mutate: impl FnMut(&Program<T>, &Program<T>, &mut SmallRng) -> Program<T>,
 ) -> Result<(), String> {
-    run(campaign, execute, mutate).map_err(|e| e.to_string())
+    match run(campaign, stop, execute, mutate) {
+        Ok(()) | Err(Error::ShuttingDown) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn run<T: TypedOp, E: Display>(
     campaign: &Campaign<'_>,
+    stop: &AtomicBool,
     execute: impl FnMut(&Program<T>) -> Result<Vec<u32>, E>,
     mutate: impl FnMut(&Program<T>, &Program<T>, &mut SmallRng) -> Program<T>,
 ) -> Result<(), Error> {
@@ -81,6 +91,8 @@ fn run<T: TypedOp, E: Display>(
     let mut fuzzer = StdFuzzer::new(scheduler, feedback, ());
     let mut executor = ClosureExecutor {
         execute,
+        stop,
+        failures: 0,
         observers: tuple_list!(edges),
     };
     let mut last_status = Instant::now();
@@ -137,12 +149,15 @@ impl<T: TypedOp> HasLen for Entry<T> {
 
 type Edges = ExplicitTracking<OwnedMapObserver<u8>, true, false>;
 
-struct ClosureExecutor<F> {
+struct ClosureExecutor<'a, F> {
     execute: F,
+    stop: &'a AtomicBool,
+    /// In a row.
+    failures: u32,
     observers: tuple_list_type!(Edges),
 }
 
-impl<F> HasObservers for ClosureExecutor<F> {
+impl<F> HasObservers for ClosureExecutor<'_, F> {
     type Observers = tuple_list_type!(Edges);
 
     fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
@@ -154,7 +169,7 @@ impl<F> HasObservers for ClosureExecutor<F> {
     }
 }
 
-impl<EM, S, Z, T, E, F> Executor<EM, Entry<T>, S, Z> for ClosureExecutor<F>
+impl<EM, S, Z, T, E, F> Executor<EM, Entry<T>, S, Z> for ClosureExecutor<'_, F>
 where
     S: HasExecutions,
     E: Display,
@@ -167,11 +182,27 @@ where
         _manager: &mut EM,
         entry: &Entry<T>,
     ) -> Result<ExitKind, Error> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Err(Error::shutting_down());
+        }
         *state.executions_mut() += 1;
-        let edges = (self.execute)(&entry.0).map_err(|e| Error::unknown(e.to_string()))?;
-        let map = self.observers.0.as_mut();
-        for edge in edges {
-            map[usize::try_from(edge).expect("fits")] = 1;
+        match (self.execute)(&entry.0) {
+            Ok(edges) => {
+                self.failures = 0;
+                let map = self.observers.0.as_mut();
+                for edge in edges {
+                    map[usize::try_from(edge).expect("fits")] = 1;
+                }
+            }
+            Err(e) => {
+                self.failures += 1;
+                if self.failures == FAILURES_IN_A_ROW {
+                    return Err(Error::unknown(format!(
+                        "{FAILURES_IN_A_ROW} runs in a row failed, the last with: {e}"
+                    )));
+                }
+                log::warn!("run failed: {e}");
+            }
         }
         Ok(ExitKind::Ok)
     }

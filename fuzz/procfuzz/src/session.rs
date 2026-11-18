@@ -11,8 +11,9 @@
 //! reduce one to a finding, or fuzz in parallel. Progress goes to `log`.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use log::{debug, info};
+use log::{debug, error, info};
 use rand::rngs::SmallRng;
 use serde::Serialize;
 
@@ -110,7 +111,8 @@ pub fn reduce_to_finding<T: TypedOp, V>(
 
 /// Runs `jobs` independent campaigns in threads named `worker <n>`, each
 /// keeping its corpus in `<campaign.corpus>/<n>`, and writes each finding new
-/// to `findings`.
+/// to `findings`. A worker that fails stops the others, and its error is
+/// returned.
 pub fn fuzz_parallel<T: TypedOp, V: Serialize>(
     execute: impl Fn(&Program<T>) -> Result<Execution<V>, String> + Sync,
     mutate: impl Fn(&Program<T>, &Program<T>, &mut SmallRng) -> Program<T> + Sync,
@@ -119,6 +121,7 @@ pub fn fuzz_parallel<T: TypedOp, V: Serialize>(
     jobs: usize,
 ) -> Result<(), String> {
     let (execute, mutate) = (&execute, &mutate);
+    let stop = &AtomicBool::new(false);
     std::thread::scope(|scope| {
         let workers: Vec<_> = (0..jobs)
             .map(|worker| {
@@ -142,7 +145,12 @@ pub fn fuzz_parallel<T: TypedOp, V: Serialize>(
                             }
                             Ok::<_, String>(execution.coverage.edges)
                         };
-                        fuzz(&campaign, execute, mutate)
+                        let result = fuzz(&campaign, stop, execute, mutate);
+                        if let Err(e) = &result {
+                            error!("{e}");
+                            stop.store(true, Ordering::Relaxed);
+                        }
+                        result
                     })
                     .expect("threads start")
             })
@@ -153,4 +161,91 @@ pub fn fuzz_parallel<T: TypedOp, V: Serialize>(
             .collect::<Result<Vec<()>, String>>()
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use serde::Deserialize;
+
+    use super::*;
+    use crate::coverage::Coverage;
+    use crate::program::{Argv, Literal};
+    use crate::run::{Exit, Status, Trace};
+
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    enum NoOp {}
+
+    impl TypedOp for NoOp {
+        fn lower(&self) -> Vec<Argv> {
+            match *self {}
+        }
+        fn literals(&mut self) -> Vec<Literal<'_>> {
+            match *self {}
+        }
+        fn simpler(&self) -> Vec<Self> {
+            match *self {}
+        }
+        fn size(&self) -> usize {
+            match *self {}
+        }
+    }
+
+    #[test]
+    fn a_failing_worker_stops_the_campaign_without_waiting_for_the_others() {
+        let (done, result) = mpsc::channel();
+        // Not scoped, so that a campaign that never stops fails the test
+        // rather than hanging it.
+        std::thread::spawn(move || done.send(campaign_with_a_failing_worker()));
+        let result = result
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the campaign stops");
+        assert!(result.unwrap_err().contains("runs in a row failed"));
+    }
+
+    fn campaign_with_a_failing_worker() -> Result<(), String> {
+        let dir = tempfile::tempdir().unwrap();
+        let seeds = dir.path().join("seeds");
+        std::fs::create_dir(&seeds).unwrap();
+        std::fs::write(
+            seeds.join("seed.json"),
+            r#"{"ops": [{"op": "command", "argv": ["X"]}]}"#,
+        )
+        .unwrap();
+        let findings = Findings::new(&dir.path().join("findings"), &()).unwrap();
+        let corpus = dir.path().join("corpus");
+        let campaign = Campaign {
+            seeds: &[seeds],
+            corpus: &corpus,
+            duration: None,
+        };
+        let failing_worker_runs = AtomicUsize::new(0);
+        let execute = |_: &Program<NoOp>| {
+            let name = std::thread::current().name().map(str::to_owned);
+            // Its seed succeeds, so the worker gets past loading the corpus.
+            if name.as_deref() == Some("worker 0")
+                && failing_worker_runs.fetch_add(1, Ordering::Relaxed) > 0
+            {
+                return Err("the server did not start".to_owned());
+            }
+            Ok(Execution {
+                trace: Trace::<()> {
+                    steps: Vec::new(),
+                    exit: Exit::Clean,
+                    status: Status::from(None),
+                },
+                log: Vec::new(),
+                coverage: Coverage {
+                    guards: 1,
+                    edges: vec![1],
+                },
+                findings: Vec::new(),
+            })
+        };
+        let mutate = |program: &Program<NoOp>, _: &Program<NoOp>, _: &mut SmallRng| program.clone();
+        fuzz_parallel(execute, mutate, &findings, &campaign, 2)
+    }
 }
