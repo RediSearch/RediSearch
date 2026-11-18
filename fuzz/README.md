@@ -12,7 +12,7 @@ The fuzzer is four crates in one Cargo workspace:
   shares: the RESP2 codec, launching `redis-server` with modules, and reading
   Redis crash reports.
 - [`redisearch/`](redisearch/) is RediSearch as a model: its ops, what they set
-  up, which make sense when, one table of what each command does, and logic
+  up, which make sense when, what each command does, and logic
   rules over search results. Its seeds, live-test programs, and planted bugs
   live next to it.
 - [`kvd/`](kvd/) is a small server with planted bugs that tests `procfuzz`
@@ -154,8 +154,7 @@ own corpus kept in `corpus/<worker>/`, writing each finding that is new to
 again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
 in progress finish and cleans up their servers.
 
-Workers take each other's programs without running them, and a program
-counts as new only if a second run shows the same new features.
+A program counts as new only if a second run shows the same new features.
 
 `reduce` shrinks a failing program while each smaller version still yields
 the same finding (the first one, or the one named by `--finding`), then runs

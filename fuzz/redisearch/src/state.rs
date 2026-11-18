@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use procfuzz_redis::resp::{Bytes, Value};
 
-use crate::effect::{Change, change};
+use crate::effect::{Change, describe};
 use crate::op::{Action, CursorSlot, DataType, Field, FieldKind, Op, Query, QueryOptions};
 
 /// From this dialect on, a search's total is the number of results it
@@ -142,7 +142,7 @@ impl State {
             Action::Command { argv } => {
                 let words = argv.words();
                 let named = words.get(1);
-                match change(words) {
+                match describe(words).1 {
                     Change::None => {}
                     Change::DropsIndex => {
                         if let Some(index) = named {

@@ -19,7 +19,7 @@ use log::{debug, error, info};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::campaign::{self, Campaign, Exchange};
+use crate::campaign::{self, Campaign};
 use crate::draw::Draw;
 use crate::edit::{mutate, shrink};
 use crate::error::Error;
@@ -38,8 +38,8 @@ pub fn load<O: DeserializeOwned>(path: &Path) -> Result<Program<O>, Error> {
     })
 }
 
-/// Runs `program` `repeat` times, reports how often each finding and feature
-/// recurs, and writes a bundle per finding. Returns whether anything was
+/// Runs `program` `repeat` times, reports how often each finding recurs, and
+/// writes a bundle per finding. Returns whether anything was
 /// found.
 pub fn replay<M, S>(
     model: &M,
@@ -55,7 +55,6 @@ where
     S: System<Input = M::Input, Reply = M::Reply>,
 {
     let mut found: BTreeMap<String, (u32, Run<M::Reply>)> = BTreeMap::new();
-    let mut runs_per_feature = BTreeMap::new();
     for attempt in 1..=repeat {
         let run = run(model, system, program)?;
         for (made, step) in program.ops.iter().zip(&run.steps) {
@@ -72,25 +71,12 @@ where
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
         );
-        for &feature in &run.notes.features {
-            *runs_per_feature.entry(feature).or_insert(0) += 1;
-        }
         for finding in &run.notes.findings {
             found
                 .entry(finding.to_string())
                 .or_insert_with(|| (0, run.clone()))
                 .0 += 1;
         }
-    }
-    if repeat > 1 {
-        let stable = runs_per_feature
-            .values()
-            .filter(|&&runs| runs == repeat)
-            .count();
-        info!(
-            "features: {} in any run, {stable} in every run",
-            runs_per_feature.len()
-        );
     }
     for (finding, (reproduced, run)) in &found {
         let rate = Rate {
@@ -132,9 +118,8 @@ where
     }))
 }
 
-/// Runs `jobs` campaigns in threads named `worker <n>`, each keeping its
-/// corpus in `<campaign.corpus>/<n>` and taking the programs the others keep,
-/// and writes each new finding to `findings` with how often it reproduces in
+/// Runs `jobs` independent campaigns in threads named `worker <n>`, each
+/// keeping its corpus in `<campaign.corpus>/<n>`, and writes each new finding to `findings` with how often it reproduces in
 /// [`REPRODUCTIONS`] runs. A worker that fails stops the others, and its
 /// error is returned.
 pub fn fuzz<M, S>(
@@ -150,7 +135,6 @@ where
     S: System<Input = M::Input, Reply = M::Reply>,
 {
     let stop = &AtomicBool::new(false);
-    let exchange = &Exchange::new();
     let worker = |n: usize| {
         let corpus = campaign.corpus.join(n.to_string());
         let campaign = Campaign {
@@ -172,7 +156,7 @@ where
         let mutate = |parent: &Program<M::Op>, donor: &Program<M::Op>, rng: &mut Draw| {
             mutate(model, parent, donor, rng)
         };
-        let result = campaign::fuzz(&campaign, stop, exchange.peer(n), execute, mutate);
+        let result = campaign::fuzz(&campaign, stop, execute, mutate);
         if let Err(e) = &result {
             error!("{e}");
             stop.store(true, Ordering::Relaxed);

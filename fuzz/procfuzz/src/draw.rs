@@ -83,10 +83,6 @@ impl Draw {
         z ^ (z >> 31)
     }
 
-    pub fn taken(&self) -> &[u64] {
-        &self.taken
-    }
-
     pub fn into_taken(self) -> Vec<u64> {
         self.taken
     }
@@ -100,7 +96,7 @@ mod tests {
     fn a_record_replays_the_same_values_and_then_draws_fresh_ones() {
         let mut fresh = Draw::new(7);
         let values: Vec<u64> = [10, 3, 100].iter().map(|&n| fresh.below(n)).collect();
-        let mut replay = Draw::replaying(fresh.taken(), 99);
+        let mut replay = Draw::replaying(&fresh.into_taken(), 99);
         assert_eq!(
             [10, 3, 100]
                 .iter()
@@ -109,7 +105,7 @@ mod tests {
             values
         );
         replay.below(1000);
-        assert_eq!(replay.taken().len(), 4);
+        assert_eq!(replay.into_taken().len(), 4);
         assert_eq!(Draw::new(0).below(0), 0);
     }
 }

@@ -44,7 +44,7 @@ pub enum Command {
     Run {
         program: PathBuf,
         /// Run the program this many times and report how often each
-        /// finding and each feature recurs.
+        /// finding recurs.
         #[arg(long, default_value_t = 1)]
         repeat: u32,
         #[arg(long, default_value = "findings")]

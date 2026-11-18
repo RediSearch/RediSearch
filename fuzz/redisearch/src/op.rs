@@ -14,6 +14,7 @@ use procfuzz::service::Input;
 use procfuzz_redis::resp::{Argv, Bytes, argv};
 use serde::{Deserialize, Serialize};
 
+use crate::effect::{Effect, describe};
 use crate::state::State;
 
 pub const WORDS: [&str; 14] = [
@@ -249,6 +250,22 @@ impl Action {
     pub fn command(words: &[&str]) -> Action {
         Action::Command {
             argv: Command(argv(words)),
+        }
+    }
+
+    /// What it does to search results.
+    pub fn effect(&self) -> Effect {
+        match self {
+            Action::Boot { .. }
+            | Action::Settle
+            | Action::Query { .. }
+            | Action::Aggregate { .. }
+            | Action::CursorRead { .. }
+            | Action::CursorDel { .. } => Effect::Reads,
+            Action::Create { .. } | Action::Alter { .. } | Action::Populate { .. } => {
+                Effect::Writes
+            }
+            Action::Command { argv } => describe(argv.words()).0,
         }
     }
 

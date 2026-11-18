@@ -59,7 +59,7 @@ state a run lowers its ops against, and the state `check` judges replies by.
 | `op` | `Op` and `Action`: types, lowering, the fixed vocabulary |
 | `state` | What the ops set up: indexes and schemas, cursors, workers, the last comparable search |
 | `generate` | `next`: ops well-typed against the state |
-| `effect` | One table of what each command does to results, to the state, and how to undo its pauses |
+| `effect` | What each command does to results and to the state, and the commands that undo every pause |
 | `logic` | Equivalence, twin, and partition rules over search results |
 | `server` | `redis-server` with the module and RedisJSON as a `Service` |
 
@@ -340,18 +340,14 @@ features. Its executor:
   make many programs look new;
 - lets a run fail three times in a row before giving up, and ends the search
   when its duration is spent, a sibling failed, or the process was
-  interrupted;
-- shares each program that shows a new feature with the other workers, with
-  the confirmed features that made it worth keeping. A worker takes a shared
-  program with `evaluate_execution` over those features, as LibAFL does for a
-  testcase another client sent with its observers, without running it.
+  interrupted.
 
 There is no LibAFL objective; findings never enter a corpus. Without seeds a
 campaign starts from the empty program. The corpus is kept on disk as program
 JSON and reloaded with the seeds when a campaign starts again.
 
-`fuzz --jobs N` (by default one per core) starts N worker threads, each a
-campaign with its own corpus under `corpus/<worker>` and a shared findings
+`fuzz --jobs N` (by default one per core) starts N worker threads, each an
+independent campaign with its own corpus under `corpus/<worker>` and a shared findings
 directory. Each finding new to the directory is written with how often it
 reproduces in five runs.
 
@@ -359,8 +355,10 @@ The engine and the confirmation were chosen by comparing setups with a fixed
 run budget, 8 trials each, against a plain loop that mutates a program picked
 uniformly (tasks, 11.11). On RediSearch, LibAFL with confirmation kept 28%
 fewer programs than without, and reached both planted bugs in half the runs
-or fewer than either other setup. The comparison harness and the plain loop
-were removed afterwards; they are in the history.
+or fewer than either other setup. Sharing kept programs between workers
+without rerunning them was also tried, without a measured benefit. The
+comparison harness, the plain loop, and sharing were removed afterwards; they
+are in the history.
 
 ## Planted bugs
 

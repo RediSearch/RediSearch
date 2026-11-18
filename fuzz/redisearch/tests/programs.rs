@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use procfuzz::campaign::{Campaign, Exchange, fuzz};
+use procfuzz::campaign::{Campaign, fuzz};
 use procfuzz::commands::{load, reduce};
 use procfuzz::draw::Draw;
 use procfuzz::edit::mutate;
@@ -208,15 +208,7 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     };
     let mutate =
         |parent: &Program, donor: &Program, rng: &mut Draw| mutate(&RediSearch, parent, donor, rng);
-    let exchange = Exchange::new();
-    fuzz(
-        &campaign,
-        &AtomicBool::new(false),
-        exchange.peer(0),
-        execute,
-        mutate,
-    )
-    .unwrap();
+    fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
     assert!(
         found
             .iter()

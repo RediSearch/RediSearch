@@ -10,7 +10,6 @@
 //! The model of the `kvd` test server, and `kvd` as a service.
 
 use std::collections::BTreeMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -189,13 +188,10 @@ impl Model for Kvd {
         }
     }
 
-    /// A `GET` returns the last value set, or nothing after a delete. Also
-    /// records which kinds of reply and which shapes of state the run
-    /// reached.
+    /// A `GET` returns the last value set, or nothing after a delete.
     fn check(&self, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
         in_completion_order(self, ops, steps, |at, state| {
-            let reply = &steps[at].reply;
-            if let (Op::Get { key }, Some(got)) = (&ops[at], reply) {
+            if let (Op::Get { key }, Some(got)) = (&ops[at], &steps[at].reply) {
                 let want = state
                     .vals
                     .get(key)
@@ -204,30 +200,12 @@ impl Model for Kvd {
                     notes.fail("logic", "get_last_set");
                 }
             }
-            let class = match reply {
-                None => 0,
-                Some(Value::Nil) => 1,
-                Some(Value::Error(_)) => 2,
-                Some(Value::Array(items)) => 3 + items.len().min(2),
-                Some(_) => 6,
-            };
-            notes.saw("reply", hash(&(std::mem::discriminant(&ops[at]), class)));
-            notes.saw(
-                "state",
-                hash(&(state.vals.len(), state.scans.len(), state.compact)),
-            );
         });
     }
 }
 
 fn small(value: u64) -> u8 {
     u8::try_from(value).expect("small")
-}
-
-fn hash(value: &impl Hash) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 /// `kvd` at `binary`. It starts in milliseconds, so it gets short deadlines.

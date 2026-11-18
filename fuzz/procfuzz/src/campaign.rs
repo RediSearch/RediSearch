@@ -18,7 +18,6 @@ use std::fmt::{Debug, Display};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -26,7 +25,7 @@ use libafl::corpus::{Corpus, CorpusId, InMemoryCorpus, InMemoryOnDiskCorpus};
 use libafl::events::SimpleEventManager;
 use libafl::executors::{Executor, ExitKind, HasObservers};
 use libafl::feedbacks::MaxMapFeedback;
-use libafl::fuzzer::{Evaluator, ExecutionProcessor, Fuzzer, StdFuzzer};
+use libafl::fuzzer::{Evaluator, Fuzzer, StdFuzzer};
 use libafl::inputs::Input;
 use libafl::monitors::SimpleMonitor;
 use libafl::mutators::{MutationResult, Mutator};
@@ -77,13 +76,11 @@ impl<O: Clone + Debug + Hash + Serialize + DeserializeOwned> Op for O {}
 /// else a run shows, such as findings, is for `execute` to handle. A feature
 /// not seen before counts only if a second run of the program shows it too;
 /// one that shows in only one of the runs never counts. `mutate` edits a
-/// program, splicing from a donor. Programs that show a new feature are
-/// shared through `peer`, and those other campaigns shared are taken without
-/// running them. Without seeds the search starts from the empty program.
+/// program, splicing from a donor. Without seeds the search starts from the
+/// empty program.
 pub fn fuzz<O: Op, E: Display>(
     campaign: &Campaign<'_>,
     stop: &AtomicBool,
-    peer: Peer<'_, O>,
     execute: impl FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
     mutate: impl FnMut(&Program<O>, &Program<O>, &mut Draw) -> Program<O>,
 ) -> Result<(), Error> {
@@ -102,7 +99,6 @@ pub fn fuzz<O: Op, E: Display>(
         execute,
         stop,
         deadline: campaign.duration.map(|d| Instant::now() + d),
-        peer,
         runs: 0,
         failures: 0,
         seen: HashSet::new(),
@@ -130,91 +126,12 @@ pub fn fuzz<O: Op, E: Display>(
             fuzzer.add_input(&mut state, &mut executor, &mut manager, empty)?;
         }
         loop {
-            for (program, features) in executor.imports() {
-                executor.mark(&features);
-                let entry = Entry(program);
-                let observers = &executor.observers;
-                fuzzer.evaluate_execution(
-                    &mut state,
-                    &mut manager,
-                    &entry,
-                    observers,
-                    &ExitKind::Ok,
-                    false,
-                )?;
-            }
             fuzzer.fuzz_one(&mut stages, &mut executor, &mut state, &mut manager)?;
         }
     })();
     match result {
         Err(Error::ShuttingDown) => Ok(()),
         result => result,
-    }
-}
-
-/// Programs campaigns kept, with the features that made them worth keeping.
-pub struct Exchange<O> {
-    shared: Mutex<Vec<Shared<O>>>,
-}
-
-struct Shared<O> {
-    from: usize,
-    program: Program<O>,
-    features: Vec<Feature>,
-}
-
-/// One campaign's end of an [`Exchange`].
-pub struct Peer<'a, O> {
-    exchange: &'a Exchange<O>,
-    me: usize,
-    /// How many shared programs this campaign has looked at.
-    read: usize,
-}
-
-impl<O: Clone> Exchange<O> {
-    pub fn new() -> Exchange<O> {
-        Exchange {
-            shared: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// The end of campaign `me`.
-    pub fn peer(&self, me: usize) -> Peer<'_, O> {
-        Peer {
-            exchange: self,
-            me,
-            read: 0,
-        }
-    }
-}
-
-impl<O: Clone> Default for Exchange<O> {
-    fn default() -> Self {
-        Exchange::new()
-    }
-}
-
-impl<O: Clone> Peer<'_, O> {
-    fn publish(&self, program: &Program<O>, features: &[Feature]) {
-        let shared = Shared {
-            from: self.me,
-            program: program.clone(),
-            features: features.to_vec(),
-        };
-        let mut all = self.exchange.shared.lock().expect("not poisoned");
-        all.push(shared);
-    }
-
-    /// What other campaigns shared since the last call.
-    fn receive(&mut self) -> Vec<(Program<O>, Vec<Feature>)> {
-        let all = self.exchange.shared.lock().expect("not poisoned");
-        let new = all[self.read..]
-            .iter()
-            .filter(|shared| shared.from != self.me)
-            .map(|shared| (shared.program.clone(), shared.features.clone()))
-            .collect();
-        self.read = all.len();
-        new
     }
 }
 
@@ -249,11 +166,10 @@ type Features = ExplicitTracking<OwnedMapObserver<u8>, true, false>;
 
 /// Runs programs for LibAFL: confirms new features, tolerates a few
 /// failures in a row, and ends the search when it should.
-struct RunExecutor<'a, F, O> {
+struct RunExecutor<'a, F> {
     execute: F,
     stop: &'a AtomicBool,
     deadline: Option<Instant>,
-    peer: Peer<'a, O>,
     runs: u64,
     /// In a row.
     failures: u32,
@@ -263,10 +179,13 @@ struct RunExecutor<'a, F, O> {
     observers: tuple_list_type!(Features),
 }
 
-impl<F, O: Clone> RunExecutor<'_, F, O> {
+impl<F> RunExecutor<'_, F> {
     /// The features of a run that count; `None` if the run failed but the
     /// campaign can go on.
-    fn observe<E: Display>(&mut self, program: &Program<O>) -> Result<Option<Vec<Feature>>, Error>
+    fn observe<O, E: Display>(
+        &mut self,
+        program: &Program<O>,
+    ) -> Result<Option<Vec<Feature>>, Error>
     where
         F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
     {
@@ -282,9 +201,6 @@ impl<F, O: Clone> RunExecutor<'_, F, O> {
             let first: HashSet<Feature> = features.iter().copied().collect();
             self.unstable.extend(first.symmetric_difference(&again));
             features.retain(|feature| again.contains(feature));
-            if features.iter().any(|feature| !self.seen.contains(feature)) {
-                self.peer.publish(program, &features);
-            }
         }
         self.seen.extend(features.iter().copied());
         if self.runs == RUNS_BEFORE_WARNING && self.seen.is_empty() {
@@ -295,7 +211,7 @@ impl<F, O: Clone> RunExecutor<'_, F, O> {
         Ok(Some(features))
     }
 
-    fn run<E: Display>(&mut self, program: &Program<O>) -> Result<Option<Vec<Feature>>, Error>
+    fn run<O, E: Display>(&mut self, program: &Program<O>) -> Result<Option<Vec<Feature>>, Error>
     where
         F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
     {
@@ -324,20 +240,6 @@ impl<F, O: Clone> RunExecutor<'_, F, O> {
         }
     }
 
-    /// The programs other campaigns shared that show a feature this one has
-    /// not seen, with the features that count, which are now seen.
-    fn imports(&mut self) -> Vec<(Program<O>, Vec<Feature>)> {
-        let mut imports = Vec::new();
-        for (program, mut features) in self.peer.receive() {
-            features.retain(|feature| !self.unstable.contains(feature));
-            if features.iter().any(|feature| !self.seen.contains(feature)) {
-                self.seen.extend(features.iter().copied());
-                imports.push((program, features));
-            }
-        }
-        imports
-    }
-
     /// Sets the map to show exactly `features`.
     fn mark(&mut self, features: &[Feature]) {
         let map = self.observers.0.as_mut();
@@ -348,7 +250,7 @@ impl<F, O: Clone> RunExecutor<'_, F, O> {
     }
 }
 
-impl<F, O> HasObservers for RunExecutor<'_, F, O> {
+impl<F> HasObservers for RunExecutor<'_, F> {
     type Observers = tuple_list_type!(Features);
 
     fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
@@ -360,9 +262,8 @@ impl<F, O> HasObservers for RunExecutor<'_, F, O> {
     }
 }
 
-impl<EM, S, Z, O, E, F> Executor<EM, Entry<O>, S, Z> for RunExecutor<'_, F, O>
+impl<EM, S, Z, O, E, F> Executor<EM, Entry<O>, S, Z> for RunExecutor<'_, F>
 where
-    O: Clone,
     S: HasExecutions,
     E: Display,
     F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
@@ -439,23 +340,21 @@ mod tests {
         }
     }
 
-    /// A program shows edge 1 every run and edge 2 every other run. Another
-    /// campaign shared a program showing edge 7.
+    /// A program shows edge 1 every run and edge 2 every other run, so only
+    /// the empty program is kept.
     #[test]
-    fn only_features_two_runs_agree_on_count_and_shared_programs_are_not_run() {
-        let exchange = Exchange::new();
-        exchange.peer(1).publish(&program(99), &[edge(7)]);
+    fn only_features_two_runs_agree_on_count() {
         let corpus = tempfile::tempdir().unwrap();
         let campaign = Campaign {
             seeds: &[],
             corpus: corpus.path(),
             duration: Some(Duration::from_millis(200)),
         };
-        let mut ran = Vec::new();
-        let execute = |program: &Program<u8>| {
-            ran.push(program.clone());
+        let mut runs = 0;
+        let execute = |_: &Program<u8>| {
+            runs += 1;
             let mut features = vec![edge(1)];
-            if ran.len() % 2 == 1 {
+            if runs % 2 == 1 {
                 features.push(edge(2));
             }
             Ok::<_, String>(features)
@@ -465,9 +364,7 @@ mod tests {
             child.ops.extend(program(1).ops);
             child
         };
-        let stop = AtomicBool::new(false);
-        fuzz(&campaign, &stop, exchange.peer(0), execute, mutate).unwrap();
-        assert!(!ran.contains(&program(99)));
+        fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
         let kept = std::fs::read_dir(corpus.path())
             .unwrap()
             .filter(|entry| {
@@ -479,6 +376,6 @@ mod tests {
                     .starts_with('.')
             })
             .count();
-        assert_eq!(kept, 2, "the empty program and the shared one");
+        assert_eq!(kept, 1);
     }
 }

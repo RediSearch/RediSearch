@@ -26,9 +26,9 @@ use procfuzz::system::{Notes, Step, in_completion_order};
 use procfuzz_redis::resp::{Bytes, Value};
 
 use crate::RediSearch;
-use crate::effect::{Effect, effect};
+use crate::effect::Effect;
 use crate::op::{Action, Op, Query, QueryOptions};
-use crate::state::{Key, State, comparable};
+use crate::state::{Key, comparable};
 
 /// RediSearch's default stopwords.
 const STOPWORDS: [&str; 33] = [
@@ -49,13 +49,6 @@ struct SearchResult<'a> {
 }
 
 pub fn check(model: &RediSearch, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
-    let mut fails_on_timeout = false;
-    in_completion_order(model, ops, steps, |_, state| {
-        fails_on_timeout |= state.fails_on_timeout;
-    });
-    if !fails_on_timeout {
-        return;
-    }
     let results = comparable_results(model, ops, steps);
     for (i, a) in results.iter().enumerate() {
         for b in &results[i + 1..] {
@@ -181,31 +174,24 @@ fn known_fields(query: &Query, key: &Option<Key>) -> bool {
     }
 }
 
-/// What an op does to search results; a settle has no effect of its own.
-fn op_effect(op: &Op, state: &State) -> Effect {
-    match op.action.commands(state).first() {
-        Some(command) => effect(command),
-        None => Effect::Reads,
-    }
-}
-
 /// Exact `FT.SEARCH` results inside a comparison window, each with the key
-/// of its index as the commands the server accepted left it.
+/// of its index as the commands the server accepted left it. None under the
+/// default timeout policy, which returns partial results.
 fn comparable_results<'a>(
     model: &RediSearch,
     ops: &'a [Op],
     steps: &[Step<Value>],
 ) -> Vec<SearchResult<'a>> {
-    let mut effects = vec![Effect::Reads; steps.len()];
-    in_completion_order(model, ops, steps, |at, state| {
-        effects[at] = op_effect(&ops[at], state);
-    });
     // A step that never completed may still have changed results.
-    for (at, step) in steps.iter().enumerate() {
-        if step.done.is_none() && !matches!(ops[at].action, Action::Settle) {
-            effects[at] = Effect::Writes;
-        }
-    }
+    let effects: Vec<Effect> = ops
+        .iter()
+        .zip(steps)
+        .map(|(op, step)| match op.action {
+            Action::Settle => Effect::Reads,
+            _ if step.done.is_none() => Effect::Writes,
+            ref action => action.effect(),
+        })
+        .collect();
     let mut window = 0;
     let mut open = false;
     let mut results = Vec::new();
@@ -231,6 +217,7 @@ fn comparable_results<'a>(
             query,
             options,
         } = &ops[at].action
+            && state.fails_on_timeout
             && open
             && undisturbed
             && comparable(query, options)
