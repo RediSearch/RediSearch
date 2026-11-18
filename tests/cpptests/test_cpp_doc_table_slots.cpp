@@ -195,6 +195,7 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
   filter.min = -std::numeric_limits<double>::infinity();
   filter.max = std::numeric_limits<double>::infinity();
   filter.minInclusive = filter.maxInclusive = true;
+  filter.ascending = true;
   FieldFilterContext filterCtx = {};
   filterCtx.field.index_tag = FieldMaskOrIndex_Index;
   filterCtx.field.index = 0;
@@ -234,7 +235,7 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
         break;
       }
     }
-    IteratorHandle it(NewNumericTopKIterator(tree.get(), &filter, true, testCase.k, 3,
+    IteratorHandle it(NewNumericTopKIterator(tree.get(), &filter, testCase.k, 3,
                                              NUMERIC_OPTIMIZER_MODE_PARTIAL_RANGE, child.get(),
                                              &sctx, &filterCtx),
                       freeIterator);
