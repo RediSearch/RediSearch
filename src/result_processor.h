@@ -364,7 +364,6 @@ ResultProcessor *RPDepleter_New();
 /** Marks a depleter whose pipeline root preloads the total (coordinator WITHCOUNT). */
 void RPDepleter_SetTotalPreloaded(ResultProcessor *base);
 
-
 /**
 * Consumes and buffers all upstream results without yielding any to the caller.
 * This is used for foreground depletion in WORKERS == 0 mode to pre-fill
