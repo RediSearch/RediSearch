@@ -220,7 +220,7 @@ static bool importOnKey(AsyncScanJob *job, RedisModuleCtx *ctx, RedisModuleKey *
   return true;
 }
 
-static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, AsyncScanOutcome outcome) {
+static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScanEnd *end) {
   DiskASMImport *imp = (DiskASMImport *)job;
   imp->scanRunning = false;
   if (imp->ended) {
@@ -232,7 +232,7 @@ static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, AsyncScanOutcom
     fail(imp, "clearing the DocIdMeta of an imported key failed");
     return;
   }
-  if (outcome != ASYNC_SCAN_OUTCOME_COMPLETED) {
+  if (end->outcome != ASYNC_SCAN_OUTCOME_COMPLETED) {
     static const char *errors[] = {
         [ASYNC_SCAN_OUTCOME_CANCELLED] = "the rebuild scan was cancelled",
         [ASYNC_SCAN_OUTCOME_RESET] = "a dataset reset ended the rebuild scan",
@@ -240,7 +240,7 @@ static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, AsyncScanOutcom
         [ASYNC_SCAN_OUTCOME_IO_ERROR] = "the rebuild scan hit an I/O error",
         [ASYNC_SCAN_OUTCOME_ERROR] = "the rebuild scan could not run",
     };
-    fail(imp, errors[outcome]);
+    fail(imp, errors[end->outcome]);
     return;
   }
 
@@ -286,6 +286,7 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
       .nameForLogs = imp->nameForLogs,
       .scannedKeys = &imp->stats.keysScanned,
       .shouldStop = importShouldStop,
+      .isCancelled = importShouldStop,
       .start = importStart,
       .onKey = importOnKey,
       .finish = importFinish,

@@ -46,7 +46,8 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner);
 typedef enum {
   // Every selected key was delivered (the cursor is exhausted).
   ASYNC_SCAN_OUTCOME_COMPLETED,
-  // The job stopped the sweep (AsyncScanJob.shouldStop or AsyncScanJob.onKey).
+  // The job stopped the sweep (AsyncScanJob.shouldStop, AsyncScanJob.isCancelled or
+  // AsyncScanJob.onKey).
   ASYNC_SCAN_OUTCOME_CANCELLED,
   // A dataset reset (FLUSHALL, FLUSHDB, DEBUG RELOAD) ended the sweep.
   ASYNC_SCAN_OUTCOME_RESET,
@@ -58,6 +59,16 @@ typedef enum {
 } AsyncScanOutcome;
 
 const char *AsyncScanOutcome_ToString(AsyncScanOutcome outcome);
+
+// How a sweep ended, as AsyncScanJob.finish gets it.
+typedef struct {
+  AsyncScanOutcome outcome;
+  // The Start / NextBatch code that ended the sweep, so a job can tell causes of one outcome
+  // apart: REDISMODULE_ASYNCSCAN_BUSY for a Start the engine kept refusing, OUT_OF_MEMORY for the
+  // engine's OOM. REDISMODULE_ASYNCSCAN_OK when the driver ended it itself: the job stopped, or the
+  // module's own memory check failed.
+  RedisModuleAsyncScanResult rc;
+} AsyncScanEnd;
 
 // One sweep of an AsyncScan cursor, run by AsyncScan_Drive. The driver owns the cursor and
 // the batch loop: BUSY retries, the vector flat-buffer back-pressure, the memory checks and
@@ -71,8 +82,13 @@ struct AsyncScanJob {
   const char *nameForLogs;
   // Keys delivered so far, maintained by `onKey`; read for the progress logs.
   const size_t *scannedKeys;
-  // Whether the sweep must stop. Called with or without the GIL, so it must be lock-free.
+  // Whether the sweep must stop, including because what it scans for went away without the job
+  // being told. Called before Start, between batches, and periodically while a batch waits.
+  // Called with or without the GIL, so it must be lock-free.
   bool (*shouldStop)(AsyncScanJob *job);
+  // The job's own cancellation latch only: a cheap read, called on every wait iteration. Called
+  // with or without the GIL, so it must be lock-free.
+  bool (*isCancelled)(AsyncScanJob *job);
   // Binds `cursor` and queues the first batch: RedisModule_AsyncScanStart or one of its
   // variants, passing `key_cb`, `done_cb`, `batchSizeHint` and `privdata` through unchanged.
   // GIL held. Called again after each REDISMODULE_ASYNCSCAN_BUSY.
@@ -86,7 +102,7 @@ struct AsyncScanJob {
                 RedisModuleString *name);
   // The sweep ended with `outcome`. GIL held. Called exactly once and last, so it may free
   // the job.
-  void (*finish)(AsyncScanJob *job, RedisModuleCtx *ctx, AsyncScanOutcome outcome);
+  void (*finish)(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScanEnd *end);
 };
 
 // Runs one sweep of `job` to its end, on the calling thread, which must not hold the GIL
