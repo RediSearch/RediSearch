@@ -32,14 +32,12 @@ use crate::{QueryEvalContext, disk};
 ///
 /// Only the stop is requested: the build checkpoint after the evaluation turns it into
 /// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
-/// FT.AGGREGATE take part, plus requests that opt in with
-/// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
-/// runs its plan, and the hybrid reply maps an OOM stop under FAIL only.
+/// FT.AGGREGATE take part: FT.EXPLAIN never runs its plan, and the hybrid reply does not map an
+/// OOM stop yet.
 pub(crate) fn memory_stop(ctx: &mut QueryEvalContext, counter: &mut u32) -> bool {
     if !ctx
         .req_flags()
         .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
-        && !ctx.checks_expansion_memory()
     {
         return false;
     }
