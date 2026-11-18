@@ -494,6 +494,38 @@ def testRangeReadsTheFieldItNames(env):
     env.assertEqual(search(env, '@t1:>{a}'), ['doc1'])
 
 
+# The cursor's batches are per shard, so which document a batch boundary falls
+# after only holds on one.
+@skip(cluster=True)
+def testFieldExpiringBetweenCursorBatchesIsNotReturned(env):
+    """A range checks field expiration as it reads, not only as it collects.
+
+    A range collects its documents when the query is evaluated, but a cursor
+    reads them batch by batch, and a field can expire in between. The document
+    itself stays live, so nothing after the range would filter it.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 't', 'TAG', 'n', 'NUMERIC')
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    for i in range(1, 5):
+        conn.execute_command('HSET', f'doc{i}', 't', f'v{i}', 'n', i)
+    # The TTL is set before the query rather than between batches: setting it
+    # reindexes the document, which would retire the collected id instead of
+    # expiring its field.
+    conn.execute_command('HPEXPIRE', 'doc3', '500', 'FIELDS', '1', 't')
+
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:>{a}', 'LOAD', '1', '@__key',
+                          'WITHCURSOR', 'COUNT', '1', 'DIALECT', '2')
+    keys = [row[1] for row in res[1:]]
+    env.assertEqual(len(keys), 1, message='a later batch must hold doc3')
+    time.sleep(0.7)
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        keys += [row[1] for row in res[1:]]
+
+    env.assertEqual(sorted(keys), ['doc1', 'doc2', 'doc4'])
+
+
 def testSortOrderAndIndexOrderCanDiffer(env):
     """Keyset pagination needs SORTBY and the range to agree, and they only do
     when the field text is already an indexed tag value.
@@ -610,16 +642,13 @@ def testKeysetPaginationRepeatsAPageOnAMultiValueField(env):
     env.assertEqual(page('@name:>{bob}'), ['doc1', '$alice,zulu'])
 
 
-# The cap is per shard, so a cluster admits one expansion per shard and the
-# coordinator unions them; the counts below only hold for a single shard.
-@skip(cluster=True)
-def testExpansionCapStopsTheWalk():
-    """Past MAXPREFIXEXPANSIONS the walk stops and says so.
+def testRangeIsNotSubjectToTheExpansionCap():
+    """A range returns every document in it whatever MAXPREFIXEXPANSIONS is.
 
-    An unbounded range over a high-cardinality field is unbounded work, so the
-    cap has to end the walk rather than merely decline to open further readers,
-    and the truncation has to be reported rather than silently returning fewer
-    documents.
+    The cap bounds how many readers an expansion holds open at once. A range
+    collects each value's documents as it walks rather than opening a reader per
+    value, so there is nothing for the cap to bound, and applying it would
+    silently truncate a range over a high-cardinality field such as an ID.
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -632,8 +661,8 @@ def testExpansionCapStopsTheWalk():
     try:
         res = env.cmd('FT.SEARCH', 'idx', '@name:>{""}', 'NOCONTENT',
                       'LIMIT', '0', '100', 'DIALECT', '2')
-        env.assertContains('Max prefix expansions limit was reached', res['warning'])
-        env.assertEqual(res['total_results'], 5, message=res)
+        env.assertNotContains('Max prefix expansions limit was reached', str(res['warning']))
+        env.assertEqual(res['total_results'], 20, message=res)
     finally:
         run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
@@ -650,15 +679,14 @@ DEADLINE_VALUES = 100000
 def testRangeWalkStopsAtTheQueryDeadline(env):
     """The deadline ends the walk itself, not merely the query around it.
 
-    The expansion cap counts readers opened, not values visited, so a value
-    whose reader does not open leaves the count where it was and the cap cannot
-    bound the walk on its own.
+    A range is not bound by the expansion cap, so the deadline is the only thing
+    that can end a walk over a high-cardinality field early.
 
-    What is asserted is how many readers the range opened, which is the walk's
-    own progress: `FT.PROFILE LIMITED` reports it, and without the deadline on
-    the walk it is one reader per indexed value. An error from `ON_TIMEOUT FAIL`
-    would not do, because the pipeline's own deadline check raises the same
-    error whether or not the walk stopped early.
+    What is asserted is how many values the range walked, which is the walk's
+    own progress: `FT.PROFILE` reports it, and without the deadline on the walk
+    it is every indexed value. Neither an error from `ON_TIMEOUT FAIL` nor the
+    number of documents read would do, because the pipeline's own deadline check
+    cuts the query short whether or not the walk stopped early.
 
     The mechanism is covered directly, and without depending on timing, by
     `an_elapsed_deadline_stops_the_walk_early` in `trie_rs` and
@@ -666,9 +694,6 @@ def testRangeWalkStopsAtTheQueryDeadline(env):
     """
     enable_unstable_features(env)
     conn = create_index(env, 'v', 'TAG')
-    # A cap above the number of indexed values leaves the deadline as the only
-    # thing that can end the walk early.
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1000000')
     pl = conn.pipeline(transaction=False)
     for i in range(DEADLINE_VALUES):
         pl.execute_command('HSET', f'doc{i:06d}', 'v', f'v{i:06d}')
@@ -678,15 +703,14 @@ def testRangeWalkStopsAtTheQueryDeadline(env):
         run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '1')
         # RETURN rather than FAIL, so the profile comes back to be read.
         run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
-        res = str(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'LIMITED', 'QUERY',
+        res = str(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
                           '@v:>{""}', 'LIMIT', '0', '0', 'DIALECT', '2'))
-        opened = re.search(r'The number of iterators in the union is (\d+)', res)
-        env.assertIsNotNone(opened, message=f'no union in the profile: {res}')
-        if opened:
-            env.assertLess(int(opened.group(1)), DEADLINE_VALUES, message=res)
+        walked = re.search(r"'Values walked', (\d+)", res)
+        env.assertIsNotNone(walked, message=f'no walk progress in the profile: {res}')
+        if walked:
+            env.assertLess(int(walked.group(1)), DEADLINE_VALUES, message=res)
     finally:
         run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '500')
-        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 
 @skip(cluster=True)
@@ -863,11 +887,10 @@ def testExplain(env):
 
 @skip(cluster=True)
 def testProfile(env):
-    """The range is executed as a union of the per-value readers it expanded to,
-    and that union names the bound its clause carries.
+    """The range prints under its own name and the bound its clause carries.
 
     Without the bound, two range clauses on one field print as two identical
-    `LEXRANGE` unions with nothing to tell them apart. Which side the bound
+    `LEXRANGE` iterators with nothing to tell them apart. Which side the bound
     closes is not in here; `FT.EXPLAIN` is where that is spelled out.
     """
     enable_unstable_features(env)
