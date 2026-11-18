@@ -53,7 +53,9 @@ to port; `--keep-header-only` keeps the latter.
 - **C modules** (light blue): the `.c`, `.cpp`, `.h` and `.hpp` files under
   `src/`, outside `src/redisearch_rs/`. A source file and its header with the
   same path and stem form one module, named after that path under `src/`
-  (e.g. `util/arr/arr`). C modules using no other C module nor dependency
+  (e.g. `util/arr/arr`). Libraries vendored into `src/`, such as
+  `src/vecsim/`, form one module each, named after their directory
+  (`vecsim`). C modules using no other C module nor dependency
   have a thick border: they can be ported on their own.
 - **Rust crates**: the production crates of the workspace, in light red, or
   light purple for the FFI crates (`c_entrypoint/*` and `c_wrappers/*`),

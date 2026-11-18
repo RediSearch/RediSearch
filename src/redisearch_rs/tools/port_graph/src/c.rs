@@ -33,7 +33,6 @@ pub const INCLUDE_DIRS: &[&str] = &[
     "src/redisearch_rs/headers",
     "deps/libuv/include",
     "deps",
-    "deps/VectorSimilarity/src",
     "deps/rmalloc",
     "",
 ];
@@ -152,10 +151,18 @@ pub fn dir_code_lines(dir: &Path) -> usize {
         .sum()
 }
 
+/// Directories under `src/` forming a single module: libraries vendored into
+/// the tree, which are ported, or not, as a whole.
+const LIBRARY_DIRS: &[&str] = &["vecsim"];
+
 /// A file's module: its path under `src/` without extension, so that a
-/// source file and the header declaring its interface form one module.
+/// source file and the header declaring its interface form one module, or
+/// the directory of [`LIBRARY_DIRS`] holding it.
 pub fn module_name(relative: &Path) -> String {
     let under_src = relative.strip_prefix("src").unwrap_or(relative);
+    if let Some(library) = LIBRARY_DIRS.iter().find(|dir| under_src.starts_with(dir)) {
+        return (*library).to_owned();
+    }
     under_src
         .with_extension("")
         .to_string_lossy()
@@ -754,5 +761,13 @@ int table[16];
     fn module_pairs_source_and_header() {
         assert_eq!(module_name(Path::new("src/util/arr.h")), "util/arr");
         assert_eq!(module_name(Path::new("src/util/arr.c")), "util/arr");
+    }
+
+    #[test]
+    fn library_dirs_form_one_module() {
+        let module = |path: &str| module_name(Path::new(path));
+        assert_eq!(module("src/vecsim/vec_sim.h"), "vecsim");
+        assert_eq!(module("src/vecsim/algorithms/hnsw/hnsw.h"), "vecsim");
+        assert_eq!(module("src/vecsim_like.c"), "vecsim_like");
     }
 }
