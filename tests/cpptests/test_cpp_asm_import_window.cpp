@@ -93,13 +93,16 @@ TEST_F(ASMImportWindowTest, OverlayEndKeepsUnlinkGuardOnly) {
   apply(ASM_ImportWindow_OnOverlayStart, {{100, 100}});
   apply(ASM_ImportWindow_OnOverlayEnd, {{100, 100}});
 
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(100), ASM_IMPORT_SLOT_REBUILD);
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(100), ASM_IMPORT_SLOT_AWAITING_REBUILD);
   EXPECT_TRUE(ASM_ImportWindow_IsOpen());
   EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(key));
 #ifndef ENABLE_ASSERT
   // An unlink once the overlay ended is unexpected: it still keeps the documents, and is counted.
   EXPECT_TRUE(ASM_ImportWindow_AbsorbsUnlink(key));
   EXPECT_EQ(ASM_ImportWindow_UnexpectedUnlinks(), 1);
+  // So is a write, which is still processed.
+  ASM_ImportWindow_CheckWrite(key);
+  EXPECT_EQ(ASM_ImportWindow_UnexpectedWrites(), 1);
 #endif
   RedisModule_FreeString(ctx, key);
 }
@@ -111,8 +114,8 @@ TEST_F(ASMImportWindowTest, OverlayEndLeavesSlotsOutsideTheOverlayAlone) {
   apply(ASM_ImportWindow_OnOverlayStart, {{10, 20}});
   apply(ASM_ImportWindow_OnOverlayEnd, {{0, 16383}});
   EXPECT_EQ(ASM_ImportWindow_SlotPhase(9), ASM_IMPORT_SLOT_NONE);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(10), ASM_IMPORT_SLOT_REBUILD);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(20), ASM_IMPORT_SLOT_REBUILD);
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(10), ASM_IMPORT_SLOT_AWAITING_REBUILD);
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(20), ASM_IMPORT_SLOT_AWAITING_REBUILD);
   EXPECT_EQ(ASM_ImportWindow_SlotPhase(21), ASM_IMPORT_SLOT_NONE);
 }
 
@@ -174,9 +177,25 @@ TEST_F(ASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
   apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
   EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_OVERLAY);
   apply(ASM_StateMachine_EndImportOverlay, {{0, 15}});
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_REBUILD);
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_AWAITING_REBUILD);
   apply(ASM_StateMachine_FailImport, {{0, 15}});
   EXPECT_FALSE(ASM_ImportWindow_IsOpen());
 
   isFlex = savedFlex;
+}
+
+TEST_F(ASMImportWindowTest, WritesOutsideTheRebuildAreNotReported) {
+  RedisModuleString *overlay = keyInSlot(100);
+  RedisModuleString *outside = keyInSlot(200);
+  apply(ASM_ImportWindow_OnOverlayStart, {{100, 100}});
+
+  ASM_ImportWindow_CheckWrite(overlay);
+  ASM_ImportWindow_CheckWrite(outside);
+  apply(ASM_ImportWindow_OnOverlayStart, {{300, 300}});
+  apply(ASM_ImportWindow_OnOverlayEnd, {{300, 300}});
+  ASM_ImportWindow_CheckWrite(outside);
+
+  EXPECT_EQ(ASM_ImportWindow_UnexpectedWrites(), 0);
+  RedisModule_FreeString(ctx, overlay);
+  RedisModule_FreeString(ctx, outside);
 }
