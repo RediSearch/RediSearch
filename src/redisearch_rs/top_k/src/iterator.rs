@@ -326,12 +326,12 @@ const _: () = {
     struct ProofSource;
 
     impl ScoreBatch for ProofSource {
-        fn next(&mut self) -> Option<(DocId, f64)> {
-            None
+        fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+            Ok(None)
         }
 
-        fn skip_to(&mut self, _target: DocId) -> Option<(DocId, f64)> {
-            None
+        fn skip_to(&mut self, _target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+            Ok(None)
         }
     }
 
@@ -587,15 +587,47 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // `self.heap.push` at the same time.  Pass fields explicitly.
             let capture = self.child_capture();
             if let Some(child) = self.child.as_mut() {
-                intersect_batch_with_child(child, &mut batch, &mut self.heap, capture)?;
+                intersect_batch_with_child(
+                    child,
+                    &mut batch,
+                    &mut self.source,
+                    &mut self.heap,
+                    capture,
+                )?;
             } else {
                 // No filter child: every source batch record is a candidate, so feed
                 // the whole batch through the heap, which retains the top k.
-                while let Some((doc_id, score)) = batch.next() {
-                    self.heap.push(doc_id, score);
+                // Keep decoding and heap updates in separate hot loops: fusing them
+                // regresses some numeric top-k benchmarks.
+                let mut chunk = [(0, 0.0); 64];
+                loop {
+                    let mut len = 0;
+                    let mut read_result = Ok(());
+                    while len < chunk.len() {
+                        match batch.next() {
+                            Ok(Some(pair)) => {
+                                chunk[len] = pair;
+                                len += 1;
+                            }
+                            Ok(None) => break,
+                            Err(error) => {
+                                read_result = Err(error);
+                                break;
+                            }
+                        }
+                    }
+                    for &(doc_id, score) in &chunk[..len] {
+                        if self.source.accept_candidate(doc_id, score)? {
+                            self.heap.push(doc_id, score);
+                        }
+                    }
+                    read_result?;
+                    if len < chunk.len() {
+                        break;
+                    }
                 }
             }
-            // Batch consumption is unpolled; check once at the boundary.
+            // A batch need not poll as it is read; check once at the boundary.
             self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -663,7 +695,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // Poll before the lookup so an expired deadline skips the expensive
             // VecSim distance lookup.
             scope.0.check_timeout()?;
-            if let Some(score) = scope.0.lookup_score(doc_id) {
+            if let Some(score) = scope.0.lookup_score(doc_id)
+                && scope.0.accept_candidate(doc_id, score)?
+            {
                 // Capture the child's data only if the heap retains this entry,
                 // before the next `child.read()` reuses its storage, so the yield
                 // phase needn't re-walk the child. A discarded candidate skips the
@@ -702,7 +736,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
-            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+            let item = self
+                .direct_batch
+                .as_mut()
+                .map(S::Batch::next)
+                .transpose()?
+                .flatten();
 
             // Poll once per step, after classifying the entry and before yielding
             // it — gates valid results, EOF, and expired skips alike.
@@ -710,6 +749,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
 
             match item {
                 Some((doc_id, score)) => {
+                    if !self.source.accept_candidate(doc_id, score)? {
+                        continue;
+                    }
                     let result = self.source.build_result(doc_id, score);
                     if self.source.is_expired(&result) {
                         continue;
@@ -1251,13 +1293,14 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
 fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
+    source: &mut impl ScoreSource,
     heap: &mut TopKHeap<'index, O>,
     capture: ChildCapture,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
     // Prime both iterators.
-    let Some((mut batch_doc, mut batch_score)) = batch.next() else {
+    let Some((mut batch_doc, mut batch_score)) = batch.next()? else {
         return Ok(());
     };
     let Some(first) = child.read()? else {
@@ -1271,14 +1314,18 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
                 // Capture the matching child data only if the heap retains it,
                 // before advancing past it, so the yield phase can return it
                 // without re-reading the child. A discarded match skips the copy.
-                heap.push_with_record_lazy(batch_doc, batch_score, || {
-                    child.current().and_then(|r| capture.apply(r))
-                });
+                if source.accept_candidate(batch_doc, batch_score)? {
+                    heap.push_with_record_lazy(batch_doc, batch_score, || {
+                        child.current().and_then(|r| capture.apply(r))
+                    });
+                }
                 // Advance the batch first; only read the child when another
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could
                 // turn a completed batch into a spurious TimedOut.
-                let Some((d, s)) = batch.next() else { break };
+                let Some((d, s)) = batch.next()? else {
+                    break;
+                };
                 batch_doc = d;
                 batch_score = s;
                 match child.read()?.map(|r| r.doc_id) {
@@ -1288,7 +1335,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
             }
             Ordering::Less => {
                 // batch is behind child — skip batch forward to child_doc.
-                match batch.skip_to(child_doc) {
+                match batch.skip_to(child_doc)? {
                     Some((d, s)) => {
                         batch_doc = d;
                         batch_score = s;
@@ -1395,12 +1442,12 @@ mod tests {
     struct OneDocBatch(Option<(DocId, f64)>);
 
     impl ScoreBatch for OneDocBatch {
-        fn next(&mut self) -> Option<(DocId, f64)> {
-            self.0.take()
+        fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+            Ok(self.0.take())
         }
 
-        fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-            self.0.take_if(|(doc_id, _)| *doc_id >= target)
+        fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+            Ok(self.0.take_if(|(doc_id, _)| *doc_id >= target))
         }
     }
 

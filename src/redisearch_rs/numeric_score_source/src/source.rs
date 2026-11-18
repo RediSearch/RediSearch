@@ -71,7 +71,7 @@ impl DocValidity for AllValid {
     }
 }
 
-/// Default number of value-ordered ranges materialized into a single batch.
+/// Default number of value-ordered ranges read as a single batch.
 ///
 /// Larger batches amortize the per-batch child rewind in the surrounding
 /// [`TopKIterator`]'s `intersect_batch_with_child`; smaller batches tighten the
@@ -141,7 +141,8 @@ pub struct NumericScoreSource<
     validity: V,
     /// Checks sort-field TTL before heap insertion.
     expiration: E,
-    /// Polls the query deadline during collection and yielding.
+    /// Polls the query deadline once per candidate and once per step during
+    /// yielding.
     timeout: T,
 }
 
@@ -152,7 +153,7 @@ struct NumericScan<'index> {
     ranges: NumericRangeIterator<'index>,
     /// The window the source started on, restored by [`rewind`](ScoreSource::rewind).
     initial_window: RangeWindow,
-    /// Number of value-ordered ranges materialized per batch. Always `>= 1`.
+    /// Number of value-ordered ranges read per batch. Always `>= 1`.
     range_batch_size: usize,
     /// Window document estimate captured at construction, kept stable after the
     /// window is drained or expanded.
@@ -167,7 +168,7 @@ struct NumericScan<'index> {
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
-    /// Number of value-ordered range batches materialized so far, surfaced as
+    /// Number of value-ordered range batches opened so far, surfaced as
     /// the `Batches number` profile metric. Reset on rewind.
     num_batches: usize,
 }
@@ -287,8 +288,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         }
     }
 
-    /// Attach a query-deadline poll, checked once per record during
-    /// materialization and once per step during yielding. [`NoTimeoutChecker`] (the
+    /// Attach a query-deadline poll, checked once per candidate and once per
+    /// step during yielding. [`NoTimeoutChecker`] (the
     /// default) never times out.
     pub fn with_timeout<T2: TimeoutContext>(
         self,
@@ -327,7 +328,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         scan.ranges.refind(scan.initial_window);
     }
 
-    /// Number of value-ordered range batches materialized so far, for the
+    /// Number of value-ordered range batches opened so far, for the
     /// `Batches number` profile metric.
     pub fn num_batches(&self) -> usize {
         self.scan.num_batches
@@ -394,42 +395,32 @@ impl NumericScan<'_> {
 impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSource
     for NumericScoreSource<'index, V, E, T>
 {
-    type Batch = NumericScoreBatch;
+    type Batch = NumericScoreBatch<'index>;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // `ranges` and `timeout` are disjoint fields; the split borrow lets the
-        // materialization loop poll the deadline once per record.
-        let Some(batch) = self
-            .scan
-            .ranges
-            .next_n(self.scan.range_batch_size, &mut self.timeout)?
-        else {
+        let Some(batch) = self.scan.ranges.next_n(self.scan.range_batch_size) else {
             return Ok(None);
         };
         self.scan.num_batches += 1;
+        Ok(Some(batch))
+    }
+
+    fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        unimplemented!("numeric top-k batches borrow the index and only run in Batches mode")
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
+        self.timeout.check_timeout()?;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
         // range tree only sheds at GC time. Each gate keeps the common
         // no-filtering case free of its per-record check.
-        let filter_validity = self.validity.may_filter();
-        let filter_expiration = self.expiration.has_expiration();
-        if !filter_validity && !filter_expiration {
-            return Ok(Some(batch));
-        }
-        let batch = batch.retain(|doc_id, score| {
-            self.timeout.check_timeout()?;
-            if filter_validity && !self.validity.is_valid(doc_id) {
-                return Ok(false);
-            }
-            if filter_expiration {
-                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                if self.expiration.is_expired(&record) {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        })?;
-        Ok(Some(batch))
+        Ok(self.scan.ranges.first_emission(doc_id)
+            && (!self.validity.may_filter() || self.validity.is_valid(doc_id))
+            && !(self.expiration.has_expiration()
+                && self
+                    .expiration
+                    .is_expired(&self.build_result(doc_id, score))))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -494,9 +485,6 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // Yielding-phase hook. Collection self-checks per record via `next_batch`,
-        // because the surrounding `TopKIterator` collects eagerly and only polls
-        // this during yielding.
         self.timeout.check_timeout()
     }
 
