@@ -586,19 +586,32 @@ typedef struct IndexDiskAPI {
    * Used by the metadata unlink callback where the docId is already known
    * (no key-to-docId lookup needed).
    *
+   * The row is not read: the caller holds the document's length (DocIdMeta, or
+   * `getDocumentLength` for metadata written before lengths were recorded) and accounts for it
+   * only when this returns true.
+   *
    * @param handle Handle to the document table
    * @param docId Document ID to delete
    * @param key The key that maps to `docId`; its slot tells a document a slot trim already
-   *        removed from a live one without reading the row.
+   *        removed from a live one.
    * @param keyLen Length of `key` in bytes
-   * @param knownDocLen The document's length as recorded in DocIdMeta, or
-   *        DOCID_META_DOCLEN_UNKNOWN. When known, the doc-table row is not read.
-   * @param oldLen Optional pointer to receive the deleted document's length: `knownDocLen`
-   *        when known, otherwise the row's value. Can be NULL. Untouched when nothing was deleted.
-   * @return true if a live document was deleted; false if it was already removed (a deletion
-   *         marker, a slot trim or no row) or on a storage error. The caller accounts only on true.
+   * @return true if the document was deleted; false if it was already removed (a deletion
+   *         marker or a slot trim) or on a storage error
    */
-  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char *key, size_t keyLen, uint32_t knownDocLen, uint32_t *oldLen);
+  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char *key, size_t keyLen);
+
+  /**
+   * @brief Reads a document's length from its doc-table row (a synchronous disk read)
+   *
+   * Only for key metadata that recorded no length (DOCID_META_DOCLEN_UNKNOWN); every other
+   * path takes the length from DocIdMeta.
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID to read
+   * @param docLen Receives the length when the row exists
+   * @return true if the row exists, false if it does not or on a storage error
+   */
+  bool (*getDocumentLength)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *docLen);
 
    /**
    * @brief Creates a new iterator for the inverted index

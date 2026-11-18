@@ -399,14 +399,12 @@ TEST_F(DiskSlotTrimTest, AccountingWaitsForWriteLockedDeletionNotification) {
     EXPECT_EQ(backendFuture.wait_for(std::chrono::seconds(3)), std::future_status::ready);
     EXPECT_EQ(finishedFuture.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
   };
-  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, const char *, size_t,
-                                    uint32_t, uint32_t *length) {
+  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, const char *, size_t) {
     afterStorageDelete();
-    *length = 1;
     return true;
   };
   RedisModuleString *key = RedisModule_CreateString(nullptr, "{moving}:1", 10);
-  IndexSpec_DeleteDocById(spec, key, 1, DOCID_META_DOCLEN_UNKNOWN);
+  IndexSpec_DeleteDocById(spec, key, 1, 1);
   RedisModule_FreeString(nullptr, key);
   gcWorker.join();
   afterStorageDelete = {};

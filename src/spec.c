@@ -4165,15 +4165,20 @@ static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                  : DocIdMeta_Delete(ctx, key, specId);
 }
 
-// Disk-mode delete. `docLen` carries the DocIdMeta length in and the deleted document's length
-// out; false when no live document was deleted, so nothing is accounted for.
+// Disk-mode delete. `docLen` is the DocIdMeta length, filled from the row when the metadata
+// recorded none; false when nothing was deleted, so nothing is accounted for.
 static bool deleteDiskDocument(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
                                uint32_t *docLen) {
   RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
   RS_LOG_ASSERT(key, "the disk delete needs the key to tell a trimmed document from a live one");
+  if (*docLen == DOCID_META_DOCLEN_UNKNOWN &&
+      !SearchDisk_GetDocumentLength(spec->diskSpec, docId, docLen)) {
+    // Stale mapping: the row is gone and was accounted for when it went.
+    return false;
+  }
   size_t keyLen;
   const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
-  return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, keyStr, keyLen, *docLen, docLen);
+  return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, keyStr, keyLen);
 }
 
 // Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
