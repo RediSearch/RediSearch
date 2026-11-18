@@ -262,6 +262,9 @@ fn decode_at(buf: &[u8], at: usize) -> Result<Option<(Value, usize)>, String> {
     let Some(end) = buf[at..].windows(2).position(|w| w == b"\r\n") else {
         return Ok(None);
     };
+    if end == 0 {
+        return Err("empty line".to_owned());
+    }
     let line = &buf[at + 1..at + end];
     let next = at + end + 2;
     let length = || {
@@ -327,7 +330,14 @@ mod tests {
                 first_len
             )))
         );
-        for bad in [&b"?x\r\n"[..], b":abc\r\n", b"$2\r\nabXY", b"*-5\r\n"] {
+        for bad in [
+            &b"?x\r\n"[..],
+            b":abc\r\n",
+            b"$2\r\nabXY",
+            b"*-5\r\n",
+            b"\r\n",
+            b"*1\r\n\r\n",
+        ] {
             assert!(decode(bad).is_err(), "{:?}", String::from_utf8_lossy(bad));
         }
     }
