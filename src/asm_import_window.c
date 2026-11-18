@@ -20,10 +20,20 @@ static uint8_t *slotPhase = NULL;
 uint32_t ASM_ImportWindow_overlayWindowSlots_g = 0;
 uint32_t ASM_ImportWindow_fullASMWindowSlots_g = 0;
 static size_t unexpectedUnlinks = 0;
+static size_t unexpectedWrites = 0;
 
 static void setPhase(unsigned int slot, ASMImportSlotPhase phase) {
   ASMImportSlotPhase old = (ASMImportSlotPhase)slotPhase[slot];
   if (old == phase) return;
+  // A slot only moves forward through its import, and any phase may close.
+  RS_LOG_ASSERT((old == ASM_IMPORT_SLOT_NONE && phase == ASM_IMPORT_SLOT_OVERLAY) ||
+                    (old == ASM_IMPORT_SLOT_OVERLAY && phase == ASM_IMPORT_SLOT_AWAITING_REBUILD) ||
+                    phase == ASM_IMPORT_SLOT_NONE,
+                "ASM import: invalid slot phase transition");
+  RS_LOG_ASSERT(old != ASM_IMPORT_SLOT_OVERLAY || ASM_ImportWindow_overlayWindowSlots_g > 0,
+                "ASM import: overlay window count underflow");
+  RS_LOG_ASSERT(old == ASM_IMPORT_SLOT_NONE || ASM_ImportWindow_fullASMWindowSlots_g > 0,
+                "ASM import: full window count underflow");
   ASM_ImportWindow_overlayWindowSlots_g -= (old == ASM_IMPORT_SLOT_OVERLAY);
   ASM_ImportWindow_overlayWindowSlots_g += (phase == ASM_IMPORT_SLOT_OVERLAY);
   ASM_ImportWindow_fullASMWindowSlots_g -= (old != ASM_IMPORT_SLOT_NONE);
@@ -49,6 +59,8 @@ static void transition(const RedisModuleSlotRangeArray *slots, bool anyFrom,
       }
     }
   }
+  RS_LOG_ASSERT(ASM_ImportWindow_overlayWindowSlots_g <= ASM_ImportWindow_fullASMWindowSlots_g,
+                "ASM import: overlay slots outside the full window");
   if (ASM_ImportWindow_fullASMWindowSlots_g == 0) {
     rm_free(slotPhase);
     slotPhase = NULL;
@@ -60,7 +72,7 @@ void ASM_ImportWindow_OnOverlayStart(const RedisModuleSlotRangeArray *slots) {
 }
 
 void ASM_ImportWindow_OnOverlayEnd(const RedisModuleSlotRangeArray *slots) {
-  transition(slots, false, ASM_IMPORT_SLOT_OVERLAY, ASM_IMPORT_SLOT_REBUILD);
+  transition(slots, false, ASM_IMPORT_SLOT_OVERLAY, ASM_IMPORT_SLOT_AWAITING_REBUILD);
 }
 
 void ASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots) {
@@ -73,6 +85,7 @@ void ASM_ImportWindow_Reset(void) {
   ASM_ImportWindow_overlayWindowSlots_g = 0;
   ASM_ImportWindow_fullASMWindowSlots_g = 0;
   unexpectedUnlinks = 0;
+  unexpectedWrites = 0;
 }
 
 ASMImportSlotPhase ASM_ImportWindow_SlotPhase(unsigned int slot) {
@@ -98,7 +111,7 @@ bool ASM_ImportWindow_AbsorbsUnlink(const RedisModuleString *key) {
       return false;
     case ASM_IMPORT_SLOT_OVERLAY:
       return true;
-    case ASM_IMPORT_SLOT_REBUILD:
+    case ASM_IMPORT_SLOT_AWAITING_REBUILD:
       unexpectedUnlinks++;
       RedisModule_Log(RSDummyContext, "warning",
                       "ASM import: unlink in slot %u while it is rebuilt; its documents are kept "
@@ -111,4 +124,19 @@ bool ASM_ImportWindow_AbsorbsUnlink(const RedisModuleString *key) {
 
 size_t ASM_ImportWindow_UnexpectedUnlinks(void) {
   return unexpectedUnlinks;
+}
+
+void ASM_ImportWindow_ReportRebuildWrite(const RedisModuleString *key) {
+  if (!slotPhase || !key) return;
+  unsigned int slot = keySlot(key);
+  if (slotPhase[slot] != ASM_IMPORT_SLOT_AWAITING_REBUILD) return;
+  unexpectedWrites++;
+  RedisModule_Log(RSDummyContext, "warning",
+                  "ASM import: write in slot %u while it is rebuilt (%zu so far)", slot,
+                  unexpectedWrites);
+  RS_LOG_ASSERT(false, "ASM import: unexpected write in a slot being rebuilt");
+}
+
+size_t ASM_ImportWindow_UnexpectedWrites(void) {
+  return unexpectedWrites;
 }

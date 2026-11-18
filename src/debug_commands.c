@@ -2986,7 +2986,7 @@ DEBUG_COMMAND(GCTimerArms) {
 /**
  * FT.DEBUG ASM_IMPORT_WINDOW OVERLAY_START|OVERLAY_END|CLOSE <start-slot> <end-slot>
  * FT.DEBUG ASM_IMPORT_WINDOW PHASE <slot>
- * FT.DEBUG ASM_IMPORT_WINDOW UNEXPECTED_UNLINKS|RESET
+ * FT.DEBUG ASM_IMPORT_WINDOW UNEXPECTED_UNLINKS|UNEXPECTED_WRITES|RESET
  *
  * Drives the slot window of an SST import (asm_import_window.h) as the import's stage events
  * would, without a migration.
@@ -3001,13 +3001,17 @@ DEBUG_COMMAND(ASMImportWindow) {
   size_t len;
   const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
 
-  if (STR_EQCASE(subCmd, len, "RESET") || STR_EQCASE(subCmd, len, "UNEXPECTED_UNLINKS")) {
+  if (STR_EQCASE(subCmd, len, "RESET") || STR_EQCASE(subCmd, len, "UNEXPECTED_UNLINKS") ||
+      STR_EQCASE(subCmd, len, "UNEXPECTED_WRITES")) {
     if (argc != 3) {
       return RedisModule_WrongArity(ctx);
     }
     if (STR_EQCASE(subCmd, len, "RESET")) {
       ASM_ImportWindow_Reset();
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    if (STR_EQCASE(subCmd, len, "UNEXPECTED_WRITES")) {
+      return RedisModule_ReplyWithLongLong(ctx, (long long)ASM_ImportWindow_UnexpectedWrites());
     }
     return RedisModule_ReplyWithLongLong(ctx, (long long)ASM_ImportWindow_UnexpectedUnlinks());
   }
@@ -3023,7 +3027,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     switch (ASM_ImportWindow_SlotPhase((unsigned int)slot)) {
       case ASM_IMPORT_SLOT_NONE: return RedisModule_ReplyWithSimpleString(ctx, "NONE");
       case ASM_IMPORT_SLOT_OVERLAY: return RedisModule_ReplyWithSimpleString(ctx, "OVERLAY");
-      case ASM_IMPORT_SLOT_REBUILD: return RedisModule_ReplyWithSimpleString(ctx, "REBUILD");
+      case ASM_IMPORT_SLOT_AWAITING_REBUILD: return RedisModule_ReplyWithSimpleString(ctx, "AWAITING_REBUILD");
     }
     return RedisModule_ReplyWithError(ctx, "Unknown phase");
   }

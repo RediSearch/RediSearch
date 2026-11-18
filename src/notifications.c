@@ -215,6 +215,10 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
     return REDISMODULE_OK;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
+  // `loaded` is the server reading a key in, not a write.
+  if (redisCommand != _null_cmd && redisCommand != loaded_cmd) {
+    ASM_ImportWindow_CheckWrite(key);
+  }
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
   // non-loaded notifications except rename_from, which only stores an owned source-key copy for
@@ -255,6 +259,7 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
   if (redisCommand == _null_cmd) {
     return;
   }
+  ASM_ImportWindow_CheckWrite(key);
 
   // Hash events are always deferred (ShouldDeferKeyspaceNotification only
   // exempts _null_cmd / loaded / rename_from, none of which reach here), so the
