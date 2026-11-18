@@ -37,10 +37,9 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use serde::{Deserialize, Serialize};
 
+use crate::coverage::CAPACITY;
 use crate::program::{Program, TypedOp};
 
-/// Edge ids are taken modulo this.
-const MAP: usize = 1 << 20;
 const MUTATIONS_PER_PICK: usize = 8;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
 
@@ -69,7 +68,7 @@ fn run<T: TypedOp, E: Display>(
     execute: impl FnMut(&Program<T>) -> Result<Vec<u32>, E>,
     mutate: impl FnMut(&Program<T>, &Program<T>, &mut SmallRng) -> Program<T>,
 ) -> Result<(), Error> {
-    let edges = OwnedMapObserver::new("edges", vec![0u8; MAP]).track_indices();
+    let edges = OwnedMapObserver::new("edges", vec![0u8; CAPACITY]).track_indices();
     let mut feedback = MaxMapFeedback::new(&edges);
     let mut state = StdState::new(
         StdRand::with_seed(current_nanos()),
@@ -172,7 +171,7 @@ where
         let edges = (self.execute)(&entry.0).map_err(|e| Error::unknown(e.to_string()))?;
         let map = self.observers.0.as_mut();
         for edge in edges {
-            map[usize::try_from(edge).expect("fits") % MAP] = 1;
+            map[usize::try_from(edge).expect("fits")] = 1;
         }
         Ok(ExitKind::Ok)
     }

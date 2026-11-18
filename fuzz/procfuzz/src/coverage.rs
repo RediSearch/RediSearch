@@ -25,7 +25,8 @@ use nix::sys::mman::{shm_open, shm_unlink};
 use nix::sys::stat::Mode;
 
 pub const ENV: &str = "PROCFUZZ_COVERAGE_SHM";
-const CAPACITY: usize = 1 << 24;
+/// Edge ids at or above this are dropped by the shim.
+pub const CAPACITY: usize = 1 << 20;
 const HEADER: usize = 16;
 
 static NEXT_MAP: AtomicU32 = AtomicU32::new(0);
@@ -76,9 +77,13 @@ impl CoverageMap {
 
     /// Complete only once the process and its children have exited.
     pub fn read(&self) -> Coverage {
+        let guards = u64::from_ne_bytes(self.map[8..HEADER].try_into().expect("8 bytes"));
+        // Guard ids start at 1, so the last one is `guards` itself.
+        let end = usize::try_from(guards)
+            .map_or(CAPACITY, |guards| guards.saturating_add(1).min(CAPACITY));
         Coverage {
-            guards: u64::from_ne_bytes(self.map[8..HEADER].try_into().expect("8 bytes")),
-            edges: (0..CAPACITY)
+            guards,
+            edges: (0..end)
                 .filter(|&id| self.map[HEADER + id] != 0)
                 .filter_map(|id| u32::try_from(id).ok())
                 .collect(),

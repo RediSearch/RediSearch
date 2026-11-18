@@ -19,7 +19,7 @@ use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
 
-const POLL: Duration = Duration::from_millis(20);
+const POLL: Duration = Duration::from_millis(1);
 
 /// A process under test, in a process group of its own so that its children
 /// die with it, with stdout and stderr in one log. Dropping it kills the
