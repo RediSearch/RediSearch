@@ -10,6 +10,13 @@
 //! Coverage-guided fuzzing of stateful programs against a server process.
 
 pub mod coverage;
+pub mod draw;
+pub mod edit;
 pub mod interrupt;
 pub mod legacy;
+pub mod model;
 pub mod process;
+pub mod system;
+
+#[cfg(test)]
+mod toy;
