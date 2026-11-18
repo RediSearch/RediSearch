@@ -52,6 +52,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
+#include "asm_import_window.h"
 #include "coord/rmr/rmr.h"
 #include "vecsim/info_iterator.h"
 #include "vecsim/vec_sim.h"
@@ -2981,6 +2982,79 @@ DEBUG_COMMAND(GCTimerArms) {
   return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
+/**
+ * FT.DEBUG ASM_IMPORT_WINDOW OVERLAY_START|OVERLAY_END|CLOSE <start-slot> <end-slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW PHASE <slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW UNEXPECTED_UNLINKS|RESET
+ *
+ * Drives the slot window of an SST import (asm_import_window.h) as the import's stage events
+ * would, without a migration.
+ */
+DEBUG_COMMAND(ASMImportWindow) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+
+  if (STR_EQCASE(subCmd, len, "RESET") || STR_EQCASE(subCmd, len, "UNEXPECTED_UNLINKS")) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (STR_EQCASE(subCmd, len, "RESET")) {
+      ASM_ImportWindow_Reset();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    return RedisModule_ReplyWithLongLong(ctx, (long long)ASM_ImportWindow_UnexpectedUnlinks());
+  }
+
+  if (STR_EQCASE(subCmd, len, "PHASE")) {
+    long long slot;
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (RedisModule_StringToLongLong(argv[3], &slot) != REDISMODULE_OK || slot < 0 || slot > 16383) {
+      return RedisModule_ReplyWithError(ctx, "Invalid slot");
+    }
+    switch (ASM_ImportWindow_SlotPhase((unsigned int)slot)) {
+      case ASM_IMPORT_SLOT_NONE: return RedisModule_ReplyWithSimpleString(ctx, "NONE");
+      case ASM_IMPORT_SLOT_OVERLAY: return RedisModule_ReplyWithSimpleString(ctx, "OVERLAY");
+      case ASM_IMPORT_SLOT_REBUILD: return RedisModule_ReplyWithSimpleString(ctx, "REBUILD");
+    }
+    return RedisModule_ReplyWithError(ctx, "Unknown phase");
+  }
+
+  void (*apply)(const RedisModuleSlotRangeArray *) = NULL;
+  if (STR_EQCASE(subCmd, len, "OVERLAY_START")) {
+    apply = ASM_ImportWindow_OnOverlayStart;
+  } else if (STR_EQCASE(subCmd, len, "OVERLAY_END")) {
+    apply = ASM_ImportWindow_OnOverlayEnd;
+  } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
+    apply = ASM_ImportWindow_Close;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+  }
+  if (argc != 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long start, end;
+  if (RedisModule_StringToLongLong(argv[3], &start) != REDISMODULE_OK ||
+      RedisModule_StringToLongLong(argv[4], &end) != REDISMODULE_OK ||
+      start < 0 || end > 16383 || start > end) {
+    return RedisModule_ReplyWithError(ctx, "Invalid slot range");
+  }
+  RedisModuleSlotRangeArray *slots =
+      rm_malloc(sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange));
+  slots->num_ranges = 1;
+  slots->ranges[0] = (RedisModuleSlotRange){.start = (uint16_t)start, .end = (uint16_t)end};
+  apply(slots);
+  rm_free(slots);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
   return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
@@ -4216,6 +4290,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FORCE_PLAIN_HASH_NOTIFICATIONS", forcePlainHashNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
+                               {"ASM_IMPORT_WINDOW", ASMImportWindow},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},

@@ -28,6 +28,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "asm_state_machine.h"
+#include "asm_import_window.h"
 #include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
@@ -210,6 +211,9 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
+  if (ASM_ImportWindow_IgnoresNotification(key)) {
+    return REDISMODULE_OK;
+  }
   enum RedisCmd redisCommand = GetRedisCmd(event);
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
@@ -244,6 +248,9 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              RedisModuleString *key, RedisModuleString **subkeys,
                                              int count) {
   REDISMODULE_NOT_USED(type);
+  if (ASM_ImportWindow_IgnoresNotification(key)) {
+    return;
+  }
   enum RedisCmd redisCommand = GetRedisCmd(event);
   if (redisCommand == _null_cmd) {
     return;
@@ -559,10 +566,22 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
+      ASM_ImportWindow_Close(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_START:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay start event, task %s.",
+                      info->task_id);
+      ASM_ImportWindow_OnOverlayStart(slots);
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_END:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
+                      info->task_id);
+      ASM_ImportWindow_OnOverlayEnd(slots);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:

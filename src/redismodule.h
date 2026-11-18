@@ -404,6 +404,10 @@ typedef uint64_t RedisModuleTimerID;
 /* Fork-specific option flags. Placed at high bits to maintain ABI compatibility
  * with OSS Redis, which allocates option flags sequentially from bit 0. */
 
+/* Declare that the module handles atomic slot migrations in the SST mode,
+ * which moves keyspace SST files only. See RM_SetModuleOptions for details. */
+#define REDISMODULE_OPTIONS_HANDLE_ASM_KEYSPACE_SST    (1<<29)
+
 /* Prevent direct-to-disk key writes during RDB loading and RESTORE in
  * BigRedis mode. See RM_SetModuleOptions for details. */
 #define REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM    (1<<30)
@@ -860,7 +864,12 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED 4
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED 5
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE 6
-#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT 7
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END 7
+/* Import stages of a physical (SST) migration, on the importing master only. */
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_SST_BASE_READY 8
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_START 9
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_END 10
+#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT 11
 
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED 0
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
@@ -1632,6 +1641,7 @@ REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCurs
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreateWithName)(const char *name) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, size_t batch_size, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStartInSlots)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, const RedisModuleSlotRangeArray *slots, int include_importing, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, size_t batch_size, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, size_t batch_size) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanAbortResult (*RedisModule_AsyncScanAbort)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)(void) REDISMODULE_ATTR;
@@ -1691,6 +1701,9 @@ REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlotC)(const char *keystr, 
 REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigned int slot) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ClusterCanAccessKeysInSlot)(int slot) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ClusterPropagateForSlotMigration)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterAcquireImportGate)(RedisModuleCtx *ctx, const char *task_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterReleaseImportGate)(RedisModuleCtx *ctx, const char *task_id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterAbortSlotMigration)(RedisModuleCtx *ctx, const char *task_id, const char *reason) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleSlotRangeArray *(*RedisModule_ClusterGetLocalSlotRanges)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ClusterFreeSlotRanges)(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func) REDISMODULE_ATTR;
@@ -2111,6 +2124,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
      * GET_API macro here does not abort Init). Probe before use. */
     REDISMODULE_GET_API(ScanCursorCreateWithName);
     REDISMODULE_GET_API(AsyncScanStart);
+    REDISMODULE_GET_API(AsyncScanStartInSlots);
     REDISMODULE_GET_API(AsyncScanNextBatch);
     REDISMODULE_GET_API(AsyncScanAbort);
     REDISMODULE_GET_API(GetContextFlagsAll);
@@ -2170,6 +2184,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);
     REDISMODULE_GET_API(ClusterCanAccessKeysInSlot);
     REDISMODULE_GET_API(ClusterPropagateForSlotMigration);
+    REDISMODULE_GET_API(ClusterAcquireImportGate);
+    REDISMODULE_GET_API(ClusterReleaseImportGate);
+    REDISMODULE_GET_API(ClusterAbortSlotMigration);
     REDISMODULE_GET_API(ClusterGetLocalSlotRanges);
     REDISMODULE_GET_API(ClusterFreeSlotRanges);
     REDISMODULE_GET_API(ExportSharedAPI);
