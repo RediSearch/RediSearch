@@ -11,7 +11,7 @@
 #include "query_memory.h"
 #include "util/timeout.h"
 
-// Global timeout callback for VecSim searches.
+// Timeout check of VecSim's stop callback (RS_VecSimShouldStop) and of the Rust adhoc scan.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout) = VecSim_TimedOut;
 
@@ -21,8 +21,13 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout) {
   return vecsimTimeoutCallback(timeout);
 }
 
-int RS_VecSimShouldStop(void *timeout) {
-  return RS_VecSimCheckMemory(timeout);
+// VecSim calls this at every search step, from any worker thread and from SVS search threads, so
+// it holds no state of its own: the request-wide counter of the checkpoint sets the read cadence,
+// and the call-local counter never reaches the interval.
+int RS_VecSimShouldStop(void *ctx) {
+  QueryRequestLimits *limits = ctx;
+  uint32_t unused = 0;
+  return vecsimTimeoutCallback(limits) || QueryMemory_Checkpoint(limits, &unused);
 }
 
 int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {

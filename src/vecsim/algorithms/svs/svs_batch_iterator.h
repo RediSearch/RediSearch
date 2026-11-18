@@ -36,7 +36,7 @@ private:
     VecSimQueryReply *getNextResultsImpl(size_t n_res) {
         auto rep = new VecSimQueryReply(this->allocator);
         auto timeoutCtx = this->getTimeoutCtx();
-        auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+        auto cancel = [timeoutCtx]() { return VECSIM_STOP(timeoutCtx); };
 
         if (cancel()) {
             rep->code = VecSim_QueryReply_Stopped;

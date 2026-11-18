@@ -1387,7 +1387,7 @@ void HNSWIndex<DataType, DistType>::SwapLastIdWithDeletedId(idType element_inter
 // This function is greedily searching for the closest candidate to the given data point at the
 // given level, starting at the given node. It sets `curObj` to the closest node found, and
 // `curDist` to the distance to this node. If `running_query` is true, the search will check for
-// timeout and return if it has occurred. `timeoutCtx` and `rc` must be valid if `running_query` is
+// a stop and return if it has occurred. `timeoutCtx` and `rc` must be valid if `running_query` is
 // true. *Note that we assume that level is higher than 0*. Also, if we're not running a query (we
 // are searching neighbors for a new vector), then bestCand should be a non-deleted element!
 template <typename DataType, typename DistType>
@@ -1402,7 +1402,7 @@ void HNSWIndex<DataType, DistType>::greedySearchLevel(const void *vector_data, s
     idType bestNonDeletedCand = bestCand;
 
     do {
-        if (running_query && VECSIM_TIMEOUT(timeoutCtx)) {
+        if (running_query && VECSIM_STOP(timeoutCtx)) {
             *rc = VecSim_QueryReply_Stopped;
             bestCand = INVALID_ID;
             return;
@@ -2285,7 +2285,7 @@ HNSWIndex<DataType, DistType>::searchBottomLayer_WithTimeout(idType ep_id, const
         if ((-curr_el_pair.first) > lowerBound && top_candidates->size() >= ef) {
             break;
         }
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
+        if (VECSIM_STOP(timeoutCtx)) {
             returnVisitedList(visited_nodes_handler);
             *rc = VecSim_QueryReply_Stopped;
             return top_candidates;
@@ -2395,7 +2395,7 @@ VecSimQueryResultContainer HNSWIndex<DataType, DistType>::searchRangeBottomLayer
         if ((-curr_el_pair.first) > dynamic_range_search_boundaries) {
             break;
         }
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
+        if (VECSIM_STOP(timeoutCtx)) {
             *rc = VecSim_QueryReply_Stopped;
             break;
         }

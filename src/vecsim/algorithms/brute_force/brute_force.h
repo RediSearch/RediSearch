@@ -291,7 +291,7 @@ BruteForceIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
     auto vectors_it = this->vectors->getIterator();
     idType curr_id = 0;
     while (auto *vector = vectors_it->next()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
+        if (VECSIM_STOP(timeoutCtx)) {
             rep->code = VecSim_QueryReply_Stopped;
             delete TopCandidates;
             return rep;
@@ -337,7 +337,7 @@ BruteForceIndex<DataType, DistType>::rangeQuery(const void *queryBlob, double ra
     idType curr_id = 0;
     const void *processed_query = processed_query_ptr.get();
     while (vectors_it->hasNext()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
+        if (VECSIM_STOP(timeoutCtx)) {
             rep->code = VecSim_QueryReply_Stopped;
             break;
         }

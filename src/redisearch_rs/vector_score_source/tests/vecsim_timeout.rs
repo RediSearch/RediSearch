@@ -12,7 +12,7 @@
 //!
 //! These live in their **own test binary** (hence their own process) on
 //! purpose. They install a *process-global* VecSim timeout callback
-//! (`VecSim_SetTimeoutCallbackFunction`) set to always-timed-out, which any
+//! (`VecSim_SetStopCallbackFunction`) set to always-timed-out, which any
 //! concurrent VecSim query in the same process would observe. The rest of the
 //! suite (`tests/integration/*`) is full of VecSim query tests; keeping the
 //! timeout tests out of that binary means the global mutation can never reach a

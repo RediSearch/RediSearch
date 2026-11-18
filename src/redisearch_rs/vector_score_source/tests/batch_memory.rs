@@ -8,7 +8,9 @@
 */
 
 //! The memory check between the batches of a filtered vector top-k, in a test binary of its own
-//! because the forced memory ratio is process-global.
+//! because the forced memory ratio is process-global. It assumes VecSim's stop callback is its
+//! default no-op, as nothing here registers `RS_VecSimShouldStop`; otherwise the forced ratio
+//! would stop the first batch inside VecSim.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};

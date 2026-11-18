@@ -29,7 +29,7 @@ use crate::{QueryError, QueryReply, ReplyOrder};
 /// - `'params`: the `VecSimQueryParams` borrow passed at construction. The
 ///   iterator copies `queryParams->timeoutCtx` and reads that pointer on every
 ///   [`next`](Self::next) call; `'params` acts as a conservative lower bound
-///   on the lifetime of the timeout-context object.
+///   on the lifetime of the stop-context object.
 pub struct BatchIterator<'index, 'params> {
     /// Owned VecSim batch iterator handle.
     ///
@@ -51,7 +51,7 @@ impl<'index, 'params> BatchIterator<'index, 'params> {
     /// The caller must:
     /// 1. establish the [`inner`](Self::inner) field invariant;
     /// 2. choose `'index` so it is bounded by the index lifetime;
-    /// 3. choose `'params` so it is bounded by the timeout-context lifetime.
+    /// 3. choose `'params` so it is bounded by the stop-context lifetime.
     ///
     /// The query blob passed to `VecSimBatchIterator_New` needs no lifetime: it
     /// is copied into the iterator at construction, so the caller's buffer may

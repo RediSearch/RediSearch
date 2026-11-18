@@ -326,7 +326,7 @@ pub fn collect_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
 }
 
 unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(cb: Option<unsafe extern "C" fn(*mut c_void) -> c_int>);
+    fn VecSim_SetStopCallbackFunction(cb: Option<unsafe extern "C" fn(*mut c_void) -> c_int>);
 }
 
 unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> c_int {
@@ -349,7 +349,7 @@ impl MockTimeout {
     /// Install the always-timed-out callback.
     pub fn enable() -> Self {
         // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
+        unsafe { VecSim_SetStopCallbackFunction(Some(always_timed_out)) };
         MockTimeout(())
     }
 }
@@ -357,7 +357,7 @@ impl MockTimeout {
 impl Drop for MockTimeout {
     fn drop(&mut self) {
         // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
+        unsafe { VecSim_SetStopCallbackFunction(Some(never_timed_out)) };
     }
 }
 

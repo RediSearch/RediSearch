@@ -3717,9 +3717,9 @@ static inline int TimedOut_Always(QueryRequestLimits *timeout) {
   return TIMED_OUT;
 }
 
-// Global timeout callback for VecSim searches.
+// Timeout check of VecSim's stop callback (RS_VecSimShouldStop) and of the Rust adhoc scan.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-// Defined in vector_top_k.c, called from the Rust vector top-k scan.
+// Defined in vector_top_k.c.
 extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
 
 /**
@@ -3738,11 +3738,9 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcmp("enable", op)) {
     vecsimTimeoutCallback = TimedOut_Always;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else if (!strcmp("disable", op)) {
     vecsimTimeoutCallback = VecSim_TimedOut;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");

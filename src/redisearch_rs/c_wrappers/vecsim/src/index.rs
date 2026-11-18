@@ -211,7 +211,7 @@ impl<'index> IndexRef<'index> {
     /// # Safety
     ///
     /// The `timeoutCtx` referenced by `params` must be [valid] for this call:
-    /// VecSim passes it to the registered timeout callback, which reads it as a
+    /// VecSim passes it to the registered stop callback, which reads it as a
     /// `QueryRequestLimits`.
     ///
     /// # Panics

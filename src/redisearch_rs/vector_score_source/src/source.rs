@@ -284,7 +284,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // Timeout is propagated via self.query_params.timeoutCtx. VecSim checks it
+        // The stop context is propagated via self.query_params.timeoutCtx. VecSim checks it
         // internally and returns VecSim_QueryReply_Stopped from Next/New.
 
         let further_batch = self.batch_iter.is_some();
@@ -293,7 +293,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             if self.initial_child_num_estimated == 0 {
                 return Ok(None);
             }
-            // Pass timeout context via query params so VecSim handles it.
+            // Pass the stop context via query params so VecSim handles it.
             self.query_params.timeoutCtx = self.timeout_ctx_ptr();
             // Raw pointer rather than `&mut self.query_params`: the iterator is
             // stored back into `self`, so a `'params` borrow of our own field

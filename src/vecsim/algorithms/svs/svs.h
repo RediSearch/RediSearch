@@ -754,7 +754,7 @@ public:
                                                     is_two_level_lvq);
 
             auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+            auto cancel = [timeoutCtx]() { return VECSIM_STOP(timeoutCtx); };
 
             impl->search(result.view(), query, sp, cancel);
             if (cancel()) {
@@ -792,7 +792,7 @@ public:
         }
         {
             auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+            auto cancel = [timeoutCtx]() { return VECSIM_STOP(timeoutCtx); };
 
             // Prepare query blob for SVS
             auto processed_query_ptr = this->preprocessQuery(queryBlob);
