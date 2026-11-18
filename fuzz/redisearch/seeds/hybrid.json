@@ -1,0 +1,108 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.CREATE",
+          "idx",
+          "SCHEMA",
+          "description",
+          "TEXT",
+          "embedding",
+          "VECTOR",
+          "FLAT",
+          "6",
+          "TYPE",
+          "FLOAT32",
+          "DIM",
+          "2",
+          "DISTANCE_METRIC",
+          "L2"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:1",
+          "description",
+          "red shoes",
+          "embedding",
+          "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:2",
+          "description",
+          "red running shoes",
+          "embedding",
+          {
+            "hex": "0000803f00000000"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:3",
+          "description",
+          "running gear",
+          "embedding",
+          {
+            "hex": "000000000000803f"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:4",
+          "description",
+          "blue shoes",
+          "embedding",
+          {
+            "hex": "0000803f0000803f"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.HYBRID",
+          "idx",
+          "SEARCH",
+          "green",
+          "VSIM",
+          "@embedding",
+          "$BLOB",
+          "KNN",
+          "2",
+          "K",
+          "1",
+          "PARAMS",
+          "2",
+          "BLOB",
+          {
+            "hex": "9a99993fcdcc4c3e"
+          }
+        ]
+      }
+    }
+  ]
+}

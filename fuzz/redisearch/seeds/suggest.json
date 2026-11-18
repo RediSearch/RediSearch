@@ -1,0 +1,187 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "hello world",
+          "1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "hello world",
+          "1",
+          "INCR"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SUGGET",
+          "ac",
+          "hello"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "hello werld",
+          "1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "hallo world",
+          "2"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "yellow world",
+          "3"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "wazzup",
+          "4"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "herp",
+          "5"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGADD",
+          "ac",
+          "derp",
+          "6"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGLEN",
+          "ac"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGGET",
+          "ac",
+          "hello"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGGET",
+          "ac",
+          "hello",
+          "FUZZY"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGGET",
+          "ac",
+          "hello",
+          "FUZZY",
+          "MAX",
+          "1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGGET",
+          "ac",
+          "hello",
+          "WITHSCORES"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGDEL",
+          "ac",
+          "hello world"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGDEL",
+          "ac",
+          "world"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.SUGGET",
+          "ac",
+          "hello"
+        ]
+      }
+    }
+  ]
+}

@@ -10,6 +10,7 @@
 //! `redis-server` with modules loaded, as a [`procfuzz::service::Service`]
 //! speaking [RESP2](resp).
 
+pub mod line;
 pub mod resp;
 
 use std::path::{Path, PathBuf};

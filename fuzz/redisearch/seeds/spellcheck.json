@@ -1,0 +1,106 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.dictadd",
+          "dict",
+          "name3",
+          "name4",
+          "name5"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.create",
+          "idx",
+          "ON",
+          "HASH",
+          "SCHEMA",
+          "name",
+          "TEXT",
+          "body",
+          "TEXT"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc1",
+          "1.0",
+          "FIELDS",
+          "name",
+          "name1",
+          "body",
+          "body1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc2",
+          "1.0",
+          "FIELDS",
+          "name",
+          "name2",
+          "body",
+          "body2"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc3",
+          "1.0",
+          "FIELDS",
+          "name",
+          "name2",
+          "body",
+          "name2"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.spellcheck",
+          "idx",
+          "name",
+          "TERMS",
+          "INCLUDE",
+          "dict"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.spellcheck",
+          "idx",
+          "name",
+          "TERMS",
+          "include",
+          "dict"
+        ]
+      }
+    }
+  ]
+}

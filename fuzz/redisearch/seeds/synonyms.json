@@ -1,0 +1,90 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.create",
+          "idx",
+          "ON",
+          "HASH",
+          "schema",
+          "title",
+          "text",
+          "body",
+          "text"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.synupdate",
+          "idx",
+          "id1",
+          "SKIPINITIALSCAN",
+          "boy",
+          "child",
+          "offspring"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc1",
+          "1.0",
+          "fields",
+          "title",
+          "he is a baby",
+          "body",
+          "this is a test"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.synupdate",
+          "idx",
+          "id1",
+          "SKIPINITIALSCAN",
+          "baby"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc2",
+          "1.0",
+          "fields",
+          "title",
+          "he is another baby",
+          "body",
+          "another test"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.search",
+          "idx",
+          "child",
+          "EXPANDER",
+          "SYNONYM"
+        ]
+      }
+    }
+  ]
+}

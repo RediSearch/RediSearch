@@ -9,13 +9,14 @@
 
 //! RediSearch as a procfuzz [`Model`]: its ops ([`op`]), what they set up
 //! ([`state`]), which make sense when ([`generate`]), what each command does
-//! ([`effect`]), the logic rules over search results ([`logic`]), and the
-//! server ([`server`]).
+//! ([`effect`]), the logic rules over search results ([`logic`]), the server
+//! ([`server`]), and programs as command scripts ([`script`]).
 
 pub mod effect;
 pub mod generate;
 pub mod logic;
 pub mod op;
+pub mod script;
 pub mod server;
 pub mod state;
 

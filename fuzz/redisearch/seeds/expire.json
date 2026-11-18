@@ -1,0 +1,76 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.CREATE",
+          "idx",
+          "ON",
+          "HASH",
+          "SCHEMA",
+          "t",
+          "TEXT"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:1",
+          "t",
+          "hello",
+          "other",
+          "world"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "hello",
+          "NOCONTENT"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HPEXPIRE",
+          "doc:1",
+          "1",
+          "FIELDS",
+          "1",
+          "t"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HGET",
+          "doc:1",
+          "t"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "hello",
+          "NOCONTENT"
+        ]
+      }
+    }
+  ]
+}

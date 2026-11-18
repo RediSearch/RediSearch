@@ -135,10 +135,13 @@ cargo run -- run <program.json> --repeat 10
 cargo run -- fuzz --seeds seeds --duration 3600
 cargo run -- reduce <program.json>
 cargo run -- generate --seed 7 --ops 30 > program.json
+cargo run -- export findings/<finding>/program.json > repro.txt
+cargo run -- import commands.txt > program.json
 ```
 
 The binaries come from `REDIS_SERVER`, `REDISEARCH_MODULE`, and
-`REJSON_MODULE`, or from `--redis-server`, `--module`, and `--rejson`.
+`REJSON_MODULE`, or from `--redis-server`, `--module`, and `--rejson`;
+`export` and `import` need none.
 
 `run` starts a fresh server, executes the program, and logs each finding;
 `RUST_LOG=debug` also logs every step. `--repeat N` runs it N times and
@@ -161,6 +164,25 @@ the same finding (the first one, or the one named by `--finding`), then runs
 the result ten times and bundles it like `run`, with the input as
 `original.json`. `generate` prints a generated program; the same seed gives
 the same program.
+
+`export` prints a program as `redis-cli` lines for a bug report, with module
+arguments and settles as `#` notes. It refuses a program that uses a second
+connection, a deferred reply, or a cursor; reducing often removes them. `import` reads
+such lines, or a `MONITOR` recording, into a program on one connection.
+
+To turn a Python test into a seed, run it against a server you started while
+`redis-cli MONITOR` records:
+
+```bash
+redis-cli -p 6399 MONITOR > test.monitor &
+(cd ../../tests/pytests && python -m RLTest --env existing-env \
+  --existing-env-addr 127.0.0.1:6399 -t test_synonyms:testSynonymUpdate)
+kill %1
+grep -v -E '\] "(CLIENT|PING|INFO|FLUSHALL)"' test.monitor > test.txt
+cargo run -- import test.txt > seeds/synonyms.json
+```
+
+Edit out commands that reply with an error, which the seed test rejects.
 
 ## Testing
 

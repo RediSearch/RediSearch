@@ -279,6 +279,11 @@ impl Action {
         )
     }
 
+    /// Whether it keeps, reads, or deletes a cursor.
+    pub fn uses_a_cursor(&self) -> bool {
+        self.names_a_cursor() || matches!(self, Action::CursorDel { .. })
+    }
+
     /// The commands it sends; none for a boot argument or a settle.
     pub fn commands(&self, state: &State) -> Vec<Argv> {
         match self {
