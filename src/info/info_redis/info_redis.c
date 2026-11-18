@@ -26,7 +26,7 @@
 #include "query_request.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
-#include "disk_asm_import.h"
+#include "disk_asm_import_rebuild.h"
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
@@ -157,7 +157,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     AddToInfo_Disk(ctx, &total_info);
   }
   if (SearchDisk_IsEnabled() && RedisModule_InfoAddSection(ctx, "disk_asm_import") == REDISMODULE_OK) {
-    DiskASM_Import_AddInfo(ctx);
+    DiskASM_ImportRebuild_AddInfo(ctx);
   }
 
   // Active operations

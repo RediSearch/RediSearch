@@ -40,21 +40,22 @@ extern "C" {
  */
 
 // Handlers of the import's stage events. Callbacks naming an unknown `task_id` are ignored.
-void DiskASM_Import_OnBaseReady(RedisModuleCtx *ctx,
-                                const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_Import_OnOverlayEnd(RedisModuleCtx *ctx,
-                                 const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_Import_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info, bool completed);
+void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
+                                       const RedisModuleClusterSlotMigrationInfo *info);
+void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
+                                        const RedisModuleClusterSlotMigrationInfo *info);
+void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
+                                         bool completed);
 
 // A keyspace notification on `key` was ignored, or its unlink kept its documents, because its
 // slot is in the import window. While a sweep rebuilds that slot this breaks Flex's promise that
 // the slots see no writes and no deletes until the gate is released, so it is counted, logged
 // and asserted in debug builds.
-void DiskASM_Import_ReportIgnoredNotification(const RedisModuleString *key);
-void DiskASM_Import_ReportAbsorbedUnlink(const RedisModuleString *key);
+void DiskASM_ImportRebuild_ReportIgnoredNotification(const RedisModuleString *key);
+void DiskASM_ImportRebuild_ReportAbsorbedUnlink(const RedisModuleString *key);
 
 // INFO fields of the latest import attempt, active or ended.
-void DiskASM_Import_AddInfo(RedisModuleInfoCtx *ctx);
+void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx);
 
 #ifdef __cplusplus
 }

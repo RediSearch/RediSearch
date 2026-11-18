@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-#include "disk_asm_import.h"
+#include "disk_asm_import_rebuild.h"
 
 #include <errno.h>
 #include <string.h>
@@ -267,8 +267,8 @@ static void importScanTask(void *arg) {
 //---------------------------------------------------------------------------------------------
 // Stage events
 
-void DiskASM_Import_OnBaseReady(RedisModuleCtx *ctx,
-                                const RedisModuleClusterSlotMigrationInfo *info) {
+void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
+                                       const RedisModuleClusterSlotMigrationInfo *info) {
   DiskASMImport *stale = find(info->task_id);
   if (stale) {
     // Flex fires the stages once per attempt and ends an attempt before retrying it.
@@ -313,8 +313,8 @@ static void freezeSpec(IndexSpec *sp, void *ud) {
   if (sp->specId > imp->frozenMaxSpecId) imp->frozenMaxSpecId = sp->specId;
 }
 
-void DiskASM_Import_OnOverlayEnd(RedisModuleCtx *ctx,
-                                 const RedisModuleClusterSlotMigrationInfo *info) {
+void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
+                                        const RedisModuleClusterSlotMigrationInfo *info) {
   DiskASMImport *imp = find(info->task_id);
   if (!imp) {
     RedisModule_Log(ctx, "warning", "ASM import %s: overlay ended for an unknown attempt; ignored",
@@ -344,7 +344,8 @@ void DiskASM_Import_OnOverlayEnd(RedisModuleCtx *ctx,
   ReindexPool_AddImportTask(importScanTask, imp);
 }
 
-void DiskASM_Import_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info, bool completed) {
+void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
+                                         bool completed) {
   DiskASMImport *imp = find(info->task_id);
   if (!imp) return;
   if (completed) {
@@ -372,7 +373,7 @@ static DiskASMImport *scanningImportOf(const RedisModuleString *key) {
   return NULL;
 }
 
-void DiskASM_Import_ReportIgnoredNotification(const RedisModuleString *key) {
+void DiskASM_ImportRebuild_ReportIgnoredNotification(const RedisModuleString *key) {
   DiskASMImport *imp = scanningImportOf(key);
   if (!imp) return;
   imp->stats.notificationsIgnored++;
@@ -383,7 +384,7 @@ void DiskASM_Import_ReportIgnoredNotification(const RedisModuleString *key) {
   RS_LOG_ASSERT(false, "ASM import: a write reached a slot being rebuilt");
 }
 
-void DiskASM_Import_ReportAbsorbedUnlink(const RedisModuleString *key) {
+void DiskASM_ImportRebuild_ReportAbsorbedUnlink(const RedisModuleString *key) {
   DiskASMImport *imp = scanningImportOf(key);
   if (!imp) return;
   imp->stats.unlinksAbsorbed++;
@@ -394,7 +395,7 @@ void DiskASM_Import_ReportAbsorbedUnlink(const RedisModuleString *key) {
   RS_LOG_ASSERT(false, "ASM import: a delete reached a slot being rebuilt");
 }
 
-void DiskASM_Import_AddInfo(RedisModuleInfoCtx *ctx) {
+void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
   const size_t active = imports ? array_len(imports) : 0;
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_imports_active", active);
   const DiskASMImportStats *stats = NULL;

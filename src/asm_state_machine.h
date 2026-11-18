@@ -111,8 +111,9 @@ static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArr
 }
 
 /**
- * Search rebuilt the slots of an SST import (disk_asm_import.h): they leave the import window, so
- * the source's writes that the import gate held back are indexed by their notifications.
+ * Search rebuilt the slots of an SST import (disk_asm_import_rebuild.h): they leave the import
+ * window, so the source's writes that the import gate held back are indexed by their
+ * notifications.
  */
 static inline void ASM_StateMachine_FinishImportRebuild(const RedisModuleSlotRangeArray *slots) {
   DiskASM_ImportWindow_Close(slots);

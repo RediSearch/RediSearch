@@ -3053,7 +3053,7 @@ DEBUG_COMMAND(ASMImportWindow) {
  * FT.DEBUG ASM_SST_MODE ON|OFF
  *
  * Lets Flex choose the SST mode for the slot migrations that start from now on, so tests can drive
- * the disk import rebuild (disk_asm_import.h) through real migrations.
+ * the disk import rebuild (disk_asm_import_rebuild.h) through real migrations.
  */
 DEBUG_COMMAND(ASMSSTMode) {
   if (!debugCommandsEnabled(ctx)) {
