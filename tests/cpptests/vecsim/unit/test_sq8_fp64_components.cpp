@@ -102,13 +102,13 @@ TEST(SQ8FP64Components, DoublePrecisionRangeAndMetadata) {
     const auto allocator = VecSimAllocator::newVecsimAllocator();
     SQ8FP64Preprocessor<VecSimMetric_L2> preprocessor(allocator, 3);
     for (double scale : {1.0, 1e100, 1e-300}) {
-        const double input[] = {scale, 1.25 * scale, 2.0 * scale};
+        const std::array<double, 3> input = {scale, 1.25 * scale, 2.0 * scale};
         void *storage = nullptr;
-        size_t size = sizeof(input);
-        preprocessor.preprocessForStorage(input, storage, size, 0);
-        std::vector<double> inplace((std::max(size, sizeof(input)) + sizeof(double) - 1) /
-                                    sizeof(double));
-        std::memcpy(inplace.data(), input, sizeof(input));
+        size_t size = input.size() * sizeof(double);
+        preprocessor.preprocessForStorage(input.data(), storage, size, 0);
+        std::vector<double> inplace(
+            (std::max(size, input.size() * sizeof(double)) + sizeof(double) - 1) / sizeof(double));
+        std::memcpy(inplace.data(), input.data(), input.size() * sizeof(double));
         preprocessor.preprocessStorageInPlace(inplace.data(), inplace.size() * sizeof(double));
         EXPECT_EQ(std::memcmp(inplace.data(), storage, size), 0);
         const auto *codes = static_cast<const uint8_t *>(storage);
@@ -145,8 +145,8 @@ void checkZeroDistance(double expected) {
     const auto components = CreateSQ8FP64IndexComponents<Metric>(allocator, 3);
     const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
     const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
-    const double input[] = {0.0, 0.0, 0.0};
-    const auto blobs = preprocessors->preprocess(input, sizeof(input));
+    const std::array<double, 3> input = {0.0, 0.0, 0.0};
+    const auto blobs = preprocessors->preprocess(input.data(), input.size() * sizeof(double));
     EXPECT_DOUBLE_EQ(calculator->calcDistance(blobs.getStorageBlob(), blobs.getStorageBlob(), 3),
                      expected);
     EXPECT_DOUBLE_EQ(
@@ -164,15 +164,18 @@ TEST(SQ8FP64Components, NearbyLargeValuesKeepDoublePrecision) {
     const auto components = CreateSQ8FP64IndexComponents<VecSimMetric_L2>(allocator, 2);
     const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
     const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
-    const double input[] = {1e8, 1e8 + 1.0};
-    const double query[] = {1e8, 1e8};
-    const auto stored = preprocessors->preprocessForStorage(input, sizeof(input));
-    const auto processed = preprocessors->preprocessQuery(query, sizeof(query));
+    const std::array<double, 2> input = {1e8, 1e8 + 1.0};
+    const std::array<double, 2> query = {1e8, 1e8};
+    const auto stored =
+        preprocessors->preprocessForStorage(input.data(), input.size() * sizeof(double));
+    const auto processed =
+        preprocessors->preprocessQuery(query.data(), query.size() * sizeof(double));
     EXPECT_EQ(static_cast<const uint8_t *>(stored.get())[0], 0);
     EXPECT_EQ(static_cast<const uint8_t *>(stored.get())[1], 255);
     EXPECT_NEAR(calculator->calcDistanceForQuery(stored.get(), processed.get(), 2), 1.0, 1e-14);
-    const double close[] = {1.0, 1.0 + std::ldexp(1.0, -40)};
-    const auto precise = preprocessors->preprocessForStorage(close, sizeof(close));
+    const std::array<double, 2> close = {1.0, 1.0 + std::ldexp(1.0, -40)};
+    const auto precise =
+        preprocessors->preprocessForStorage(close.data(), close.size() * sizeof(double));
     EXPECT_DOUBLE_EQ(readMetadata(precise.get(), 2, sq8_fp64::DELTA), std::ldexp(1.0, -40) / 255);
     EXPECT_NEAR(calculator->calcDistance(precise.get(), precise.get(), 2), 0.0, 1e-40);
 }
@@ -188,10 +191,10 @@ TEST(SQ8FP64Components, AsymmetricL2UnalignedQuery) {
     const double delta = 0.5;
     std::memcpy(stored.data() + dim, &minimum, sizeof(minimum));
     std::memcpy(stored.data() + dim + sizeof(double), &delta, sizeof(delta));
-    const double values[] = {100000000.5, 100000003.5, 100000002.0};
-    alignas(double) uint8_t query[sizeof(values) + 1];
-    std::memcpy(query + 1, values, sizeof(values));
-    EXPECT_DOUBLE_EQ(spaces::L2_SQ8FP64_FP64(stored.data(), query + 1, dim), 7.5);
+    const std::array<double, 3> values = {100000000.5, 100000003.5, 100000002.0};
+    alignas(double) std::array<uint8_t, 3 * sizeof(double) + 1> query;
+    std::memcpy(query.data() + 1, values.data(), values.size() * sizeof(double));
+    EXPECT_DOUBLE_EQ(spaces::L2_SQ8FP64_FP64(stored.data(), query.data() + 1, dim), 7.5);
 }
 
 TEST(SQ8FP64Components, AsymmetricL2PreservesSmallResiduals) {
@@ -204,22 +207,22 @@ TEST(SQ8FP64Components, AsymmetricL2PreservesSmallResiduals) {
     const double delta = 0x1p-10;
     std::memcpy(stored.data() + dim, &minimum, sizeof(minimum));
     std::memcpy(stored.data() + dim + sizeof(double), &delta, sizeof(delta));
-    const double query[] = {minimum + 0.125, minimum + 0.25, minimum + 0.375};
-    EXPECT_EQ(spaces::L2_SQ8FP64_FP64(stored.data(), query, dim), 112903.0 / 524288.0);
+    const std::array<double, 3> query = {minimum + 0.125, minimum + 0.25, minimum + 0.375};
+    EXPECT_EQ(spaces::L2_SQ8FP64_FP64(stored.data(), query.data(), dim), 112903.0 / 524288.0);
 }
 
 TEST(SQ8FP64Components, SymmetricL2PreservesDistinctSmallResiduals) {
     constexpr size_t dim = 3;
     std::vector<uint8_t> left(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
     std::vector<uint8_t> right(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
-    const uint8_t left_codes[] = {1, 2, 3};
-    const uint8_t right_codes[] = {3, 2, 1};
-    const double left_metadata[] = {1e15, 0x1p-10};
-    const double right_metadata[] = {1e15, 0x1p-9};
-    std::memcpy(left.data(), left_codes, sizeof(left_codes));
-    std::memcpy(right.data(), right_codes, sizeof(right_codes));
-    std::memcpy(left.data() + dim, left_metadata, sizeof(left_metadata));
-    std::memcpy(right.data() + dim, right_metadata, sizeof(right_metadata));
+    const std::array<uint8_t, 3> left_codes = {1, 2, 3};
+    const std::array<uint8_t, 3> right_codes = {3, 2, 1};
+    const std::array<double, 2> left_metadata = {1e15, 0x1p-10};
+    const std::array<double, 2> right_metadata = {1e15, 0x1p-9};
+    std::memcpy(left.data(), left_codes.data(), left_codes.size() * sizeof(uint8_t));
+    std::memcpy(right.data(), right_codes.data(), right_codes.size() * sizeof(uint8_t));
+    std::memcpy(left.data() + dim, left_metadata.data(), left_metadata.size() * sizeof(double));
+    std::memcpy(right.data() + dim, right_metadata.data(), right_metadata.size() * sizeof(double));
     EXPECT_EQ(spaces::L2_SQ8FP64(left.data(), right.data(), dim), 30.0 / 1048576.0);
     EXPECT_EQ(spaces::L2_SQ8FP64(right.data(), left.data(), dim), 30.0 / 1048576.0);
 }
@@ -230,10 +233,12 @@ TEST(SQ8FP64Components, SymmetricL2PreservesTinyRangeAgainstConstant) {
     const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
     const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
     for (double origin : {0.0, 1.0}) {
-        const double variable[] = {origin, origin + 0x1p-47};
-        const double constant[] = {origin, origin};
-        const auto left = preprocessors->preprocessForStorage(variable, sizeof(variable));
-        const auto right = preprocessors->preprocessForStorage(constant, sizeof(constant));
+        const std::array<double, 2> variable = {origin, origin + 0x1p-47};
+        const std::array<double, 2> constant = {origin, origin};
+        const auto left =
+            preprocessors->preprocessForStorage(variable.data(), variable.size() * sizeof(double));
+        const auto right =
+            preprocessors->preprocessForStorage(constant.data(), constant.size() * sizeof(double));
         EXPECT_EQ(calculator->calcDistance(left.get(), right.get(), 2), 0x1p-94);
         EXPECT_EQ(calculator->calcDistance(right.get(), left.get(), 2), 0x1p-94);
         EXPECT_EQ(calculator->calcDistance(left.get(), left.get(), 2), 0.0);
@@ -261,13 +266,13 @@ TEST(SQ8FP64Components, SymmetricL2PreservesCloseLargeDeltas) {
     constexpr size_t dim = 3;
     std::vector<uint8_t> left(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
     std::vector<uint8_t> right(sq8_fp64::storage_bytes_count<VecSimMetric_L2>(dim));
-    const uint8_t codes[] = {0, 3, 255};
-    const double left_metadata[] = {0.0, 1e15 + 0.125};
-    const double right_metadata[] = {0.0, 1e15 + 0.25};
-    std::memcpy(left.data(), codes, sizeof(codes));
-    std::memcpy(right.data(), codes, sizeof(codes));
-    std::memcpy(left.data() + dim, left_metadata, sizeof(left_metadata));
-    std::memcpy(right.data() + dim, right_metadata, sizeof(right_metadata));
+    const std::array<uint8_t, 3> codes = {0, 3, 255};
+    const std::array<double, 2> left_metadata = {0.0, 1e15 + 0.125};
+    const std::array<double, 2> right_metadata = {0.0, 1e15 + 0.25};
+    std::memcpy(left.data(), codes.data(), codes.size() * sizeof(uint8_t));
+    std::memcpy(right.data(), codes.data(), codes.size() * sizeof(uint8_t));
+    std::memcpy(left.data() + dim, left_metadata.data(), left_metadata.size() * sizeof(double));
+    std::memcpy(right.data() + dim, right_metadata.data(), right_metadata.size() * sizeof(double));
     EXPECT_EQ(spaces::L2_SQ8FP64(left.data(), right.data(), dim), 32517.0 / 32.0);
     EXPECT_EQ(spaces::L2_SQ8FP64(right.data(), left.data(), dim), 32517.0 / 32.0);
 }
@@ -302,12 +307,12 @@ TEST(SQ8FP64Components, TinyDeltaUsesDirectDivision) {
 TEST(SQ8FP64ComponentsDeathTest, SharedFactoryRejectsMean) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     const auto allocator = VecSimAllocator::newVecsimAllocator();
-    const float mean[] = {0.0f, 0.0f, 0.0f};
-    EXPECT_DEATH(
-        (CreateQuantizedIndexComponents<double, VecSimMetric_L2, sq8_fp64>(allocator, 3, mean)),
-        "!mean_ptr.*FP64 quantization does not support mean training");
+    const std::array<float, 3> mean = {0.0f, 0.0f, 0.0f};
+    EXPECT_DEATH((CreateQuantizedIndexComponents<double, VecSimMetric_L2, sq8_fp64>(allocator, 3,
+                                                                                    mean.data())),
+                 "!mean_ptr.*FP64 quantization does not support mean training");
     EXPECT_DEATH((CreateQuantizedIndexComponents<double, VecSimMetric_L2, false, sq8_fp64>(
-                     allocator, 3, mean)),
+                     allocator, 3, mean.data())),
                  "!mean_ptr.*FP64 quantization does not support mean training");
 }
 #endif
@@ -318,7 +323,7 @@ TEST(SQ8FP64Components, SharedFactoryAcceptsNullMean) {
         CreateQuantizedIndexComponents<double, VecSimMetric_L2, sq8_fp64>(allocator, 3, nullptr);
     const std::unique_ptr<IndexCalculatorInterface<double>> calculator(components.indexCalculator);
     const std::unique_ptr<PreprocessorsContainerAbstract> preprocessors(components.preprocessors);
-    const double input[] = {1.0, 2.0, 3.0};
-    const auto blobs = preprocessors->preprocess(input, sizeof(input));
+    const std::array<double, 3> input = {1.0, 2.0, 3.0};
+    const auto blobs = preprocessors->preprocess(input.data(), input.size() * sizeof(double));
     EXPECT_EQ(calculator->calcDistance(blobs.getStorageBlob(), blobs.getStorageBlob(), 3), 0.0);
 }

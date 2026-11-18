@@ -65,11 +65,9 @@ void checkBound(VecSimMetric metric, double actual, double expected, double delt
         scale = std::max({scale, std::abs(a[i]), std::abs(b[i])});
     }
     const double error_a =
-        std::all_of(a.begin(), a.end(), [&](double value) { return value == a.front(); }) ? 0.0
-                                                                                          : delta_a;
+        std::ranges::all_of(a, [&](double value) { return value == a.front(); }) ? 0.0 : delta_a;
     const double error_b =
-        std::all_of(b.begin(), b.end(), [&](double value) { return value == b.front(); }) ? 0.0
-                                                                                          : delta_b;
+        std::ranges::all_of(b, [&](double value) { return value == b.front(); }) ? 0.0 : delta_b;
     const double slack = 64 * std::numeric_limits<double>::epsilon() * (a.size() + 1) * scale;
     if (metric == VecSimMetric_L2) {
         EXPECT_GE(actual, 0.0);
@@ -158,10 +156,9 @@ TEST(SQ8FP64Distances, OriginalDoubleTopTwoRanking) {
         EXPECT_DOUBLE_EQ(reference<VecSimMetric_L2>(input, query), expected[i]);
         EXPECT_DOUBLE_EQ(scores[i], expected[i]);
     }
-    std::sort(original_order.begin(), original_order.end(),
-              [&](size_t a, size_t b) { return expected[a] < expected[b]; });
-    std::sort(quantized_order.begin(), quantized_order.end(),
-              [&](size_t a, size_t b) { return scores[a] < scores[b]; });
+    std::ranges::sort(original_order,
+                      [&](size_t a, size_t b) { return expected[a] < expected[b]; });
+    std::ranges::sort(quantized_order, [&](size_t a, size_t b) { return scores[a] < scores[b]; });
     EXPECT_EQ(original_order, quantized_order);
     EXPECT_EQ(quantized_order[0], 1);
     EXPECT_EQ(quantized_order[1], 2);
@@ -170,10 +167,10 @@ TEST(SQ8FP64Distances, OriginalDoubleTopTwoRanking) {
 TEST(SQ8FP64Distances, DispatchAlignmentUnalignedBlobsAndInvalidMetric) {
     const auto allocator = VecSimAllocator::newVecsimAllocator();
     SQ8FP64Preprocessor<VecSimMetric_L2> preprocessor(allocator, 3);
-    const double input[] = {1e8, 1e8 + 1, 1e8 + 2};
+    const std::array<double, 3> input = {1e8, 1e8 + 1, 1e8 + 2};
     void *storage = nullptr;
-    size_t size = sizeof(input);
-    preprocessor.preprocessForStorage(input, storage, size, 0);
+    size_t size = input.size() * sizeof(double);
+    preprocessor.preprocessForStorage(input.data(), storage, size, 0);
     std::vector<uint8_t> unaligned(size + 1);
     std::memcpy(unaligned.data() + 1, storage, size);
     unsigned char alignment = 99;
@@ -182,8 +179,8 @@ TEST(SQ8FP64Distances, DispatchAlignmentUnalignedBlobsAndInvalidMetric) {
     EXPECT_DOUBLE_EQ(symmetric(unaligned.data() + 1, storage, 3), 0.0);
     const auto asymmetric =
         spaces::GetDistFunc<sq8_fp64, double, double>(VecSimMetric_L2, 3, nullptr);
-    std::vector<uint8_t> unaligned_query(sizeof(input) + 1);
-    std::memcpy(unaligned_query.data() + 1, input, sizeof(input));
+    std::vector<uint8_t> unaligned_query(input.size() * sizeof(double) + 1);
+    std::memcpy(unaligned_query.data() + 1, input.data(), input.size() * sizeof(double));
     EXPECT_NEAR(asymmetric(unaligned.data() + 1, unaligned_query.data() + 1, 3),
                 std::pow(1.0 / 255, 2), 1e-15);
     EXPECT_THROW((spaces::GetDistFunc<sq8_fp64, double>(VecSimMetric(99), 3, nullptr)),

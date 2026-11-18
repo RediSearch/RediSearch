@@ -15,7 +15,7 @@ namespace vecsim_types {
 
 // Reconstruction metadata shared by scalar-quantized storage formats.
 struct quantized_metadata {
-    static float prepare_encode(float delta);
+    static float prepare_delta(float delta);
     static float encode(float offset, float prepared);
 
     // Metadata layout indices (stored after quantized values)
@@ -59,7 +59,7 @@ struct quantized_metadata {
     }
 };
 
-inline float quantized_metadata::prepare_encode(float delta) { return 1.0f / delta; }
+inline float quantized_metadata::prepare_delta(float delta) { return 1.0f / delta; }
 
 inline float quantized_metadata::encode(float offset, float prepared) { return offset * prepared; }
 

@@ -605,7 +605,7 @@ void QuantPreprocessor<DataType, Metric, WithNorm, StorageType>::quantize(
     const MetadataType diff = max_val - min_val;
     const MetadataType delta =
         diff == MetadataType{0} ? MetadataType{1} : diff / MetadataType{StorageType::max_code};
-    const MetadataType prepared = StorageType::prepare_encode(delta);
+    const MetadataType prepared = StorageType::prepare_delta(delta);
     const CodeSums sums = quantize_codes(input, quantized, min_val, prepared);
     assign_storage_metadata(quantized, min_val, delta, sums, x_mean_ip);
 }
