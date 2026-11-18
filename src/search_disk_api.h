@@ -864,8 +864,8 @@ typedef struct DocTableDiskAPI {
    *        `knownOldLen` when known, otherwise the old row's value (0 for a new document)
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
    * @param oldDocId In/out old ID from DocIdMeta. Cleared when the old row is known to be gone:
-   *        read from the doc table when `knownOldLen` is unknown, otherwise taken from the
-   *        in-memory deletion markers a slot trim or delete publishes for the id.
+   *        read from the doc table when `knownOldLen` is unknown, otherwise inferred from the
+   *        in-memory deletion markers and the slot trims the index remembers.
    * @param knownOldLen The old document's length as recorded in DocIdMeta, or
    *        DOCID_META_DOCLEN_UNKNOWN. When known, the old doc-table row is not read.
    * @return New document ID, or 0 on error
