@@ -105,8 +105,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
   // The key may hold the docIds of a slot migration's source, which can name unrelated documents
   // here. See asm_import_window.h.
-  const bool keepDocs = ASM_ImportWindow_IsOpen() && ctx &&
-                        ASM_ImportWindow_AbsorbsUnlink(RedisModule_GetKeyNameFromOptCtx(ctx));
+  const bool keepDocs = ctx && ASM_ImportWindow_ContainsKey(RedisModule_GetKeyNameFromOptCtx(ctx));
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;

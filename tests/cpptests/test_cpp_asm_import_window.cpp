@@ -64,106 +64,60 @@ class ASMImportWindowTest : public ::testing::Test {
 
 TEST_F(ASMImportWindowTest, ClosedByDefault) {
   RedisModuleString *key = keyInSlot(100);
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-  EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(key));
-  EXPECT_FALSE(ASM_ImportWindow_AbsorbsUnlink(key));
-  EXPECT_FALSE(ASM_ImportWindow_AbsorbsUnlink(nullptr));
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
+  EXPECT_FALSE(ASM_ImportWindow_ContainsSlot(100));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsKey(key));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsKey(nullptr));
   RedisModule_FreeString(ctx, key);
 }
 
-TEST_F(ASMImportWindowTest, OverlayIgnoresNotificationsAndAbsorbsUnlinksInItsSlotsOnly) {
+TEST_F(ASMImportWindowTest, CoversItsSlotsOnly) {
   RedisModuleString *inside = keyInSlot(100);
   RedisModuleString *outside = keyInSlot(200);
-  apply(ASM_ImportWindow_OnOverlayStart, {{50, 150}});
+  apply(ASM_ImportWindow_Open, {{50, 150}});
 
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(100), ASM_IMPORT_SLOT_OVERLAY);
-  EXPECT_TRUE(ASM_ImportWindow_IgnoresNotification(inside));
-  EXPECT_TRUE(ASM_ImportWindow_AbsorbsUnlink(inside));
-  EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(outside));
-  EXPECT_FALSE(ASM_ImportWindow_AbsorbsUnlink(outside));
-  EXPECT_FALSE(ASM_ImportWindow_AbsorbsUnlink(nullptr));
-  EXPECT_EQ(ASM_ImportWindow_UnexpectedUnlinks(), 0);
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 101);
+  EXPECT_TRUE(ASM_ImportWindow_ContainsSlot(50));
+  EXPECT_TRUE(ASM_ImportWindow_ContainsSlot(150));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsSlot(49));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsSlot(151));
+  EXPECT_TRUE(ASM_ImportWindow_ContainsKey(inside));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsKey(outside));
 
   RedisModule_FreeString(ctx, inside);
   RedisModule_FreeString(ctx, outside);
 }
 
-TEST_F(ASMImportWindowTest, OverlayEndKeepsUnlinkGuardOnly) {
-  RedisModuleString *key = keyInSlot(100);
-  apply(ASM_ImportWindow_OnOverlayStart, {{100, 100}});
-  apply(ASM_ImportWindow_OnOverlayEnd, {{100, 100}});
-
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(100), ASM_IMPORT_SLOT_AWAITING_REBUILD);
-  EXPECT_TRUE(ASM_ImportWindow_IsOpen());
-  EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(key));
-#ifndef ENABLE_ASSERT
-  // An unlink once the overlay ended is unexpected: it still keeps the documents, and is counted.
-  EXPECT_TRUE(ASM_ImportWindow_AbsorbsUnlink(key));
-  EXPECT_EQ(ASM_ImportWindow_UnexpectedUnlinks(), 1);
-  // So is a write, which is still processed.
-  ASM_ImportWindow_CheckWrite(key);
-  EXPECT_EQ(ASM_ImportWindow_UnexpectedWrites(), 1);
-#endif
-  RedisModule_FreeString(ctx, key);
-}
-
-TEST_F(ASMImportWindowTest, OverlayEndLeavesSlotsOutsideTheOverlayAlone) {
-  apply(ASM_ImportWindow_OnOverlayEnd, {{0, 16383}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-
-  apply(ASM_ImportWindow_OnOverlayStart, {{10, 20}});
-  apply(ASM_ImportWindow_OnOverlayEnd, {{0, 16383}});
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(9), ASM_IMPORT_SLOT_NONE);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(10), ASM_IMPORT_SLOT_AWAITING_REBUILD);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(20), ASM_IMPORT_SLOT_AWAITING_REBUILD);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(21), ASM_IMPORT_SLOT_NONE);
-}
-
-TEST_F(ASMImportWindowTest, CloseEndsTheWindowFromAnyPhase) {
-  RedisModuleString *key = keyInSlot(100);
-  apply(ASM_ImportWindow_OnOverlayStart, {{0, 99}, {100, 199}});
-  apply(ASM_ImportWindow_OnOverlayEnd, {{0, 99}});
-
-  apply(ASM_ImportWindow_Close, {{0, 199}});
-
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(50), ASM_IMPORT_SLOT_NONE);
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(150), ASM_IMPORT_SLOT_NONE);
-  EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(key));
-  EXPECT_FALSE(ASM_ImportWindow_AbsorbsUnlink(key));
-  RedisModule_FreeString(ctx, key);
+TEST_F(ASMImportWindowTest, CloseNeverOpensTheWindow) {
+  apply(ASM_ImportWindow_Close, {{0, 15}});
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
+  EXPECT_FALSE(ASM_ImportWindow_ContainsSlot(5));
 }
 
 TEST_F(ASMImportWindowTest, ConcurrentImportsCloseIndependently) {
   RedisModuleString *first = keyInSlot(100);
   RedisModuleString *second = keyInSlot(9000);
-  apply(ASM_ImportWindow_OnOverlayStart, {{0, 4999}});
-  apply(ASM_ImportWindow_OnOverlayStart, {{5000, 16383}});
+  apply(ASM_ImportWindow_Open, {{0, 4999}});
+  apply(ASM_ImportWindow_Open, {{5000, 16383}});
 
   apply(ASM_ImportWindow_Close, {{0, 4999}});
 
-  EXPECT_FALSE(ASM_ImportWindow_IgnoresNotification(first));
-  EXPECT_TRUE(ASM_ImportWindow_IgnoresNotification(second));
+  EXPECT_FALSE(ASM_ImportWindow_ContainsKey(first));
+  EXPECT_TRUE(ASM_ImportWindow_ContainsKey(second));
   apply(ASM_ImportWindow_Close, {{5000, 16383}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
 
   RedisModule_FreeString(ctx, first);
   RedisModule_FreeString(ctx, second);
 }
 
 TEST_F(ASMImportWindowTest, OverlapsAreCountedOnce) {
-  apply(ASM_ImportWindow_OnOverlayStart, {{0, 10}, {5, 15}});
-  apply(ASM_ImportWindow_OnOverlayStart, {{0, 15}});
-  apply(ASM_ImportWindow_Close, {{0, 15}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-  EXPECT_EQ(ASM_ImportWindow_overlayWindowSlots_g, 0);
-}
+  apply(ASM_ImportWindow_Open, {{0, 10}, {5, 15}});
+  apply(ASM_ImportWindow_Open, {{0, 15}});
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 16);
 
-TEST_F(ASMImportWindowTest, OverlayEndOrCloseNeverOpenTheWindow) {
-  apply(ASM_ImportWindow_OnOverlayEnd, {{0, 15}});
-  apply(ASM_ImportWindow_Close, {{0, 15}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_NONE);
+  apply(ASM_ImportWindow_Close, {{0, 7}, {4, 15}});
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
 }
 
 TEST_F(ASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
@@ -171,31 +125,13 @@ TEST_F(ASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
 
   isFlex = false;
   apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
 
   isFlex = true;
   apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_OVERLAY);
-  apply(ASM_StateMachine_EndImportOverlay, {{0, 15}});
-  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_AWAITING_REBUILD);
+  EXPECT_TRUE(ASM_ImportWindow_ContainsSlot(5));
   apply(ASM_StateMachine_FailImport, {{0, 15}});
-  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+  EXPECT_EQ(ASM_ImportWindow_numSlots_g, 0);
 
   isFlex = savedFlex;
-}
-
-TEST_F(ASMImportWindowTest, WritesOutsideTheRebuildAreNotReported) {
-  RedisModuleString *overlay = keyInSlot(100);
-  RedisModuleString *outside = keyInSlot(200);
-  apply(ASM_ImportWindow_OnOverlayStart, {{100, 100}});
-
-  ASM_ImportWindow_CheckWrite(overlay);
-  ASM_ImportWindow_CheckWrite(outside);
-  apply(ASM_ImportWindow_OnOverlayStart, {{300, 300}});
-  apply(ASM_ImportWindow_OnOverlayEnd, {{300, 300}});
-  ASM_ImportWindow_CheckWrite(outside);
-
-  EXPECT_EQ(ASM_ImportWindow_UnexpectedWrites(), 0);
-  RedisModule_FreeString(ctx, overlay);
-  RedisModule_FreeString(ctx, outside);
 }

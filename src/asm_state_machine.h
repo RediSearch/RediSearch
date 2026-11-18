@@ -94,21 +94,12 @@ static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray 
 }
 
 /**
- * The RAM overlay of an SST import starts restoring the slots' keys. On disk, search
- * stops indexing them on its own until they are rebuilt (asm_import_window.h).
+ * The RAM overlay of an SST import starts restoring the slots' keys. On disk, the slots
+ * enter the import window (asm_import_window.h) until they are rebuilt.
  */
 static inline void ASM_StateMachine_StartImportOverlay(const RedisModuleSlotRangeArray *slots) {
   if (SearchDisk_IsEnabled()) {
-    ASM_ImportWindow_OnOverlayStart(slots);
-  }
-}
-
-/**
- * The RAM overlay of an SST import is done; the slots wait for their rebuild.
- */
-static inline void ASM_StateMachine_EndImportOverlay(const RedisModuleSlotRangeArray *slots) {
-  if (SearchDisk_IsEnabled()) {
-    ASM_ImportWindow_OnOverlayEnd(slots);
+    ASM_ImportWindow_Open(slots);
   }
 }
 

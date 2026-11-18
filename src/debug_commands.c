@@ -2919,9 +2919,9 @@ DEBUG_COMMAND(GCTimerArms) {
 }
 
 /**
- * FT.DEBUG ASM_IMPORT_WINDOW OVERLAY_START|OVERLAY_END|CLOSE <start-slot> <end-slot>
- * FT.DEBUG ASM_IMPORT_WINDOW PHASE <slot>
- * FT.DEBUG ASM_IMPORT_WINDOW UNEXPECTED_UNLINKS|UNEXPECTED_WRITES|RESET
+ * FT.DEBUG ASM_IMPORT_WINDOW OPEN|CLOSE <start-slot> <end-slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW CONTAINS <slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW RESET
  *
  * Drives the slot window of an SST import (asm_import_window.h) as the import's stage events
  * would, without a migration.
@@ -2936,22 +2936,15 @@ DEBUG_COMMAND(ASMImportWindow) {
   size_t len;
   const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
 
-  if (STR_EQCASE(subCmd, len, "RESET") || STR_EQCASE(subCmd, len, "UNEXPECTED_UNLINKS") ||
-      STR_EQCASE(subCmd, len, "UNEXPECTED_WRITES")) {
+  if (STR_EQCASE(subCmd, len, "RESET")) {
     if (argc != 3) {
       return RedisModule_WrongArity(ctx);
     }
-    if (STR_EQCASE(subCmd, len, "RESET")) {
-      ASM_ImportWindow_Reset();
-      return RedisModule_ReplyWithSimpleString(ctx, "OK");
-    }
-    if (STR_EQCASE(subCmd, len, "UNEXPECTED_WRITES")) {
-      return RedisModule_ReplyWithLongLong(ctx, (long long)ASM_ImportWindow_UnexpectedWrites());
-    }
-    return RedisModule_ReplyWithLongLong(ctx, (long long)ASM_ImportWindow_UnexpectedUnlinks());
+    ASM_ImportWindow_Reset();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
-  if (STR_EQCASE(subCmd, len, "PHASE")) {
+  if (STR_EQCASE(subCmd, len, "CONTAINS")) {
     long long slot;
     if (argc != 4) {
       return RedisModule_WrongArity(ctx);
@@ -2959,27 +2952,20 @@ DEBUG_COMMAND(ASMImportWindow) {
     if (RedisModule_StringToLongLong(argv[3], &slot) != REDISMODULE_OK || slot < 0 || slot > 16383) {
       return RedisModule_ReplyWithError(ctx, "Invalid slot");
     }
-    switch (ASM_ImportWindow_SlotPhase((unsigned int)slot)) {
-      case ASM_IMPORT_SLOT_NONE: return RedisModule_ReplyWithSimpleString(ctx, "NONE");
-      case ASM_IMPORT_SLOT_OVERLAY: return RedisModule_ReplyWithSimpleString(ctx, "OVERLAY");
-      case ASM_IMPORT_SLOT_AWAITING_REBUILD: return RedisModule_ReplyWithSimpleString(ctx, "AWAITING_REBUILD");
-    }
-    return RedisModule_ReplyWithError(ctx, "Unknown phase");
+    return RedisModule_ReplyWithLongLong(ctx, ASM_ImportWindow_ContainsSlot((unsigned int)slot));
   }
 
   void (*apply)(const RedisModuleSlotRangeArray *) = NULL;
-  if (STR_EQCASE(subCmd, len, "OVERLAY_START")) {
+  if (STR_EQCASE(subCmd, len, "OPEN")) {
+    if (!SearchDisk_IsEnabled()) {
+      return RedisModule_ReplyWithError(ctx, "The ASM import window is only used with search on disk");
+    }
     apply = ASM_StateMachine_StartImportOverlay;
-  } else if (STR_EQCASE(subCmd, len, "OVERLAY_END")) {
-    apply = ASM_StateMachine_EndImportOverlay;
   } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
     // Not ASM_StateMachine_CompleteImport: that would also take ownership of the slots.
     apply = ASM_ImportWindow_Close;
   } else {
     return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
-  }
-  if (apply != ASM_ImportWindow_Close && !SearchDisk_IsEnabled()) {
-    return RedisModule_ReplyWithError(ctx, "The ASM import window is only used with search on disk");
   }
   if (argc != 5) {
     return RedisModule_WrongArity(ctx);
