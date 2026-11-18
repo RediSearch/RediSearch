@@ -250,22 +250,25 @@ TEST_F(FieldDiskMetricsTest, NoDiskMetricsAcrossShards) {
 }
 
 
-TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
-  auto shardReply = [](long long metadata, long long memtable, long long storage) {
-    Resp r;
-    r.arr(2).str("column_families").arr(2).str("text").arr(6)
-        .str("ram_metadata_bytes").integer(metadata)
-        .str("memtable_bytes").integer(memtable)
-        .str("storage_bytes").integer(storage);
-    return parseReply(r.s);
-  };
-  const auto output = reduceInfoReplies({shardReply(100, 20, 1000), shardReply(200, 50, 4000)});
+TEST_F(FieldDiskMetricsTest, InfoReducerSumsDictionaryColumnFamilyResources) {
+  for (const char *group : {"text", "tag"}) {
+    SCOPED_TRACE(group);
+    auto shardReply = [group](long long metadata, long long memtable, long long storage) {
+      Resp r;
+      r.arr(2).str("column_families").arr(2).str(group).arr(6)
+          .str("ram_metadata_bytes").integer(metadata)
+          .str("memtable_bytes").integer(memtable)
+          .str("storage_bytes").integer(storage);
+      return parseReply(r.s);
+    };
+    const auto output = reduceInfoReplies({shardReply(100, 20, 1000), shardReply(200, 50, 4000)});
 
-  const std::vector<std::string> expected = {
-      "string:column_families", "map:postponed", "string:text", "map:postponed",
-      "string:ram_metadata_bytes", "integer:300", "string:memtable_bytes", "integer:70",
-      "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
-  EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
+    const std::vector<std::string> expected = {
+        "string:column_families", "map:postponed", std::string("string:") + group, "map:postponed",
+        "string:ram_metadata_bytes", "integer:300", "string:memtable_bytes", "integer:70",
+        "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
+    EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
+  }
 }
 
 TEST_F(FieldDiskMetricsTest, InfoReducerSumsMissingColumnFamilyResources) {
@@ -334,22 +337,4 @@ TEST_F(FieldDiskMetricsTest, InfoReducerAggregatesDocTableResources) {
                                              "setmap:1"};
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()),
             output.end());
-}
-
-TEST_F(FieldDiskMetricsTest, InfoReducerSumsTagColumnFamilyResources) {
-  auto shardReply = [](long long metadata, long long memtable, long long storage) {
-    Resp r;
-    r.arr(2).str("column_families").arr(2).str("tag").arr(6)
-        .str("ram_metadata_bytes").integer(metadata)
-        .str("memtable_bytes").integer(memtable)
-        .str("storage_bytes").integer(storage);
-    return parseReply(r.s);
-  };
-  const auto output = reduceInfoReplies({shardReply(100, 20, 1000), shardReply(200, 50, 4000)});
-
-  const std::vector<std::string> expected = {
-      "string:column_families", "map:postponed", "string:tag", "map:postponed",
-      "string:ram_metadata_bytes", "integer:300", "string:memtable_bytes", "integer:70",
-      "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
-  EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
 }
