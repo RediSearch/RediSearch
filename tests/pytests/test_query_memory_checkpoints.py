@@ -20,9 +20,9 @@ from test_info_modules import (
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
-# FT.SEARCH and FT.AGGREGATE read memory before building the iterators, after them, and after the
-# pipeline; the pipeline checkpoints count from there.
-BUILD_CHECKPOINTS = 3
+# FT.SEARCH and FT.AGGREGATE read memory once, after the pipeline is built; the pipeline
+# checkpoints count from there.
+BUILD_CHECKPOINTS = 1
 N_DOCS = 10
 
 SEARCH = ('FT.SEARCH', 'idx', '*', 'NOCONTENT')
@@ -96,9 +96,9 @@ def expect_empty_with_oom_warning(env, res):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_build_checkpoints_stop_before_execution(env):
-    """Every build stage reads memory once: under pressure ON_OOM RETURN replies an empty result
-    with the OOM warning and ON_OOM FAIL the OOM error, before any row is read, with and without
-    workers. Past the build stages nothing stops the query."""
+    """The build reads memory once, after the pipeline is built: under pressure ON_OOM RETURN
+    replies an empty result with the OOM warning and ON_OOM FAIL the OOM error, before any row is
+    read, with and without workers. Past the build nothing stops the query."""
     create_index(env)
     for workers in worker_counts(env):
         for at_call in range(1, BUILD_CHECKPOINTS + 1):
@@ -199,17 +199,17 @@ def hybrid_result_count(res):
 
 @skip(cluster=True)
 def test_hybrid_build_checkpoint_fails_before_execution(env):
-    """Under ON_OOM FAIL, FT.HYBRID reads memory before building the first subquery (where a
-    queued job starts) and after building each one, and pressure at any of them fails the query
-    with the OOM error before it runs. Under ON_OOM RETURN it does not read memory at build."""
+    """Under ON_OOM FAIL, FT.HYBRID reads memory after building each subquery, and pressure at
+    either fails the query with the OOM error before it runs. Under ON_OOM RETURN it does not read
+    memory at build."""
     create_hybrid_index(env)
     full = hybrid_result_count(env.cmd(*HYBRID))
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            for at_call in (1, 2, 3):
+            for at_call in (1, 2):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
-            env.assertEqual(hybrid_result_count(run_at_call(env, 4, *HYBRID)), full)
+            env.assertEqual(hybrid_result_count(run_at_call(env, 3, *HYBRID)), full)
     memory_pressure(env, 'AT_CALL', 1)
     try:
         env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
@@ -438,8 +438,8 @@ def test_grouper_stop_inside_one_rows_groups(env):
     query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
              'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
     env.assertEqual(env.cmd(*query)[0], parts)
-    # Calls past the build checkpoints land inside the row's expansion: the grouper's per-row
-    # check runs once per read interval, and at most one other checkpoint runs per row upstream.
+    # Calls past the build checkpoint land inside the row's expansion: the grouper's per-row check
+    # follows it, and at most one other checkpoint runs per row upstream.
     at_call = BUILD_CHECKPOINTS + 3
     for workers in worker_counts(env):
         env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
