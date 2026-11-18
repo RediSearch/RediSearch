@@ -12,6 +12,7 @@
 use std::ffi::c_void;
 
 use rdb_io::RdbIO;
+use redis_module::{RedisModuleIO, raw};
 use trie_rdb::{RdbError, RdbOpts, WireFields, trie_map};
 
 use crate::{TrieMap, tm_len_t};
@@ -38,6 +39,7 @@ pub fn save(map: &TrieMap, io: &mut impl RdbIO) {
 ///
 /// Rejects malformed key framing, keys longer than [`tm_len_t::MAX`], and
 /// counts that are zero or do not fit in a pointer address. The score is ignored.
+/// Free through [`crate::TrieMap_Free`] with a callback that leaves counts alone.
 pub fn load(io: &mut impl RdbIO) -> Result<TrieMap, RdbError> {
     trie_map::try_load_with(io, COUNT_OPTS, |key, entry| {
         if key.len() > usize::from(tm_len_t::MAX) {
@@ -50,4 +52,40 @@ pub fn load(io: &mut impl RdbIO) -> Result<TrieMap, RdbError> {
         Ok(std::ptr::without_provenance_mut::<c_void>(count))
     })
     .map(TrieMap)
+}
+
+/// Save a disk TAG dictionary containing document counts, as described by [`save`].
+///
+/// # Safety
+///
+/// 1. `io` must be a [valid], exclusively accessible Redis RDB writer.
+/// 2. `map` must point to a [valid] [`TrieMap`], immutably borrowed for this call,
+///    whose values encode positive counts rather than allocated objects.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TrieMap_RdbSave(io: *mut raw::RedisModuleIO, map: *const TrieMap) {
+    // SAFETY: Precondition 2 supplies a live, immutably borrowed dictionary.
+    let map = unsafe { &*map };
+    let mut io = RedisModuleIO::new(io);
+    save(map, &mut io);
+}
+
+/// Load a disk TAG dictionary, returning null on a read or validation error.
+///
+/// The caller owns the result. Free it through [`crate::TrieMap_Free`] with a
+/// callback that leaves count values alone. See [`load`] for validation rules.
+///
+/// # Safety
+///
+/// 1. `io` must be a [valid], exclusively accessible Redis RDB reader.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TrieMap_RdbLoad(io: *mut raw::RedisModuleIO) -> *mut TrieMap {
+    let mut io = RedisModuleIO::new(io);
+    match load(&mut io) {
+        Ok(map) => Box::into_raw(Box::new(map)),
+        Err(_) => std::ptr::null_mut(),
+    }
 }

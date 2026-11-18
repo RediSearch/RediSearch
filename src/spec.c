@@ -3382,6 +3382,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
         rdb, (uint64_t)(sp->scan_in_progress || RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+    RedisModule_SaveUnsigned(rdb, sp->tagValuesUnavailable ? 0 : 1);
+    if (!sp->tagValuesUnavailable) {
+      for (size_t i = 0; i < sp->numFields; ++i) {
+        if (FIELD_IS(&sp->fields[i], INDEXFLD_T_TAG)) {
+          TagIndex_RdbSave(rdb, TagIndex_Open(&sp->fields[i]));
+        }
+      }
+    }
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3560,6 +3568,21 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
     if (!sp->terms) {
       goto cleanup;
+    }
+
+    sp->tagValuesUnavailable = true;
+    if (encver >= INDEX_SST_TAG_VALUES_VERSION) {
+      uint64_t available = LoadUnsigned_IOError(rdb, goto cleanup);
+      if (available > 1) goto cleanup;
+      sp->tagValuesUnavailable = !available;
+      if (available) {
+        for (size_t i = 0; i < sp->numFields; ++i) {
+          FieldSpec *fs = &sp->fields[i];
+          if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
+          fs->tagOpts.tagIndex = TagIndex_RdbLoad(rdb, fs->index, FieldSpec_HasSuffixTrie(fs));
+          if (!fs->tagOpts.tagIndex) goto cleanup;
+        }
+      }
     }
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
