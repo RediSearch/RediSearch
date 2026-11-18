@@ -186,8 +186,25 @@ where
     Ok(run)
 }
 
-/// Folds the steps completed since the tick `since` into `live`, in the
-/// order they completed, and returns the latest tick folded.
+/// Calls `visit` with each completed step's index and the state the steps
+/// completed before it left, in the order they completed. This is the state
+/// a run's ops were lowered against, for [`Model::check`] to judge replies
+/// by.
+pub fn in_completion_order<M: Model>(
+    model: &M,
+    ops: &[M::Op],
+    steps: &[Step<M::Reply>],
+    mut visit: impl FnMut(usize, &M::State),
+) {
+    let mut state = M::State::default();
+    for at in completed_since(steps, 0) {
+        visit(at, &state);
+        model.apply(&mut state, &ops[at], steps[at].reply.as_ref());
+    }
+}
+
+/// Folds the steps completed after the tick `since` into `live` and returns
+/// the latest tick folded.
 fn fold_completed<M: Model>(
     model: &M,
     program: &Program<M::Op>,
@@ -195,8 +212,19 @@ fn fold_completed<M: Model>(
     live: &mut M::State,
     since: u32,
 ) -> u32 {
-    let mut completed: Vec<(u32, usize)> = run
-        .steps
+    let mut latest = since;
+    for at in completed_since(&run.steps, since) {
+        let step = &run.steps[at];
+        model.apply(live, &program.ops[at].op, step.reply.as_ref());
+        latest = latest.max(step.done.expect("completed"));
+    }
+    latest
+}
+
+/// The indexes of the steps completed after the tick `since`, in the order
+/// they completed.
+fn completed_since<R>(steps: &[Step<R>], since: u32) -> Vec<usize> {
+    let mut completed: Vec<(u32, usize)> = steps
         .iter()
         .enumerate()
         .filter_map(|(at, step)| {
@@ -206,8 +234,5 @@ fn fold_completed<M: Model>(
         })
         .collect();
     completed.sort_unstable();
-    for &(_, at) in &completed {
-        model.apply(live, &program.ops[at].op, run.steps[at].reply.as_ref());
-    }
-    completed.last().map_or(since, |&(done, _)| done)
+    completed.into_iter().map(|(_, at)| at).collect()
 }

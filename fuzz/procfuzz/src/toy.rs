@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::draw::Draw;
 use crate::model::Model;
-use crate::system::{Notes, Run, Session, Step};
+use crate::system::{Notes, Run, Session, Step, in_completion_order};
 
 const KEYS: u64 = 4;
 const VALUES: u64 = 3;
@@ -70,15 +70,13 @@ impl Model for Toy {
     }
 
     fn check(&self, ops: &[Op], steps: &[Step<Option<u8>>], notes: &mut Notes) {
-        let mut state = Self::State::default();
-        for (op, step) in ops.iter().zip(steps) {
-            if let (Op::Get { key }, Some(got)) = (op, &step.reply)
+        in_completion_order(self, ops, steps, |at, state| {
+            if let (Op::Get { key }, Some(got)) = (&ops[at], &steps[at].reply)
                 && *got != state.get(key).copied()
             {
                 notes.fail("logic", "get_last_set");
             }
-            self.apply(&mut state, op, step.reply.as_ref());
-        }
+        });
     }
 }
 
