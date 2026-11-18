@@ -22,12 +22,12 @@ use rand::rngs::SmallRng;
 use crate::action::{Action, vocabulary};
 use crate::redis::{Env, Value};
 
-pub type Program = procfuzz::program::Program<Action>;
-pub type Op = procfuzz::program::Op<Action>;
-pub type Execution = procfuzz::run::Execution<Value>;
+pub type Program = procfuzz::legacy::program::Program<Action>;
+pub type Op = procfuzz::legacy::program::Op<Action>;
+pub type Execution = procfuzz::legacy::run::Execution<Value>;
 
 pub fn execute(env: &Env, program: &Program) -> Result<Execution, String> {
-    let mut execution = procfuzz::run::execute(env, program)?;
+    let mut execution = procfuzz::legacy::run::execute(env, program)?;
     execution
         .findings
         .extend(logic::check(program, &execution.trace));
@@ -42,5 +42,5 @@ pub fn mutate(program: &Program, donor: &Program, rng: &mut SmallRng) -> Program
     words.learn(donor);
     let mut generate =
         |args: &[_], prefix: &[Op], rng: &mut SmallRng| generate::ops(args, prefix, &words, rng);
-    procfuzz::edit::mutate(program, donor, &words, &mut generate, rng)
+    procfuzz::legacy::edit::mutate(program, donor, &words, &mut generate, rng)
 }

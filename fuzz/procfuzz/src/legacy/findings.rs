@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::program::{Program, TypedOp};
-use crate::run::Execution;
+use crate::legacy::program::{Program, TypedOp};
+use crate::legacy::run::Execution;
 
 const SANITIZER_VARS: [&str; 3] = ["ASAN_OPTIONS", "LSAN_OPTIONS", "LD_PRELOAD"];
 

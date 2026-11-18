@@ -15,11 +15,11 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use procfuzz::campaign::{Campaign, fuzz};
-use procfuzz::edit::reduce;
-use procfuzz::program::{Kind, argv};
-use procfuzz::run::Exit;
-use procfuzz::server::Reply;
+use procfuzz::legacy::campaign::{Campaign, fuzz};
+use procfuzz::legacy::edit::reduce;
+use procfuzz::legacy::program::{Kind, argv};
+use procfuzz::legacy::run::Exit;
+use procfuzz::legacy::server::Reply;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use redisearch_fuzz::generate::generate;

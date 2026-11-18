@@ -8,16 +8,16 @@
 */
 
 //! `redis-server` with the module and RedisJSON loaded, as a
-//! [`procfuzz::server::Server`].
+//! [`procfuzz::legacy::server::Server`].
 
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use procfuzz::judge::basename;
-use procfuzz::program::{Argv, Bytes, argv};
-use procfuzz::server::{Harness, Server};
+use procfuzz::legacy::judge::basename;
+use procfuzz::legacy::program::{Argv, Bytes, argv};
+use procfuzz::legacy::server::{Harness, Server};
 use serde::{Deserialize, Serialize};
 
 pub const DEBUG: &str = "_FT.DEBUG";

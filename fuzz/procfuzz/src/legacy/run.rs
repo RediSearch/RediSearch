@@ -19,10 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::coverage::{Coverage, CoverageMap};
 use crate::interrupt::interrupted;
-use crate::judge;
+use crate::legacy::judge;
+use crate::legacy::program::{Argv, Bytes, Conn, Kind, Op, Program, ReplyMode, TypedOp, Var, argv};
+use crate::legacy::server::{Connection, Harness, Reply, Server};
 use crate::process::Process;
-use crate::program::{Argv, Bytes, Conn, Kind, Op, Program, ReplyMode, TypedOp, Var, argv};
-use crate::server::{Connection, Harness, Reply, Server};
 
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
 /// How long a reply may take before the harness releases the pauses and

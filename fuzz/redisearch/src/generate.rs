@@ -14,8 +14,8 @@ use std::ops::RangeInclusive;
 use rand::Rng;
 use rand::seq::{IndexedRandom, IteratorRandom, SliceRandom};
 
-use procfuzz::program::{Argv, Bytes, Conn, Kind, ReplyMode, Var, argv};
-use procfuzz::vocabulary::Vocabulary;
+use procfuzz::legacy::program::{Argv, Bytes, Conn, Kind, ReplyMode, Var, argv};
+use procfuzz::legacy::vocabulary::Vocabulary;
 
 use crate::action::{
     Action, Algorithm, Bound, DataType, Field, FieldKind, Metric, Query, QueryOptions, key,
@@ -470,7 +470,7 @@ mod tests {
             let program = mutate(&generate(&mut rng), &donor, &mut rng);
             let json = serde_json::to_string(&program).unwrap();
             assert_eq!(serde_json::from_str::<Program>(&json).unwrap(), program);
-            for candidate in procfuzz::edit::smaller(&program) {
+            for candidate in procfuzz::legacy::edit::smaller(&program) {
                 assert!(candidate.size() < program.size(), "{candidate:?}");
             }
         }

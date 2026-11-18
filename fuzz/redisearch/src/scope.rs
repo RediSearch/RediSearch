@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use procfuzz::program::{Bytes, Kind, Var};
+use procfuzz::legacy::program::{Bytes, Kind, Var};
 
 use crate::Op;
 use crate::action::{Action, DataType, Field, FieldKind};

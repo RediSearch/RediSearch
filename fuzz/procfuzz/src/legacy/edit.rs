@@ -16,8 +16,8 @@ use rand::Rng;
 use rand::rngs::SmallRng;
 use rand::seq::{IndexedRandom, IteratorRandom};
 
-use crate::program::{Argv, Bytes, Conn, Kind, Literal, Op, Program, ReplyMode, TypedOp};
-use crate::vocabulary::Vocabulary;
+use crate::legacy::program::{Argv, Bytes, Conn, Kind, Literal, Op, Program, ReplyMode, TypedOp};
+use crate::legacy::vocabulary::Vocabulary;
 
 const EDITS: RangeInclusive<usize> = 1..=3;
 const MOST_SPLICED: usize = 8;

@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::program::{Argv, Bytes};
+use crate::legacy::program::{Argv, Bytes};
 
 const HARNESS_DEADLINE: Duration = Duration::from_secs(5);
 

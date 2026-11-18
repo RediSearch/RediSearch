@@ -10,9 +10,9 @@
 //! Findings any run can have: sanitizer reports, crashes, hangs, and
 //! replies that break the protocol.
 
-use crate::program::{Program, TypedOp};
-use crate::run::{Exit, Trace};
-use crate::server::{Reply, Server};
+use crate::legacy::program::{Program, TypedOp};
+use crate::legacy::run::{Exit, Trace};
+use crate::legacy::server::{Reply, Server};
 
 const ALLOCATORS: [&str; 3] = ["alloc", "strdup", "strndup"];
 

@@ -9,8 +9,8 @@
 
 //! RediSearch's own ops: index schemas, queries, and batches of writes.
 
-use procfuzz::program::{Argv, Bytes, Literal, TypedOp, argv};
-use procfuzz::vocabulary::{Vocabulary, below};
+use procfuzz::legacy::program::{Argv, Bytes, Literal, TypedOp, argv};
+use procfuzz::legacy::vocabulary::{Vocabulary, below};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 

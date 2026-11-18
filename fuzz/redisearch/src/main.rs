@@ -13,9 +13,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use procfuzz::campaign::Campaign;
-use procfuzz::findings::Findings;
-use procfuzz::session::{fuzz_parallel, reduce_to_finding, replay};
+use procfuzz::legacy::campaign::Campaign;
+use procfuzz::legacy::findings::Findings;
+use procfuzz::legacy::session::{fuzz_parallel, reduce_to_finding, replay};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 

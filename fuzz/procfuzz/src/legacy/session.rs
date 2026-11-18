@@ -17,11 +17,11 @@ use log::{debug, error, info};
 use rand::rngs::SmallRng;
 use serde::Serialize;
 
-use crate::campaign::{Campaign, fuzz};
-use crate::edit::reduce;
-use crate::findings::Findings;
-use crate::program::{Program, TypedOp};
-use crate::run::Execution;
+use crate::legacy::campaign::{Campaign, fuzz};
+use crate::legacy::edit::reduce;
+use crate::legacy::findings::Findings;
+use crate::legacy::program::{Program, TypedOp};
+use crate::legacy::run::Execution;
 
 /// Runs `program` `repeat` times, reports how often each finding and edge
 /// recurs, and writes a bundle per finding. Returns whether anything was
@@ -173,8 +173,8 @@ mod tests {
 
     use super::*;
     use crate::coverage::Coverage;
-    use crate::program::{Argv, Literal};
-    use crate::run::{Exit, Status, Trace};
+    use crate::legacy::program::{Argv, Literal};
+    use crate::legacy::run::{Exit, Status, Trace};
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     enum NoOp {}

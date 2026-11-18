@@ -22,9 +22,9 @@
 
 use std::collections::BTreeSet;
 
-use procfuzz::program::{Bytes, Kind};
-use procfuzz::run::{Step, Trace};
-use procfuzz::server::Reply;
+use procfuzz::legacy::program::{Bytes, Kind};
+use procfuzz::legacy::run::{Step, Trace};
+use procfuzz::legacy::server::Reply;
 
 use crate::Program;
 use crate::action::{Action, Query, QueryOptions};
@@ -314,8 +314,8 @@ fn search_result(reply: &Reply<Value>) -> Option<(i64, Option<BTreeSet<Bytes>>)>
 
 #[cfg(test)]
 mod tests {
-    use procfuzz::program::argv;
-    use procfuzz::run::{Exit, Status};
+    use procfuzz::legacy::program::argv;
+    use procfuzz::legacy::run::{Exit, Status};
 
     use super::*;
     use crate::Op;

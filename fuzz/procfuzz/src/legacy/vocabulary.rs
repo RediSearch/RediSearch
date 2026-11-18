@@ -9,7 +9,7 @@
 
 use rand::RngCore;
 
-use crate::program::{Bytes, Literal, Program, TypedOp};
+use crate::legacy::program::{Bytes, Literal, Program, TypedOp};
 
 /// The words and numbers programs are built from.
 #[derive(Clone, Debug)]

@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::coverage::CAPACITY;
 use crate::interrupt::interrupted;
-use crate::program::{Program, TypedOp};
+use crate::legacy::program::{Program, TypedOp};
 
 const MUTATIONS_PER_PICK: usize = 8;
 /// Runs that may fail in a row, as when the machine is briefly out of
