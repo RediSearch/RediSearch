@@ -1550,6 +1550,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
+  QueryRequestLimits *timeout = rp->parent->limits;
+  // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
+  // holds its rows past a stop and yields them over several reads.
+  bool ownStop = false;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
@@ -1562,14 +1566,20 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
-    // A stop of this loader's own ends the query after this buffer under every policy; a stop held
-    // upstream ends it when that stage runs out of rows.
-    if (RP_FillShouldCut(rp, &self->memoryCheckCalls)) {
+    const bool heldUpstream = timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+    const bool fillStopped = RP_FillShouldStop(rp, &self->memoryCheckCalls);
+    ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+    if (fillStopped) {
       result_status = RS_RESULT_STOPPED;
       break;
     }
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  // A stop requested by this loader's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer. A stop held upstream ends it when that stage runs out of rows.
+  if (result_status == RS_RESULT_OK && ownStop) {
+    result_status = RS_RESULT_STOPPED;
+  }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
