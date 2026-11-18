@@ -26,7 +26,8 @@ struct Cli {
 }
 
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,libafl=warn"))
+        .init();
     let cli = Cli::parse();
     match cli.command.exec(&Kvd, &service(cli.kvd.clone()), &cli.kvd) {
         Ok(false) => ExitCode::SUCCESS,

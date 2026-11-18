@@ -35,6 +35,8 @@ use crate::system::Feature;
 /// Runs that may fail in a row, as when the machine is briefly out of
 /// resources, before the campaign gives up.
 const FAILURES_IN_A_ROW: u32 = 3;
+/// Runs after which a campaign that has seen no feature says so.
+const RUNS_BEFORE_WARNING: u64 = 20;
 
 pub struct Campaign<'a> {
     /// Directories of programs to start from.
@@ -211,6 +213,11 @@ impl<F, O: Clone> Runner<'_, F, O> {
         }
         let new = features.iter().any(|feature| !self.seen.contains(feature));
         self.seen.extend(features.iter().copied());
+        if self.runs == RUNS_BEFORE_WARNING && self.seen.is_empty() {
+            log::warn!(
+                "{RUNS_BEFORE_WARNING} runs showed no feature; is the target built with coverage?"
+            );
+        }
         if new && let Some(peer) = &self.peer {
             peer.publish(program, &features);
         }
