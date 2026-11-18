@@ -78,7 +78,11 @@ pub struct NumericRangeIterator<'index> {
     tree: NumericTreeRef<'index>,
     /// Ranges matching `window`, best-score-first, or `None` until they are
     /// next resolved from the tree.
-    ranges: Option<Vec<&'index NumericRange>>,
+    ///
+    /// Held as pointers, like the tree itself, because the cache can outlive a
+    /// spec lock release until revalidation discards it; see
+    /// [`resolve`](Self::resolve).
+    ranges: Option<Vec<NonNull<NumericRange>>>,
     window: RangeWindow,
     /// Index of the next range to hand out.
     pos: usize,
@@ -122,14 +126,26 @@ impl<'index> NumericRangeIterator<'index> {
         }
     }
 
-    fn ranges(&mut self) -> &[&'index NumericRange] {
+    fn ranges(&mut self) -> &[NonNull<NumericRange>] {
         self.ranges.get_or_insert_with(|| {
             let tree = self.tree.get();
             if self.retained.is_none() && tree.has_multivalued_docs() {
                 self.retained = Some(HashSet::new());
             }
             tree.find_windowed(&self.filter, self.window)
+                .into_iter()
+                .map(NonNull::from)
+                .collect()
         })
+    }
+
+    /// Borrow a cached range.
+    fn resolve(range: NonNull<NumericRange>) -> &'index NumericRange {
+        // SAFETY: `range` was resolved from the tree, which
+        // `NumericTreeRef::from_raw` (3) keeps unchanged while the iterator is in
+        // use. A cache that outlived a lock release is discarded by
+        // `release_index_handles` before the iterator is used again.
+        unsafe { range.as_ref() }
     }
 
     /// Discard cached ranges without accessing their contents.
@@ -177,7 +193,10 @@ impl<'index> NumericRangeIterator<'index> {
     /// `num_estimated` and to advance the window's `offset` past a consumed
     /// window on retry.
     pub fn total_docs_estimate(&mut self) -> usize {
-        self.ranges().iter().map(|r| r.num_docs() as usize).sum()
+        self.ranges()
+            .iter()
+            .map(|&range| Self::resolve(range).num_docs() as usize)
+            .sum()
     }
 
     /// Whether every range of the current window has been handed out.
@@ -193,7 +212,9 @@ impl<'index> NumericRangeIterator<'index> {
             return None;
         }
         let end = (self.pos + n.max(1)).min(len);
-        let ranges = &self.ranges.as_deref().unwrap_or_default()[self.pos..end];
+        let ranges = self.ranges.as_deref().unwrap_or_default()[self.pos..end]
+            .iter()
+            .map(|&range| Self::resolve(range));
         let batch = NumericScoreBatch::new(ranges, self.filter, self.retained.is_some());
         self.pos = end;
         Some(batch)
