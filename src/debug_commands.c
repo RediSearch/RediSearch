@@ -27,6 +27,7 @@
 #include "inverted_index_ffi.h"
 #include "tag_index.h"
 #include "iterators_ffi.h"
+#include "iterators/vector_top_k.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "geometry/geometry_api.h"
@@ -3717,11 +3718,6 @@ static inline int TimedOut_Always(QueryRequestLimits *timeout) {
   return TIMED_OUT;
 }
 
-// Timeout check of VecSim's stop callback (RS_VecSimShouldStop) and of the Rust adhoc scan.
-// Need the redirection so tests can pass a mock function to test timeout behavior.
-// Defined in vector_top_k.c.
-extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
-
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
  * Set the timeout callback for VecSim searches globally
@@ -3737,10 +3733,10 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcmp("enable", op)) {
-    vecsimTimeoutCallback = TimedOut_Always;
+    RS_VecSimSetTimeoutCallback(TimedOut_Always);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else if (!strcmp("disable", op)) {
-    vecsimTimeoutCallback = VecSim_TimedOut;
+    RS_VecSimSetTimeoutCallback(NULL);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");

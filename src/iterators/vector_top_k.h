@@ -19,6 +19,10 @@ extern "C" {
 // vector top-k adhoc-BF scan so it polls the query deadline like the C path does.
 int RS_VecSimCheckTimeout(QueryRequestLimits *timeout);
 
+// Replaces the timeout check behind RS_VecSimCheckTimeout and RS_VecSimShouldStop, for the
+// FT.DEBUG timeout mock; NULL restores the default.
+void RS_VecSimSetTimeoutCallback(int (*callback)(QueryRequestLimits *timeout));
+
 // The memory checkpoint of the Rust vector iterators. Returns nonzero when the query should stop
 // (see QueryMemory_CheckpointExact), which under memory pressure first requests the memory stop.
 // Reads memory on every call; callers own the cadence.

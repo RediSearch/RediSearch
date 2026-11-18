@@ -44,9 +44,55 @@ extern "C" {
  * memory is read. Each site's own `counter` must not be shared between
  * threads. The ON_OOM policy is the global one, read with a
  * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
- * owning request) still reports pressure but records no memory stop.
+ * owning request) still reports pressure but records no memory stop. A NULL `counter` leaves the
+ * cadence to the request's shared counter alone.
  */
-bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
+static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
+
+/* Process-wide state of the inline fast path of QueryMemory_Checkpoint, written only through the
+ * debug and test hooks below. */
+extern RS_Atomic(uint32_t) QueryMemory_ratioReadInterval;
+extern RS_Atomic(uint32_t) QueryMemory_pressureArmed;
+
+/** The full checkpoint, used while a fake pressure is armed. Same semantics as the fast path. */
+bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits, uint32_t *counter);
+
+/**
+ * The memory read of a due checkpoint, or of a forced pressure: resets the call counters first.
+ * `counter` may be NULL.
+ */
+bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, uint32_t *counter, bool forcedPressure);
+
+/**
+ * Counts one checkpoint call in `counter` (NULL: not counted) and in the request's shared counter,
+ * and returns whether either reached the read interval. Shared by the fast path and
+ * QueryMemory_CheckpointSlow.
+ */
+static inline bool QueryMemory_CountCall(QueryRequestLimits *limits, uint32_t *counter) {
+  const uint32_t interval = RS_AtomicUintLoadRelaxed(&QueryMemory_ratioReadInterval);
+  bool due = counter && ++*counter >= interval;
+  if (limits) {
+    // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
+    // atomic RMW on the hot path.
+    const uint32_t shared = RS_AtomicUintLoadRelaxed(&limits->memory.counter) + 1;
+    RS_AtomicUintStoreRelaxed(&limits->memory.counter, shared);
+    due |= shared >= interval;
+  }
+  return due;
+}
+
+static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+    return true;
+  }
+  if (__builtin_expect(RS_AtomicUintLoadRelaxed(&QueryMemory_pressureArmed) != 0, 0)) {
+    return QueryMemory_CheckpointSlow(limits, counter);
+  }
+  if (__builtin_expect(!QueryMemory_CountCall(limits, counter), 1)) {
+    return false;
+  }
+  return QueryMemory_ReadAndReset(limits, counter, false);
+}
 
 /**
  * The non-amortized checkpoint: reads memory on every call and touches no
