@@ -11,6 +11,8 @@
 #include "redismock/redismock.h"
 
 #include "asm_import_window.h"
+#include "asm_state_machine.h"
+#include "spec.h"
 #include "rmalloc.h"
 
 #include <initializer_list>
@@ -152,4 +154,29 @@ TEST_F(ASMImportWindowTest, OverlapsAreCountedOnce) {
   apply(ASM_ImportWindow_Close, {{0, 15}});
   EXPECT_FALSE(ASM_ImportWindow_IsOpen());
   EXPECT_EQ(ASM_ImportWindow_overlaySlots_g, 0);
+}
+
+TEST_F(ASMImportWindowTest, OverlayEndOrCloseNeverOpenTheWindow) {
+  apply(ASM_ImportWindow_OnOverlayEnd, {{0, 15}});
+  apply(ASM_ImportWindow_Close, {{0, 15}});
+  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_NONE);
+}
+
+TEST_F(ASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
+  const bool savedFlex = isFlex;
+
+  isFlex = false;
+  apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
+  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+
+  isFlex = true;
+  apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_OVERLAY);
+  apply(ASM_StateMachine_EndImportOverlay, {{0, 15}});
+  EXPECT_EQ(ASM_ImportWindow_SlotPhase(5), ASM_IMPORT_SLOT_REBUILD);
+  apply(ASM_StateMachine_FailImport, {{0, 15}});
+  EXPECT_FALSE(ASM_ImportWindow_IsOpen());
+
+  isFlex = savedFlex;
 }

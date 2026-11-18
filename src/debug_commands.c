@@ -53,6 +53,7 @@
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "asm_import_window.h"
+#include "asm_state_machine.h"
 #include "coord/rmr/rmr.h"
 #include "vecsim/info_iterator.h"
 #include "vecsim/vec_sim.h"
@@ -3029,13 +3030,17 @@ DEBUG_COMMAND(ASMImportWindow) {
 
   void (*apply)(const RedisModuleSlotRangeArray *) = NULL;
   if (STR_EQCASE(subCmd, len, "OVERLAY_START")) {
-    apply = ASM_ImportWindow_OnOverlayStart;
+    apply = ASM_StateMachine_StartImportOverlay;
   } else if (STR_EQCASE(subCmd, len, "OVERLAY_END")) {
-    apply = ASM_ImportWindow_OnOverlayEnd;
+    apply = ASM_StateMachine_EndImportOverlay;
   } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
+    // Not ASM_StateMachine_CompleteImport: that would also take ownership of the slots.
     apply = ASM_ImportWindow_Close;
   } else {
     return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+  }
+  if (apply != ASM_ImportWindow_Close && !SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "The ASM import window is only used with search on disk");
   }
   if (argc != 5) {
     return RedisModule_WrongArity(ctx);

@@ -10,6 +10,8 @@
 
 #include "slots_tracker_ffi.h"
 #include "slot_ranges.h"
+#include "asm_import_window.h"
+#include "search_disk.h"
 #include "util/khash.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
@@ -91,11 +93,38 @@ static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray 
   __atomic_store_n(&key_space_version, version, __ATOMIC_RELAXED);
 }
 
+/**
+ * The RAM overlay of an SST import starts restoring the slots' keys. On disk, search
+ * stops indexing them on its own until they are rebuilt (asm_import_window.h).
+ */
+static inline void ASM_StateMachine_StartImportOverlay(const RedisModuleSlotRangeArray *slots) {
+  if (SearchDisk_IsEnabled()) {
+    ASM_ImportWindow_OnOverlayStart(slots);
+  }
+}
+
+/**
+ * The RAM overlay of an SST import is done; the slots wait for their rebuild.
+ */
+static inline void ASM_StateMachine_EndImportOverlay(const RedisModuleSlotRangeArray *slots) {
+  if (SearchDisk_IsEnabled()) {
+    ASM_ImportWindow_OnOverlayEnd(slots);
+  }
+}
+
 /*
 * When slots have finished importing, we need to promote the slots to local ownership.
 */
 static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_promote_to_local_slots(slots);
+  ASM_ImportWindow_Close(slots);
+}
+
+/**
+ * The import of the slots failed. Ownership is unchanged, the slots leave the import window.
+ */
+static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *slots) {
+  ASM_ImportWindow_Close(slots);
 }
 
 /**
