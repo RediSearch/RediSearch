@@ -92,10 +92,20 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 }
 
 static redisearch_thpool_t *reindexPool = NULL;
+// The rebuild sweeps of slot-migration imports. Separate from reindexPool so a sweep, which holds
+// the import gate and with it the source's writes, never waits behind an index's backfill. Its
+// jobs take the GIL through reindexGilGate too: the two pools are always joined together.
+static redisearch_thpool_t *asmImportPool = NULL;
+
+static void resetGilGateIfNoPool(void) {
+  if (!reindexPool && !asmImportPool) {
+    GilGate_Reset(&reindexGilGate);
+  }
+}
 
 static void verifyReindexPoolInit(void) {
   if (!reindexPool) {
-    GilGate_Reset(&reindexGilGate);
+    resetGilGateIfNoPool();
     reindexPool =
         redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
@@ -530,27 +540,50 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
   redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
+void ReindexPool_AddImportTask(void (*task)(void *), void *arg) {
+  if (!asmImportPool) {
+    resetGilGateIfNoPool();
+    asmImportPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback,
+                                             "asm-import");
+  }
+  redisearch_thpool_add_work(asmImportPool, task, arg, THPOOL_PRIORITY_HIGH);
+}
+
 void ReindexPool_ThreadPoolDestroy() {
-  if (reindexPool != NULL) {
+  if (reindexPool == NULL && asmImportPool == NULL) {
+    return;
+  }
 #ifdef ENABLE_ASSERT
-    // A shutdown regression test pins the final spec reference until this drain.
-    SyncPoint_Signal("KeyMapBuildComplete");
+  // A shutdown regression test pins the final spec reference until this drain.
+  SyncPoint_Signal("KeyMapBuildComplete");
 #endif
-    GilGate_BeginJoin(&reindexGilGate);
+  GilGate_BeginJoin(&reindexGilGate);
+  if (reindexPool != NULL) {
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
+  }
+  if (asmImportPool != NULL) {
+    redisearch_thpool_destroy(asmImportPool);
+    asmImportPool = NULL;
   }
 }
 
 // Unlike ReindexPool_ThreadPoolDestroy, called from a command: Lock's bookkeeping is in place, so
 // the GIL can be dropped for real and running scans finish on it instead of borrowing.
 void ReindexPool_ThreadPoolDrain() {
+  if (reindexPool == NULL && asmImportPool == NULL) {
+    return;
+  }
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
   if (reindexPool != NULL) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
+  if (asmImportPool != NULL) {
+    redisearch_thpool_destroy(asmImportPool);
+    asmImportPool = NULL;
+  }
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)

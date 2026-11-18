@@ -1644,6 +1644,7 @@ REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisMo
 REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStartInSlots)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, const RedisModuleSlotRangeArray *slots, int include_importing, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, size_t batch_size, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, size_t batch_size) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanAbortResult (*RedisModule_AsyncScanAbort)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_IsKeyExpired)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetModuleOptionsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)(void) REDISMODULE_ATTR;
@@ -2127,6 +2128,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(AsyncScanStartInSlots);
     REDISMODULE_GET_API(AsyncScanNextBatch);
     REDISMODULE_GET_API(AsyncScanAbort);
+    REDISMODULE_GET_API(IsKeyExpired);
     REDISMODULE_GET_API(GetContextFlagsAll);
     REDISMODULE_GET_API(GetModuleOptionsAll);
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);

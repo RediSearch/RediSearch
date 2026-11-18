@@ -45,6 +45,10 @@ void Indexes_UpgradeLegacyIndexes();
 void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 
 // Expose reindexpool for debug
+// Queues the rebuild sweep of a slot-migration import, `task(arg)`, on its own thread, so it never
+// waits behind an index's backfill. `task` takes the GIL with ReindexPool_LockGIL, and the pool
+// is joined and drained with the reindex pool.
+void ReindexPool_AddImportTask(void (*task)(void *), void *arg);
 void ReindexPool_ThreadPoolDestroy();
 void ReindexPool_ThreadPoolDrain();
 
