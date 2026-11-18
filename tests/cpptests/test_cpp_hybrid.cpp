@@ -69,9 +69,13 @@ class HybridApplyOomStopTest : public ::testing::Test {
     hreq->subqueriesReturnCodes[0] = RS_RESULT_EOF;
     hreq->subqueriesReturnCodes[1] = RS_RESULT_EOF;
   }
-  void TearDown() override { HybridRequest_Free(hreq); }
+  void TearDown() override {
+    HybridRequest_Free(hreq);
+  }
 
-  QueryError *tailErr() { return hreq->tailPipeline->qctx.err; }
+  QueryError *tailErr() {
+    return hreq->tailPipeline->qctx.err;
+  }
   // A genuine timeout of the subquery: its blocked-client deadline has fired.
   void timeOutSubquery(size_t i) {
     QueryRequestLimits *limits = &hreq->requests[i]->base.limits;

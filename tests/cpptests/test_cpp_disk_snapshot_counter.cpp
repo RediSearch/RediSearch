@@ -218,7 +218,7 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 class HybridStartCursorsTest : public HybridSnapshotTest {
  protected:
   static int upstreamRc;
-  static int secondSubqueryRc;                // the second subquery's result; kSameRc follows upstreamRc
+  static int secondSubqueryRc;  // the second subquery's result; kSameRc follows upstreamRc
   static constexpr int kSameRc = -1;
   static QueryRequestLimits* timeoutToTrip;  // marked timed out from inside the upstream read
   FakeRP upstream[2][2]{};                    // per subquery: [0] root, [1] middle

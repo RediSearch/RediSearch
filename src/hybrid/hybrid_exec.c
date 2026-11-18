@@ -248,12 +248,12 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .limits = &hreq->base.limits,
-    .oomPolicy = hreq->base.reqConfig.oomPolicy,
-    // Only for AggregateResults' debug pause, which a subquery timeout releases:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ. The row-boundary
-    // timeout and memory checks read `limits`.
-    .areq = hreq->requests[SEARCH_INDEX],
+      .limits = &hreq->base.limits,
+      .oomPolicy = hreq->base.reqConfig.oomPolicy,
+      // Only for AggregateResults' debug pause, which a subquery timeout releases:
+      // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ. The row-boundary
+      // timeout and memory checks read `limits`.
+      .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT
@@ -533,7 +533,8 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Serializes results and handles the main reply logic for hybrid.
  * Sets *results to NULL after consuming them, so finishSendChunk_HREQ won't double-free.
  * Returns true if reply was sent, false if error/timeout occurred before replying.
- * `*countQuery` is cleared when the error replied is the pre-header OOM one, which no error slot holds.
+ * `*countQuery` is cleared when the error replied is the pre-header OOM one, which no error slot
+ * holds.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
                                             ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
@@ -550,8 +551,8 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
   if (*results != NULL && !err && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF)) {
     // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
     QueryError oomErr = QueryError_Default();
-    replayStopped = StoredResults_StopBeforeReply(&hreq->base.limits,
-                                                  hreq->base.reqConfig.oomPolicy, &oomErr);
+    replayStopped =
+        StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, &oomErr);
     if (replayStopped && QueryError_HasError(&oomErr)) {
       handleSendChunkError_hybrid(hreq, reply, &oomErr, rc);
       QueryError_ClearError(&oomErr);
@@ -874,45 +875,46 @@ static DepletionOutcome selectDepletionOutcome(HybridRequest *hreq, bool depleti
 }
 
 static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hreq,
-                                     DepletionOutcome outcome) {
-    RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
-    // Send map of cursor IDs as response
-    RedisModule_Reply_Map(reply);
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ *areq = hreq->requests[i];
-      if (IsHybridSearchSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "SEARCH", areq->base.cursorInfo.id);
-      } else if (IsHybridVectorSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "VSIM", areq->base.cursorInfo.id);
-      } else {
-        RS_ABORT_ALWAYS("Unknown subquery type");
-      }
+                                    DepletionOutcome outcome) {
+  RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
+  // Send map of cursor IDs as response
+  RedisModule_Reply_Map(reply);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *areq = hreq->requests[i];
+    if (IsHybridSearchSubquery(areq)) {
+      RedisModule_ReplyKV_LongLong(reply, "SEARCH", areq->base.cursorInfo.id);
+    } else if (IsHybridVectorSubquery(areq)) {
+      RedisModule_ReplyKV_LongLong(reply, "VSIM", areq->base.cursorInfo.id);
+    } else {
+      RS_ABORT_ALWAYS("Unknown subquery type");
     }
-    RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
-    if (outcome == DEPLETION_OUTCOME_TIMED_OUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
-      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
-    }
-    // A depletion stopped for memory: the shard wording, which the coordinator maps to ON_OOM.
-    if (outcome == DEPLETION_OUTCOME_STOPPED_FOR_OOM) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
+  }
+  RedisModule_ReplyKV_Array(reply, "warnings");  // >warnings
+  if (outcome == DEPLETION_OUTCOME_TIMED_OUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+  }
+  // A depletion stopped for memory: the shard wording, which the coordinator maps to ON_OOM.
+  if (outcome == DEPLETION_OUTCOME_STOPPED_FOR_OOM) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
+                                           SHARD_ERR_WARN);
+    RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
+  }
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    QueryError *err = &hreq->requests[i]->base.reply.err;
+    if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+      const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
+      char buf[128];
+      snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1,
                                              SHARD_ERR_WARN);
-      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
+      RedisModule_Reply_SimpleString(reply, buf);
     }
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      QueryError *err = &hreq->requests[i]->base.reply.err;
-      if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-        const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
-        char buf[128];
-        snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
-        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
-        RedisModule_Reply_SimpleString(reply, buf);
-      }
-    }
-    RedisModule_Reply_ArrayEnd(reply); // ~warnings
+  }
+  RedisModule_Reply_ArrayEnd(reply);  // ~warnings
 
-    RedisModule_Reply_MapEnd(reply);
-    RedisModule_EndReply(reply);
+  RedisModule_Reply_MapEnd(reply);
+  RedisModule_EndReply(reply);
 }
 
 // Collect each subquery's end depleter, unwrapping a profile RP. Returns NULL
