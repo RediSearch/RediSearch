@@ -48,6 +48,13 @@ extern DebugCTX globalDebugCtx;
 // not a delivery cap; passed explicitly so we don't defer to the engine's default (128).
 #define ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT 100
 
+// While parked behind the vector flat-buffer throttle, call the job's shouldStop every this many
+// backoff iterations (its isCancelled runs on every one): FT.DROPINDEX / FLUSHDB don't set the
+// backfill's cancelled latch, and the throttle is global (another index can hold it after ours is
+// gone), so its clearing is not a reliable drop wake-up. ~1s at the backoff interval; coarse
+// because mid-scan drops are rare.
+#define ASYNC_SCAN_THROTTLE_DROP_RECHECK_ITERS 1000
+
 const char *AsyncScanOutcome_ToString(AsyncScanOutcome outcome) {
   switch (outcome) {
   case ASYNC_SCAN_OUTCOME_COMPLETED: return "completed";
@@ -125,7 +132,7 @@ static void AsyncScan_DoneCB(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor,
 static RedisModuleAsyncScanResult AsyncScan_StartWithRetry(RedisModuleCtx *ctx,
                                                            RedisModuleScanCursor *cursor,
                                                            AsyncScanDriver *driver,
-                                                           AsyncScanOutcome *out_end,
+                                                           AsyncScanEnd *out_end,
                                                            bool *out_terminal) {
   AsyncScanJob *job = driver->job;
   *out_terminal = false;
@@ -139,7 +146,7 @@ static RedisModuleAsyncScanResult AsyncScan_StartWithRetry(RedisModuleCtx *ctx,
     if (job->shouldStop(job)) {
       ReindexPool_UnlockGIL(ctx);
       RedisModule_Log(ctx, "notice", "AsyncScan: %s cancelled while starting", job->nameForLogs);
-      *out_end = ASYNC_SCAN_OUTCOME_CANCELLED;
+      *out_end = (AsyncScanEnd){ASYNC_SCAN_OUTCOME_CANCELLED, REDISMODULE_ASYNCSCAN_OK};
       *out_terminal = true;
       return REDISMODULE_ASYNCSCAN_ABORTED;
     }
@@ -155,7 +162,7 @@ static RedisModuleAsyncScanResult AsyncScan_StartWithRetry(RedisModuleCtx *ctx,
                       "AsyncScan: %s could not start within %dms (max-inflight stayed "
                       "saturated); giving up (rc=BUSY)",
                       job->nameForLogs, ASYNC_SCAN_START_BUSY_TIMEOUT_MS);
-      *out_end = ASYNC_SCAN_OUTCOME_ERROR;
+      *out_end = (AsyncScanEnd){ASYNC_SCAN_OUTCOME_ERROR, REDISMODULE_ASYNCSCAN_BUSY};
       *out_terminal = true;
       return rc;
     }
@@ -171,7 +178,7 @@ static RedisModuleAsyncScanResult AsyncScan_StartWithRetry(RedisModuleCtx *ctx,
 // Caller must hold the GIL; returns with it held.
 static void AsyncScan_HandleMemoryPressure(RedisModuleCtx *ctx, AsyncScanDriver *driver) {
   AsyncScanJob *job = driver->job;
-  if (job->shouldStop(job)) {
+  if (job->isCancelled(job)) {
     return;
   }
 
@@ -201,8 +208,8 @@ static void AsyncScan_HandleMemoryPressure(RedisModuleCtx *ctx, AsyncScanDriver 
     ReindexPool_UnlockGIL(ctx);
     sleep(graceSecs);
     ReindexPool_LockGIL(ctx);
-    // Stopped during the pause: the caller's check below owns the teardown.
-    if (job->shouldStop(job)) {
+    // Cancelled during the pause: the caller's check below owns the teardown.
+    if (job->isCancelled(job)) {
       return;
     }
     if (AsyncBgIndexingMemVerdict(ctx) == BG_INDEXING_MEM_OK) {
@@ -224,7 +231,7 @@ static void AsyncScan_HandleMemoryPressure(RedisModuleCtx *ctx, AsyncScanDriver 
 static RedisModuleAsyncScanResult AsyncScan_DriveNextBatch(RedisModuleCtx *ctx,
                                                            RedisModuleScanCursor *cursor,
                                                            AsyncScanDriver *driver,
-                                                           AsyncScanOutcome *out_end,
+                                                           AsyncScanEnd *out_end,
                                                            bool *out_terminal) {
   AsyncScanJob *job = driver->job;
   *out_terminal = false;
@@ -244,24 +251,26 @@ static RedisModuleAsyncScanResult AsyncScan_DriveNextBatch(RedisModuleCtx *ctx,
   // commands — this scan bypasses command dispatch and would grow the buffer without bound. Wait
   // (GIL released) until the async insert jobs drain it, applying the same back-pressure to
   // ourselves; releasing the GIL also lets the main thread run the reads / frees that recover
-  // memory. The throttle is global (another index can hold it after ours is gone), so its clearing
-  // is no wake-up for a stopped job: re-check the job on every iteration.
+  // memory. Re-check the job each iteration, and periodically ask whether it went away silently, so
+  // a drop that sets no latch can't park us forever.
   //
   // Runs before the memory check below, not after: draining the flat buffer to disk is itself
   // memory relief, so sampling memory on the far side of this wait measures what the scan actually
   // costs rather than a peak the throttle is about to give back.
-  if (SearchDisk_IsVectorWriteThrottling()) {
+  if (SearchDisk_IsVectorWriteThrottling() && !job->isCancelled(job)) {
     RedisModule_Log(ctx, "debug", "AsyncScan: %s throttled (vector flat buffer full); backing off",
                     job->nameForLogs);
     size_t backoffIters = 0;
-    bool stop = false;
-    while (SearchDisk_IsVectorWriteThrottling() && !(stop = job->shouldStop(job))) {
+    while (SearchDisk_IsVectorWriteThrottling() && !job->isCancelled(job)) {
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
-      ++backoffIters;
+      if (++backoffIters % ASYNC_SCAN_THROTTLE_DROP_RECHECK_ITERS == 0 && job->shouldStop(job)) {
+        break;
+      }
     }
     // Log the resume/abort so the pause is bounded and observable. ~ms waited = iters*backoff/1000.
     RedisModule_Log(ctx, "debug", "AsyncScan: %s throttle %s after ~%zu ms; resuming batches",
-                    job->nameForLogs, stop ? "wait aborted (job stopped)" : "cleared",
+                    job->nameForLogs,
+                    job->isCancelled(job) ? "wait aborted (job stopped)" : "cleared",
                     (backoffIters * (size_t)ASYNC_SCAN_BUSY_BACKOFF_US) / 1000);
   }
 
@@ -278,7 +287,7 @@ static RedisModuleAsyncScanResult AsyncScan_DriveNextBatch(RedisModuleCtx *ctx,
     ReindexPool_UnlockGIL(ctx);
     RedisModule_Log(ctx, "notice", "AsyncScan: aborting scan of %s (cancelled, scanned=%zu)",
                     job->nameForLogs, *job->scannedKeys);
-    *out_end = ASYNC_SCAN_OUTCOME_CANCELLED;
+    *out_end = (AsyncScanEnd){ASYNC_SCAN_OUTCOME_CANCELLED, REDISMODULE_ASYNCSCAN_OK};
     *out_terminal = true;
     return REDISMODULE_ASYNCSCAN_ABORTED;
   }
@@ -289,7 +298,7 @@ static RedisModuleAsyncScanResult AsyncScan_DriveNextBatch(RedisModuleCtx *ctx,
     RedisModule_Log(ctx, "warning",
                     "AsyncScan: %s exceeded the server's memory quota; aborting (scanned=%zu)",
                     job->nameForLogs, *job->scannedKeys);
-    *out_end = ASYNC_SCAN_OUTCOME_OOM;
+    *out_end = (AsyncScanEnd){ASYNC_SCAN_OUTCOME_OOM, REDISMODULE_ASYNCSCAN_OK};
     *out_terminal = true;
     return REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
   }
@@ -405,17 +414,16 @@ void AsyncScan_Drive(AsyncScanJob *job) {
   SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH);
 #endif
 
-  AsyncScanOutcome outcome = ASYNC_SCAN_OUTCOME_ERROR;
+  AsyncScanEnd end = {ASYNC_SCAN_OUTCOME_ERROR, REDISMODULE_ASYNCSCAN_OK};
   bool terminal = false;
-  RedisModuleAsyncScanResult rc = AsyncScan_StartWithRetry(ctx, cursor, &driver, &outcome,
-                                                           &terminal);
+  RedisModuleAsyncScanResult rc = AsyncScan_StartWithRetry(ctx, cursor, &driver, &end, &terminal);
 
   // Drive the cursor one batch at a time. done_cb only wakes us; terminal state arrives as the
   // return code of the next NextBatch.
   while (!terminal) {
     switch (rc) {
     case REDISMODULE_ASYNCSCAN_OK:
-      rc = AsyncScan_DriveNextBatch(ctx, cursor, &driver, &outcome, &terminal);
+      rc = AsyncScan_DriveNextBatch(ctx, cursor, &driver, &end, &terminal);
       break;
 
     case REDISMODULE_ASYNCSCAN_BUSY:
@@ -429,18 +437,18 @@ void AsyncScan_Drive(AsyncScanJob *job) {
       break;
 
     default:
-      outcome = AsyncScan_TerminalOutcome(ctx, &driver, rc);
+      end = (AsyncScanEnd){AsyncScan_TerminalOutcome(ctx, &driver, rc), rc};
       terminal = true;
       break;
     }
   }
 
   RedisModule_Log(ctx, "debug", "AsyncScan: %s scan task exiting (%s, scanned=%zu)",
-                  job->nameForLogs, AsyncScanOutcome_ToString(outcome), *job->scannedKeys);
+                  job->nameForLogs, AsyncScanOutcome_ToString(end.outcome), *job->scannedKeys);
 
   // `finish` may free the job, so nothing below may touch it.
   ReindexPool_LockGIL(ctx);
-  job->finish(job, ctx, outcome);
+  job->finish(job, ctx, &end);
   ReindexPool_UnlockGIL(ctx);
 
   pthread_cond_destroy(&driver.cond);
@@ -560,6 +568,10 @@ static bool Backfill_ShouldStop(AsyncScanJob *base) {
 
 // The driver calls shouldStop under the same GIL hold first, so the spec is alive here. The engine
 // deep-copies the filter at Start; ours is freed in finish.
+static bool Backfill_IsCancelled(AsyncScanJob *base) {
+  return IndexesScanner_IsCancelled(((BackfillJob *)base)->scanner);
+}
+
 static RedisModuleAsyncScanResult Backfill_Start(AsyncScanJob *base, RedisModuleCtx *ctx,
                                                  RedisModuleScanCursor *cursor,
                                                  RedisModuleAsyncScanKeyCB key_cb,
@@ -602,8 +614,9 @@ static bool Backfill_OnKey(AsyncScanJob *base, RedisModuleCtx *ctx, RedisModuleK
   BackfillJob *job = (BackfillJob *)base;
   IndexesScanner *scanner = job->scanner;
 
+  // Cancelled: the between-batches check aborts the sweep.
   if (IndexesScanner_IsCancelled(scanner)) {
-    return false;
+    return true;
   }
 
   DocumentType type = getDocType(key);
@@ -627,47 +640,66 @@ static bool Backfill_OnKey(AsyncScanJob *base, RedisModuleCtx *ctx, RedisModuleK
   return true;
 }
 
-// Record why the build is incomplete on the spec (FT.INFO "Index Errors"); `oom` also flags the
-// spec as scan_failed_OOM, which queries warn about.
-static void Backfill_Finish(AsyncScanJob *base, RedisModuleCtx *ctx, AsyncScanOutcome outcome) {
-  BackfillJob *job = (BackfillJob *)base;
-  IndexesScanner *scanner = job->scanner;
-  switch (outcome) {
+// The FT.INFO "Index Errors" entry for a sweep that ended with `end`, or NULL if it built the
+// index or was stopped on purpose.
+static const char *Backfill_FailureMessage(const AsyncScanEnd *end) {
+  switch (end->outcome) {
   case ASYNC_SCAN_OUTCOME_COMPLETED:
   case ASYNC_SCAN_OUTCOME_CANCELLED:
   case ASYNC_SCAN_OUTCOME_RESET:
-    break;
+    return NULL;
   case ASYNC_SCAN_OUTCOME_OOM:
+    return end->rc == REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY
+               ? "Background indexing cancelled: the server reported out of memory; the index may "
+                 "be incomplete"
+               : "Background indexing cancelled: used memory exceeded the server's memory budget; "
+                 "the index may be incomplete";
+  case ASYNC_SCAN_OUTCOME_IO_ERROR:
+    return "Background indexing failed: the server reported an I/O error; the index may be "
+           "incomplete";
+  case ASYNC_SCAN_OUTCOME_ERROR:
+    break;
+  }
+  switch (end->rc) {
+  case REDISMODULE_ASYNCSCAN_BUSY:
+    return "Background indexing failed: the background scan could not be started because the "
+           "server stayed busy; the index may be incomplete";
+  case REDISMODULE_ASYNCSCAN_IN_PROGRESS:
+    return "Background indexing failed: the background scan reported an unexpected in-progress "
+           "state; the index may be incomplete";
+  case REDISMODULE_ASYNCSCAN_UNSUPPORTED:
+    return "Background indexing failed: the background scan is unsupported in this "
+           "configuration; the index may be incomplete";
+  default:
+    return "Background indexing failed: the background scan was rejected as invalid; the index "
+           "may be incomplete";
+  }
+}
+
+// Record why the build is incomplete on the spec; an OOM also flags the spec as scan_failed_OOM,
+// which queries warn about.
+static void Backfill_Finish(AsyncScanJob *base, RedisModuleCtx *ctx, const AsyncScanEnd *end) {
+  BackfillJob *job = (BackfillJob *)base;
+  IndexesScanner *scanner = job->scanner;
+  const bool oom = end->outcome == ASYNC_SCAN_OUTCOME_OOM;
+  if (oom) {
+    // Only the module's own memory check latches it, as the sync strategy does.
+    scanner->scanFailedOnOOM = end->rc != REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY;
     RedisModule_Log(ctx, "warning",
                     "AsyncScan: index %s may be incomplete; once memory pressure is relieved, drop "
                     "and recreate the index to rebuild it",
                     scanner->spec_name_for_logs);
-    // A spent quota has no offending key, so scanner->OOMkey is NULL here and the error is
-    // recorded without one.
-    IndexesScanner_RecordBackgroundFailure(
-        ctx, scanner,
-        "Background indexing cancelled: used memory exceeded the server's memory budget; the "
-        "index may be incomplete",
-        /*oom=*/true);
-    break;
-  case ASYNC_SCAN_OUTCOME_IO_ERROR:
+  } else if (end->outcome == ASYNC_SCAN_OUTCOME_IO_ERROR) {
     RedisModule_Log(ctx, "warning",
                     "AsyncScan: index %s may be incomplete; resolve the underlying disk/I/O "
                     "condition, then drop and recreate the index to rebuild it",
                     scanner->spec_name_for_logs);
-    IndexesScanner_RecordBackgroundFailure(
-        ctx, scanner,
-        "Background indexing failed: the server reported an I/O error; the index may be "
-        "incomplete",
-        /*oom=*/false);
-    break;
-  case ASYNC_SCAN_OUTCOME_ERROR:
-    IndexesScanner_RecordBackgroundFailure(
-        ctx, scanner,
-        "Background indexing failed: the background scan could not be started or was rejected; "
-        "the index may be incomplete",
-        /*oom=*/false);
-    break;
+  }
+  const char *failure = Backfill_FailureMessage(end);
+  if (failure) {
+    // No async failure has an offending key, so scanner->OOMkey is NULL and the error is recorded
+    // without one.
+    IndexesScanner_RecordBackgroundFailure(ctx, scanner, failure, oom);
   }
 
   // Under the GIL: IndexesScanner_Free clears sp->scanner / sp->scan_in_progress and the
@@ -688,6 +720,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       .nameForLogs = job->nameForLogs,
       .scannedKeys = &scanner->scannedKeys,
       .shouldStop = Backfill_ShouldStop,
+      .isCancelled = Backfill_IsCancelled,
       .start = Backfill_Start,
       .onKey = Backfill_OnKey,
       .finish = Backfill_Finish,
