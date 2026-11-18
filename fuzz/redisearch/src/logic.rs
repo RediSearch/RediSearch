@@ -207,10 +207,11 @@ fn comparable_results<'a>(
             }
         }
         let done = step.done.expect("completed");
+        // A write may run any time between its send and its reply.
         let undisturbed = steps.iter().zip(&effects).all(|(other, effect)| {
-            other.sent <= step.sent
+            matches!(effect, Effect::Reads | Effect::Schedules)
                 || other.sent >= done
-                || matches!(effect, Effect::Reads | Effect::Schedules)
+                || other.done.is_some_and(|other_done| other_done <= step.sent)
         });
         if let Action::Query {
             index,
@@ -264,12 +265,11 @@ mod tests {
     use crate::op::{DataType, Field, FieldKind};
 
     /// The findings for a run in which every op succeeded in turn and each
-    /// search matched the paired number of documents. Only the first
-    /// `steps` ops ran, as when the server died.
-    fn findings(ops: &[(Action, i64)], steps: usize) -> Vec<String> {
-        let steps: Vec<Step<Value>> = ops
+    /// search matched the paired number of documents, with the steps then
+    /// changed by `edit`.
+    fn findings(ops: &[(Action, i64)], edit: impl FnOnce(&mut Vec<Step<Value>>)) -> Vec<String> {
+        let mut steps: Vec<Step<Value>> = ops
             .iter()
-            .take(steps)
             .enumerate()
             .map(|(at, (action, total))| {
                 let tick = u32::try_from(2 * at + 1).unwrap();
@@ -285,6 +285,7 @@ mod tests {
                 }
             })
             .collect();
+        edit(&mut steps);
         let ops: Vec<Op> = ops
             .iter()
             .map(|(action, _)| Op::new(action.clone()))
@@ -359,17 +360,17 @@ mod tests {
             program(boot, before, after)
         };
         let gc = || command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
-        let all = |ops: Vec<(Action, i64)>| {
-            let len = ops.len();
-            findings(&ops, len)
-        };
-        let cases: [(Vec<String>, &[&str]); 11] = [
+        let all = |ops: Vec<(Action, i64)>| findings(&ops, |_| {});
+        let hset = || command(&["HSET", "d:1", "t", "hello"]);
+        let cases: [(Vec<String>, &[&str]); 12] = [
             (all(partition(3)), &[]),
             (all(partition(2)), &["logic:partition:term"]),
             (all(repeated(gc(), 3)), &[]),
             (all(repeated(gc(), 2)), &["logic:equivalence:term"]),
+            (all(repeated(hset(), 2)), &[]),
+            // A write whose reply was read only after the second search.
             (
-                all(repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
+                findings(&repeated(hset(), 2), |steps| steps[5].done = Some(100)),
                 &[],
             ),
             (all(repeated(command(&["DEBUG", "RELOAD"]), 2)), &[]),
@@ -386,7 +387,7 @@ mod tests {
                 &[],
             ),
             // The run ended before the second search.
-            (findings(&repeated(gc(), 2), 6), &[]),
+            (findings(&repeated(gc(), 2), |steps| steps.truncate(6)), &[]),
         ];
         for (i, (found, expected)) in cases.into_iter().enumerate() {
             assert_eq!(found, expected, "case {i}");
