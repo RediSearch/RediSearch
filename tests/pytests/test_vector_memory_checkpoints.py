@@ -20,13 +20,14 @@ SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insuf
 
 N_DOCS = 100
 DIM = 4
-# Doc i is [i; DIM] in L2, so a radius of RADIUS around QUERY_VALUE matches the docs within 10
-# of it.
+# Doc i is [i; DIM] in L2, so a radius of RADIUS around QUERY_VALUE matches the docs within
+# HALF_WIDTH of it.
 QUERY_VALUE = 50
-RADIUS = DIM * 10 ** 2
+HALF_WIDTH = 10
+RADIUS = DIM * HALF_WIDTH ** 2
 RANGE_MATCHES = 21
 # The same docs as the range matches, so the baseline's per-row calls equal the vector query's.
-RANGE_BASELINE = f'@n:[{QUERY_VALUE - 10} {QUERY_VALUE + 10}]'
+RANGE_BASELINE = f'@n:[{QUERY_VALUE - HALF_WIDTH} {QUERY_VALUE + HALF_WIDTH}]'
 # Calls a vector range query adds to its baseline: the range checkpoint, plus on FLAT the one
 # VecSim's stop callback makes for its single block.
 FLAT_RANGE_CALLS = 2
@@ -410,6 +411,13 @@ def _adhoc_queries():
                  *params, 'NOCONTENT', 'LIMIT', 0, ADHOC_K],
     }
 
+def _expect_adhoc_checkpoints(env, query):
+    """The adhoc scan's calls on top of its filter alone: one per matching doc and the read after
+    the last, so a scan without its checkpoints fails here instead of stopping at the pipeline's."""
+    _, extra = _vector_calls(env, query, f'(@n:[1 {ADHOC_MATCHES}])')
+    env.assertEqual(extra, [ADHOC_MATCHES + 1] * len(extra), message=extra)
+
+
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_knn_adhoc_stops_for_oom(env):
@@ -417,6 +425,8 @@ def test_knn_adhoc_stops_for_oom(env):
     each; under pressure it stops there for memory, with and without workers and under
     either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
+    for query in _adhoc_queries().values():
+        _expect_adhoc_checkpoints(env, query)
     try:
         for workers in (0, 2):
             set_workers(env, workers)
@@ -436,6 +446,8 @@ def test_knn_adhoc_stops_for_oom_anywhere_in_the_scan(env):
     it, stops the query: the per-doc checkpoint is amortized over READ_INTERVAL calls, but a
     positional pressure and the closing read do not wait for it."""
     _create_indexed_hash_index(env)
+    for query in _adhoc_queries().values():
+        _expect_adhoc_checkpoints(env, query)
     try:
         allShards_change_oom_policy(env, 'fail')
         for workers in (0, 2):
