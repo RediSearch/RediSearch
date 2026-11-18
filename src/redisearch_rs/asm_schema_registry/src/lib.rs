@@ -11,17 +11,6 @@ use rdb_io::RdbIO;
 use std::collections::BTreeSet;
 use std::io;
 
-/// Auxiliary RDB layouts for schema deletion records.
-#[derive(Clone, Copy)]
-#[repr(C)]
-#[cheadergen::config(prefix_with_name)]
-pub enum SchemaRegistryEncoding {
-    /// Legacy payload with a task ID before the names.
-    TaskIdAndNames,
-    /// Payload containing only the names.
-    Names,
-}
-
 /// Names dropped while an ASM import may still deliver an older schema.
 ///
 /// Core serializes imports and delivers their lifecycle events synchronously.
@@ -71,7 +60,7 @@ impl AsmSchemaRegistry {
         }
     }
 
-    /// Saves deletion records using [`SchemaRegistryEncoding::Names`].
+    /// Saves deletion records in the module auxiliary payload.
     pub fn save(&self, io: &mut impl RdbIO) {
         let saved = self.dropped.as_ref().filter(|names| !names.is_empty());
         io.write_u64(u64::from(saved.is_some()));
@@ -91,17 +80,10 @@ impl AsmSchemaRegistry {
     ///
     /// # Errors
     /// Returns an error on malformed framing or failed IO, without changing the registry.
-    pub fn load(
-        &mut self,
-        io: &mut impl RdbIO,
-        encoding: SchemaRegistryEncoding,
-    ) -> io::Result<()> {
+    pub fn load(&mut self, io: &mut impl RdbIO) -> io::Result<()> {
         let saved = match io.read_u64()? {
             0 => BTreeSet::new(),
             1 => {
-                if matches!(encoding, SchemaRegistryEncoding::TaskIdAndNames) {
-                    let _ = io.read_buffer()?;
-                }
                 let count = io.read_u64()?;
                 let mut names = BTreeSet::new();
                 for _ in 0..count {

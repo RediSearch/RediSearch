@@ -380,11 +380,10 @@ TEST_F(AsmSchemaImportTest, FullSyncLoadsReplacementDespiteDeletionRecord) {
   EXPECT_STREQ(HiddenString_GetUnsafe(lookup()->fields[0].fieldName, nullptr), "new");
 }
 
-TEST_F(AsmSchemaImportTest, LegacyAuxiliaryRecordsLoadWithoutTaskIdentity) {
+TEST_F(AsmSchemaImportTest, AuxiliaryRecordsLoadWithoutIndexes) {
   auto *io = RMCK_CreateRdbIO();
   RedisModule_SaveUnsigned(io, 0);  // No indexes, only deletion records.
   RedisModule_SaveUnsigned(io, 1);
-  RedisModule_SaveStringBuffer(io, "legacy-task", 11);
   RedisModule_SaveUnsigned(io, 1);
   RedisModule_SaveStringBuffer(io, "asm_idx", 7);
   startImport();

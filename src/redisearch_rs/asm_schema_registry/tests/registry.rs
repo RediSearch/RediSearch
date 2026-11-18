@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use asm_schema_registry::{AsmSchemaRegistry, SchemaRegistryEncoding};
-use rdb_io::RdbIO;
+use asm_schema_registry::AsmSchemaRegistry;
 
 #[test]
 fn drop_blocks_only_names_seen_during_import() {
@@ -75,10 +74,7 @@ fn full_sync_restores_deletions_without_an_index() {
     let mut replica = AsmSchemaRegistry::default();
     replica.start();
     replica
-        .load(
-            &mut &mut std::io::Cursor::new(&mut bytes),
-            SchemaRegistryEncoding::Names,
-        )
+        .load(&mut &mut std::io::Cursor::new(&mut bytes))
         .unwrap();
     assert!(replica.was_dropped(b"index"));
     assert!(replica.was_dropped(b"other"));
@@ -94,10 +90,7 @@ fn full_sync_replaces_records_even_without_a_new_start_notification() {
     replica.record_drop(b"pre_snapshot");
     replica.begin_loading();
     replica
-        .load(
-            &mut &mut std::io::Cursor::new(&mut bytes),
-            SchemaRegistryEncoding::Names,
-        )
+        .load(&mut &mut std::io::Cursor::new(&mut bytes))
         .unwrap();
     assert!(!replica.was_dropped(b"pre_snapshot"));
     assert!(replica.was_dropped(b"index"));
@@ -108,31 +101,10 @@ fn cold_restart_discards_persisted_records() {
     let mut replica = AsmSchemaRegistry::default();
     let mut bytes = saved_records();
     let mut cursor = std::io::Cursor::new(&mut bytes);
-    replica
-        .load(&mut &mut cursor, SchemaRegistryEncoding::Names)
-        .unwrap();
+    replica.load(&mut &mut cursor).unwrap();
     assert_eq!(cursor.position() as usize, bytes.len());
     assert!(!replica.has_drops());
     assert!(!replica.record_drop(b"after"));
-}
-
-#[test]
-fn legacy_payload_consumes_task_id_and_restores_names() {
-    let mut bytes = Vec::new();
-    let mut writer = std::io::Cursor::new(&mut bytes);
-    let mut io = &mut writer;
-    io.write_u64(1);
-    io.write_buffer(b"legacy-task");
-    io.write_u64(1);
-    io.write_buffer(b"index");
-    let mut replica = AsmSchemaRegistry::default();
-    replica.start();
-    let mut cursor = std::io::Cursor::new(&mut bytes);
-    replica
-        .load(&mut &mut cursor, SchemaRegistryEncoding::TaskIdAndNames)
-        .unwrap();
-    assert_eq!(cursor.position() as usize, bytes.len());
-    assert!(replica.was_dropped(b"index"));
 }
 
 #[test]
@@ -154,10 +126,7 @@ fn malformed_snapshot_does_not_install_partial_records() {
         replica.start();
         assert!(
             replica
-                .load(
-                    &mut &mut std::io::Cursor::new(&mut truncated),
-                    SchemaRegistryEncoding::Names
-                )
+                .load(&mut &mut std::io::Cursor::new(&mut truncated))
                 .is_err()
         );
         assert!(!replica.has_drops());
@@ -165,10 +134,7 @@ fn malformed_snapshot_does_not_install_partial_records() {
     let mut invalid_marker = 2_u64.to_le_bytes().to_vec();
     assert!(
         AsmSchemaRegistry::default()
-            .load(
-                &mut &mut std::io::Cursor::new(&mut invalid_marker),
-                SchemaRegistryEncoding::Names
-            )
+            .load(&mut &mut std::io::Cursor::new(&mut invalid_marker))
             .is_err()
     );
 }
@@ -181,10 +147,7 @@ fn empty_snapshot_clears_existing_records() {
     replica.start();
     replica.record_drop(b"old");
     replica
-        .load(
-            &mut &mut std::io::Cursor::new(&mut bytes),
-            SchemaRegistryEncoding::Names,
-        )
+        .load(&mut &mut std::io::Cursor::new(&mut bytes))
         .unwrap();
     assert!(!replica.has_drops());
 }
@@ -216,7 +179,7 @@ proptest::proptest! {
         let mut replica = AsmSchemaRegistry::default();
         replica.start();
         let mut cursor = std::io::Cursor::new(&mut bytes);
-        replica.load(&mut &mut cursor, SchemaRegistryEncoding::Names).unwrap();
+        replica.load(&mut &mut cursor).unwrap();
         proptest::prop_assert_eq!(cursor.position() as usize, bytes.len());
         for name in &names {
             proptest::prop_assert!(replica.was_dropped(name));

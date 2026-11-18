@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
-#include "asm_schema_registry.h"
 
 typedef struct RedisModuleIO RedisModuleIO;
 
@@ -40,7 +39,7 @@ bool asm_schema_registry_has_drops(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool asm_schema_registry_load(struct RedisModuleIO *io, enum SchemaRegistryEncoding encoding);
+bool asm_schema_registry_load(struct RedisModuleIO *io);
 
 /**
  * Prevents active imports from replaying a schema for the dropped name.

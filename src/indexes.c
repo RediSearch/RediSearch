@@ -342,10 +342,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
 
-  SchemaRegistryEncoding schemaEncoding = encver >= INDEX_IMPORT_NAMES_VERSION
-                                              ? SchemaRegistryEncoding_Names
-                                              : SchemaRegistryEncoding_TaskIdAndNames;
-  if (encver >= INDEX_IMPORT_DROPS_VERSION && !asm_schema_registry_load(rdb, schemaEncoding)) {
+  if (encver >= INDEX_IMPORT_DROPS_VERSION && !asm_schema_registry_load(rdb)) {
     return REDISMODULE_ERR;
   }
 

@@ -9,7 +9,7 @@
 
 //! Schema replay suppression for indexes dropped during an ASM import.
 
-use asm_schema_registry::{AsmSchemaRegistry, SchemaRegistryEncoding};
+use asm_schema_registry::AsmSchemaRegistry;
 use redis_module::{RedisModuleIO as RmIo, raw::RedisModuleIO};
 use std::cell::RefCell;
 use std::ffi::{CStr, c_char};
@@ -127,12 +127,9 @@ pub unsafe extern "C" fn asm_schema_registry_save(io: *mut RedisModuleIO) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn asm_schema_registry_load(
-    io: *mut RedisModuleIO,
-    encoding: SchemaRegistryEncoding,
-) -> bool {
+pub unsafe extern "C" fn asm_schema_registry_load(io: *mut RedisModuleIO) -> bool {
     assert_owner_thread();
     debug_assert_non_null(io);
     let mut io = RmIo::new(io);
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.load(&mut io, encoding).is_ok())
+    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.load(&mut io).is_ok())
 }
