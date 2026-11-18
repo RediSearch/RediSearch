@@ -3024,7 +3024,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     if (RP_StopPolicy(&self->base) != TimeoutPolicy_Return) {
       return RS_RESULT_STOPPED;
     }
-    self->heldPastStop = RP_UpstreamHold(&self->base);
+    self->heldPastStop = rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits);
     RP_HoldStop(&self->base);
   }
 
