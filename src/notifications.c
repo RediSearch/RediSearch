@@ -211,14 +211,10 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
-  if (ASM_ImportWindow_IgnoresNotification(key)) {
+  if (ASM_ImportWindow_ContainsKey(key)) {
     return REDISMODULE_OK;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
-  // `loaded` is the server reading a key in, not a write.
-  if (redisCommand != _null_cmd && redisCommand != loaded_cmd) {
-    ASM_ImportWindow_CheckWrite(key);
-  }
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
   // non-loaded notifications except rename_from, which only stores an owned source-key copy for
@@ -252,14 +248,13 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              RedisModuleString *key, RedisModuleString **subkeys,
                                              int count) {
   REDISMODULE_NOT_USED(type);
-  if (ASM_ImportWindow_IgnoresNotification(key)) {
+  if (ASM_ImportWindow_ContainsKey(key)) {
     return;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
   if (redisCommand == _null_cmd) {
     return;
   }
-  ASM_ImportWindow_CheckWrite(key);
 
   // Hash events are always deferred (ShouldDeferKeyspaceNotification only
   // exempts _null_cmd / loaded / rename_from, none of which reach here), so the
@@ -589,7 +584,8 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_END:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
                       info->task_id);
-      ASM_StateMachine_EndImportOverlay(slots);
+      // The slots stay in the import window: their keys keep the source's docIds until they
+      // are rebuilt.
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
