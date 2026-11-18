@@ -31,6 +31,7 @@ inverted_index_ffi = { path = "../inverted_index_ffi" }
 libc.workspace = true
 numeric_range_tree.workspace = true
 numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
+numeric_score_source.workspace = true
 query_types.workspace = true
 redis-module.workspace = true
 redis_reply.workspace = true
