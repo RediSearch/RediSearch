@@ -2742,9 +2742,9 @@ dictType dictTypeHybridSearchResult = {
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
  HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
- uint32_t memoryCheckCalls;       // QueryMemory_Checkpoint counter for the held rows
- bool memoryStopped;              // The merger's own memory check stopped it; later upstreams are only drained
- bool heldPastStop;              // The merger kept its rows past a memory stop
+ uint32_t memoryCheckCalls;        // QueryMemory_Checkpoint counter for the held rows
+ bool memoryStopped;  // The merger's own memory check stopped it; later upstreams are only drained
+ bool heldPastStop;   // The merger kept its rows past a memory stop
 
 } RPHybridMerger;
 
@@ -2816,8 +2816,7 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
 /* Whether the held rows are still yielded after a stop: under ON_OOM RETURN they are the reply,
  * unless a blocked-client timeout, whose callback owns the reply, came after. */
 static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
-  return self->heldPastStop &&
-         !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits);
+  return self->heldPastStop && !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits);
 }
 
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
@@ -2871,10 +2870,11 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
   * An upstream is released only once it stops depleting, and its terminal status (an ERROR in
   * particular) must still surface. Depleters buffer before yielding, so this reads rows already
   * held and allocates nothing. DEPLETING is returned as is; the caller retries the same upstream.
-  * A blocked-client timeout ends the drain with RS_RESULT_STOPPED: its callback owns the reply and waits for
-  * this thread, so a long drain would stall the main thread. The depleters are released by the
-  * callback's wait, as for any merger that stops consuming early. */
- static int hybridMergerDrainUpstream(ResultProcessor *upstream, const QueryRequestLimits *timeout) {
+  * A blocked-client timeout ends the drain with RS_RESULT_STOPPED: its callback owns the reply and
+  * waits for this thread, so a long drain would stall the main thread. The depleters are released
+  * by the callback's wait, as for any merger that stops consuming early. */
+ static int hybridMergerDrainUpstream(ResultProcessor *upstream,
+                                      const QueryRequestLimits *timeout) {
    int rc;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
@@ -3024,7 +3024,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     if (RP_StopPolicy(&self->base) != TimeoutPolicy_Return) {
       return RS_RESULT_STOPPED;
     }
-    self->heldPastStop = rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits);
+    self->heldPastStop =
+        rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits);
     RP_HoldStop(&self->base);
   }
 
@@ -3647,7 +3648,7 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
 bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
   RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
   const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
-                                                   : ((const RPSafeDepleter *)depleter)->last_rc;
+                                                    : ((const RPSafeDepleter *)depleter)->last_rc;
   return rc == RS_RESULT_STOPPED;
 }
 

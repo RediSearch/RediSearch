@@ -248,8 +248,6 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
-
-
 class HybridMergerTest : public ::testing::Test {
  protected:
   // The dummy sctx's limits are shared by every test, and only QueryRequestLimits_Init clears a

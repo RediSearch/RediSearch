@@ -24,7 +24,6 @@
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
-use query_flags::QEFlag;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
