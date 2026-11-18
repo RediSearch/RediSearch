@@ -137,6 +137,7 @@ TEST_F(ClusterTest, DictionaryPropagation) {
 }
 
 extern "C" {
+#include "asm_schema_registry_ffi.h"
 #include "slots_tracker_ffi.h"
 #include "alias.h"
 int DropIndexCommand(RedisModuleCtx *, RedisModuleString **, int);
@@ -173,11 +174,13 @@ class AsmSchemaImportTest : public ::testing::Test {
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     slots_tracker_reset();
+    asm_schema_registry_reset();
   }
 
   void TearDown() override {
     if (importing) finishImport(REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED);
     slots_tracker_reset();
+    asm_schema_registry_reset();
     Indexes_Free(ctx, specDict_g, false);
     RMCK::flushdb(ctx);
     RedisModule_FreeThreadSafeContext(ctx);
@@ -297,7 +300,7 @@ TEST_F(AsmSchemaImportTest, InvalidDropDoesNotSuppressSchema) {
   startImport();
   RMCK::ArgvList args(ctx, "FT.DROPINDEX", "asm_idx", "invalid");
   DropIndexCommand(ctx, args, args.size());
-  EXPECT_FALSE(slots_tracker_was_index_dropped("asm_idx"));
+  EXPECT_FALSE(asm_schema_registry_was_dropped("asm_idx"));
   ASSERT_NE(lookup(), nullptr);
 }
 
@@ -348,8 +351,9 @@ TEST_F(AsmSchemaImportTest, FullSyncWithoutIndexesPreservesDropBeforeDelayedSche
   RMCK_SaveAux(IndexSpecType, io);
   ASSERT_FALSE(io->buffer.empty());
   slots_tracker_reset();
-  slots_tracker_begin_loading();
-  slots_tracker_start_import("task");
+    asm_schema_registry_reset();
+  asm_schema_registry_begin_loading();
+  asm_schema_registry_start_import("task");
   ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_CURRENT_VERSION), REDISMODULE_OK);
   EXPECT_EQ(io->read_pos, io->buffer.size());
   RMCK_FreeRdbIO(io);
@@ -365,13 +369,13 @@ TEST_F(AsmSchemaImportTest, FullSyncLoadsReplacementDespiteDeletionRecord) {
   auto *io = RMCK_CreateRdbIO();
   RMCK_SaveAux(IndexSpecType, io);
   Indexes_Free(ctx, specDict_g, false);
-  slots_tracker_begin_loading();
-  slots_tracker_start_import("task");
+  asm_schema_registry_begin_loading();
+  asm_schema_registry_start_import("task");
   ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_CURRENT_VERSION), REDISMODULE_OK);
   RMCK_FreeRdbIO(io);
   ASSERT_NE(lookup(), nullptr);
   EXPECT_STREQ(HiddenString_GetUnsafe(lookup()->fields[0].fieldName, nullptr), "new");
-  EXPECT_TRUE(slots_tracker_was_index_dropped("asm_idx"));
+  EXPECT_TRUE(asm_schema_registry_was_dropped("asm_idx"));
   restore(serialized);
   EXPECT_STREQ(HiddenString_GetUnsafe(lookup()->fields[0].fieldName, nullptr), "new");
 }
@@ -380,10 +384,29 @@ TEST_F(AsmSchemaImportTest, PreviousRdbVersionLoadsWithoutImportRecords) {
   auto *io = RMCK_CreateRdbIO();
   RedisModule_SaveUnsigned(io, 0);
   startImport();
-  slots_tracker_record_index_drop("asm_idx");
-  slots_tracker_begin_loading();
+  asm_schema_registry_record_drop("asm_idx");
+  asm_schema_registry_begin_loading();
   ASSERT_EQ(RMCK_LoadAux(IndexSpecType, io, INDEX_IMPORT_DROPS_VERSION - 1), REDISMODULE_OK);
   EXPECT_EQ(io->read_pos, io->buffer.size());
-  EXPECT_FALSE(slots_tracker_was_index_dropped("asm_idx"));
+  EXPECT_FALSE(asm_schema_registry_was_dropped("asm_idx"));
   RMCK_FreeRdbIO(io);
+}
+
+TEST_F(AsmSchemaImportTest, FlexRejectedAbsentDropDoesNotSuppressSchemaOrReplicate) {
+  auto serialized = snapshot(create());
+  drop();
+  startImport();
+  RMCK_GetPropagatedCommands(ctx).clear();
+  const bool previous = RSGlobalConfig.simulateInFlex;
+  RSGlobalConfig.simulateInFlex = true;
+  for (const auto &command : std::vector<std::vector<std::string>>{
+           {"_FT._DROPINDEXIFX", "asm_idx", "DD"}, {"_FT._DROPIFX", "asm_idx", "KEEPDOCS"}}) {
+    RMCK::ArgvList args(ctx, command);
+    EXPECT_EQ(DropIfExistsIndexCommand(ctx, args, args.size()), REDISMODULE_OK);
+    EXPECT_FALSE(asm_schema_registry_was_dropped("asm_idx"));
+  }
+  RSGlobalConfig.simulateInFlex = previous;
+  EXPECT_TRUE(RMCK_GetPropagatedCommands(ctx).empty());
+  restore(serialized);
+  EXPECT_NE(lookup(), nullptr);
 }

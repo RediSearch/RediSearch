@@ -17,5 +17,4 @@ workspace = true
 
 [dependencies]
 slots_tracker.workspace = true
-redis-module.workspace = true
 workspace_hack.workspace = true

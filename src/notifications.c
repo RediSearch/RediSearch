@@ -41,7 +41,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
-#include "slots_tracker_ffi.h"
+#include "asm_schema_registry_ffi.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
 
@@ -553,14 +553,14 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
-      slots_tracker_start_import(info->task_id);
+      asm_schema_registry_start_import(info->task_id);
       ASM_StateMachine_StartImport(slots);
       workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
-      slots_tracker_end_import(info->task_id);
+      asm_schema_registry_end_import(info->task_id);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
@@ -1384,7 +1384,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
                          : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
                                                                                : "RDB_FILE";
-    slots_tracker_begin_loading();
+    asm_schema_registry_begin_loading();
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "LOAD start source=%s sst=%s disk=%s", source,

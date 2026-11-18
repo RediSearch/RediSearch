@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use slots_tracker::ImportSchemas;
+use asm_schema_registry::AsmSchemaRegistry;
 
 #[test]
 fn drop_blocks_only_names_seen_during_import() {
-    let mut imports = ImportSchemas::default();
+    let mut imports = AsmSchemaRegistry::default();
     imports.record_drop(b"before");
     imports.start(b"task");
     imports.record_drop(b"index");
@@ -22,7 +22,7 @@ fn drop_blocks_only_names_seen_during_import() {
 
 #[test]
 fn duplicate_start_preserves_drops() {
-    let mut imports = ImportSchemas::default();
+    let mut imports = AsmSchemaRegistry::default();
     imports.start(b"task");
     imports.record_drop(b"index");
     imports.start(b"task");
@@ -31,7 +31,7 @@ fn duplicate_start_preserves_drops() {
 
 #[test]
 fn terminal_event_releases_only_its_import() {
-    let mut imports = ImportSchemas::default();
+    let mut imports = AsmSchemaRegistry::default();
     imports.start(b"first");
     imports.start(b"second");
     imports.record_drop(b"index");
@@ -44,7 +44,7 @@ fn terminal_event_releases_only_its_import() {
 
 #[test]
 fn retry_starts_without_previous_attempts_drops() {
-    let mut imports = ImportSchemas::default();
+    let mut imports = AsmSchemaRegistry::default();
     imports.start(b"task");
     imports.record_drop(b"index");
     imports.end(b"task");
@@ -53,8 +53,8 @@ fn retry_starts_without_previous_attempts_drops() {
 }
 
 #[test]
-fn only_new_drop_records_need_propagation() {
-    let mut imports = ImportSchemas::default();
+fn record_drop_reports_only_new_insertions() {
+    let mut imports = AsmSchemaRegistry::default();
     assert!(!imports.record_drop(b"index"));
     imports.start(b"task");
     assert!(imports.record_drop(b"index"));
@@ -62,19 +62,36 @@ fn only_new_drop_records_need_propagation() {
 }
 
 #[test]
-fn a_new_task_replaces_previous_records() {
-    let mut imports = ImportSchemas::default();
+fn task_switch_cannot_silently_discard_drops() {
+    let mut imports = AsmSchemaRegistry::default();
     imports.start(b"old");
     imports.record_drop(b"index");
-    imports.start(b"new");
-    assert!(!imports.was_dropped(b"index"));
-    imports.record_drop(b"replacement");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        imports.start(b"new");
+    }));
+    assert!(result.is_err());
+    assert!(imports.was_dropped(b"index"));
     imports.end(b"old");
-    assert!(imports.was_dropped(b"replacement"));
+    assert!(!imports.has_drops());
+}
+
+#[test]
+fn full_sync_can_restore_a_different_task() {
+    let mut replica = AsmSchemaRegistry::default();
+    replica.start(b"old");
+    replica.record_drop(b"pre_snapshot");
+    replica.begin_loading();
+    replica.start(b"task");
+    let mut bytes = saved_records();
+    replica
+        .load(&mut &mut std::io::Cursor::new(&mut bytes))
+        .unwrap();
+    assert!(!replica.was_dropped(b"pre_snapshot"));
+    assert!(replica.was_dropped(b"index"));
 }
 
 fn saved_records() -> Vec<u8> {
-    let mut imports = ImportSchemas::default();
+    let mut imports = AsmSchemaRegistry::default();
     imports.start(b"task");
     imports.record_drop(b"index");
     imports.record_drop(b"other");
@@ -86,7 +103,7 @@ fn saved_records() -> Vec<u8> {
 #[test]
 fn full_sync_restores_deletions_without_an_index() {
     let mut bytes = saved_records();
-    let mut replica = ImportSchemas::default();
+    let mut replica = AsmSchemaRegistry::default();
     replica.start(b"task");
     replica
         .load(&mut &mut std::io::Cursor::new(&mut bytes))
@@ -100,7 +117,7 @@ fn full_sync_restores_deletions_without_an_index() {
 #[test]
 fn full_sync_replaces_records_even_without_a_new_start_notification() {
     let mut bytes = saved_records();
-    let mut replica = ImportSchemas::default();
+    let mut replica = AsmSchemaRegistry::default();
     replica.start(b"task");
     replica.record_drop(b"pre_snapshot");
     replica.begin_loading();
@@ -114,7 +131,7 @@ fn full_sync_replaces_records_even_without_a_new_start_notification() {
 #[test]
 fn unrelated_import_and_cold_restart_discard_persisted_records() {
     for task in [None, Some(b"unrelated".as_slice())] {
-        let mut replica = ImportSchemas::default();
+        let mut replica = AsmSchemaRegistry::default();
         if let Some(task) = task {
             replica.start(task);
         }
@@ -128,7 +145,7 @@ fn unrelated_import_and_cold_restart_discard_persisted_records() {
 
 #[test]
 fn loading_an_old_snapshot_without_auxiliary_data_clears_drops() {
-    let mut replica = ImportSchemas::default();
+    let mut replica = AsmSchemaRegistry::default();
     replica.start(b"task");
     replica.record_drop(b"old");
     replica.begin_loading();
@@ -141,7 +158,7 @@ fn malformed_snapshot_does_not_install_partial_records() {
     let bytes = saved_records();
     for length in 0..bytes.len() {
         let mut truncated = bytes[..length].to_vec();
-        let mut replica = ImportSchemas::default();
+        let mut replica = AsmSchemaRegistry::default();
         replica.start(b"task");
         assert!(
             replica
@@ -152,7 +169,7 @@ fn malformed_snapshot_does_not_install_partial_records() {
     }
     let mut invalid_marker = 2_u64.to_le_bytes().to_vec();
     assert!(
-        ImportSchemas::default()
+        AsmSchemaRegistry::default()
             .load(&mut &mut std::io::Cursor::new(&mut invalid_marker))
             .is_err()
     );
@@ -161,8 +178,8 @@ fn malformed_snapshot_does_not_install_partial_records() {
 #[test]
 fn empty_snapshot_clears_existing_records() {
     let mut bytes = Vec::new();
-    ImportSchemas::default().save(&mut &mut std::io::Cursor::new(&mut bytes));
-    let mut replica = ImportSchemas::default();
+    AsmSchemaRegistry::default().save(&mut &mut std::io::Cursor::new(&mut bytes));
+    let mut replica = AsmSchemaRegistry::default();
     replica.start(b"task");
     replica.record_drop(b"old");
     replica
@@ -172,6 +189,16 @@ fn empty_snapshot_clears_existing_records() {
 }
 
 proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config {
+        // Keep interpreted runs within the Miri test timeout; native runs retain full sampling.
+        cases: if cfg!(miri) { 8 } else { proptest::test_runner::Config::default().cases },
+        failure_persistence: if cfg!(miri) {
+            None
+        } else {
+            proptest::test_runner::Config::default().failure_persistence
+        },
+        ..proptest::test_runner::Config::default()
+    })]
     #[test]
     fn persisted_names_round_trip_exactly(
         task in proptest::collection::vec(proptest::prelude::any::<u8>(), 1..40),
@@ -179,14 +206,14 @@ proptest::proptest! {
             proptest::collection::vec(proptest::prelude::any::<u8>(), 0..40), 0..32),
         query in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..40),
     ) {
-        let mut source = ImportSchemas::default();
+        let mut source = AsmSchemaRegistry::default();
         source.start(&task);
         for name in &names {
             source.record_drop(name);
         }
         let mut bytes = Vec::new();
         source.save(&mut &mut std::io::Cursor::new(&mut bytes));
-        let mut replica = ImportSchemas::default();
+        let mut replica = AsmSchemaRegistry::default();
         replica.start(&task);
         let mut cursor = std::io::Cursor::new(&mut bytes);
         replica.load(&mut &mut cursor).unwrap();

@@ -16,7 +16,7 @@ use std::io;
 /// Core serializes destination imports. Local creation does not clear records:
 /// they suppress imported schemas, never delete the replacement index.
 #[derive(Default)]
-pub struct ImportSchemas {
+pub struct AsmSchemaRegistry {
     active: Option<Import>,
 }
 
@@ -25,8 +25,12 @@ struct Import {
     dropped: BTreeSet<Vec<u8>>,
 }
 
-impl ImportSchemas {
+impl AsmSchemaRegistry {
     /// Starts an import, preserving records on duplicate notifications.
+    ///
+    /// # Panics
+    /// Panics if switching tasks would discard deletion records. Core serializes
+    /// imports; full sync clears pre-snapshot records with [`Self::begin_loading`].
     pub fn start(&mut self, task_id: &[u8]) {
         if self
             .active
@@ -35,6 +39,12 @@ impl ImportSchemas {
         {
             return;
         }
+        assert!(
+            self.active
+                .as_ref()
+                .is_none_or(|active| active.dropped.is_empty()),
+            "ASM task changed without ending the previous import or beginning full sync"
+        );
         self.active = Some(Import {
             task_id: task_id.to_vec(),
             dropped: BTreeSet::new(),
@@ -52,7 +62,7 @@ impl ImportSchemas {
         }
     }
 
-    /// Records a drop, returning whether a new record needs replication.
+    /// Records a drop, returning whether a new record was inserted.
     pub fn record_drop(&mut self, name: &[u8]) -> bool {
         self.active
             .as_mut()
@@ -100,7 +110,10 @@ impl ImportSchemas {
 
     /// Replaces records only for the task restored by Core before module auxiliary loading.
     ///
-    /// Cold recovery and snapshots from another task consume but discard the records.
+    /// Core's `cluster-asm-task` RDB field precedes module auxiliary data. It restores
+    /// the serialized task ID and notifies Search before this call; duplicate start
+    /// notifications may be suppressed. Cold recovery and snapshots from another
+    /// task consume but discard the records.
     ///
     /// # Errors
     /// Returns an error on malformed framing or failed IO, without changing the tracker.

@@ -28,7 +28,7 @@
 
 #include "spec.h"
 #include "indexes.h"
-#include "slots_tracker_ffi.h"
+#include "asm_schema_registry_ffi.h"
 #include "indexes_scan.h"
 #include "slot_cleanup.h"
 #include "document.h"
@@ -286,7 +286,7 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   if (schemaRestore &&
-      slots_tracker_was_index_dropped(HiddenString_GetUnsafe(sp->specName, NULL))) {
+      asm_schema_registry_was_dropped(HiddenString_GetUnsafe(sp->specName, NULL))) {
     // A later local CREATE must survive. Ignore only the imported schema, before opening its DB.
     IndexSpec_ClearAliases(sp->own_ref);
     sp->isDuplicate = true;
@@ -342,7 +342,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
 
-  if (encver >= INDEX_IMPORT_DROPS_VERSION && !slots_tracker_load_imports(rdb)) {
+  if (encver >= INDEX_IMPORT_DROPS_VERSION && !asm_schema_registry_load(rdb)) {
     return REDISMODULE_ERR;
   }
 
@@ -426,11 +426,11 @@ static void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   }
 
   dictReleaseIterator(iter);
-  slots_tracker_save_imports(rdb);
+  asm_schema_registry_save(rdb);
 }
 
 static void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
-  if (dictSize(specDict_g) || slots_tracker_has_import_drops()) {
+  if (dictSize(specDict_g) || asm_schema_registry_has_drops()) {
     Indexes_RdbSave(rdb, when);
   }
 }

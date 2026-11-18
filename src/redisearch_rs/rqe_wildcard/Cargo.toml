@@ -58,6 +58,7 @@ reducers_ffi = { path = "../c_entrypoint/reducers_ffi" }
 result_processor_ffi = { path = "../c_entrypoint/result_processor_ffi" }
 rlookup_ffi = { path = "../c_entrypoint/rlookup_ffi" }
 search_result_ffi = { path = "../c_entrypoint/search_result_ffi" }
+asm_schema_registry_ffi = { path = "../c_entrypoint/asm_schema_registry_ffi" }
 slots_tracker_ffi = { path = "../c_entrypoint/slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../c_entrypoint/sorting_vector_ffi" }
 triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }

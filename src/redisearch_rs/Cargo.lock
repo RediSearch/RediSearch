@@ -95,6 +95,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "asm_schema_registry"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "rdb_io",
+ "workspace_hack",
+]
+
+[[package]]
+name = "asm_schema_registry_ffi"
+version = "0.0.1"
+dependencies = [
+ "asm_schema_registry",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2251,6 +2269,7 @@ dependencies = [
 name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
+ "asm_schema_registry_ffi",
  "buffer",
  "deleted_docs_ffi",
  "doc_key_map_ffi",
@@ -2632,6 +2651,7 @@ dependencies = [
 name = "rqe_wildcard"
 version = "0.0.1"
 dependencies = [
+ "asm_schema_registry_ffi",
  "build_utils",
  "criterion",
  "deleted_docs_ffi",
@@ -2996,7 +3016,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "proptest",
- "rdb_io",
  "workspace_hack",
 ]
 
@@ -3004,7 +3023,6 @@ dependencies = [
 name = "slots_tracker_ffi"
 version = "0.0.1"
 dependencies = [
- "redis-module",
  "slots_tracker",
  "workspace_hack",
 ]

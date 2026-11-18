@@ -396,7 +396,7 @@ includes = ["redisearch.h", "redismodule.h"]
 [header.search_result_ffi]
 includes = ["redisearch.h", "score_explain.h"]
 
-[header.slots_tracker_ffi]
+[header.asm_schema_registry_ffi]
 includes = ["redismodule.h"]
 
 [header.sorting_vector_ffi]

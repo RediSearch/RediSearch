@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "asm_schema_registry",
     "build_utils",
     "c_entrypoint/*",
     "c_wrappers/*",
@@ -169,6 +170,7 @@ rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
 schema_rule = { path = "./c_wrappers/schema_rule" }
 search_disk = { path = "./c_wrappers/search_disk" }
 search_result = { path = "./search_result" }
+asm_schema_registry = { path = "./asm_schema_registry" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 spellcheck_dictionary = { path = "./spellcheck_dictionary" }

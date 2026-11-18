@@ -109,7 +109,7 @@
 #include "rules.h"
 #include "search_ctx.h"
 #include "search_options.h"
-#include "slots_tracker_ffi.h"
+#include "asm_schema_registry_ffi.h"
 #include "special_case_ctx.h"
 #include "stopwords.h"
 #include "synonym_map.h"
@@ -704,6 +704,32 @@ static void DropIndex_UnlinkDocumentKeys(RedisModuleCtx *ctx, DocTable *dt) {
   DOCTABLE_FOREACH(dt, Redis_UnlinkKey(ctx, dmd->keyPtr, sdslen(dmd->keyPtr)));
 }
 
+static const char *DropIndex_ParseOptions(RedisModuleString **argv, int argc, bool dropCommand,
+                                          IndexDropMode *dropMode) {
+  // FT.DROP deletes the documents by default (KEEPDOCS opts out); FT.DROPINDEX
+  // keeps them by default (DD opts in).
+  *dropMode = dropCommand ? IndexDrop_DeleteDocs : IndexDrop_KeepDocs;
+  if (SearchDisk_IsEnabledForValidation() && dropCommand) {
+    return "FT.DROP is not supported in Redis Flex";
+  }
+  if (argc == 3) {
+    if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
+      *dropMode = IndexDrop_KeepDocs;
+    } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+      *dropMode = IndexDrop_KeepDocs;
+    } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+      *dropMode = IndexDrop_DeleteDocs;
+      if (SearchDisk_IsEnabledForValidation()) {
+        return "DD is not supported in Redis Flex";
+      }
+    } else {
+      return QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED);
+    }
+  }
+
+  return NULL;
+}
+
 /*
  * FT.DROP <index> [KEEPDOCS]
  * FT.DROPINDEX <index> [DD]
@@ -733,25 +759,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_PUBLIC) ||
                RMUtil_StringEqualsCaseC(argv[0], RS_DROP_CMD_INTERNAL);
-  // FT.DROP deletes the documents by default (KEEPDOCS opts out); FT.DROPINDEX
-  // keeps them by default (DD opts in).
-  IndexDropMode dropMode = dropCommand ? IndexDrop_DeleteDocs : IndexDrop_KeepDocs;
-  if (SearchDisk_IsEnabledForValidation() && dropCommand) {
-    return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
-  }
-  if (argc == 3){
-    if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
-      dropMode = IndexDrop_KeepDocs;
-    } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      dropMode = IndexDrop_KeepDocs;
-    } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      dropMode = IndexDrop_DeleteDocs;
-      if (SearchDisk_IsEnabledForValidation()) {
-        return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
-      }
-    } else {
-      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
-    }
+  IndexDropMode dropMode;
+  const char *optionError = DropIndex_ParseOptions(argv, argc, dropCommand, &dropMode);
+  if (optionError) {
+    return RedisModule_ReplyWithError(ctx, optionError);
   }
 
   RS_ASSERT(!(dropMode == IndexDrop_DeleteDocs && SearchDisk_IsEnabledForValidation()));
@@ -772,7 +783,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   sp->dropMode = dropMode;
 
-  slots_tracker_record_index_drop(HiddenString_GetUnsafe(sp->specName, NULL));
+  asm_schema_registry_record_drop(HiddenString_GetUnsafe(sp->specName, NULL));
   size_t canonicalNameLen;
   const char *canonicalName = HiddenString_GetUnsafe(sp->specName, &canonicalNameLen);
   RedisModuleString *replicatedName =
@@ -820,10 +831,10 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     const bool dropCommand =
         RMUtil_StringEqualsCaseC(argv[0], CMD_FOR_COORDINATOR(RS_DROP_IF_X_CMD));
-    const bool validOption = argc == 2 || RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS") ||
-                             (dropCommand ? RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")
-                                          : RMUtil_StringEqualsCaseC(argv[2], "DD"));
-    if (validOption && slots_tracker_record_index_drop(RedisModule_StringPtrLen(argv[1], NULL))) {
+    IndexDropMode dropMode;
+    // An absent index remains idempotent, but invalid options must not suppress a later schema.
+    if (!DropIndex_ParseOptions(argv, argc, dropCommand, &dropMode) &&
+        asm_schema_registry_record_drop(RedisModule_StringPtrLen(argv[1], NULL))) {
       DropIndex_ReplicateDropIfExists(ctx, argv[1]);
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");

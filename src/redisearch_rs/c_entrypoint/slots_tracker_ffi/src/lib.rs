@@ -21,10 +21,8 @@
 //! as a u32. These are currently wrapped in the C ASM API header
 //! for atomic management on the C side.
 
-use redis_module::{RedisModuleIO as RmIo, raw::RedisModuleIO};
-use slots_tracker::{ImportSchemas, SlotRange, SlotRangeArray, SlotsTracker, Version};
+use slots_tracker::{SlotRange, SlotRangeArray, SlotsTracker, Version};
 use std::cell::RefCell;
-use std::ffi::{CStr, c_char};
 use std::sync::OnceLock;
 use std::thread::ThreadId;
 
@@ -74,7 +72,6 @@ static OWNER_THREAD: OnceLock<ThreadId> = OnceLock::new();
 //
 // Only accessible from the thread that first calls any FFI function.
 thread_local! {
-    static IMPORT_SCHEMAS: RefCell<ImportSchemas> = RefCell::new(ImportSchemas::default());
     static TRACKER: RefCell<SlotsTracker> = RefCell::new(SlotsTracker::new());
 }
 
@@ -408,122 +405,7 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_reset() {
     assert_owner_thread();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| *imports = ImportSchemas::default());
     with_tracker_mut(|tracker| {
         *tracker = SlotsTracker::new();
     });
-}
-
-/// Starts an ASM import's schema-deletion tracking.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `task_id` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_start_import(task_id: *const c_char) {
-    assert_owner_thread();
-    debug_assert_non_null(task_id);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let task_id = unsafe { CStr::from_ptr(task_id) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.start(task_id));
-}
-
-/// Ends an ASM import's schema-deletion tracking on completion or failure.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `task_id` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_end_import(task_id: *const c_char) {
-    assert_owner_thread();
-    debug_assert_non_null(task_id);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let task_id = unsafe { CStr::from_ptr(task_id) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.end(task_id));
-}
-
-/// Prevents active imports from replaying a schema for the dropped name.
-/// Returns whether a record was added, so an otherwise empty drop can be replicated.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `name` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_record_index_drop(name: *const c_char) -> bool {
-    assert_owner_thread();
-    debug_assert_non_null(name);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let name = unsafe { CStr::from_ptr(name) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.record_drop(name))
-}
-
-/// Whether schema replay must ignore the name during an active ASM import.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `name` must point to a [valid], NUL-terminated string for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_was_index_dropped(name: *const c_char) -> bool {
-    assert_owner_thread();
-    debug_assert_non_null(name);
-    // SAFETY: (2) supplies the terminated string; no reference escapes this call.
-    let name = unsafe { CStr::from_ptr(name) }.to_bytes();
-    IMPORT_SCHEMAS.with_borrow(|imports| imports.was_dropped(name))
-}
-
-#[track_caller]
-fn debug_assert_non_null<T>(ptr: *const T) {
-    debug_assert!(!ptr.is_null(), "import tracking pointer cannot be null");
-}
-
-/// Whether import deletion records require auxiliary RDB persistence.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_has_import_drops() -> bool {
-    assert_owner_thread();
-    IMPORT_SCHEMAS.with_borrow(|imports| imports.has_drops())
-}
-
-/// Clears pre-snapshot records without relying on another import-start notification.
-#[unsafe(no_mangle)]
-pub extern "C" fn slots_tracker_begin_loading() {
-    assert_owner_thread();
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.begin_loading());
-}
-
-/// Saves import deletion records, including when the index registry is empty.
-///
-/// # Safety
-/// 1. Call on the main thread or its RDB child.
-/// 2. `io` must point to a [valid] [`RedisModuleIO`] for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_save_imports(io: *mut RedisModuleIO) {
-    assert_owner_thread();
-    debug_assert_non_null(io);
-    let mut io = RmIo::new(io);
-    IMPORT_SCHEMAS.with_borrow(|imports| imports.save(&mut io));
-}
-
-/// Loads records for the active import, returning false on malformed data or IO errors.
-///
-/// # Safety
-/// 1. Call on the main thread.
-/// 2. `io` must point to a [valid] [`RedisModuleIO`] for the call.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_load_imports(io: *mut RedisModuleIO) -> bool {
-    assert_owner_thread();
-    debug_assert_non_null(io);
-    let mut io = RmIo::new(io);
-    IMPORT_SCHEMAS.with_borrow_mut(|imports| imports.load(&mut io).is_ok())
 }
