@@ -19,19 +19,14 @@ use clap::{Parser, Subcommand};
 use procfuzz::commands::load;
 use redisearch_fuzz::RediSearch;
 use redisearch_fuzz::script::{export, import};
-use redisearch_fuzz::server::Env;
+use redisearch_fuzz::server::Server;
 
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
-    #[arg(long, env = "REDIS_SERVER")]
-    redis_server: Option<PathBuf>,
-    #[arg(long, env = "REDISEARCH_MODULE")]
-    module: Option<PathBuf>,
-    /// RedisJSON.
-    #[arg(long, env = "REJSON_MODULE")]
-    rejson: Option<PathBuf>,
+    #[command(flatten)]
+    server: Server,
 }
 
 #[derive(Subcommand)]
@@ -71,19 +66,8 @@ fn main() -> ExitCode {
 fn exec(cli: Cli) -> Result<bool, Box<dyn Error>> {
     match cli.command {
         Command::Fuzzer(command) => {
-            let (Some(redis_server), Some(module), Some(rejson)) =
-                (cli.redis_server, cli.module, cli.rejson)
-            else {
-                return Err(
-                    "set --redis-server, --module, and --rejson, or source bin/fuzz/env.sh".into(),
-                );
-            };
-            let env = Env {
-                redis_server,
-                module,
-                rejson,
-            };
-            Ok(command.exec(&RediSearch, &env.service(), &env)?)
+            cli.server.check()?;
+            Ok(command.exec(&RediSearch, &cli.server.service(), &cli.server)?)
         }
         Command::Export { program } => {
             print!("{}", export(&load(&program)?)?);

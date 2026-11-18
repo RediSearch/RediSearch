@@ -24,10 +24,15 @@ use crate::resp::{Resp2, argv};
 
 const STACK_TRACE: &str = "------ STACK TRACE ------";
 
-/// `redis-server` at `server` with `modules` loaded in order. Boot arguments
-/// are the first module's, and a crash is blamed on its frames first.
-/// Failures are sanitizer errors, Redis assertions, and Redis panics.
-pub fn service(server: PathBuf, modules: Vec<PathBuf>) -> Service<Resp2> {
+/// `redis-server` at `server` with `modules` loaded in order, started with
+/// the variables in `env`. Boot arguments are the first module's, and a
+/// crash is blamed on its frames first. Failures are sanitizer errors, Redis
+/// assertions, and Redis panics.
+pub fn service(
+    server: PathBuf,
+    modules: Vec<PathBuf>,
+    env: Vec<(String, String)>,
+) -> Service<Resp2> {
     let blamed = modules
         .first()
         .and_then(|module| module.file_name())
@@ -35,6 +40,7 @@ pub fn service(server: PathBuf, modules: Vec<PathBuf>) -> Service<Resp2> {
     let launch = move |dir: &Path, socket: &Path, boot: &[String]| {
         let mut command = Command::new(&server);
         command
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .args(["--port", "0", "--save", "", "--appendonly", "no"])
             .args(["--enable-debug-command", "yes", "--unixsocket"])
             .arg(socket)

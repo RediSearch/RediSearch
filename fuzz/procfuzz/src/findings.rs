@@ -15,8 +15,6 @@ use serde::Serialize;
 use crate::model::Program;
 use crate::system::{Run, Step};
 
-const SANITIZER_VARS: [&str; 3] = ["ASAN_OPTIONS", "LSAN_OPTIONS", "LD_PRELOAD"];
-
 /// One directory per finding, holding what reproduces it. A directory's
 /// existence marks its finding as known, so creating an empty one silences a
 /// known bug, and workers sharing the root report each finding once.
@@ -39,7 +37,6 @@ struct Manifest<'a> {
     #[serde(flatten)]
     rate: Rate,
     setup: &'a serde_json::Value,
-    environment: Vec<(&'a str, String)>,
 }
 
 #[derive(Serialize)]
@@ -91,10 +88,6 @@ impl Findings {
             finding,
             rate,
             setup: &self.setup,
-            environment: SANITIZER_VARS
-                .iter()
-                .filter_map(|&name| Some((name, std::env::var(name).ok()?)))
-                .collect(),
         };
         let trace = Trace {
             steps: &run.steps,

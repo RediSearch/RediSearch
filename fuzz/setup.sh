@@ -6,7 +6,7 @@ REDIS_URL=https://github.com/redis/redis.git
 MIN_CLANG_MAJOR=22
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${FUZZ_OUT:-$ROOT/bin/fuzz}"
+OUT="$ROOT/bin/fuzz"
 REDIS_SRC="${REDIS_SRC:-}"
 JOBS="${JOBS:-8}"
 OS="$(uname -s)"
@@ -79,21 +79,10 @@ ROOT="$ROOT" BINROOT="$(dirname "$(dirname "$module")")" SAN="$rejson_san" \
 set -u
 cd "$ROOT"
 
-preload=""
-if [[ $OS != Darwin ]] && command -v g++ > /dev/null; then
-  preload="$(g++ -print-file-name=libstdc++.so.6)"
-fi
-
-cat > "$OUT/env.sh" <<EOF
-export REDIS_SERVER="$redis_server"
-export REDISEARCH_MODULE="$module"
-export REDISEARCH_PLANTED_MODULE="$planted"
-export REJSON_MODULE="$JSON_BIN_PATH"
-export RS_GLOBAL_DTORS=1
-export ASAN_OPTIONS="halt_on_error=1:detect_odr_violation=0:detect_leaks=1"
-export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0"
-${preload:+export LD_PRELOAD="$preload"}
-EOF
-
-echo "==> wrote $OUT/env.sh"
-cat "$OUT/env.sh"
+# The fuzzer finds the binaries under these names.
+ln -sf "$redis_server" "$OUT/redis-server"
+ln -sf "$module" "$OUT/redisearch.so"
+ln -sf "$JSON_BIN_PATH" "$OUT/rejson.so"
+rm -f "$OUT/env.sh"
+echo "==> binaries in $OUT"
+ls -l "$OUT"

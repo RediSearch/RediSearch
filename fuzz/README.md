@@ -40,7 +40,6 @@ CMake-fetched sources, Redis, RedisJSON), and `release-assets.githubusercontent.
 
 ```bash
 fuzz/setup.sh
-source bin/fuzz/env.sh
 ```
 
 `fuzz/setup.sh` is idempotent. It:
@@ -68,9 +67,8 @@ source bin/fuzz/env.sh
    sanitizer build does not support macOS, so there it is built without one). `REJSON_PATH`
    names a prebuilt module instead, and `REJSON_BRANCH` a branch to build
    (default `master`). Every fuzzed server loads it after the module.
-6. Writes `bin/fuzz/env.sh`, which exports `REDIS_SERVER`, `REDISEARCH_MODULE`,
-   `REDISEARCH_PLANTED_MODULE`, `REJSON_MODULE`, and the sanitizer settings
-   below.
+6. Links the binaries as `bin/fuzz/redis-server`, `bin/fuzz/redisearch.so`,
+   and `bin/fuzz/rejson.so`, where the fuzzer looks for them.
 
 Variables:
 
@@ -78,40 +76,32 @@ Variables:
 |---|---|---|
 | `CC` | `/opt/homebrew/opt/llvm/bin/clang` on macOS, `clang` on Linux | Compiler for both builds; the script refuses clang below 22. |
 | `REDIS_SRC` | unset | Use this local Redis checkout instead of fetching from GitHub. |
-| `FUZZ_OUT` | `bin/fuzz` | Output directory. |
 | `JOBS` | `8` | Parallel jobs for the Redis build. |
 
-### Runtime environment
+### Server environment
 
-`bin/fuzz/env.sh` sets:
+The fuzzer starts every server with:
 
 | Variable | Value | Why |
 |---|---|---|
 | `ASAN_OPTIONS` | `halt_on_error=1:detect_odr_violation=0:detect_leaks=1` | The module is built with `-fsanitize-recover=all`; halting makes each run yield one report. |
 | `LSAN_OPTIONS` | `suppressions=tests/memcheck/asan.supp` | Same suppressions as the Python tests. |
 | `RS_GLOBAL_DTORS` | `1` | Without it the module skips its teardown and every global allocation reports as a leak. |
-| `LD_PRELOAD` | `libstdc++.so.6` (Linux only) | Lets ASan intercept `__cxa_throw`, as in `tests/pytests/runtests.sh`. |
 
-The server must be started with `--enable-debug-command yes` and no persistence
-(`--save ""`, `--appendonly no`). In standalone mode the debug command is
-`_FT.DEBUG`, not `FT.DEBUG`.
+and with `--enable-debug-command yes` and no persistence (`--save ""`,
+`--appendonly no`). In standalone mode the debug command is `_FT.DEBUG`, not
+`FT.DEBUG`. On Linux, also export `LD_PRELOAD=$(g++
+-print-file-name=libstdc++.so.6)`, as `tests/pytests/runtests.sh` does, so
+that ASan intercepts `__cxa_throw`.
 
 ### Checking the setup
 
 ```bash
-source bin/fuzz/env.sh
-dir=$(mktemp -d)
-"$REDIS_SERVER" --port 0 --unixsocket "$dir/s.sock" --save "" --appendonly no \
-  --dir "$dir" --enable-debug-command yes --loadmodule "$REDISEARCH_MODULE" \
-  > "$dir/log" 2>&1 &
-until redis-cli -s "$dir/s.sock" PING > /dev/null 2>&1; do sleep 0.1; done
-redis-cli -s "$dir/s.sock" FT.CREATE idx ON HASH SCHEMA t TEXT
-redis-cli -s "$dir/s.sock" SHUTDOWN NOSAVE
-wait
-grep -E 'ERROR: (Address|Leak)Sanitizer' "$dir/log" || echo "clean"
+cd fuzz/redisearch
+cargo run -- run seeds/smoke.json
 ```
 
-A clean shutdown must report no sanitizer errors. Measured on an Apple Silicon
+It must report no findings. Measured on an Apple Silicon
 Mac: `redis-server` alone is ready in about 0.5 s; with the module, about 1.6 s.
 
 ### Known pitfalls
@@ -128,7 +118,6 @@ Mac: `redis-server` alone is ready in about 0.5 s; with the module, about 1.6 s.
 ### Running
 
 ```bash
-source bin/fuzz/env.sh
 cd fuzz/redisearch
 RUST_LOG=debug cargo run -- run seeds/smoke.json
 cargo run -- run <program.json> --repeat 10
@@ -139,9 +128,9 @@ cargo run -- export findings/<finding>/program.json > repro.txt
 cargo run -- import commands.txt > program.json
 ```
 
-The binaries come from `REDIS_SERVER`, `REDISEARCH_MODULE`, and
-`REJSON_MODULE`, or from `--redis-server`, `--module`, and `--rejson`;
-`export` and `import` need none.
+The binaries are the ones under `bin/fuzz/`, or those named by
+`--redis-server`, `--module`, and `--rejson`. `--module
+../../bin/fuzz/planted/redisearch.so` fuzzes the module with planted bugs.
 
 `run` starts a fresh server, executes the program, and logs each finding;
 `RUST_LOG=debug` also logs every step. `--repeat N` runs it N times and
@@ -189,7 +178,7 @@ Edit out commands that reply with an error, which the seed test rejects.
 ```bash
 cd fuzz
 cargo test --workspace                                       # unit tests and kvd, no server needed
-source ../bin/fuzz/env.sh && cargo test -- --ignored         # live tests against a real server
+cargo test -- --ignored                                      # live tests, after fuzz/setup.sh
 ```
 
 The live tests check that every seed runs without an error reply and reaches

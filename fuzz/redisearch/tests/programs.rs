@@ -8,7 +8,7 @@
 */
 
 //! Needs the binaries from `fuzz/setup.sh`; run with
-//! `source bin/fuzz/env.sh && cargo test -- --ignored`.
+//! `cargo test -- --ignored`.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -23,7 +23,7 @@ use procfuzz::model::{Made, generate};
 use procfuzz::system::{Run, run};
 use procfuzz_redis::resp::Value;
 use redisearch_fuzz::op::{Action, Op};
-use redisearch_fuzz::server::Env;
+use redisearch_fuzz::server::{Server, built};
 use redisearch_fuzz::{Program, RediSearch};
 
 const GENERATED: usize = 50;
@@ -34,21 +34,21 @@ fn program(path: &str) -> Program {
     load(&Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
 }
 
-fn redisearch() -> Env {
-    Env::from_env().expect("source bin/fuzz/env.sh first")
+fn redisearch() -> Server {
+    let server = Server::default();
+    server.check().unwrap();
+    server
 }
 
 /// The module with the bugs from `planted/planted.patch`.
-fn planted() -> Env {
-    Env {
-        module: std::env::var_os("REDISEARCH_PLANTED_MODULE")
-            .expect("rerun fuzz/setup.sh")
-            .into(),
+fn planted() -> Server {
+    Server {
+        module: built("planted/redisearch.so"),
         ..redisearch()
     }
 }
 
-fn execute(env: &Env, program: &Program) -> Run<Value> {
+fn execute(env: &Server, program: &Program) -> Run<Value> {
     run(&RediSearch, &env.service(), program).unwrap()
 }
 
@@ -69,7 +69,7 @@ fn is_error(reply: &Option<Value>) -> bool {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
     let seeds: Vec<(String, BTreeSet<u64>)> =
         std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds"))
@@ -105,7 +105,7 @@ fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn a_command_that_never_returns_is_a_hang() {
     let run = execute(&redisearch(), &program("tests/programs/hang.json"));
     assert_eq!(kinds(&run), ["hang"]);
@@ -113,7 +113,7 @@ fn a_command_that_never_returns_is_a_hang() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn a_reply_the_program_held_back_is_released_and_the_program_carries_on() {
     let run = execute(&redisearch(), &program("tests/programs/stall.json"));
     assert_eq!(findings(&run), Vec::<String>::new());
@@ -128,7 +128,7 @@ fn a_reply_the_program_held_back_is_released_and_the_program_carries_on() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn a_settle_that_cannot_complete_times_out_without_a_finding() {
     let run = execute(
         &redisearch(),
@@ -139,7 +139,7 @@ fn a_settle_that_cannot_complete_times_out_without_a_finding() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn most_replies_to_generated_programs_are_not_errors() {
     let env = redisearch();
     let mut draw = Draw::new(0);
@@ -159,7 +159,7 @@ fn most_replies_to_generated_programs_are_not_errors() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
     let env = redisearch();
     let segfault = Made {
@@ -175,7 +175,7 @@ fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
     for (path, kind) in [
         ("planted/overflow.json", "asan"),
@@ -190,7 +190,7 @@ fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
 }
 
 #[test]
-#[ignore = "needs bin/fuzz/env.sh"]
+#[ignore = "needs fuzz/setup.sh"]
 fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     let dir = tempfile::tempdir().unwrap();
     let env = planted();
