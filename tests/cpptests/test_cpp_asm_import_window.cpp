@@ -153,7 +153,7 @@ TEST_F(ASMImportWindowTest, OverlapsAreCountedOnce) {
   apply(ASM_ImportWindow_OnOverlayStart, {{0, 15}});
   apply(ASM_ImportWindow_Close, {{0, 15}});
   EXPECT_FALSE(ASM_ImportWindow_IsOpen());
-  EXPECT_EQ(ASM_ImportWindow_overlaySlots_g, 0);
+  EXPECT_EQ(ASM_ImportWindow_overlayWindowSlots_g, 0);
 }
 
 TEST_F(ASMImportWindowTest, OverlayEndOrCloseNeverOpenTheWindow) {

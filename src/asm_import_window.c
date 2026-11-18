@@ -17,17 +17,17 @@ extern RedisModuleCtx *RSDummyContext;
 
 // Allocated while any slot is in the window, so a shard that never imports pays nothing.
 static uint8_t *slotPhase = NULL;
-uint32_t ASM_ImportWindow_overlaySlots_g = 0;
-uint32_t ASM_ImportWindow_windowSlots_g = 0;
+uint32_t ASM_ImportWindow_overlayWindowSlots_g = 0;
+uint32_t ASM_ImportWindow_fullASMWindowSlots_g = 0;
 static size_t unexpectedUnlinks = 0;
 
 static void setPhase(unsigned int slot, ASMImportSlotPhase phase) {
   ASMImportSlotPhase old = (ASMImportSlotPhase)slotPhase[slot];
   if (old == phase) return;
-  ASM_ImportWindow_overlaySlots_g -= (old == ASM_IMPORT_SLOT_OVERLAY);
-  ASM_ImportWindow_overlaySlots_g += (phase == ASM_IMPORT_SLOT_OVERLAY);
-  ASM_ImportWindow_windowSlots_g -= (old != ASM_IMPORT_SLOT_NONE);
-  ASM_ImportWindow_windowSlots_g += (phase != ASM_IMPORT_SLOT_NONE);
+  ASM_ImportWindow_overlayWindowSlots_g -= (old == ASM_IMPORT_SLOT_OVERLAY);
+  ASM_ImportWindow_overlayWindowSlots_g += (phase == ASM_IMPORT_SLOT_OVERLAY);
+  ASM_ImportWindow_fullASMWindowSlots_g -= (old != ASM_IMPORT_SLOT_NONE);
+  ASM_ImportWindow_fullASMWindowSlots_g += (phase != ASM_IMPORT_SLOT_NONE);
   slotPhase[slot] = (uint8_t)phase;
 }
 
@@ -49,7 +49,7 @@ static void transition(const RedisModuleSlotRangeArray *slots, bool anyFrom,
       }
     }
   }
-  if (ASM_ImportWindow_windowSlots_g == 0) {
+  if (ASM_ImportWindow_fullASMWindowSlots_g == 0) {
     rm_free(slotPhase);
     slotPhase = NULL;
   }
@@ -70,8 +70,8 @@ void ASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots) {
 void ASM_ImportWindow_Reset(void) {
   rm_free(slotPhase);
   slotPhase = NULL;
-  ASM_ImportWindow_overlaySlots_g = 0;
-  ASM_ImportWindow_windowSlots_g = 0;
+  ASM_ImportWindow_overlayWindowSlots_g = 0;
+  ASM_ImportWindow_fullASMWindowSlots_g = 0;
   unexpectedUnlinks = 0;
 }
 
