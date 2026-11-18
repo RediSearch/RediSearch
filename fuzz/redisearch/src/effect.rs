@@ -17,9 +17,9 @@ pub const DEBUG: &str = "_FT.DEBUG";
 /// What a command can do to the results of a search.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
+    /// Includes changing when background work runs, which does not change
+    /// what searches return.
     Reads,
-    /// Changes when background work runs, not what searches return.
-    Schedules,
     /// Rebuilds indexes, which return the same results once rebuilt.
     Rebuilds,
     /// May change results. Every command not named here does.
@@ -37,6 +37,9 @@ pub enum Change {
     ReshapesIndex,
     PausesWorkers,
     ResumesWorkers,
+    /// Sets the configuration parameters named by every other word from the
+    /// third, to the word after each.
+    Configures,
 }
 
 /// What `command` does, judged by its first three words.
@@ -49,13 +52,14 @@ pub fn describe(command: &[Bytes]) -> (Effect, Change) {
     };
     let (name, sub, arg) = (word(0), word(1), word(2));
     match (name.as_str(), sub.as_str(), arg.as_str()) {
-        (DEBUG, "WORKERS", "PAUSE") => (Effect::Schedules, Change::PausesWorkers),
-        (DEBUG, "WORKERS", "RESUME") => (Effect::Schedules, Change::ResumesWorkers),
+        (DEBUG, "WORKERS", "PAUSE") => (Effect::Reads, Change::PausesWorkers),
+        (DEBUG, "WORKERS", "RESUME") => (Effect::Reads, Change::ResumesWorkers),
         (DEBUG, "GC_FORCEINVOKE" | "GC_STOP_SCHEDULE" | "GC_CONTINUE_SCHEDULE", _)
         | (DEBUG, "WORKERS" | "BG_SCAN_CONTROLLER" | "SYNC_POINT", _) => {
-            (Effect::Schedules, Change::None)
+            (Effect::Reads, Change::None)
         }
         ("DEBUG", "RELOAD", _) => (Effect::Rebuilds, Change::None),
+        ("CONFIG" | "FT.CONFIG" | "_FT.CONFIG", "SET", _) => (Effect::Writes, Change::Configures),
         ("FT.DROPINDEX", ..) => (Effect::Writes, Change::DropsIndex),
         ("FT.CREATE" | "FT.ALTER", ..) => (Effect::Writes, Change::ReshapesIndex),
         (

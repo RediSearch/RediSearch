@@ -1,13 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["kvd", "procfuzz", "procfuzz-redis", "redisearch"]
+members = ["procfuzz", "procfuzz-redis", "redisearch"]
 default-members = ["redisearch"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
 env_logger = { version = "0.11", default-features = false }
-libafl = { version = "0.16.1", default-features = false, features = ["std", "derive", "serdeany_autoreg"] }
-libafl_bolts = { version = "0.16.1", default-features = false, features = ["std", "derive", "serdeany_autoreg"] }
 log = "0.4"
 memmap2 = "0.9"
 nix = { version = "0.30", features = ["fs", "mman", "process", "signal"] }

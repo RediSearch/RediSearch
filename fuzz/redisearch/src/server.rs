@@ -13,14 +13,14 @@ use std::path::{Path, PathBuf};
 
 use procfuzz::service::{Admin, Service};
 use procfuzz_redis::resp::{Bytes, Resp2, Value, argv};
-use serde::Serialize;
+use serde_json::json;
 
 use crate::effect::{DEBUG, undo_all};
 
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 /// The binaries; by default where `fuzz/setup.sh` puts them.
-#[derive(Clone, Debug, Serialize, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub struct Server {
     #[arg(long, default_value_os_t = built("redis-server"))]
     pub redis_server: PathBuf,
@@ -65,29 +65,47 @@ impl Server {
     /// index is indexing and the workers and the GC have nothing left to do.
     pub fn service(&self) -> Service<Resp2> {
         let modules = vec![self.module.clone(), self.rejson.clone()];
-        // Halting makes each run yield one report. Without RS_GLOBAL_DTORS
-        // the module skips its teardown and every global allocation reports
-        // as a leak.
-        let env = [
-            (
-                "ASAN_OPTIONS",
-                "halt_on_error=1:detect_odr_violation=0:detect_leaks=1".to_owned(),
-            ),
-            (
-                "LSAN_OPTIONS",
-                format!("suppressions={ROOT}/tests/memcheck/asan.supp:print_suppressions=0"),
-            ),
-            ("RS_GLOBAL_DTORS", "1".to_owned()),
-        ];
-        let env = env
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect();
-        let mut service = procfuzz_redis::service(self.redis_server.clone(), modules, env);
+        let mut service = procfuzz_redis::service(self.redis_server.clone(), modules, env());
         service.heal = Box::new(heal);
         service.idle = Box::new(|admin| idle(admin).unwrap_or(false));
         service
     }
+
+    /// What a finding's manifest records about how the server ran: each
+    /// binary, the file it resolves to and when that was written, the
+    /// environment, and the timing.
+    pub fn setup(&self) -> serde_json::Value {
+        let binary = |path: &Path| {
+            json!({
+                "path": path,
+                "file": std::fs::canonicalize(path).ok(),
+                "modified": std::fs::metadata(path).and_then(|m| m.modified()).ok(),
+            })
+        };
+        json!({
+            "redis_server": binary(&self.redis_server),
+            "module": binary(&self.module),
+            "rejson": binary(&self.rejson),
+            "env": env(),
+            "timing": self.service().timing,
+        })
+    }
+}
+
+/// Halting makes each run yield one report. Without `RS_GLOBAL_DTORS` the
+/// module skips its teardown and every global allocation reports as a leak.
+fn env() -> Vec<(String, String)> {
+    vec![
+        (
+            "ASAN_OPTIONS".to_owned(),
+            "halt_on_error=1:detect_odr_violation=0:detect_leaks=1".to_owned(),
+        ),
+        (
+            "LSAN_OPTIONS".to_owned(),
+            format!("suppressions={ROOT}/tests/memcheck/asan.supp:print_suppressions=0"),
+        ),
+        ("RS_GLOBAL_DTORS".to_owned(), "1".to_owned()),
+    ]
 }
 
 /// Stops at the first command the server does not answer: its main thread

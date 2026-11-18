@@ -20,17 +20,18 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use tempfile::TempDir;
 
 use crate::coverage::CoverageMap;
 use crate::process::Process;
-use crate::sanitizer;
 use crate::system::{Finding, Run, Session, System};
 
 const READY_POLL: Duration = Duration::from_millis(1);
 const IDLE_POLL: Duration = Duration::from_millis(10);
 const READ_CHUNK: usize = 16 * 1024;
 const LOG: &str = "server.log";
+const SOCKET: &str = "server.sock";
 
 /// How requests and replies look on the wire.
 pub trait Codec: Sync {
@@ -47,9 +48,6 @@ pub trait Codec: Sync {
 /// What an op of a model of a [`Service`] lowers to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input<Q> {
-    /// Launch arguments. They count only before the first other input,
-    /// which launches the process.
-    Boot(Vec<String>),
     /// Requests sent one after another on a connection, each awaiting the
     /// reply to the one before; the last reply is the input's. `wait: false`
     /// leaves that reply to be read when the connection is next used.
@@ -69,7 +67,7 @@ pub enum Input<Q> {
 pub struct Service<C: Codec> {
     pub codec: C,
     /// The command that starts the process in a directory of its own,
-    /// listening on a socket, with the boot arguments.
+    /// listening on the socket.
     pub launch: Launch,
     /// Answered once the process is ready.
     pub ready: C::Request,
@@ -79,26 +77,26 @@ pub struct Service<C: Codec> {
     pub heal: Hook<C, ()>,
     /// Whether the process has no background work left.
     pub idle: Hook<C, bool>,
-    /// The failure a line of the log reports. Only the first line that
-    /// reports one counts: reporting a failure can cause others.
-    pub failure: LogProbe<Finding>,
+    /// The failures the log reports.
+    pub findings: LogProbe<Vec<Finding>>,
     /// Where the log says a crash or hang happened, to name it by.
-    pub site: LogProbe<String>,
+    pub site: LogProbe<Option<String>>,
     pub timing: Timing,
 }
 
-pub type Launch = Box<dyn Fn(&Path, &Path, &[String]) -> Command + Send + Sync>;
+pub type Launch = Box<dyn Fn(&Path, &Path) -> Command + Send + Sync>;
 pub type Hook<C, T> = Box<dyn Fn(&mut Admin<'_, C>) -> T + Send + Sync>;
-pub type LogProbe<T> = Box<dyn Fn(&str) -> Option<T> + Send + Sync>;
+pub type LogProbe<T> = Box<dyn Fn(&str) -> T + Send + Sync>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct Timing {
     /// For the process to become ready.
     pub startup: Duration,
     /// For a reply, before healing; also how long [`Input::Settle`] waits to
     /// become idle.
     pub patience: Duration,
-    /// For a reply after healing, before it is a hang.
+    /// For a reply after healing, and for a request to be written, before
+    /// either is a hang.
     pub deadline: Duration,
     /// For the process to exit after shutdown, and to write its reports
     /// after a hang.
@@ -116,29 +114,6 @@ impl Default for Timing {
     }
 }
 
-impl<C: Codec> Service<C> {
-    /// A service that never pauses, is always idle, and reports
-    /// AddressSanitizer errors.
-    pub fn new(
-        codec: C,
-        launch: impl Fn(&Path, &Path, &[String]) -> Command + Send + Sync + 'static,
-        ready: C::Request,
-        shutdown: C::Request,
-    ) -> Service<C> {
-        Service {
-            codec,
-            launch: Box::new(launch),
-            ready,
-            shutdown,
-            heal: Box::new(|_| ()),
-            idle: Box::new(|_| true),
-            failure: Box::new(sanitizer::error),
-            site: Box::new(|_| None),
-            timing: Timing::default(),
-        }
-    }
-}
-
 impl<C: Codec> System for Service<C> {
     type Input = Input<C::Request>;
     type Reply = C::Reply;
@@ -147,195 +122,184 @@ impl<C: Codec> System for Service<C> {
     where
         C: 'a;
 
+    /// Starts the process and waits until it answers [`Service::ready`].
     fn start(&self) -> io::Result<Live<'_, C>> {
         let dir = tempfile::tempdir()?;
-        let socket = dir.path().join("server.sock");
-        Ok(Live {
+        let coverage = CoverageMap::new()?;
+        let mut command = (self.launch)(dir.path(), &dir.path().join(SOCKET));
+        coverage.attach(&mut command);
+        let mut live = Live {
             service: self,
+            process: Process::spawn(command, &dir.path().join(LOG))?,
             dir,
-            socket,
-            boot: Vec::new(),
-            up: None,
+            coverage,
+            admin: None,
             conns: BTreeMap::new(),
-            pending: BTreeMap::new(),
             hung: false,
-        })
+        };
+        let start = Instant::now();
+        while start.elapsed() < self.timing.startup && live.process.exited().is_none() {
+            if live.admin().call(&self.ready).is_some() {
+                return Ok(live);
+            }
+            sleep(READY_POLL);
+        }
+        let log = std::fs::read(live.dir.path().join(LOG)).unwrap_or_default();
+        Err(io::Error::other(format!(
+            "the process did not start:\n{}",
+            String::from_utf8_lossy(&log)
+        )))
     }
 }
 
 /// The harness's own connection, for [`Service::heal`] and
 /// [`Service::idle`].
 pub struct Admin<'a, C: Codec> {
-    conn: &'a mut Conn,
+    conn: &'a mut Option<Conn>,
+    socket: PathBuf,
     codec: &'a C,
     deadline: Duration,
 }
 
 impl<C: Codec> Admin<'_, C> {
-    /// `None` if the process did not answer in time.
+    /// `None` if the process did not answer in time. The connection is then
+    /// dropped, so a late reply never answers a later call.
     pub fn call(&mut self, request: &C::Request) -> Option<C::Reply> {
-        self.conn.send(self.codec, request).ok()?;
-        match self.conn.receive(self.codec, self.deadline) {
-            Got::Reply(reply) => Some(reply),
-            Got::Timeout | Got::Closed | Got::Invalid(_) => None,
+        let conn = match self.conn {
+            Some(conn) => conn,
+            None => self
+                .conn
+                .insert(Conn::open(&self.socket, self.deadline).ok()?),
+        };
+        let reply = conn
+            .send(self.codec, request)
+            .and_then(|()| conn.receive(self.codec, self.deadline))
+            .ok();
+        if reply.is_none() {
+            *self.conn = None;
         }
+        reply
     }
 }
 
 pub struct Live<'a, C: Codec> {
     service: &'a Service<C>,
     dir: TempDir,
-    socket: PathBuf,
-    boot: Vec<String>,
-    up: Option<Up>,
-    conns: BTreeMap<u8, Conn>,
-    /// Per connection, the inputs awaiting a reply, oldest first.
-    pending: BTreeMap<u8, VecDeque<usize>>,
-    hung: bool,
-}
-
-struct Up {
     process: Process,
     coverage: CoverageMap,
-    admin: Conn,
+    admin: Option<Conn>,
+    conns: BTreeMap<u8, Conn>,
+    hung: bool,
 }
 
 struct Conn {
     stream: UnixStream,
     buf: Vec<u8>,
+    /// For each request awaiting a reply, oldest first, the input its reply
+    /// completes, if it is the input's last request.
+    pending: VecDeque<Option<usize>>,
 }
 
-enum Got<R> {
-    Reply(R),
+enum Failure {
     Timeout,
     Closed,
     Invalid(String),
 }
 
 impl Conn {
-    fn open(socket: &Path) -> io::Result<Conn> {
+    fn open(socket: &Path, write_timeout: Duration) -> io::Result<Conn> {
+        let stream = UnixStream::connect(socket)?;
+        stream.set_write_timeout(Some(write_timeout))?;
         Ok(Conn {
-            stream: UnixStream::connect(socket)?,
+            stream,
             buf: Vec::new(),
+            pending: VecDeque::new(),
         })
     }
 
-    fn send<C: Codec>(&mut self, codec: &C, request: &C::Request) -> io::Result<()> {
+    fn send<C: Codec>(&mut self, codec: &C, request: &C::Request) -> Result<(), Failure> {
         let mut out = Vec::new();
         codec.encode(request, &mut out);
-        self.stream.write_all(&out)
+        self.stream.write_all(&out).map_err(|e| failure(&e))
     }
 
     /// A timeout keeps the bytes read so far, so a later call still returns
     /// the reply.
-    fn receive<C: Codec>(&mut self, codec: &C, timeout: Duration) -> Got<C::Reply> {
+    fn receive<C: Codec>(&mut self, codec: &C, timeout: Duration) -> Result<C::Reply, Failure> {
         let start = Instant::now();
         let mut chunk = [0u8; READ_CHUNK];
         loop {
-            match codec.decode(&self.buf) {
-                Ok(Some((reply, used))) => {
-                    self.buf.drain(..used);
-                    return Got::Reply(reply);
-                }
-                Ok(None) => {}
-                Err(e) => return Got::Invalid(e),
+            if let Some((reply, used)) = codec.decode(&self.buf).map_err(Failure::Invalid)? {
+                self.buf.drain(..used);
+                return Ok(reply);
             }
-            let Some(left) = timeout
+            let left = timeout
                 .checked_sub(start.elapsed())
                 .filter(|left| !left.is_zero())
-            else {
-                return Got::Timeout;
-            };
-            if self.stream.set_read_timeout(Some(left)).is_err() {
-                return Got::Closed;
-            }
+                .ok_or(Failure::Timeout)?;
+            self.stream
+                .set_read_timeout(Some(left))
+                .map_err(|_| Failure::Closed)?;
             match self.stream.read(&mut chunk) {
-                Ok(0) => return Got::Closed,
+                Ok(0) => return Err(Failure::Closed),
                 Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
-                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                    return Got::Timeout;
-                }
                 Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(_) => return Got::Closed,
+                Err(e) => return Err(failure(&e)),
             }
         }
     }
 }
 
+fn failure(e: &io::Error) -> Failure {
+    match e.kind() {
+        ErrorKind::WouldBlock | ErrorKind::TimedOut => Failure::Timeout,
+        _ => Failure::Closed,
+    }
+}
+
 impl<C: Codec> Live<'_, C> {
-    /// Starts the process unless it is running, with the boot arguments
-    /// collected so far.
-    fn launch(&mut self) -> io::Result<()> {
-        if self.up.is_none() {
-            self.up = Some(self.spawn()?);
-        }
-        Ok(())
+    fn socket(&self) -> PathBuf {
+        self.dir.path().join(SOCKET)
     }
 
-    fn spawn(&self) -> io::Result<Up> {
-        let service = self.service;
-        let coverage = CoverageMap::new()?;
-        let mut command = (service.launch)(self.dir.path(), &self.socket, &self.boot);
-        coverage.attach(&mut command);
-        let log = self.dir.path().join(LOG);
-        let mut process = Process::spawn(command, &log)?;
-        let start = Instant::now();
-        while start.elapsed() < service.timing.startup && process.exited().is_none() {
-            if let Ok(mut admin) = Conn::open(&self.socket)
-                && admin.send(&service.codec, &service.ready).is_ok()
-                && let Got::Reply(_) = admin.receive(&service.codec, service.timing.startup)
-            {
-                return Ok(Up {
-                    process,
-                    coverage,
-                    admin,
-                });
-            }
-            sleep(READY_POLL);
-        }
-        let log = std::fs::read(&log).unwrap_or_default();
-        Err(io::Error::other(format!(
-            "the process did not start:\n{}",
-            String::from_utf8_lossy(&log)
-        )))
-    }
-
-    fn admin(&mut self) -> Option<Admin<'_, C>> {
-        let up = self.up.as_mut()?;
-        Some(Admin {
-            conn: &mut up.admin,
+    fn admin(&mut self) -> Admin<'_, C> {
+        Admin {
+            socket: self.socket(),
+            conn: &mut self.admin,
             codec: &self.service.codec,
             deadline: self.service.timing.deadline,
-        })
+        }
     }
 
     fn heal(&mut self) {
-        let service = self.service;
-        if let Some(mut admin) = self.admin() {
-            (service.heal)(&mut admin);
-        }
+        let heal = &self.service.heal;
+        heal(&mut self.admin());
     }
 
     /// Reads the replies outstanding on `conn`, oldest first.
     fn drain(&mut self, conn: u8, run: &mut Run<C::Reply>) -> ControlFlow<()> {
-        let timing = self.service.timing;
-        while let Some(&at) = self.pending.get(&conn).and_then(VecDeque::front) {
-            let mut got = self.receive(conn, timing.patience);
-            if let Got::Timeout = got {
+        let Timing {
+            patience, deadline, ..
+        } = self.service.timing;
+        while self.conns.get(&conn).is_some_and(|c| !c.pending.is_empty()) {
+            let mut got = self.receive(conn, patience);
+            if let Err(Failure::Timeout) = got {
                 self.heal();
-                got = self.receive(conn, timing.deadline);
+                got = self.receive(conn, deadline);
             }
             match got {
-                Got::Reply(reply) => {
-                    self.pending.get_mut(&conn).expect("pending").pop_front();
-                    run.done(at, Some(reply));
+                Ok(reply) => {
+                    let pending = &mut self.conns.get_mut(&conn).expect("open").pending;
+                    if let Some(at) = pending.pop_front().expect("pending") {
+                        run.done(at, Some(reply));
+                    }
                 }
-                Got::Timeout => {
+                Err(Failure::Timeout) => {
                     self.hung = true;
                     return ControlFlow::Break(());
                 }
-                Got::Closed => self.forget(conn)?,
-                Got::Invalid(violation) => {
+                Err(Failure::Closed) => self.forget(conn)?,
+                Err(Failure::Invalid(violation)) => {
                     run.notes.fail("protocol", violation);
                     self.forget(conn)?;
                 }
@@ -345,70 +309,67 @@ impl<C: Codec> Live<'_, C> {
     }
 
     fn drain_all(&mut self, run: &mut Run<C::Reply>) -> ControlFlow<()> {
-        let conns: Vec<u8> = self.pending.keys().copied().collect();
+        let conns: Vec<u8> = self.conns.keys().copied().collect();
         for conn in conns {
             self.drain(conn, run)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn receive(&mut self, conn: u8, timeout: Duration) -> Got<C::Reply> {
+    fn receive(&mut self, conn: u8, timeout: Duration) -> Result<C::Reply, Failure> {
+        let codec = &self.service.codec;
         self.conns
             .get_mut(&conn)
             .expect("a connection with pending replies is open")
-            .receive(&self.service.codec, timeout)
+            .receive(codec, timeout)
     }
 
     /// Drops a connection the process closed, with its outstanding replies.
     /// The run ends only if the process is exiting.
     fn forget(&mut self, conn: u8) -> ControlFlow<()> {
         self.conns.remove(&conn);
-        self.pending.remove(&conn);
-        let patience = self.service.timing.patience;
-        let exited = self
-            .up
-            .as_mut()
-            .is_some_and(|up| up.process.wait_exit(patience).is_some());
-        if exited {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+        match self.process.wait_exit(self.service.timing.patience) {
+            Some(_) => ControlFlow::Break(()),
+            None => ControlFlow::Continue(()),
         }
     }
 
-    fn send(&mut self, at: usize, conn: u8, request: &C::Request) -> io::Result<ControlFlow<()>> {
+    /// Sends `request` on `conn`, opening it if need be; its reply completes
+    /// input `completes`, if any.
+    fn send(
+        &mut self,
+        conn: u8,
+        request: &C::Request,
+        completes: Option<usize>,
+    ) -> ControlFlow<()> {
         if !self.conns.contains_key(&conn) {
-            match Conn::open(&self.socket) {
+            match Conn::open(&self.socket(), self.service.timing.deadline) {
                 Ok(opened) => {
                     self.conns.insert(conn, opened);
                 }
-                Err(_) => return Ok(self.forget(conn)),
+                Err(_) => return self.forget(conn),
             }
         }
-        let codec = &self.service.codec;
-        let sent = self
-            .conns
-            .get_mut(&conn)
-            .expect("open")
-            .send(codec, request);
-        Ok(match sent {
+        let open = self.conns.get_mut(&conn).expect("open");
+        match open.send(&self.service.codec, request) {
             Ok(()) => {
-                self.pending.entry(conn).or_default().push_back(at);
+                open.pending.push_back(completes);
                 ControlFlow::Continue(())
             }
+            Err(Failure::Timeout) => {
+                self.hung = true;
+                ControlFlow::Break(())
+            }
             Err(_) => self.forget(conn),
-        })
+        }
     }
 
     /// Whether the process became idle in time.
     fn settle(&mut self) -> bool {
-        let service = self.service;
         let start = Instant::now();
-        while start.elapsed() < service.timing.patience {
-            let Some(mut admin) = self.admin() else {
-                return false;
-            };
-            if (service.idle)(&mut admin) {
+        while start.elapsed() < self.service.timing.patience {
+            let idle = &self.service.idle;
+            if idle(&mut self.admin()) {
                 return true;
             }
             sleep(IDLE_POLL);
@@ -421,83 +382,69 @@ impl<C: Codec> Session for Live<'_, C> {
     type Input = Input<C::Request>;
     type Reply = C::Reply;
 
-    fn step(
-        &mut self,
-        at: usize,
-        input: &Self::Input,
-        run: &mut Run<C::Reply>,
-    ) -> io::Result<ControlFlow<()>> {
+    fn step(&mut self, at: usize, input: &Self::Input, run: &mut Run<C::Reply>) -> ControlFlow<()> {
         match input {
-            Input::Boot(args) => {
-                if self.up.is_none() {
-                    self.boot.extend(args.iter().cloned());
-                }
-                run.done(at, None);
-                Ok(ControlFlow::Continue(()))
-            }
             Input::Send {
                 conn,
                 wait,
                 requests,
             } => {
-                self.launch()?;
-                for request in requests {
-                    if self.drain(*conn, run).is_break()
-                        || self.send(at, *conn, request)?.is_break()
-                    {
-                        return Ok(ControlFlow::Break(()));
-                    }
+                for (i, request) in requests.iter().enumerate() {
+                    let completes = (i + 1 == requests.len()).then_some(at);
+                    self.drain(*conn, run)?;
+                    self.send(*conn, request, completes)?;
                 }
-                Ok(if *wait {
-                    self.drain(*conn, run)
-                } else {
-                    ControlFlow::Continue(())
-                })
+                if *wait {
+                    self.drain(*conn, run)?;
+                }
+                ControlFlow::Continue(())
             }
             Input::Settle => {
-                self.launch()?;
-                let flow = self.drain_all(run);
-                if flow.is_continue() && self.settle() {
+                self.drain_all(run)?;
+                if self.settle() {
                     run.done(at, None);
                 }
-                Ok(flow)
+                ControlFlow::Continue(())
             }
         }
     }
 
     /// Heals, reads what is outstanding, and shuts the process down, then
     /// records its edges and the findings its exit and log show.
-    fn stop(mut self, run: &mut Run<C::Reply>) -> io::Result<()> {
-        if self.up.is_none() {
-            return Ok(());
-        }
+    fn stop(mut self, run: &mut Run<C::Reply>) {
+        let service = self.service;
+        let timing = service.timing;
         if !self.hung {
             self.heal();
             let _ = self.drain_all(run);
         }
-        let service = self.service;
-        let mut up = self.up.take().expect("launched");
         if !self.hung {
-            let _ = up.admin.send(&service.codec, &service.shutdown);
-            self.hung = up.process.wait_exit(service.timing.exit).is_none();
+            if let Ok(mut conn) = Conn::open(&self.socket(), timing.deadline) {
+                let _ = conn.send(&service.codec, &service.shutdown);
+            }
+            self.hung = self.process.wait_exit(timing.exit).is_none();
         }
-        if self.hung {
-            up.process.abort();
+        let Live {
+            dir,
+            process,
+            coverage,
+            hung,
+            ..
+        } = self;
+        if hung {
+            process.abort();
         }
-        let status = up.process.reap(service.timing.exit);
-        for edge in up.coverage.edges() {
+        let status = process.reap(timing.exit);
+        for edge in coverage.edges() {
             run.notes.saw("edge", u64::from(edge));
         }
-        let log = std::fs::read(self.dir.path().join(LOG)).unwrap_or_default();
+        let log = std::fs::read(dir.path().join(LOG)).unwrap_or_default();
         let text = String::from_utf8_lossy(&log);
-        if let Some(finding) = text.lines().find_map(|line| (service.failure)(line)) {
-            run.notes.fail(finding.kind, finding.key);
-        }
-        for finding in sanitizer::leaks(&text) {
+        for finding in (service.findings)(&text) {
             run.notes.fail(finding.kind, finding.key);
         }
         let site = (service.site)(&text);
-        if self.hung {
+        if hung {
             run.notes
                 .fail("hang", site.unwrap_or_else(|| "no reply".to_owned()));
         } else if run.notes.findings.is_empty()
@@ -510,6 +457,5 @@ impl<C: Codec> Session for Live<'_, C> {
             run.notes.fail("crash", site.unwrap_or(cause));
         }
         run.files.push((LOG.to_owned(), log));
-        Ok(())
     }
 }

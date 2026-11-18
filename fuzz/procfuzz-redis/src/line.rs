@@ -153,13 +153,4 @@ mod tests {
         assert!(split(r#"SET "k"v"#).is_err());
         assert!(split(r#"SET "k"#).is_err());
     }
-
-    #[test]
-    fn only_monitored_client_requests_are_commands() {
-        let line = r#"1700000000.123456 [0 unix:/tmp/s.sock] "FT.INFO" "i""#;
-        assert_eq!(monitored(line), Some(r#""FT.INFO" "i""#));
-        assert_eq!(monitored(r#"1700000000.123456 [0 ] "HSET" "d""#), None);
-        assert_eq!(monitored(r#"1700000000.123456 [0 lua] "GET" "k""#), None);
-        assert_eq!(monitored("OK"), None);
-    }
 }

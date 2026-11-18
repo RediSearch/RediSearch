@@ -19,6 +19,7 @@ use crate::interrupt::interrupted;
 use crate::model::{Model, Program};
 
 /// What can start sessions. Any `Fn() -> io::Result<impl Session>` is one.
+/// An error means the harness broke and the run is void.
 pub trait System: Sync {
     type Input;
     type Reply;
@@ -35,17 +36,16 @@ pub trait Session {
     type Reply;
 
     /// Performs input `at`, completing it in `run` now or in a later step.
-    /// `Err` means the harness broke and the run is void; `Break` means the
-    /// system ended.
+    /// `Break` means the system ended.
     fn step(
         &mut self,
         at: usize,
         input: &Self::Input,
         run: &mut Run<Self::Reply>,
-    ) -> io::Result<ControlFlow<()>>;
+    ) -> ControlFlow<()>;
 
     /// Stops the system and records what shows only at the end.
-    fn stop(self, run: &mut Run<Self::Reply>) -> io::Result<()>;
+    fn stop(self, run: &mut Run<Self::Reply>);
 }
 
 impl<F, S> System for F
@@ -182,13 +182,13 @@ where
             done: None,
             reply: None,
         });
-        let flow = session.step(at, &input, &mut run)?;
+        let flow = session.step(at, &input, &mut run);
         folded = fold_completed(model, program, &run, &mut live, folded);
         if flow.is_break() {
             break;
         }
     }
-    session.stop(&mut run)?;
+    session.stop(&mut run);
     model.check(&program.ops(), &run.steps, &mut run.notes);
     Ok(run)
 }

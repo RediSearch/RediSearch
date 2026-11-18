@@ -2,9 +2,11 @@
   "ops": [
     {
       "op": {
-        "op": "boot",
-        "args": [
-          "WORKERS",
+        "op": "command",
+        "argv": [
+          "CONFIG",
+          "SET",
+          "search-workers",
           "2"
         ]
       }

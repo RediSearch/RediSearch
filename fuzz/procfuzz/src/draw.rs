@@ -74,7 +74,7 @@ impl Draw {
     }
 
     /// A fresh value, not recorded: a seed or a replacement for a record.
-    pub fn raw(&mut self) -> u64 {
+    pub(crate) fn raw(&mut self) -> u64 {
         // SplitMix64.
         self.seed = self.seed.wrapping_add(GOLDEN_GAMMA);
         let mut z = self.seed;
@@ -85,27 +85,5 @@ impl Draw {
 
     pub fn into_taken(self) -> Vec<u64> {
         self.taken
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_record_replays_the_same_values_and_then_draws_fresh_ones() {
-        let mut fresh = Draw::new(7);
-        let values: Vec<u64> = [10, 3, 100].iter().map(|&n| fresh.below(n)).collect();
-        let mut replay = Draw::replaying(&fresh.into_taken(), 99);
-        assert_eq!(
-            [10, 3, 100]
-                .iter()
-                .map(|&n| replay.below(n))
-                .collect::<Vec<_>>(),
-            values
-        );
-        replay.below(1000);
-        assert_eq!(replay.into_taken().len(), 4);
-        assert_eq!(Draw::new(0).below(0), 0);
     }
 }

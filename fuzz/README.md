@@ -2,12 +2,12 @@
 
 Design and plan: [`openspec/changes/add-stateful-fuzzer/`](../openspec/changes/add-stateful-fuzzer/).
 
-The fuzzer is four crates in one Cargo workspace:
+The fuzzer is three crates in one Cargo workspace, from generic to specific:
 
 - [`procfuzz/`](procfuzz/) knows nothing about RediSearch, Redis, or RESP. A
   target writes one `Model`; `procfuzz` runs, mutates, and shrinks its
   programs, measures edge coverage through a small C shim, reads sanitizer
-  reports, keeps finding directories, and runs the LibAFL loop.
+  reports, keeps finding directories, and runs the search loop.
 - [`procfuzz-redis/`](procfuzz-redis/) holds what any Redis module target
   shares: the RESP2 codec, launching `redis-server` with modules, and reading
   Redis crash reports.
@@ -15,8 +15,6 @@ The fuzzer is four crates in one Cargo workspace:
   up, which make sense when, what each command does, and logic
   rules over search results. Its seeds, live-test programs, and planted bugs
   live next to it.
-- [`kvd/`](kvd/) is a small server with planted bugs that tests `procfuzz`
-  without a sanitizer build.
 
 ## Setup
 
@@ -134,15 +132,15 @@ The binaries are the ones under `bin/fuzz/`, or those named by
 
 `run` starts a fresh server, executes the program, and logs each finding;
 `RUST_LOG=debug` also logs every step. `--repeat N` runs it N times and
-reports how often each finding reproduced and how many features were reached
-in every run versus in any run. Each distinct finding is written to
+reports how often each finding reproduced. Each distinct finding is written to
 `findings/<finding>/`: the program, the steps, the server log, and a manifest
-with the binaries, sanitizer settings, and reproduction rate. The exit code is
+with the reproduction rate, the binaries and the files they resolve to, the
+server environment, and the timing. The exit code is
 0 without findings, 1 with findings, and 2 on an error such as a server that
 fails to start. `fuzz` runs a coverage-guided campaign in one worker thread
-per core (`--jobs N` to change), each from the programs in `--seeds` and its
-own corpus kept in `corpus/<worker>/`, writing each finding that is new to
-`findings/`. A finding that already has a directory there is not reported
+per core (`--jobs N` to change). The workers share the programs they keep,
+start from those in `--seeds` and in `corpus/`, write what they keep to
+`corpus/`, and write each finding that is new to `findings/`. A finding that already has a directory there is not reported
 again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
 in progress finish and cleans up their servers.
 
@@ -177,14 +175,15 @@ Edit out commands that reply with an error, which the seed test rejects.
 
 ```bash
 cd fuzz
-cargo test --workspace                                       # unit tests and kvd, no server needed
+cargo test --workspace                                       # unit tests, no server needed
 cargo test -- --ignored                                      # live tests, after fuzz/setup.sh
 ```
 
-The live tests check that every seed runs without an error reply and reaches
-code no other seed does; exercise the harness with the programs under
-`tests/programs/` (a hang, a stall that healing releases, and a settle that
-cannot complete); check that most replies to generated programs are not
-errors, that a crash inside a generated program reduces to the crashing
-command, that the programs under `planted/` give a real sanitizer report and a
-real assertion, and that a short campaign from the seeds finds a planted bug.
+The live tests run against the real server: every seed runs without an
+error reply and reaches code no other seed does; the programs under
+`tests/programs/` give a hang, a stall that healing releases, and a settle
+that cannot complete; most replies to generated programs are not errors; a
+crash inside a generated program reduces to the crashing command; the
+programs under `planted/` give a real sanitizer report and a real assertion;
+a failing worker stops the campaign; and a short campaign from the seeds
+finds a planted bug.

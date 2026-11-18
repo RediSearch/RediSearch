@@ -17,8 +17,10 @@
 //! settle that completed and closes at the next step that can change
 //! results; no such step may run while either search is in flight. `DEBUG
 //! RELOAD` must not change results, but the index is rebuilding afterwards,
-//! so a window opens only at the next settle. Without `ON_TIMEOUT FAIL` a
-//! slow search returns partial results, so no rule applies.
+//! so a window opens only at the next settle. Unless a query that times out
+//! fails, a slow search returns partial results, so no rule applies; nor
+//! does one after a configuration parameter the model does not follow was
+//! set, such as the default dialect.
 
 use std::collections::BTreeSet;
 
@@ -199,7 +201,7 @@ fn comparable_results<'a>(
         let step = &steps[at];
         match (&ops[at].action, effects[at]) {
             (Action::Settle, _) => open = true,
-            (_, Effect::Reads | Effect::Schedules) => {}
+            (_, Effect::Reads) => {}
             (_, Effect::Rebuilds) => open = false,
             (_, Effect::Writes) => {
                 window += 1;
@@ -209,7 +211,7 @@ fn comparable_results<'a>(
         let done = step.done.expect("completed");
         // A write may run any time between its send and its reply.
         let undisturbed = steps.iter().zip(&effects).all(|(other, effect)| {
-            matches!(effect, Effect::Reads | Effect::Schedules)
+            *effect == Effect::Reads
                 || other.sent >= done
                 || other.done.is_some_and(|other_done| other_done <= step.sent)
         });
@@ -218,7 +220,7 @@ fn comparable_results<'a>(
             query,
             options,
         } = &ops[at].action
-            && state.fails_on_timeout
+            && state.exact()
             && open
             && undisturbed
             && comparable(query, options)
@@ -275,7 +277,7 @@ mod tests {
                 let tick = u32::try_from(2 * at + 1).unwrap();
                 let reply = match action {
                     Action::Query { .. } => Some(Value::Array(vec![Value::Int(*total)])),
-                    Action::Settle | Action::Boot { .. } => None,
+                    Action::Settle => None,
                     _ => Some(Value::Simple("OK".into())),
                 };
                 Step {
@@ -313,28 +315,28 @@ mod tests {
         let command = |words: &[&str]| (Action::command(words), 0);
         // Two indexes on one prefix, created before `before`, then a settle,
         // then `after`.
-        let program = |boot: bool, before: Vec<(Action, i64)>, after: Vec<(Action, i64)>| {
-            let create = |index: &str| Action::Create {
-                index: index.into(),
-                on: DataType::Hash,
-                prefix: "d:".into(),
-                fields: vec![Field {
-                    name: "t".into(),
-                    kind: FieldKind::Text,
-                    sortable: false,
-                }],
+        let program =
+            |fails_on_timeout: bool, before: Vec<(Action, i64)>, after: Vec<(Action, i64)>| {
+                let create = |index: &str| Action::Create {
+                    index: index.into(),
+                    on: DataType::Hash,
+                    prefix: "d:".into(),
+                    fields: vec![Field {
+                        name: "t".into(),
+                        kind: FieldKind::Text,
+                        sortable: false,
+                    }],
+                };
+                let mut ops = Vec::new();
+                if fails_on_timeout {
+                    ops.push(command(&["CONFIG", "SET", "search-on-timeout", "fail"]));
+                }
+                ops.extend([(create("i"), 0), (create("j"), 0)]);
+                ops.extend(before);
+                ops.push((Action::Settle, 0));
+                ops.extend(after);
+                ops
             };
-            let mut ops = Vec::new();
-            if boot {
-                let args = vec!["ON_TIMEOUT".into(), "FAIL".into()];
-                ops.push((Action::Boot { args }, 0));
-            }
-            ops.extend([(create("i"), 0), (create("j"), 0)]);
-            ops.extend(before);
-            ops.push((Action::Settle, 0));
-            ops.extend(after);
-            ops
-        };
         let partition = |rest| {
             let not_world = Query::And(vec![hello(), Query::Not(Box::new(world()))]);
             let after = vec![
@@ -352,17 +354,17 @@ mod tests {
             ];
             program(true, Vec::new(), after)
         };
-        let twin = |boot, before, dialect| {
+        let twin = |fails_on_timeout, before, dialect| {
             let after = vec![
                 (search("i", hello(), dialect), 3),
                 (search("j", hello(), dialect), 2),
             ];
-            program(boot, before, after)
+            program(fails_on_timeout, before, after)
         };
         let gc = || command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
         let all = |ops: Vec<(Action, i64)>| findings(&ops, |_| {});
         let hset = || command(&["HSET", "d:1", "t", "hello"]);
-        let cases: [(Vec<String>, &[&str]); 12] = [
+        let cases: [(Vec<String>, &[&str]); 13] = [
             (all(partition(3)), &[]),
             (all(partition(2)), &["logic:partition:term"]),
             (all(repeated(gc(), 3)), &[]),
@@ -382,6 +384,14 @@ mod tests {
                 all(twin(
                     true,
                     vec![command(&["FT.ALTER", "j", "SCHEMA", "ADD", "u", "TEXT"])],
+                    None,
+                )),
+                &[],
+            ),
+            (
+                all(twin(
+                    true,
+                    vec![command(&["CONFIG", "SET", "search-default-dialect", "4"])],
                     None,
                 )),
                 &[],

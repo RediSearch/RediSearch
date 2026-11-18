@@ -9,7 +9,7 @@ license-file = "../../LICENSE.txt"
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true
-procfuzz = { workspace = true, features = ["cli"] }
+procfuzz.workspace = true
 procfuzz-redis.workspace = true
 serde.workspace = true
 serde_json.workspace = true

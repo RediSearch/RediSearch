@@ -2,10 +2,12 @@
   "ops": [
     {
       "op": {
-        "op": "boot",
-        "args": [
-          "ON_TIMEOUT",
-          "FAIL"
+        "op": "command",
+        "argv": [
+          "CONFIG",
+          "SET",
+          "search-on-timeout",
+          "fail"
         ]
       }
     },

@@ -6,14 +6,8 @@ description = "Building blocks for coverage-guided fuzzing of programs run again
 publish = false
 license-file = "../../LICENSE.txt"
 
-[features]
-# The fuzzer's commands as a clap subcommand, for a target's own main.
-cli = ["dep:clap"]
-
 [dependencies]
-clap = { workspace = true, optional = true }
-libafl.workspace = true
-libafl_bolts.workspace = true
+clap.workspace = true
 log.workspace = true
 memmap2.workspace = true
 nix.workspace = true

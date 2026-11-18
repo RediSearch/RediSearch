@@ -38,9 +38,7 @@ pub fn import(text: &str) -> Result<Program, String> {
             let op = Op {
                 conn: 0,
                 defer: false,
-                action: Action::Command {
-                    argv: argv.try_into()?,
-                },
+                action: Action::Command { argv },
             };
             Ok(Made {
                 op,
@@ -51,15 +49,13 @@ pub fn import(text: &str) -> Result<Program, String> {
     Ok(Program { ops })
 }
 
-/// The program as `redis-cli` reads it, with module arguments and settles as
-/// `#` notes. Only a program on one connection that awaits every reply and
+/// The program as `redis-cli` reads it, with settles as `#` notes. Only a program on one connection that awaits every reply and
 /// keeps no cursor has one.
 pub fn export(program: &Program) -> Result<String, String> {
     let mut state = State::default();
     let mut script = String::new();
     for (at, made) in program.ops.iter().enumerate() {
         match made.op.lower(&state) {
-            Input::Boot(args) => script += &format!("# module arguments: {}\n", args.join(" ")),
             Input::Settle => script += "# wait until the server is idle\n",
             Input::Send {
                 conn: 0,

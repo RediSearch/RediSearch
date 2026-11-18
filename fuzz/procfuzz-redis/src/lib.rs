@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use procfuzz::sanitizer::{self, basename};
-use procfuzz::service::Service;
+use procfuzz::service::{Service, Timing};
 use procfuzz::system::Finding;
 
 use crate::resp::{Resp2, argv};
@@ -25,9 +25,9 @@ use crate::resp::{Resp2, argv};
 const STACK_TRACE: &str = "------ STACK TRACE ------";
 
 /// `redis-server` at `server` with `modules` loaded in order, started with
-/// the variables in `env`. Boot arguments are the first module's, and a
-/// crash is blamed on its frames first. Failures are sanitizer errors, Redis
-/// assertions, and Redis panics.
+/// the variables in `env`. It never pauses and is always idle. A crash is
+/// blamed on the first module's frames first. Failures are sanitizer
+/// errors, Redis assertions, and Redis panics.
 pub fn service(
     server: PathBuf,
     modules: Vec<PathBuf>,
@@ -37,7 +37,7 @@ pub fn service(
         .first()
         .and_then(|module| module.file_name())
         .map(|name| name.to_string_lossy().into_owned());
-    let launch = move |dir: &Path, socket: &Path, boot: &[String]| {
+    let launch = move |dir: &Path, socket: &Path| {
         let mut command = Command::new(&server);
         command
             .envs(env.iter().map(|(name, value)| (name, value)))
@@ -46,23 +46,22 @@ pub fn service(
             .arg(socket)
             .arg("--dir")
             .arg(dir);
-        for (at, module) in modules.iter().enumerate() {
+        for module in &modules {
             command.arg("--loadmodule").arg(module);
-            if at == 0 {
-                command.args(boot);
-            }
         }
         command
     };
-    let mut service = Service::new(
-        Resp2,
-        launch,
-        argv(&["PING"]),
-        argv(&["SHUTDOWN", "NOSAVE"]),
-    );
-    service.failure = Box::new(|line| sanitizer::error(line).or_else(|| failure(line)));
-    service.site = Box::new(move |log| crash_site(log, blamed.as_deref()));
-    service
+    Service {
+        codec: Resp2,
+        launch: Box::new(launch),
+        ready: argv(&["PING"]),
+        shutdown: argv(&["SHUTDOWN", "NOSAVE"]),
+        heal: Box::new(|_| ()),
+        idle: Box::new(|_| true),
+        findings: Box::new(|log| sanitizer::findings(log, failure)),
+        site: Box::new(move |log| crash_site(log, blamed.as_deref())),
+        timing: Timing::default(),
+    }
 }
 
 /// A Redis assertion, `==> /src/tag_index.c:337 'x' is not true`, or a

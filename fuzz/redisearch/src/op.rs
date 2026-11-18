@@ -55,10 +55,6 @@ pub struct Op {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Action {
-    /// Module arguments; they count only before every other op.
-    Boot {
-        args: Vec<String>,
-    },
     Create {
         index: Bytes,
         #[serde(default, skip_serializing_if = "is_default")]
@@ -110,7 +106,7 @@ pub enum Action {
     /// Waits until the server has no background work left.
     Settle,
     Command {
-        argv: Command,
+        argv: Argv,
     },
 }
 
@@ -119,11 +115,6 @@ pub struct CursorSlot {
     pub slot: u8,
     pub count: u32,
 }
-
-/// A command of at least one word.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "Argv", into = "Argv")]
-pub struct Command(Argv);
 
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
@@ -235,7 +226,6 @@ impl Op {
     /// The input it sends, with cursor ids from `state`.
     pub fn lower(&self, state: &State) -> Input<Argv> {
         match &self.action {
-            Action::Boot { args } => Input::Boot(args.clone()),
             Action::Settle => Input::Settle,
             action => Input::Send {
                 conn: self.conn,
@@ -248,16 +238,13 @@ impl Op {
 
 impl Action {
     pub fn command(words: &[&str]) -> Action {
-        Action::Command {
-            argv: Command(argv(words)),
-        }
+        Action::Command { argv: argv(words) }
     }
 
     /// What it does to search results.
     pub fn effect(&self) -> Effect {
         match self {
-            Action::Boot { .. }
-            | Action::Settle
+            Action::Settle
             | Action::Query { .. }
             | Action::Aggregate { .. }
             | Action::CursorRead { .. }
@@ -265,7 +252,7 @@ impl Action {
             Action::Create { .. } | Action::Alter { .. } | Action::Populate { .. } => {
                 Effect::Writes
             }
-            Action::Command { argv } => describe(argv.words()).0,
+            Action::Command { argv } => describe(argv).0,
         }
     }
 
@@ -284,11 +271,11 @@ impl Action {
         self.names_a_cursor() || matches!(self, Action::CursorDel { .. })
     }
 
-    /// The commands it sends; none for a boot argument or a settle.
+    /// The commands it sends; none for a settle.
     pub fn commands(&self, state: &State) -> Vec<Argv> {
         match self {
-            Action::Boot { .. } | Action::Settle => Vec::new(),
-            Action::Command { argv } => vec![argv.0.clone()],
+            Action::Settle => Vec::new(),
+            Action::Command { argv } => vec![argv.clone()],
             Action::Create {
                 index,
                 on,
@@ -389,30 +376,6 @@ fn cursor_command(action: &str, state: &State, slot: u8) -> Argv {
         index,
         id.to_string().into(),
     ]
-}
-
-impl Command {
-    pub fn words(&self) -> &Argv {
-        &self.0
-    }
-}
-
-impl TryFrom<Argv> for Command {
-    type Error = &'static str;
-
-    fn try_from(argv: Argv) -> Result<Command, &'static str> {
-        if argv.is_empty() {
-            Err("a command needs at least one word")
-        } else {
-            Ok(Command(argv))
-        }
-    }
-}
-
-impl From<Command> for Argv {
-    fn from(command: Command) -> Argv {
-        command.0
-    }
 }
 
 impl DataType {
@@ -809,11 +772,5 @@ mod tests {
             aggregate.lower(&State::default()),
             Input::Send { wait: true, .. }
         ));
-    }
-
-    #[test]
-    fn a_command_without_words_does_not_load() {
-        let error = serde_json::from_str::<Op>(r#"{"op": "command", "argv": []}"#).unwrap_err();
-        assert!(error.to_string().contains("at least one word"), "{error}");
     }
 }

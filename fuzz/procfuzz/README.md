@@ -27,12 +27,11 @@ The rest is usable on its own:
 
 - `system::run` runs a program and judges it;
 - `edit::mutate` and `edit::shrink`;
-- `campaign::fuzz` searches for programs that reach new features (LibAFL);
+- `campaign::fuzz` searches for programs that reach new features;
 - `findings::Findings` keeps one directory per finding, shared by workers;
 - `commands` replays a program, reduces one to a finding, fuzzes in parallel
-  threads, and generates programs;
-- with the `cli` feature, `cli::Command` is those commands as a clap
-  subcommand, for a target's own parser beside its own flags;
+  threads, and generates programs; `commands::Command` is those commands as a
+  clap subcommand, for a target's own parser beside its own flags;
 - `interrupt::on_signals` makes SIGINT and SIGTERM stop cleanly.
 
 Coverage comes from SanitizerCoverage's `trace-pc-guard`: build the target
@@ -42,5 +41,4 @@ uninstrumented. The shim writes edges to the shared memory named in
 process are kept. Progress is logged with the `log` crate.
 
 `procfuzz-redis` adds Redis: the RESP2 codec and `redis-server` with modules
-as a `Service`. `kvd` is a small target with planted bugs that tests all of
-the above without a sanitizer build.
+as a `Service`.

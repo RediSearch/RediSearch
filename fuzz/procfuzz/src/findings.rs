@@ -54,7 +54,7 @@ impl Findings {
         })
     }
 
-    pub fn dir(&self, finding: &str) -> PathBuf {
+    fn dir(&self, finding: &str) -> PathBuf {
         let name: String = finding
             .chars()
             .map(|c| {
@@ -107,6 +107,6 @@ impl Findings {
     }
 }
 
-pub fn to_json(value: &impl Serialize) -> io::Result<Vec<u8>> {
+fn to_json(value: &impl Serialize) -> io::Result<Vec<u8>> {
     serde_json::to_vec_pretty(value).map_err(io::Error::other)
 }

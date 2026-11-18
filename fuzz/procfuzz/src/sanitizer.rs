@@ -13,12 +13,22 @@ use crate::system::Finding;
 
 const ALLOCATORS: [&str; 3] = ["alloc", "strdup", "strndup"];
 
+/// The failures a log reports: the first line that reports one, as an
+/// AddressSanitizer error or by `failure`, since reporting a failure can
+/// cause others, and each leak.
+pub fn findings(log: &str, failure: impl Fn(&str) -> Option<Finding>) -> Vec<Finding> {
+    let first = log
+        .lines()
+        .find_map(|line| error(line).or_else(|| failure(line)));
+    first.into_iter().chain(leaks(log)).collect()
+}
+
 /// The finding a line with an AddressSanitizer error summary reports.
 /// `heap-use-after-free /src/spec.c:123:7 in IndexSpec_Free` becomes
 /// `asan:heap-use-after-free:IndexSpec_Free:spec.c:123`. Without debug
 /// information the location is a binary and an offset that changes with
 /// every build, so only the binary's name is kept.
-pub fn error(line: &str) -> Option<Finding> {
+fn error(line: &str) -> Option<Finding> {
     let summary = line.split("SUMMARY: AddressSanitizer: ").nth(1)?;
     if summary.contains(" leaked in ") {
         return None;
@@ -45,7 +55,7 @@ pub fn error(line: &str) -> Option<Finding> {
 }
 
 /// A finding per leak, naming its first frame outside an allocator.
-pub fn leaks(log: &str) -> Vec<Finding> {
+fn leaks(log: &str) -> Vec<Finding> {
     log.split("leak of ")
         .skip(1)
         .filter_map(|report| {

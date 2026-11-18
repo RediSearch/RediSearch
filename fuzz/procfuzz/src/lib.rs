@@ -14,17 +14,14 @@
 //! such ops against a [`system::System`], such as a [`service::Service`],
 //! and [`edit`] mutates and shrinks programs through the [`draw::Draw`]s that
 //! made their ops. [`campaign`] searches for programs that reach new
-//! features, and [`commands`] (as a clap subcommand in [`cli`]) puts it all
-//! together: replay, reduce, fuzz, and generate.
+//! features, and [`commands`] puts it all together as a clap subcommand:
+//! replay, reduce, fuzz, and generate.
 
 pub mod campaign;
-#[cfg(feature = "cli")]
-pub mod cli;
 pub mod commands;
 mod coverage;
 pub mod draw;
 pub mod edit;
-pub mod error;
 pub mod findings;
 pub mod interrupt;
 pub mod model;
@@ -32,6 +29,3 @@ mod process;
 pub mod sanitizer;
 pub mod service;
 pub mod system;
-
-#[cfg(test)]
-mod toy;

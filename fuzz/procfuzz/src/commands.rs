@@ -8,33 +8,165 @@
 */
 
 //! What a fuzzer does with a model and a system: replay a program, reduce
-//! one to a finding, or fuzz. Progress goes to `log`.
+//! one to a finding, fuzz, or generate one. [`Command`] is a clap subcommand
+//! for a target's own parser:
+//!
+//! ```ignore
+//! #[derive(clap::Parser)]
+//! struct Cli {
+//!     #[command(subcommand)]
+//!     command: procfuzz::commands::Command,
+//!     #[arg(long, env = "MY_SERVER")]
+//!     server: PathBuf,
+//! }
+//!
+//! let cli = Cli::parse();
+//! let found = cli.command.exec(&MyModel, &my_service(&cli.server), &cli.server)?;
+//! ```
+//!
+//! Progress goes to `log`.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use log::{debug, error, info};
+use clap::Subcommand;
+use log::{debug, info};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::campaign::{self, Campaign};
 use crate::draw::Draw;
 use crate::edit::{mutate, shrink};
-use crate::error::Error;
 use crate::findings::{Findings, Rate};
-use crate::model::{Model, Program};
+use crate::interrupt;
+use crate::model::{Model, Program, generate};
 use crate::system::{Run, System, run};
 
-/// Runs of a new finding's program that tell how often it reproduces.
-pub const REPRODUCTIONS: u32 = 5;
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Run a program on a fresh system and write a bundle per finding.
+    Run {
+        program: PathBuf,
+        /// Run the program this many times and report how often each
+        /// finding recurs.
+        #[arg(long, default_value_t = 1)]
+        repeat: u32,
+        #[arg(long, default_value = "findings")]
+        findings: PathBuf,
+    },
+    /// Shrink a program while it still yields a finding, then run the result
+    /// like `run`.
+    Reduce {
+        program: PathBuf,
+        /// The finding to keep; by default the program's first.
+        #[arg(long)]
+        finding: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        repeat: u32,
+        #[arg(long, default_value = "findings")]
+        findings: PathBuf,
+    },
+    /// Run coverage-guided campaigns until stopped or for `--duration`.
+    Fuzz {
+        /// Directories of seed programs.
+        #[arg(long)]
+        seeds: Vec<PathBuf>,
+        /// Stop after this many seconds.
+        #[arg(long)]
+        duration: Option<u64>,
+        /// Where the programs kept are written.
+        #[arg(long, default_value = "corpus")]
+        corpus: PathBuf,
+        #[arg(long, default_value = "findings")]
+        findings: PathBuf,
+        /// Campaigns to run at once; by default one per core.
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
+    /// Print a generated program.
+    Generate {
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+        #[arg(long, default_value_t = 20)]
+        ops: usize,
+    },
+}
 
-pub fn load<O: DeserializeOwned>(path: &Path) -> Result<Program<O>, Error> {
+impl Command {
+    /// Runs the command and returns whether anything was found. `setup` is
+    /// recorded in every finding's manifest, such as the binaries used. The
+    /// first SIGINT or SIGTERM stops the command cleanly.
+    pub fn exec<M, S>(self, model: &M, system: &S, setup: &impl Serialize) -> io::Result<bool>
+    where
+        M: Model,
+        M::Reply: Clone + Serialize + Debug,
+        S: System<Input = M::Input, Reply = M::Reply>,
+    {
+        interrupt::on_signals()?;
+        match self {
+            Command::Run {
+                program,
+                repeat,
+                findings,
+            } => {
+                let findings = Findings::new(&findings, setup)?;
+                replay(model, system, &findings, &load(&program)?, None, repeat)
+            }
+            Command::Reduce {
+                program,
+                finding,
+                repeat,
+                findings,
+            } => {
+                let findings = Findings::new(&findings, setup)?;
+                let original = load(&program)?;
+                let reduced = reduce(model, system, &original, finding.as_deref())?;
+                replay(model, system, &findings, &reduced, Some(&original), repeat)
+            }
+            Command::Fuzz {
+                seeds,
+                duration,
+                corpus,
+                findings,
+                jobs,
+            } => {
+                let findings = Findings::new(&findings, setup)?;
+                let campaign = Campaign {
+                    seeds: &seeds,
+                    corpus: &corpus,
+                    duration: duration.map(Duration::from_secs),
+                };
+                let jobs = jobs
+                    .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+                    .unwrap_or(1);
+                fuzz(model, system, &findings, &campaign, jobs)?;
+                Ok(false)
+            }
+            Command::Generate { seed, ops } => {
+                let program = generate(model, &mut Draw::new(seed), ops);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&program).expect("serializes")
+                );
+                Ok(false)
+            }
+        }
+    }
+}
+
+/// Runs of a new finding's program that tell how often it reproduces.
+const REPRODUCTIONS: u32 = 5;
+
+pub fn load<O: DeserializeOwned>(path: &Path) -> io::Result<Program<O>> {
     let text = std::fs::read_to_string(path)?;
-    serde_json::from_str(&text).map_err(|source| Error::Program {
-        path: path.to_owned(),
-        source,
+    serde_json::from_str(&text).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{}: {e}", path.display()),
+        )
     })
 }
 
@@ -48,7 +180,7 @@ pub fn replay<M, S>(
     program: &Program<M::Op>,
     original: Option<&Program<M::Op>>,
     repeat: u32,
-) -> Result<bool, Error>
+) -> io::Result<bool>
 where
     M: Model,
     M::Reply: Clone + Serialize + Debug,
@@ -96,7 +228,7 @@ pub fn reduce<M, S>(
     system: &S,
     program: &Program<M::Op>,
     finding: Option<&str>,
-) -> Result<Program<M::Op>, Error>
+) -> io::Result<Program<M::Op>>
 where
     M: Model,
     S: System<Input = M::Input, Reply = M::Reply>,
@@ -107,7 +239,7 @@ where
         .iter()
         .map(ToString::to_string)
         .find(|found| finding.is_none_or(|wanted| wanted == found))
-        .ok_or(Error::NoSuchFinding)?;
+        .ok_or_else(|| io::Error::other("the program does not yield that finding"))?;
     info!("reducing {finding}");
     Ok(shrink(model, program, |candidate| {
         let fails = run(model, system, candidate).is_ok_and(|run| run.notes.shows(&finding));
@@ -118,66 +250,36 @@ where
     }))
 }
 
-/// Runs `jobs` independent campaigns in threads named `worker <n>`, each
-/// keeping its corpus in `<campaign.corpus>/<n>`, and writes each new finding to `findings` with how often it reproduces in
-/// [`REPRODUCTIONS`] runs. A worker that fails stops the others, and its
-/// error is returned.
+/// Runs a campaign in `jobs` threads, and writes each new finding to
+/// `findings` with how often it reproduces in [`REPRODUCTIONS`] runs.
 pub fn fuzz<M, S>(
     model: &M,
     system: &S,
     findings: &Findings,
     campaign: &Campaign<'_>,
     jobs: usize,
-) -> Result<(), Error>
+) -> io::Result<()>
 where
     M: Model,
     M::Reply: Serialize,
     S: System<Input = M::Input, Reply = M::Reply>,
 {
-    let stop = &AtomicBool::new(false);
-    let worker = |n: usize| {
-        let corpus = campaign.corpus.join(n.to_string());
-        let campaign = Campaign {
-            corpus: &corpus,
-            ..*campaign
-        };
-        let execute = |program: &Program<M::Op>| {
-            let run = run(model, system, program)?;
-            for finding in &run.notes.findings {
-                let name = finding.to_string();
-                if findings.claim(&name) {
-                    let rate = reproduce(model, system, program, &name);
-                    let dir = findings.write(&name, program, None, &run, rate)?;
-                    info!("new finding: {name} -> {}", dir.display());
-                }
+    let execute = |program: &Program<M::Op>| {
+        let run = run(model, system, program)?;
+        for finding in &run.notes.findings {
+            let name = finding.to_string();
+            if findings.claim(&name) {
+                let rate = reproduce(model, system, program, &name);
+                let dir = findings.write(&name, program, None, &run, rate)?;
+                info!("new finding: {name} -> {}", dir.display());
             }
-            Ok::<_, Error>(run.notes.features)
-        };
-        let mutate = |parent: &Program<M::Op>, donor: &Program<M::Op>, rng: &mut Draw| {
-            mutate(model, parent, donor, rng)
-        };
-        let result = campaign::fuzz(&campaign, stop, execute, mutate);
-        if let Err(e) = &result {
-            error!("{e}");
-            stop.store(true, Ordering::Relaxed);
         }
-        result
+        Ok(run.notes.features)
     };
-    let worker = &worker;
-    std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..jobs)
-            .map(|n| {
-                std::thread::Builder::new()
-                    .name(format!("worker {n}"))
-                    .spawn_scoped(scope, move || worker(n))
-                    .expect("threads start")
-            })
-            .collect();
-        for worker in workers {
-            worker.join().expect("workers do not panic")?;
-        }
-        Ok(())
-    })
+    let mutate = |parent: &Program<M::Op>, donor: &Program<M::Op>, rng: &mut Draw| {
+        mutate(model, parent, donor, rng)
+    };
+    campaign::fuzz(campaign, jobs, execute, mutate)
 }
 
 /// How often `finding` shows in [`REPRODUCTIONS`] runs of `program`, the
@@ -193,53 +295,5 @@ where
     Rate {
         reproduced: 1 + u32::try_from(again).expect("small"),
         runs: REPRODUCTIONS,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    use super::*;
-    use crate::toy::{Store, Toy};
-
-    #[test]
-    fn a_failing_worker_stops_the_campaign_without_waiting_for_the_others() {
-        let (done, result) = mpsc::channel();
-        // Not scoped, so that a campaign that never stops fails the test
-        // rather than hanging it.
-        std::thread::spawn(move || done.send(campaign_with_a_failing_worker()));
-        let result = result
-            .recv_timeout(Duration::from_secs(60))
-            .expect("the campaign stops");
-        let error = result.unwrap_err().to_string();
-        assert!(error.contains("runs in a row failed"), "{error}");
-    }
-
-    fn campaign_with_a_failing_worker() -> Result<(), Error> {
-        let dir = tempfile::tempdir().unwrap();
-        let findings = Findings::new(&dir.path().join("findings"), &()).unwrap();
-        let corpus = dir.path().join("corpus");
-        let campaign = Campaign {
-            seeds: &[],
-            corpus: &corpus,
-            duration: None,
-        };
-        let failing_worker_runs = AtomicUsize::new(0);
-        let start = || {
-            let name = std::thread::current().name().map(str::to_owned);
-            // Its first run succeeds, so the worker gets past loading the
-            // corpus.
-            if name.as_deref() == Some("worker 0")
-                && failing_worker_runs.fetch_add(1, Ordering::Relaxed) > 0
-            {
-                return Err(io::Error::other("the system did not start"));
-            }
-            Ok(Store::default())
-        };
-        fuzz(&Toy, &start, &findings, &campaign, 2)
     }
 }

@@ -22,12 +22,13 @@ const EXACT_TOTALS_BEFORE_DIALECT: u8 = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct State {
-    /// Whether an op other than a boot argument ran.
-    pub started: bool,
     /// Whether a query that times out fails rather than returning what it
     /// found so far.
     pub fails_on_timeout: bool,
-    pub workers: bool,
+    /// Whether a configuration parameter the model does not follow was set.
+    pub reconfigured: bool,
+    /// Workers are on by default.
+    pub workers_off: bool,
     pub paused: bool,
     pub indexes: BTreeMap<Bytes, Schema>,
     pub cursors: BTreeMap<u8, Cursor>,
@@ -68,18 +69,11 @@ impl State {
     /// Folds `op` in. `reply` is `None` when predicting, which assumes
     /// success.
     pub fn apply(&mut self, op: &Op, reply: Option<&Value>) {
-        if let Action::Boot { args } = &op.action {
-            if !self.started {
-                self.boot(args);
-            }
-            return;
-        }
-        self.started = true;
         if matches!(reply, Some(Value::Error(_))) {
             return;
         }
         match &op.action {
-            Action::Boot { .. } | Action::Settle | Action::Populate { .. } => {}
+            Action::Settle | Action::Populate { .. } => {}
             Action::Create {
                 index,
                 on,
@@ -140,9 +134,8 @@ impl State {
                 self.cursors.remove(slot);
             }
             Action::Command { argv } => {
-                let words = argv.words();
-                let named = words.get(1);
-                match describe(words).1 {
+                let named = argv.get(1);
+                match describe(argv).1 {
                     Change::None => {}
                     Change::DropsIndex => {
                         if let Some(index) = named {
@@ -164,21 +157,32 @@ impl State {
                     }
                     Change::PausesWorkers => self.paused = true,
                     Change::ResumesWorkers => self.paused = false,
+                    Change::Configures => self.configure(argv.get(2..).unwrap_or_default()),
                 }
             }
         }
     }
 
-    fn boot(&mut self, args: &[String]) {
-        for pair in args.windows(2) {
+    /// Names as `CONFIG SET` (`search-on-timeout`) or `FT.CONFIG SET`
+    /// (`ON_TIMEOUT`) takes them.
+    fn configure(&mut self, settings: &[Bytes]) {
+        for pair in settings.chunks(2) {
             let [name, value] = pair else { continue };
-            if name.eq_ignore_ascii_case("ON_TIMEOUT") {
-                self.fails_on_timeout = value.eq_ignore_ascii_case("FAIL");
-            }
-            if name.eq_ignore_ascii_case("WORKERS") {
-                self.workers = value != "0";
+            let name = String::from_utf8_lossy(name.as_slice())
+                .to_ascii_lowercase()
+                .replace('_', "-");
+            let value = String::from_utf8_lossy(value.as_slice()).to_ascii_lowercase();
+            match name.strip_prefix("search-").unwrap_or(&name) {
+                "on-timeout" => self.fails_on_timeout = value == "fail",
+                "workers" => self.workers_off = value == "0",
+                _ => self.reconfigured = true,
             }
         }
+    }
+
+    /// Whether searches return exactly what matched.
+    pub fn exact(&self) -> bool {
+        self.fails_on_timeout && !self.reconfigured
     }
 
     pub fn key(&self, index: &Bytes) -> Option<Key> {

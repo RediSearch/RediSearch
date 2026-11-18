@@ -11,16 +11,18 @@
 //! `cargo test -- --ignored`.
 
 use std::collections::BTreeSet;
+use std::io;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
-use procfuzz::campaign::{Campaign, fuzz};
-use procfuzz::commands::{load, reduce};
+use procfuzz::campaign::Campaign;
+use procfuzz::commands::{fuzz, load, reduce};
 use procfuzz::draw::Draw;
-use procfuzz::edit::mutate;
+use procfuzz::findings::Findings;
 use procfuzz::model::{Made, generate};
-use procfuzz::system::{Run, run};
+use procfuzz::system::{Run, System, run};
 use procfuzz_redis::resp::Value;
 use redisearch_fuzz::op::{Action, Op};
 use redisearch_fuzz::server::{Server, built};
@@ -194,25 +196,58 @@ fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
 fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     let dir = tempfile::tempdir().unwrap();
     let env = planted();
-    let service = env.service();
-    let mut found = Vec::new();
+    let findings = Findings::new(&dir.path().join("findings"), &env.setup()).unwrap();
     let campaign = Campaign {
         seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
-        corpus: dir.path(),
+        corpus: &dir.path().join("corpus"),
         duration: Some(Duration::from_secs(CAMPAIGN_SECS)),
     };
-    let execute = |program: &Program| {
-        let run = run(&RediSearch, &service, program)?;
-        found.extend(findings(&run));
-        Ok::<_, std::io::Error>(run.notes.features)
-    };
-    let mutate =
-        |parent: &Program, donor: &Program, rng: &mut Draw| mutate(&RediSearch, parent, donor, rng);
-    fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
+    fuzz(&RediSearch, &env.service(), &findings, &campaign, 1).unwrap();
+    let found: Vec<String> = std::fs::read_dir(dir.path().join("findings"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
     assert!(
         found
             .iter()
             .any(|f| f.contains("QueryNode_CheckIsValid") || f.contains("module.c")),
         "{found:?}"
     );
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_failing_worker_stops_the_campaign_without_waiting_for_the_others() {
+    let (done, result) = mpsc::channel();
+    // Not scoped, so that a campaign that never stops fails the test rather
+    // than hanging it.
+    std::thread::spawn(move || done.send(campaign_with_a_failing_worker()));
+    let result = result
+        .recv_timeout(Duration::from_secs(CAMPAIGN_SECS))
+        .expect("the campaign stops");
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("runs in a row failed"), "{error}");
+}
+
+fn campaign_with_a_failing_worker() -> io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let env = redisearch();
+    let findings = Findings::new(&dir.path().join("findings"), &env.setup())?;
+    let campaign = Campaign {
+        seeds: &[],
+        corpus: &dir.path().join("corpus"),
+        duration: None,
+    };
+    let service = env.service();
+    let failing_worker_runs = AtomicUsize::new(0);
+    let start = || {
+        // Its first run succeeds, so the worker gets past loading the corpus.
+        if std::thread::current().name() == Some("worker 0")
+            && failing_worker_runs.fetch_add(1, Ordering::Relaxed) > 0
+        {
+            return Err(io::Error::other("the system did not start"));
+        }
+        service.start()
+    };
+    fuzz(&RediSearch, &start, &findings, &campaign, 2)
 }

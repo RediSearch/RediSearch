@@ -33,7 +33,12 @@ const INDEXES: [&str; 3] = ["i0", "i1", "i2"];
 const HASH_PREFIXES: [&str; 2] = ["d0:", "d1:"];
 const JSON_PREFIXES: [&str; 2] = ["j0:", "j1:"];
 const FIELDS: [&str; 5] = ["f0", "f1", "f2", "f3", "f4"];
-const BOOT_ARGS: [[&str; 2]; 2] = [["ON_TIMEOUT", "FAIL"], ["WORKERS", "2"]];
+const SETTINGS: [[&str; 2]; 4] = [
+    ["search-on-timeout", "fail"],
+    ["search-on-timeout", "return"],
+    ["search-workers", "0"],
+    ["search-workers", "2"],
+];
 /// Hooks into background work; `{index}` stands for the index.
 const HOOKS: [&[&str]; 5] = [
     &[DEBUG, "GC_FORCEINVOKE", "{index}"],
@@ -44,17 +49,14 @@ const HOOKS: [&[&str]; 5] = [
 ];
 
 pub fn next(state: &State, draw: &mut Draw) -> Op {
-    if !state.started {
-        // Usually a query that times out fails, as the logic rules need.
-        let boot = match draw.below(4) {
-            0 => None,
-            1 | 2 => Some(BOOT_ARGS[0]),
-            _ => Some(BOOT_ARGS[1]),
-        };
-        if let Some(args) = boot {
-            let args = args.iter().map(|&arg| arg.to_owned()).collect();
-            return Op::new(Action::Boot { args });
-        }
+    // The logic rules need a query that times out to fail.
+    if !state.fails_on_timeout && draw.one_in(4) {
+        return Op::new(Action::command(&[
+            "CONFIG",
+            "SET",
+            SETTINGS[0][0],
+            SETTINGS[0][1],
+        ]));
     }
     if state.paused && draw.one_in(3) {
         return Op::new(Action::command(&[DEBUG, "WORKERS", "RESUME"]));
@@ -69,7 +71,7 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
     let Some(&(name, schema)) = draw.pick(&indexes) else {
         return Op::new(create(state, draw));
     };
-    let action = match draw.below(20) {
+    let action = match draw.below(21) {
         0 => Action::Settle,
         1..=6 => write_key(schema, draw),
         7 => Action::Populate {
@@ -77,7 +79,7 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
             prefix: schema.prefix.clone(),
             fields: schema.fields.clone(),
             n: 1 << draw.below(MOST_POPULATE_BITS + 1) | u32::from(draw.one_in(2)),
-            seed: draw.raw(),
+            seed: draw.below(u64::MAX),
         },
         8..=11 => {
             let options = if draw.one_in(2) {
@@ -108,7 +110,7 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
         14 => {
             let key = key(&schema.prefix, small(draw.below(KEYS)));
             Action::Command {
-                argv: vec!["DEL".into(), key].try_into().expect("not empty"),
+                argv: vec!["DEL".into(), key],
             }
         }
         15 => create(state, draw),
@@ -117,9 +119,9 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
             if draw.one_in(2) {
                 drop.push("DD".into());
             }
-            command(drop)
+            Action::Command { argv: drop }
         }
-        17 if state.workers && !state.paused => Action::command(&[DEBUG, "WORKERS", "PAUSE"]),
+        17 if !state.workers_off && !state.paused => Action::command(&[DEBUG, "WORKERS", "PAUSE"]),
         17 => {
             let unused = FIELDS
                 .iter()
@@ -130,16 +132,20 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
                 field: field(unused.unwrap_or(&FIELDS[0]), draw),
             }
         }
+        18 => {
+            let [name, value] = SETTINGS[draw.index(SETTINGS.len())];
+            Action::command(&["CONFIG", "SET", name, value])
+        }
         _ => {
             let hook = HOOKS[draw.index(HOOKS.len())];
-            command(
-                hook.iter()
-                    .map(|&word| match word {
-                        "{index}" => name.clone(),
-                        word => word.into(),
-                    })
-                    .collect(),
-            )
+            let argv = hook
+                .iter()
+                .map(|&word| match word {
+                    "{index}" => name.clone(),
+                    word => word.into(),
+                })
+                .collect();
+            Action::Command { argv }
         }
     };
     let searches = matches!(action, Action::Query { .. } | Action::Aggregate { .. });
@@ -185,7 +191,7 @@ fn related(state: &State, last: &Search, schema: &Schema, draw: &mut Draw) -> Ac
         _ => {
             let mut gc = argv(&[DEBUG, "GC_FORCEINVOKE"]);
             gc.push(last.index.clone());
-            command(gc)
+            Action::Command { argv: gc }
         }
     }
 }
@@ -202,12 +208,6 @@ fn complement(query: &Query) -> Query {
             Query::And(vec![children[0].clone(), negate(&children[1])])
         }
         query => negate(query),
-    }
-}
-
-fn command(argv: Argv) -> Action {
-    Action::Command {
-        argv: argv.try_into().expect("not empty"),
     }
 }
 
@@ -345,7 +345,9 @@ fn write_key(schema: &Schema, draw: &mut Draw) -> Action {
             values.push((field, value(&field.kind, draw)));
         }
     }
-    command(write(schema.on, key, &values))
+    Action::Command {
+        argv: write(schema.on, key, &values),
+    }
 }
 
 /// `All` appears only as the whole query, since `*` inside a group is a
@@ -458,7 +460,7 @@ mod tests {
 
     use procfuzz::commands::load;
     use procfuzz::edit::mutate;
-    use procfuzz::model::generate;
+    use procfuzz::model::{Model, generate};
 
     use super::*;
     use crate::{Program, RediSearch};
@@ -466,12 +468,20 @@ mod tests {
     const PROGRAMS: usize = 30;
     const PROGRAM_OPS: usize = 30;
 
+    /// Mutating and shrinking rely on an op being made again, in the same
+    /// state, from the draws that made it.
     #[test]
-    fn generated_programs_and_their_mutants_round_trip() {
+    fn generated_ops_remake_from_their_draws_and_mutants_round_trip() {
         let mut draw = Draw::new(0);
         for _ in 0..PROGRAMS {
             let donor = generate(&RediSearch, &mut draw, PROGRAM_OPS);
             let parent = generate(&RediSearch, &mut draw, PROGRAM_OPS);
+            let mut state = State::default();
+            for made in &parent.ops {
+                let remade = RediSearch.next(&state, &mut Draw::replaying(&made.from, 0));
+                assert_eq!(remade, made.op);
+                state.apply(&made.op, None);
+            }
             let program = mutate(&RediSearch, &parent, &donor, &mut draw);
             let json = serde_json::to_string(&program).unwrap();
             assert_eq!(serde_json::from_str::<Program>(&json).unwrap(), program);

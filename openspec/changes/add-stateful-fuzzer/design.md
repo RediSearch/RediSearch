@@ -3,23 +3,21 @@
 ## Overview
 
 A Cargo workspace at `fuzz/`, outside the `src/redisearch_rs/` workspace so
-that workspace-wide test, miri, and coverage runs do not build it. It has four
-crates:
+that workspace-wide test, miri, and coverage runs do not build it. It has three
+crates, layered from generic to specific:
 
 - **`procfuzz`** knows nothing about RediSearch, Redis, or RESP, and is meant
   to be reusable. It owns the model of a stateful program, running a program
   against a system, mutating and shrinking programs, edge coverage and its C
-  shim, sanitizer reports, finding directories, the LibAFL campaign, and the
-  commands `run`, `reduce`, `fuzz`, and `generate`, as plain functions and,
-  behind the `cli` feature, as a clap subcommand.
+  shim, sanitizer reports, finding directories, the campaign, and the
+  commands `run`, `reduce`, `fuzz`, and `generate`, as plain functions and
+  as a clap subcommand.
 - **`procfuzz-redis`** holds what any Redis module target shares: the RESP2
   codec, commands as `redis-cli` and `MONITOR` lines, launching `redis-server`
   with modules, and reading Redis assertion, panic, and crash reports.
 - **`redisearch-fuzz`** is RediSearch as a model: its ops, what they set up,
   which make sense when, what each command does, and the logic rules. Its
   binary adds `export` and `import` to the core's commands.
-- **`kvd`** is a small RESP server with planted bugs and its model:
-  `procfuzz`'s own target, tested without a sanitizer build.
 
 A target writes one trait, and the core asks one of a system:
 
@@ -52,8 +50,8 @@ state a run lowers its ops against, and the state `check` judges replies by.
 | `edit` | `mutate` and `shrink` through stored draws |
 | `service` | `Service`: a `System` for a process on a Unix socket, built from a `Codec` and hooks |
 | `process`, `coverage`, `sanitizer` | The process under test, its coverage segment, AddressSanitizer reports |
-| `campaign`, `findings`, `commands`, `cli` | The LibAFL loop, finding directories, the commands, the subcommand |
-| `interrupt`, `error` | Stopping cleanly on SIGINT and SIGTERM; the error type |
+| `campaign`, `findings`, `commands` | The search loop, finding directories, the commands and their subcommand |
+| `interrupt` | Stopping cleanly on SIGINT and SIGTERM |
 
 | `redisearch-fuzz` module | Responsibility |
 |---|---|
@@ -64,8 +62,7 @@ state a run lowers its ops against, and the state `check` judges replies by.
 | `logic` | Equivalence, twin, and partition rules over search results |
 | `server` | `redis-server` with the module and RedisJSON as a `Service` |
 
-A finding is a kind and a key, written `<kind>:<key>`. Only
-`procfuzz::campaign` depends on LibAFL.
+A finding is a kind and a key, written `<kind>:<key>`.
 
 ## Program
 
@@ -76,7 +73,6 @@ struct Made<O>    { op: O, from: Vec<u64> }   // the draws that made `op`
 // redisearch-fuzz
 struct Op { conn: u8, defer: bool, action: Action }
 enum Action {
-    Boot { args },                            // module arguments
     Create { index, on, prefix, fields },
     Alter { index, on, field },
     Query { index, query: Query, options },
@@ -84,7 +80,7 @@ enum Action {
     CursorRead { slot, count }, CursorDel { slot },
     Populate { on, prefix, fields, n, seed },
     Settle,
-    Command { argv },                         // at least one word
+    Command { argv },
 }
 ```
 
@@ -101,8 +97,9 @@ The rules the design depends on:
 4. **0 is the simplest draw.** Alternatives are ordered simplest first, and an
    optional addition is taken only when `Draw::one_in` is true, so lowering a
    draw simplifies the op.
-5. **Everything a run depends on is in the program.** Module arguments are
-   `Boot` ops, which count only before the first other op.
+5. **Everything a run depends on is in the program.** The server starts with
+   the module's defaults; a program changes configuration with `CONFIG SET`
+   commands, which the state follows like any other command.
 
 Further points:
 
@@ -134,8 +131,9 @@ Further points:
 - **`conn`** names one of three connections.
 
 `State` is what the ops set up: the indexes and their schemas, whether
-workers are configured and paused, the cursors, the module arguments, and the
-last search the logic rules can compare. A successful raw `FT.CREATE` or
+workers are on and paused, whether a query that times out fails, whether a
+parameter the model does not follow was set, the cursors, and the last search
+the logic rules can compare. A successful raw `FT.CREATE` or
 `FT.ALTER` marks its index's schema unknown, so the index has no twin, and a
 raw `FT.DROPINDEX` removes it.
 
@@ -154,7 +152,6 @@ process down, a `heal` hook that undoes every pause a program can set, an
 
 ```rust
 enum Input<Q> {
-    Boot(Vec<String>),                          // launch arguments
     Send { conn: u8, wait: bool, requests: Vec<Q> }, // each awaits the one before
     Settle,                                     // read every reply, then wait until idle
 }
@@ -162,15 +159,16 @@ enum Input<Q> {
 
 ### Lifecycle
 
-1. **Launch** lazily, on the first input that is not `Boot`: create a private
-   temporary directory and a zeroed coverage segment, spawn the process in its
-   own process group, listening on a Unix socket in that directory, with
-   stdout and stderr in a log file, and wait until it answers the readiness
-   request. A program of only `Boot` ops starts nothing.
+1. **Launch** when the session starts: create a private temporary directory
+   and a zeroed coverage segment, spawn the process in its own process group,
+   listening on a Unix socket in that directory, with stdout and stderr in a
+   log file, and wait until it answers the readiness request.
 2. **Perform** inputs in order. Before sending on a connection, read the
    replies outstanding on it. `wait` reads the reply at once. A reply that
    does not arrive within `patience` gets `deadline` more after `heal`; one
-   that still does not arrive is a hang and ends the run. A connection that
+   that still does not arrive, or a request that cannot be written within
+   `deadline`, is a hang and ends the run. Only the reply to an input's last
+   request completes it. A connection that
    closes or sends an invalid reply is dropped with its outstanding replies;
    the run ends only if the process is exiting.
 3. **Heal.** For RediSearch: resume workers, resume the background scan,
@@ -218,9 +216,10 @@ inconclusive and is never a finding.
 
 ## Findings a run shows
 
-**Safety findings** come from `Service::stop`: the first log line that
-reports a failure (an AddressSanitizer summary, a Redis assertion, or a Redis
-panic; reports from forked children land in the same log), each leak, a hang,
+**Safety findings** come from `Service::stop`. One probe reads the log: the
+first line that reports a failure (an AddressSanitizer summary, a Redis
+assertion, or a Redis panic; reports from forked children land in the same
+log) and each leak. The service adds a hang,
 and a crash, which is a signal or a non-zero exit when nothing else explains
 it, and a reply that violates the protocol. A hang or crash is named by the
 frame the crash report blames, the module's first, else the
@@ -232,9 +231,10 @@ completed and closes at the next step that can change results, and no such
 step may be sent while either search is in flight. A step's effect comes from
 the effects table:
 
-- **Reads**: searches, aggregates, cursors, and inspection commands. **Schedules**:
-  the `FT.DEBUG` GC, worker, scan-control, and sync-point hooks. Neither
-  closes a window, so a forced GC between two searches is checked.
+- **Reads**: searches, aggregates, cursors, inspection commands, and the
+  `FT.DEBUG` GC, worker, scan-control, and sync-point hooks, which change when
+  background work runs but not what searches return. None closes a window, so
+  a forced GC between two searches is checked.
 - **Rebuilds**: `DEBUG RELOAD`. It must not change results, but leaves the
   index rebuilding, so the next comparable search needs a settle after it.
 - **Writes**: everything else, including every unknown command, and any step
@@ -250,8 +250,10 @@ The rules:
 - **Partition.** For `q`, `q p`, and `q -p` on the same index, the totals of
   the last two add up to the first. A lone `p` and `-p` partition `*`.
 
-Rules apply only when the program boots the module with `ON_TIMEOUT FAIL`,
-since the default policy returns partial results on a timeout. A search is
+Rules apply only while a query that times out fails (`CONFIG SET
+search-on-timeout fail`), since the default policy returns partial results
+on a timeout, and only until a parameter the model does not follow is set,
+such as the default dialect. A search is
 skipped when its reply is an error, when it contains a KNN node
 (approximate), and, for partition, when a term can become an empty node
 (empty, a stopword, or split by the tokenizer) or a clause names a field the
@@ -261,15 +263,13 @@ rule and the query's shape without its values, for example
 
 Query rendering writes each negation as `(-(…))`: dialect 1 parses `-(a) b`
 as `-(a b)`, which the first 1,000-program run showed as false partition
-findings. The generator boots with `ON_TIMEOUT FAIL` in more than half of its
-programs, makes a third of new indexes a twin of an existing one (sometimes
+findings. The generator sets the fail policy early in most programs, makes a third of new indexes a twin of an existing one (sometimes
 with different `SORTABLE` flags), and half the time follows a comparable
 search with a related op: the same query again, on the same index or a twin,
 with a part added or subtracted, a settle, or a forced GC.
 
 **Features** are anything worth reaching: coverage edges from `Service`, and
-from the RediSearch check nothing yet. `kvd`'s check also records kinds of
-reply and shapes of state.
+from the RediSearch check nothing yet.
 
 ## Coverage
 
@@ -319,47 +319,48 @@ numbers come from a fixed vocabulary.
 
 `shrink` deletes runs of ops, halving the run length down to single ops, then
 lowers each draw of each op to 0 or to half, keeping a candidate only if it
-still fails and its op took exactly the lowered draws, and repeats until
-neither helps. Hand-written ops have no draws and shrink by deletion only.
-Each candidate strictly decreases the op count or a draw, so shrinking
-terminates. `reduce` shrinks a program while it still yields a finding, then
+still fails and its op needed no draw beyond the lowered record (it may need
+fewer, as when an optional part is dropped), and repeats until neither helps.
+Hand-written ops have no draws and shrink by deletion only. Each candidate
+strictly decreases the op count or its op's record, ordered by length and
+then draw by draw, so shrinking terminates. `reduce` shrinks a program while it still yields a finding, then
 runs the result ten times and records the reproduction rate. A racy finding
 can shrink into a program that hits it less often; the rate in the manifest
 is the signal.
 
 ## Campaign
 
-LibAFL 0.16.1 supplies the on-disk corpus, max-map feedback over features
-hashed into 2^20 entries, the length-and-time minimizing scheduler over a
-queue, and one mutational stage of at most eight mutations per scheduled
-program. It sees a program only through one function from program to
-features. Its executor:
+The search sees a program only through one function from program to
+features. It keeps a program when it reaches a feature no kept program
+reaches, and remembers, for each feature, the shortest kept program that
+reaches it. It picks a parent among those shortest programs, or one time in
+twenty among all kept programs, and a donor among all, and runs eight
+mutants of the pair. It:
 
 - **confirms new features**: when a run shows a feature not seen before, it
   runs the program again, counts only the features both runs showed, and
   never counts the others again. Edges that depend on timing would otherwise
   make many programs look new;
 - lets a run fail three times in a row before giving up, and ends the search
-  when its duration is spent, a sibling failed, or the process was
+  when its duration is spent, a worker failed, or the process was
   interrupted.
 
-There is no LibAFL objective; findings never enter a corpus. Without seeds a
-campaign starts from the empty program. The corpus is kept on disk as program
-JSON and reloaded with the seeds when a campaign starts again.
+Findings never enter the corpus. Without seeds a campaign starts from the
+empty program. Kept programs are written to the corpus directory as JSON and
+reloaded with the seeds when a campaign starts again.
 
-`fuzz --jobs N` (by default one per core) starts N worker threads, each an
-independent campaign with its own corpus under `corpus/<worker>` and a shared findings
-directory. Each finding new to the directory is written with how often it
-reproduces in five runs.
+`fuzz --jobs N` (by default one per core) searches in N worker threads that
+share the kept programs and one findings directory. Each finding new to the
+directory is written with how often it reproduces in five runs.
 
-The engine and the confirmation were chosen by comparing setups with a fixed
-run budget, 8 trials each, against a plain loop that mutates a program picked
-uniformly (tasks, 11.11). On RediSearch, LibAFL with confirmation kept 28%
-fewer programs than without, and reached both planted bugs in half the runs
-or fewer than either other setup. Sharing kept programs between workers
-without rerunning them was also tried, without a measured benefit. The
-comparison harness, the plain loop, and sharing were removed afterwards; they
-are in the history.
+The confirmation and the preference for short programs were chosen by
+comparing setups with a fixed run budget, 8 trials each (tasks, 11.11). On
+RediSearch, LibAFL with confirmation and its length-and-time minimizing
+scheduler kept 28% fewer programs than without confirmation and reached both
+planted bugs in half the runs or fewer than a plain loop picking uniformly.
+The search reproduces those two ingredients without LibAFL, whose corpus,
+feedback, observer, executor, and mutator adapters were most of the
+campaign's code; it is not yet measured against them.
 
 ## Planted bugs
 
@@ -374,9 +375,6 @@ beside the patch trigger each bug. They are the targets for the reduce and
 campaign checks, and the only real sanitizer and assertion reports the judge is
 tested against while master has no known bug.
 
-`kvd` has three planted bugs of its own: a crash at 7 ops, a wrong answer at
-7 ops behind a launch flag, and a hang at 5 ops. Its tests run them without a
-sanitizer build.
 
 ## Findings
 
@@ -386,7 +384,9 @@ findings/<finding>/
   original.json    written by reduce: the program before reduction
   trace.json       the steps and the run's findings
   server.log
-  manifest.json    the finding, reproduction rate, binaries, sanitizer options
+  manifest.json    the finding, reproduction rate, and setup: each binary with
+                   the file it resolves to and its modification time, the
+                   server environment, and the timing
 ```
 
 The native `run` command is the authoritative reproducer. `export` prints a
@@ -428,8 +428,17 @@ way, for features the generator does not reach.
   and are lost in a forked child and on a crash.
 - **AFL++ compiler wrappers, cargo-fuzz, honggfuzz, bolero.** Rejected: they
   assume an in-process target, or do not link a runtime into a shared object.
-- **LibAFL's calibration stage with a power schedule.** Measured on `kvd` as
-  the worst of the setups tried; not adopted.
+- **LibAFL's calibration stage with a power schedule.** Measured on a test
+  server as the worst of the setups tried; not adopted.
+- **LibAFL as the search engine.** Used first, then replaced by the search
+  above, which keeps the two ingredients that measured well.
+- **Module arguments in the program.** Used first, as ops that counted only
+  before every other op. Replaced by `CONFIG SET`, since the parameters the
+  generator varies are runtime-mutable and the state must follow runtime
+  changes anyway.
+- **A mock server and a toy model to test the harness.** Removed: they
+  drifted from the real target, and hid a model bug the real model's tests
+  then showed.
 - **Forking each test case from a loaded server.** Deferred until server
   startup time is measured, because fork drops threads.
 
@@ -439,15 +448,16 @@ way, for features the generator does not reach.
   file and a Rust static library in one shared object loaded by an
   uninstrumented host, with and without AddressSanitizer, including an edge hit
   only in a forked child.
-- **Tested in CI-able tests (`kvd`):** each planted bug from a fixed program; a
-  held-back reply released by healing; a cursor read by the id the server
-  chose; padded programs shrinking to exactly the planted ones.
+- **Tested in live tests:** every seed without an error reply and with edges
+  of its own; a hang; a held-back reply released by healing; a settle that
+  cannot complete; a crash reduced to the crashing command; real sanitizer
+  and assertion reports from the planted bugs; a failing worker stopping the
+  campaign; a short campaign finding a planted bug.
 - **Read in this repository:** the `FT.DEBUG` hooks named above; the
   `WORKERS DRAIN` deadlock warning; the meaning of `indexing` and `cleaning` in
   `FT.INFO`; the default timeout and policy; the immutable settings; how
   `build.sh` selects the nightly toolchain and build target under `SAN`.
-- **Read in library source:** the LibAFL 0.16.1 traits used above. The
-  `redis` crate (1.8.2) was rejected: after a read timeout its synchronous
+- **Read in library source:** the `redis` crate (1.8.2) was rejected: after a read timeout its synchronous
   connection marks the late reply to be skipped, so a reply that arrives after
   healing would be discarded.
 - **Measured (macOS arm64, AddressSanitizer builds):** `redis-server` alone is

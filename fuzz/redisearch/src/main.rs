@@ -32,7 +32,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     #[command(flatten)]
-    Fuzzer(procfuzz::cli::Command),
+    Fuzzer(procfuzz::commands::Command),
     /// Print a program as commands for `redis-cli`.
     Export { program: PathBuf },
     /// Print a program of the commands in a file, one per line as `redis-cli`
@@ -67,7 +67,7 @@ fn exec(cli: Cli) -> Result<bool, Box<dyn Error>> {
     match cli.command {
         Command::Fuzzer(command) => {
             cli.server.check()?;
-            Ok(command.exec(&RediSearch, &cli.server.service(), &cli.server)?)
+            Ok(command.exec(&RediSearch, &cli.server.service(), &cli.server.setup())?)
         }
         Command::Export { program } => {
             print!("{}", export(&load(&program)?)?);

@@ -7,47 +7,32 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A search for programs that reach new features, on LibAFL: its on-disk
-//! corpus, max-map feedback over hashed features, and a scheduler that
-//! prefers short and fast programs. The search sees a program only through
-//! one function from program to features.
+//! A search for programs that reach new features. It keeps a program that
+//! reaches a feature no kept program reaches, and mostly picks, to mutate,
+//! a program that is the shortest to reach some feature. The search sees a
+//! program only through one function from program to features.
 
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::fmt::{Debug, Display};
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::num::NonZeroUsize;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime};
 
-use libafl::corpus::{Corpus, CorpusId, InMemoryCorpus, InMemoryOnDiskCorpus};
-use libafl::events::SimpleEventManager;
-use libafl::executors::{Executor, ExitKind, HasObservers};
-use libafl::feedbacks::MaxMapFeedback;
-use libafl::fuzzer::{Evaluator, Fuzzer, StdFuzzer};
-use libafl::inputs::Input;
-use libafl::monitors::SimpleMonitor;
-use libafl::mutators::{MutationResult, Mutator};
-use libafl::observers::{CanTrack, ExplicitTracking, OwnedMapObserver};
-use libafl::schedulers::{IndexesLenTimeMinimizerScheduler, QueueScheduler};
-use libafl::stages::StdMutationalStage;
-use libafl::state::{HasCorpus, HasExecutions, HasRand, StdState};
-use libafl::{Error, random_corpus_id};
-use libafl_bolts::rands::{Rand, StdRand};
-use libafl_bolts::tuples::{RefIndexable, tuple_list, tuple_list_type};
-use libafl_bolts::{HasLen, Named, current_nanos};
+use log::{info, warn};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
+use crate::commands::load;
 use crate::draw::Draw;
 use crate::interrupt::interrupted;
 use crate::model::Program;
 use crate::system::Feature;
 
-/// Features are hashed into a map of this many entries.
-const MAP: usize = 1 << 20;
 const MUTATIONS_PER_PICK: usize = 8;
+/// One pick in this many is of any kept program rather than of a shortest.
+const ANY_PROGRAM_ONE_IN: u64 = 20;
 const STATUS_EVERY: Duration = Duration::from_secs(30);
 /// Runs that may fail in a row, as when the machine is briefly out of
 /// resources, before the campaign gives up.
@@ -58,19 +43,15 @@ const RUNS_BEFORE_WARNING: u64 = 20;
 pub struct Campaign<'a> {
     /// Directories of programs to start from.
     pub seeds: &'a [PathBuf],
-    /// Where the programs found are kept; a campaign starts from them too.
+    /// Where the programs kept are written; a campaign starts from them too.
     pub corpus: &'a Path,
     /// Until stopped, if `None`.
     pub duration: Option<Duration>,
 }
 
-/// What a campaign's programs are made of.
-pub trait Op: Clone + Debug + Hash + Serialize + DeserializeOwned {}
-
-impl<O: Clone + Debug + Hash + Serialize + DeserializeOwned> Op for O {}
-
-/// Searches until the duration is spent, `stop` is set, or the process is
-/// [`interrupted`], after the run in progress.
+/// Searches in `jobs` threads named `worker <n>`, sharing what they keep,
+/// until the duration is spent, a worker fails, or the process is
+/// [`interrupted`], after the runs in progress.
 ///
 /// `execute` runs a program and returns the features it reached; anything
 /// else a run shows, such as findings, is for `execute` to handle. A feature
@@ -78,252 +59,229 @@ impl<O: Clone + Debug + Hash + Serialize + DeserializeOwned> Op for O {}
 /// one that shows in only one of the runs never counts. `mutate` edits a
 /// program, splicing from a donor. Without seeds the search starts from the
 /// empty program.
-pub fn fuzz<O: Op, E: Display>(
+pub fn fuzz<O>(
     campaign: &Campaign<'_>,
-    stop: &AtomicBool,
-    execute: impl FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
-    mutate: impl FnMut(&Program<O>, &Program<O>, &mut Draw) -> Program<O>,
-) -> Result<(), Error> {
-    let features = OwnedMapObserver::new("features", vec![0u8; MAP]).track_indices();
-    let mut feedback = MaxMapFeedback::new(&features);
-    let mut state = StdState::new(
-        StdRand::with_seed(current_nanos()),
-        InMemoryOnDiskCorpus::<Entry<O>>::with_meta_format(campaign.corpus, None)?,
-        InMemoryCorpus::new(),
-        &mut feedback,
-        &mut (),
-    )?;
-    let scheduler = IndexesLenTimeMinimizerScheduler::new(&features, QueueScheduler::new());
-    let mut fuzzer = StdFuzzer::new(scheduler, feedback, ());
-    let mut executor = RunExecutor {
+    jobs: usize,
+    execute: impl Fn(&Program<O>) -> io::Result<Vec<Feature>> + Sync,
+    mutate: impl Fn(&Program<O>, &Program<O>, &mut Draw) -> Program<O> + Sync,
+) -> io::Result<()>
+where
+    O: Clone + Serialize + DeserializeOwned + Send,
+{
+    std::fs::create_dir_all(campaign.corpus)?;
+    let search = Search {
         execute,
-        stop,
+        corpus: campaign.corpus,
         deadline: campaign.duration.map(|d| Instant::now() + d),
-        runs: 0,
-        failures: 0,
-        seen: HashSet::new(),
-        unstable: HashSet::new(),
-        observers: tuple_list!(features),
+        stop: AtomicBool::new(false),
+        runs: AtomicU64::new(0),
+        kept: Mutex::new(Kept {
+            programs: Vec::new(),
+            shortest: HashMap::new(),
+            unstable: HashSet::new(),
+            status: Instant::now(),
+        }),
     };
-    let mut last_status = Instant::now();
-    let mut manager = SimpleEventManager::new(SimpleMonitor::new(move |line: &str| {
-        if line.starts_with("[UserStats") && last_status.elapsed() >= STATUS_EVERY {
-            last_status = Instant::now();
-            log::info!("{line}");
+    let mut failures = 0;
+    for dir in campaign
+        .seeds
+        .iter()
+        .map(PathBuf::as_path)
+        .chain([campaign.corpus])
+    {
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.extension().is_some_and(|e| e == "json") && !search.stopping() {
+                search.observe(&load(&path)?, &mut failures)?;
+            }
         }
-    }));
-    let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
-        ClosureMutator { mutate },
-        NonZeroUsize::new(MUTATIONS_PER_PICK).expect("non-zero"),
-    ));
-
-    let mut dirs = campaign.seeds.to_vec();
-    dirs.push(campaign.corpus.to_owned());
-    let result: Result<(), Error> = (|| {
-        state.load_initial_inputs(&mut fuzzer, &mut executor, &mut manager, &dirs)?;
-        if state.corpus().count() == 0 {
-            let empty = Entry(Program::default());
-            fuzzer.add_input(&mut state, &mut executor, &mut manager, empty)?;
-        }
-        loop {
-            fuzzer.fuzz_one(&mut stages, &mut executor, &mut state, &mut manager)?;
-        }
-    })();
-    match result {
-        Err(Error::ShuttingDown) => Ok(()),
-        result => result,
     }
+    let worker = |n: u64| {
+        let mut seeds = Draw::new(n ^ now());
+        let mut failures = 0;
+        while !search.stopping() {
+            let mut rng = Draw::new(seeds.raw());
+            let (parent, donor) = search.kept.lock().expect("not poisoned").pick(&mut rng);
+            for _ in 0..MUTATIONS_PER_PICK {
+                if search.stopping() {
+                    break;
+                }
+                let child = mutate(&parent, &donor, &mut rng);
+                if let Err(e) = search.observe(&child, &mut failures) {
+                    search.stop.store(true, Ordering::Relaxed);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    };
+    let worker = &worker;
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..jobs)
+            .map(|n| {
+                std::thread::Builder::new()
+                    .name(format!("worker {n}"))
+                    .spawn_scoped(scope, move || worker(u64::try_from(n).expect("fits")))
+                    .expect("threads start")
+            })
+            .collect();
+        workers
+            .into_iter()
+            .try_for_each(|worker| worker.join().expect("workers do not panic"))
+    })
 }
 
-/// LibAFL's input traits are foreign, so they are implemented on a wrapper.
-/// Programs are kept as JSON files in the corpus directory.
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
-#[serde(transparent, bound = "O: Op")]
-struct Entry<O>(Program<O>);
-
-impl<O: Op> Input for Entry<O> {
-    fn to_file<Q: AsRef<Path>>(&self, path: Q) -> Result<(), Error> {
-        let json =
-            serde_json::to_string_pretty(&self.0).map_err(|e| Error::serialize(e.to_string()))?;
-        Ok(std::fs::write(path, json)?)
-    }
-
-    fn from_file<Q: AsRef<Path>>(path: Q) -> Result<Self, Error> {
-        let json = std::fs::read_to_string(path)?;
-        serde_json::from_str(&json)
-            .map(Entry)
-            .map_err(|e| Error::illegal_argument(e.to_string()))
-    }
-}
-
-impl<O> HasLen for Entry<O> {
-    fn len(&self) -> usize {
-        self.0.ops.len()
-    }
-}
-
-type Features = ExplicitTracking<OwnedMapObserver<u8>, true, false>;
-
-/// Runs programs for LibAFL: confirms new features, tolerates a few
-/// failures in a row, and ends the search when it should.
-struct RunExecutor<'a, F> {
+struct Search<'a, O, F> {
     execute: F,
-    stop: &'a AtomicBool,
+    corpus: &'a Path,
     deadline: Option<Instant>,
-    runs: u64,
-    /// In a row.
-    failures: u32,
-    seen: HashSet<Feature>,
+    /// Set by a worker that failed.
+    stop: AtomicBool,
+    runs: AtomicU64,
+    kept: Mutex<Kept<O>>,
+}
+
+struct Kept<O> {
+    programs: Vec<Program<O>>,
+    /// For each feature reached, the shortest program kept that reaches it.
+    shortest: HashMap<Feature, usize>,
     /// Shown by one run of a program and not by another.
     unstable: HashSet<Feature>,
-    observers: tuple_list_type!(Features),
+    status: Instant,
 }
 
-impl<F> RunExecutor<'_, F> {
-    /// The features of a run that count; `None` if the run failed but the
-    /// campaign can go on.
-    fn observe<O, E: Display>(
-        &mut self,
-        program: &Program<O>,
-    ) -> Result<Option<Vec<Feature>>, Error>
-    where
-        F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
-    {
-        let Some(mut features) = self.run(program)? else {
-            return Ok(None);
-        };
-        features.retain(|feature| !self.unstable.contains(feature));
-        if features.iter().any(|feature| !self.seen.contains(feature)) {
-            let Some(again) = self.run(program)? else {
-                return Ok(None);
-            };
-            let again: HashSet<Feature> = again.into_iter().collect();
-            let first: HashSet<Feature> = features.iter().copied().collect();
-            self.unstable.extend(first.symmetric_difference(&again));
-            features.retain(|feature| again.contains(feature));
-        }
-        self.seen.extend(features.iter().copied());
-        if self.runs == RUNS_BEFORE_WARNING && self.seen.is_empty() {
-            log::warn!(
-                "{RUNS_BEFORE_WARNING} runs showed no feature; is the target built with coverage?"
-            );
-        }
-        Ok(Some(features))
+impl<O, F> Search<'_, O, F>
+where
+    O: Clone + Serialize,
+    F: Fn(&Program<O>) -> io::Result<Vec<Feature>>,
+{
+    fn stopping(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+            || interrupted()
+            || self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
-    fn run<O, E: Display>(&mut self, program: &Program<O>) -> Result<Option<Vec<Feature>>, Error>
-    where
-        F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
-    {
-        let late = self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline);
-        if late || self.stop.load(Ordering::Relaxed) || interrupted() {
-            return Err(Error::shutting_down());
+    /// Runs `program` and keeps it if it reaches a new feature, as a second
+    /// run confirms. A run that fails counts against `failures`, the runs
+    /// failed in a row.
+    fn observe(&self, program: &Program<O>, failures: &mut u32) -> io::Result<()> {
+        let Some(first) = self.run(program, failures)? else {
+            return Ok(());
+        };
+        if !self.lock().is_new(&first) {
+            return Ok(());
         }
-        self.runs += 1;
-        match (self.execute)(program) {
+        let Some(again) = self.run(program, failures)? else {
+            return Ok(());
+        };
+        let again: HashSet<Feature> = again.into_iter().collect();
+        let mut kept = self.lock();
+        let first: HashSet<Feature> = first.into_iter().collect();
+        kept.unstable.extend(first.symmetric_difference(&again));
+        let stable: Vec<Feature> = first.intersection(&again).copied().collect();
+        if kept.is_new(&stable) {
+            kept.keep(program, &stable, self.corpus)?;
+        }
+        Ok(())
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Kept<O>> {
+        self.kept.lock().expect("not poisoned")
+    }
+
+    /// The features of a run; `None` if it failed but the campaign can go on.
+    fn run(&self, program: &Program<O>, failures: &mut u32) -> io::Result<Option<Vec<Feature>>> {
+        let runs = self.runs.fetch_add(1, Ordering::Relaxed) + 1;
+        let result = (self.execute)(program);
+        let mut kept = self.lock();
+        if runs == RUNS_BEFORE_WARNING && kept.shortest.is_empty() {
+            warn!("{runs} runs showed no feature; is the target built with coverage?");
+        }
+        if kept.status.elapsed() >= STATUS_EVERY {
+            kept.status = Instant::now();
+            info!(
+                "{runs} runs, {} programs kept, {} features",
+                kept.programs.len(),
+                kept.shortest.len()
+            );
+        }
+        match result {
             Ok(features) => {
-                self.failures = 0;
+                *failures = 0;
                 Ok(Some(features))
             }
+            Err(_) if self.stopping() => Ok(None),
             Err(e) => {
-                self.failures += 1;
-                if self.failures == FAILURES_IN_A_ROW {
-                    return Err(Error::unknown(format!(
+                *failures += 1;
+                if *failures == FAILURES_IN_A_ROW {
+                    return Err(io::Error::other(format!(
                         "{FAILURES_IN_A_ROW} runs in a row failed, the last with: {e}"
                     )));
                 }
-                log::warn!("run failed: {e}");
+                warn!("run failed: {e}");
                 Ok(None)
             }
         }
     }
-
-    /// Sets the map to show exactly `features`.
-    fn mark(&mut self, features: &[Feature]) {
-        let map = self.observers.0.as_mut();
-        map.fill(0);
-        for &feature in features {
-            map[slot(feature)] = 1;
-        }
-    }
 }
 
-impl<F> HasObservers for RunExecutor<'_, F> {
-    type Observers = tuple_list_type!(Features);
-
-    fn observers(&self) -> RefIndexable<&Self::Observers, Self::Observers> {
-        RefIndexable::from(&self.observers)
+impl<O: Clone + Serialize> Kept<O> {
+    fn is_new(&self, features: &[Feature]) -> bool {
+        features
+            .iter()
+            .any(|f| !self.unstable.contains(f) && !self.shortest.contains_key(f))
     }
 
-    fn observers_mut(&mut self) -> RefIndexable<&mut Self::Observers, Self::Observers> {
-        RefIndexable::from(&mut self.observers)
-    }
-}
-
-impl<EM, S, Z, O, E, F> Executor<EM, Entry<O>, S, Z> for RunExecutor<'_, F>
-where
-    S: HasExecutions,
-    E: Display,
-    F: FnMut(&Program<O>) -> Result<Vec<Feature>, E>,
-{
-    fn run_target(
+    fn keep(
         &mut self,
-        _fuzzer: &mut Z,
-        state: &mut S,
-        _manager: &mut EM,
-        entry: &Entry<O>,
-    ) -> Result<ExitKind, Error> {
-        let before = self.runs;
-        let features = self.observe(&entry.0);
-        *state.executions_mut() += self.runs - before;
-        if let Some(features) = features? {
-            self.mark(&features);
+        program: &Program<O>,
+        features: &[Feature],
+        corpus: &Path,
+    ) -> io::Result<()> {
+        let json = serde_json::to_vec_pretty(program).map_err(io::Error::other)?;
+        let mut hasher = DefaultHasher::new();
+        json.hash(&mut hasher);
+        std::fs::write(corpus.join(format!("{:016x}.json", hasher.finish())), json)?;
+        let at = self.programs.len();
+        self.programs.push(program.clone());
+        for &feature in features {
+            let shortest = self.shortest.entry(feature).or_insert(at);
+            if self.programs[*shortest].ops.len() > program.ops.len() {
+                *shortest = at;
+            }
         }
-        Ok(ExitKind::Ok)
-    }
-}
-
-fn slot(feature: Feature) -> usize {
-    let mut hasher = DefaultHasher::new();
-    feature.hash(&mut hasher);
-    let map = u64::try_from(MAP).expect("fits");
-    usize::try_from(hasher.finish() % map).expect("below the map size")
-}
-
-struct ClosureMutator<F> {
-    mutate: F,
-}
-
-impl<F> Named for ClosureMutator<F> {
-    fn name(&self) -> &Cow<'static, str> {
-        static NAME: Cow<'static, str> = Cow::Borrowed("mutate");
-        &NAME
-    }
-}
-
-impl<S, O, F> Mutator<Entry<O>, S> for ClosureMutator<F>
-where
-    S: HasRand + HasCorpus<Entry<O>>,
-    O: Op,
-    F: FnMut(&Program<O>, &Program<O>, &mut Draw) -> Program<O>,
-{
-    fn mutate(&mut self, state: &mut S, entry: &mut Entry<O>) -> Result<MutationResult, Error> {
-        let mut rng = Draw::new(state.rand_mut().next());
-        let id = random_corpus_id!(state.corpus(), state.rand_mut());
-        let donor = state.corpus().cloned_input_for_id(id)?;
-        entry.0 = (self.mutate)(&entry.0, &donor.0, &mut rng);
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(&mut self, _state: &mut S, _new: Option<CorpusId>) -> Result<(), Error> {
         Ok(())
     }
+
+    /// A parent and a donor; both the empty program before anything is kept.
+    fn pick(&self, rng: &mut Draw) -> (Program<O>, Program<O>) {
+        if self.programs.is_empty() {
+            return (Program::default(), Program::default());
+        }
+        let any = |rng: &mut Draw| rng.index(self.programs.len());
+        let parent = if rng.one_in(ANY_PROGRAM_ONE_IN) {
+            any(rng)
+        } else {
+            let shortest: Vec<usize> = self.shortest.values().copied().collect();
+            shortest[rng.index(shortest.len())]
+        };
+        let donor = any(rng);
+        (self.programs[parent].clone(), self.programs[donor].clone())
+    }
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
     use crate::model::Made;
 
@@ -331,17 +289,8 @@ mod tests {
         Feature { space: "edge", id }
     }
 
-    fn program(op: u8) -> Program<u8> {
-        Program {
-            ops: vec![Made {
-                op,
-                from: Vec::new(),
-            }],
-        }
-    }
-
     /// A program shows edge 1 every run and edge 2 every other run, so only
-    /// the empty program is kept.
+    /// the first program to show edge 1 is kept.
     #[test]
     fn only_features_two_runs_agree_on_count() {
         let corpus = tempfile::tempdir().unwrap();
@@ -350,32 +299,23 @@ mod tests {
             corpus: corpus.path(),
             duration: Some(Duration::from_millis(200)),
         };
-        let mut runs = 0;
+        let runs = AtomicUsize::new(0);
         let execute = |_: &Program<u8>| {
-            runs += 1;
             let mut features = vec![edge(1)];
-            if runs % 2 == 1 {
+            if runs.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
                 features.push(edge(2));
             }
-            Ok::<_, String>(features)
+            Ok(features)
         };
         let mutate = |parent: &Program<u8>, _: &Program<u8>, _: &mut Draw| {
             let mut child = parent.clone();
-            child.ops.extend(program(1).ops);
+            child.ops.push(Made {
+                op: 1,
+                from: Vec::new(),
+            });
             child
         };
-        fuzz(&campaign, &AtomicBool::new(false), execute, mutate).unwrap();
-        let kept = std::fs::read_dir(corpus.path())
-            .unwrap()
-            .filter(|entry| {
-                !entry
-                    .as_ref()
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with('.')
-            })
-            .count();
-        assert_eq!(kept, 1);
+        fuzz(&campaign, 1, execute, mutate).unwrap();
+        assert_eq!(std::fs::read_dir(corpus.path()).unwrap().count(), 1);
     }
 }
