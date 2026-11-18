@@ -154,6 +154,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RS_ASSERT(SearchDisk_IsInitialized());
     const IndexInfoTotals totals = {
         .text_ram_metadata_bytes = total_info.text_ram_metadata_bytes,
+        .tag_ram_metadata_bytes = total_info.tag_ram_metadata_bytes,
         .num_docs = total_info.total_num_docs_in_indexes,
     };
     SearchDisk_OutputInfoMetrics(ctx, &totals);

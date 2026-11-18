@@ -56,6 +56,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (cachedDisk) {
       diskMetrics = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec);
       info.text_ram_metadata_bytes += IndexSpec_collect_text_overhead(sp);
+      info.tag_ram_metadata_bytes += IndexSpec_collect_tags_overhead(sp);
     }
     size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, vec_info.memory, diskMetrics.memory);
     size_t prev_total_mem = info.total_mem;
