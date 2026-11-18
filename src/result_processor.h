@@ -361,6 +361,9 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *rp);
 */
 ResultProcessor *RPDepleter_New();
 
+/** Marks a depleter whose pipeline root preloads the total (coordinator WITHCOUNT). */
+void RPDepleter_SetTotalPreloaded(ResultProcessor *base);
+
 
 /**
 * Consumes and buffers all upstream results without yielding any to the caller.

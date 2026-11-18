@@ -32,21 +32,21 @@ use crate::{QueryEvalContext, disk};
 ///
 /// Only the stop is requested: the build checkpoint after the evaluation turns it into
 /// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
-/// FT.AGGREGATE take part, plus requests that opt in with
-/// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
-/// runs its plan, and hybrid subqueries opt in as their build reads memory.
-pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
-    if !ctx
-        .req_flags()
-        .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
-        && !ctx.checks_expansion_memory()
-    {
+/// FT.AGGREGATE take part, plus the two FT.HYBRID subqueries, whose build reads memory under every
+/// ON_OOM policy: FT.EXPLAIN never runs its plan.
+pub(crate) fn memory_stop(ctx: &mut QueryEvalContext, counter: &mut u32) -> bool {
+    if !ctx.req_flags().intersects(
+        QEFlag::IsSearch
+            | QEFlag::IsAggregate
+            | QEFlag::IsHybridSearchSubquery
+            | QEFlag::IsHybridVectorAggregateSubquery,
+    ) {
         return false;
     }
     let timeout = ctx.sctx().limits;
-    // SAFETY: the counter is a live `u32` and `timeout` is the request's own, or null, which the
+    // SAFETY: `counter` is a live `u32` and `timeout` is the request's own, or null, which the
     // C side accepts.
-    unsafe { ffi::QueryMemory_Checkpoint(timeout, ctx.memory_counter_mut()) }
+    unsafe { ffi::QueryMemory_Checkpoint(timeout, counter) }
 }
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
@@ -224,6 +224,9 @@ pub(super) struct Expansion<'a> {
     pub(super) needs_offsets: bool,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
+    /// Amortization count of [`memory_stop`]; the request-wide count behind it makes sure memory
+    /// is read even when one expansion is far below the read interval.
+    pub(super) memory_counter: u32,
 }
 
 impl Expansion<'_> {
@@ -265,7 +268,7 @@ impl Expansion<'_> {
 
     /// See [`memory_stop`](fn@memory_stop).
     fn memory_stop(&mut self) -> bool {
-        memory_stop(self.ctx)
+        memory_stop(self.ctx, &mut self.memory_counter)
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max

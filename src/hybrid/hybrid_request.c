@@ -74,12 +74,6 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   }
 }
 
-// Whether the subquery's term expansions sample memory: as the build reads, under every ON_OOM
-// policy, since a build stop is mapped per ON_OOM here.
-static bool subqueryChecksExpansionMemory(const AREQ *areq) {
-  return IsHybridSearchSubquery(areq) || IsHybridVectorSubquery(areq);
-}
-
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -104,14 +98,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
-        // The first subquery's build is the job's first allocation, after any queue wait.
-        if (i == 0 &&
-            QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
-                                             &areq->base.reply.err) != REDISMODULE_OK) {
-            rc = REDISMODULE_ERR;
-            break;
-        }
-
         // Pin the per-subquery disk view to the same point in time as the in-memory
         // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
         // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
@@ -121,10 +107,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
-        }
-
-        if (subqueryChecksExpansionMemory(areq)) {
-          areq->searchopts.flags |= Search_CheckExpansionMemory;
         }
 
         // Parse subquery: Convert AST to iterator tree
