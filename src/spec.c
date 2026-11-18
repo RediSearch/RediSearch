@@ -433,8 +433,8 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
   res += DocTable_DeletedDocsMemoryUsage(&sp->docs);
   res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
-  res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
-  res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
+  res += text_overhead;
+  res += tags_overhead;
   res += IndexSpec_collect_numeric_overhead(sp);
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
@@ -445,11 +445,18 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
 
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
                                size_t vector_overhead) {
+  if (!tags_overhead) {
+    tags_overhead = IndexSpec_collect_tags_overhead(sp);
+  }
+  if (!text_overhead) {
+    text_overhead = IndexSpec_collect_text_overhead(sp);
+  }
   return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, false, 0);
 }
 
-size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory) {
-  return indexSpecTotalMemUsage(sp, 0, 0, vector_overhead, true, disk_memory);
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, size_t disk_memory) {
+  return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, true, disk_memory);
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
