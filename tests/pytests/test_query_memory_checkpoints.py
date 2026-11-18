@@ -834,6 +834,23 @@ def test_expression_stop_ends_the_stream(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_expression_passes_the_rows_a_stopped_sorter_holds(env):
+    """A sorter stopped while filling its heap holds rows that APPLY and FILTER downstream must
+    still pass: the stop is the sorter's, not theirs, so they cut only a stop of their own."""
+    create_index(env)
+    k = 5
+    load = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@t', '@n', 'SORTBY', 2, '@n', 'DESC',
+            'MAX', N_DOCS)
+    for tail in (('APPLY', 'upper(@t)', 'AS', 'u'), ('FILTER', 'startswith(@t, "hello")')):
+        res = run_at_call(env, BUILD_CHECKPOINTS + k, *(load + tail))
+        # The k-th call after the build stops the query with k - 1 rows held.
+        env.assertEqual([r['extra_attributes']['n'] for r in res['results']],
+                        [str(i) for i in reversed(range(k - 1))], message=(tail, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(tail, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_safe_loader_stop_on_a_cursor_created_without_workers(env):
     """A LOAD cursor created with WORKERS 0 holds a plain loader, which the first read after workers
     are enabled swaps for a safe loader. That loader starts with fresh stop state and counters, so
