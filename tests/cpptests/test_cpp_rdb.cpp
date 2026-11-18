@@ -21,6 +21,7 @@ extern "C" {
 #include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 #include <iterator>  // For std::size
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -2112,4 +2113,51 @@ TEST_F(RdbMockTest, testLegacyFieldTypeMapping) {
       QueryError_ClearError(&status);
     }
   }
+}
+
+static void freeCountTrie(TrieMap *map) {
+  TrieMap_Free(map, [](void *) {});
+}
+
+TEST_F(RdbMockTest, DiskTagTrieCountsRoundTrip) {
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> map(NewTrieMap(), freeCountTrie);
+  const char binaryTag[] = {'a', '\0', 'b'};
+  TrieMap_Add(map.get(), "", 0, reinterpret_cast<void *>(uintptr_t{1}), nullptr);
+  TrieMap_Add(map.get(), binaryTag, sizeof(binaryTag), reinterpret_cast<void *>(UINTPTR_MAX),
+              nullptr);
+
+  TrieMap_RdbSave(io.get(), map.get());
+  io->read_pos = 0;
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                              freeCountTrie);
+  ASSERT_NE(restored, nullptr);
+  EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+  EXPECT_EQ(TrieMap_NUniqueKeys(restored.get()), 2u);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(restored.get(), "", 0)), 1u);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(restored.get(), binaryTag, sizeof(binaryTag))),
+            UINTPTR_MAX);
+}
+
+TEST_F(RdbMockTest, DiskTagTrieLoadReturnsNullOnValidationAndIoErrors) {
+  for (const auto &[key, count] :
+       std::vector<std::pair<std::string, uint64_t>>{{std::string("tag\0", 4), 0}, {"tag", 1}}) {
+    std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                 RMCK_FreeRdbIO);
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveStringBuffer(io.get(), key.data(), key.size());
+    RMCK_SaveDouble(io.get(), 0.0);
+    RMCK_SaveUnsigned(io.get(), count);
+    io->read_pos = 0;
+    std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                                freeCountTrie);
+    EXPECT_EQ(restored, nullptr);
+  }
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  RMCK_SaveUnsigned(io.get(), 1);
+  io->read_pos = 0;
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                              freeCountTrie);
+  EXPECT_EQ(restored, nullptr);
+  EXPECT_NE(RMCK_IsIOError(io.get()), 0);
 }
