@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <stddef.h>
 
+#include "asm_import_window.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -97,11 +98,15 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
 static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
   if (*meta == 0) return;
 
   dict *specIdToDocId = (dict *)*meta;
   if (dictSize(specIdToDocId) == 0) return;
+
+  // The key may hold the docIds of a slot migration's source, which can name unrelated documents
+  // here. See asm_import_window.h.
+  const bool keepDocs = ASM_ImportWindow_IsOpen() && ctx &&
+                        ASM_ImportWindow_AbsorbsUnlink(RedisModule_GetKeyNameFromOptCtx(ctx));
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;
@@ -111,7 +116,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
     // Find the IndexSpec by specId in the global dict (O(1) lookup).
     uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
-    IndexSpec *spec = findSpecBySpecId(specId);
+    IndexSpec *spec = keepDocs ? NULL : findSpecBySpecId(specId);
     if (spec) {
       // Delete the document from this index by its docId
       IndexSpec_DeleteDocById(spec, docId);
