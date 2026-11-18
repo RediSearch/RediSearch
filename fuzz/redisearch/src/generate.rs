@@ -18,7 +18,7 @@ use crate::op::{
     Action, Algorithm, Bound, CursorSlot, DataType, Field, FieldKind, Metric, Op, Query,
     QueryOptions, key, number, value, vector, word, write,
 };
-use crate::state::{Comparable, Schema, State};
+use crate::state::{Schema, Search, State};
 
 const CONNS: u64 = 3;
 const CURSOR_SLOTS: u64 = 2;
@@ -158,33 +158,50 @@ pub fn next(state: &State, draw: &mut Draw) -> Op {
 }
 
 /// A search the logic rules can relate to the last comparable one: the same
-/// query again, on the same index or a twin, or with a part added or
-/// subtracted; or something that should not change its results.
-fn related(state: &State, last: &Comparable, schema: &Schema, draw: &mut Draw) -> Action {
+/// query again, on the same index or a twin, with a part added, or its
+/// complement; or something that should not change its results.
+fn related(state: &State, last: &Search, schema: &Schema, draw: &mut Draw) -> Action {
     let search = |index: &Bytes, query: Query| Action::Query {
         index: index.clone(),
         query,
         options: last.options.clone(),
     };
-    let part = |draw: &mut Draw| last.part.clone().unwrap_or_else(|| query(schema, draw, 0));
-    let with = |part: Query| match &last.query {
-        Query::All => part,
-        query => Query::And(vec![query.clone(), part]),
-    };
     match draw.below(6) {
         0 => search(&last.index, last.query.clone()),
-        1 => search(&last.index, with(part(draw))),
-        2 => search(&last.index, with(Query::Not(Box::new(part(draw))))),
-        3 => search(
+        1 => search(
             state.twin(&last.index).unwrap_or(&last.index),
             last.query.clone(),
         ),
+        2 if last.query != Query::All => search(&last.index, complement(&last.query)),
+        2 | 3 => {
+            let part = query(schema, draw, 0);
+            let refined = match &last.query {
+                Query::All => part,
+                query => Query::And(vec![query.clone(), part]),
+            };
+            search(&last.index, refined)
+        }
         4 => Action::Settle,
         _ => {
             let mut gc = argv(&[DEBUG, "GC_FORCEINVOKE"]);
             gc.push(last.index.clone());
             command(gc)
         }
+    }
+}
+
+/// `q -p` for `q p`, and `-q` for a lone `q`: with the original, either
+/// splits what is left without the part.
+fn complement(query: &Query) -> Query {
+    let negate = |query: &Query| match query {
+        Query::Not(inner) => (**inner).clone(),
+        query => Query::Not(Box::new(query.clone())),
+    };
+    match query {
+        Query::And(children) if children.len() == 2 => {
+            Query::And(vec![children[0].clone(), negate(&children[1])])
+        }
+        query => negate(query),
     }
 }
 

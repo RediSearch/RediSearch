@@ -509,9 +509,6 @@ checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 name = "kvd"
 version = "0.0.1"
 dependencies = [
- "clap",
- "env_logger",
- "log",
  "procfuzz",
  "procfuzz-redis",
  "serde",

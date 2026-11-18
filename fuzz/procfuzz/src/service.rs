@@ -8,7 +8,7 @@
 */
 
 //! A [`System`] for a process that answers requests on a Unix socket, with
-//! edge coverage from [`crate::coverage`] and findings from its log.
+//! edge coverage from `shim/coverage.c` and findings from its log.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, ErrorKind, Read, Write};
@@ -50,18 +50,18 @@ pub enum Input<Q> {
     /// Launch arguments. They count only before the first other input,
     /// which launches the process.
     Boot(Vec<String>),
-    /// `wait: false` leaves the reply to be read when the connection is next
-    /// used.
-    Send { conn: u8, wait: bool, request: Q },
-    /// Requests sent one after another on a connection, each awaiting its
-    /// reply. The last reply is the input's.
-    Batch { conn: u8, requests: Vec<Q> },
+    /// Requests sent one after another on a connection, each awaiting the
+    /// reply to the one before; the last reply is the input's. `wait: false`
+    /// leaves that reply to be read when the connection is next used.
+    Send {
+        conn: u8,
+        wait: bool,
+        requests: Vec<Q>,
+    },
     /// Reads every outstanding reply, then waits until the process is
     /// [idle](Service::idle). It completes only if the process became idle
     /// within [`Timing::patience`].
     Settle,
-    /// Drops a connection and the replies outstanding on it.
-    Reset { conn: u8 },
 }
 
 /// Assembled by a target from its parts. Requests the harness itself sends
@@ -263,6 +263,8 @@ impl Conn {
 }
 
 impl<C: Codec> Live<'_, C> {
+    /// Starts the process unless it is running, with the boot arguments
+    /// collected so far.
     fn launch(&mut self) -> io::Result<()> {
         if self.up.is_none() {
             self.up = Some(self.spawn()?);
@@ -425,31 +427,20 @@ impl<C: Codec> Session for Live<'_, C> {
         input: &Self::Input,
         run: &mut Run<C::Reply>,
     ) -> io::Result<ControlFlow<()>> {
-        if let Input::Boot(args) = input {
-            if self.up.is_none() {
-                self.boot.extend(args.iter().cloned());
+        match input {
+            Input::Boot(args) => {
+                if self.up.is_none() {
+                    self.boot.extend(args.iter().cloned());
+                }
+                run.done(at, None);
+                Ok(ControlFlow::Continue(()))
             }
-            run.done(at, None);
-            return Ok(ControlFlow::Continue(()));
-        }
-        self.launch()?;
-        Ok(match input {
-            Input::Boot(_) => unreachable!("handled above"),
             Input::Send {
                 conn,
                 wait,
-                request,
+                requests,
             } => {
-                if self.drain(*conn, run).is_break() || self.send(at, *conn, request)?.is_break() {
-                    return Ok(ControlFlow::Break(()));
-                }
-                if *wait {
-                    self.drain(*conn, run)
-                } else {
-                    ControlFlow::Continue(())
-                }
-            }
-            Input::Batch { conn, requests } => {
+                self.launch()?;
                 for request in requests {
                     if self.drain(*conn, run).is_break()
                         || self.send(at, *conn, request)?.is_break()
@@ -457,22 +448,21 @@ impl<C: Codec> Session for Live<'_, C> {
                         return Ok(ControlFlow::Break(()));
                     }
                 }
-                self.drain(*conn, run)
+                Ok(if *wait {
+                    self.drain(*conn, run)
+                } else {
+                    ControlFlow::Continue(())
+                })
             }
             Input::Settle => {
+                self.launch()?;
                 let flow = self.drain_all(run);
                 if flow.is_continue() && self.settle() {
                     run.done(at, None);
                 }
-                flow
+                Ok(flow)
             }
-            Input::Reset { conn } => {
-                self.conns.remove(conn);
-                self.pending.remove(conn);
-                run.done(at, None);
-                ControlFlow::Continue(())
-            }
-        })
+        }
     }
 
     /// Heals, reads what is outstanding, and shuts the process down, then

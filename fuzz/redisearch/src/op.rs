@@ -233,19 +233,14 @@ impl Op {
 
     /// The input it sends, with cursor ids from `state`.
     pub fn lower(&self, state: &State) -> Input<Argv> {
-        let send = |request: Argv| Input::Send {
-            conn: self.conn,
-            wait: !self.defer || self.action.names_a_cursor(),
-            request,
-        };
         match &self.action {
             Action::Boot { args } => Input::Boot(args.clone()),
             Action::Settle => Input::Settle,
-            Action::Populate { .. } => Input::Batch {
+            action => Input::Send {
                 conn: self.conn,
-                requests: self.action.commands(state),
+                wait: !self.defer || action.names_a_cursor(),
+                requests: action.commands(state),
             },
-            action => send(action.commands(state).remove(0)),
         }
     }
 }

@@ -14,12 +14,11 @@ use crate::draw::Draw;
 use crate::model::{Model, Program, make, predict, remake};
 
 /// Each edit with its relative weight.
-const EDITS: [(Edit, u64); 5] = [
-    (Edit::Insert, 4),
+const EDITS: [(Edit, u64); 4] = [
+    (Edit::Insert, 5),
     (Edit::Redraw, 3),
     (Edit::Delete, 1),
     (Edit::Splice, 1),
-    (Edit::Append, 1),
 ];
 const MOST_INSERTED: u64 = 3;
 const MOST_SPLICED: usize = 4;
@@ -33,12 +32,10 @@ enum Edit {
     Delete,
     /// The donor's ops from somewhere on, after the program's own.
     Splice,
-    /// A fresh op at the end.
-    Append,
 }
 
 /// The parent with one edit, splicing from `donor`. An edit that cannot
-/// apply, such as deleting the only op, appends instead.
+/// apply, such as deleting the only op, inserts instead.
 pub fn mutate<M: Model>(
     model: &M,
     parent: &Program<M::Op>,
@@ -48,14 +45,6 @@ pub fn mutate<M: Model>(
     let mut child = parent.clone();
     let len = child.ops.len();
     match pick_edit(rng) {
-        Edit::Insert => {
-            let at = rng.index(len + 1);
-            let mut state = predict(model, &child.ops[..at]);
-            let fresh: Vec<_> = (0..=rng.below(MOST_INSERTED))
-                .map(|_| make(model, &mut state, Draw::new(rng.raw())))
-                .collect();
-            child.ops.splice(at..at, fresh);
-        }
         Edit::Redraw if len > 0 => {
             let at = rng.index(len);
             let mut from = child.ops[at].from.clone();
@@ -77,10 +66,12 @@ pub fn mutate<M: Model>(
                 .extend(donor.ops[start..].iter().take(MOST_SPLICED).cloned());
         }
         _ => {
-            let mut state = predict(model, &child.ops);
-            child
-                .ops
-                .push(make(model, &mut state, Draw::new(rng.raw())));
+            let at = rng.index(len + 1);
+            let mut state = predict(model, &child.ops[..at]);
+            let fresh: Vec<_> = (0..=rng.below(MOST_INSERTED))
+                .map(|_| make(model, &mut state, Draw::new(rng.raw())))
+                .collect();
+            child.ops.splice(at..at, fresh);
         }
     }
     child

@@ -161,28 +161,3 @@ pub fn undo_all(indexes: &[Bytes]) -> Vec<Argv> {
     }
     commands
 }
-
-#[cfg(test)]
-mod tests {
-    use procfuzz_redis::resp::argv;
-
-    use super::*;
-
-    #[test]
-    fn the_most_specific_entry_describes_a_command() {
-        assert_eq!(
-            change(&argv(&["_ft.debug", "workers", "pause"])),
-            Change::PausesWorkers
-        );
-        assert_eq!(
-            effect(&argv(&["_FT.DEBUG", "WORKERS", "STATS"])),
-            Effect::Schedules
-        );
-        assert_eq!(effect(&argv(&["HSET", "k", "f", "v"])), Effect::Writes);
-        assert_eq!(
-            change(&argv(&["FT.ALTER", "i", "SCHEMA"])),
-            Change::ReshapesIndex
-        );
-        assert!(undo_all(&["i0".into()]).contains(&argv(&[DEBUG, "GC_CONTINUE_SCHEDULE", "i0"])));
-    }
-}

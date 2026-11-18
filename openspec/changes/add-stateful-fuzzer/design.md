@@ -91,7 +91,7 @@ The rules the design depends on:
 
 1. **One op, one input, at most one reply.** Steps line up with ops one to
    one, so there is no harness step and no sentinel. `Populate` lowers to one
-   batch input whose requests run one after another.
+   input whose requests run one after another.
 2. **Ops stay explicit.** Deleting an op never changes what another sends. An
    op that names a missing index is still sent and draws an ordinary error.
 3. **Names come from the state.** `next` picks an index, a field, or a cursor
@@ -154,10 +154,8 @@ process down, a `heal` hook that undoes every pause a program can set, an
 ```rust
 enum Input<Q> {
     Boot(Vec<String>),                          // launch arguments
-    Send { conn: u8, wait: bool, request: Q },
-    Batch { conn: u8, requests: Vec<Q> },
+    Send { conn: u8, wait: bool, requests: Vec<Q> }, // each awaits the one before
     Settle,                                     // read every reply, then wait until idle
-    Reset { conn: u8 },
 }
 ```
 
@@ -330,52 +328,39 @@ is the signal.
 
 ## Campaign
 
-An engine sees a program only through one function from program to
-features, so engines can be swapped and compared. Between the engine and
-that function sits a runner, shared by both engines, that:
+LibAFL 0.16.1 supplies the on-disk corpus, max-map feedback over features
+hashed into 2^20 entries, the length-and-time minimizing scheduler over a
+queue, and one mutational stage of at most eight mutations per scheduled
+program. It sees a program only through one function from program to
+features. Its executor:
 
-- counts runs and ends the campaign when its duration or run budget is
-  spent, a sibling failed, or the process was interrupted;
-- lets a run fail three times in a row before giving up;
 - **confirms new features**: when a run shows a feature not seen before, it
   runs the program again, counts only the features both runs showed, and
   never counts the others again. Edges that depend on timing would otherwise
   make many programs look new;
-- shares, when asked to, each program that shows a new feature with the other
-  workers, with the confirmed features that made it worth keeping. A worker
-  takes a shared program into its corpus without running it.
+- lets a run fail three times in a row before giving up, and ends the search
+  when its duration is spent, a sibling failed, or the process was
+  interrupted;
+- shares each program that shows a new feature with the other workers, with
+  the confirmed features that made it worth keeping. A worker takes a shared
+  program with `evaluate_execution` over those features, as LibAFL does for a
+  testcase another client sent with its observers, without running it.
 
-Two engines sit behind it:
-
-- **`libafl`** (the default): LibAFL 0.16.1's on-disk corpus, max-map
-  feedback over features hashed into 2^20 entries, the length-and-time
-  minimizing scheduler over a queue, and one mutational stage of at most
-  eight mutations per scheduled program. A shared program is evaluated with
-  `evaluate_execution` over the features it came with, as LibAFL does for a
-  testcase another client sent with its observers. There is no LibAFL
-  objective; findings never enter a corpus.
-- **`basic`**: keeps every program that shows a new feature and mutates one
-  picked uniformly, with a donor picked the same way, cutting mutants to 40
-  ops.
-
-Without seeds a campaign starts from the empty program. The corpus is kept on
-disk as program JSON and reloaded with the seeds when a campaign starts again.
-The first SIGINT or SIGTERM ends every worker after its current run, so every
-server, coverage segment, and directory is cleaned up.
+There is no LibAFL objective; findings never enter a corpus. Without seeds a
+campaign starts from the empty program. The corpus is kept on disk as program
+JSON and reloaded with the seeds when a campaign starts again.
 
 `fuzz --jobs N` (by default one per core) starts N worker threads, each a
 campaign with its own corpus under `corpus/<worker>` and a shared findings
-directory; `--share` lets them take each other's programs. Each finding new to
-the directory is written with how often it reproduces in five runs.
+directory. Each finding new to the directory is written with how often it
+reproduces in five runs.
 
-`compare` runs several trials of each setup (engine, with or without
-confirmation) with a fixed run budget and reports which findings each setup
-found in how many trials, at which run, and how many programs it kept. An
-engine or a per-feature score is chosen only from such a comparison. On
-RediSearch, 8 trials of 500 runs per setup against the planted module chose
-LibAFL with confirmation: it kept 28% fewer programs than without, and
-reached both planted bugs in half the runs or fewer than either other
-setup (tasks, 11.11).
+The engine and the confirmation were chosen by comparing setups with a fixed
+run budget, 8 trials each, against a plain loop that mutates a program picked
+uniformly (tasks, 11.11). On RediSearch, LibAFL with confirmation kept 28%
+fewer programs than without, and reached both planted bugs in half the runs
+or fewer than either other setup. The comparison harness and the plain loop
+were removed afterwards; they are in the history.
 
 ## Planted bugs
 
@@ -469,6 +454,5 @@ to programs with one connection, no deferred replies, and no cursors.
   generated ops reduced to at most five ops in under seven minutes; a 33-op
   program hitting the `DebugIndexes_ScanProc` overflow reduced to 5 ops in 4
   minutes. Not yet measured with draw-based shrinking.
-- **Not verified:** the coverage build on Linux; the reproduction rate and
-  stability of real programs; whether reply and state features, a stability
-  check, or another engine find more on RediSearch.
+- **Not verified:** the coverage build on Linux; whether reply and state
+  features find more on RediSearch.

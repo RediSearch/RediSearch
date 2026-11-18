@@ -68,7 +68,7 @@ impl CoverageMap {
     }
 
     /// How many edges the binary has.
-    pub fn guards(&self) -> u64 {
+    fn guards(&self) -> u64 {
         u64::from_ne_bytes(self.map[8..HEADER].try_into().expect("8 bytes"))
     }
 

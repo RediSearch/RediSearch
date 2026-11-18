@@ -79,21 +79,21 @@ fn hang() -> Vec<Op> {
 }
 
 #[test]
-fn a_clean_program_has_no_findings() {
-    let ops = [
+fn each_planted_bug_is_found_by_its_program_and_only_there() {
+    let clean = vec![
         Op::Set { key: 0, val: 1 },
         Op::Get { key: 0 },
         Op::Del { key: 0 },
         Op::Get { key: 0 },
     ];
-    assert_eq!(findings(&program(&ops)), Vec::<String>::new());
-}
-
-#[test]
-fn each_planted_bug_is_found_by_its_program() {
-    assert_eq!(findings(&program(&crash())), [CRASH]);
-    assert_eq!(findings(&program(&logic())), [LOGIC]);
-    assert_eq!(findings(&program(&hang())), [HANG]);
+    for (ops, expected) in [
+        (clean, &[][..]),
+        (crash(), &[CRASH]),
+        (logic(), &[LOGIC]),
+        (hang(), &[HANG]),
+    ] {
+        assert_eq!(findings(&program(&ops)), expected, "{ops:?}");
+    }
 }
 
 #[test]

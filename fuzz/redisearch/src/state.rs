@@ -16,6 +16,10 @@ use procfuzz_redis::resp::{Bytes, Value};
 use crate::effect::{Change, change};
 use crate::op::{Action, CursorSlot, DataType, Field, FieldKind, Op, Query, QueryOptions};
 
+/// From this dialect on, a search's total is the number of results it
+/// returned rather than the number that matched.
+const EXACT_TOTALS_BEFORE_DIALECT: u8 = 4;
+
 #[derive(Clone, Debug, Default)]
 pub struct State {
     /// Whether an op other than a boot argument ran.
@@ -28,7 +32,7 @@ pub struct State {
     pub indexes: BTreeMap<Bytes, Schema>,
     pub cursors: BTreeMap<u8, Cursor>,
     /// The last search that the logic rules can compare others with.
-    pub comparable: Option<Comparable>,
+    pub comparable: Option<Search>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,12 +53,10 @@ pub struct Cursor {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Comparable {
+pub struct Search {
     pub index: Bytes,
     pub query: Query,
     pub options: QueryOptions,
-    /// The part a later search added to or subtracted from `query`.
-    pub part: Option<Query>,
 }
 
 /// What decides which documents an index holds and how queries over it
@@ -102,7 +104,15 @@ impl State {
                 index,
                 query,
                 options,
-            } => self.compared(index, query, options),
+            } => {
+                if comparable(query, options) {
+                    self.comparable = Some(Search {
+                        index: index.clone(),
+                        query: query.clone(),
+                        options: options.clone(),
+                    });
+                }
+            }
             Action::Aggregate {
                 index,
                 cursor: Some(CursorSlot { slot, .. }),
@@ -171,45 +181,6 @@ impl State {
         }
     }
 
-    /// Remembers a search the logic rules can compare: one that lists every
-    /// match, so totals and keys are exact.
-    fn compared(&mut self, index: &Bytes, query: &Query, options: &QueryOptions) {
-        if !options.no_content || matches!(query, Query::Knn { .. }) {
-            return;
-        }
-        let part = self.comparable.as_ref().and_then(|last| {
-            let same = last.index == *index && last.options == *options;
-            let (rest, part) = match query {
-                Query::And(children) => match children.as_slice() {
-                    [rest, part] => (rest, part),
-                    _ => return None,
-                },
-                part => (&Query::All, part),
-            };
-            let strip = |part: &Query| match part {
-                Query::Not(part) => (**part).clone(),
-                part => part.clone(),
-            };
-            (same && *rest == last.query && *part != Query::All).then(|| strip(part))
-        });
-        if let (Some(part), Some(last)) = (part, self.comparable.as_mut()) {
-            last.part = Some(part);
-            return;
-        }
-        let continues = self
-            .comparable
-            .as_ref()
-            .is_some_and(|last| last.query == *query && last.options == *options);
-        if !continues {
-            self.comparable = Some(Comparable {
-                index: index.clone(),
-                query: query.clone(),
-                options: options.clone(),
-                part: None,
-            });
-        }
-    }
-
     pub fn key(&self, index: &Bytes) -> Option<Key> {
         let schema = self.indexes.get(index).filter(|schema| schema.known)?;
         let mut fields: Vec<_> = schema
@@ -227,6 +198,16 @@ impl State {
             .keys()
             .find(|name| *name != index && self.key(name).as_ref() == Some(&key))
     }
+}
+
+/// Whether the logic rules compare a search's results: they are exact. KNN
+/// results are approximate, and from dialect 4 on a search's total counts
+/// only the results it returned.
+pub fn comparable(query: &Query, options: &QueryOptions) -> bool {
+    !matches!(query, Query::Knn { .. })
+        && options
+            .dialect
+            .is_none_or(|dialect| dialect < EXACT_TOTALS_BEFORE_DIALECT)
 }
 
 /// `FT.AGGREGATE … WITHCURSOR` and `FT.CURSOR READ` reply

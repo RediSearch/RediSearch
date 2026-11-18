@@ -133,7 +133,6 @@ cd fuzz/redisearch
 RUST_LOG=debug cargo run -- run seeds/smoke.json
 cargo run -- run <program.json> --repeat 10
 cargo run -- fuzz --seeds seeds --duration 3600
-cargo run -- compare --seeds seeds --runs 1000 --setup libafl --setup libafl+confirm
 cargo run -- reduce <program.json>
 cargo run -- generate --seed 7 --ops 30 > program.json
 ```
@@ -155,13 +154,8 @@ own corpus kept in `corpus/<worker>/`, writing each finding that is new to
 again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
 in progress finish and cleans up their servers.
 
-`--setup` picks the engine, `libafl` or `basic`, and whether it runs a
-program again before counting a feature it shows for the first time
-(`+confirm`, the default). `--runs N` ends each worker after N runs, and
-`--share` lets workers take each other's programs without running them.
-`compare --runs N --trials 8 --setup libafl+confirm --setup basic+confirm`
-runs eight campaigns of N runs per setup and reports, per setup, which
-findings it found in how many trials and how many programs it kept.
+Workers take each other's programs without running them, and a program
+counts as new only if a second run shows the same new features.
 
 `reduce` shrinks a failing program while each smaller version still yields
 the same finding (the first one, or the one named by `--finding`), then runs
@@ -179,10 +173,8 @@ source ../bin/fuzz/env.sh && cargo test -- --ignored         # live tests agains
 
 The live tests check that every seed runs without an error reply and reaches
 code no other seed does; exercise the harness with the programs under
-`tests/programs/` (a hang, a stall that healing releases, a settle that
-cannot complete, a query left pending while another connection drops its
-index); check that a cursor is read by the id the server chose, that most
-replies to generated programs are not errors, that a crash inside a
-generated program reduces to the crashing command, that the programs under
-`planted/` give a real sanitizer report and a real assertion, and that a
-short campaign from the seeds finds a planted bug.
+`tests/programs/` (a hang, a stall that healing releases, and a settle that
+cannot complete); check that most replies to generated programs are not
+errors, that a crash inside a generated program reduces to the crashing
+command, that the programs under `planted/` give a real sanitizer report and a
+real assertion, and that a short campaign from the seeds finds a planted bug.

@@ -22,9 +22,7 @@ pub enum Error {
     },
     /// The program to reduce does not yield the finding to keep.
     NoSuchFinding,
-    /// Runs kept failing.
-    Failing(String),
-    /// LibAFL failed.
+    /// The search failed, or runs kept failing.
     Campaign(libafl::Error),
 }
 
@@ -34,7 +32,6 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "{e}"),
             Error::Program { path, source } => write!(f, "{}: {source}", path.display()),
             Error::NoSuchFinding => write!(f, "the program does not yield that finding"),
-            Error::Failing(e) => write!(f, "{e}"),
             Error::Campaign(e) => write!(f, "campaign: {e}"),
         }
     }
@@ -45,7 +42,7 @@ impl std::error::Error for Error {
         match self {
             Error::Io(e) => Some(e),
             Error::Program { source, .. } => Some(source),
-            Error::NoSuchFinding | Error::Failing(_) | Error::Campaign(_) => None,
+            Error::NoSuchFinding | Error::Campaign(_) => None,
         }
     }
 }

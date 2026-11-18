@@ -2,7 +2,7 @@
 name = "kvd"
 version = "0.0.1"
 edition = "2024"
-description = "A small RESP server with planted bugs, and its procfuzz model"
+description = "procfuzz's own test target: a small RESP server with planted bugs, and its model"
 publish = false
 license-file = "../../LICENSE.txt"
 
@@ -10,14 +10,7 @@ license-file = "../../LICENSE.txt"
 name = "kvd"
 path = "src/main.rs"
 
-[[bin]]
-name = "kvd-fuzz"
-path = "src/bin/kvd-fuzz.rs"
-
 [dependencies]
-clap.workspace = true
-env_logger.workspace = true
-log.workspace = true
-procfuzz = { workspace = true, features = ["cli"] }
+procfuzz.workspace = true
 procfuzz-redis.workspace = true
 serde.workspace = true

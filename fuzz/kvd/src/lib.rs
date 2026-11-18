@@ -67,9 +67,6 @@ pub enum Op {
         list: u8,
     },
     Settle,
-    Reset {
-        conn: u8,
-    },
     /// A launch flag; it counts only before every other op.
     Compact,
 }
@@ -100,7 +97,7 @@ impl Model for Kvd {
         };
         let list = |draw: &mut Draw| small(draw.below(LISTS));
         let conn = |draw: &mut Draw| 1 + small(draw.below(OTHER_CONNS));
-        let kinds = if state.started { 12 } else { 13 };
+        let kinds = if state.started { 11 } else { 12 };
         match draw.below(kinds) {
             0 => Op::Set {
                 key: key(draw),
@@ -128,7 +125,6 @@ impl Model for Kvd {
                 list: list(draw),
             },
             10 => Op::Settle,
-            11 => Op::Reset { conn: conn(draw) },
             _ => Op::Compact,
         }
     }
@@ -165,7 +161,7 @@ impl Model for Kvd {
         let send = |words: &[&str]| Input::Send {
             conn: 0,
             wait: true,
-            request: argv(words),
+            requests: vec![argv(words)],
         };
         let key = |key: &u8| format!("k{key}");
         let list = |list: &u8| format!("l{list}");
@@ -187,10 +183,9 @@ impl Model for Kvd {
             Op::BPop { conn, list: l } => Input::Send {
                 conn: *conn,
                 wait: false,
-                request: argv(&["BPOP", &list(l)]),
+                requests: vec![argv(&["BPOP", &list(l)])],
             },
             Op::Settle => Input::Settle,
-            Op::Reset { conn } => Input::Reset { conn: *conn },
         }
     }
 

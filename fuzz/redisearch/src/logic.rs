@@ -28,11 +28,8 @@ use procfuzz_redis::resp::{Bytes, Value};
 use crate::RediSearch;
 use crate::effect::{Effect, effect};
 use crate::op::{Action, Op, Query, QueryOptions};
-use crate::state::{Key, State};
+use crate::state::{Key, State, comparable};
 
-/// From this dialect on, a search's total is the number of results it
-/// returned rather than the number that matched.
-const EXACT_TOTALS_BEFORE_DIALECT: u8 = 4;
 /// RediSearch's default stopwords.
 const STOPWORDS: [&str; 33] = [
     "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into",
@@ -193,9 +190,7 @@ fn op_effect(op: &Op, state: &State) -> Effect {
 }
 
 /// Exact `FT.SEARCH` results inside a comparison window, each with the key
-/// of its index as the commands the server accepted left it. KNN results
-/// are approximate and left out, and so are results under dialect 4 and
-/// later, whose total counts only the results returned.
+/// of its index as the commands the server accepted left it.
 fn comparable_results<'a>(
     model: &RediSearch,
     ops: &'a [Op],
@@ -238,10 +233,7 @@ fn comparable_results<'a>(
         } = &ops[at].action
             && open
             && undisturbed
-            && !matches!(query, Query::Knn { .. })
-            && options
-                .dialect
-                .is_none_or(|dialect| dialect < EXACT_TOTALS_BEFORE_DIALECT)
+            && comparable(query, options)
             && let Some((total, keys)) = step.reply.as_ref().and_then(search_result)
         {
             results.push(SearchResult {
@@ -284,17 +276,13 @@ mod tests {
     use super::*;
     use crate::op::{DataType, Field, FieldKind};
 
-    fn run(ops: &[(Action, i64)]) -> Vec<String> {
-        run_until(ops, ops.len())
-    }
-
     /// The findings for a run in which every op succeeded in turn and each
-    /// search matched the paired number of documents. The ops after
-    /// `ended_after` have no steps, as when the server died.
-    fn run_until(ops: &[(Action, i64)], ended_after: usize) -> Vec<String> {
+    /// search matched the paired number of documents. Only the first
+    /// `steps` ops ran, as when the server died.
+    fn findings(ops: &[(Action, i64)], steps: usize) -> Vec<String> {
         let steps: Vec<Step<Value>> = ops
             .iter()
-            .take(ended_after)
+            .take(steps)
             .enumerate()
             .map(|(at, (action, total))| {
                 let tick = u32::try_from(2 * at + 1).unwrap();
@@ -320,159 +308,101 @@ mod tests {
     }
 
     #[test]
-    fn each_rule_passes_consistent_results_and_flags_inconsistent_ones() {
-        let create = |index: &str| Action::Create {
-            index: index.into(),
-            on: DataType::Hash,
-            prefix: "d:".into(),
-            fields: vec![Field {
-                name: "t".into(),
-                kind: FieldKind::Text,
-                sortable: false,
-            }],
-        };
-        let search = |index: &str, query| Action::Query {
+    fn each_rule_flags_inconsistent_results_and_only_those() {
+        let search = |index: &str, query, dialect| Action::Query {
             index: index.into(),
             query,
-            options: QueryOptions::default(),
+            options: QueryOptions {
+                dialect,
+                ..QueryOptions::default()
+            },
         };
         let hello = || Query::Term("hello".into());
         let world = || Query::InField {
             field: "t".into(),
             term: "world".into(),
         };
-        let fail = || Action::Boot {
-            args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
-        };
-        let setup = |boot: bool, extra: Vec<(Action, i64)>| {
+        let command = |words: &[&str]| (Action::command(words), 0);
+        // Two indexes on one prefix, created before `before`, then a settle,
+        // then `after`.
+        let program = |boot: bool, before: Vec<(Action, i64)>, after: Vec<(Action, i64)>| {
+            let create = |index: &str| Action::Create {
+                index: index.into(),
+                on: DataType::Hash,
+                prefix: "d:".into(),
+                fields: vec![Field {
+                    name: "t".into(),
+                    kind: FieldKind::Text,
+                    sortable: false,
+                }],
+            };
             let mut ops = Vec::new();
             if boot {
-                ops.push((fail(), 0));
+                let args = vec!["ON_TIMEOUT".into(), "FAIL".into()];
+                ops.push((Action::Boot { args }, 0));
             }
-            ops.extend([(create("i"), 0), (create("j"), 0), (Action::Settle, 0)]);
-            ops.extend(extra);
+            ops.extend([(create("i"), 0), (create("j"), 0)]);
+            ops.extend(before);
+            ops.push((Action::Settle, 0));
+            ops.extend(after);
             ops
         };
         let partition = |rest| {
-            setup(
-                true,
-                vec![
-                    (search("i", hello()), 5),
-                    (search("i", Query::And(vec![hello(), world()])), 2),
-                    (
-                        search(
-                            "i",
-                            Query::And(vec![hello(), Query::Not(Box::new(world()))]),
-                        ),
-                        rest,
-                    ),
-                ],
-            )
+            let not_world = Query::And(vec![hello(), Query::Not(Box::new(world()))]);
+            let after = vec![
+                (search("i", hello(), None), 5),
+                (search("i", Query::And(vec![hello(), world()]), None), 2),
+                (search("i", not_world, None), rest),
+            ];
+            program(true, Vec::new(), after)
         };
         let repeated = |between, second| {
-            setup(
-                true,
-                vec![
-                    (search("i", hello()), 3),
-                    (between, 0),
-                    (search("i", hello()), second),
-                ],
-            )
+            let after = vec![
+                (search("i", hello(), None), 3),
+                between,
+                (search("i", hello(), None), second),
+            ];
+            program(true, Vec::new(), after)
         };
-        let twin = |boot, second| {
-            setup(
-                boot,
-                vec![(search("i", hello()), 3), (search("j", hello()), second)],
-            )
+        let twin = |boot, before, dialect| {
+            let after = vec![
+                (search("i", hello(), dialect), 3),
+                (search("j", hello(), dialect), 2),
+            ];
+            program(boot, before, after)
         };
-        let dialect_4_twin = |second| {
-            let search = |index: &str| Action::Query {
-                index: index.into(),
-                query: hello(),
-                options: QueryOptions {
-                    dialect: Some(4),
-                    ..QueryOptions::default()
-                },
-            };
-            setup(true, vec![(search("i"), 3), (search("j"), second)])
+        let gc = || command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
+        let all = |ops: Vec<(Action, i64)>| {
+            let len = ops.len();
+            findings(&ops, len)
         };
-        let gc = || Action::command(&[crate::effect::DEBUG, "GC_FORCEINVOKE", "i"]);
-        let cases = [
-            (run(&partition(3)), vec![]),
-            (run(&partition(2)), vec!["logic:partition:term"]),
-            (run(&repeated(gc(), 3)), vec![]),
-            (run(&repeated(gc(), 2)), vec!["logic:equivalence:term"]),
-            (run(&twin(true, 3)), vec![]),
-            (run(&twin(true, 2)), vec!["logic:twin:term"]),
+        let cases: [(Vec<String>, &[&str]); 11] = [
+            (all(partition(3)), &[]),
+            (all(partition(2)), &["logic:partition:term"]),
+            (all(repeated(gc(), 3)), &[]),
+            (all(repeated(gc(), 2)), &["logic:equivalence:term"]),
             (
-                run(&repeated(
-                    Action::command(&["HSET", "d:1", "t", "hello"]),
-                    2,
+                all(repeated(command(&["HSET", "d:1", "t", "hello"]), 2)),
+                &[],
+            ),
+            (all(repeated(command(&["DEBUG", "RELOAD"]), 2)), &[]),
+            (all(twin(true, Vec::new(), None)), &["logic:twin:term"]),
+            (all(twin(false, Vec::new(), None)), &[]),
+            (all(twin(true, Vec::new(), Some(4))), &[]),
+            // A raw schema change leaves its index without a twin.
+            (
+                all(twin(
+                    true,
+                    vec![command(&["FT.ALTER", "j", "SCHEMA", "ADD", "u", "TEXT"])],
+                    None,
                 )),
-                vec![],
+                &[],
             ),
-            (
-                run(&repeated(Action::command(&["DEBUG", "RELOAD"]), 2)),
-                vec![],
-            ),
-            (
-                run(&repeated(Action::command(&["FT.ALTER", "j", "SCHEMA"]), 3)),
-                vec![],
-            ),
-            (run(&twin(false, 2)), vec![]),
-            (run(&dialect_4_twin(2)), vec![]),
+            // The run ended before the second search.
+            (findings(&repeated(gc(), 2), 6), &[]),
         ];
         for (i, (found, expected)) in cases.into_iter().enumerate() {
             assert_eq!(found, expected, "case {i}");
         }
-    }
-
-    #[test]
-    fn a_raw_schema_change_leaves_its_index_without_a_twin() {
-        let create = |index: &str| Action::Create {
-            index: index.into(),
-            on: DataType::Hash,
-            prefix: "d:".into(),
-            fields: Vec::new(),
-        };
-        let search = |index: &str| Action::Query {
-            index: index.into(),
-            query: Query::Term("hello".into()),
-            options: QueryOptions::default(),
-        };
-        let ops = [
-            (
-                Action::Boot {
-                    args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
-                },
-                0,
-            ),
-            (create("i"), 0),
-            (create("j"), 0),
-            (
-                Action::command(&["FT.ALTER", "j", "SCHEMA", "ADD", "t", "TEXT"]),
-                0,
-            ),
-            (Action::Settle, 0),
-            (search("i"), 3),
-            (search("j"), 2),
-        ];
-        assert_eq!(run(&ops), Vec::<String>::new());
-    }
-
-    #[test]
-    fn a_run_that_ended_early_is_judged_on_the_steps_it_has() {
-        let ops = [
-            (
-                Action::Boot {
-                    args: vec!["ON_TIMEOUT".into(), "FAIL".into()],
-                },
-                0,
-            ),
-            (Action::Settle, 0),
-            (Action::command(&["DEBUG", "SEGFAULT"]), 0),
-            (Action::Settle, 0),
-        ];
-        assert_eq!(run_until(&ops, 3), Vec::<String>::new());
     }
 }

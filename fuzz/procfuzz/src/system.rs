@@ -117,6 +117,13 @@ impl Notes {
         self.features.push(Feature { space, id });
     }
 
+    /// Whether the run showed the finding named `name`.
+    pub fn shows(&self, name: &str) -> bool {
+        self.findings
+            .iter()
+            .any(|finding| finding.to_string() == name)
+    }
+
     pub fn fail(&mut self, kind: &'static str, key: impl Into<String>) {
         let finding = Finding {
             kind,

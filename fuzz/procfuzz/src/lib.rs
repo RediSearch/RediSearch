@@ -7,20 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Coverage-guided fuzzing of stateful programs against a server process.
+//! Coverage-guided fuzzing of stateful systems.
+//!
+//! A target implements [`model::Model`]: which ops make sense when, what
+//! each sets up, and the input each sends. [`system::run`] runs a program of
+//! such ops against a [`system::System`], such as a [`service::Service`],
+//! and [`edit`] mutates and shrinks programs through the [`draw::Draw`]s that
+//! made their ops. [`campaign`] searches for programs that reach new
+//! features, and [`commands`] (as a clap subcommand in [`cli`]) puts it all
+//! together: replay, reduce, fuzz, and generate.
 
 pub mod campaign;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod commands;
-pub mod coverage;
+mod coverage;
 pub mod draw;
 pub mod edit;
 pub mod error;
 pub mod findings;
 pub mod interrupt;
 pub mod model;
-pub mod process;
+mod process;
 pub mod sanitizer;
 pub mod service;
 pub mod system;

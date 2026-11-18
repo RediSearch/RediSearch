@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use procfuzz::campaign::{Campaign, Setup, fuzz};
+use procfuzz::campaign::{Campaign, Exchange, fuzz};
 use procfuzz::commands::{load, reduce};
 use procfuzz::draw::Draw;
 use procfuzz::edit::mutate;
@@ -140,41 +140,6 @@ fn a_settle_that_cannot_complete_times_out_without_a_finding() {
 
 #[test]
 #[ignore = "needs bin/fuzz/env.sh"]
-fn a_deferred_query_is_answered_after_another_connection_drops_its_index() {
-    let run = execute(
-        &redisearch(),
-        &program("tests/programs/drop-under-pending-query.json"),
-    );
-    assert_eq!(findings(&run), Vec::<String>::new());
-    let [.., query, drop, _resume, _settle] = run.steps.as_slice() else {
-        panic!("{:?}", run.steps);
-    };
-    assert!(
-        query.sent < drop.sent && drop.done < query.done,
-        "{:?}",
-        run.steps
-    );
-}
-
-#[test]
-#[ignore = "needs bin/fuzz/env.sh"]
-fn a_cursor_is_read_by_the_id_the_server_chose() {
-    let run = execute(&redisearch(), &program("seeds/aggregate.json"));
-    let reads: Vec<_> = program("seeds/aggregate.json")
-        .ops()
-        .iter()
-        .zip(&run.steps)
-        .filter(|(op, _)| matches!(op.action, Action::CursorRead { .. }))
-        .map(|(_, step)| step.reply.clone())
-        .collect();
-    assert!(!reads.is_empty());
-    for reply in reads {
-        assert!(matches!(reply, Some(Value::Array(_))), "{reply:?}");
-    }
-}
-
-#[test]
-#[ignore = "needs bin/fuzz/env.sh"]
 fn most_replies_to_generated_programs_are_not_errors() {
     let env = redisearch();
     let mut draw = Draw::new(0);
@@ -235,8 +200,6 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
         seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
         corpus: dir.path(),
         duration: Some(Duration::from_secs(CAMPAIGN_SECS)),
-        runs: None,
-        setup: Setup::default(),
     };
     let execute = |program: &Program| {
         let run = run(&RediSearch, &service, program)?;
@@ -245,7 +208,15 @@ fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
     };
     let mutate =
         |parent: &Program, donor: &Program, rng: &mut Draw| mutate(&RediSearch, parent, donor, rng);
-    fuzz(&campaign, &AtomicBool::new(false), None, execute, mutate).unwrap();
+    let exchange = Exchange::new();
+    fuzz(
+        &campaign,
+        &AtomicBool::new(false),
+        exchange.peer(0),
+        execute,
+        mutate,
+    )
+    .unwrap();
     assert!(
         found
             .iter()
