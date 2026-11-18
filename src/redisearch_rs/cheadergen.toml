@@ -34,6 +34,10 @@ header_name = "ttl_table_rs"
 [package.ttl_table_ffi]
 header_name = "ttl_table"
 
+[package.language_ffi]
+# Named `language.h` so the existing `#include "language.h"` lines in C resolve to it.
+header_name = "language"
+
 [c]
 cpp_compat = true
 
@@ -54,6 +58,13 @@ typedef uint64_t t_fieldMask;
 """
 
 [header.field]
+
+[header.language]
+# Hand-written because cheadergen cannot export an enum-typed constant. It must name
+# the same language as `#[default]` on `Language`, which `RSLanguage_Find(NULL, _)` returns.
+after_includes = """
+#define DEFAULT_LANGUAGE RS_LANG_ENGLISH
+"""
 
 [header.index_gc_ffi]
 includes = ["gc/index_gc.h", "search_ctx.h"]

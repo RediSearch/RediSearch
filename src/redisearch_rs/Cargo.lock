@@ -1093,15 +1093,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "idf_ffi"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "idf",
- "workspace_hack",
-]
-
-[[package]]
 name = "index_gc"
 version = "0.0.1"
 dependencies = [
@@ -1292,6 +1283,7 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis-module",
  "redis_mock",
@@ -1340,6 +1332,24 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "language"
+version = "0.0.1"
+dependencies = [
+ "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "language_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "language",
+ "strum",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2246,10 +2256,10 @@ dependencies = [
  "doc_key_map_ffi",
  "fnv_ffi",
  "geo_ffi",
- "idf_ffi",
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
@@ -2629,10 +2639,10 @@ dependencies = [
  "ffi",
  "fnv_ffi",
  "geo_ffi",
- "idf_ffi",
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "memchr",
  "metrics_ffi",
  "module_init_ffi",

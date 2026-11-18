@@ -100,14 +100,15 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 // Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
 typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
 
-// Callback functions for applying text compaction delta updates.
+// Callback functions for applying text and tag compaction delta updates.
 // The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
 //
-// Lifecycle, per compaction, in calling order:
+// Lifecycle, per bounded apply chunk, in calling order:
 //
 //   beginUpdate(private_data) -> update_ctx    // once before delta apply
 //   decrementTrieTermCount(update_ctx, ...)    // 0..N times
 //   decrementNumTerms(update_ctx, ...)         // 0 or 1 time
+//   decrementTagValueCount(update_ctx, ...)    // 0..N times
 //   endUpdate(update_ctx)                      // once after delta apply
 //
 // `beginUpdate` / `endUpdate` bracket just the delta-apply window and are
@@ -127,6 +128,10 @@ typedef struct SearchDiskCompactionCallbacks {
 
   // Decrement numTerms in scoring stats.
   void (*decrementNumTerms)(void *update_ctx, uint64_t num_terms_removed);
+
+  // Subtract removed postings from a disk TAG value; returns true if it became empty.
+  bool (*decrementTagValueCount)(void *update_ctx, t_fieldIndex field_index, const char *tag,
+                                 size_t tag_len, size_t count);
 
   // Closes an update session.
   // Implementations may release internal locks here.

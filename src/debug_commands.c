@@ -881,17 +881,16 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (TagIndex_HasDiskSpec(tagIndex)) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
-    goto end;
-  }
-
   iter = TagIndex_IterateValues(tagIndex);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
+    if (TagIndex_HasDiskSpec(tagIndex)) {
+      RedisModule_ReplyWithLongLong(sctx->redisCtx, (uintptr_t)iv);
+      ++resultSize;
+      continue;
+    }
     IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(iv, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
@@ -1730,9 +1729,8 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (TagIndex_HasDiskSpec(idx)) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
+  if (TagIndex_HasDiskSpec(idx) && options.dumpIdEntries) {
+    RedisModule_ReplyWithError(ctx, "dump_id_entries not supported for disk-mode indexes");
     goto end;
   }
 
@@ -1768,10 +1766,14 @@ DEBUG_COMMAND(InfoTagIndex) {
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
     RedisModule_ReplyWithLiteral(ctx, "num_entries");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
-
-    RedisModule_ReplyWithLiteral(ctx, "num_blocks");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
+    if (TagIndex_HasDiskSpec(idx)) {
+      RedisModule_ReplyWithLongLong(ctx, (uintptr_t)iv);
+      nsubelem -= 2;
+    } else {
+      RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
+      RedisModule_ReplyWithLiteral(ctx, "num_blocks");
+      RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
+    }
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
