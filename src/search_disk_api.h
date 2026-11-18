@@ -1146,6 +1146,11 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+typedef struct TagResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} TagResourceMetrics;
+
 typedef struct TextResourceMetrics {
   uint64_t memtable_bytes;
   uint64_t storage_bytes;
@@ -1167,6 +1172,7 @@ typedef struct CachedIndexMetrics {
   uint64_t disk_usage;
   uint64_t blocks;
   TextResourceMetrics text;
+  TagResourceMetrics tag;
   DocTableResourceMetrics doc_table;
   MissingResourceMetrics missing;
 } CachedIndexMetrics;
@@ -1174,6 +1180,7 @@ typedef struct CachedIndexMetrics {
 /* Search-owned totals across local indexes for INFO output. */
 typedef struct IndexInfoTotals {
   uint64_t text_ram_metadata_bytes;
+  uint64_t tag_ram_metadata_bytes;
   uint64_t num_docs;
 } IndexInfoTotals;
 

@@ -901,9 +901,12 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
  * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory);
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
   size_t vector_overhead);
+
+/* Uses precomputed TAG/TEXT overheads (including zero) and cached disk memory. */
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, size_t disk_memory);
 
 /**
 * obfuscate argument is used to determine how we will format the index name

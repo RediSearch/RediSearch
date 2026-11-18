@@ -76,7 +76,7 @@ static InfoFieldSpec docTableSpecs[] = {
     {.name = "storage_bytes", .type = InfoField_WholeSum},
 };
 
-static InfoFieldSpec textResourceSpecs[] = {
+static InfoFieldSpec dictionaryResourceSpecs[] = {
     {.name = "ram_metadata_bytes", .type = InfoField_WholeSum},
     {.name = "memtable_bytes", .type = InfoField_WholeSum},
     {.name = "storage_bytes", .type = InfoField_WholeSum},
@@ -148,7 +148,8 @@ typedef struct {
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
   MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
-  InfoValue textResources[ARRAY_SIZE(textResourceSpecs)];
+  InfoValue textResources[ARRAY_SIZE(dictionaryResourceSpecs)];
+  InfoValue tagResources[ARRAY_SIZE(dictionaryResourceSpecs)];
   InfoValue missingResources[ARRAY_SIZE(missingResourceSpecs)];
   InfoValue docTable[ARRAY_SIZE(docTableSpecs)];
 } InfoFields;
@@ -325,7 +326,10 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
                          docTableSpecs, ARRAY_SIZE(docTableSpecs), 1, error);
         } else if (group && !strcmp(group, "text")) {
           processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->textResources,
-                         textResourceSpecs, ARRAY_SIZE(textResourceSpecs), 1, error);
+                         dictionaryResourceSpecs, ARRAY_SIZE(dictionaryResourceSpecs), 1, error);
+        } else if (group && !strcmp(group, "tag")) {
+          processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->tagResources,
+                         dictionaryResourceSpecs, ARRAY_SIZE(dictionaryResourceSpecs), 1, error);
         } else if (group && !strcmp(group, "missing")) {
           processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->missingResources,
                          missingResourceSpecs, ARRAY_SIZE(missingResourceSpecs), 1, error);
@@ -472,7 +476,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   replyIndexAverages(reply, fields);
   if (fields->textResources[0].isSet || fields->docTable[0].isSet ||
-      fields->missingResources[0].isSet) {
+      fields->missingResources[0].isSet || fields->tagResources[0].isSet) {
     RedisModule_ReplyKV_Map(reply, "column_families");
     if (fields->docTable[0].isSet) {
       RedisModule_ReplyKV_Map(reply, "doc_table");
@@ -481,8 +485,14 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
     }
     if (fields->textResources[0].isSet) {
       RedisModule_ReplyKV_Map(reply, "text");
-      replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
-                   ARRAY_SIZE(textResourceSpecs));
+      replyKvArray(reply, fields, fields->textResources, dictionaryResourceSpecs,
+                   ARRAY_SIZE(dictionaryResourceSpecs));
+      RedisModule_Reply_MapEnd(reply);
+    }
+    if (fields->tagResources[0].isSet) {
+      RedisModule_ReplyKV_Map(reply, "tag");
+      replyKvArray(reply, fields, fields->tagResources, dictionaryResourceSpecs,
+                   ARRAY_SIZE(dictionaryResourceSpecs));
       RedisModule_Reply_MapEnd(reply);
     }
     if (fields->missingResources[0].isSet) {

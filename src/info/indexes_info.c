@@ -51,13 +51,17 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
+    size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
+    size_t text_overhead = IndexSpec_collect_text_overhead(sp);
     bool cachedDisk = sp->diskSpec != NULL;
     CachedIndexMetrics diskMetrics = {0};
     if (cachedDisk) {
       diskMetrics = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec);
-      info.text_ram_metadata_bytes += IndexSpec_collect_text_overhead(sp);
+      info.text_ram_metadata_bytes += text_overhead;
+      info.tag_ram_metadata_bytes += tags_overhead;
     }
-    size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, vec_info.memory, diskMetrics.memory);
+    size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, tags_overhead, text_overhead,
+                                                    vec_info.memory, diskMetrics.memory);
     size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 

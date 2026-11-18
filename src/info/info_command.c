@@ -312,7 +312,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t total_ii_blocks = IndexSpec_TotalBlockCount(sp);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
-  size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
+  size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, tags_overhead, text_overhead,
                                                 vector_indexes_size);
@@ -332,7 +332,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
     REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   }
-  REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  if (!isDisk) {
+    REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  }
   if (isDisk) {
     CachedIndexMetrics resources = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec);
     TextResourceMetrics text = resources.text;
@@ -347,6 +349,11 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     REPLY_KVINT("ram_metadata_bytes", text_overhead);
     REPLY_KVINT("memtable_bytes", text.memtable_bytes);
     REPLY_KVINT("storage_bytes", text.storage_bytes);
+    REPLY_MAP_END;
+    REPLY_KVMAP("tag");
+    REPLY_KVINT("ram_metadata_bytes", tags_overhead);
+    REPLY_KVINT("memtable_bytes", resources.tag.memtable_bytes);
+    REPLY_KVINT("storage_bytes", resources.tag.storage_bytes);
     REPLY_MAP_END;
     REPLY_KVMAP("missing");
     REPLY_KVINT("memtable_bytes", resources.missing.memtable_bytes);
