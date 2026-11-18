@@ -242,22 +242,37 @@ pub struct Trials {
     pub found: BTreeMap<String, Vec<u64>>,
 }
 
-/// Runs `trials` campaigns of `runs` runs each per setup, from `seeds`, at
-/// most `jobs` at once, and reports what each setup found and kept. Nothing
-/// is written to a findings directory.
+/// What to compare: `trials` campaigns of `runs` runs each per setup, from
+/// `seeds`.
+pub struct Comparison<'a> {
+    pub setups: &'a [Setup],
+    pub trials: u32,
+    pub seeds: &'a [PathBuf],
+    pub runs: u64,
+}
+
+/// Runs a comparison, at most `jobs` campaigns at once, and reports what
+/// each setup found and kept. Each
+/// finding new to `findings` is written there, without the reruns that
+/// measure how often it reproduces, so every setup gets the same runs.
 pub fn compare<M, S>(
     model: &M,
     system: &S,
-    setups: &[Setup],
-    trials: u32,
-    seeds: &[PathBuf],
-    runs: u64,
+    findings: &Findings,
+    comparison: &Comparison<'_>,
     jobs: usize,
 ) -> Result<Vec<Trials>, Error>
 where
     M: Model,
+    M::Reply: Serialize,
     S: System<Input = M::Input, Reply = M::Reply>,
 {
+    let Comparison {
+        setups,
+        trials,
+        seeds,
+        runs,
+    } = *comparison;
     let plan: Vec<(usize, u32)> = (0..setups.len())
         .flat_map(|setup| (0..trials).map(move |trial| (setup, trial)))
         .collect();
@@ -279,7 +294,16 @@ where
             done += 1;
             let run = run(model, system, program)?;
             for finding in &run.notes.findings {
-                found.entry(finding.to_string()).or_insert(done);
+                let name = finding.to_string();
+                if findings.claim(&name) {
+                    let rate = Rate {
+                        reproduced: 1,
+                        runs: 1,
+                    };
+                    let dir = findings.write(&name, program, None, &run, rate)?;
+                    info!("new finding: {name} -> {}", dir.display());
+                }
+                found.entry(name).or_insert(done);
             }
             Ok::<_, Error>(run.notes.features)
         };

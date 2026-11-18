@@ -30,7 +30,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 
 use crate::campaign::{Campaign, Setup};
-use crate::commands::{Trials, compare, fuzz, generate_from, load, reduce, replay};
+use crate::commands::{Comparison, Trials, compare, fuzz, generate_from, load, reduce, replay};
 use crate::error::Error;
 use crate::findings::Findings;
 use crate::interrupt;
@@ -113,6 +113,8 @@ pub enum Command {
         /// Trials to run at once; by default one per core.
         #[arg(long)]
         jobs: Option<usize>,
+        #[arg(long, default_value = "findings")]
+        findings: PathBuf,
     },
     /// Print a generated program.
     Generate {
@@ -201,16 +203,16 @@ impl Command {
                 trials,
                 setups,
                 jobs,
+                findings,
             } => {
-                let report = compare(
-                    model,
-                    system,
-                    &setups,
+                let findings = Findings::new(&findings, setup_record)?;
+                let comparison = Comparison {
+                    setups: &setups,
                     trials,
-                    &seeds,
+                    seeds: &seeds,
                     runs,
-                    jobs_or_cores(jobs),
-                )?;
+                };
+                let report = compare(model, system, &findings, &comparison, jobs_or_cores(jobs))?;
                 for line in summary(&report) {
                     log::info!("{line}");
                 }
