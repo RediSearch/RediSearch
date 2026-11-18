@@ -72,6 +72,20 @@ def _checkpoint_calls(env, query):
     return [status[5] for status in statuses]
 
 
+def _vector_calls(env, query, baseline_filter):
+    """The checkpoint calls `query` makes per process before any row is replied (LIMIT 0 0), and
+    how many of them its vector part adds to the same query on `baseline_filter`."""
+    def calls(q):
+        q = list(q)
+        at = q.index('LIMIT')
+        q[at + 1:at + 3] = [0, 0]
+        return _checkpoint_calls(env, q)
+
+    with_vector = calls(query)
+    baseline = calls([*query[:2], baseline_filter, *query[3:]])
+    return with_vector, [c - b for c, b in zip(with_vector, baseline, strict=True)]
+
+
 def _vector_checkpoint_positions(env, query):
     """Call positions that include the vector checkpoints of `query`, a vector range query whose
     filter is `query[2]`. Rows are not replied (LIMIT 0 0), so the calls made before the reply
@@ -80,17 +94,9 @@ def _vector_checkpoint_positions(env, query):
     one VecSim's stop callback makes for the single block of the FLAT field `v`. Their number is
     pinned, so a query without the range checkpoint fails here; stopping at each position up to
     the vector's covers it without depending on its order among the others."""
-    def calls(q):
-        q = list(q)
-        at = q.index('LIMIT')
-        q[at + 1:at + 3] = [0, 0]
-        return _checkpoint_calls(env, q)
-
-    with_vector = calls(query)
-    baseline = calls([*query[:2], '@n:[40 60]', *query[3:]])
+    with_vector, extra = _vector_calls(env, query, '@n:[40 60]')
     expected = 2 if query[2].startswith('@v:') else 1
-    env.assertEqual([c - b for c, b in zip(with_vector, baseline, strict=True)],
-                    [expected] * len(with_vector), message=(with_vector, baseline))
+    env.assertEqual(extra, [expected] * len(extra), message=(with_vector, extra))
     # In a cluster the first process also coordinates, and its calls are not all the shard's.
     return range(1, min(with_vector[1:] or with_vector) + 1)
 
@@ -254,8 +260,8 @@ def test_knn_batches_stop_for_oom_on_shards(env):
     former."""
     _create_indexed_hash_index(env)
     query = _batches_queries()['hnsw']
-    calls = _checkpoint_calls(env, query)
-    env.assertTrue(all(c >= 2 for c in calls), message=calls)
+    extra = _vector_calls(env, query, '(@n:[90 +inf])')[1]
+    env.assertTrue(all(c >= 2 for c in extra), message=extra)
     _expect_stopped_by_policy(env, query, None, _shards_only_at_call(env, 2),
                               keeps_some_results=True)
 
@@ -294,8 +300,8 @@ def _expect_stopped_inside_vecsim(env, queries=None, at_calls=None, keeps_some_r
     for name, query in (queries or _long_search_queries()).items():
         env.debugPrint(name)
         after_search = 1 if name.endswith('range') else 0
-        for calls in _checkpoint_calls(env, query):
-            env.assertGreater(calls, after_search, message=name)
+        for extra in _vector_calls(env, query, '*')[1]:
+            env.assertGreater(extra, after_search, message=name)
         _expect_stopped_by_policy(env, query, RANGE_MATCHES if name == 'flat_range' else None,
                                   at_calls, keeps_some_results)
 
