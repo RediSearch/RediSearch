@@ -25,7 +25,7 @@
 #include "suffix.h"
 #include "varint_ffi.h"
 #include "vector_index.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 #include <stdint.h>
 

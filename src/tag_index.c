@@ -247,21 +247,18 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
   stats->numRecords += numRecords;
 }
 
-/* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
- *
- * Called from `tagApplier` in both modes:
- *   - Disk mode: runs after a successful batch commit. Inserts NULL sentinels
- *     into `idx->values` (postings live on disk).
- *   - Memory mode: the trie already holds `InvertedIndex*` pointers from
- *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
- *     them.
- *
- * Record accounting follows the phase that writes the posting:
- *   - Memory mode writes postings inline in `TagIndex_WritePostings` and counts
- *     only records accepted by the inverted index.
- *   - Disk mode reaches this function after the batch commit, so committed tag
- *     values are counted here while applying the matching in-memory metadata.
- * Infallible. */
+static void *tagIndex_AddCount(void *oldValue, void *newValue) {
+  return (void *)((uintptr_t)oldValue + (uintptr_t)newValue);
+}
+
+static void *tagIndex_SubtractCount(void *oldValue, void *newValue) {
+  RS_ASSERT((uintptr_t)newValue <= (uintptr_t)oldValue);
+  return (void *)((uintptr_t)oldValue - (uintptr_t)newValue);
+}
+
+static void tagIndex_FreeCount(void *value) {
+}
+
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;
   size_t numRecords = 0;
@@ -271,7 +268,7 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
     numRecords++;
     size_t len = strlen(tok);
     if (idx->diskSpec) {
-      TrieMap_Add(idx->values, tok, len, NULL, NULL);
+      TrieMap_Add(idx->values, tok, len, (void *)(uintptr_t)1, tagIndex_AddCount);
     }
     if (idx->suffix && (*tok != '\0')) {
       addSuffixTrieMap(idx->suffix, tok, len);
@@ -368,7 +365,23 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx) {
 }
 
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
-  return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+  return TrieMap_Delete(idx->values, tagVal, tagValLen,
+                        idx->diskSpec ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free);
+}
+
+bool TagIndex_DecrementValueCount(TagIndex *idx, const char *tag, size_t len, size_t count) {
+  RS_ASSERT(idx->diskSpec);
+  RS_ASSERT(count > 0);
+  int added = TrieMap_Add(idx->values, tag, len, (void *)(uintptr_t)count, tagIndex_SubtractCount);
+  RS_ASSERT(!added);
+  if (TrieMap_Find(idx->values, tag, len) != NULL) {
+    return false;
+  }
+  TrieMap_Delete(idx->values, tag, len, tagIndex_FreeCount);
+  if (idx->suffix && len) {
+    TagIndex_DeleteTagSuffix(idx, tag, len);
+  }
+  return true;
 }
 
 void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen) {
@@ -412,9 +425,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
 }
 
 void TagIndex_Free(TagIndex *idx) {
-  // In disk mode, values are NULL sentinels - pass NULL to use RedisModule_Free (no-op on NULL)
-  // In memory mode, values are InvertedIndex pointers
-  freeCB valueFree = idx->diskSpec ? NULL : (freeCB)InvertedIndex_Free;
+  freeCB valueFree = idx->diskSpec ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free;
   TrieMap_Free(idx->values, valueFree);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);

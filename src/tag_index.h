@@ -109,7 +109,7 @@ typedef struct TagIndex {
   TrieMap *suffix;
 
   // Disk mode support: diskSpec != NULL means disk mode
-  // In disk mode, TrieMap values contains NULL sentinels instead of InvertedIndex pointers
+  // Disk values are pointer-sized document counts; memory values are InvertedIndex pointers.
   RedisSearchDiskIndexSpec *diskSpec;  // NULL for memory mode, non-NULL for disk mode
   t_fieldIndex fieldIndex;            // Field index (needed for disk API calls)
 } TagIndex;
@@ -145,6 +145,11 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx);
  * See [`TrieMap_Delete`] for more details.
  */
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+/* Subtract committed compaction removals from a disk tag's document count.
+ * Requires the IndexSpec write lock and count <= the stored count.
+ * Returns true when the tag and its suffix entry were removed. */
+bool TagIndex_DecrementValueCount(TagIndex *idx, const char *tag, size_t len, size_t count);
 
 /**
  * Remove the given suffix.
@@ -200,7 +205,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *
 /* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
  *
  * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit;
- * inserts NULL sentinels into `idx->values` (postings live on disk).
+ * increments document counts in `idx->values` (postings live on disk).
  *
  * Memory mode: called from `TagIndex_Index` after the per-tag inverted-index
  * postings have already been written, so the trie insert is skipped (existing

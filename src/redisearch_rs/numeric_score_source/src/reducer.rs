@@ -102,7 +102,6 @@ where
                 ascending,
                 DEFAULT_RANGE_BATCH_SIZE,
                 num_docs,
-                child_estimate,
             );
             (source, Some(child))
         }

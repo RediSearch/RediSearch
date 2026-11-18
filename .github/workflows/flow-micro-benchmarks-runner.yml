@@ -1,6 +1,12 @@
 on:
   workflow_call:
     inputs:
+      vecsim-suite:
+        type: string
+        default: 'benchmarks-default'
+      vecsim-only:
+        type: boolean
+        default: false
       architecture:
         required: true
         type: string
@@ -146,6 +152,7 @@ jobs:
           # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
           REDISEARCH_GENERATE_HEADERS: "0"
       - name: Run Micro Benchmark
+        if: ${{ !inputs.vecsim-only }}
         env:
           ARCH: ${{ inputs.architecture }}
           LTO: 1
@@ -157,6 +164,18 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
+      - name: Run VecSim microbenchmarks
+        timeout-minutes: 300
+        env:
+          VECSIM_SUITES: ${{ inputs.vecsim-suite }}
+        run: bash tests/benchmarks/vecsim/run.sh "$VECSIM_SUITES"
+      - name: Upload VecSim benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vecsim-benchmarks-${{ inputs.architecture }}-${{ inputs.vecsim-only && 'selected' || 'default' }}-${{ github.run_attempt }}
+          path: bin/vecsim/**/benchmark/*_results.json
+          if-no-files-found: warn
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
@@ -165,6 +184,7 @@ jobs:
         # into a shell command lets them inject arbitrary code.
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          VECSIM_ONLY: ${{ inputs.vecsim-only }}
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
@@ -204,7 +224,11 @@ jobs:
           echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
 
           # Find all JSON result files
-          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
+          RESULT_DIRS=(bin/vecsim)
+          if [[ "$VECSIM_ONLY" != "true" ]]; then
+            RESULT_DIRS+=("$BINDIR/micro-benchmarks")
+          fi
+          JSON_FILES=$(find "${RESULT_DIRS[@]}" -name "*_results.json")
 
           if [ -z "$JSON_FILES" ]; then
             echo "No benchmark result files found in $BINDIR/micro-benchmarks"
@@ -230,7 +254,7 @@ jobs:
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
-              --architecture $INPUT_ARCHITECTURE
+              --architecture "$INPUT_ARCHITECTURE"
           done
 
   stop-runner:
