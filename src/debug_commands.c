@@ -2940,7 +2940,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     if (argc != 3) {
       return RedisModule_WrongArity(ctx);
     }
-    ASM_ImportWindow_Reset();
+    DiskASM_ImportWindow_Reset();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -2952,7 +2952,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     if (RedisModule_StringToLongLong(argv[3], &slot) != REDISMODULE_OK || slot < 0 || slot > 16383) {
       return RedisModule_ReplyWithError(ctx, "Invalid slot");
     }
-    return RedisModule_ReplyWithLongLong(ctx, ASM_ImportWindow_ContainsSlot((unsigned int)slot));
+    return RedisModule_ReplyWithLongLong(ctx, DiskASM_ImportWindow_ContainsSlot((unsigned int)slot));
   }
 
   void (*apply)(const RedisModuleSlotRangeArray *) = NULL;

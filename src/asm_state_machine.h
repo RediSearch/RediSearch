@@ -99,7 +99,7 @@ static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray 
  */
 static inline void ASM_StateMachine_StartImportOverlay(const RedisModuleSlotRangeArray *slots) {
   if (SearchDisk_IsEnabled()) {
-    ASM_ImportWindow_Open(slots);
+    DiskASM_ImportWindow_Open(slots);
   }
 }
 
@@ -115,7 +115,7 @@ static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArr
  * to it after ASM_StateMachine_CompleteImport, since the window closes either way.
  */
 static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *slots) {
-  ASM_ImportWindow_Close(slots);
+  DiskASM_ImportWindow_Close(slots);
 }
 
 /**

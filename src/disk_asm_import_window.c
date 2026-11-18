@@ -17,7 +17,7 @@
 
 // Allocated while any slot is in the window, so a shard that never imports pays nothing.
 static uint64_t *slotBits = NULL;
-uint32_t ASM_ImportWindow_numSlots_g = 0;
+uint32_t DiskASM_ImportWindow_numSlots_g = 0;
 
 static bool testBit(unsigned int slot) {
   return slotBits[slot / WORD_BITS] & (1ULL << (slot % WORD_BITS));
@@ -25,12 +25,13 @@ static bool testBit(unsigned int slot) {
 
 static void setBit(unsigned int slot, bool in) {
   if (testBit(slot) == in) return;
-  RS_LOG_ASSERT(in || ASM_ImportWindow_numSlots_g > 0, "ASM import window: slot count underflow");
+  RS_LOG_ASSERT(in || DiskASM_ImportWindow_numSlots_g > 0,
+                "ASM import window: slot count underflow");
   slotBits[slot / WORD_BITS] ^= 1ULL << (slot % WORD_BITS);
   if (in) {
-    ASM_ImportWindow_numSlots_g++;
+    DiskASM_ImportWindow_numSlots_g++;
   } else {
-    ASM_ImportWindow_numSlots_g--;
+    DiskASM_ImportWindow_numSlots_g--;
   }
 }
 
@@ -48,32 +49,32 @@ static void update(const RedisModuleSlotRangeArray *slots, bool in) {
       setBit(slot, in);
     }
   }
-  if (ASM_ImportWindow_numSlots_g == 0) {
-    ASM_ImportWindow_Reset();
+  if (DiskASM_ImportWindow_numSlots_g == 0) {
+    DiskASM_ImportWindow_Reset();
   }
 }
 
-void ASM_ImportWindow_Open(const RedisModuleSlotRangeArray *slots) {
+void DiskASM_ImportWindow_Open(const RedisModuleSlotRangeArray *slots) {
   update(slots, true);
 }
 
-void ASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots) {
+void DiskASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots) {
   update(slots, false);
 }
 
-void ASM_ImportWindow_Reset(void) {
+void DiskASM_ImportWindow_Reset(void) {
   rm_free(slotBits);
   slotBits = NULL;
-  ASM_ImportWindow_numSlots_g = 0;
+  DiskASM_ImportWindow_numSlots_g = 0;
 }
 
-bool ASM_ImportWindow_ContainsSlot(unsigned int slot) {
+bool DiskASM_ImportWindow_ContainsSlot(unsigned int slot) {
   RS_LOG_ASSERT(slot < ASM_IMPORT_WINDOW_NUM_SLOTS, "invalid slot");
   return slotBits && testBit(slot);
 }
 
-bool ASM_ImportWindow_ContainsKeySlot(const RedisModuleString *key) {
+bool DiskASM_ImportWindow_ContainsKeySlot(const RedisModuleString *key) {
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
-  return ASM_ImportWindow_ContainsSlot(RedisModule_ClusterKeySlotC(name, len));
+  return DiskASM_ImportWindow_ContainsSlot(RedisModule_ClusterKeySlotC(name, len));
 }
