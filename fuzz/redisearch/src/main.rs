@@ -91,6 +91,9 @@ fn main() -> ExitCode {
             )
         })
         .init();
+    if let Err(e) = procfuzz::interrupt::on_signals() {
+        log::warn!("Ctrl-C will leave servers behind: {e}");
+    }
     match command(Cli::parse().command) {
         Ok(false) => ExitCode::SUCCESS,
         Ok(true) => ExitCode::from(1),

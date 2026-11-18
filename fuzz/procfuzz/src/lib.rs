@@ -23,11 +23,13 @@
 //! - [`campaign::fuzz`] searches for programs that reach new edges.
 //! - [`findings::Findings`] keeps one directory per finding.
 //! - [`session`] composes these into replaying, reducing, and fuzzing.
+//! - [`interrupt`] lets SIGINT and SIGTERM stop them cleanly.
 
 pub mod campaign;
 pub mod coverage;
 pub mod edit;
 pub mod findings;
+pub mod interrupt;
 pub mod judge;
 pub mod process;
 pub mod program;

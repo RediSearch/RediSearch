@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::coverage::{Coverage, CoverageMap};
+use crate::interrupt::interrupted;
 use crate::judge;
 use crate::process::Process;
 use crate::program::{Argv, Bytes, Conn, Kind, Op, Program, ReplyMode, TypedOp, Var, argv};
@@ -93,11 +94,14 @@ impl From<Option<ExitStatus>> for Status {
 
 /// Runs `program` on a fresh server and judges the run for sanitizer
 /// reports, crashes, hangs, and protocol violations. An error means the
-/// server did not start.
+/// server did not start, or the process was [`interrupted`] before.
 pub fn execute<S: Server, T: TypedOp>(
     server: &S,
     program: &Program<T>,
 ) -> Result<Execution<S::Value>, String> {
+    if interrupted() {
+        return Err("interrupted".to_owned());
+    }
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let socket = dir.path().join("server.sock");
     let log = dir.path().join("server.log");

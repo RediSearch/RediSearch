@@ -39,6 +39,7 @@ use rand::rngs::SmallRng;
 use serde::{Deserialize, Serialize};
 
 use crate::coverage::CAPACITY;
+use crate::interrupt::interrupted;
 use crate::program::{Program, TypedOp};
 
 const MUTATIONS_PER_PICK: usize = 8;
@@ -59,7 +60,8 @@ pub struct Campaign<'a> {
 /// `execute` runs a program and returns the edges it reached; anything else a
 /// run produces, such as findings, is for `execute` to handle. `mutate`
 /// edits a program, splicing from a donor program. The campaign returns
-/// without an error once `stop` is set, after the run in progress.
+/// without an error once `stop` is set or the process is
+/// [`interrupted`], after the run in progress.
 pub fn fuzz<T: TypedOp, E: Display>(
     campaign: &Campaign<'_>,
     stop: &AtomicBool,
@@ -182,7 +184,7 @@ where
         _manager: &mut EM,
         entry: &Entry<T>,
     ) -> Result<ExitKind, Error> {
-        if self.stop.load(Ordering::Relaxed) {
+        if self.stop.load(Ordering::Relaxed) || interrupted() {
             return Err(Error::shutting_down());
         }
         *state.executions_mut() += 1;
