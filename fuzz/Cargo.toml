@@ -4,7 +4,7 @@ members = ["kvd", "procfuzz", "procfuzz-redis", "redisearch"]
 default-members = ["redisearch"]
 
 [workspace.dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 env_logger = { version = "0.11", default-features = false }
 libafl = { version = "0.16.1", default-features = false, features = ["std", "derive", "serdeany_autoreg"] }
 libafl_bolts = { version = "0.16.1", default-features = false, features = ["std", "derive", "serdeany_autoreg"] }

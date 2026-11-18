@@ -27,7 +27,8 @@ use crate::process::Process;
 use crate::sanitizer;
 use crate::system::{Finding, Run, Session, System};
 
-const POLL: Duration = Duration::from_millis(10);
+const READY_POLL: Duration = Duration::from_millis(1);
+const IDLE_POLL: Duration = Duration::from_millis(10);
 const READ_CHUNK: usize = 16 * 1024;
 const LOG: &str = "server.log";
 
@@ -284,7 +285,7 @@ impl<C: Codec> Live<'_, C> {
                     admin,
                 });
             }
-            sleep(POLL);
+            sleep(READY_POLL);
         }
         let log = std::fs::read(&log).unwrap_or_default();
         Err(io::Error::other(format!(
@@ -403,7 +404,7 @@ impl<C: Codec> Live<'_, C> {
             if (service.idle)(&mut admin) {
                 return;
             }
-            sleep(POLL);
+            sleep(IDLE_POLL);
         }
     }
 }

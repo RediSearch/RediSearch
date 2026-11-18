@@ -66,7 +66,7 @@ where
 }
 
 /// What a run did and what it showed.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Run<R> {
     /// One per op performed, in program order.
     pub steps: Vec<Step<R>>,
@@ -86,7 +86,7 @@ pub struct Step<R> {
     pub reply: Option<R>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Notes {
     pub features: Vec<Feature>,
     pub findings: Vec<Finding>,

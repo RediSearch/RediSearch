@@ -49,7 +49,10 @@ pub trait Model: Sync {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound = "O: Serialize + DeserializeOwned", deny_unknown_fields)]
+#[serde(
+    bound(serialize = "O: Serialize", deserialize = "O: DeserializeOwned"),
+    deny_unknown_fields
+)]
 pub struct Program<O> {
     pub ops: Vec<Made<O>>,
 }
@@ -57,7 +60,10 @@ pub struct Program<O> {
 /// An op and the draws that made it. A hand-written op has none and is
 /// shrunk only by deletion.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(bound = "O: Serialize + DeserializeOwned", deny_unknown_fields)]
+#[serde(
+    bound(serialize = "O: Serialize", deserialize = "O: DeserializeOwned"),
+    deny_unknown_fields
+)]
 pub struct Made<O> {
     pub op: O,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

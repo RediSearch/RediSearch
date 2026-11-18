@@ -9,9 +9,15 @@
 
 //! Coverage-guided fuzzing of stateful programs against a server process.
 
+pub mod campaign;
+#[cfg(feature = "cli")]
+pub mod cli;
+pub mod commands;
 pub mod coverage;
 pub mod draw;
 pub mod edit;
+pub mod error;
+pub mod findings;
 pub mod interrupt;
 pub mod legacy;
 pub mod model;

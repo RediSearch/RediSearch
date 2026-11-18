@@ -10,7 +10,14 @@ license-file = "../../LICENSE.txt"
 name = "kvd"
 path = "src/main.rs"
 
+[[bin]]
+name = "kvd-fuzz"
+path = "src/bin/kvd-fuzz.rs"
+
 [dependencies]
-procfuzz.workspace = true
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+procfuzz = { workspace = true, features = ["cli"] }
 procfuzz-redis.workspace = true
 serde.workspace = true
