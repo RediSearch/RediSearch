@@ -47,8 +47,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx);
 void Initialize_RdbNotifications(RedisModuleCtx *ctx);
 
 // Lets Flex choose the SST mode for the slot migrations that start from now on, which sends
-// search the import stage events (disk_asm_import.h). Disk only; for tests, until search sets it
-// by default.
+// search the import stage events (disk_asm_import_rebuild.h). Disk only; for tests, until search
+// sets it by default.
 void ASM_SetKeyspaceSSTModeForTests(RedisModuleCtx *ctx, bool enabled);
 void Initialize_RoleChangeNotifications(RedisModuleCtx *ctx);
 void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);

@@ -14,7 +14,7 @@
 #include <stddef.h>
 
 #include "disk_asm_import_window.h"
-#include "disk_asm_import.h"
+#include "disk_asm_import_rebuild.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -109,7 +109,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   // See disk_asm_import_window.h.
   const RedisModuleString *keyName = ctx ? RedisModule_GetKeyNameFromOptCtx(ctx) : NULL;
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(keyName)) {
-    DiskASM_Import_ReportAbsorbedUnlink(keyName);
+    DiskASM_ImportRebuild_ReportAbsorbedUnlink(keyName);
     return;
   }
 

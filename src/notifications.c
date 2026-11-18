@@ -29,7 +29,7 @@
 #include "dictionary.h"
 #include "asm_state_machine.h"
 #include "disk_asm_import_window.h"
-#include "disk_asm_import.h"
+#include "disk_asm_import_rebuild.h"
 #include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
@@ -214,7 +214,7 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
     if (GetRedisCmd(event) != _null_cmd) {
-      DiskASM_Import_ReportIgnoredNotification(key);
+      DiskASM_ImportRebuild_ReportIgnoredNotification(key);
     }
     return REDISMODULE_OK;
   }
@@ -254,7 +254,7 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
     if (GetRedisCmd(event) != _null_cmd) {
-      DiskASM_Import_ReportIgnoredNotification(key);
+      DiskASM_ImportRebuild_ReportIgnoredNotification(key);
     }
     return;
   }
@@ -573,7 +573,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
-      DiskASM_Import_OnImportEnded(
+      DiskASM_ImportRebuild_OnImportEnded(
           info, subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED);
       ASM_StateMachine_FailImport(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
@@ -588,7 +588,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       RS_ASSERT(SearchDisk_IsEnabled());
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import SST base ready event, task %s.",
                       info->task_id);
-      DiskASM_Import_OnBaseReady(ctx, info);
+      DiskASM_ImportRebuild_OnBaseReady(ctx, info);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_START:
       RS_ASSERT(SearchDisk_IsEnabled());
@@ -601,7 +601,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
                       info->task_id);
       // The slots stay in the import window until the rebuild this starts completes.
-      DiskASM_Import_OnOverlayEnd(ctx, info);
+      DiskASM_ImportRebuild_OnOverlayEnd(ctx, info);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
