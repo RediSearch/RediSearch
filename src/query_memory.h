@@ -66,8 +66,8 @@ bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
  * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
  * on a requested stop (RP_EndRowSourceOnStop) once it is built, so the
  * pipeline ends at its first read: an FT.SEARCH or FT.AGGREGATE then replies
- * an empty result with the OOM warning (ApplyOomStop), an FT.HYBRID the other
- * subquery's rows with it. `timeout` must not be NULL.
+ * an empty result with the OOM warning (ApplyOomStop), an FT.HYBRID the rows
+ * from any subquery not stopped at build, with it. `timeout` must not be NULL.
  */
 int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err);
