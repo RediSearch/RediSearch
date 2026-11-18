@@ -159,6 +159,13 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                             ARG_OPT_OPTIONAL,
                             ARG_OPT_END);
 
+    } else {
+        // Registered only to replace the generic "Unknown argument" with an explicit rejection.
+        ArgParser_AddBitflagV(parser, "WITHCURSOR", "Rejected: cursors are not supported",
+                              ctx->reqFlags, sizeof(*ctx->reqFlags), 0,
+                              ARG_OPT_OPTIONAL,
+                              ARG_OPT_CALLBACK, handleWithCursorUnsupported, ctx,
+                              ARG_OPT_END);
     }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
