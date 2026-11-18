@@ -26,7 +26,8 @@ extern "C" {
 // return, so jobs take it through a gate. Once the join begins the gate stops waiting and the job
 // borrows the main thread's GIL. That keeps mutual exclusion because the main thread sits in the
 // join and touches nothing, the borrowers of a gate take turns, and pools are joined one at a time.
-// Use one gate per pool, initialized with GIL_GATE_INIT.
+// Use one gate per pool, or per set of pools that are always joined together, initialized with
+// GIL_GATE_INIT.
 //
 // Accepted limitation: a borrowing job calls Redis without the bookkeeping Lock sets up (current
 // client, execution nesting). This path only runs with RS_GLOBAL_DTORS, i.e. tests and sanitizer

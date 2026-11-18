@@ -29,6 +29,7 @@
 #include "dictionary.h"
 #include "asm_state_machine.h"
 #include "disk_asm_import_window.h"
+#include "disk_asm_import.h"
 #include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
@@ -212,6 +213,9 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
+    if (GetRedisCmd(event) != _null_cmd) {
+      DiskASM_Import_ReportIgnoredNotification(key);
+    }
     return REDISMODULE_OK;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
@@ -249,6 +253,9 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              int count) {
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
+    if (GetRedisCmd(event) != _null_cmd) {
+      DiskASM_Import_ReportIgnoredNotification(key);
+    }
     return;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
@@ -566,6 +573,8 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
+      DiskASM_Import_OnImportEnded(
+          info, subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED);
       ASM_StateMachine_FailImport(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
@@ -573,9 +582,15 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       workersThreadPool_OnEventEnd(false);
       break;
 
+    // Flex sends the import stage events only to modules that set
+    // REDISMODULE_OPTIONS_HANDLE_ASM_KEYSPACE_SST, which search does only on disk.
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_SST_BASE_READY:
+      RS_ASSERT(SearchDisk_IsEnabled());
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import SST base ready event, task %s.",
+                      info->task_id);
+      DiskASM_Import_OnBaseReady(ctx, info);
+      break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_START:
-      // Flex sends the import stage events only to modules that set
-      // REDISMODULE_OPTIONS_HANDLE_ASM_KEYSPACE_SST, which search does only on disk.
       RS_ASSERT(SearchDisk_IsEnabled());
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay start event, task %s.",
                       info->task_id);
@@ -585,8 +600,8 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       RS_ASSERT(SearchDisk_IsEnabled());
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
                       info->task_id);
-      // The slots stay in the import window: their keys keep the source's docIds until they
-      // are rebuilt.
+      // The slots stay in the import window until the rebuild this starts completes.
+      DiskASM_Import_OnOverlayEnd(ctx, info);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -1345,9 +1360,18 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
 
 
-void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+static int moduleOptions(bool asmKeyspaceSST) {
   int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
-  RedisModule_SetModuleOptions(ctx, optionsFlags);
+  return asmKeyspaceSST ? optionsFlags | REDISMODULE_OPTIONS_HANDLE_ASM_KEYSPACE_SST : optionsFlags;
+}
+
+void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
+  RedisModule_SetModuleOptions(ctx, moduleOptions(false));
+}
+
+void ASM_SetKeyspaceSSTModeForTests(RedisModuleCtx *ctx, bool enabled) {
+  RS_ASSERT(SearchDisk_IsEnabled());
+  RedisModule_SetModuleOptions(ctx, moduleOptions(enabled));
 }
 
 void RoleChangeCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
