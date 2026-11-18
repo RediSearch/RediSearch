@@ -53,8 +53,12 @@ pub enum Input<Q> {
     /// `wait: false` leaves the reply to be read when the connection is next
     /// used.
     Send { conn: u8, wait: bool, request: Q },
+    /// Requests sent one after another on a connection, each awaiting its
+    /// reply. The last reply is the input's.
+    Batch { conn: u8, requests: Vec<Q> },
     /// Reads every outstanding reply, then waits until the process is
-    /// [idle](Service::idle).
+    /// [idle](Service::idle). It completes only if the process became idle
+    /// within [`Timing::patience`].
     Settle,
     /// Drops a connection and the replies outstanding on it.
     Reset { conn: u8 },
@@ -394,18 +398,20 @@ impl<C: Codec> Live<'_, C> {
         })
     }
 
-    fn settle(&mut self) {
+    /// Whether the process became idle in time.
+    fn settle(&mut self) -> bool {
         let service = self.service;
         let start = Instant::now();
         while start.elapsed() < service.timing.patience {
             let Some(mut admin) = self.admin() else {
-                return;
+                return false;
             };
             if (service.idle)(&mut admin) {
-                return;
+                return true;
             }
             sleep(IDLE_POLL);
         }
+        false
     }
 }
 
@@ -443,10 +449,19 @@ impl<C: Codec> Session for Live<'_, C> {
                     ControlFlow::Continue(())
                 }
             }
+            Input::Batch { conn, requests } => {
+                for request in requests {
+                    if self.drain(*conn, run).is_break()
+                        || self.send(at, *conn, request)?.is_break()
+                    {
+                        return Ok(ControlFlow::Break(()));
+                    }
+                }
+                self.drain(*conn, run)
+            }
             Input::Settle => {
                 let flow = self.drain_all(run);
-                if flow.is_continue() {
-                    self.settle();
+                if flow.is_continue() && self.settle() {
                     run.done(at, None);
                 }
                 flow

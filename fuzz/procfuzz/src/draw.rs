@@ -49,6 +49,17 @@ impl Draw {
         value
     }
 
+    /// A value from `low` to `high`, both included; `low` is the simplest.
+    pub fn between(&mut self, low: u64, high: u64) -> u64 {
+        low + self.below(high - low + 1)
+    }
+
+    /// True one time in `n`. False is the simpler choice, so an option that
+    /// adds something is taken only when this is true.
+    pub fn one_in(&mut self, n: u64) -> bool {
+        self.below(n) + 1 == n.max(1)
+    }
+
     /// An index into a slice of `len` items, or 0 if it is empty.
     pub fn index(&mut self, len: usize) -> usize {
         let value = self.below(u64::try_from(len).expect("fits"));
