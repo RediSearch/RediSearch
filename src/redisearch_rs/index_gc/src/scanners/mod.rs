@@ -18,7 +18,14 @@
 //! parent.
 
 pub mod existing_docs;
+pub mod keyed_numeric;
 pub mod missing_docs;
 pub mod numeric;
 pub mod tags;
 pub mod terms;
+
+/// The [`FieldIndex`](rqe_core::FieldIndex) of the field at `position` in a spec's field array.
+pub(crate) fn field_index_of(position: usize) -> rqe_core::FieldIndex {
+    rqe_core::FieldIndex::try_from(position)
+        .expect("a spec has fewer fields than a field index can count")
+}

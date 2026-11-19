@@ -1,0 +1,41 @@
+[package]
+name = "keyed_numeric_index"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[features]
+# Enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[lints]
+workspace = true
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[dependencies]
+numeric_range_tree.workspace = true
+redis-module.workspace = true
+redis_json_api.workspace = true
+rqe_core.workspace = true
+rustc-hash.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+keyed_numeric_index = { path = ".", features = ["unittest"] }
+index_result.workspace = true
+inverted_index.workspace = true
+numeric_range_tree = { workspace = true, features = ["test-utils"] }
+proptest = { workspace = true, features = ["std"] }
+
+# Crate required to invoke C symbols
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+redis_mock.workspace = true
+redis_json_api = { workspace = true, features = ["test-mock"] }
+serde_json.workspace = true

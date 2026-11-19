@@ -37,5 +37,6 @@
 #define ATTRIBUTE                       37
 #define VERBATIM                        38
 #define WILDCARD                        39
-#define AS_T                            40
-#define SEMICOLON                       41
+#define KEY                             40
+#define AS_T                            41
+#define SEMICOLON                       42

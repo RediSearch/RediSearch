@@ -28,6 +28,7 @@ pub use geo_ffi as geo;
 pub use index_gc_ffi as index_gc;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
+pub use keyed_numeric_index_ffi as keyed_numeric_index;
 pub use language_ffi as language;
 pub use metrics_ffi as metrics;
 pub use module_init_ffi as tracing_redismodule;

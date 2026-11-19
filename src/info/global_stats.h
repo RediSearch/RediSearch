@@ -33,6 +33,7 @@ typedef struct {
   size_t numGeoFieldsSortable;
   size_t numGeoFieldsNoIndex;
   size_t numGeometryFields;
+  size_t numMapNumericFields;
   size_t numGeometryFieldsSortable;
   size_t numGeometryFieldsNoIndex;
   size_t numTagFields;
@@ -51,6 +52,7 @@ typedef struct {
   size_t numericTotalDocsIndexed;
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
+  size_t mapNumericTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
   size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;

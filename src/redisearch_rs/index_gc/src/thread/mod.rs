@@ -23,7 +23,10 @@
 //!
 //! Terms and tag values are walked in key order from a cursor, so no hold has to
 //! visit them all; numeric nodes, missing-docs fields and the existing-docs index
-//! are few enough to list up front.
+//! are few enough to list up front. The keys of MAP NUMERIC fields are not: their trees
+//! and nodes are listed in one read hold, so that hold grows with the number of keys
+//! (a known limit; chunking it needs a resumable position over the key map). Their
+//! compaction and key removal run in holds of up to [`DELTAS_PER_APPLY`] keys.
 //!
 //! Releasing the lock between the two steps is sound for the same reasons the
 //! fork parent applying a child's stale snapshot is: writers only append to an
@@ -57,12 +60,16 @@ use crate::{
     scanners::existing_docs::{
         ExistingDocsEntry, apply_existing_docs_with, snapshot_existing_docs,
     },
+    scanners::keyed_numeric::{
+        apply_keyed_node_with, has_map_numeric, keyed_ranges_of_nodes_added_since, keyed_tree_keys,
+        snapshot_keyed_node,
+    },
     scanners::missing_docs::{
         apply_missing_docs_with, missing_field_indexes, snapshot_missing_field,
     },
     scanners::numeric::{
-        NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with, compact_tree,
-        numeric_tree_keys, ranges_of_nodes_added_since, snapshot_numeric_node,
+        NumericNodeDelta, NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with,
+        compact_tree, numeric_tree_keys, ranges_of_nodes_added_since, snapshot_numeric_node,
     },
     scanners::tags::{TagSnapshot, TagsCursor, apply_tag_entry_with, scan_tags_after},
     scanners::terms::{TermsCursor, apply_terms_with, scan_terms_after},
@@ -376,9 +383,12 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         Ok(())
     }
 
-    fn numeric(&mut self, clean_numeric_empty_nodes: bool) -> Result<(), GcError> {
+    /// Returns whether the spec has a MAP NUMERIC index to collect, found under the
+    /// hold that lists the trees so that a spec without one pays no further hold.
+    fn numeric(&mut self, clean_numeric_empty_nodes: bool) -> Result<bool, GcError> {
         // A tree has far fewer nodes than entries, so listing them in one hold is cheap.
-        let trees = self.read(numeric_tree_keys)?;
+        let (trees, has_keyed) =
+            self.read(|guard| (numeric_tree_keys(guard), has_map_numeric(guard)))?;
         let live = self.deleted;
         let mut buffers = Buffers::new();
         for tree in &trees {
@@ -431,6 +441,81 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                     Ok(())
                 })?;
             }
+        }
+        Ok(has_keyed)
+    }
+
+    fn keyed_numeric(&mut self, clean_numeric_empty_nodes: bool) -> Result<(), GcError> {
+        // One list for every key of every MAP NUMERIC field, taken in a single hold.
+        let trees = self.read(keyed_tree_keys)?;
+        if trees.is_empty() {
+            return Ok(());
+        }
+        let live = self.deleted;
+        // Every node of every tree in one walk, so a spec with many keys costs lock
+        // holds in proportion to its nodes, not to its keys.
+        let nodes: Vec<(usize, NodeIndex)> = trees
+            .iter()
+            .enumerate()
+            .flat_map(|(tree, key)| key.nodes.iter().map(move |&node| (tree, node)))
+            .collect();
+        let mut applied = vec![false; trees.len()];
+
+        let snapshot_chunk = keyed(&nodes, |guard, &(tree, node_idx): &(usize, NodeIndex)| {
+            snapshot_keyed_node(guard, &trees[tree].id, node_idx, &live)
+                .map(|snapshot| (tree, snapshot))
+        });
+        let scan_snapshot = |(tree, snapshot): (usize, NumericNodeSnapshot)| {
+            let tail = snapshot.last_block_doc_id_range();
+            let span = snapshot.doc_id_range();
+            Ok(snapshot
+                .scan(live)
+                .map_err(|e| (e, span))?
+                .map(|ScannedNumericNode { node, .. }| ((tree, node), tail)))
+        };
+        let apply_delta = |(tree, node): (usize, NumericNodeDelta),
+                           guard: &mut IndexSpecWriteGuard<'_>| {
+            let stats = apply_keyed_node_with(guard, &trees[tree].id, node, &live)?;
+            applied[tree] = true;
+            Ok(stats)
+        };
+        self.run(
+            "keyed numeric",
+            &mut Buffers::new(),
+            snapshot_chunk,
+            scan_snapshot,
+            apply_delta,
+        )?;
+
+        // A leaf split since the nodes were listed copied its entries, deleted ones
+        // included, into leaves this cycle never scanned; their IDs stay in the set.
+        for range in self.read(|guard| keyed_ranges_of_nodes_added_since(guard, &trees))? {
+            self.deleted.insert_gone_in(range, &mut self.retained);
+        }
+
+        // Compact and drop emptied keys; each key costs a compaction, so the holds are as
+        // long as the apply holds and as few.
+        let touched: Vec<_> = trees
+            .iter()
+            .zip(&applied)
+            .filter_map(|(tree, &applied)| applied.then_some(&tree.id))
+            .collect();
+        for chunk in touched.chunks(DELTAS_PER_APPLY) {
+            self.write(|guard, stats| {
+                for id in chunk {
+                    match id.finish(guard, clean_numeric_empty_nodes) {
+                        Ok(finished) => stats.record(finished),
+                        Err(GcError::TargetGone(reason)) => {
+                            tracing::debug!(
+                                reason,
+                                "thread GC skipped finishing a keyed numeric tree"
+                            );
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Ok(())
+            })?;
         }
         Ok(())
     }
@@ -558,9 +643,14 @@ pub fn run_cycle(
     };
 
     driver.terms().map_err(|e| ("terms", e))?;
-    driver
+    let has_keyed = driver
         .numeric(clean_numeric_empty_nodes)
         .map_err(|e| ("numeric", e))?;
+    if has_keyed {
+        driver
+            .keyed_numeric(clean_numeric_empty_nodes)
+            .map_err(|e| ("keyed numeric", e))?;
+    }
     driver.tags().map_err(|e| ("tags", e))?;
     driver.missing_docs().map_err(|e| ("missing docs", e))?;
     driver.existing_docs().map_err(|e| ("existing docs", e))?;

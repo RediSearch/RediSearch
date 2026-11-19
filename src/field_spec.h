@@ -19,6 +19,7 @@
 
 struct TagIndex;
 struct NumericRangeTree;
+struct KeyedNumericIndex;
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -37,19 +38,21 @@ typedef enum {
   INDEXFLD_T_TAG = 0x08,
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
+  INDEXFLD_T_MAP_NUMERIC = 0x80,
 } FieldType;
 
-#define INDEXFLD_NUM_TYPES 6
+#define INDEXFLD_NUM_TYPES 8
 
 // clang-format off
 // otherwise, it looks h o r r i b l e
-#define INDEXTYPE_TO_POS(T)         \
-  (T == INDEXFLD_T_FULLTEXT   ? 0 : \
-  (T == INDEXFLD_T_NUMERIC    ? 1 : \
-  (T == INDEXFLD_T_GEO        ? 2 : \
-  (T == INDEXFLD_T_TAG        ? 3 : \
-  (T == INDEXFLD_T_VECTOR     ? 4 : \
-  (T == INDEXFLD_T_GEOMETRY   ? 5 : -1))))))
+#define INDEXTYPE_TO_POS(T)              \
+  (T == INDEXFLD_T_FULLTEXT    ? 0 :     \
+  (T == INDEXFLD_T_NUMERIC     ? 1 :     \
+  (T == INDEXFLD_T_GEO         ? 2 :     \
+  (T == INDEXFLD_T_TAG         ? 3 :     \
+  (T == INDEXFLD_T_VECTOR      ? 4 :     \
+  (T == INDEXFLD_T_GEOMETRY    ? 5 :     \
+  (T == INDEXFLD_T_MAP_NUMERIC ? 7 : -1)))))))
 
 #define INDEXTYPE_FROM_POS(P) (1<<(P))
 // clang-format on
@@ -60,6 +63,7 @@ typedef enum {
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 #define IXFLDPOS_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)
 #define IXFLDPOS_GEOMETRY INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)
+#define IXFLDPOS_MAP_NUMERIC INDEXTYPE_TO_POS(INDEXFLD_T_MAP_NUMERIC)
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
@@ -133,6 +137,10 @@ typedef struct FieldSpec {
       GEOMETRY_COORDS geometryCoords;
       GeometryIndex *geometryIndex;
     } geometryOpts;
+    struct {
+      // The field's trees, created on the first write.
+      struct KeyedNumericIndex *index;
+    } mapNumericOpts;
   };
 
   // TODO: Move into union above when we stop supporting multi-type fields
@@ -169,6 +177,12 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+
+/* The MAP NUMERIC field's index, created first if `create_if_missing` and there is none.
+ * Returns NULL only when the index does not exist and `create_if_missing` is false.
+ * `fs` must be an element of the spec's own `fields`, never a spec-cache copy (the cache
+ * clears the pointer). Hold the spec write lock when `create_if_missing`, a read lock otherwise. */
+struct KeyedNumericIndex *FieldSpec_OpenMapNumericIndex(FieldSpec *fs, bool create_if_missing);
 /**
  * Convert field type given by integer to the name type in string form.
  */

@@ -115,7 +115,9 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && node->nn.nf->fieldIndex == targetFieldIndex) {
+      // A keyed filter reads one key of a map field, never the sort field's whole tree.
+      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && !node->nn.key &&
+          node->nn.nf->fieldIndex == targetFieldIndex) {
         ret = node;
       }
       break;
@@ -295,8 +297,10 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
         if (setOptimizerRoot(req, opt, root, status) != REDISMODULE_OK) {
           return REDISMODULE_ERR;
         }
-      } else if (req->ast.root->type == QN_NUMERIC) {
-        // trim the union numeric iterator to have the minimal number of ranges
+      } else if (req->ast.root->type == QN_NUMERIC && !req->ast.root->nn.key) {
+        // trim the union numeric iterator to have the minimal number of ranges.
+        // A keyed filter never reads the sort field's tree, so trimming its ranges
+        // would drop matches.
         if (root->type == UNION_ITERATOR) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }

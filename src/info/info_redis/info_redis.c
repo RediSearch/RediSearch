@@ -264,6 +264,11 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  if (RSGlobalStats.fieldsStats.numMapNumericFields > 0) {
+    RedisModule_InfoBeginDictField(ctx, "fields_map_numeric");
+    RedisModule_InfoAddFieldLongLong(ctx, "MapNumeric", RSGlobalStats.fieldsStats.numMapNumericFields);
+    RedisModule_InfoEndDictField(ctx);
+  }
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);
@@ -279,6 +284,11 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
+  // Shown only once used, so servers without MAP NUMERIC fields report exactly what they did.
+  if (RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed > 0) {
+    RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_map_numeric_fields",
+                                    RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed);
+  }
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

@@ -48,6 +48,7 @@ pub enum FieldSpecType {
     Tag = 8,
     Vector = 16,
     Geometry = 32,
+    MapNumeric = 128,
 }
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 

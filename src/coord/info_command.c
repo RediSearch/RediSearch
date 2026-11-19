@@ -229,6 +229,8 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
     const char *type = fieldSchemaType(fields->indexSchema, i);
     if (type && strcmp(type, "VECTOR") == 0) {
       FieldSpecStats_DeserializeVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
+    } else if (type && strcmp(type, SPEC_MAP_NUMERIC_STR) == 0) {
+      FieldSpecStats_DeserializeMapNumericMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
     }
     AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources

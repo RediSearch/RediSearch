@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Coordination of the five fork-GC scanners.
+//! Coordination of the six fork-GC scanners.
 //!
 //! The child writes each scanner's stream in a fixed order. The parent must
 //! consume those streams in exactly the same order before verifying the child
@@ -21,6 +21,7 @@ use inverted_index::DocLiveness;
 use super::{frame::TERMINATOR, io_result_ext::IoResultExt};
 use crate::scanners::{
     existing_docs::{collect_existing_docs, handle_existing_docs},
+    keyed_numeric::{collect_keyed_numeric, handle_keyed_numeric},
     missing_docs::{collect_missing_docs, handle_missing_docs},
     numeric::{collect_numeric, handle_numeric},
     tags::{collect_tags, handle_tags},
@@ -52,6 +53,7 @@ pub fn collect_scanners(
         let mut writer = fgc.writer();
         collect_terms(&mut writer, spec, docs).unwrap_or_exit();
         collect_numeric(&mut writer, spec, docs).unwrap_or_exit();
+        collect_keyed_numeric(&mut writer, spec, docs).unwrap_or_exit();
         collect_tags(&mut writer, spec, docs).unwrap_or_exit();
         collect_missing_docs(&mut writer, spec, docs).unwrap_or_exit();
         collect_existing_docs(&mut writer, spec, docs).unwrap_or_exit();
@@ -90,6 +92,7 @@ pub fn handle_scanners(fgc: &mut ForkPipe) -> Result<HandleOutcome, (&'static st
 
     handle_individual_scanner(fgc, "terms", handle_terms)?;
     handle_individual_scanner(fgc, "numeric", handle_numeric)?;
+    handle_individual_scanner(fgc, "keyed numeric", handle_keyed_numeric)?;
     handle_individual_scanner(fgc, "tags", handle_tags)?;
     handle_individual_scanner(fgc, "missing docs", handle_missing_docs)?;
     handle_individual_scanner(fgc, "existing docs", handle_existing_docs)?;

@@ -72,6 +72,8 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     }
   } else if (fs->types & INDEXFLD_T_GEOMETRY) {  // geometry field
     RSGlobalStats.fieldsStats.numGeometryFields += toAdd;
+  } else if (fs->types & INDEXFLD_T_MAP_NUMERIC) {  // map numeric field
+    RSGlobalStats.fieldsStats.numMapNumericFields += toAdd;
   }
 
   if (fs->options & FieldSpec_Sortable) {
@@ -298,6 +300,9 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) 
       break;
     case INDEXFLD_T_GEOMETRY:
       RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
+      break;
+    case INDEXFLD_T_MAP_NUMERIC:
+      RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed += toAdd;
       break;
   }
 }

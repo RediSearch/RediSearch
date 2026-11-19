@@ -693,6 +693,300 @@ mod from_tree {
     }
 }
 
+/// Revalidation of iterators over a tree owned by a [`KeyedNumericIndex`], which GC can
+/// remove while a query is parked.
+mod keyed {
+    use std::{ptr::NonNull, rc::Rc};
+
+    use ffi::FieldType_INDEXFLD_T_MAP_NUMERIC;
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use inverted_index::NumericFilter;
+    use keyed_numeric_index::KeyedNumericIndex;
+    use rqe_iterators::{
+        KeyedBinding, NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQEValidateStatus,
+        ResumeOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+    };
+    use rqe_iterators_test_utils::{ContractChecker, MockContext};
+
+    const KEY: &[u8] = b"rev:fy0";
+
+    /// A mock spec whose field 0 is a map numeric field holding `index`.
+    struct Fixture {
+        ctx: MockContext,
+        fields: *mut ffi::FieldSpec,
+        /// Unbounded filter shared by every iterator the fixture builds.
+        filter: Box<NumericFilter>,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let ctx = MockContext::new(0, 0);
+            // SAFETY: all-zeros is a valid `FieldSpec`.
+            let mut field: ffi::FieldSpec = unsafe { std::mem::zeroed() };
+            field.set_types(FieldType_INDEXFLD_T_MAP_NUMERIC);
+            let fields = Box::into_raw(Box::new(field));
+            let filter = Box::new(NumericFilter {
+                field_index: 0,
+                min: f64::NEG_INFINITY,
+                max: f64::INFINITY,
+                min_inclusive: true,
+                max_inclusive: true,
+                ..Default::default()
+            });
+            let fixture = Self {
+                ctx,
+                fields,
+                filter,
+            };
+            // SAFETY: the mock's spec is valid and nothing else references it now.
+            unsafe {
+                let spec = fixture.ctx.sctx().as_ref().spec;
+                (*spec).fields = fields;
+                (*spec).numFields = 1;
+            }
+            fixture.set_index(Some(Self::index_with(&[(1, 1.0), (2, 2.0)])));
+            fixture
+        }
+
+        fn index_with(entries: &[(u64, f64)]) -> KeyedNumericIndex {
+            let mut index = KeyedNumericIndex::new(false);
+            for (doc_id, value) in entries {
+                index.add(*doc_id, KEY, *value, false, 0);
+            }
+            index
+        }
+
+        /// Replace the field's index, freeing the previous one.
+        fn set_index(&self, index: Option<KeyedNumericIndex>) {
+            // SAFETY: `fields` is the live allocation made in `new`; no iterator reads it
+            // while this runs, as the tests only call it between revalidations.
+            unsafe {
+                let slot = &raw mut (*self.fields).__bindgen_anon_1.mapNumericOpts.index;
+                drop(
+                    (*slot)
+                        .cast::<KeyedNumericIndex>()
+                        .as_mut()
+                        .map(|old| Box::from_raw(old)),
+                );
+                *slot = index.map_or(std::ptr::null_mut(), |index| {
+                    Box::into_raw(Box::new(index)).cast()
+                });
+            }
+        }
+
+        #[expect(
+            clippy::mut_from_ref,
+            reason = "the index lives behind a raw slot, as in the spec"
+        )]
+        fn index(&self) -> &mut KeyedNumericIndex {
+            // SAFETY: the slot holds a live index; tests do not hold two references to it.
+            unsafe {
+                (*self.fields)
+                    .__bindgen_anon_1
+                    .mapNumericOpts
+                    .index
+                    .cast::<KeyedNumericIndex>()
+                    .as_mut()
+                    .unwrap()
+            }
+        }
+
+        /// Garbage collect every entry of the key's tree.
+        fn empty_tree(&self, id: numeric_range_tree::TreeUniqueId) {
+            self.index()
+                .update_tree(KEY, id, |tree| {
+                    numeric_range_tree::test_utils::gc_all_ranges(tree, &|_| false)
+                })
+                .expect("the tree has the expected identity");
+        }
+
+        fn variant(&self) -> NumericIteratorVariant<'static> {
+            // SAFETY: the box's address is stable, the filter is never mutated, and every
+            // iterator is dropped before the fixture that built it.
+            let filter: &'static NumericFilter = unsafe { &*std::ptr::from_ref(&*self.filter) };
+            let field_ctx = FieldFilterContext {
+                field: FieldMaskOrIndex::Index(0),
+                predicate: FieldExpirationPredicate::Default,
+            };
+            let index = self.index();
+            let tree = index.get(KEY).unwrap();
+            // SAFETY: the spec is valid for the fixture's life, the index is the field's and
+            // `tree` is what it holds under `KEY`.
+            let binding = Rc::new(unsafe {
+                KeyedBinding::new(
+                    NonNull::new(self.ctx.sctx().as_ref().spec).unwrap(),
+                    0,
+                    index,
+                    KEY,
+                    tree,
+                )
+            });
+            // SAFETY: as above; `tree` is only read while the iterators are built.
+            let mut iters = unsafe {
+                NumericIteratorVariant::from_keyed_tree(
+                    NonNull::from(tree),
+                    binding,
+                    self.ctx.sctx(),
+                    filter,
+                    &field_ctx,
+                )
+            };
+            assert_eq!(iters.len(), 1);
+            iters.remove(0)
+        }
+
+        /// An iterator that has read its first result.
+        fn iterator(&self) -> ContractChecker<NumericIteratorVariant<'static>> {
+            let mut it = ContractChecker::new(self.variant());
+            assert!(it.read().expect("read failed").is_some());
+            it
+        }
+
+        /// Park a fresh iterator after its first read, run `mutate` as another thread would
+        /// while the lock is released, then resume it. Returns the doc id of the next result
+        /// of the resumed iterator, or [`None`] if the resume aborted.
+        fn read_after_resume(&self, mutate: impl FnOnce(&Self)) -> Option<u64> {
+            let mut it = self.variant();
+            assert!(it.read().expect("read failed").is_some());
+            let it = TypeErasedRQEIterator::new(Box::new(it));
+            let suspended = <TypeErasedRQEIterator<'static> as RQEIteratorBoxed<'static>>::suspend(
+                Box::new(it),
+            );
+            mutate(self);
+            let TypeErasedRQESuspendedIterator(inner) = *suspended;
+            match inner.resume(&self.ctx.spec_read()).expect("resume failed") {
+                ResumeOutcome::Ok(mut it) | ResumeOutcome::Moved(mut it) => {
+                    Some(it.read().expect("read failed").unwrap().doc_id)
+                }
+                ResumeOutcome::Aborted => None,
+            }
+        }
+
+        fn revalidate(
+            &self,
+            it: &mut ContractChecker<NumericIteratorVariant<'static>>,
+        ) -> RQEValidateStatus<'_, 'static> {
+            let status = it
+                .revalidate(&*self.ctx.spec_read())
+                .expect("revalidate failed");
+            // The status borrows the iterator; only its discriminant matters here.
+            match status {
+                RQEValidateStatus::Ok => RQEValidateStatus::Ok,
+                RQEValidateStatus::Aborted => RQEValidateStatus::Aborted,
+                _ => panic!("unexpected status"),
+            }
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            self.set_index(None);
+            // SAFETY: `fields` came from `Box::into_raw` in `new` and is not used afterwards.
+            unsafe {
+                let spec = self.ctx.sctx().as_ref().spec;
+                (*spec).fields = std::ptr::null_mut();
+                drop(Box::from_raw(self.fields));
+            }
+        }
+    }
+
+    #[test]
+    fn unchanged_key_stays_valid() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Ok);
+    }
+
+    #[test]
+    fn key_removed_aborts() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        let id = fixture.index().get(KEY).unwrap().unique_id();
+        fixture.empty_tree(id);
+        // Emptying a tree and dropping its key frees the tree the iterator read.
+        assert!(fixture.index().remove_key_if_empty(KEY, id));
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Aborted);
+    }
+
+    #[test]
+    fn key_recreated_aborts() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        let id = fixture.index().get(KEY).unwrap().unique_id();
+        fixture.empty_tree(id);
+        assert!(fixture.index().remove_key_if_empty(KEY, id));
+        // A new tree under the same key may reuse the freed address.
+        fixture.index().add(7, KEY, 7.0, false, 0);
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Aborted);
+    }
+
+    #[test]
+    fn index_replaced_aborts() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        fixture.set_index(Some(Fixture::index_with(&[(1, 1.0), (2, 2.0)])));
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Aborted);
+    }
+
+    #[test]
+    fn index_dropped_aborts() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        fixture.set_index(None);
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Aborted);
+    }
+
+    #[test]
+    fn growth_of_the_same_tree_stays_valid() {
+        let fixture = Fixture::new();
+        let mut it = fixture.iterator();
+        fixture.index().add(9, KEY, 9.0, false, 0);
+        assert_eq!(fixture.revalidate(&mut it), RQEValidateStatus::Ok);
+        // The documents added while parked are read after the one already returned.
+        assert_eq!(it.read().expect("read failed").unwrap().doc_id, 2);
+        assert_eq!(it.read().expect("read failed").unwrap().doc_id, 9);
+        assert!(it.read().expect("read failed").is_none());
+    }
+
+    #[test]
+    fn resume_of_an_untouched_key_continues() {
+        let fixture = Fixture::new();
+        assert_eq!(fixture.read_after_resume(|_| {}), Some(2));
+    }
+
+    #[test]
+    fn resume_after_key_removed_aborts() {
+        let fixture = Fixture::new();
+        let id = fixture.index().get(KEY).unwrap().unique_id();
+        let next = fixture.read_after_resume(|f| {
+            f.empty_tree(id);
+            assert!(f.index().remove_key_if_empty(KEY, id));
+        });
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn resume_after_key_recreated_aborts() {
+        let fixture = Fixture::new();
+        let id = fixture.index().get(KEY).unwrap().unique_id();
+        let next = fixture.read_after_resume(|f| {
+            f.empty_tree(id);
+            assert!(f.index().remove_key_if_empty(KEY, id));
+            f.index().add(7, KEY, 7.0, false, 0);
+        });
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn resume_after_index_replaced_aborts() {
+        let fixture = Fixture::new();
+        let next = fixture.read_after_resume(|f| {
+            f.set_index(Some(Fixture::index_with(&[(1, 1.0), (2, 2.0)])));
+        });
+        assert_eq!(next, None);
+    }
+}
+
 /// Tests for [`rqe_iterators::NumericIteratorVariant`] variant selection logic.
 ///
 /// These tests verify that [`NumericIteratorVariant::new`] selects the correct

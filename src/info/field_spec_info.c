@@ -20,6 +20,12 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "keyed_numeric_index_ffi.h"
+
+// Per-field MAP NUMERIC metric reply keys, shared by the shard emitter and the coordinator
+// deserializer.
+#define FIELD_MAP_NUMERIC_NUM_KEYS "num_keys"
+#define FIELD_MAP_NUMERIC_MEMORY "memory"
 
 // Per-field disk metric reply keys, shared by the shard emitter and the
 // coordinator deserializer so both agree on the wire names.
@@ -60,6 +66,10 @@ static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *
     }
     if (first->type == INDEXFLD_T_VECTOR) {
         VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
+    } else if (first->type == INDEXFLD_T_MAP_NUMERIC) {
+        // A key several shards have is counted once per shard.
+        first->mapNumericStats.num_keys += second->mapNumericStats.num_keys;
+        first->mapNumericStats.memory += second->mapNumericStats.memory;
     }
     // Disk metrics apply to every field type, independently of `type`.
     PerFieldTextDiskMetrics_Combine(&first->textDisk, &second->textDisk);
@@ -144,6 +154,14 @@ void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRRepl
     }
 }
 
+void FieldSpecStats_DeserializeMapNumericMetrics(FieldSpecStats *stats, const MRReply *reply) {
+    stats->type = INDEXFLD_T_MAP_NUMERIC;
+    const MRReply *numKeys = MRReply_MapElement(reply, FIELD_MAP_NUMERIC_NUM_KEYS);
+    const MRReply *memory = MRReply_MapElement(reply, FIELD_MAP_NUMERIC_MEMORY);
+    if (numKeys) stats->mapNumericStats.num_keys = MRReply_Integer(numKeys);
+    if (memory) stats->mapNumericStats.memory = MRReply_Integer(memory);
+}
+
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
@@ -155,6 +173,10 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
                 REPLY_KVINT(VectorIndexStats_Metrics[i],
                             VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
             }
+            break;
+        case INDEXFLD_T_MAP_NUMERIC:
+            REPLY_KVINT(FIELD_MAP_NUMERIC_NUM_KEYS, stats->mapNumericStats.num_keys);
+            REPLY_KVINT(FIELD_MAP_NUMERIC_MEMORY, stats->mapNumericStats.memory);
             break;
         default:
             break;
@@ -279,6 +301,17 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   return stats;
 }
 
+// A field no document has written to yet has no index and reports zeros.
+static MapNumericIndexStats IndexSpec_GetMapNumericIndexStats(FieldSpec *fs) {
+  const KeyedNumericIndex *idx = FieldSpec_OpenMapNumericIndex(fs, false);
+  MapNumericIndexStats stats = {0};
+  if (idx) {
+    stats.num_keys = KeyedNumericIndex_NumKeys(idx);
+    stats.memory = KeyedNumericIndex_MemoryUsage(idx);
+  }
+  return stats;
+}
+
 // Get the stats of the field `fs`.
 FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
@@ -286,6 +319,9 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
       stats.vecStats = IndexSpec_GetVectorIndexStats(fs);
+      return stats;
+    case INDEXFLD_T_MAP_NUMERIC:
+      stats.mapNumericStats = IndexSpec_GetMapNumericIndexStats(fs);
       return stats;
     default:
       return (FieldSpecStats){0};

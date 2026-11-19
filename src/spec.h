@@ -53,6 +53,14 @@ struct IndexesScanner;
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_VECTOR_STR "VECTOR"
 #define SPEC_NUMERIC_STR "NUMERIC"
+#define SPEC_MAP_STR "MAP"
+#define SPEC_MAP_NUMERIC_STR "MAP NUMERIC"
+
+// Only creating a field is gated: a field created while the flag was on keeps loading from RDB
+// and indexing documents after it is turned off, so its index stays correct.
+#define MAP_NUMERIC_UNSTABLE_ERR                                                 \
+  "MAP NUMERIC is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it " \
+  "with `CONFIG SET search-enable-unstable-features yes`"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"

@@ -187,6 +187,21 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `key` and `keyLen` fields of the numeric-node union variant.
+    ///
+    /// `key` must stay valid for as long as the node is read.
+    pub fn set_numeric_key(&mut self, key: &'static [u8]) {
+        self.debug_assert_type(QueryNodeType::Numeric);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Numeric, per the assertion above, so the `nn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let nn = union_ptr.cast::<ffi::QueryNumericNode>();
+            (*nn).key = key.as_ptr().cast_mut().cast();
+            (*nn).keyLen = key.len();
+        }
+    }
+
     /// Set the `gf` field of the geo-node union variant.
     pub fn set_geo_filter(&mut self, gf: *mut ffi::GeoFilter) {
         self.debug_assert_type(QueryNodeType::Geo);

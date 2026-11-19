@@ -77,6 +77,9 @@ pub enum QueryNode<'a> {
     Numeric {
         /// The numeric filter describing the range bounds and target field.
         nf: &'a NumericFilter,
+        /// The key of a map numeric field the filter applies to, or [`None`] for a plain
+        /// numeric field.
+        key: Option<&'a [u8]>,
     },
     /// Logical negation — excludes documents matched by its single child.
     Not,
@@ -289,6 +292,13 @@ impl QueryNodeRef {
                 QueryNode::Numeric {
                     // SAFETY: `nn.nf` points to a valid `NumericFilter` with matching `#[repr(C)]` layout.
                     nf: unsafe { &*nn.nf.cast::<NumericFilter>() },
+                    key: if nn.key.is_null() {
+                        None
+                    } else {
+                        // SAFETY: a non-null `nn.key` holds `nn.keyLen` bytes, owned by the
+                        // node and unmutated for the `&self` borrow.
+                        Some(unsafe { std::slice::from_raw_parts(nn.key.cast::<u8>(), nn.keyLen) })
+                    },
                 }
             }
             QueryNodeType::Not => QueryNode::Not,

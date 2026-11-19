@@ -16,6 +16,7 @@
 #include "forward_index.h"
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
+#include "keyed_numeric_index_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
@@ -417,6 +418,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_MAP_NUMERIC:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -570,6 +572,19 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   return 0;
 }
 
+// The members were validated and collected when the JSON object was loaded.
+FIELD_PREPROCESSOR(mapNumericPreprocessor) {
+  switch (field->unionType) {
+    case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
+      return 0;
+    case FLD_VAR_T_MAP_NUMERIC:
+      return 0;
+    default:
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid MAP NUMERIC value");
+      return -1;
+  }
+}
 
 FIELD_PREPROCESSOR(geometryPreprocessor) {
   switch (field->unionType) {
@@ -653,6 +668,27 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
       return -1;
     }
   }
+  return 0;
+}
+
+FIELD_BULK_INDEXER(mapNumericIndexer) {
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
+                       "mapNumericIndexer is not commit-batched; disk-mode MAP NUMERIC is not supported");
+
+  KeyedNumericIndex *idx = FieldSpec_OpenMapNumericIndex(&ctx->spec->fields[fs->index], true);
+  if (!idx) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC,
+                        "Could not open MAP NUMERIC index for indexing");
+    return -1;
+  }
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
+  AddResult rv =
+      KeyedNumericIndex_AddBatch(idx, aCtx->doc->docId, field->mapBatch, fieldHasExpiration,
+                                 RSGlobalConfig.numericTreeMaxDepthRange);
+  ctx->spec->stats.invertedSize += rv.size_delta;
+  ctx->spec->stats.numRecords += rv.num_records_delta;
+  IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
   return 0;
 }
 
@@ -777,6 +813,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_MAP_NUMERIC:
       RS_ABORT_ALWAYS("Unsupported field type for GEO index");
       break;
   }
@@ -918,6 +955,11 @@ FIELD_BULK_APPLIER(geoApplier) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
 
+FIELD_BULK_APPLIER(mapNumericApplier) {
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_MAP_NUMERIC, 1);
+}
+
 FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
@@ -938,6 +980,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_TAG] = tagPreprocessor,
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
+    [IXFLDPOS_MAP_NUMERIC] = mapNumericPreprocessor,
     };
 
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
@@ -968,6 +1011,9 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
         case IXFLDPOS_GEOMETRY:
           rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
           break;
+        case IXFLDPOS_MAP_NUMERIC:
+          rc = mapNumericIndexer(cur, sctx, field, fs, fdata, status);
+          break;
         case IXFLDPOS_FULLTEXT:
           break;
         default:
@@ -992,6 +1038,7 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
       // sites know which happened. They keep both counters instead.
       case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
+      case IXFLDPOS_MAP_NUMERIC: mapNumericApplier(aCtx, field, fs, fdata); break;
     }
   }
 }
@@ -1238,6 +1285,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_MAP_NUMERIC:
       RS_ABORT_ALWAYS("invalid types");
       break;
   }

@@ -31,6 +31,7 @@ ffi.workspace = true
 field_spec.workspace = true
 global_config.workspace = true
 inverted_index.workspace = true
+keyed_numeric_index.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 nix.workspace = true
