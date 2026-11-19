@@ -112,7 +112,7 @@ TEST_F(HybridApplyOomStopTest, concurrentSubqueryTimeoutStaysATimeout) {
 }
 
 // Both stops on one subquery: the elapsed deadline outranks the OOM stop under ON_OOM RETURN, which
-// still adds its warning; the merger's timeout stays the tail's outcome.
+// still adds its warning; the tail's own deadline check decides the tail's outcome.
 TEST_F(HybridApplyOomStopTest, subqueryTimeoutBesideItsOomStopStaysATimeoutUnderOnOomReturn) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
