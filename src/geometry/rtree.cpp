@@ -10,8 +10,7 @@
 #include "search_ctx.h"
 #include "iterators_ffi.h"  // NewGeometryQueryIterator
 #include "rmalloc.h"        // rm_malloc
-#include "query_memory.h"   // QueryMemory_Checkpoint
-#include "query_error_ffi.h"  // QueryError_StrerrorDefaultMessage
+#include "query_memory.h"   // QueryMemory_CheckpointExact
 
 #include <string>     // std::string, std::char_traits
 #include <sstream>    // std::stringstream
@@ -403,24 +402,14 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
     std::size_t cap = 0;
     const auto rm_deleter = [](t_docId* p) noexcept { rm_free(p); };
     std::unique_ptr<t_docId[], decltype(rm_deleter)> ids{nullptr, rm_deleter};
-    QueryRequestLimits* const timeout = sctx ? sctx->limits : nullptr;
-    uint32_t memoryCheckCounter = 0;
+    QueryRequestLimits* const limits = sctx ? sctx->limits : nullptr;
     for (const t_docId id : results) {
-      // Every doubling reads memory regardless of the interval: it is the largest allocation here
-      // and the interval alone can skip the last one.
       if (num == cap) {
-        memoryCheckCounter = QueryMemory_GetRatioReadInterval() - 1;
-      }
-      // The request carries the stop, and the build checkpoint replies it; without a request the
-      // build fails instead.
-      if (QueryMemory_Checkpoint(timeout, &memoryCheckCounter)) {
-        if (!timeout) {
-          throw std::runtime_error{
-              QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_OUT_OF_MEMORY)};
+        // The doubling is the largest allocation here. The request carries the stop, which the
+        // build checkpoint replies.
+        if (limits && QueryMemory_CheckpointExact(limits)) {
+          return NewGeometryQueryIterator(sctx, filterCtx, nullptr, 0, &allocated_);
         }
-        return NewGeometryQueryIterator(sctx, filterCtx, nullptr, 0, &allocated_);
-      }
-      if (num == cap) {
         cap = cap ? cap * 2 : 16;
         // rm_realloc frees the old block, so release it from the guard first and
         // re-seat the guard on the new block before any further work can throw.
