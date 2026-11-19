@@ -166,18 +166,7 @@ impl TestSpec {
         // is not mutated for the duration of this borrow.
         let trie = unsafe { SuffixTrie::from_raw(self.spec.suffix) };
 
-        let mut runes = vec![0 as ffi::rune; pattern.len() + 1];
-        // SAFETY: `pattern` is valid UTF-8 of `pattern.len()` bytes, so the decode
-        // stays within the slice, and `runes` has sufficient capacity.
-        let rlen = unsafe {
-            ffi::strToRunes(
-                pattern.as_ptr().cast::<c_char>(),
-                pattern.len(),
-                runes.as_mut_ptr(),
-                runes.len(),
-            )
-        };
-        runes.truncate(rlen);
+        let runes: Vec<ffi::rune> = string_utils::runes::decode_runes(pattern.as_bytes()).collect();
 
         let mut found = Vec::new();
         trie.iterate_contains(&runes, SuffixMode::Suffix, |term| {

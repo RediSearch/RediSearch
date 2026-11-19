@@ -30,9 +30,6 @@
 #include <utility>
 #include <climits>
 
-#include <sys/mman.h>
-#include <unistd.h>
-
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
@@ -1517,27 +1514,35 @@ TEST_F(TrieTest, testLowerRunesStopsAtNul) {
   }
 }
 
-// A string longer than MAX_RUNE_STR_LEN runes is rejected without being walked
-// to its end. The bytes past the limit sit in an inaccessible page, so reading
-// them faults.
-TEST_F(TrieTest, testLowerRunesStopsCountingPastLimit) {
-  const long pageSize = sysconf(_SC_PAGESIZE);
-  ASSERT_GT(pageSize, 0);
-  const size_t page = pageSize;
-  const size_t n = MAX_RUNE_STR_LEN + 1;
-  const size_t region = ((n + page - 1) / page + 1) * page;
-  char *base =
-      (char *)mmap(nullptr, region, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  ASSERT_NE(MAP_FAILED, (void *)base);
-  char *guard = base + region - page;
-  ASSERT_EQ(0, mprotect(guard, page, PROT_NONE));
-  char *str = guard - n;
-  memset(str, 'a', n);
+// A string longer than MAX_RUNE_STR_LEN runes is rejected, and the reported
+// length is reset.
+TEST_F(TrieTest, testLowerRunesRejectsPastLimit) {
+  for (size_t n : {(size_t)MAX_RUNE_STR_LEN + 1, (size_t)MAX_RUNE_STR_LEN * 64}) {
+    const std::string input(n, 'a');
+    size_t rlen = 1;
+    EXPECT_EQ(nullptr, strToLowerRunes(input.data(), input.size(), &rlen)) << "length " << n;
+    EXPECT_EQ(0, rlen) << "length " << n;
+  }
+}
 
-  size_t rlen = 1;
-  EXPECT_EQ(nullptr, strToLowerRunes(str, n + page, &rlen));
-  EXPECT_EQ(0, rlen);
-  munmap(base, region);
+// strToRunes writes at most `outcap` runes, but still returns the full count so
+// the caller can tell the output was truncated.
+TEST_F(TrieTest, testStrToRunesTruncatesToCapacity) {
+  rune out[3] = {0xFFFF, 0xFFFF, 0xFFFF};
+  EXPECT_EQ(3, strToRunes("abc", 3, out, 1));
+  EXPECT_EQ('a', out[0]);
+  EXPECT_EQ(0xFFFF, out[1]);
+  EXPECT_EQ(0xFFFF, out[2]);
+
+  EXPECT_EQ(3, strToRunes("abc", 3, nullptr, 0));
+}
+
+// strToSingleCodepointFoldedRunes accepts a NULL length pointer.
+TEST_F(TrieTest, testFoldedRunesWithoutLength) {
+  rune *r = strToSingleCodepointFoldedRunes("AbC", 3, nullptr);
+  ASSERT_TRUE(r != nullptr);
+  EXPECT_EQ((std::vector<rune>{'a', 'b', 'c', 0}), std::vector<rune>(r, r + 4));
+  rm_free(r);
 }
 
 namespace {

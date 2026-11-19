@@ -2678,6 +2678,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "string_utils_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3123,6 +3124,7 @@ dependencies = [
 name = "string_utils_ffi"
 version = "0.0.1"
 dependencies = [
+ "redis-module",
  "string_utils",
  "workspace_hack",
 ]

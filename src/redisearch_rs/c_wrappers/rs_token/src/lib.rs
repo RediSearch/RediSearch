@@ -17,7 +17,7 @@ use std::{
 
 use query_term::RSTokenFlags;
 use rqe_wildcard::remove_escape_in_place;
-use string_utils::{tag::unescape, unicode::tolower_bytes};
+use string_utils::{runes::lower_runes, tag::unescape, unicode::tolower_bytes};
 
 /// Safe, read-only, [`Copy`] handle borrowing a query-node's [`ffi::RSToken`].
 ///
@@ -121,30 +121,7 @@ impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
     /// when the lowercased string exceeds the maximum rune-string length, in
     /// which case it can name no stored term.
     pub fn as_lower_runes(&self) -> Option<Vec<u16>> {
-        let bytes = self.as_bytes()?;
-
-        // `strToLowerRunes` stops at the first NUL its decoder yields — a literal
-        // `0` byte or an overlong encoding of one — and reports the runes before
-        // it, matching the indexer, so we needn't strip interior NULs ourselves.
-        let mut nrunes: usize = 0;
-        // SAFETY: `bytes` is a live slice of `bytes.len()` initialized bytes, and
-        // `strToLowerRunes` reads no further than the length it is given. The
-        // call returns a freshly allocated buffer of `nrunes` runes, or NULL when
-        // the folded length exceeds the maximum.
-        let ptr = unsafe {
-            ffi::strToLowerRunes(bytes.as_ptr().cast::<c_char>(), bytes.len(), &mut nrunes)
-        };
-        let ptr = NonNull::new(ptr)?;
-        // SAFETY: `ptr` points to `nrunes` valid runes written by the call above.
-        let runes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), nrunes) }.to_vec();
-        // SAFETY: `RedisModule_Free` is set during module init and not mutated
-        // afterwards.
-        let rm_free =
-            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-        // SAFETY: `ptr` was allocated by the module allocator inside
-        // `strToLowerRunes`.
-        unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
-        Some(runes)
+        lower_runes(self.as_bytes()?).ok()
     }
 }
 

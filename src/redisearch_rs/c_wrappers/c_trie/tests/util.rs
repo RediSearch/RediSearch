@@ -24,21 +24,7 @@ use c_trie::LoweredPattern;
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
 fn to_runes(s: &str) -> Vec<ffi::rune> {
-    // A UTF-8 string decodes to at most as many runes as bytes, so the decode
-    // cannot truncate and `n` is a valid truncation point.
-    let mut buf = vec![0 as ffi::rune; s.len()];
-    // SAFETY: `s` is valid UTF-8 of `s.len()` bytes, so the decode stays within
-    // the slice, and `buf.len()` bounds the write.
-    let n = unsafe {
-        ffi::strToRunes(
-            s.as_ptr().cast::<c_char>(),
-            s.len(),
-            buf.as_mut_ptr(),
-            buf.len(),
-        )
-    };
-    buf.truncate(n);
-    buf
+    string_utils::runes::decode_runes(s.as_bytes()).collect()
 }
 
 /// Build a wildcard pattern from an ASCII/UTF-8 string. Every pattern here is

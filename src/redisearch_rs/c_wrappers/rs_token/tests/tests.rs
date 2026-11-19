@@ -13,8 +13,8 @@ use std::ffi::c_char;
 use query_term::RSTokenFlags;
 use rs_token::{RSTokenMut, RSTokenRef};
 
-// Install the mock Redis allocator so the C `strToLowerRunes` can allocate, and
-// force the combined C bundle to be linked into the test binary.
+// Install the mock Redis allocator, and force the combined C bundle to be
+// linked into the test binary.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
@@ -105,8 +105,6 @@ fn exposes_nul_terminated_c_str() {
     });
 }
 
-// These tests call the C `strToLowerRunes`, so they cannot run under miri.
-#[cfg(not(miri))]
 mod lower_runes {
     use super::*;
 
@@ -168,8 +166,7 @@ mod lower_runes {
 
     #[test]
     fn lower_runes_too_long_yields_none() {
-        // One rune past the maximum yields `None` rather than truncating: the C
-        // `strToLowerRunes` declines the conversion and returns a null pointer.
+        // One rune past the maximum yields `None` rather than truncating.
         let content = vec![b'a'; ffi::MAX_RUNE_STR_LEN as usize + 1];
         with_nul_token(Some(&content), 0, |tok| {
             assert!(tok.as_lower_runes().is_none());
