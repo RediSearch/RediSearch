@@ -33,7 +33,7 @@ use crate::system::Feature;
 const MUTATIONS_PER_PICK: usize = 8;
 /// One pick in this many is of any kept program rather than of a shortest.
 const ANY_PROGRAM_ONE_IN: u64 = 20;
-const STATUS_EVERY: Duration = Duration::from_secs(30);
+const STATUS_EVERY: Duration = Duration::from_secs(10);
 /// Runs that may fail in a row, as when the machine is briefly out of
 /// resources, before the campaign gives up.
 const FAILURES_IN_A_ROW: u32 = 3;
@@ -75,14 +75,15 @@ where
         deadline: campaign.duration.map(|d| Instant::now() + d),
         stop: AtomicBool::new(false),
         runs: AtomicU64::new(0),
+        began: Instant::now(),
         kept: Mutex::new(Kept {
             programs: Vec::new(),
             shortest: HashMap::new(),
             unstable: HashSet::new(),
-            status: Instant::now(),
+            status: (Instant::now(), 0),
         }),
     };
-    let mut failures = 0;
+    let mut programs = Vec::new();
     for dir in campaign
         .seeds
         .iter()
@@ -91,11 +92,19 @@ where
     {
         for entry in std::fs::read_dir(dir)? {
             let path = entry?.path();
-            if path.extension().is_some_and(|e| e == "json") && !search.stopping() {
-                search.observe(&load(&path)?, &mut failures)?;
+            if path.extension().is_some_and(|e| e == "json") {
+                programs.push(path);
             }
         }
     }
+    info!("running the {} seed and corpus programs", programs.len());
+    let mut failures = 0;
+    for path in programs {
+        if !search.stopping() {
+            search.observe(&load(&path)?, &mut failures)?;
+        }
+    }
+    info!("fuzzing in {jobs} workers");
     let worker = |n: u64| {
         let mut seeds = Draw::new(n ^ now());
         let mut failures = 0;
@@ -138,6 +147,7 @@ struct Search<'a, O, F> {
     /// Set by a worker that failed.
     stop: AtomicBool,
     runs: AtomicU64,
+    began: Instant,
     kept: Mutex<Kept<O>>,
 }
 
@@ -147,7 +157,8 @@ struct Kept<O> {
     shortest: HashMap<Feature, usize>,
     /// Shown by one run of a program and not by another.
     unstable: HashSet<Feature>,
-    status: Instant,
+    /// When the last status line was logged, and the runs by then.
+    status: (Instant, u64),
 }
 
 impl<O, F> Search<'_, O, F>
@@ -199,10 +210,13 @@ where
         if runs == RUNS_BEFORE_WARNING && kept.shortest.is_empty() {
             warn!("{runs} runs showed no feature; is the target built with coverage?");
         }
-        if kept.status.elapsed() >= STATUS_EVERY {
-            kept.status = Instant::now();
+        let (since, before) = kept.status;
+        if since.elapsed() >= STATUS_EVERY {
+            kept.status = (Instant::now(), runs);
+            let minutes = self.began.elapsed().as_secs() / 60;
+            let per_second = (runs - before) / since.elapsed().as_secs().max(1);
             info!(
-                "{runs} runs, {} programs kept, {} features",
+                "{minutes}m: {runs} runs, {per_second}/s, {} programs kept, {} features",
                 kept.programs.len(),
                 kept.shortest.len()
             );

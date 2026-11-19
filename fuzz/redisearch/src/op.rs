@@ -223,9 +223,15 @@ impl Op {
         }
     }
 
-    /// The input it sends, with cursor ids from `state`.
+    /// The input it sends, with cursor ids from `state`. A settle behind a
+    /// paused scan sends nothing, since it could only time out.
     pub fn lower(&self, state: &State) -> Input<Argv> {
         match &self.action {
+            Action::Settle if state.scan_paused => Input::Send {
+                conn: self.conn,
+                wait: false,
+                requests: Vec::new(),
+            },
             Action::Settle => Input::Settle,
             action => Input::Send {
                 conn: self.conn,
@@ -772,5 +778,32 @@ mod tests {
             aggregate.lower(&State::default()),
             Input::Send { wait: true, .. }
         ));
+    }
+
+    #[test]
+    fn a_settle_behind_a_paused_scan_is_not_sent() {
+        let create = Op::new(Action::Create {
+            index: "i".into(),
+            on: DataType::Hash,
+            prefix: "d:".into(),
+            fields: Vec::new(),
+        });
+        let scan = |words: &[&str]| {
+            let mut command = vec![crate::effect::DEBUG, "BG_SCAN_CONTROLLER"];
+            command.extend(words);
+            Op::new(Action::command(&command))
+        };
+        let settle = Op::new(Action::Settle);
+        let mut state = State::default();
+        for (op, sent) in [
+            (scan(&["SET_PAUSE_BEFORE_SCAN", "true"]), true),
+            (create.clone(), false),
+            (scan(&["SET_BG_INDEX_RESUME"]), true),
+            (scan(&["SET_PAUSE_BEFORE_SCAN", "false"]), true),
+            (create, true),
+        ] {
+            state.apply(&op, None);
+            assert_eq!(settle.lower(&state) == Input::Settle, sent, "{op:?}");
+        }
     }
 }

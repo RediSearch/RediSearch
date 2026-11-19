@@ -40,6 +40,8 @@ const STOPWORDS: [&str; 33] = [
 ];
 
 struct SearchResult<'a> {
+    /// The step it is the reply of.
+    at: usize,
     window: u32,
     index: &'a Bytes,
     key: Option<Key>,
@@ -50,7 +52,34 @@ struct SearchResult<'a> {
     keys: Option<BTreeSet<Bytes>>,
 }
 
+/// A rule a run broke: its finding's key, and the steps whose replies broke
+/// it.
+pub struct Broken {
+    pub key: String,
+    pub steps: Compared,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Compared {
+    /// Two searches that must return the same documents.
+    Same(usize, usize),
+    /// `q`, `q p`, and `q -p`, whose totals must add up.
+    Partition {
+        whole: usize,
+        part: usize,
+        rest: usize,
+    },
+}
+
 pub fn check(model: &RediSearch, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
+    for broken in broken(model, ops, steps) {
+        notes.fail("logic", broken.key);
+    }
+}
+
+/// Every rule the run broke.
+pub fn broken(model: &RediSearch, ops: &[Op], steps: &[Step<Value>]) -> Vec<Broken> {
+    let mut broken = Vec::new();
     let results = comparable_results(model, ops, steps);
     for (i, a) in results.iter().enumerate() {
         for b in &results[i + 1..] {
@@ -66,35 +95,46 @@ pub fn check(model: &RediSearch, ops: &[Op], steps: &[Step<Value>], notes: &mut 
             };
             let keys_differ = matches!((&a.keys, &b.keys), (Some(x), Some(y)) if x != y);
             if a.total != b.total || keys_differ {
-                notes.fail("logic", key(rule, a.query));
+                broken.push(Broken {
+                    key: key(rule, a.query),
+                    steps: Compared::Same(a.at, b.at),
+                });
             }
         }
     }
     for whole in &results {
-        let parts: Vec<(&Query, bool, i64)> = results
+        let parts: Vec<(&Query, bool, &SearchResult)> = results
             .iter()
             .filter(|r| {
                 r.window == whole.window && r.index == whole.index && r.options == whole.options
             })
             .filter_map(|r| {
                 let (rest, part, negated) = split(r.query)?;
-                (rest == whole.query).then_some((part, negated, r.total))
+                (rest == whole.query).then_some((part, negated, r))
             })
             .collect();
-        for &(part, _, total) in parts.iter().filter(|(_, negated, _)| !negated) {
+        for &(part, _, with) in parts.iter().filter(|(_, negated, _)| !negated) {
             let checkable = !vanishes(whole.query)
                 && !vanishes(part)
                 && known_fields(whole.query, &whole.key)
                 && known_fields(part, &whole.key);
             let complement = parts.iter().find(|(p, negated, _)| *negated && *p == part);
             if checkable
-                && let Some(&(_, _, complement)) = complement
-                && total + complement != whole.total
+                && let Some(&(_, _, without)) = complement
+                && with.total + without.total != whole.total
             {
-                notes.fail("logic", key("partition", whole.query));
+                broken.push(Broken {
+                    key: key("partition", whole.query),
+                    steps: Compared::Partition {
+                        whole: whole.at,
+                        part: with.at,
+                        rest: without.at,
+                    },
+                });
             }
         }
     }
+    broken
 }
 
 /// `q p` is `(q, p, false)` and `q -p` is `(q, p, true)`; a lone `p` or `-p`
@@ -227,6 +267,7 @@ fn comparable_results<'a>(
             && let Some((total, keys)) = step.reply.as_ref().and_then(search_result)
         {
             results.push(SearchResult {
+                at,
                 window,
                 index,
                 key: state.key(index),

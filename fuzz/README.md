@@ -66,7 +66,8 @@ fuzz/setup.sh
    names a prebuilt module instead, and `REJSON_BRANCH` a branch to build
    (default `master`). Every fuzzed server loads it after the module.
 6. Links the binaries as `bin/fuzz/redis-server`, `bin/fuzz/redisearch.so`,
-   and `bin/fuzz/rejson.so`, where the fuzzer looks for them.
+   and `bin/fuzz/rejson.so`, and the `llvm-symbolizer` next to `CC` as
+   `bin/fuzz/llvm-symbolizer`, where the fuzzer looks for them.
 
 Variables:
 
@@ -82,7 +83,7 @@ The fuzzer starts every server with:
 
 | Variable | Value | Why |
 |---|---|---|
-| `ASAN_OPTIONS` | `halt_on_error=1:detect_odr_violation=0:detect_leaks=1` | The module is built with `-fsanitize-recover=all`; halting makes each run yield one report. |
+| `ASAN_OPTIONS` | `halt_on_error=1:detect_odr_violation=0:detect_leaks=1:external_symbolizer_path=…/llvm-symbolizer` | The module is built with `-fsanitize-recover=all`; halting makes each run yield one report. macOS's default symbolizer, `atos`, takes seconds per run. |
 | `LSAN_OPTIONS` | `suppressions=tests/memcheck/asan.supp` | Same suppressions as the Python tests. |
 | `RS_GLOBAL_DTORS` | `1` | Without it the module skips its teardown and every global allocation reports as a leak. |
 
@@ -96,11 +97,12 @@ that ASan intercepts `__cxa_throw`.
 
 ```bash
 cd fuzz/redisearch
-cargo run -- run seeds/smoke.json
+cargo test -- --ignored every_seed
 ```
 
-It must report no findings. Measured on an Apple Silicon
-Mac: `redis-server` alone is ready in about 0.5 s; with the module, about 1.6 s.
+It runs every seed and must pass. Measured on an Apple Silicon Mac, a server
+with the module starts in about 0.1 s and stops in about 0.4 s, most of it
+LeakSanitizer's check at exit.
 
 ### Known pitfalls
 
@@ -117,12 +119,9 @@ Mac: `redis-server` alone is ready in about 0.5 s; with the module, about 1.6 s.
 
 ```bash
 cd fuzz/redisearch
-RUST_LOG=debug cargo run -- run seeds/smoke.json
-cargo run -- run <program.json> --repeat 10
-cargo run -- fuzz --seeds seeds --duration 3600
-cargo run -- reduce <program.json>
+cargo run --release -- fuzz --seeds seeds --duration 3600
+cargo run --release -- reduce <program.json>
 cargo run -- generate --seed 7 --ops 30 > program.json
-cargo run -- export findings/<finding>/program.json > repro.txt
 cargo run -- import commands.txt > program.json
 ```
 
@@ -130,32 +129,35 @@ The binaries are the ones under `bin/fuzz/`, or those named by
 `--redis-server`, `--module`, and `--rejson`. `--module
 ../../bin/fuzz/planted/redisearch.so` fuzzes the module with planted bugs.
 
-`run` starts a fresh server, executes the program, and logs each finding;
-`RUST_LOG=debug` also logs every step. `--repeat N` runs it N times and
-reports how often each finding reproduced. Each distinct finding is written to
-`findings/<finding>/`: the program, the steps, the server log, and a manifest
-with the reproduction rate, the binaries and the files they resolve to, the
-server environment, and the timing. The exit code is
-0 without findings, 1 with findings, and 2 on an error such as a server that
-fails to start. `fuzz` runs a coverage-guided campaign in one worker thread
-per core (`--jobs N` to change). The workers share the programs they keep,
-start from those in `--seeds` and in `corpus/`, write what they keep to
-`corpus/`, and write each finding that is new to `findings/`. A finding that already has a directory there is not reported
-again, so creating an empty directory marks a known bug. Ctrl-C lets the runs
-in progress finish and cleans up their servers.
+`fuzz` runs a coverage-guided campaign in one worker thread per core
+(`--jobs N` to change), logging a status line every 10 seconds. The workers
+share the programs they keep, start from those in `--seeds` and in `corpus/`,
+and write what they keep to `corpus/`. A program counts as new only if a
+second run shows the same new features. Ctrl-C lets the runs in progress
+finish and cleans up their servers.
 
-A program counts as new only if a second run shows the same new features.
+Each new finding is reduced to the smallest program that still shows it, run
+five more times for its reproduction rate, and written to
+`findings/<finding>/`:
 
-`reduce` shrinks a failing program while each smaller version still yields
-the same finding (the first one, or the one named by `--finding`), then runs
-the result ten times and bundles it like `run`, with the input as
-`original.json`. `generate` prints a generated program; the same seed gives
-the same program.
+- `repro.py`, the finding to share: the reduced program as a standalone
+  redis-py script against a server you start, saying how to start it and what
+  goes wrong. A broken logic rule ends in the assertion that fails. To make a
+  regression test, move its commands into a test with `getConnectionByEnv(env)`;
+- `program.json` and `original.json`, the reduced and the found program;
+- `trace.json`, `server.log`, and `manifest.json`, with the reproduction rate,
+  the binaries and the files they resolve to, the server environment, and the
+  timing.
 
-`export` prints a program as `redis-cli` lines for a bug report, with module
-arguments and settles as `#` notes. It refuses a program that uses a second
-connection, a deferred reply, or a cursor; reducing often removes them. `import` reads
-such lines, or a `MONITOR` recording, into a program on one connection.
+A finding that already has a directory there is not reported again, so
+creating an empty directory marks a known bug. `corpus/` and `findings/` are
+ignored by git.
+
+`reduce` does the same for a program at hand, for its first finding or the
+one named by `--finding`; it exits with 1 when it wrote one, and 2 on an
+error such as a server that fails to start. `generate` prints a generated
+program; the same seed gives the same program. `import` reads `redis-cli`
+lines, or a `MONITOR` recording, into a program on one connection.
 
 To turn a Python test into a seed, run it against a server you started while
 `redis-cli MONITOR` records:

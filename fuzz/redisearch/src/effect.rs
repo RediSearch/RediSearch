@@ -37,12 +37,18 @@ pub enum Change {
     ReshapesIndex,
     PausesWorkers,
     ResumesWorkers,
+    /// Makes every background scan that starts from now on wait to be
+    /// resumed, or stops doing so.
+    PausesScans(bool),
+    ResumesScan,
+    /// Rebuilds every index, starting a background scan for each.
+    Reloads,
     /// Sets the configuration parameters named by every other word from the
     /// third, to the word after each.
     Configures,
 }
 
-/// What `command` does, judged by its first three words.
+/// What `command` does, judged by its first four words.
 pub fn describe(command: &[Bytes]) -> (Effect, Change) {
     let word = |at: usize| {
         command
@@ -54,11 +60,17 @@ pub fn describe(command: &[Bytes]) -> (Effect, Change) {
     match (name.as_str(), sub.as_str(), arg.as_str()) {
         (DEBUG, "WORKERS", "PAUSE") => (Effect::Reads, Change::PausesWorkers),
         (DEBUG, "WORKERS", "RESUME") => (Effect::Reads, Change::ResumesWorkers),
+        (DEBUG, "BG_SCAN_CONTROLLER", "SET_PAUSE_BEFORE_SCAN") => {
+            (Effect::Reads, Change::PausesScans(word(3) == "TRUE"))
+        }
+        (DEBUG, "BG_SCAN_CONTROLLER", "SET_BG_INDEX_RESUME") => {
+            (Effect::Reads, Change::ResumesScan)
+        }
         (DEBUG, "GC_FORCEINVOKE" | "GC_STOP_SCHEDULE" | "GC_CONTINUE_SCHEDULE", _)
         | (DEBUG, "WORKERS" | "BG_SCAN_CONTROLLER" | "SYNC_POINT", _) => {
             (Effect::Reads, Change::None)
         }
-        ("DEBUG", "RELOAD", _) => (Effect::Rebuilds, Change::None),
+        ("DEBUG", "RELOAD", _) => (Effect::Rebuilds, Change::Reloads),
         ("CONFIG" | "FT.CONFIG" | "_FT.CONFIG", "SET", _) => (Effect::Writes, Change::Configures),
         ("FT.DROPINDEX", ..) => (Effect::Writes, Change::DropsIndex),
         ("FT.CREATE" | "FT.ALTER", ..) => (Effect::Writes, Change::ReshapesIndex),

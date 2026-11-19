@@ -30,6 +30,10 @@ pub struct State {
     /// Workers are on by default.
     pub workers_off: bool,
     pub paused: bool,
+    pub pauses_scans: bool,
+    /// Whether a background scan waits to be resumed, so the server cannot
+    /// become idle.
+    pub scan_paused: bool,
     pub indexes: BTreeMap<Bytes, Schema>,
     pub cursors: BTreeMap<u8, Cursor>,
     /// The last search that the logic rules can compare others with.
@@ -86,8 +90,10 @@ impl State {
                     fields: fields.clone(),
                     known: true,
                 });
+                self.scan();
             }
             Action::Alter { index, field, .. } => {
+                self.scan();
                 if let Some(schema) = self.indexes.get_mut(index)
                     && schema.fields.iter().all(|f| f.name != field.name)
                 {
@@ -143,6 +149,7 @@ impl State {
                         }
                     }
                     Change::ReshapesIndex => {
+                        self.scan();
                         if let Some(index) = named {
                             self.indexes
                                 .entry(index.clone())
@@ -157,10 +164,17 @@ impl State {
                     }
                     Change::PausesWorkers => self.paused = true,
                     Change::ResumesWorkers => self.paused = false,
+                    Change::PausesScans(pauses) => self.pauses_scans = pauses,
+                    Change::ResumesScan => self.scan_paused = false,
+                    Change::Reloads => self.scan(),
                     Change::Configures => self.configure(argv.get(2..).unwrap_or_default()),
                 }
             }
         }
+    }
+
+    fn scan(&mut self) {
+        self.scan_paused |= self.pauses_scans;
     }
 
     /// Names as `CONFIG SET` (`search-on-timeout`) or `FT.CONFIG SET`

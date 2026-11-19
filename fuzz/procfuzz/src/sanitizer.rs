@@ -37,7 +37,7 @@ fn error(line: &str) -> Option<Finding> {
     let bug = words.next().unwrap_or_default();
     let location = words.next().unwrap_or_default();
     let location = match location.strip_prefix('(') {
-        Some(binary) => binary.split(':').next().unwrap_or_default().to_owned(),
+        Some(binary) => basename(binary.split(':').next().unwrap_or_default()).to_owned(),
         None => basename(location)
             .split(':')
             .take(2)
@@ -90,7 +90,7 @@ mod tests {
                 "asan:heap-use-after-free:IndexSpec_Free:spec.c:123",
             ),
             (
-                "SUMMARY: AddressSanitizer: heap-buffer-overflow (redisearch.so:arm64+0x2f5564) in QueryNode_CheckIsValid+0x1374",
+                "SUMMARY: AddressSanitizer: heap-buffer-overflow (/bin/fuzz/redisearch.so:arm64+0x2f5564) in QueryNode_CheckIsValid+0x1374",
                 "asan:heap-buffer-overflow:QueryNode_CheckIsValid:redisearch.so",
             ),
         ];

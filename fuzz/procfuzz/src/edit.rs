@@ -22,6 +22,8 @@ const EDITS: [(Edit, u64); 4] = [
 ];
 const MOST_INSERTED: u64 = 3;
 const MOST_SPLICED: usize = 4;
+/// A program this long only shrinks, so that it stays fast to run.
+const MOST_OPS: usize = 64;
 
 #[derive(Clone, Copy)]
 enum Edit {
@@ -35,7 +37,8 @@ enum Edit {
 }
 
 /// The parent with one edit, splicing from `donor`. An edit that cannot
-/// apply, such as deleting the only op, inserts instead.
+/// apply, such as deleting the only op, inserts instead; one that would grow
+/// a program of [`MOST_OPS`] deletes instead.
 pub fn mutate<M: Model>(
     model: &M,
     parent: &Program<M::Op>,
@@ -44,7 +47,11 @@ pub fn mutate<M: Model>(
 ) -> Program<M::Op> {
     let mut child = parent.clone();
     let len = child.ops.len();
-    match pick_edit(rng) {
+    let edit = match pick_edit(rng) {
+        Edit::Insert | Edit::Splice if len >= MOST_OPS => Edit::Delete,
+        edit => edit,
+    };
+    match edit {
         Edit::Redraw if len > 0 => {
             let at = rng.index(len);
             let mut from = child.ops[at].from.clone();
@@ -61,9 +68,12 @@ pub fn mutate<M: Model>(
         }
         Edit::Splice if !donor.ops.is_empty() => {
             let start = rng.index(donor.ops.len());
-            child
-                .ops
-                .extend(donor.ops[start..].iter().take(MOST_SPLICED).cloned());
+            child.ops.extend(
+                donor.ops[start..]
+                    .iter()
+                    .take(MOST_SPLICED.min(MOST_OPS - len))
+                    .cloned(),
+            );
         }
         _ => {
             let at = rng.index(len + 1);

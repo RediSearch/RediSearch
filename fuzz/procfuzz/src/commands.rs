@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! What a fuzzer does with a model and a system: replay a program, reduce
-//! one to a finding, fuzz, or generate one. [`Command`] is a clap subcommand
+//! What a fuzzer does with a model and a system: reduce a program to a
+//! finding, fuzz, or generate a program. [`Command`] is a clap subcommand
 //! for a target's own parser:
 //!
 //! ```ignore
@@ -26,14 +26,13 @@
 //!
 //! Progress goes to `log`.
 
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Subcommand;
-use log::{debug, info};
+use log::info;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -43,29 +42,17 @@ use crate::edit::{mutate, shrink};
 use crate::findings::{Findings, Rate};
 use crate::interrupt;
 use crate::model::{Model, Program, generate};
-use crate::system::{Run, System, run};
+use crate::system::{System, run};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Run a program on a fresh system and write a bundle per finding.
-    Run {
-        program: PathBuf,
-        /// Run the program this many times and report how often each
-        /// finding recurs.
-        #[arg(long, default_value_t = 1)]
-        repeat: u32,
-        #[arg(long, default_value = "findings")]
-        findings: PathBuf,
-    },
-    /// Shrink a program while it still yields a finding, then run the result
-    /// like `run`.
+    /// Shrink a program while it still yields a finding, and write the
+    /// finding with a script that reproduces it.
     Reduce {
         program: PathBuf,
         /// The finding to keep; by default the program's first.
         #[arg(long)]
         finding: Option<String>,
-        #[arg(long, default_value_t = 10)]
-        repeat: u32,
         #[arg(long, default_value = "findings")]
         findings: PathBuf,
     },
@@ -107,24 +94,22 @@ impl Command {
     {
         interrupt::on_signals()?;
         match self {
-            Command::Run {
-                program,
-                repeat,
-                findings,
-            } => {
-                let findings = Findings::new(&findings, setup)?;
-                replay(model, system, &findings, &load(&program)?, None, repeat)
-            }
             Command::Reduce {
                 program,
                 finding,
-                repeat,
                 findings,
             } => {
                 let findings = Findings::new(&findings, setup)?;
-                let original = load(&program)?;
-                let reduced = reduce(model, system, &original, finding.as_deref())?;
-                replay(model, system, &findings, &reduced, Some(&original), repeat)
+                let program = load(&program)?;
+                let finding = run(model, system, &program)?
+                    .notes
+                    .findings
+                    .iter()
+                    .map(ToString::to_string)
+                    .find(|found| finding.as_deref().is_none_or(|wanted| wanted == found))
+                    .ok_or_else(|| io::Error::other("the program does not yield that finding"))?;
+                report(model, system, &findings, &program, &finding)?;
+                Ok(true)
             }
             Command::Fuzz {
                 seeds,
@@ -170,88 +155,66 @@ pub fn load<O: DeserializeOwned>(path: &Path) -> io::Result<Program<O>> {
     })
 }
 
-/// Runs `program` `repeat` times, reports how often each finding recurs, and
-/// writes a bundle per finding. Returns whether anything was
-/// found.
-pub fn replay<M, S>(
-    model: &M,
-    system: &S,
-    findings: &Findings,
-    program: &Program<M::Op>,
-    original: Option<&Program<M::Op>>,
-    repeat: u32,
-) -> io::Result<bool>
-where
-    M: Model,
-    M::Reply: Clone + Serialize + Debug,
-    S: System<Input = M::Input, Reply = M::Reply>,
-{
-    let mut found: BTreeMap<String, (u32, Run<M::Reply>)> = BTreeMap::new();
-    for attempt in 1..=repeat {
-        let run = run(model, system, program)?;
-        for (made, step) in program.ops.iter().zip(&run.steps) {
-            debug!("{:?} -> {:?}", made.op, step.reply);
-        }
-        info!(
-            "run {attempt}/{repeat}: {} of {} ops, {} features, findings {:?}",
-            run.steps.len(),
-            program.ops.len(),
-            run.notes.features.len(),
-            run.notes
-                .findings
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-        );
-        for finding in &run.notes.findings {
-            found
-                .entry(finding.to_string())
-                .or_insert_with(|| (0, run.clone()))
-                .0 += 1;
-        }
-    }
-    for (finding, (reproduced, run)) in &found {
-        let rate = Rate {
-            reproduced: *reproduced,
-            runs: repeat,
-        };
-        let dir = findings.write(finding, program, original, run, rate)?;
-        info!("{reproduced}/{repeat} {finding} -> {}", dir.display());
-    }
-    Ok(!found.is_empty())
-}
-
-/// The smallest program found that still yields `finding`, or the first
-/// finding of `program` if `finding` is `None`.
+/// The smallest program found that still yields `finding`.
 pub fn reduce<M, S>(
     model: &M,
     system: &S,
     program: &Program<M::Op>,
-    finding: Option<&str>,
-) -> io::Result<Program<M::Op>>
+    finding: &str,
+) -> Program<M::Op>
 where
     M: Model,
     S: System<Input = M::Input, Reply = M::Reply>,
 {
-    let finding = run(model, system, program)?
-        .notes
-        .findings
-        .iter()
-        .map(ToString::to_string)
-        .find(|found| finding.is_none_or(|wanted| wanted == found))
-        .ok_or_else(|| io::Error::other("the program does not yield that finding"))?;
-    info!("reducing {finding}");
-    Ok(shrink(model, program, |candidate| {
-        let fails = run(model, system, candidate).is_ok_and(|run| run.notes.shows(&finding));
-        if fails {
-            info!("kept {} ops", candidate.ops.len());
-        }
-        fails
-    }))
+    info!("reducing {finding} from {} ops", program.ops.len());
+    shrink(model, program, |candidate| {
+        run(model, system, candidate).is_ok_and(|run| run.notes.shows(finding))
+    })
 }
 
-/// Runs a campaign in `jobs` threads, and writes each new finding to
-/// `findings` with how often it reproduces in [`REPRODUCTIONS`] runs.
+/// Reduces `program` to `finding`, runs the result [`REPRODUCTIONS`] times,
+/// and writes the finding with the model's reproduction script.
+pub fn report<M, S>(
+    model: &M,
+    system: &S,
+    findings: &Findings,
+    program: &Program<M::Op>,
+    finding: &str,
+) -> io::Result<()>
+where
+    M: Model,
+    M::Reply: Serialize,
+    S: System<Input = M::Input, Reply = M::Reply>,
+{
+    let reduced = reduce(model, system, program, finding);
+    let mut reproduced = 0;
+    let mut kept = None;
+    for _ in 0..REPRODUCTIONS {
+        let run = run(model, system, &reduced)?;
+        let shows = run.notes.shows(finding);
+        reproduced += u32::from(shows);
+        if reproduced == 0 || (shows && reproduced == 1) {
+            kept = Some(run);
+        }
+    }
+    let mut run = kept.expect("ran");
+    if let Some((name, script)) = model.reproduction(&reduced.ops(), &run.steps, finding) {
+        run.files.push((name.to_owned(), script.into_bytes()));
+    }
+    let rate = Rate {
+        reproduced,
+        runs: REPRODUCTIONS,
+    };
+    let dir = findings.write(finding, &reduced, Some(program), &run, rate)?;
+    info!(
+        "{reproduced}/{REPRODUCTIONS} {finding} -> {}",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Runs a campaign in `jobs` threads, and [reports](report) each new
+/// finding to `findings`.
 pub fn fuzz<M, S>(
     model: &M,
     system: &S,
@@ -269,9 +232,8 @@ where
         for finding in &run.notes.findings {
             let name = finding.to_string();
             if findings.claim(&name) {
-                let rate = reproduce(model, system, program, &name);
-                let dir = findings.write(&name, program, None, &run, rate)?;
-                info!("new finding: {name} -> {}", dir.display());
+                info!("new finding: {name}");
+                report(model, system, findings, program, &name)?;
             }
         }
         Ok(run.notes.features)
@@ -280,20 +242,4 @@ where
         mutate(model, parent, donor, rng)
     };
     campaign::fuzz(campaign, jobs, execute, mutate)
-}
-
-/// How often `finding` shows in [`REPRODUCTIONS`] runs of `program`, the
-/// first of which already showed it.
-fn reproduce<M, S>(model: &M, system: &S, program: &Program<M::Op>, finding: &str) -> Rate
-where
-    M: Model,
-    S: System<Input = M::Input, Reply = M::Reply>,
-{
-    let again = (1..REPRODUCTIONS)
-        .filter(|_| run(model, system, program).is_ok_and(|run| run.notes.shows(finding)))
-        .count();
-    Rate {
-        reproduced: 1 + u32::try_from(again).expect("small"),
-        runs: REPRODUCTIONS,
-    }
 }

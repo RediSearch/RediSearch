@@ -48,9 +48,9 @@ pub trait Codec: Sync {
 /// What an op of a model of a [`Service`] lowers to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input<Q> {
-    /// Requests sent one after another on a connection, each awaiting the
-    /// reply to the one before; the last reply is the input's. `wait: false`
-    /// leaves that reply to be read when the connection is next used.
+    /// Requests pipelined on a connection once the replies outstanding on it
+    /// are read; the last reply is the input's. `wait: false` leaves the
+    /// replies to be read when the connection is next used.
     Send {
         conn: u8,
         wait: bool,
@@ -58,7 +58,7 @@ pub enum Input<Q> {
     },
     /// Reads every outstanding reply, then waits until the process is
     /// [idle](Service::idle). It completes only if the process became idle
-    /// within [`Timing::patience`].
+    /// within [`Timing::settle`].
     Settle,
 }
 
@@ -92,9 +92,10 @@ pub type LogProbe<T> = Box<dyn Fn(&str) -> T + Send + Sync>;
 pub struct Timing {
     /// For the process to become ready.
     pub startup: Duration,
-    /// For a reply, before healing; also how long [`Input::Settle`] waits to
-    /// become idle.
+    /// For a reply, before healing.
     pub patience: Duration,
+    /// For [`Input::Settle`] to become idle.
+    pub settle: Duration,
     /// For a reply after healing, and for a request to be written, before
     /// either is a hang.
     pub deadline: Duration,
@@ -108,6 +109,7 @@ impl Default for Timing {
         Timing {
             startup: Duration::from_secs(30),
             patience: Duration::from_secs(2),
+            settle: Duration::from_secs(2),
             deadline: Duration::from_secs(10),
             exit: Duration::from_secs(30),
         }
@@ -367,7 +369,7 @@ impl<C: Codec> Live<'_, C> {
     /// Whether the process became idle in time.
     fn settle(&mut self) -> bool {
         let start = Instant::now();
-        while start.elapsed() < self.service.timing.patience {
+        while start.elapsed() < self.service.timing.settle {
             let idle = &self.service.idle;
             if idle(&mut self.admin()) {
                 return true;
@@ -389,9 +391,9 @@ impl<C: Codec> Session for Live<'_, C> {
                 wait,
                 requests,
             } => {
+                self.drain(*conn, run)?;
                 for (i, request) in requests.iter().enumerate() {
                     let completes = (i + 1 == requests.len()).then_some(at);
-                    self.drain(*conn, run)?;
                     self.send(*conn, request, completes)?;
                 }
                 if *wait {

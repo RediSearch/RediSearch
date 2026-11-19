@@ -46,6 +46,18 @@ pub trait Model: Sync {
     fn check(&self, ops: &[Self::Op], steps: &[Step<Self::Reply>], notes: &mut Notes) {
         let _ = (ops, steps, notes);
     }
+
+    /// A file name and a script that does what a run that showed `finding`
+    /// did, for people to run without the fuzzer.
+    fn reproduction(
+        &self,
+        ops: &[Self::Op],
+        steps: &[Step<Self::Reply>],
+        finding: &str,
+    ) -> Option<(&'static str, String)> {
+        let _ = (ops, steps, finding);
+        None
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

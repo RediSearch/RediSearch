@@ -10,7 +10,9 @@ A target implements one trait, `model::Model`:
 - `apply` folds an op, and its reply if there is one, into that state;
 - `lower` turns an op into the one input it sends, with names such as a
   server-chosen cursor id resolved against the live state;
-- `check` judges a finished run and may record features worth reaching.
+- `check` judges a finished run and may record features worth reaching;
+- `reproduction` may turn a run that showed a finding into a standalone
+  script.
 
 The engine stores the draws that made each op, so it mutates a program by
 changing a draw and shrinks one by deleting ops and lowering draws. A target
@@ -29,8 +31,8 @@ The rest is usable on its own:
 - `edit::mutate` and `edit::shrink`;
 - `campaign::fuzz` searches for programs that reach new features;
 - `findings::Findings` keeps one directory per finding, shared by workers;
-- `commands` replays a program, reduces one to a finding, fuzzes in parallel
-  threads, and generates programs; `commands::Command` is those commands as a
+- `commands` reduces a program to a finding and writes it, fuzzes in
+  parallel threads, and generates programs; `commands::Command` is those commands as a
   clap subcommand, for a target's own parser beside its own flags;
 - `interrupt::on_signals` makes SIGINT and SIGTERM stop cleanly.
 

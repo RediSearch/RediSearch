@@ -131,3 +131,10 @@ process, with the RediSearch layer reduced to what is RediSearch-specific.
 - [x] 11.13 Simplify after the review: one engine, always confirming; no sharing between workers; one send input; no reset; the comparison harness, the plain loop, and `kvd-fuzz` removed once the comparison was recorded; the logic tests folded into one table; the logic rules skip dialect 4, whose totals are capped
 - [x] 11.14 Simplify after the second review: module arguments become `CONFIG SET` commands the state follows, so the logic rules see runtime configuration changes; the search loop replaces LibAFL, keeping confirmation and the shortest program per feature, with workers sharing what they keep; `kvd` and the toy model removed in favour of live tests against the real server; writes bounded by the deadline, a timed-out admin connection reopened, a batched input completed only by its last reply, `Populate`'s seed recorded, shrinking allowed to drop optional parts, one log probe for findings, and the setup recorded in each manifest
 - **Not yet measured:** the search loop against the 11.11 numbers; rerun that comparison on RediSearch before relying on it.
+
+## 12. Throughput and shareable findings
+
+- [x] 12.1 Use `llvm-symbolizer` through `external_symbolizer_path`: `redis-server`'s process title overwrites `ASAN_SYMBOLIZER_PATH` before the sanitizer reads it, and `atos` takes seconds per run
+- [x] 12.2 Wait 200 ms for a reply before healing but up to 2 s for a settle; send no settle while a background scan is paused; pipeline an op's requests; stop growing programs at 64 ops; log the campaign's status every 10 s with its pace
+- [x] 12.3 Reduce every new finding before writing it, with `repro.py`, the reduced program as a standalone redis-py script; remove `run` and `export`
+- **Measured (12 workers, Apple Silicon, before 12.1):** about 1.5 runs/s per worker; a run spent 0.10 s starting, 0.05 s on its ops, and 0.50 s stopping. Standalone, a server with the module starts and exits in 0.17 s without leak detection and 0.44–0.65 s with it: LeakSanitizer's check at exit is most of a run.

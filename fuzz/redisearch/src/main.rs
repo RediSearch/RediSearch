@@ -16,9 +16,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use procfuzz::commands::load;
 use redisearch_fuzz::RediSearch;
-use redisearch_fuzz::script::{export, import};
+use redisearch_fuzz::script::import;
 use redisearch_fuzz::server::Server;
 
 #[derive(Parser)]
@@ -33,15 +32,13 @@ struct Cli {
 enum Command {
     #[command(flatten)]
     Fuzzer(procfuzz::commands::Command),
-    /// Print a program as commands for `redis-cli`.
-    Export { program: PathBuf },
     /// Print a program of the commands in a file, one per line as `redis-cli`
     /// reads them or `MONITOR` prints them.
     Import { commands: PathBuf },
 }
 
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,libafl=warn"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
             let thread = std::thread::current();
             writeln!(
@@ -68,10 +65,6 @@ fn exec(cli: Cli) -> Result<bool, Box<dyn Error>> {
         Command::Fuzzer(command) => {
             cli.server.check()?;
             Ok(command.exec(&RediSearch, &cli.server.service(), &cli.server.setup())?)
-        }
-        Command::Export { program } => {
-            print!("{}", export(&load(&program)?)?);
-            Ok(false)
         }
         Command::Import { commands } => {
             let program = import(&std::fs::read_to_string(commands)?)?;

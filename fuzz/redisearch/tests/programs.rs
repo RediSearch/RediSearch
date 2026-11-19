@@ -172,7 +172,7 @@ fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
     program.ops.insert(program.ops.len() / 2, segfault.clone());
     let finding = findings(&execute(&env, &program)).remove(0);
     assert!(finding.starts_with("crash:"), "{finding}");
-    let reduced = reduce(&RediSearch, &env.service(), &program, Some(&finding)).unwrap();
+    let reduced = reduce(&RediSearch, &env.service(), &program, &finding);
     assert_eq!(reduced.ops, [segfault]);
 }
 

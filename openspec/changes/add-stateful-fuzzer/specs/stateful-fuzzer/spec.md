@@ -9,18 +9,18 @@ On merge, the requirements below are folded into
 The fuzzer SHALL run every program against a newly started `redis-server` and
 SHALL NOT reuse a server for a second program.
 
-#### Scenario: Replay of a saved program
-- **WHEN** a program file is passed to the `run` command
+#### Scenario: Reduction of a saved program
+- **WHEN** a program file is passed to the `reduce` command
 - **THEN** a new server SHALL be started for that run
 - **AND** the server SHALL be stopped and its process group reaped before the command returns
 
 ### Requirement: One execution path
-The `fuzz`, `run`, and `reduce` commands SHALL execute and judge programs with
-the same code.
+The `fuzz` and `reduce` commands SHALL execute and judge programs with the
+same code.
 
-#### Scenario: A finding is replayed
+#### Scenario: A finding is reduced again
 - **WHEN** the campaign records finding `S` for a program
-- **AND** that program is passed to the `run` command against the same builds
+- **AND** that program is passed to the `reduce` command against the same builds
 - **THEN** the run SHALL report finding `S`, subject to the reproduction rate recorded in the finding's manifest
 
 ### Requirement: Programs are stable under deletion
@@ -40,13 +40,18 @@ with any `f32` bit pattern.
 - **WHEN** a program containing an argument that is not valid UTF-8 is written and read back
 - **THEN** the argument SHALL be byte-for-byte identical
 
-### Requirement: Exported programs are exact
-A program on one connection that awaits every reply and uses no cursor SHALL
-export to `redis-cli` lines that `import` reads back as the same commands.
+### Requirement: Findings come with a standalone reproduction
+Every finding the fuzzer writes SHALL be reduced first and SHALL include a
+Python script that sends the reduced program's commands to a server the reader
+started, using redis-py, without the fuzzer.
 
 #### Scenario: Binary arguments
-- **WHEN** an exported program has an argument that is not valid UTF-8
-- **THEN** its line SHALL carry the argument as escapes that `redis-cli` reads back byte for byte
+- **WHEN** a reduced program has an argument that is not valid UTF-8
+- **THEN** the script SHALL send it as a `bytes` literal, byte for byte
+
+#### Scenario: A broken logic rule
+- **WHEN** the finding is a broken logic rule
+- **THEN** the script SHALL end in an assertion over the replies the rule compared
 
 ### Requirement: Harness-held controls are not findings
 A program that leaves a scheduling control held SHALL NOT be reported as a hang

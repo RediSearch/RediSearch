@@ -10,14 +10,15 @@ crates, layered from generic to specific:
   to be reusable. It owns the model of a stateful program, running a program
   against a system, mutating and shrinking programs, edge coverage and its C
   shim, sanitizer reports, finding directories, the campaign, and the
-  commands `run`, `reduce`, `fuzz`, and `generate`, as plain functions and
+  commands `reduce`, `fuzz`, and `generate`, as plain functions and
   as a clap subcommand.
 - **`procfuzz-redis`** holds what any Redis module target shares: the RESP2
   codec, commands as `redis-cli` and `MONITOR` lines, launching `redis-server`
   with modules, and reading Redis assertion, panic, and crash reports.
 - **`redisearch-fuzz`** is RediSearch as a model: its ops, what they set up,
-  which make sense when, what each command does, and the logic rules. Its
-  binary adds `export` and `import` to the core's commands.
+  which make sense when, what each command does, the logic rules, and
+  findings as Python scripts. Its binary adds `import` to the core's
+  commands.
 
 A target writes one trait, and the core asks one of a system:
 
@@ -380,8 +381,9 @@ tested against while master has no known bug.
 
 ```
 findings/<finding>/
-  program.json     the failing program, reduced if reduce wrote the bundle
-  original.json    written by reduce: the program before reduction
+  repro.py         the reduced program as a standalone redis-py script
+  program.json     the reduced program
+  original.json    the program before reduction
   trace.json       the steps and the run's findings
   server.log
   manifest.json    the finding, reproduction rate, and setup: each binary with
@@ -389,16 +391,19 @@ findings/<finding>/
                    server environment, and the timing
 ```
 
-The native `run` command is the authoritative reproducer. `export` prints a
-program as `redis-cli` lines, for a bug report; it refuses programs that use
-a second connection, a deferred reply, or a cursor. `import` is the reverse:
-it reads `redis-cli` lines, or a `MONITOR` recording of a Python test, into a
+Every finding is reduced before it is written. `repro.py` is the
+reproduction to share: the reduced program as redis-py calls against a server
+the reader starts, with the server's command line and what goes wrong in its
+docstring. A reply that was an error is wrapped in `suppress`, a connection
+with a deferred reply is a bare `redis.Connection`, a cursor id is read from
+the reply that kept it, a settle polls as the harness does, and a broken
+logic rule ends in an assertion over the replies it compared. `import` reads `redis-cli` lines, or a `MONITOR` recording of a Python test, into a
 program of `Command` ops on one connection. Several seeds were recorded that
 way, for features the generator does not reach.
 
 ## Edge cases
 
-- **Server fails to start.** `run` returns an error, never a finding; the
+- **Server fails to start.** The run returns an error, never a finding; the
   campaign stops after three failures in a row.
 - **Program leaves workers paused.** Resolved by healing; the program carries
   on.

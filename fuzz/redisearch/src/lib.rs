@@ -10,12 +10,14 @@
 //! RediSearch as a procfuzz [`Model`]: its ops ([`op`]), what they set up
 //! ([`state`]), which make sense when ([`generate`]), what each command does
 //! ([`effect`]), the logic rules over search results ([`logic`]), the server
-//! ([`server`]), and programs as command scripts ([`script`]).
+//! ([`server`]), programs from command scripts ([`script`]), and findings
+//! as Python scripts ([`repro`]).
 
 pub mod effect;
 pub mod generate;
 pub mod logic;
 pub mod op;
+pub mod repro;
 pub mod script;
 pub mod server;
 pub mod state;
@@ -53,5 +55,14 @@ impl Model for RediSearch {
 
     fn check(&self, ops: &[Op], steps: &[Step<Value>], notes: &mut Notes) {
         logic::check(self, ops, steps, notes);
+    }
+
+    fn reproduction(
+        &self,
+        ops: &[Op],
+        steps: &[Step<Value>],
+        finding: &str,
+    ) -> Option<(&'static str, String)> {
+        Some(("repro.py", repro::script(self, ops, steps, finding)))
     }
 }
