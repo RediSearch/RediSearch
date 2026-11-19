@@ -783,9 +783,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   sp->dropMode = dropMode;
 
-  asm_schema_registry_record_drop(HiddenString_GetUnsafe(sp->specName, NULL));
   size_t canonicalNameLen;
   const char *canonicalName = HiddenString_GetUnsafe(sp->specName, &canonicalNameLen);
+  asm_schema_registry_record_drop(canonicalName);
+  // Replicate the index name, not the alias the user may have typed: a replica that no longer
+  // has the index records the replicated name as dropped, and records are keyed by index name.
   RedisModuleString *replicatedName =
       RedisModule_CreateString(ctx, canonicalName, canonicalNameLen);
   DropIndex_ReplicateDropIfExists(ctx, replicatedName);

@@ -331,6 +331,36 @@ TEST_F(AsmSchemaImportTest, AliasDropRecordsAndReplicatesCanonicalName) {
   HiddenString_Free(alias, false);
 }
 
+TEST_F(AsmSchemaImportTest, ReplicatedAliasDropSuppressesSchemaOnReplicaWithoutIndex) {
+  auto *spec = create();
+  HiddenString *alias = NewHiddenString("asm_alias", 9, false);
+  QueryError status = QueryError_Default();
+  ASSERT_EQ(IndexAlias_Add(alias, spec->own_ref, 0, &status), REDISMODULE_OK);
+  HiddenString_Free(alias, false);
+  auto serialized = snapshot(spec);
+  startImport();
+  RMCK_GetPropagatedCommands(ctx).clear();
+  RMCK::ArgvList dropArgs(ctx, "FT.DROPINDEX", "asm_alias");
+  ASSERT_EQ(DropIndexCommand(ctx, dropArgs, dropArgs.size()), REDISMODULE_OK);
+  ASSERT_EQ(RMCK_GetPropagatedCommands(ctx).size(), 1u);
+  const std::vector<std::string> replicated = RMCK_GetPropagatedCommands(ctx)[0];
+
+  // Replay on a replica that no longer has the index: it can only record the replicated name.
+  asm_schema_registry_reset();
+  startImport();
+  RMCK::ArgvList replayArgs(ctx, replicated);
+  ASSERT_EQ(DropIfExistsIndexCommand(ctx, replayArgs, replayArgs.size()), REDISMODULE_OK);
+  restore(serialized);
+  EXPECT_EQ(lookup(), nullptr);
+}
+
+TEST_F(AsmSchemaImportTest, AbsentDropOutsideImportDoesNotReplicate) {
+  RMCK_GetPropagatedCommands(ctx).clear();
+  RMCK::ArgvList args(ctx, "_FT._DROPINDEXIFX", "asm_idx");
+  EXPECT_EQ(DropIfExistsIndexCommand(ctx, args, args.size()), REDISMODULE_OK);
+  EXPECT_TRUE(RMCK_GetPropagatedCommands(ctx).empty());
+}
+
 TEST_F(AsmSchemaImportTest, InvalidAbsentDropDoesNotSuppressSchemaOrReplicate) {
   auto serialized = snapshot(create());
   drop();

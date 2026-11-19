@@ -1385,6 +1385,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
                          : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
                                                                                : "RDB_FILE";
+    // A full sync can replace the dataset mid-import; the import's drop records must follow it.
     ASM_StateMachine_BeginLoading();
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();

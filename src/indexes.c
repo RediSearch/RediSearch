@@ -287,6 +287,10 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   if (schemaRestore &&
       asm_schema_registry_was_dropped(HiddenString_GetUnsafe(sp->specName, NULL))) {
+    RedisModule_LogIOError(rdb, "notice",
+                           "RDB Load: Ignoring schema of index %s, dropped during the active slot "
+                           "import",
+                           IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
     // A later local CREATE must survive. Ignore only the imported schema, before opening its DB.
     IndexSpec_ClearAliases(sp->own_ref);
     sp->isDuplicate = true;
@@ -332,7 +336,8 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.
-    IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, false, &status);
+    // The registry snapshot already reflects any drop, so ASM drop records must not filter it.
+    IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, /*schemaRestore=*/false, &status);
     if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
       RedisModule_LogIOError(
           rdb, "warning", "RDB Load: %s",
@@ -343,6 +348,8 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   }
 
   if (encver >= INDEX_IMPORT_DROPS_VERSION && !asm_schema_registry_load(rdb)) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "RDB Load: Failed to load the indexes dropped during the slot import");
     return REDISMODULE_ERR;
   }
 
@@ -453,7 +460,7 @@ static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   QueryError status = QueryError_Default();
-  IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, true, &status);
+  IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, /*schemaRestore=*/true, &status);
   if (!sp) {
     RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     QueryError_ClearError(&status);

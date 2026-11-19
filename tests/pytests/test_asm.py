@@ -1350,8 +1350,9 @@ def test_tracking_client_trim_removes_trimmed_docs():
     trim_after_import_test(env, 'default', ACTIVE_TRIM_EVENTS, tracking=True)
 
 
-def _drop_during_import_with_late_replica(recreate):
-    # A fresh third node becomes a replica only after the DROP, forcing full sync.
+def _drop_during_import_with_replica(recreate, replica_joins_after_drop):
+    # A fresh third node becomes the destination's replica either before the DROP, so the drop
+    # reaches it through replication, or after it, so it gets the drop through a full sync.
     env = Env(shardsCount=2, clusterNodeTimeout=120000)
     env.expect('FT.CREATE', 'asm_drop', 'SCHEMA', 'old', 'TEXT').ok()
     source, dest = env.getConnection(1), env.getConnection(2)
@@ -1364,11 +1365,25 @@ def _drop_during_import_with_late_replica(recreate):
     slot = min(slot_range.start for slot_range in source_node.slots)
     source_pid = source.info('server')['process_id']
     dest.execute_command('CONFIG', 'SET', 'repl-diskless-sync-delay', 0)
-    full_syncs = dest.info('stats')['sync_full']
     dest.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
     replica.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
 
-    # Hold back the source schema while the destination processes DROP and full sync.
+    def attach_replica():
+        full_syncs = dest.info('stats')['sync_full']
+        env.assertEqual(replica.execute_command('CLUSTER', 'REPLICATE', dest_id), 'OK')
+
+        def replica_synced():
+            state = replica.info('replication')
+            return (state.get('master_link_status') == 'up'
+                    and not state.get('master_sync_in_progress')
+                    and dest.info('stats')['sync_full'] > full_syncs), state
+
+        wait_for_condition(replica_synced, 'replica did not finish full sync', timeout=30)
+
+    if not replica_joins_after_drop:
+        attach_replica()
+
+    # Hold back the source schema while the destination processes the DROP.
     os.kill(source_pid, signal.SIGSTOP)
     try:
         task = dest.execute_command('CLUSTER', 'MIGRATION', 'IMPORT', slot, slot)
@@ -1382,15 +1397,10 @@ def _drop_during_import_with_late_replica(recreate):
         env.assertEqual(dest.execute_command('_FT.DROPINDEX', 'asm_drop'), 'OK')
         if recreate:
             env.assertEqual(dest.execute_command('_FT.CREATE', 'asm_drop', 'SCHEMA', 'new', 'TEXT'), 'OK')
-        env.assertEqual(replica.execute_command('CLUSTER', 'REPLICATE', dest_id), 'OK')
-
-        def replica_synced():
-            state = replica.info('replication')
-            return (state.get('master_link_status') == 'up'
-                    and not state.get('master_sync_in_progress')
-                    and dest.info('stats')['sync_full'] > full_syncs), state
-
-        wait_for_condition(replica_synced, 'replica did not finish full sync', timeout=30)
+        if replica_joins_after_drop:
+            attach_replica()
+        else:
+            env.assertEqual(dest.execute_command('WAIT', 1, 10000), 1)
         expected = ['asm_drop'] if recreate else []
         env.assertEqual(dest.execute_command('FT._LIST'), expected)
         env.assertEqual(replica.execute_command('FT._LIST'), expected)
@@ -1410,10 +1420,22 @@ def _drop_during_import_with_late_replica(recreate):
 @skip(cluster=False, enterprise=True)
 def test_drop_during_import_survives_replica_full_sync():
     """Full sync must retain deletion records even with an empty index registry."""
-    _drop_during_import_with_late_replica(recreate=False)
+    _drop_during_import_with_replica(recreate=False, replica_joins_after_drop=True)
 
 
 @skip(cluster=False, enterprise=True)
 def test_recreate_during_import_survives_replica_full_sync():
     """Full sync restores the replacement schema while rejecting the source's old schema."""
-    _drop_during_import_with_late_replica(recreate=True)
+    _drop_during_import_with_replica(recreate=True, replica_joins_after_drop=True)
+
+
+@skip(cluster=False, enterprise=True)
+def test_drop_during_import_replicates_to_connected_replica():
+    """A connected replica learns the drop from replication and rejects the delayed schema."""
+    _drop_during_import_with_replica(recreate=False, replica_joins_after_drop=False)
+
+
+@skip(cluster=False, enterprise=True)
+def test_recreate_during_import_replicates_to_connected_replica():
+    """A connected replica keeps the replacement and rejects the source's old schema."""
+    _drop_during_import_with_replica(recreate=True, replica_joins_after_drop=False)
