@@ -676,6 +676,124 @@ fn decimal_not_shorter_keeps_f64() {
     assert_eq!(buf.get_ref()[0], 0b100_01_000, "should stay an f64");
 }
 
+/// Whether `header` marks a [decimal value](super#decimal-value), of either sign.
+const fn is_decimal_header(header: u8) -> bool {
+    header & 0b101_11_000 == 0b101_01_000
+}
+
+/// A positive [decimal](super#decimal-value) record assembled byte by byte, so the decoder
+/// can be fed every delta and mantissa width the format describes, including mantissas wider
+/// than an encoder writes. Returns the record, its delta and the value a reader must see.
+fn handmade_decimal(delta_bytes: usize, mantissa_bytes: usize) -> (Vec<u8>, u64, f64) {
+    const SCALE: u8 = 7;
+    // Distinct non-zero bytes, so a field read from the wrong offset decodes wrong.
+    const DELTA: [u8; 8] = [0x9b, 0x8a, 0x79, 0x68, 0x57, 0x46, 0x35, 0x24];
+    const MANTISSA: [u8; 8] = [0x21, 0x43, 0x65, 0x87, 0xa9, 0xcb, 0xed, 0x8f];
+
+    let mut record = vec![0b101_01_000 | delta_bytes as u8];
+    record.extend_from_slice(&DELTA[..delta_bytes]);
+    record.push((SCALE << 3) | (mantissa_bytes as u8 - 1));
+    record.extend_from_slice(&MANTISSA[..mantissa_bytes]);
+
+    let mut delta = [0; 8];
+    delta[..delta_bytes].copy_from_slice(&DELTA[..delta_bytes]);
+    let mut mantissa = [0; 8];
+    mantissa[..mantissa_bytes].copy_from_slice(&MANTISSA[..mantissa_bytes]);
+    let value = u64::from_le_bytes(mantissa) as f64 / 10f64.powi(SCALE.into());
+
+    (record, u64::from_le_bytes(delta), value)
+}
+
+/// A decimal decodes the same whether it ends the buffer or more bytes follow it, which
+/// decides whether the decoder can read it in one fixed-size load.
+#[test]
+fn decimal_decodes_the_same_with_and_without_trailing_bytes() {
+    let base = 1;
+    for delta_bytes in 0..=7 {
+        for mantissa_bytes in 1..=8 {
+            let (record, delta, value) = handmade_decimal(delta_bytes, mantissa_bytes);
+            // Every length from the record alone to enough for the widest load. The trailing
+            // bytes are all ones, so any of them leaking into a field changes the result.
+            for trailing in 0..=16 {
+                let mut buf = record.clone();
+                buf.resize(record.len() + trailing, 0xff);
+                let mut cursor = Cursor::new(buf.as_slice());
+
+                let decoded =
+                    Numeric::decode_new(&mut cursor, base).expect("to decode numeric record");
+
+                let case = format!(
+                    "delta bytes: {delta_bytes}, mantissa bytes: {mantissa_bytes}, \
+                     trailing bytes: {trailing}"
+                );
+                assert_eq!(decoded.doc_id, base + delta, "{case}");
+                assert_eq!(
+                    decoded.as_numeric().unwrap().to_bits(),
+                    value.to_bits(),
+                    "{case}"
+                );
+                assert_eq!(cursor.position(), record.len() as u64, "{case}");
+            }
+        }
+    }
+}
+
+/// Every record of a block of decimals decodes back, both the early ones that have plenty of
+/// bytes after them and the last few that sit close to the end of the block.
+#[test]
+fn decimal_block_decodes_every_record() {
+    // Deltas of every byte width, widest first, so that the shortest records come last.
+    let records = [
+        (0x12_3456_789a_bcde, 1234567.891234),
+        (0x1234_5678_9abc, -123456.78901),
+        (0x12_3456_789a, -73.993896),
+        (0x1234_5678, 1234.5678),
+        (0x12_3456, -17.05),
+        (0x1234, 0.3),
+        (0x12, 12.34),
+        (0, -0.5),
+    ];
+
+    let mut buf = Cursor::new(Vec::new());
+    let mut starts = Vec::new();
+    for (delta, value) in records {
+        starts.push(buf.position() as usize);
+        let record = RSIndexResult::build_numeric(value).build();
+        Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
+            .expect("to encode numeric record");
+    }
+    let buf = buf.into_inner();
+
+    for (&start, (_, value)) in starts.iter().zip(records) {
+        assert!(
+            is_decimal_header(buf[start]),
+            "{value} must be stored as a decimal for this test to mean anything"
+        );
+    }
+    // The decoder loads 16 bytes at once when it can; the block must have records on both
+    // sides of that limit for this test to mean anything.
+    let far_from_end = starts
+        .iter()
+        .filter(|&&start| buf.len() - start > 16)
+        .count();
+    assert!(0 < far_from_end && far_from_end < starts.len());
+
+    let mut cursor = Cursor::new(buf.as_slice());
+    let mut doc_id = 0;
+    for (delta, value) in records {
+        let decoded = Numeric::decode_new(&mut cursor, doc_id).expect("to decode numeric record");
+        doc_id += delta;
+
+        assert_eq!(decoded.doc_id, doc_id, "failed for value: {value}");
+        assert_eq!(
+            decoded.as_numeric().unwrap().to_bits(),
+            value.to_bits(),
+            "failed for value: {value}"
+        );
+    }
+    assert_eq!(cursor.position(), buf.len() as u64);
+}
+
 fn test_numeric_encode_decode(
     delta: u64,
     value: f64,
@@ -889,6 +1007,17 @@ mod property_based {
     #![cfg(not(miri))]
     use super::*;
     use pretty_assertions::assert_eq;
+    use proptest::strategy::Strategy;
+    use std::ops::RangeInclusive;
+
+    /// Integers below `limit` whose byte width is spread evenly over `widths`, where a
+    /// uniform draw would almost always be as wide as `limit` allows. Width 0 is zero.
+    fn of_any_width(widths: RangeInclusive<u32>, limit: u64) -> impl Strategy<Value = u64> {
+        widths.prop_flat_map(move |bytes| match bytes {
+            0 => 0..1,
+            _ => 1u64 << (8 * (bytes - 1))..(1u64 << (8 * bytes)).min(limit),
+        })
+    }
 
     proptest::proptest! {
         #[test]
@@ -936,11 +1065,12 @@ mod property_based {
         }
 
         /// Every value with a short decimal form survives the round trip bit for bit,
-        /// and never takes more room than the float it replaces.
+        /// with or without bytes after it, and never takes more room than the float it
+        /// replaces.
         #[test]
         fn numeric_encode_decode_decimals(
-            delta in 0u64..72_057_594_037_927_935u64,
-            mantissa in 1u64..(1u64 << 53),
+            delta in of_any_width(0..=7, 1 << 56),
+            mantissa in of_any_width(1..=7, 1 << 53),
             scale in 1u32..=7,
             negative in proptest::bool::ANY,
         ) {
@@ -951,19 +1081,43 @@ mod property_based {
             let record = RSIndexResult::build_numeric(value).doc_id(u64::MAX).build();
             let written = Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
                 .expect("to encode numeric record");
+            let encoded = buf.into_inner();
 
-            let delta_bytes = (buf.get_ref()[0] & 0b111) as usize;
+            let delta_bytes = (encoded[0] & 0b111) as usize;
             let f32_exact = (magnitude as f32) as f64 == magnitude;
             let float_bytes = if value.fract() == 0.0 { 8 } else if f32_exact { 4 } else { 8 };
             assert!(written <= 1 + delta_bytes + float_bytes);
 
-            let prev_doc_id = u64::MAX - delta;
-            let buf = buf.into_inner();
-            let mut buf = Cursor::new(buf.as_ref());
-            let decoded = Numeric::decode_new(&mut buf, prev_doc_id)
-                .expect("to decode numeric record");
+            // Below this the mantissa at the finest scale stays far enough under 2^53 that
+            // rounding cannot hide the decimal form, so the encoder must find it.
+            if value.fract() != 0.0 && magnitude < 1e8 {
+                let (mut shortest, mut shortest_scale) = (mantissa, scale);
+                while shortest_scale > 1 && shortest.is_multiple_of(10) {
+                    shortest /= 10;
+                    shortest_scale -= 1;
+                }
+                let decimal_bytes =
+                    1 + (u64::BITS - shortest.leading_zeros()).div_ceil(8) as usize;
+                let shorter = decimal_bytes < float_bytes;
 
-            assert_eq!(decoded.as_numeric().unwrap().to_bits(), value.to_bits());
+                assert_eq!(is_decimal_header(encoded[0]), shorter, "for value: {value}");
+                if shorter {
+                    assert_eq!(written, 1 + delta_bytes + decimal_bytes, "for value: {value}");
+                }
+            }
+
+            let prev_doc_id = u64::MAX - delta;
+            let mut padded = encoded.clone();
+            padded.resize(encoded.len() + 16, 0xff);
+            for bytes in [&encoded, &padded] {
+                let mut cursor = Cursor::new(bytes.as_slice());
+                let decoded = Numeric::decode_new(&mut cursor, prev_doc_id)
+                    .expect("to decode numeric record");
+
+                assert_eq!(decoded.doc_id, u64::MAX);
+                assert_eq!(decoded.as_numeric().unwrap().to_bits(), value.to_bits());
+                assert_eq!(cursor.position(), written as u64);
+            }
             assert_stored_value_matches_round_trip(value);
         }
 

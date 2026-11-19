@@ -19,13 +19,13 @@
 //! ```text
 //! ┌─────────────┬─────────────┬─────────────┐
 //! │ Header      │ Delta       │ Value       │
-//! │ (1 byte)    │ (0-7 bytes) │ (0-8 bytes) │
+//! │ (1 byte)    │ (0-7 bytes) │ (0-9 bytes) │
 //! └─────────────┴─────────────┴─────────────┘
 //! ```
 //!
 //! 1. **Header byte** (1 byte) - always present, encodes type information and metadata
 //! 2. **Delta bytes** (0-7 bytes) - document ID delta from previous record, may be empty
-//! 3. **Value bytes** (0-8 bytes) - the numeric value if not encoded in header, may be empty
+//! 3. **Value bytes** (0-9 bytes) - the numeric value if not encoded in header, may be empty
 //!
 //! ## Header Byte Layout {#header-layout}
 //! The header, which is the first section, always takes up one byte and is laid out as follows:
@@ -70,12 +70,12 @@
 //!      ┌───┬───┬───┐
 //!      │ F │ N │ I │
 //!      └───┴───┴───┘
-//!        │   │   └─── Infinite flag
+//!        │   │   └─── Infinite flag (decimal when F64 is set too)
 //!        │   └─────── Negative flag
 //!        └─────────── F64 flag (0=f32, 1=f64)
 //! ```
 //!
-//! These flags allows for the following combinations:
+//! These flags allow for the following combinations:
 //!
 //! | F64 | Neg | Inf | Value Bytes | Description      |
 //! |-----|-----|-----|-------------|------------------|
@@ -88,9 +88,9 @@
 //! | 1   | 0   | 1   | 2-9         | Positive decimal |
 //! | 1   | 1   | 1   | 2-9         | Negative decimal |
 //!
-//! Here value bytes indicate how many bytes follow the delta to represent the value.
-//! This means for f32 values, 4 bytes will follow the delta, and for f64 values, 8 bytes will
-//! follow. While the infinite flag indicates no value will follow the delta.
+//! Here value bytes is how many bytes follow the delta to represent the value. An f32 or f64
+//! writes its IEEE 754 bytes, an infinity writes none, and a decimal writes an info byte
+//! followed by its mantissa, laid out [below](#decimal-value).
 //!
 //! #### Decimal value bytes {#decimal-value}
 //!
@@ -156,6 +156,7 @@
 //!      │  │   └─ Delta bytes: 1                  (256 = 0x0100)
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
+//! ```
 
 use std::io::{Cursor, IoSlice, Read, Write};
 
@@ -742,8 +743,8 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
 /// The info byte decides how many mantissa bytes follow, so reading through [`Read`] would
 /// take two variable-length reads. Instead this loads one fixed window straight from the
 /// cursor's buffer, which a delta, info byte and mantissa always fit in, and extracts the
-/// fields with shifts. Only the last record of a buffer can be too close to its end for the
-/// window, and it takes the bounds-checked path.
+/// fields with shifts. Records too close to the end of the buffer for the window, which can
+/// be several short ones, take the bounds-checked path instead.
 #[inline(always)]
 fn read_u64_and_decimal(
     cursor: &mut Cursor<&[u8]>,
@@ -939,7 +940,7 @@ impl Value {
                 f64::INFINITY => Value::FloatInfinity,
                 f64::NEG_INFINITY => Value::FloatNegInfinity,
                 v => {
-                    let float = Self::float(v, abs_val, compress_floats);
+                    let float = Float::new(abs_val, compress_floats);
 
                     match Decimal::exact(abs_val) {
                         Some(decimal) if 1 + decimal.mantissa_bytes() < float.value_bytes() => {
@@ -949,44 +950,10 @@ impl Value {
                                 Value::DecimalNegative(decimal)
                             }
                         }
-                        _ => float,
+                        _ => float.with_sign_of(v),
                     }
                 }
             }
-        }
-    }
-
-    /// The float representation of a finite, non-integer `value` with magnitude `abs_val`.
-    fn float(v: f64, abs_val: f64, compress_floats: bool) -> Self {
-        let f32_value = abs_val as f32;
-        let back_to_f64 = f32_value as f64;
-
-        if back_to_f64 == abs_val
-            || (compress_floats
-                && (abs_val - f32_value as f64).abs()
-                    < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
-        {
-            // A magnitude that rounds to zero has collapsed *onto* zero, so
-            // store the canonical zero — the representation a literal `0.0`
-            // gets — rather than a signed f32 zero. Otherwise two inputs this
-            // encoder decided to represent as zero become two stored values
-            // that compare equal, and every consumer would have to know which
-            // stored values are secretly the same value.
-            //
-            // Only reachable with compression on: without it this branch needs
-            // `back_to_f64 == abs_val`, which for a zero `f32_value` means
-            // `abs_val` is zero — already claimed by the integer branch of [`Value::from`].
-            if f32_value == 0.0 {
-                Value::TinyInteger(0)
-            } else if v.is_sign_positive() {
-                Value::Float32Positive(f32_value)
-            } else {
-                Value::Float32Negative(f32_value)
-            }
-        } else if v.is_sign_positive() {
-            Value::Float64Positive(abs_val)
-        } else {
-            Value::Float64Negative(abs_val)
         }
     }
 
@@ -1010,18 +977,65 @@ impl Value {
             Value::DecimalNegative(d) => d.to_f64().copysign(-1.0),
         }
     }
+}
+
+/// The float representation of a magnitude that is neither an integer nor infinite. A
+/// [`Decimal`] replaces it only when shorter.
+#[derive(Debug, Clone, Copy)]
+enum Float {
+    /// Compression rounded the magnitude onto zero.
+    Zero,
+    F32(f32),
+    F64(f64),
+}
+
+impl Float {
+    const fn new(abs_val: f64, compress_floats: bool) -> Self {
+        let f32_value = abs_val as f32;
+        let back_to_f64 = f32_value as f64;
+
+        if back_to_f64 == abs_val
+            || (compress_floats
+                && (abs_val - f32_value as f64).abs()
+                    < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
+        {
+            // A magnitude that rounds to zero has collapsed *onto* zero, so
+            // store the canonical zero — the representation a literal `0.0`
+            // gets — rather than a signed f32 zero. Otherwise two inputs this
+            // encoder decided to represent as zero become two stored values
+            // that compare equal, and every consumer would have to know which
+            // stored values are secretly the same value.
+            //
+            // Only reachable with compression on: without it this branch needs
+            // `back_to_f64 == abs_val`, which for a zero `f32_value` means
+            // `abs_val` is zero — already claimed by the integer branch of [`Value::from`].
+            if f32_value == 0.0 {
+                Self::Zero
+            } else {
+                Self::F32(f32_value)
+            }
+        } else {
+            Self::F64(abs_val)
+        }
+    }
 
     /// How many bytes this representation writes after the delta.
     const fn value_bytes(self) -> usize {
         match self {
-            Value::TinyInteger(_) | Value::FloatInfinity | Value::FloatNegInfinity => 0,
-            Value::IntegerPositive(i) | Value::IntegerNegative(i) => {
-                let bytes = ((u64::BITS - i.leading_zeros()) as usize).div_ceil(8);
-                if bytes == 0 { 1 } else { bytes }
-            }
-            Value::Float32Positive(_) | Value::Float32Negative(_) => 4,
-            Value::Float64Positive(_) | Value::Float64Negative(_) => 8,
-            Value::DecimalPositive(d) | Value::DecimalNegative(d) => 1 + d.mantissa_bytes(),
+            Self::Zero => 0,
+            Self::F32(_) => size_of::<f32>(),
+            Self::F64(_) => size_of::<f64>(),
+        }
+    }
+
+    /// The [`Value`] holding this magnitude with the sign of `v`.
+    const fn with_sign_of(self, v: f64) -> Value {
+        match self {
+            Self::Zero => Value::TinyInteger(0),
+            Self::F32(f) if v.is_sign_positive() => Value::Float32Positive(f),
+            Self::F32(f) => Value::Float32Negative(f),
+            Self::F64(f) if v.is_sign_positive() => Value::Float64Positive(f),
+            Self::F64(f) => Value::Float64Negative(f),
         }
     }
 }
