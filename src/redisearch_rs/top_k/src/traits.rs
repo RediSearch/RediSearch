@@ -111,7 +111,7 @@ pub trait ScoreSource {
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
-    /// - `Err(RQEIteratorError::Stopped)` — the query ended early on a timeout or a requested stop.
+    /// - `Err(RQEIteratorError::Stopped)`: the query ended early on a timeout or memory pressure.
     ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator

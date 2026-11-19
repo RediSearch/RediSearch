@@ -1234,7 +1234,7 @@ fn adhoc_empty_child_is_eof() {
 /// [`RQEIteratorError::Stopped`], not return a truncated top-k.
 #[test]
 fn adhoc_timeout_propagated() {
-    // Returns `TimedOut` from the second `adhoc_strategy` call, simulating the
+    // Returns `Stopped` from the second `check_timeout` call, simulating the
     // deadline firing after one document has been scored.
     struct TimingOutAdhocSource {
         adhoc_calls: u32,

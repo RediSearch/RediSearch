@@ -131,7 +131,7 @@ pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, 
 #[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
-    /// The iterator ended early on a timeout or a requested stop.
+    /// The iterator ended early on a timeout or memory pressure.
     #[error("iterator stopped")]
     Stopped,
     /// Iterator failed to read from the inverted index.
