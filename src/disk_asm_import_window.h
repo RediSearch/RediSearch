@@ -60,9 +60,6 @@ void DiskASM_ImportWindow_Reset(void);
 // Whether `slot` is in the window.
 bool DiskASM_IsSlotBeingImported(unsigned int slot);
 
-// Whether any slot of `slots` is in the window.
-bool DiskASM_IsAnySlotBeingImported(const RedisModuleSlotRangeArray *slots);
-
 // The out-of-line part of DiskASM_IsKeyBeingImported.
 bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key);
 
@@ -70,6 +67,16 @@ bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key);
 // documents. `key` may be NULL, which is never in the window.
 static inline bool DiskASM_IsKeyBeingImported(const RedisModuleString *key) {
   return DiskASM_ImportWindow_numSlots_g != 0 && key && DiskASM_IsKeySlotBeingImported(key);
+}
+
+// The out-of-line part of DiskASM_IsAnySlotBeingImported.
+bool DiskASM_IsAnyRangeSlotBeingImported(const RedisModuleSlotRangeArray *slots);
+
+// Whether any slot of `slots` is in the window. The window is empty on a node that imports
+// nothing, such as a source trimming the slots it migrated away, so that check is inline.
+static inline bool DiskASM_IsAnySlotBeingImported(const RedisModuleSlotRangeArray *slots) {
+  return DiskASM_ImportWindow_numSlots_g != 0 && slots &&
+         DiskASM_IsAnyRangeSlotBeingImported(slots);
 }
 
 #ifdef __cplusplus
