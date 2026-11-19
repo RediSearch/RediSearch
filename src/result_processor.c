@@ -109,7 +109,6 @@ typedef struct {
   // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
   // ascending order over a doc table too big to stay cached.
   bool prefetchDmd;
-  bool returnedRow;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -334,8 +333,8 @@ typedef enum {
  *
  * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
  * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
- * reports: an abort lets the query end as if the index were exhausted, unless the caller fails it,
- * while a timeout means the results are partial and must be returned as `RS_RESULT_STOPPED`.
+ * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
+ * results are partial and must be returned as `RS_RESULT_STOPPED`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -390,9 +389,9 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
   }
-  // Only FT.HYBRID background depletion bounds a query. Before its first row, failing loses
-  // nothing, where reading on would answer the subquery as empty and successful.
-  if (revalidateOutcome == REVALIDATE_ABORTED && sctx->maxVisibleDocId && !self->returnedRow) {
+  // Only FT.HYBRID background depletion sets the bound, and it revalidates only before its first
+  // row, so failing loses nothing where reading on would answer the subquery as empty.
+  if (revalidateOutcome == REVALIDATE_ABORTED && sctx->maxVisibleDocId) {
     QueryError_SetWithoutUserDataFmt(base->parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                                      "Index changed before the query started; retry");
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_ERROR);
@@ -446,7 +445,6 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
     }
 
     setSearchResult(base, res, it->current, dmd);
-    self->returnedRow = true;
     return RS_RESULT_OK;
   }
 }
