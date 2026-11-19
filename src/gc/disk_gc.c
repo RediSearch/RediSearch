@@ -133,7 +133,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
     // memtables it covers first.
     if (forced && forced->compactAll && result == DISK_GC_RUN_OK) {
-      if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
+      if (!SearchDisk_CompactNonGcStorage(sp->diskSpec, stats.doc_table_compacted)) {
         forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
       }
     }
