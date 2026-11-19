@@ -679,12 +679,18 @@ void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
 // NOT clean up DocIdMeta on the key. No-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
+// `key` is the key that maps to `docId`; the disk path needs it to tell a document a slot
+// trim already removed from a live one (unused, and may be NULL, in memory mode).
+// `docLen` is the document's length as recorded in DocIdMeta, or DOCID_META_DOCLEN_UNKNOWN,
+// in which case the disk path reads it from the doc-table row.
+void IndexSpec_DeleteDocById(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                             uint32_t docLen);
 
 // Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock, except that it
 // leaves the GC notification to the caller: GCContext_OnDelete on the main thread, otherwise
 // IndexSpec_DeferGCDeletes. Returns whether the doc was deleted.
-bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                                    uint32_t docLen);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
 // replacement for the former in-memory DocTable key trie). Returns 0 if the key

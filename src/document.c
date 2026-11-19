@@ -198,6 +198,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->disk.batch = NULL;
   aCtx->oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
+  aCtx->disk.docLen = 0;
   aCtx->disk.openKey = NULL;
   aCtx->fieldChanges = NULL;
   if (aCtx->specFlags & Index_Async) {

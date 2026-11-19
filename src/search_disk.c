@@ -562,9 +562,9 @@ DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats
     return disk->index.runGC(index, stats);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId, uint32_t knownOldLen) {
     RS_ASSERT(disk && handle && batch);
-    return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
+    return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId, knownOldLen);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time, DiskReadFailureReason *failure_reason) {
@@ -670,9 +670,14 @@ bool SearchDisk_GetAsyncIOEnabled() {
     return asyncIOEnabled;
 }
 
-bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen) {
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *key, size_t keyLen) {
     RS_ASSERT(disk && handle);
-    return disk->index.deleteDocumentById(handle, docId, oldLen);
+    return disk->index.deleteDocumentById(handle, docId, key, keyLen);
+}
+
+bool SearchDisk_GetDocumentLength(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *docLen) {
+    RS_ASSERT(disk && handle);
+    return disk->index.getDocumentLength(handle, docId, docLen);
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {

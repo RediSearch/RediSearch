@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "doc_id_meta.h"
 #include "field_spec.h"
 #include "index_flags.h"
 #include "vecsim/vec_sim_common.h"
@@ -587,12 +588,32 @@ typedef struct IndexDiskAPI {
    * Used by the metadata unlink callback where the docId is already known
    * (no key-to-docId lookup needed).
    *
+   * The row is not read: the caller holds the document's length (DocIdMeta, or
+   * `getDocumentLength` for metadata written before lengths were recorded) and accounts for it
+   * only when this returns true.
+   *
    * @param handle Handle to the document table
    * @param docId Document ID to delete
-   * @param oldLen Optional pointer to receive the old document length (can be NULL)
-   * @return true if the document was found and deleted, false if not found
+   * @param key The key that maps to `docId`; its slot tells a document a slot trim already
+   *        removed from a live one.
+   * @param keyLen Length of `key` in bytes
+   * @return true if the document was deleted; false if it was already removed (a deletion
+   *         marker or a slot trim) or on a storage error
    */
-  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *oldLen);
+  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char *key, size_t keyLen);
+
+  /**
+   * @brief Reads a document's length from its doc-table row (a synchronous disk read)
+   *
+   * Only for key metadata that recorded no length (DOCID_META_DOCLEN_UNKNOWN); every other
+   * path takes the length from DocIdMeta.
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID to read
+   * @param docLen Receives the length when the row exists
+   * @return true if the row exists, false if it does not or on a storage error
+   */
+  bool (*getDocumentLength)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *docLen);
 
    /**
    * @brief Creates a new iterator for the inverted index
@@ -864,12 +885,17 @@ typedef struct DocTableDiskAPI {
    * @param flags Document flags
    * @param maxTermFreq Maximum frequency of any single term in the document
    * @param docLen Sum of the frequencies of all terms in the document
-   * @param oldLen Pointer to an integer to store the length of the deleted document
+   * @param oldLen Pointer to an integer to store the length of the replaced document:
+   *        `knownOldLen` when known, otherwise the old row's value (0 for a new document)
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
+   * @param oldDocId In/out old ID from DocIdMeta. Cleared when the old row is known to be gone:
+   *        read from the doc table when `knownOldLen` is unknown, otherwise inferred from the
+   *        in-memory deletion markers and the slot trims the index remembers.
+   * @param knownOldLen The old document's length as recorded in DocIdMeta, or
+   *        DOCID_META_DOCLEN_UNKNOWN. When known, the old doc-table row is not read.
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId, uint32_t knownOldLen);
 
   /**
    * @brief Returns whether the docId is in the deleted set
