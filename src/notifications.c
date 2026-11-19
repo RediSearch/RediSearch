@@ -211,7 +211,7 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
-  if (SearchDisk_IsEnabled() && DiskASM_ImportWindow_ContainsKey(key)) {
+  if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
     return REDISMODULE_OK;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
@@ -248,7 +248,7 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              RedisModuleString *key, RedisModuleString **subkeys,
                                              int count) {
   REDISMODULE_NOT_USED(type);
-  if (SearchDisk_IsEnabled() && DiskASM_ImportWindow_ContainsKey(key)) {
+  if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
     return;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);

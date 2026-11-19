@@ -65,9 +65,9 @@ class DiskASMImportWindowTest : public ::testing::Test {
 TEST_F(DiskASMImportWindowTest, ClosedByDefault) {
   RedisModuleString *key = keyInSlot(100);
   EXPECT_EQ(DiskASM_ImportWindow_numSlots_g, 0);
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsSlot(100));
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsKey(key));
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsKey(nullptr));
+  EXPECT_FALSE(DiskASM_IsSlotBeingImported(100));
+  EXPECT_FALSE(DiskASM_IsKeyBeingImported(key));
+  EXPECT_FALSE(DiskASM_IsKeyBeingImported(nullptr));
   RedisModule_FreeString(ctx, key);
 }
 
@@ -77,12 +77,12 @@ TEST_F(DiskASMImportWindowTest, CoversItsSlotsOnly) {
   apply(DiskASM_ImportWindow_Open, {{50, 150}});
 
   EXPECT_EQ(DiskASM_ImportWindow_numSlots_g, 101);
-  EXPECT_TRUE(DiskASM_ImportWindow_ContainsSlot(50));
-  EXPECT_TRUE(DiskASM_ImportWindow_ContainsSlot(150));
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsSlot(49));
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsSlot(151));
-  EXPECT_TRUE(DiskASM_ImportWindow_ContainsKey(inside));
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsKey(outside));
+  EXPECT_TRUE(DiskASM_IsSlotBeingImported(50));
+  EXPECT_TRUE(DiskASM_IsSlotBeingImported(150));
+  EXPECT_FALSE(DiskASM_IsSlotBeingImported(49));
+  EXPECT_FALSE(DiskASM_IsSlotBeingImported(151));
+  EXPECT_TRUE(DiskASM_IsKeyBeingImported(inside));
+  EXPECT_FALSE(DiskASM_IsKeyBeingImported(outside));
 
   RedisModule_FreeString(ctx, inside);
   RedisModule_FreeString(ctx, outside);
@@ -91,7 +91,7 @@ TEST_F(DiskASMImportWindowTest, CoversItsSlotsOnly) {
 TEST_F(DiskASMImportWindowTest, CloseNeverOpensTheWindow) {
   apply(DiskASM_ImportWindow_Close, {{0, 15}});
   EXPECT_EQ(DiskASM_ImportWindow_numSlots_g, 0);
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsSlot(5));
+  EXPECT_FALSE(DiskASM_IsSlotBeingImported(5));
 }
 
 TEST_F(DiskASMImportWindowTest, ConcurrentImportsCloseIndependently) {
@@ -102,8 +102,8 @@ TEST_F(DiskASMImportWindowTest, ConcurrentImportsCloseIndependently) {
 
   apply(DiskASM_ImportWindow_Close, {{0, 4999}});
 
-  EXPECT_FALSE(DiskASM_ImportWindow_ContainsKey(first));
-  EXPECT_TRUE(DiskASM_ImportWindow_ContainsKey(second));
+  EXPECT_FALSE(DiskASM_IsKeyBeingImported(first));
+  EXPECT_TRUE(DiskASM_IsKeyBeingImported(second));
   apply(DiskASM_ImportWindow_Close, {{5000, 16383}});
   EXPECT_EQ(DiskASM_ImportWindow_numSlots_g, 0);
 
@@ -129,7 +129,7 @@ TEST_F(DiskASMImportWindowTest, StateMachineOpensTheWindowOnlyOnDisk) {
 
   isFlex = true;
   apply(ASM_StateMachine_StartImportOverlay, {{0, 15}});
-  EXPECT_TRUE(DiskASM_ImportWindow_ContainsSlot(5));
+  EXPECT_TRUE(DiskASM_IsSlotBeingImported(5));
   apply(ASM_StateMachine_FailImport, {{0, 15}});
   EXPECT_EQ(DiskASM_ImportWindow_numSlots_g, 0);
 

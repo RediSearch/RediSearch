@@ -30,8 +30,7 @@ extern "C" {
  *
  * - keyspace notifications are ignored: the rebuild is the only indexer of the
  *   imported keys and sees their final values;
- * - the DocIdMeta unlink callback only invalidates the key's entries and never deletes
- *   a document by docId.
+ * - the DocIdMeta unlink callback deletes no document by docId.
  *
  * The window opens when the overlay starts and must stay open until the rebuild has
  * indexed the slots, since the keys keep the source's docIds until then. It closes
@@ -58,14 +57,16 @@ void DiskASM_ImportWindow_Close(const RedisModuleSlotRangeArray *slots);
 // Every slot leaves the window.
 void DiskASM_ImportWindow_Reset(void);
 
-bool DiskASM_ImportWindow_ContainsSlot(unsigned int slot);
+// Whether `slot` is in the window.
+bool DiskASM_IsSlotBeingImported(unsigned int slot);
 
-bool DiskASM_ImportWindow_ContainsKeySlot(const RedisModuleString *key);
+// The out-of-line part of DiskASM_IsKeyBeingImported.
+bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key);
 
 // Whether `key` is in the window: its notifications are ignored and its unlink keeps its
 // documents. `key` may be NULL, which is never in the window.
-static inline bool DiskASM_ImportWindow_ContainsKey(const RedisModuleString *key) {
-  return DiskASM_ImportWindow_numSlots_g != 0 && key && DiskASM_ImportWindow_ContainsKeySlot(key);
+static inline bool DiskASM_IsKeyBeingImported(const RedisModuleString *key) {
+  return DiskASM_ImportWindow_numSlots_g != 0 && key && DiskASM_IsKeySlotBeingImported(key);
 }
 
 #ifdef __cplusplus

@@ -3017,7 +3017,7 @@ DEBUG_COMMAND(ASMImportWindow) {
     if (RedisModule_StringToLongLong(argv[3], &slot) != REDISMODULE_OK || slot < 0 || slot > 16383) {
       return RedisModule_ReplyWithError(ctx, "Invalid slot");
     }
-    return RedisModule_ReplyWithLongLong(ctx, DiskASM_ImportWindow_ContainsSlot((unsigned int)slot));
+    return RedisModule_ReplyWithLongLong(ctx, DiskASM_IsSlotBeingImported((unsigned int)slot));
   }
 
   void (*apply)(const RedisModuleSlotRangeArray *) = NULL;
