@@ -13,7 +13,7 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
-use rqe_iterators::{IteratorType, RQEIterator, inverted_index::Wildcard};
+use rqe_iterators::{IteratorType, RQEIterator, SkipToOutcome, inverted_index::Wildcard};
 use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
 use crate::inverted_index::utils::BaseTest;
@@ -43,7 +43,11 @@ impl WildcardBaseTest {
     }
 
     pub(crate) fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
-        Wildcard::new(self.test.ii.reader(), 1.0)
+        self.create_bounded_iterator(DocId::MAX)
+    }
+
+    fn create_bounded_iterator(&self, max_doc_id: DocId) -> Wildcard<'_, DocIdsOnly> {
+        Wildcard::new(self.test.ii.reader(), 1.0, max_doc_id)
     }
 }
 
@@ -72,10 +76,40 @@ fn wildcard_skip_to() {
 fn wildcard_empty_index() {
     let ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 
-    let mut it = ContractChecker::new(Wildcard::new(ii.reader(), 1.0));
+    let mut it = ContractChecker::new(Wildcard::new(ii.reader(), 1.0, DocId::MAX));
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
+    assert!(it.at_eof());
+}
+
+#[test]
+fn wildcard_read_stops_at_max_doc_id() {
+    // Doc ids are 1, 3, 5, ..., 21.
+    let test = WildcardBaseTest::new(10);
+    let mut it = ContractChecker::new(test.create_bounded_iterator(10));
+
+    test.test.read(
+        &mut it,
+        test.test.docs_ids_iter().take_while(|id| *id <= 10),
+    );
+    assert!(it.read().expect("read failed").is_none());
+    assert!(it.at_eof());
+}
+
+#[test]
+fn wildcard_skip_to_stops_at_max_doc_id() {
+    let test = WildcardBaseTest::new(10);
+
+    let mut it = test.create_bounded_iterator(10);
+    let found = it.skip_to(9).expect("skip_to failed");
+    assert!(matches!(found, Some(SkipToOutcome::Found(r)) if r.doc_id == 9));
+    // The next record, 11, is past the bound.
+    assert!(it.skip_to(10).expect("skip_to failed").is_none());
+    assert!(it.at_eof());
+
+    let mut it = test.create_bounded_iterator(10);
+    assert!(it.skip_to(11).expect("skip_to failed").is_none());
     assert!(it.at_eof());
 }
 
@@ -114,7 +148,7 @@ mod not_miri {
             let ii = DocIdsOnly::from_opaque(self.test.context.wildcard_inverted_index());
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
             // `spec` and `existingDocs` that outlive the returned iterator.
-            Wildcard::new(ii.reader(), 1.0)
+            Wildcard::new(ii.reader(), 1.0, DocId::MAX)
         }
     }
 
@@ -393,7 +427,7 @@ fn wildcard_parked_across_a_write<'index>(
 
     // SAFETY: `opaque` is valid and not mutably aliased while the reader is built.
     let reader = DocIdsOnly::from_opaque(unsafe { &*opaque }).reader();
-    let mut it = Wildcard::new(reader, 1.0);
+    let mut it = Wildcard::new(reader, 1.0, DocId::MAX);
     for doc_id in 1..=parked_on {
         let record = it.read().expect("read failed").expect("doc expected");
         assert_eq!(record.doc_id, doc_id);

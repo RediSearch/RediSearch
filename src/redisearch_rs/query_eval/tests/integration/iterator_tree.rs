@@ -195,7 +195,7 @@ fn replace_root_with_an_inverted_index_wildcard_makes_coverage_dense() {
         let record = RSIndexResult::build_virt().doc_id(doc_id).build();
         ii.add_record(&record).unwrap();
     }
-    let wildcard = InvIdxWildcard::new(ii.reader(), 1.0);
+    let wildcard = InvIdxWildcard::new(ii.reader(), 1.0, rqe_core::DocId::MAX);
     assert_eq!(wildcard.type_(), IteratorType::InvIdxWildcard);
     let new_root = RQEIteratorWrapper::boxed_new(wildcard);
 

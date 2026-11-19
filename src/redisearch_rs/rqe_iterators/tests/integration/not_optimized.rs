@@ -650,7 +650,7 @@ mod revalidate {
         crate::utils::MockData,
     ) {
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
         let child = Mock::new(CHILD_IDS);
         let child_data = child.data();
         let it = ContractChecker::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
@@ -931,7 +931,7 @@ mod revalidate {
             TestContext::wildcard([1, 50].iter().copied()),
         );
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
         let child = Mock::<1>::new([100]); // never matches
         let mut child_data = child.data();
         child_data.set_revalidate_result(MockRevalidateResult::Ok);
@@ -967,7 +967,7 @@ mod revalidate {
             TestContext::wildcard([1].iter().copied()),
         );
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
         let child = Mock::<1>::new([100]); // child won't match
         let mut child_data = child.data();
         child_data.set_revalidate_result(MockRevalidateResult::Ok);
@@ -1005,7 +1005,7 @@ mod revalidate {
             TestContext::wildcard([1, 50].iter().copied()),
         );
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
         // The child holds 50 — the id the wildcard lands on below — so the
         // membership that cannot be decided is one where the answer is "present",
         // and guessing is wrong rather than merely unlucky.
@@ -1041,7 +1041,7 @@ mod revalidate {
     fn revalidate_scan_error_propagates() {
         let (_guard, context) = make_revalidate_context();
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
         // A single child document, at the id the wildcard moves onto below — so
         // the scan that move triggers reads the child past its end, which is
         // where the failure is injected.
@@ -1102,7 +1102,7 @@ mod revalidate {
                 TestContext::wildcard([1, 50].iter().copied()),
             );
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
             // The child holds 50 — the id the wildcard lands on below — so the
             // membership that cannot be decided is one where the answer is
             // "present".
@@ -1142,7 +1142,7 @@ mod revalidate {
         fn resume_scan_error_propagates() {
             let (_guard, context) = make_revalidate_context();
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
             // A single child document, at the id the wildcard moves onto below —
             // so the scan that move triggers reads the child past its end, which
             // is where the failure is injected.
@@ -1377,7 +1377,7 @@ mod revalidate {
                 TestContext::wildcard([1].iter().copied()),
             );
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
-            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+            let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0, DocId::MAX);
             let child = Mock::<1>::new([100]);
             let mut child_data = child.data();
             child_data.set_revalidate_result(MockRevalidateResult::Ok);

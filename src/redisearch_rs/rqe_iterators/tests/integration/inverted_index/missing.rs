@@ -72,6 +72,13 @@ fn missing_skip_to() {
 }
 
 #[test]
+fn missing_stops_at_context_bound() {
+    let test = MissingBaseTest::new(10);
+    test.test
+        .read_and_skip_to_bounded(10, || ContractChecker::new(test.create_iterator()));
+}
+
+#[test]
 fn missing_empty_index() {
     let ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     let mock_ctx = MockContext::new(0, 0);

@@ -107,6 +107,29 @@ impl<E: Encoder> BaseTest<E> {
         assert!(it.at_eof());
     }
 
+    /// Test that iterators built by `build`, after [`Self::mock_ctx`] got `max_doc_id` as its
+    /// visibility bound, read and skip only up to it.
+    pub(super) fn read_and_skip_to_bounded<'index, I>(
+        &self,
+        max_doc_id: DocId,
+        build: impl Fn() -> I,
+    ) where
+        I: RQEIterator<'index>,
+    {
+        self.mock_ctx.set_max_visible_doc_id(max_doc_id);
+
+        let mut it = build();
+        self.read(&mut it, self.docs_ids_iter().filter(|id| *id <= max_doc_id));
+
+        let past_bound = self
+            .docs_ids_iter()
+            .find(|id| *id > max_doc_id)
+            .expect("the index must hold a document past the bound");
+        let mut it = build();
+        assert!(it.skip_to(past_bound).expect("skip_to failed").is_none());
+        assert!(it.at_eof());
+    }
+
     /// Test skip_to functionality for a given iterator.
     ///
     /// Since the index contains only ODD doc IDs (1, 3, 5, 7, ...), when we skip to an EVEN doc ID,

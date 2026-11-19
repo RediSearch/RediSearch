@@ -50,7 +50,7 @@ impl WildcardIndex {
     }
 
     fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
-        Wildcard::new(self.ii.reader(), 0.)
+        Wildcard::new(self.ii.reader(), 0., DocId::MAX)
     }
 }
 
@@ -630,7 +630,7 @@ mod optional_optimized_iterator_revalidate_tests {
             utils::MockData,
         ) {
             let ii = DocIdsOnly::from_opaque(test_ctx.wildcard_inverted_index());
-            let wcii = Wildcard::new(ii.reader(), 0.);
+            let wcii = Wildcard::new(ii.reader(), 0., DocId::MAX);
             let child = utils::Mock::new(CHILD_DOCS);
             let data = child.data();
             let it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
@@ -1017,7 +1017,7 @@ mod via_resume {
             utils::MockData,
         ) {
             let ii = DocIdsOnly::from_opaque(test_ctx.wildcard_inverted_index());
-            let wcii = Wildcard::new(ii.reader(), 0.);
+            let wcii = Wildcard::new(ii.reader(), 0., DocId::MAX);
             let child = utils::Mock::new(CHILD_DOCS);
             let data = child.data();
             let it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);

@@ -35,6 +35,6 @@ impl WildcardHelper {
     pub(crate) fn create_wildcard(
         &self,
     ) -> rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly> {
-        rqe_iterators::inverted_index::Wildcard::new(self.ii.reader(), 1.0)
+        rqe_iterators::inverted_index::Wildcard::new(self.ii.reader(), 1.0, DocId::MAX)
     }
 }

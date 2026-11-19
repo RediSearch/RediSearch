@@ -119,7 +119,7 @@ mod optional_reducer_tests {
         }
 
         let reader = ii.reader();
-        let mut child = InvIdxWildcard::new(reader, INITIAL_WEIGHT);
+        let mut child = InvIdxWildcard::new(reader, INITIAL_WEIGHT, DocId::MAX);
         assert_eq!(child.type_(), IteratorType::InvIdxWildcard);
 
         // Advance so `current()` is Some — the factory will apply `NEW_WEIGHT` to it.

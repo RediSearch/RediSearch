@@ -443,11 +443,13 @@ mod via_resume {
             OptimizedWildcard::RawDocIdsOnly(InvIdxWildcard::new(
                 fixture.typed::<RawDocIdsOnly>().reader(),
                 1.0,
+                DocId::MAX,
             ))
         } else {
             OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
                 fixture.typed::<DocIdsOnly>().reader(),
                 1.0,
+                DocId::MAX,
             ))
         });
 
@@ -492,6 +494,7 @@ mod via_resume {
         let mut it = Box::new(OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
             fixture.typed::<DocIdsOnly>().reader(),
             1.0,
+            DocId::MAX,
         )));
         assert_eq!(it.read().unwrap().unwrap().doc_id, DOC_IDS[0]);
 
@@ -517,6 +520,7 @@ mod via_resume {
         let mut it = Box::new(OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
             fixture.typed::<DocIdsOnly>().reader(),
             1.0,
+            DocId::MAX,
         )));
         assert_eq!(it.read().unwrap().unwrap().doc_id, DOC_IDS[0]);
 
@@ -554,6 +558,7 @@ mod via_resume {
         let mut it = Box::new(OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
             fixture.typed::<DocIdsOnly>().reader(),
             1.0,
+            DocId::MAX,
         )));
         assert_eq!(it.read().unwrap().unwrap().doc_id, DOC_IDS[0]);
         assert_eq!(it.read().unwrap().unwrap().doc_id, DOC_IDS[1]);
@@ -922,6 +927,7 @@ mod new_wildcard_via_resume {
                     .typed::<inverted_index::doc_ids_only::DocIdsOnly>()
                     .reader(),
                 1.0,
+                rqe_core::DocId::MAX,
             )),
         ));
         assert_eq!(it.read().unwrap().unwrap().doc_id, DOC_IDS[0]);

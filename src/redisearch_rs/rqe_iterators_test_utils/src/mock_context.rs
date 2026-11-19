@@ -224,6 +224,15 @@ impl MockContext {
         }
     }
 
+    /// Set the search context's [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId),
+    /// which the iterator builders read as the iterators' bound.
+    pub fn set_max_visible_doc_id(&self, max_doc_id: DocId) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        unsafe {
+            (*self.sctx).maxVisibleDocId = max_doc_id;
+        }
+    }
+
     /// Initialize the TTL table if not already initialized.
     fn verify_ttl_init(&self) {
         let mut guard = self.spec_write();

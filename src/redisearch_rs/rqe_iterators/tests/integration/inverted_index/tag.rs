@@ -90,6 +90,13 @@ fn tag_skip_to() {
 }
 
 #[test]
+fn tag_stops_at_context_bound() {
+    let test = TagBaseTest::new(10);
+    test.test
+        .read_and_skip_to_bounded(10, || ContractChecker::new(test.create_iterator()));
+}
+
+#[test]
 fn tag_empty_index() {
     let ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     let mock_ctx = MockContext::new(0, 0);
