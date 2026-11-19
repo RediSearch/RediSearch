@@ -243,6 +243,19 @@ accept_native_llvm() {
     export LIBCLANG_PATH="$libdir"
 }
 
+# On EL8 LLVM ${LLVM_VER} and the newer default are versions of the same
+# packages, so any later `dnf update` or `dnf install clang` (other modules'
+# bootstrap scripts do both) silently moves them to the newer LLVM and breaks
+# LTO. Lock the installed LLVM packages at their current versions.
+lock_llvm_packages() {
+    $MODE dnf install -y python3-dnf-plugin-versionlock >/dev/null 2>&1 || return 1
+    local pkgs
+    pkgs=$(rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' 'clang*' 'llvm*' 'lld*' 'libomp*' 'compiler-rt*' 2>/dev/null)
+    [[ -n "$pkgs" ]] || return 1
+    # shellcheck disable=SC2086
+    $MODE dnf versionlock add $pkgs >/dev/null 2>&1
+}
+
 # EPEL carries LLVM ${LLVM_VER} side by side with the distro's newer default
 # (EL9 only ships the newer one), under versioned package names.
 install_epel_llvm() {
@@ -405,6 +418,9 @@ install_llvm() {
         elif $MODE dnf install -y --nobest --skip-broken \
                 "clang-${LLVM_VER}.*" "lld-${LLVM_VER}.*" "clang-devel-${LLVM_VER}.*" "llvm-${LLVM_VER}.*" 2>/dev/null \
                 && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            lock_llvm_packages \
+                && echo ">>> Locked LLVM ${LLVM_VER}.x packages against later dnf updates" \
+                || echo ">>> WARNING: could not lock LLVM ${LLVM_VER}.x packages; a later dnf update may replace them" >&2
             echo ">>> Installed clang ${LLVM_VER}.x from native dnf repos (versioned package spec)"
         elif install_epel_llvm && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
             echo ">>> Installed clang ${LLVM_VER} from EPEL"
