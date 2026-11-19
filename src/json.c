@@ -838,6 +838,8 @@ static int JSON_StoreMapNumericInDocField(RedisJSON obj, RedisModuleCtx *ctx,
       case KeyedNumericBatchError_ApiUnavailable:
         QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "RedisJSON API is not available");
         break;
+      default:
+        RS_ABORT("unreachable KeyedNumericBatchError");
     }
     return REDISMODULE_ERR;
   }

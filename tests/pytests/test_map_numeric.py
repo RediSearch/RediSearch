@@ -631,8 +631,8 @@ def testParamKey(env):
         .contains('Parameter not found')
     # The key ends at the last ']' before the colon, so a parameter name may hold an escaped
     # one and spaces may precede the colon.
-    env.expect('FT.SEARCH', 'idx', '@metrics[$a\\]]:[1 2]', 'NOCONTENT', 'DIALECT', 2).error() \
-        .contains('Parameter not found')
+    env.assertEqual(search_ids(env, '@metrics[$a\\]]:[1 100]', 'PARAMS', 2, 'a\\]', 'rev:fy0',
+                               'DIALECT', 2), ref(docs, 'rev:fy0', 1, 100))
     env.assertEqual(search_ids(env, '@metrics[rev:fy0] :[1 100]'), ref(docs, 'rev:fy0', 1, 100))
     env.assertEqual(search_ids(env, '@metrics[$k] :[1 100]', 'PARAMS', 2, 'k', 'rev:fy0',
                                'DIALECT', 2), ref(docs, 'rev:fy0', 1, 100))
@@ -662,6 +662,7 @@ def testProfileShowsKeyedNode():
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query, 'NOCONTENT', 'LIMIT', 0, 1000)
     env.assertEqual(res['Results']['total_results'], len(expected))
     profile = res['Profile']['Shards'][0]['Iterators profile']
+    # The small fixture keeps the key in a single range, so there is no union above it.
     env.assertEqual(profile['Type'], 'NUMERIC')
     env.assertEqual(profile['Number of reading operations'], len(expected))
     env.assertContains('@metrics[rev:fy0]', env.cmd('FT.EXPLAIN', 'idx', query, 'DIALECT', 2))
@@ -726,6 +727,11 @@ def testSortbyOtherFieldKeepsEveryRange(env):
         conn.execute_command('JSON.SET', f'company:{i}', '$', json.dumps(doc))
     query = '@metrics[k]:[-inf +inf]'
     # 1500 distinct values split the key's tree into several ranges, which is what a trim drops.
+    profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query, 'NOCONTENT', 'LIMIT', 0, 1,
+                      'DIALECT', 2)
+    text = str(profile[1])
+    env.assertContains('UNION', text)
+    env.assertGreaterEqual(text.count("'NUMERIC'"), 3, message='one reader per range')
     for extra in ([], ['WITHOUTCOUNT']):
         expected = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'SORTBY', 'n',
                            'LIMIT', 0, 10, 'DIALECT', 2)
@@ -759,7 +765,8 @@ def testHybridSearchSubqueryWithKeyedClause(env):
 @skip(cluster=True)
 def testCursorSurvivesWritesToTheKey(env):
     """Writes under the key between cursor reads (enough to split its tree) do not crash the
-    query, and what it returns is a subset of what the key could have matched."""
+    query, what it returns is a subset of what the key could have matched, and it never returns
+    a document after that document was deleted."""
     enable_unstable_features(env)
     create_index(env)
     conn = getConnectionByEnv(env)
@@ -767,6 +774,8 @@ def testCursorSurvivesWritesToTheKey(env):
     for i in range(1, initial + 1):
         set_doc(env, i, {'k': float(i)})
     possible = set(range(1, initial + 1))
+    # Document id -> the step of its deletion, until it is written again.
+    deleted_at = {}
 
     res = env.cmd('FT.AGGREGATE', 'idx', '@metrics[k]:[-inf +inf]', 'LOAD', 1, '@__key',
                   'WITHCURSOR', 'COUNT', 1)
@@ -774,6 +783,7 @@ def testCursorSurvivesWritesToTheKey(env):
     seen = [to_dict(r)['__key'] for r in rows[1:]]
     next_doc = initial + 1
     step = 0
+    ended = None
     while cursor:
         step += 1
         # Add enough documents to grow and split the tree, update some and delete some.
@@ -783,20 +793,29 @@ def testCursorSurvivesWritesToTheKey(env):
             next_doc += 1
         for i in range(step, initial, 7):
             set_doc(env, i, {'k': float(i) + 0.5})
+            deleted_at.pop(i, None)
         for i in range(step + 3, initial, 11):
-            env.cmd('DEL', f'company:{i}')
+            if env.cmd('DEL', f'company:{i}'):
+                deleted_at[i] = step
         try:
             rows, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1)
         except redis_exceptions.ResponseError as e:
             # The query may legitimately give up once the tree it reads was replaced.
             env.debugPrint(str(e))
+            ended = 'aborted'
             break
-        seen += [to_dict(r)['__key'] for r in rows[1:]]
+        read = [int(to_dict(r)['__key'].split(':')[1]) for r in rows[1:]]
+        env.assertEqual([i for i in read if i in deleted_at], [],
+                        message=f'returned after its deletion, step {step}')
+        seen += [f'company:{i}' for i in read]
         if step > 400:
+            ended = 'step limit'
             break
+    else:
+        ended = 'done'
+    env.assertNotEqual(ended, 'step limit')
     env.assertEqual(conn.execute_command('PING'), True)
     ids = [int(k.split(':')[1]) for k in seen]
-    env.assertEqual(len(ids), len(set(ids)), message='no document twice')
     env.assertEqual(set(ids) - possible, set())
     env.assertGreater(len(ids), 1)
 

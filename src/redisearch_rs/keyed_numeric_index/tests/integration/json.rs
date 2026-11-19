@@ -82,6 +82,21 @@ fn extreme_numbers_keep_their_f64_value() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+fn an_int_that_get_int_rejects_is_read_as_a_double() {
+    // The mock reports an integer beyond `i64` with the `Int` type, as providers may,
+    // although `get_int` returns nothing for it.
+    let batch = collect(json!({"above_i64": 9_223_372_036_854_775_808_u64})).unwrap();
+
+    assert_eq!(batch.len(), 1);
+    let index = index_of(&batch);
+    assert_eq!(
+        all(&index, b"above_i64"),
+        vec![(1, 9_223_372_036_854_775_808.0)]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
 fn keys_may_be_empty_or_non_ascii() {
     let batch = collect(json!({"": 1, "ключ": 2})).unwrap();
 

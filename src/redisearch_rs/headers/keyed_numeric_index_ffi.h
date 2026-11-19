@@ -87,8 +87,7 @@ void KeyedNumericBatch_Free(struct KeyedNumericBatch *batch);
  *
  * # Safety
  *
- * 1. `obj` must be a valid, non-null `RedisJSON` value, and the RedisJSON module must be
- *    initialized.
+ * 1. `obj` must be a valid, non-null `RedisJSON` value.
  * 2. `ctx` must be a valid, non-null Redis module context.
  * 3. `err` must be valid for writes and cannot be NULL.
  */

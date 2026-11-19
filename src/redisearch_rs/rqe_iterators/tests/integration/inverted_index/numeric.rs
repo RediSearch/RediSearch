@@ -696,7 +696,7 @@ mod from_tree {
 /// Revalidation of iterators over a tree owned by a [`KeyedNumericIndex`], which GC can
 /// remove while a query is parked.
 mod keyed {
-    use std::{ptr::NonNull, sync::Arc};
+    use std::{ptr::NonNull, rc::Rc};
 
     use ffi::FieldType_INDEXFLD_T_MAP_NUMERIC;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
@@ -803,7 +803,7 @@ mod keyed {
             let tree = index.get(KEY).unwrap();
             // SAFETY: the spec is valid for the fixture's life, the index is the field's and
             // `tree` is what it holds under `KEY`.
-            let binding = Arc::new(unsafe {
+            let binding = Rc::new(unsafe {
                 KeyedBinding::new(
                     NonNull::new(self.ctx.sctx().as_ref().spec).unwrap(),
                     0,

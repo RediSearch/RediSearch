@@ -77,8 +77,7 @@ pub unsafe extern "C" fn KeyedNumericIndex_Free(index: *mut KeyedNumericIndex) {
 ///
 /// # Safety
 ///
-/// 1. `obj` must be a valid, non-null `RedisJSON` value, and the RedisJSON module must be
-///    initialized.
+/// 1. `obj` must be a valid, non-null `RedisJSON` value.
 /// 2. `ctx` must be a valid, non-null Redis module context.
 /// 3. `err` must be valid for writes and cannot be NULL.
 #[unsafe(no_mangle)]
@@ -93,7 +92,8 @@ pub unsafe extern "C" fn KeyedNumericBatch_FromJson(
         unsafe { err.write(e) };
         std::ptr::null_mut()
     };
-    // SAFETY: 1.
+    // SAFETY: the RedisJSON API globals are written once while the modules load, long before
+    // a document is indexed.
     let Some(api) = (unsafe { RedisJsonApi::get() }) else {
         return fail(KeyedNumericBatchError::ApiUnavailable);
     };
