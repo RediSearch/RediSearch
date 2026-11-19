@@ -3309,12 +3309,11 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 // The reply has started, so a stop here can only truncate it, with the OOM warning: ON_OOM RETURN
 // only. ON_OOM FAIL was decided before the first reply byte (reducerShouldStop, then
 // DistSearchReplyCallback).
-// A NULL `memoryCheckCalls` reads memory now.
-static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t *memoryCheckCalls) {
+// With `exact` it reads memory now.
+static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, bool exact) {
   QueryRequestLimits *timeout = &req->base.limits;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
-      !(memoryCheckCalls ? QueryMemory_Checkpoint(timeout, memoryCheckCalls)
-                         : QueryMemory_CheckpointExact(timeout))) {
+      !(exact ? QueryMemory_CheckpointExact(timeout) : QueryMemory_Checkpoint(timeout))) {
     return false;
   }
   req->queryOOM = true;
@@ -3331,8 +3330,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
                              QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
   // Under ON_OOM RETURN the reducer does not read after its last merge, so the reply reads once
   // before its rows: a reply shorter than the read interval, or with no row, would never read.
-  const bool stopBeforeRows = replyShouldStop(req, stoppedBefore, NULL);
-  uint32_t memoryCheckCalls = 0;
+  const bool stopBeforeRows = replyShouldStop(req, stoppedBefore, true);
 
   if (stopBeforeRows && rCtx->pq) {
     // No row is replied: free the merged results rather than sort them into a new array.
@@ -3380,7 +3378,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
-      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
+      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, false)) {
         break;
       }
       RedisModule_Reply_MapWithLen(reply, entries); // >> result
@@ -3459,7 +3457,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
-      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
+      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, false)) {
         break;
       }
       searchResult *res = results[pos];
