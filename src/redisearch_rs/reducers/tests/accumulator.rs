@@ -24,7 +24,7 @@ use reducers::min_max::{Extreme, MinMax};
 use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
-use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
+use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use value::{SharedValue, Value};
 
 fn key() -> RLookupKey<'static> {
@@ -621,6 +621,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
         CountDistinctReducer_Create, CountDistinctishReducer_Create, FirstValueReducer_Create,
         HllSumReducer_Create, RandomSampleReducer_Create, StdDevReducer_Create, SumReducer_Create,
+        SumReducerMode,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -636,7 +637,7 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     let key = key();
     let key_ptr = std::ptr::from_ref(&key).cast::<ffi::RLookupKey>();
     // SAFETY: each reducer reads `key`, which outlives it and is not mutated.
-    let sum = unsafe { SumReducer_Create(key_ptr, false) };
+    let sum = unsafe { SumReducer_Create(key_ptr, SumReducerMode::Sum) };
     assert!(!frees_states(sum));
     // SAFETY: as above.
     let std_dev = unsafe { StdDevReducer_Create(key_ptr) };
@@ -656,4 +657,99 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let random_sample = unsafe { RandomSampleReducer_Create(key_ptr, 10) };
     assert!(frees_states(random_sample));
+}
+
+/// A key flagged [`RLookupKeyFlag::AllValues`], as `get_key_all_values` creates it.
+fn all_values_key() -> RLookupKey<'static> {
+    RLookupKey::new(c"nums", RLookupKeyFlag::AllValues.into())
+}
+
+fn all_values(nums: &[f64]) -> Option<SharedValue> {
+    Some(SharedValue::new_array(
+        nums.iter().map(|&n| SharedValue::new_num(n)),
+    ))
+}
+
+#[test]
+fn numeric_reducers_take_every_value_of_an_all_values_key() {
+    let key = all_values_key();
+    let rows = [all_values(&[30.0]), all_values(&[25.0, 5.0, 40.0])];
+    assert_eq!(reduce(Sum::new(&key, SumMode::Sum), &key, &rows), 100.0);
+    assert_eq!(reduce(Sum::new(&key, SumMode::Average), &key, &rows), 25.0);
+    assert_eq!(reduce(MinMax::new(&key, Extreme::Min), &key, &rows), 5.0);
+    assert_eq!(reduce(MinMax::new(&key, Extreme::Max), &key, &rows), 40.0);
+    let expected = (650.0_f64 / 3.0).sqrt();
+    assert!((reduce(StdDev::new(&key), &key, &rows) - expected).abs() < 1e-9);
+}
+
+#[test]
+fn an_array_of_an_ordinary_key_is_one_value() {
+    // `SUM`, unlike `STDDEV`, takes the array of an ordinary key as one
+    // non-numeric value, as before.
+    let key = key();
+    assert!(
+        reduce(
+            Sum::new(&key, SumMode::Sum),
+            &key,
+            &[all_values(&[1.0, 2.0])]
+        )
+        .is_nan()
+    );
+}
+
+#[test]
+fn distinct_counts_take_every_value_of_an_all_values_key() {
+    let key = all_values_key();
+    let rows = [all_values(&[1.0]), all_values(&[2.0, 3.0, 1.0])];
+    assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 3.0);
+    assert_eq!(
+        reduce(CountDistinctish::new(&key, Output::Count), &key, &rows),
+        3.0
+    );
+}
+
+#[test]
+fn random_sample_samples_the_values_of_an_all_values_key() {
+    let key = all_values_key();
+    let rows = [[all_values(&[30.0])], [all_values(&[25.0, 5.0, 40.0])]];
+    let sample = reduce_rows(RandomSample::new(&key, 10), [&key], &rows);
+    let Value::Array(sample) = &*sample else {
+        panic!("expected an array, got {:?}", *sample);
+    };
+    let mut sampled: Vec<f64> = sample.iter().map(number).collect();
+    sampled.sort_by(f64::total_cmp);
+    assert_eq!(sampled, [5.0, 25.0, 30.0, 40.0]);
+}
+
+#[test]
+fn first_value_by_an_all_values_key_compares_each_row_by_its_best_value() {
+    let ret_key = key();
+    let mut sort_key = all_values_key();
+    sort_key.dstidx = 1;
+    let rows = [
+        [string("a"), all_values(&[5.0, 30.0])],
+        [string("b"), all_values(&[10.0, 40.0])],
+    ];
+    for (direction, winner) in [(Direction::Ascending, b"a"), (Direction::Descending, b"b")] {
+        let sort_by = SortBy {
+            sort_key: &sort_key,
+            direction,
+        };
+        let first = reduce_rows(
+            FirstValue::new(&ret_key, Some(sort_by)),
+            [&ret_key, &sort_key],
+            &rows,
+        );
+        assert_eq!(first.as_str_bytes(), Some(&winner[..]), "{direction:?}");
+    }
+}
+
+#[test]
+fn sum_counts_the_numbers_it_adds_up_in_count_mode() {
+    // A distributed `AVG` divides by this: every number of an all-values key, and
+    // no row without a number.
+    let key = all_values_key();
+    let rows = [all_values(&[30.0]), all_values(&[25.0, 5.0, 40.0]), None];
+    assert_eq!(reduce(Sum::new(&key, SumMode::Count), &key, &rows), 4.0);
+    assert_eq!(reduce(Sum::new(&key, SumMode::Count), &key, &[None]), 0.0);
 }

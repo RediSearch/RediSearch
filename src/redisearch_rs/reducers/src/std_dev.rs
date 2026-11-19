@@ -59,16 +59,17 @@ impl Accumulator for StdDev<'_> {
     }
 
     fn add(&self, state: &mut StdDevState, row: &RLookupRow<'_>) {
-        let Some(value) = row.get(self.key) else {
-            return;
-        };
-        // Only a direct array is flattened, not one behind a reference.
-        let items = match &**value {
-            Value::Array(items) => &items[..],
-            _ => std::slice::from_ref(value),
-        };
-        for num in items.iter().filter_map(|item| item.to_number()) {
-            state.add(num);
+        for value in row.values_of(self.key) {
+            // Unlike the other numeric reducers, STDDEV has always flattened an
+            // array value (such as `split()`'s); only a direct array, not one behind
+            // a reference.
+            let items = match &**value {
+                Value::Array(items) => &items[..],
+                _ => std::slice::from_ref(value),
+            };
+            for num in items.iter().filter_map(|item| item.to_number()) {
+                state.add(num);
+            }
         }
     }
 

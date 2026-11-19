@@ -83,7 +83,7 @@ static void tolistFreeInstance(Reducer *parent, void *p) {
 
 Reducer *RDCRToList_New(const ReducerOptions *opts) {
   Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOptions_GetKey(opts, &r->srckey)) {
+  if (!ReducerOpts_GetValuesKey(opts, &r->srckey)) {
     rm_free(r);
     return NULL;
   }

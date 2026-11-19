@@ -11,7 +11,7 @@
 
 Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
   const RLookupKey *srckey;
-  if (!ReducerOpts_GetKey(options, &srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &srckey)) {
     return NULL;
   }
   return CountDistinctReducer_Create(srckey);
@@ -19,7 +19,7 @@ Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
 
 Reducer *RDCRCountDistinctish_New(const ReducerOptions *options) {
   const RLookupKey *srckey;
-  if (!ReducerOpts_GetKey(options, &srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &srckey)) {
     return NULL;
   }
   return CountDistinctishReducer_Create(srckey, false);
@@ -27,7 +27,7 @@ Reducer *RDCRCountDistinctish_New(const ReducerOptions *options) {
 
 Reducer *RDCRHLL_New(const ReducerOptions *options) {
   const RLookupKey *srckey;
-  if (!ReducerOpts_GetKey(options, &srckey)) {
+  if (!ReducerOpts_GetValuesKey(options, &srckey)) {
     return NULL;
   }
   return CountDistinctishReducer_Create(srckey, true);

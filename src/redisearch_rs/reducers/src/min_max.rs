@@ -22,9 +22,9 @@ pub enum Extreme {
     Max,
 }
 
-/// `MIN` or `MAX` of a property, over the rows where it converts to a number (see
-/// [`value::Value::to_number`]). A group with no such row reduces to positive
-/// infinity for `MIN` and negative infinity for `MAX`.
+/// `MIN` or `MAX` of a property, over its [values][RLookupRow::values_of] that convert
+/// to a number (see [`value::Value::to_number`]). A group with no such value reduces
+/// to positive infinity for `MIN` and negative infinity for `MAX`.
 pub struct MinMax<'a> {
     key: &'a RLookupKey<'a>,
     extreme: Extreme,
@@ -47,18 +47,20 @@ impl Accumulator for MinMax<'_> {
     }
 
     fn add(&self, best: &mut f64, row: &RLookupRow<'_>) {
-        let Some(num) = row.get(self.key).and_then(|value| value.to_number()) else {
-            return;
-        };
-        // The comparisons of C's `MIN`/`MAX` macros. Unlike `f64::min`/`f64::max`,
-        // which skip NaN, they let a NaN replace the current extreme, and the next
-        // number replace the NaN.
-        let keep = match self.extreme {
-            Extreme::Min => *best < num,
-            Extreme::Max => *best > num,
-        };
-        if !keep {
-            *best = num;
+        for num in row
+            .values_of(self.key)
+            .filter_map(|value| value.to_number())
+        {
+            // The comparisons of C's `MIN`/`MAX` macros. Unlike `f64::min`/`f64::max`,
+            // which skip NaN, they let a NaN replace the current extreme, and the next
+            // number replace the NaN.
+            let keep = match self.extreme {
+                Extreme::Min => *best < num,
+                Extreme::Max => *best > num,
+            };
+            if !keep {
+                *best = num;
+            }
         }
     }
 

@@ -172,6 +172,20 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
 #define ReducerOptions_GetKey ReducerOpts_GetKey
 
 /**
+ * Like ReducerOpts_GetKey, but a multi-value JSON field resolves to its all-values
+ * key (see Aggregate_GetAllValuesKey), whose value is an array of every value.
+ */
+int ReducerOpts_GetValuesKey(const ReducerOptions *options, const RLookupKey **kout);
+
+/**
+ * The all-values key of `name` (see RLookup_GetKey_AllValues), added to `*loadKeys`
+ * when new. NULL when `name` resolves as usual, which includes a step that cannot
+ * load fields (`loadKeys` is NULL).
+ */
+const RLookupKey *Aggregate_GetAllValuesKey(RLookup *lookup, const char *name,
+                                            const RLookupKey ***loadKeys);
+
+/**
  * Resolves an already-extracted (stripped) field name to an RLookupKey against
  * `options->srclookup`.
  *
@@ -212,6 +226,7 @@ Reducer *RDCRToList_New(const ReducerOptions *);
 Reducer *RDCRMin_New(const ReducerOptions *);
 Reducer *RDCRMax_New(const ReducerOptions *);
 Reducer *RDCRAvg_New(const ReducerOptions *);
+Reducer *RDCRCountNumbers_New(const ReducerOptions *);
 Reducer *RDCRCountDistinct_New(const ReducerOptions *);
 Reducer *RDCRCountDistinctish_New(const ReducerOptions *);
 Reducer *RDCRQuantile_New(const ReducerOptions *);

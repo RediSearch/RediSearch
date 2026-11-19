@@ -602,12 +602,12 @@ impl<'a> RLookup<'a> {
     /// an array, and whether this call created it, in which case the caller must
     /// have it loaded.
     ///
-    /// GROUPBY reads a multi-value field through this key rather than the field's
-    /// own, so the other steps of a query keep seeing the field as before. The key
-    /// is [`RLookupKeyFlag::AllValues`] and is always loaded from the document,
-    /// never the sorting vector: the sorting vector normalizes a document holding
-    /// one value but not one holding several, so grouping on it would split equal
-    /// values.
+    /// GROUPBY and the reducers read a multi-value field through this key rather
+    /// than the field's own, so the other steps of a query keep seeing the field as
+    /// before. The key is [`RLookupKeyFlag::AllValues`] and is always loaded from
+    /// the document, never the sorting vector: the sorting vector normalizes a
+    /// document holding one value but not one holding several, so grouping on it
+    /// would split equal values.
     ///
     /// `None` when `field_name` should resolve as usual instead:
     /// - the lookup does not [opt in][RLookupOption::AllValues];

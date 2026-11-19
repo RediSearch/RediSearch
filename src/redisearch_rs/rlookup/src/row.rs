@@ -11,7 +11,7 @@ use crate::{RLookup, RLookupKey, RLookupKeyFlag, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
 use thin_vec::ThinVec;
-use value::SharedValue;
+use value::{SharedValue, Value};
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
@@ -141,6 +141,23 @@ impl<'a> RLookupRow<'a> {
         } else {
             None
         }
+    }
+
+    /// The values `key` holds in this row: each element of an
+    /// [`AllValues`][RLookupKeyFlag::AllValues] key's array, otherwise the
+    /// [value][Self::get], if any.
+    pub fn values_of<'s>(
+        &'s self,
+        key: &RLookupKey,
+    ) -> impl Iterator<Item = &'s SharedValue> + use<'s, 'a> {
+        let value = self.get(key);
+        let (single, elements) = match value.map(|value| &**value) {
+            Some(Value::Array(elements)) if key.flags.contains(RLookupKeyFlag::AllValues) => {
+                (None, &elements[..])
+            }
+            _ => (value, &[][..]),
+        };
+        single.into_iter().chain(elements)
     }
 
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not

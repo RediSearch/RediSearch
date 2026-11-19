@@ -16,9 +16,10 @@ use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
-/// `RANDOM_SAMPLE` of a property: up to `size` of its values in the group, chosen
-/// at random by reservoir sampling over the C library's `rand` (so with its small
-/// modulo bias). Rows where the property is missing are skipped and not counted.
+/// `RANDOM_SAMPLE` of a property: up to `size` of its [values][RLookupRow::values_of]
+/// in the group, chosen at random by reservoir sampling over the C library's `rand`
+/// (so with its small modulo bias). Rows where the property is missing are skipped
+/// and not counted.
 pub struct RandomSample<'a> {
     key: &'a RLookupKey<'a>,
     size: usize,
@@ -50,19 +51,18 @@ impl Accumulator for RandomSample<'_> {
     }
 
     fn add(&self, state: &mut RandomSampleState<'_>, row: &RLookupRow<'_>) {
-        let Some(value) = row.get(self.key) else {
-            return;
-        };
-        if state.samples.len() < self.size {
-            state.samples.push(value.clone());
-        } else {
-            // The new value replaces a sampled one with probability `size / (seen + 1)`.
-            let slot = random_below(state.seen + 1);
-            if let Some(sample) = state.samples.get_mut(slot) {
-                *sample = value.clone();
+        for value in row.values_of(self.key) {
+            if state.samples.len() < self.size {
+                state.samples.push(value.clone());
+            } else {
+                // The new value replaces a sampled one with probability `size / (seen + 1)`.
+                let slot = random_below(state.seen + 1);
+                if let Some(sample) = state.samples.get_mut(slot) {
+                    *sample = value.clone();
+                }
             }
+            state.seen += 1;
         }
-        state.seen += 1;
     }
 
     fn finalize(&self, state: &RandomSampleState<'_>) -> SharedValue {

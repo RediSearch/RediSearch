@@ -35,8 +35,21 @@ pub extern "C" fn CountReducer_Create() -> *mut ffi::Reducer {
     into_c_reducer(Count)
 }
 
-/// Creates a `SUM` reducer of `srckey`, or an `AVG` one if `average`, and returns
-/// its base [`ffi::Reducer`], which the caller frees through its `Free` callback.
+/// What a [`SumReducer_Create`] reducer returns (see [`SumMode`]).
+#[cheadergen::config(prefix_with_name)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SumReducerMode {
+    /// [`SumMode::Sum`]: `SUM`.
+    Sum = 0,
+    /// [`SumMode::Average`]: `AVG`.
+    Average = 1,
+    /// [`SumMode::Count`]: the internal `__COUNT_NUMBERS`.
+    Count = 2,
+}
+
+/// Creates a `SUM`-family reducer of `srckey` returning `mode`, and returns its
+/// base [`ffi::Reducer`], which the caller frees through its `Free` callback.
 ///
 /// # Safety
 ///
@@ -47,14 +60,14 @@ pub extern "C" fn CountReducer_Create() -> *mut ffi::Reducer {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn SumReducer_Create(
     srckey: *const ffi::RLookupKey,
-    average: bool,
+    mode: SumReducerMode,
 ) -> *mut ffi::Reducer {
     // SAFETY: ensured by caller (1.)
     let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
-    let mode = if average {
-        SumMode::Average
-    } else {
-        SumMode::Sum
+    let mode = match mode {
+        SumReducerMode::Sum => SumMode::Sum,
+        SumReducerMode::Average => SumMode::Average,
+        SumReducerMode::Count => SumMode::Count,
     };
     into_c_reducer(Sum::new(key, mode))
 }

@@ -1087,3 +1087,43 @@ fn write_fields_key_missing_in_dst_should_create() {
     assert_eq!(src_row.get(src_key1).unwrap().as_num(), Some(100.0));
     assert_eq!(src_row.get(src_key2).unwrap().as_num(), Some(200.0));
 }
+
+/// The numbers `values_of(key)` yields from a row holding `value` for `key`.
+fn numbers_of(key: &RLookupKey, value: Option<SharedValue>) -> Vec<f64> {
+    let mut row: RLookupRow = RLookupRow::new();
+    if let Some(value) = value {
+        row.write_key(key, value);
+    }
+    row.values_of(key)
+        .map(|value| value.to_number().unwrap_or(f64::NAN))
+        .collect()
+}
+
+fn array(nums: &[f64]) -> SharedValue {
+    SharedValue::new_array(nums.iter().map(|&n| SharedValue::new_num(n)))
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn values_of_an_all_values_key_are_its_elements() {
+    let key = RLookupKey::new(c"nums", RLookupKeyFlag::AllValues.into());
+    assert_eq!(numbers_of(&key, Some(array(&[1.0, 2.0]))), [1.0, 2.0]);
+    assert_eq!(numbers_of(&key, Some(SharedValue::new_num(3.0))), [3.0]);
+    assert!(numbers_of(&key, None).is_empty());
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn values_of_an_ordinary_key_is_its_value() {
+    let key = RLookupKey::new(c"nums", RLookupKeyFlags::empty());
+    // The array is one value, which is not a number.
+    assert_eq!(numbers_of(&key, Some(array(&[1.0, 2.0]))).len(), 1);
+    assert_eq!(numbers_of(&key, Some(SharedValue::new_num(3.0))), [3.0]);
+    assert!(numbers_of(&key, None).is_empty());
+}

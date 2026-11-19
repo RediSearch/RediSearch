@@ -10,6 +10,24 @@
 #include "rqe_core.h"
 
 /**
+ * What a [`SumReducer_Create`] reducer returns (see [`SumMode`]).
+ */
+typedef enum SumReducerMode {
+  /**
+   * [`SumMode::Sum`]: `SUM`.
+   */
+  SumReducerMode_Sum = 0,
+  /**
+   * [`SumMode::Average`]: `AVG`.
+   */
+  SumReducerMode_Average = 1,
+  /**
+   * [`SumMode::Count`]: the internal `__COUNT_NUMBERS`.
+   */
+  SumReducerMode_Count = 2,
+} SumReducerMode;
+
+/**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.
@@ -256,8 +274,8 @@ Reducer *RandomSampleReducer_Create(const RLookupKey *srckey, uint32_t size);
 Reducer *StdDevReducer_Create(const RLookupKey *srckey);
 
 /**
- * Creates a `SUM` reducer of `srckey`, or an `AVG` one if `average`, and returns
- * its base [`ffi::Reducer`], which the caller frees through its `Free` callback.
+ * Creates a `SUM`-family reducer of `srckey` returning `mode`, and returns its
+ * base [`ffi::Reducer`], which the caller frees through its `Free` callback.
  *
  * # Safety
  *
@@ -266,7 +284,7 @@ Reducer *StdDevReducer_Create(const RLookupKey *srckey);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *SumReducer_Create(const RLookupKey *srckey, bool average);
+Reducer *SumReducer_Create(const RLookupKey *srckey, enum SumReducerMode mode);
 
 /**
  * # Safety
