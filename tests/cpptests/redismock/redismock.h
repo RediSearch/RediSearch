@@ -73,6 +73,9 @@ void RMCK_Notify(const char *action, int events, const char *key);
 // Destroy all globals
 void RMCK_Shutdown(void);
 
+void RMCK_SaveAux(RedisModuleType *type, RedisModuleIO *io);
+int RMCK_LoadAux(RedisModuleType *type, RedisModuleIO *io, int encver);
+
 // Create a new RDB IO context for testing
 RedisModuleIO *RMCK_CreateRdbIO(void);
 

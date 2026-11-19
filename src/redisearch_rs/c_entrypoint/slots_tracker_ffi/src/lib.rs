@@ -404,6 +404,7 @@ pub unsafe extern "C" fn slots_tracker_check_availability(
 /// This function must be called from the main thread only.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn slots_tracker_reset() {
+    assert_owner_thread();
     with_tracker_mut(|tracker| {
         *tracker = SlotsTracker::new();
     });

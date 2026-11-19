@@ -1348,3 +1348,72 @@ def test_active_trim_removes_trimmed_docs():
 def test_tracking_client_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     trim_after_import_test(env, 'default', ACTIVE_TRIM_EVENTS, tracking=True)
+
+
+def _drop_during_import_with_late_replica(recreate):
+    # A fresh third node becomes a replica only after the DROP, forcing full sync.
+    env = Env(shardsCount=2, clusterNodeTimeout=120000)
+    env.expect('FT.CREATE', 'asm_drop', 'SCHEMA', 'old', 'TEXT').ok()
+    source, dest = env.getConnection(1), env.getConnection(2)
+    env.addShardToClusterIfExists()
+    replica = env.getConnection(3)
+    dest_id = dest.execute_command('CLUSTER', 'MYID')
+    source_node = next(ClusterNode.from_str(line)
+                       for line in source.execute_command('CLUSTER', 'NODES').splitlines()
+                       if 'myself' in line)
+    slot = min(slot_range.start for slot_range in source_node.slots)
+    source_pid = source.info('server')['process_id']
+    dest.execute_command('CONFIG', 'SET', 'repl-diskless-sync-delay', 0)
+    full_syncs = dest.info('stats')['sync_full']
+    dest.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    replica.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    # Hold back the source schema while the destination processes DROP and full sync.
+    os.kill(source_pid, signal.SIGSTOP)
+    try:
+        task = dest.execute_command('CLUSTER', 'MIGRATION', 'IMPORT', slot, slot)
+
+        def import_started():
+            status, = dest.execute_command('CLUSTER', 'MIGRATION', 'STATUS', 'ID', task)
+            status = to_dict(status)
+            return status['state'] in ('connecting', 'auth-reply'), status
+
+        wait_for_condition(import_started, 'destination import did not start', timeout=20)
+        env.assertEqual(dest.execute_command('_FT.DROPINDEX', 'asm_drop'), 'OK')
+        if recreate:
+            env.assertEqual(dest.execute_command('_FT.CREATE', 'asm_drop', 'SCHEMA', 'new', 'TEXT'), 'OK')
+        env.assertEqual(replica.execute_command('CLUSTER', 'REPLICATE', dest_id), 'OK')
+
+        def replica_synced():
+            state = replica.info('replication')
+            return (state.get('master_link_status') == 'up'
+                    and not state.get('master_sync_in_progress')
+                    and dest.info('stats')['sync_full'] > full_syncs), state
+
+        wait_for_condition(replica_synced, 'replica did not finish full sync', timeout=30)
+        expected = ['asm_drop'] if recreate else []
+        env.assertEqual(dest.execute_command('FT._LIST'), expected)
+        env.assertEqual(replica.execute_command('FT._LIST'), expected)
+    finally:
+        os.kill(source_pid, signal.SIGCONT)
+
+    wait_for_condition(lambda: (is_migration_complete(dest, task), {'task': task}),
+                       'migration did not complete', timeout=30)
+    env.assertEqual(dest.execute_command('WAIT', 1, 10000), 1)
+    for conn in (dest, replica):
+        env.assertEqual(conn.execute_command('FT._LIST'), expected)
+        if recreate:
+            attributes = to_dict(conn.execute_command('_FT.INFO', 'asm_drop'))['attributes']
+            env.assertEqual(to_dict(attributes[0])['identifier'], 'new')
+
+
+@skip(cluster=False, enterprise=True)
+def test_drop_during_import_survives_replica_full_sync():
+    """Full sync must retain deletion records even with an empty index registry."""
+    _drop_during_import_with_late_replica(recreate=False)
+
+
+@skip(cluster=False, enterprise=True)
+def test_recreate_during_import_survives_replica_full_sync():
+    """Full sync restores the replacement schema while rejecting the source's old schema."""
+    _drop_during_import_with_late_replica(recreate=True)

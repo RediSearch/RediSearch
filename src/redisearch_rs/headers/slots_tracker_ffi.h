@@ -7,7 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redismodule.h"
 
 /**
  * C-compatible slot range array structure.

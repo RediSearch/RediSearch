@@ -782,6 +782,14 @@ int RMCK_InfoAddFieldCString(RedisModuleInfoCtx *ctx, const char *field, const c
   return REDISMODULE_OK;
 }
 
+void RMCK_SaveAux(RedisModuleType *type, RedisModuleIO *io) {
+  type->typemeths.aux_save2(io, REDISMODULE_AUX_BEFORE_RDB);
+}
+
+int RMCK_LoadAux(RedisModuleType *type, RedisModuleIO *io, int encver) {
+  return type->typemeths.aux_load(io, encver, REDISMODULE_AUX_BEFORE_RDB);
+}
+
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {

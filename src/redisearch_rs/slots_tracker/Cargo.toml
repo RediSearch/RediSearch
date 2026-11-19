@@ -12,3 +12,6 @@ workspace = true
 cheadergen.workspace = true
 workspace_hack.workspace = true
 # Add dependencies as needed
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }

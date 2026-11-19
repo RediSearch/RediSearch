@@ -185,6 +185,7 @@ def test_internal_commands(env):
     # Internal commands are treated as unknown commands for non-internal
     # connections
     env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
+    env.expect('_FT._DROPINDEXIFX', 'absent').error().contains("unknown command")
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     # On enterprise _FT.SEARCH is proxy-filtered rather than internal, so it's
@@ -194,6 +195,7 @@ def test_internal_commands(env):
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+    env.expect('_FT._DROPINDEXIFX', 'absent').ok()
     slots = generate_slots(range(0, int((2**14)/env.shardsCount)))
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', slots).equal([0])
 

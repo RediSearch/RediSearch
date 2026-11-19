@@ -21,6 +21,7 @@
 static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc> =
     over_aligned_alloc::OverAligned(redis_module::alloc::RedisAlloc);
 
+pub use asm_schema_registry_ffi as asm_schema_registry;
 pub use deleted_docs_ffi as deleted_docs;
 pub use doc_key_map_ffi as doc_key_map;
 pub use fnv_ffi as fnv;

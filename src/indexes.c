@@ -28,6 +28,7 @@
 
 #include "spec.h"
 #include "indexes.h"
+#include "asm_schema_registry_ffi.h"
 #include "indexes_scan.h"
 #include "slot_cleanup.h"
 #include "document.h"
@@ -276,14 +277,22 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
 // parse it (IndexSpec core), detect a duplicate against the registry, then open
 // its on-disk index if appropriate. Returns the spec (not yet registered - the
 // caller passes it to Indexes_StoreSpecAfterRdbLoad), or NULL on failure.
-static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
+static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool useSst,
+                                          bool schemaRestore, QueryError *status) {
   IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
   if (!sp) {
     return NULL;
   }
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
-  sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  if (schemaRestore &&
+      asm_schema_registry_was_dropped(HiddenString_GetUnsafe(sp->specName, NULL))) {
+    // A later local CREATE must survive. Ignore only the imported schema, before opening its DB.
+    IndexSpec_ClearAliases(sp->own_ref);
+    sp->isDuplicate = true;
+  } else {
+    sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  }
   // An SST load adopts the saved specId. The load drops every spec first and one
   // process never saves two specs under the same id, so a clash means a corrupt
   // RDB. Loading anyway would point the keys' DocIdMeta at the wrong index.
@@ -315,21 +324,26 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   nIndexes = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
 
   if (unlikely(nIndexes > maxIndexes_g)) {
-    RedisModule_LogIOError(
-        rdb, "warning",
-        "RDB Load: Number of indexes (%zu) exceeds maximum allowed (%u)",
-        nIndexes, maxIndexes_g);
+    RedisModule_LogIOError(rdb, "warning",
+                           "RDB Load: Number of indexes (%zu) exceeds maximum allowed (%u)",
+                           nIndexes, maxIndexes_g);
     return REDISMODULE_ERR;
   }
   for (size_t i = 0; i < nIndexes; ++i) {
     // Load one spec (parse + duplicate detection + disk open), then publish it
     // into the registry.
-    IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
+    IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, false, &status);
     if (Indexes_StoreSpecAfterRdbLoad(sp) != REDISMODULE_OK) {
-      RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      RedisModule_LogIOError(
+          rdb, "warning", "RDB Load: %s",
+          QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
+  }
+
+  if (encver >= INDEX_IMPORT_DROPS_VERSION && !asm_schema_registry_load(rdb)) {
+    return REDISMODULE_ERR;
   }
 
   // If we have indexes in the auxiliary data, we need to subscribe to the
@@ -412,10 +426,11 @@ static void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   }
 
   dictReleaseIterator(iter);
+  asm_schema_registry_save(rdb);
 }
 
 static void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
-  if (dictSize(specDict_g)) {
+  if (dictSize(specDict_g) || asm_schema_registry_has_drops()) {
     Indexes_RdbSave(rdb, when);
   }
 }
@@ -438,7 +453,7 @@ static void *IndexSpecType_RdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
   QueryError status = QueryError_Default();
-  IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, &status);
+  IndexSpec *sp = Indexes_LoadSpecFromRdb(rdb, encver, useSst, true, &status);
   if (!sp) {
     RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     QueryError_ClearError(&status);

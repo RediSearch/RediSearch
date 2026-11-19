@@ -9,6 +9,7 @@
 #pragma once
 
 #include "slots_tracker_ffi.h"
+#include "asm_schema_registry_ffi.h"
 #include "slot_ranges.h"
 #include "util/khash.h"
 #include "rmutil/rm_assert.h"
@@ -85,23 +86,36 @@ static inline void ASM_StateMachine_SetLocalSlots(const RedisModuleSlotRangeArra
 /**
  * When slots are being imported, we need to mark them as partially available.
  * This means that these slots may exist partially in the key space, but we don't own them.
-*/
+ */
 static inline void ASM_StateMachine_StartImport(const RedisModuleSlotRangeArray *slots) {
+  asm_schema_registry_start_import();
   uint32_t version = slots_tracker_mark_partially_available_slots(slots);
   __atomic_store_n(&key_space_version, version, __ATOMIC_RELAXED);
 }
 
 /*
-* When slots have finished importing, we need to promote the slots to local ownership.
-*/
+ * When slots have finished importing, we need to promote the slots to local ownership.
+ */
 static inline void ASM_StateMachine_CompleteImport(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_promote_to_local_slots(slots);
+  asm_schema_registry_end_import();
+}
+
+/** Releases schema tracking; failed import slots remain available for trimming. */
+static inline void ASM_StateMachine_FailImport(void) {
+  asm_schema_registry_end_import();
+}
+
+/** Clears pre-snapshot schema records before Core restores import state. */
+static inline void ASM_StateMachine_BeginLoading(void) {
+  asm_schema_registry_begin_loading();
 }
 
 /**
  * When slots have finished migrating, we need to mark them as fully available but not owned.
- * This means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
-*/
+ * This means that these slots are fully available in the key space, but we don't own them, as they
+ * will start trimming.
+ */
 static inline void ASM_StateMachine_CompleteMigration(const RedisModuleSlotRangeArray *slots) {
   slots_tracker_mark_fully_available_slots(slots);
 }
@@ -303,6 +317,7 @@ static inline void ASM_StateMachine_Init() {
 */
 static inline void ASM_StateMachine_End() {
   ASM_KeySpaceVersionTracker_Destroy();
+  slots_tracker_reset();
 }
 
 /*
