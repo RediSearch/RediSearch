@@ -47,9 +47,11 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
 void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
                                          bool completed);
 
+#ifdef ENABLE_ASSERT
 // Whether a sweep is rebuilding `key`'s slot. Flex promises that no write and no delete reaches
 // such a slot until the gate is released, which debug builds assert. `key` may be NULL.
 bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key);
+#endif
 
 // INFO fields of the latest import attempt, active or ended.
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx);

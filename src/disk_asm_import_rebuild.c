@@ -98,13 +98,6 @@ static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slo
   return copy;
 }
 
-static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int slot) {
-  for (int32_t i = 0; i < slots->num_ranges; i++) {
-    if (slot >= slots->ranges[i].start && slot <= slots->ranges[i].end) return true;
-  }
-  return false;
-}
-
 static void importFree(DiskASMImport *imp) {
   RS_ASSERT(!imp->scanRunning);
   if (imp->specs) {
@@ -349,6 +342,14 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
 //---------------------------------------------------------------------------------------------
 // Window checks and INFO
 
+#ifdef ENABLE_ASSERT
+static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int slot) {
+  for (int32_t i = 0; i < slots->num_ranges; i++) {
+    if (slot >= slots->ranges[i].start && slot <= slots->ranges[i].end) return true;
+  }
+  return false;
+}
+
 bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key) {
   if (!imports || !key) return false;
   size_t len;
@@ -362,6 +363,7 @@ bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key) {
   }
   return false;
 }
+#endif
 
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
   const size_t active = imports ? array_len(imports) : 0;
