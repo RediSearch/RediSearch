@@ -71,7 +71,6 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
   static inline SearchDiskCompactionCallbacks compactionCallbacks{};
-  static inline bool restoredTagCounts = false;
 
   static bool recordSchema(RedisModuleCtx *ctx, void *privateData, IndexFlags flags,
                            const SearchDiskField *fields, size_t n) {
@@ -140,10 +139,9 @@ class DiskSchemaOpenTest : public ::testing::Test {
     };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *state, bool tagCountsRestored, IndexFlags flags,
+           DocumentType, RedisSearchDiskRdbState *state, IndexFlags flags,
            const SearchDiskField *fields, size_t n, const SearchDiskCompactionCallbacks *,
            void *privateData) {
-          restoredTagCounts = tagCountsRestored;
           EXPECT_EQ(state, reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken));
           events.emplace_back("openIndexWithRdbState");
           return recordSchema(ctx, privateData, flags, fields, n)
@@ -710,7 +708,6 @@ TEST_F(DiskTagPersistenceTest, CountsSurviveLoadingAndStorageBinding) {
   EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(idx->values, "", 0)), 1u);
   EXPECT_EQ(TagIndex_NUniqueValues(TagIndex_Open(&loaded->fields[1])), 0u);
   ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
-  EXPECT_TRUE(restoredTagCounts);
   EXPECT_EQ(TagIndex_Open(&loaded->fields[0]), idx);
   EXPECT_EQ(idx->diskSpec, loaded->diskSpec);
 }
