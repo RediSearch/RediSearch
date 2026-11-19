@@ -146,6 +146,14 @@ impl TestSpec {
             .push(unsafe { Box::from_raw(old.cast::<KeyedNumericIndex>()) });
     }
 
+    /// Replace the set of documents the thread GC consults, freeing the previous set.
+    fn set_deleted_docs(&mut self, gone: impl IntoIterator<Item = DocId>) {
+        let old = self.spec.docs.deletedDocs.cast::<DeletedDocs>();
+        self.spec.docs.deletedDocs = Box::into_raw(Box::new(DeletedDocs::from_ids(gone))).cast();
+        // SAFETY: `create` or an earlier call boxed `old`, and the spec no longer points at it.
+        drop(unsafe { Box::from_raw(old) });
+    }
+
     fn read_guard(&self) -> ManuallyDrop<IndexSpecReadGuard<'_>> {
         // SAFETY: `spec` outlives the guard, and the single-threaded test does not
         // mutate it while the guard is held.
@@ -502,8 +510,7 @@ fn removing_a_split_key_without_compaction_returns_the_spec_statistics_to_the_ba
 fn the_thread_gc_returns_the_spec_statistics_to_the_baseline_too() {
     for compact in [true, false] {
         let (mut test, baseline) = spec_with_a_split_key();
-        test.spec.docs.deletedDocs =
-            Box::into_raw(Box::new(DeletedDocs::from_ids(big_docs()))).cast();
+        test.set_deleted_docs(big_docs());
         let mut recorder = Recorder::default();
         run_cycle(&mut test, &mut recorder, compact).unwrap();
         assert!(test.index(0).get(b"big").is_none());

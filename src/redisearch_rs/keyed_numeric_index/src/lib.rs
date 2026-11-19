@@ -165,7 +165,8 @@ impl TreeCharge {
 /// A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
 /// a key never maps to a tree that was never filled. GC empties trees through
 /// [`update_tree`](KeyedNumericIndex::update_tree) and then drops them with
-/// [`remove_key_if_empty`](KeyedNumericIndex::remove_key_if_empty).
+/// [`remove_empty_key`](KeyedNumericIndex::remove_empty_key), which reports what to
+/// subtract from the spec statistics.
 ///
 /// # Tree identity
 ///
@@ -331,6 +332,7 @@ impl KeyedNumericIndex {
     /// Returns what the tree charged the spec statistics, to be subtracted by the caller,
     /// or `None` if nothing was dropped. The table is not shrunk, but its reported capacity
     /// can still drop, and [`memory_usage`](Self::memory_usage) follows it.
+    #[must_use = "the charge must be subtracted from the spec statistics"]
     pub fn remove_empty_key(&mut self, key: &[u8], expected: TreeUniqueId) -> Option<TreeCharge> {
         let tree = self.keys.get(key)?;
         if tree.unique_id() != expected || tree.num_entries() > 0 {
@@ -345,14 +347,17 @@ impl KeyedNumericIndex {
     }
 
     /// [`remove_empty_key`](Self::remove_empty_key), reporting only whether a tree was dropped.
+    ///
+    /// The dropped tree's charge is discarded, so the spec statistics stay stale; GC must use
+    /// [`remove_empty_key`](Self::remove_empty_key).
     pub fn remove_key_if_empty(&mut self, key: &[u8], expected: TreeUniqueId) -> bool {
         self.remove_empty_key(key, expected).is_some()
     }
 
     /// Drop every key whose tree holds no entries, and return how many were dropped.
     ///
-    /// Visits every key, so GC of a known tree should use
-    /// [`remove_key_if_empty`](Self::remove_key_if_empty).
+    /// Visits every key, and discards the charges of the dropped trees, so the spec statistics
+    /// stay stale; GC must use [`remove_empty_key`](Self::remove_empty_key).
     pub fn remove_empty_keys(&mut self) -> usize {
         let table_before = self.table_bytes();
         let mut freed = 0;

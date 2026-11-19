@@ -51,7 +51,8 @@ typedef struct KeyedNumericBatch KeyedNumericBatch;
  * A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
  * a key never maps to a tree that was never filled. GC empties trees through
  * [`update_tree`](KeyedNumericIndex::update_tree) and then drops them with
- * [`remove_key_if_empty`](KeyedNumericIndex::remove_key_if_empty).
+ * [`remove_empty_key`](KeyedNumericIndex::remove_empty_key), which reports what to
+ * subtract from the spec statistics.
  *
  * # Tree identity
  *

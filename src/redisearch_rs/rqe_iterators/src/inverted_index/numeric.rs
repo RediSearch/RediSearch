@@ -100,8 +100,9 @@ pub struct KeyedBinding {
 ///
 /// # Safety
 ///
-/// 1. The spec lock must be held at least for reading: the index is only mutated under the
-///    write lock, and the field array only changes under it.
+/// 1. The spec lock must be held at least for reading, and for as long as the returned
+///    reference is used: the index is only mutated under the write lock, and the field array
+///    only changes under it.
 unsafe fn keyed_index(
     spec: &ffi::IndexSpec,
     field_index: FieldIndex,

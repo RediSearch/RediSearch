@@ -121,32 +121,35 @@ def testExistingFieldTypesUnchanged(env):
     env.assertEqual(types, ['TEXT', 'TAG', 'NUMERIC', 'GEO', 'GEOSHAPE', 'VECTOR'])
 
 
-def modules_info_line(env, name):
-    """The value of `name` in INFO MODULES, or None if absent."""
-    res = getConnectionByEnv(env).execute_command('INFO MODULES')
-    for line in res.splitlines():
-        if line.startswith(name + ':'):
-            return line.split(':', 1)[1]
-    return None
-
-
-def map_numeric_modules_info(env):
-    return modules_info_line(env, 'search_fields_map_numeric')
+def modules_info_lines(env, name):
+    """The value of `name` in INFO MODULES of every shard, [None] for a shard without it."""
+    values = []
+    for conn in env.getOSSMasterNodesConnectionList():
+        value = None
+        for line in conn.execute_command('INFO MODULES').splitlines():
+            if line.startswith(name + ':'):
+                value = line.split(':', 1)[1]
+        values.append(value)
+    return values
 
 
 def testInfoModulesCountsMapNumericFields(env):
     """INFO MODULES reports MAP NUMERIC fields only while some exist."""
     enable_unstable_features(env)
+    shards = env.shardsCount
+    field_count = lambda: modules_info_lines(env, 'search_fields_map_numeric')
+    indexing_ops = lambda: modules_info_lines(env, 'search_total_indexing_ops_map_numeric_fields')
     env.expect('FT.CREATE', 'other', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG').ok()
-    env.assertEqual(map_numeric_modules_info(env), None, message='absent without the field')
+    env.assertEqual(field_count(), [None] * shards, message='absent without the field')
     create_index(env)
-    env.assertContains('MapNumeric=1', map_numeric_modules_info(env))
-    env.assertEqual(modules_info_line(env, 'search_total_indexing_ops_map_numeric_fields'), None)
+    for value in field_count():
+        env.assertContains('MapNumeric=1', value)
+    env.assertEqual(indexing_ops(), [None] * shards)
     set_doc(env, 1, {'a': 1})
     set_doc(env, 2, {'a': 2})
-    env.assertEqual(modules_info_line(env, 'search_total_indexing_ops_map_numeric_fields'), '2')
+    env.assertEqual(sum(int(v) for v in indexing_ops() if v is not None), 2)
     env.expect('FT.DROPINDEX', 'idx').ok()
-    env.assertEqual(map_numeric_modules_info(env), None, message='gone after the index drops')
+    env.assertEqual(field_count(), [None] * shards, message='gone after the index drops')
 
 
 def testHashAlterRejected(env):
@@ -731,7 +734,7 @@ def testSortbyOtherFieldKeepsEveryRange(env):
                       'DIALECT', 2)
     text = str(profile[1])
     env.assertContains('UNION', text)
-    env.assertGreaterEqual(text.count("'NUMERIC'"), 3, message='one reader per range')
+    env.assertGreaterEqual(text.count("'Type', 'NUMERIC'"), 3, message='one reader per range')
     for extra in ([], ['WITHOUTCOUNT']):
         expected = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'SORTBY', 'n',
                            'LIMIT', 0, 10, 'DIALECT', 2)
@@ -875,6 +878,7 @@ def testGCCollectsDeletedAndUpdatedEntries(env):
 def testGCDropsAKeyWhoseDocumentsAreAllDeleted(env):
     enable_unstable_features(env)
     create_index(env)
+    empty_info = index_info(env)
     for i in range(1, 6):
         set_doc(env, i, {'gone': float(i), 'kept': float(i)})
     for i in range(1, 4):
@@ -890,8 +894,9 @@ def testGCDropsAKeyWhoseDocumentsAreAllDeleted(env):
     env.assertLess(memory, memory_before)
     # Nothing is charged to the index once its last document is gone.
     info = index_info(env)
-    env.assertEqual(int(info['total_inverted_index_blocks']), 0)
-    env.assertEqual(float(info['inverted_sz_mb']), 0)
+    env.assertEqual(int(info['total_inverted_index_blocks']),
+                    int(empty_info['total_inverted_index_blocks']))
+    env.assertEqual(float(info['inverted_sz_mb']), float(empty_info['inverted_sz_mb']))
     env.assertEqual(search_ids(env, '@metrics[gone]:[-inf +inf]'), set())
     # The key can be indexed again afterwards.
     set_doc(env, 9, {'gone': 1})

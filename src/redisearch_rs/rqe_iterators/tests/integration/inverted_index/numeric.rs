@@ -714,6 +714,8 @@ mod keyed {
     struct Fixture {
         ctx: MockContext,
         fields: *mut ffi::FieldSpec,
+        /// Unbounded filter shared by every iterator the fixture builds.
+        filter: Box<NumericFilter>,
     }
 
     impl Fixture {
@@ -723,7 +725,19 @@ mod keyed {
             let mut field: ffi::FieldSpec = unsafe { std::mem::zeroed() };
             field.set_types(FieldType_INDEXFLD_T_MAP_NUMERIC);
             let fields = Box::into_raw(Box::new(field));
-            let fixture = Self { ctx, fields };
+            let filter = Box::new(NumericFilter {
+                field_index: 0,
+                min: f64::NEG_INFINITY,
+                max: f64::INFINITY,
+                min_inclusive: true,
+                max_inclusive: true,
+                ..Default::default()
+            });
+            let fixture = Self {
+                ctx,
+                fields,
+                filter,
+            };
             // SAFETY: the mock's spec is valid and nothing else references it now.
             unsafe {
                 let spec = fixture.ctx.sctx().as_ref().spec;
@@ -787,14 +801,9 @@ mod keyed {
         }
 
         fn variant(&self) -> NumericIteratorVariant<'static> {
-            let filter: &'static NumericFilter = Box::leak(Box::new(NumericFilter {
-                field_index: 0,
-                min: f64::NEG_INFINITY,
-                max: f64::INFINITY,
-                min_inclusive: true,
-                max_inclusive: true,
-                ..Default::default()
-            }));
+            // SAFETY: the box's address is stable, the filter is never mutated, and every
+            // iterator is dropped before the fixture that built it.
+            let filter: &'static NumericFilter = unsafe { &*std::ptr::from_ref(&*self.filter) };
             let field_ctx = FieldFilterContext {
                 field: FieldMaskOrIndex::Index(0),
                 predicate: FieldExpirationPredicate::Default,
