@@ -31,7 +31,7 @@ typedef enum {
   DISK_ASM_IMPORT_SCANNING,
   // The slots are rebuilt and the gate released.
   DISK_ASM_IMPORT_REBUILT,
-  // The rebuild cannot complete; the gate, if held, is kept so the import cannot finish.
+  // The rebuild cannot complete; the gate is kept so the import cannot finish.
   DISK_ASM_IMPORT_REBUILD_FAILED,
   // The attempt ended (IMPORT_COMPLETED / IMPORT_FAILED).
   DISK_ASM_IMPORT_COMPLETED,
@@ -113,7 +113,7 @@ static void fail(DiskASMImport *imp, const char *error) {
   imp->phase = DISK_ASM_IMPORT_REBUILD_FAILED;
   imp->stats.lastError = error;
   // TODO(MOD-20202): abort the attempt with RedisModule_ClusterAbortSlotMigration; until then it
-  // stays blocked on the gate, or, without the gate, completes with the slots unindexed.
+  // stays blocked on the gate.
   RedisModule_Log(RSDummyContext, "warning",
                   "ASM import %s: search cannot rebuild the imported slots: %s", imp->taskId,
                   error);
@@ -243,10 +243,7 @@ static void importScanTask(void *arg) {
 
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info) {
-  if (activeImport) {
-    RS_LOG_ASSERT(false, "ASM import: IMPORT_SST_BASE_READY while another attempt is live");
-    detach(DISK_ASM_IMPORT_FAILED);
-  }
+  RS_LOG_ASSERT(!activeImport, "ASM import: IMPORT_SST_BASE_READY while another attempt is live");
 
   DiskASMImport *imp = rm_calloc(1, sizeof(*imp));
   imp->taskId = rm_strdup(info->task_id);
@@ -265,12 +262,10 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
   };
   activeImport = imp;
 
-  if (RedisModule_ClusterAcquireImportGate(ctx, imp->taskId) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "ASM import %s: acquiring the import gate failed: %s",
+  // Every refusal is a misuse: base-ready is where the gate is taken, for a live SST attempt.
+  int rc = RedisModule_ClusterAcquireImportGate(ctx, imp->taskId);
+  RS_LOG_ASSERT_FMT(rc == REDISMODULE_OK, "ASM import %s: acquiring the import gate failed: %s",
                     imp->taskId, strerror(errno));
-    fail(imp, "acquiring the import gate failed");
-    return;
-  }
   imp->stats.gateHeld = true;
   RedisModule_Log(ctx, "notice", "ASM import %s: holding the import gate", imp->taskId);
 }
@@ -283,14 +278,9 @@ static void freezeSpec(IndexSpec *sp, void *ud) {
 
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   DiskASMImport *imp = activeImport;
-  if (!imp) {
-    // Base-ready precedes the overlay and creates the import even when the gate is refused.
-    RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready");
-    return;
-  }
-  if (imp->phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
-    RS_LOG_ASSERT(imp->phase == DISK_ASM_IMPORT_REBUILD_FAILED,
-                  "ASM import: the overlay ended twice");
+  // A second sweep would clear the DocIdMeta the first one wrote, so release builds skip it too.
+  if (!imp || imp->phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
+    RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready, or twice");
     return;
   }
   // FT._RESTOREIFNX in the overlay starts no backfill, so these are all the indexes the imported

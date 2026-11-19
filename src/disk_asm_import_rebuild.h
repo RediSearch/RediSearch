@@ -25,7 +25,7 @@ extern "C" {
  * (`task_id`) then rebuilds them:
  *
  * - IMPORT_SST_BASE_READY: takes the import gate, which holds back the source's later writes
- *   (the live tail) until search releases it. An attempt whose gate is refused is failed.
+ *   (the live tail) until search releases it.
  * - IMPORT_RAM_OVERLAY_RESTORE_END: freezes the participating indexes, the disk indexes that
  *   exist now, and starts a single AsyncScan sweep of the slots. For every key it clears the
  *   DocIdMeta, skips the key if it expired, and indexes it into each participating index whose
