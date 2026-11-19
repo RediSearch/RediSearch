@@ -36,7 +36,7 @@ jobs:
       triage-exists: ${{ steps.triage.outputs.triage-exists }}
       triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure Tracebit canary credentials
         uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
         with:
@@ -70,7 +70,7 @@ jobs:
           profile-region: us-east-1
           async: true
       - name: Notify Failure
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}
           webhook-type: webhook-trigger
