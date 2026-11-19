@@ -62,8 +62,6 @@ typedef struct {
   bool gateHeld;
   size_t keysScanned;
   size_t keysIndexed;
-  size_t unlinksAbsorbed;
-  size_t notificationsIgnored;
   // A static string, or NULL.
   const char *lastError;
 } DiskASMImportStats;
@@ -349,42 +347,20 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
 }
 
 //---------------------------------------------------------------------------------------------
-// Window violations and INFO
+// Window checks and INFO
 
-static DiskASMImport *scanningImportOf(const RedisModuleString *key) {
-  if (!imports || !key) return NULL;
+bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key) {
+  if (!imports || !key) return false;
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
   unsigned int slot = RedisModule_ClusterKeySlotC(name, len);
   for (size_t i = 0; i < array_len(imports); i++) {
     DiskASMImport *imp = imports[i];
     if (imp->stats.phase == DISK_ASM_IMPORT_SCANNING && slotsContain(imp->slots, slot)) {
-      return imp;
+      return true;
     }
   }
-  return NULL;
-}
-
-void DiskASM_ImportRebuild_ReportIgnoredNotification(const RedisModuleString *key) {
-  DiskASMImport *imp = scanningImportOf(key);
-  if (!imp) return;
-  imp->stats.notificationsIgnored++;
-  RedisModule_Log(RSDummyContext, "warning",
-                  "ASM import %s: ignored a keyspace notification in a slot being rebuilt; the "
-                  "key may stay stale in the index",
-                  imp->taskId);
-  RS_LOG_ASSERT(false, "ASM import: a write reached a slot being rebuilt");
-}
-
-void DiskASM_ImportRebuild_ReportAbsorbedUnlink(const RedisModuleString *key) {
-  DiskASMImport *imp = scanningImportOf(key);
-  if (!imp) return;
-  imp->stats.unlinksAbsorbed++;
-  RedisModule_Log(RSDummyContext, "warning",
-                  "ASM import %s: kept the documents of a key deleted in a slot being rebuilt; "
-                  "the index may keep a document of a deleted key",
-                  imp->taskId);
-  RS_LOG_ASSERT(false, "ASM import: a delete reached a slot being rebuilt");
+  return false;
 }
 
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
@@ -404,10 +380,6 @@ void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
                                     stats ? stats->keysScanned : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_indexed",
                                     stats ? stats->keysIndexed : 0);
-  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_unlinks_absorbed",
-                                    stats ? stats->unlinksAbsorbed : 0);
-  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_notifications_ignored",
-                                    stats ? stats->notificationsIgnored : 0);
   RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_last_error",
                                   stats && stats->lastError ? stats->lastError : "none");
 }

@@ -213,9 +213,8 @@ int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *even
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
-    if (GetRedisCmd(event) != _null_cmd) {
-      DiskASM_ImportRebuild_ReportIgnoredNotification(key);
-    }
+    RS_LOG_ASSERT(GetRedisCmd(event) == _null_cmd || !DiskASM_ImportRebuild_IsSweepingKey(key),
+                  "ASM import: a write reached a slot being rebuilt");
     return REDISMODULE_OK;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
@@ -253,9 +252,8 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              int count) {
   REDISMODULE_NOT_USED(type);
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
-    if (GetRedisCmd(event) != _null_cmd) {
-      DiskASM_ImportRebuild_ReportIgnoredNotification(key);
-    }
+    RS_LOG_ASSERT(GetRedisCmd(event) == _null_cmd || !DiskASM_ImportRebuild_IsSweepingKey(key),
+                  "ASM import: a write reached a slot being rebuilt");
     return;
   }
   enum RedisCmd redisCommand = GetRedisCmd(event);
