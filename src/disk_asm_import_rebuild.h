@@ -48,7 +48,7 @@ void DiskASM_ImportRebuild_OnImportEnded(bool completed);
 
 #ifdef ENABLE_ASSERT
 // Whether `key`'s slot is being rebuilt. Flex promises that no write and no delete reaches such a
-// slot until the gate is released, which debug builds assert. `key` may be NULL.
+// slot until the gate is released, which debug builds assert.
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key);
 #endif
 

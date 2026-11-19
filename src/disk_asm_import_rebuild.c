@@ -278,11 +278,8 @@ static void freezeSpec(IndexSpec *sp, void *ud) {
 
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   DiskASMImport *imp = activeImport;
-  // A second sweep would clear the DocIdMeta the first one wrote, so release builds skip it too.
-  if (!imp || imp->phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
-    RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready, or twice");
-    return;
-  }
+  RS_LOG_ASSERT(imp && imp->phase == DISK_ASM_IMPORT_AWAITING_OVERLAY_END,
+                "ASM import: the overlay ended before the base was ready, or twice");
   // FT._RESTOREIFNX in the overlay starts no backfill, so these are all the indexes the imported
   // keys belong to.
   imp->specs = array_new(WeakRef, 1);
@@ -319,7 +316,8 @@ static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int sl
 }
 
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key) {
-  if (!activeImport || activeImport->phase != DISK_ASM_IMPORT_SCANNING || !key) return false;
+  // The window also opens without an import, through _FT.DEBUG ASM_IMPORT_WINDOW.
+  if (!activeImport || activeImport->phase != DISK_ASM_IMPORT_SCANNING) return false;
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
   return slotsContain(activeImport->slots, RedisModule_ClusterKeySlotC(name, len));
