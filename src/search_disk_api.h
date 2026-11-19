@@ -567,17 +567,23 @@ typedef struct IndexDiskAPI {
    * replication without waiting for a reopen.
    *
    * Called once per `(doc, value)` — the OSS bulk indexer loops over multi-value
-   * numeric fields.
+   * numeric fields. GEO fields stage their geohash through this call too;
+   * `fieldType` tells the storage layer which of the two the field is, so it
+   * can keep their postings apart without consulting the schema.
    *
    * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param docId Document ID to index
-   * @param value Numeric value to associate with the document
-   * @param fieldIndex Field index for the numeric field
+   * @param value Numeric value, or a GEO field's geohash, to associate with the document
+   * @param fieldIndex Field index for the numeric or GEO field
+   * @param fieldType `INDEXFLD_T_NUMERIC` or `INDEXFLD_T_GEO`
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
+  bool (*indexNumeric)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                       SearchDiskWriteBatchHandle *batch, t_docId docId, double value,
+                       t_fieldIndex fieldIndex, FieldType fieldType);
 
   /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
@@ -1139,10 +1145,10 @@ typedef struct PerFieldTextDiskMetrics {
 } PerFieldTextDiskMetrics;
 
 /**
- * @brief Per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+ * @brief Per-field disk metrics for a TAG, NUMERIC, GEO, or VECTOR field.
  *
  * Each of these field types owns its own column family (`tag_<index>`,
- * `numeric_<index>`, `vector_<index>`), so per-field metrics are read directly
+ * `numeric_<index>`, `geo_<index>`, `vector_<index>`), so per-field metrics are read directly
  * from that field's CF. No new counters are maintained for this type; the
  * values come from the storage layer's per-CF statistics on demand.
  */
@@ -1271,10 +1277,10 @@ typedef struct MetricsDiskAPI {
                                                  t_fieldId ftId);
 
   /**
-   * @brief Get per-field disk metrics for a TAG or NUMERIC field.
+   * @brief Get per-field disk metrics for a TAG, NUMERIC, or GEO field.
    *
    * These field types each own their own column family (`tag_<index>`,
-   * `numeric_<index>`), named with the field's unique `fieldIndex`. The disk
+   * `numeric_<index>`, `geo_<index>`), named with the field's unique `fieldIndex`. The disk
    * side resolves the field's CF from `fieldIndex` and reads its per-CF
    * statistics. VECTOR fields are keyed by name instead — use
    * `getVectorFieldMetrics`.

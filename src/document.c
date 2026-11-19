@@ -640,14 +640,14 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (hasFieldExpiration), (isMulti),         \
                         RSGlobalConfig.numericTreeMaxDepthRange)
 
-static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                   const FieldSpec *fs, const FieldIndexerData *fdata,
+static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const FieldSpec *fs,
+                                   const FieldIndexerData *fdata, FieldType fieldType,
                                    QueryError *status) {
   const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
   const uint32_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
   for (uint32_t i = 0; i < count; ++i) {
     if (!SearchDisk_IndexNumeric(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch,
-                                 aCtx->doc->docId, values[i], fs->index)) {
+                                 aCtx->doc->docId, values[i], fs->index, fieldType)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
       return -1;
     }
@@ -655,11 +655,12 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
   return 0;
 }
 
-FIELD_BULK_INDEXER(numericIndexer) {
+// Indexes both NUMERIC and GEO fields; `fieldType` says which, since a GEO
+// value is a geohash stored in a numeric range tree.
+static int numericIndexer(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const FieldSpec *fs,
+                          const FieldIndexerData *fdata, FieldType fieldType, QueryError *status) {
   if (aCtx->disk.batch) {
-    // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
-    // IXFLDPOS_GEO through this indexer.
-    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
+    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, fieldType, status);
   }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
@@ -909,10 +910,8 @@ FIELD_BULK_APPLIER(numericApplier) {
 }
 
 FIELD_BULK_APPLIER(geoApplier) {
-  // Per-spec geo stats are bumped by `numericIndexer` in both modes (geo
-  // values are stored as geohash `f64`s in the numeric index, so the same
-  // code path applies). The applier only handles the global field-docs
-  // counter.
+  // Per-spec geo stats are bumped by `numericIndexer` in both modes. The applier
+  // only handles the global field-docs counter.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
@@ -951,8 +950,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = tagIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
+          rc = numericIndexer(cur, sctx, fs, fdata, INDEXFLD_T_NUMERIC, status);
+          break;
         case IXFLDPOS_GEO:
-          rc = numericIndexer(cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(cur, sctx, fs, fdata, INDEXFLD_T_GEO, status);
           break;
         case IXFLDPOS_VECTOR:
           // Disk mode: defer the actual `VecSimIndex_AddVector` to
