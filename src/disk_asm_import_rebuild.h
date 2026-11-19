@@ -35,6 +35,9 @@ extern "C" {
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
  * - IMPORT_COMPLETED / IMPORT_FAILED: tears the coordinator down, stopping its sweep.
+ * - The backfill of an index created after the overlay ended waits for the import to end
+ *   (DiskASM_ImportRebuild_DefersBackfill): the sweep never indexes into it, and the backfill
+ *   skips slots this node does not serve yet, so started earlier it would miss them for good.
  *
  * Every function runs on the main thread or under the GIL.
  */
@@ -52,6 +55,10 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
 // slot until the gate is released, which debug builds assert. `key` may be NULL.
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key);
 #endif
+
+// Whether the backfill of the index `specId` must not start yet. Only meaningful on disk, the only
+// mode with SST imports. Lock-free, for reindex threads.
+bool DiskASM_ImportRebuild_DefersBackfill(uint64_t specId);
 
 // INFO fields of the latest import attempt, active or ended.
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx);

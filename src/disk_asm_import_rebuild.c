@@ -90,6 +90,23 @@ static arrayof(DiskASMImport *) imports = NULL;
 // The latest attempt that ended, for INFO once no coordinator is left.
 static DiskASMImportStats lastEnded = {.taskId = "", .phase = DISK_ASM_IMPORT_COMPLETED};
 static bool anyEnded = false;
+// The lowest frozen specId among the attempts whose overlay ended and that have not ended, or
+// UINT64_MAX. Written under the GIL, read by reindex threads without it.
+static uint64_t backfillDeferredAboveSpecId = UINT64_MAX;
+
+static void updateBackfillDeferral(void) {
+  uint64_t lowest = UINT64_MAX;
+  for (size_t i = 0; imports && i < array_len(imports); i++) {
+    if (imports[i]->specs && imports[i]->frozenMaxSpecId < lowest) {
+      lowest = imports[i]->frozenMaxSpecId;
+    }
+  }
+  __atomic_store_n(&backfillDeferredAboveSpecId, lowest, __ATOMIC_RELEASE);
+}
+
+bool DiskASM_ImportRebuild_DefersBackfill(uint64_t specId) {
+  return specId > __atomic_load_n(&backfillDeferredAboveSpecId, __ATOMIC_ACQUIRE);
+}
 
 static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slots) {
   size_t size = sizeof(*slots) + slots->num_ranges * sizeof(slots->ranges[0]);
@@ -140,6 +157,7 @@ static void detach(DiskASMImport *imp, DiskASMImportPhase endPhase) {
   size_t i = findIndex(imp->taskId);
   RS_ASSERT(i != SIZE_MAX);
   array_del(imports, i);
+  updateBackfillDeferral();
   lastEnded = imp->stats;
   lastEnded.phase = endPhase;
   lastEnded.gateHeld = false;
@@ -318,6 +336,7 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
   // keys belong to.
   imp->specs = array_new(WeakRef, 1);
   Indexes_ForEachSpec(freezeSpec, imp);
+  updateBackfillDeferral();
 
   imp->stats.phase = DISK_ASM_IMPORT_SCANNING;
   imp->scanRunning = true;

@@ -549,6 +549,10 @@ void ReindexPool_AddImportTask(void (*task)(void *), void *arg) {
   redisearch_thpool_add_work(asmImportPool, task, arg, THPOOL_PRIORITY_HIGH);
 }
 
+bool ReindexPool_IsJoining(void) {
+  return GilGate_IsJoining(&reindexGilGate);
+}
+
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool == NULL && asmImportPool == NULL) {
     return;
