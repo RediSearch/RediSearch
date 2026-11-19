@@ -803,6 +803,12 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
+
+  /** GC worker only: whether any GC-owned CF has at least `fileThreshold` L0 files.
+   * Metadata sampling only; false for an unavailable property or a zero threshold.
+   * This is a scheduling hint, never proof that deleted IDs can be retired.
+   */
+  bool (*gcL0Pressure)(RedisSearchDiskIndexSpec *index, uint64_t fileThreshold);
 } IndexDiskAPI;
 
 /** Disk index operations supporting slot migration. */
@@ -1366,3 +1372,4 @@ extern void SearchDisk_DebugResetCompactionController(void);
 #ifdef __cplusplus
 }
 #endif
+

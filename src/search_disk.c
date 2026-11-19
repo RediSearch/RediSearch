@@ -556,6 +556,11 @@ size_t SearchDisk_GetLiveSnapshotCount(void) {
     return atomic_load(&liveSnapshots);
 }
 
+bool SearchDisk_GCL0Pressure(RedisSearchDiskIndexSpec *index, uint64_t fileThreshold) {
+    RS_ASSERT(disk && index);
+    return disk->index.gcL0Pressure && disk->index.gcL0Pressure(index, fileThreshold);
+}
+
 DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     return disk->index.runGC(index, stats);
@@ -895,3 +900,4 @@ SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
   return disk->slotMigration.runTrimBatch(index, batch, ranges, numRanges, maxDocId, maxScanned, callback,
                                           ctx);
 }
+

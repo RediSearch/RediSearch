@@ -382,6 +382,9 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  */
 DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
+/** See IndexDiskAPI.gcL0Pressure. */
+bool SearchDisk_GCL0Pressure(RedisSearchDiskIndexSpec *index, uint64_t fileThreshold);
+
 /**
  * @brief Create an IndexIterator for a term in the inverted index
  *
@@ -1092,3 +1095,4 @@ SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
 #ifdef __cplusplus
 }
 #endif
+

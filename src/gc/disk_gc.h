@@ -12,6 +12,7 @@
 
 #include "redismodule.h"
 #include "gc.h"
+#include "disk_gc_policy.h"
 #include "util/references.h"
 
 #ifdef __cplusplus
@@ -26,7 +27,8 @@ extern "C" {
 /* Internal definition of the disk GC context (each disk index has one). */
 typedef struct DiskGC {
   WeakRef index;
-  RS_Atomic(size_t) intervalSec;
+  // Accessed only by the GC worker; per-index runs do not overlap.
+  DiskGCPolicyState policy;
   // Tracks only writes since last GC run (no updates)
   RS_Atomic(size_t) writesFromLastRun;
   // Delete notifications used to decide when another cycle is eligible.
@@ -69,3 +71,4 @@ void DiskGC_Cleanup(void);
 #endif
 
 #endif /* SRC_DISK_GC_H_ */
+
