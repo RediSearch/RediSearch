@@ -47,12 +47,9 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
 void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
                                          bool completed);
 
-// A keyspace notification on `key` was ignored, or its unlink kept its documents, because its
-// slot is in the import window. While a sweep rebuilds that slot this breaks Flex's promise that
-// the slots see no writes and no deletes until the gate is released, so it is counted, logged
-// and asserted in debug builds.
-void DiskASM_ImportRebuild_ReportIgnoredNotification(const RedisModuleString *key);
-void DiskASM_ImportRebuild_ReportAbsorbedUnlink(const RedisModuleString *key);
+// Whether a sweep is rebuilding `key`'s slot. Flex promises that no write and no delete reaches
+// such a slot until the gate is released, which debug builds assert. `key` may be NULL.
+bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key);
 
 // INFO fields of the latest import attempt, active or ended.
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx);
