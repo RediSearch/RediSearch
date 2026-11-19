@@ -20,7 +20,6 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "search_disk.h"
-#include "slot_cleanup.h"
 #include "spec.h"
 #include "util/arr/arr.h"
 #include "util/references.h"
@@ -280,87 +279,6 @@ static void importScanTask(void *arg) {
 }
 
 //---------------------------------------------------------------------------------------------
-// Cleanup of failed imports
-
-#define DISK_ASM_NUM_SLOTS 16384
-
-// Slots of failed imports whose documents are not scheduled for deletion yet, allocated while
-// there is one. Kept apart from the attempts: a failed attempt ends at IMPORT_FAILED, its cleanup
-// only once Flex trims its keys.
-static bool *cleanupPending = NULL;
-static size_t numCleanupPending = 0;
-
-static void markCleanupPending(const RedisModuleSlotRangeArray *slots) {
-  if (!cleanupPending) cleanupPending = rm_calloc(DISK_ASM_NUM_SLOTS, sizeof(*cleanupPending));
-  for (int32_t r = 0; r < slots->num_ranges; r++) {
-    for (unsigned int slot = slots->ranges[r].start; slot <= slots->ranges[r].end; slot++) {
-      if (!cleanupPending[slot]) {
-        cleanupPending[slot] = true;
-        numCleanupPending++;
-      }
-    }
-  }
-}
-
-// Removes the slots of `slots` that await cleanup from the pending set and returns them, or NULL
-// if there are none.
-static RedisModuleSlotRangeArray *takeCleanupPending(const RedisModuleSlotRangeArray *slots) {
-  if (!numCleanupPending || !slots) return NULL;
-  size_t maxRanges = 0;
-  for (int32_t r = 0; r < slots->num_ranges; r++) {
-    maxRanges += slots->ranges[r].end - slots->ranges[r].start + 1;
-  }
-  RedisModuleSlotRangeArray *taken =
-      rm_malloc(sizeof(*taken) + maxRanges * sizeof(taken->ranges[0]));
-  taken->num_ranges = 0;
-  for (int32_t r = 0; r < slots->num_ranges; r++) {
-    for (unsigned int slot = slots->ranges[r].start; slot <= slots->ranges[r].end; slot++) {
-      if (!cleanupPending[slot]) continue;
-      cleanupPending[slot] = false;
-      numCleanupPending--;
-      RedisModuleSlotRange *last = taken->num_ranges ? &taken->ranges[taken->num_ranges - 1] : NULL;
-      if (last && last->end + 1 == slot) {
-        last->end = slot;
-      } else {
-        taken->ranges[taken->num_ranges++] = (RedisModuleSlotRange){slot, slot};
-      }
-    }
-  }
-  if (!numCleanupPending) {
-    rm_free(cleanupPending);
-    cleanupPending = NULL;
-  }
-  if (!taken->num_ranges) {
-    rm_free(taken);
-    return NULL;
-  }
-  return taken;
-}
-
-static void cleanUpFailedImport(const RedisModuleSlotRangeArray *slots, bool docsDeleted,
-                                const char *trigger) {
-  RedisModuleSlotRangeArray *pending = takeCleanupPending(slots);
-  if (!pending) return;
-  RedisModule_Log(RSDummyContext, "notice",
-                  "ASM import: deleting the documents of a failed import's slots on %s", trigger);
-  // The deletion only covers documents that exist now, so a later import of the slots keeps its
-  // own.
-  if (!docsDeleted) Indexes_DeleteSlots(pending);
-  ASM_StateMachine_FinishFailedImportCleanup(pending);
-  rm_free(pending);
-}
-
-void DiskASM_ImportRebuild_OnSlotsTrimmed(const RedisModuleSlotRangeArray *slots,
-                                          bool docsDeleted) {
-  cleanUpFailedImport(slots, docsDeleted, "their trim");
-}
-
-void DiskASM_ImportRebuild_OnImportStarted(const RedisModuleSlotRangeArray *slots) {
-  // Flex starts no import of slots it is still trimming, so their trim ended without an event.
-  cleanUpFailedImport(slots, false, "a new import of them");
-}
-
-//---------------------------------------------------------------------------------------------
 // Stage events
 
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
@@ -441,11 +359,9 @@ bool DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
     RS_LOG_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_REBUILT,
                   "ASM import: completed before search rebuilt its slots");
   } else {
-    // The keys are trimmed with the source's docIds, or with the sweep's, and the window keeps
-    // their unlinks from deleting a document by them. The window also covers an attempt that
-    // failed before its overlay started.
-    ASM_StateMachine_AwaitFailedImportCleanup(imp->slots);
-    markCleanupPending(imp->slots);
+    // The keys carry the source's docIds, or the sweep's, until Flex trims them, so an unlink
+    // must not delete a document by them. Also covers an attempt that failed before its overlay.
+    ASM_StateMachine_AwaitFailedImportTrim(imp->slots);
   }
   detach(imp, completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
   return !completed;
@@ -492,8 +408,6 @@ void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_gate_held", stats ? stats->gateHeld : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_abort_requested",
                                     stats ? stats->abortRequested : 0);
-  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_cleanup_pending_slots",
-                                    numCleanupPending);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_scanned",
                                     stats ? stats->keysScanned : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_indexed",
