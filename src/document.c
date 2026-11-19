@@ -571,6 +571,12 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 
+// Documents are not indexed into MAP NUMERIC fields yet.
+FIELD_PREPROCESSOR(mapNumericPreprocessor) {
+  (void)aCtx; (void)sctx; (void)field; (void)fs; (void)fdata;
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geometryPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_RMS:
@@ -938,6 +944,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_TAG] = tagPreprocessor,
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
+    [IXFLDPOS_MAP_NUMERIC] = mapNumericPreprocessor,
     };
 
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
@@ -969,6 +976,7 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
+        case IXFLDPOS_MAP_NUMERIC:
           break;
         default:
           rc = -1;
@@ -992,6 +1000,7 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
       // sites know which happened. They keep both counters instead.
       case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
+      case IXFLDPOS_MAP_NUMERIC: break;
     }
   }
 }

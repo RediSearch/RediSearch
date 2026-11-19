@@ -23,9 +23,15 @@
 extern "C" {
 #endif
 
+typedef struct MapNumericIndexStats {
+  size_t num_keys;
+  size_t memory;
+} MapNumericIndexStats;
+
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
+    MapNumericIndexStats mapNumericStats;
   };
   FieldType type;
   // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
@@ -92,6 +98,9 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
 
 // Reads vector metrics from a field-statistics map into initialized statistics.
 void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRReply *reply);
+
+// Reads MAP NUMERIC metrics from a field-statistics map into initialized statistics.
+void FieldSpecStats_DeserializeMapNumericMetrics(FieldSpecStats *stats, const MRReply *reply);
 
 //Get the total memory usage of all the vector fields in the index (in bytes).
 size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);

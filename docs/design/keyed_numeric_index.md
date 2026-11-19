@@ -114,16 +114,21 @@ and poor for a key space that is nearly unique per document.
 
 ## Persistence
 
-The spec RDB encoding version goes up by one. New bytes are written only for a
-`MAP NUMERIC` field. The trees are not persisted: on load the documents are
-re-indexed from the keyspace and the trees rebuilt, as numeric fields are.
+The spec RDB encoding version does not change, so an index without a `MAP NUMERIC`
+field is written and read exactly as before. The field is stored as its name, path,
+type bit and options like any other field, and has no payload of its own; a reader
+recognises it by the type bit, not by the encoding version. The trees are not
+persisted: on load the documents are re-indexed from the keyspace and the trees
+rebuilt, as numeric fields are.
 
 As in #8346, RDB load and indexing are not gated, so a field created with the
 flag on keeps loading and indexing after the flag is turned off. The gate cannot
 cover the format itself, which requirement 3 of
 [CONTRIBUTING-unstable-features.md](../CONTRIBUTING-unstable-features.md#3-do-not-touch-persisted-or-replicated-state)
-excludes. An RDB without a `MAP NUMERIC` field still loads on an older build;
-one with such a field does not, so downgrading requires dropping the field first.
+excludes. An RDB without a `MAP NUMERIC` field loads on an older build unchanged. An older
+build that meets the unknown type bit does not reject it: the field loads with no
+recognised type, so `FT.INFO` on that index aborts the server and documents fail
+indexing. Downgrading therefore requires dropping the field first.
 
 ## Garbage collection
 

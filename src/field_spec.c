@@ -17,6 +17,8 @@
 #include "geometry/geometry_api.h"
 #include "tag_index.h"
 #include "numeric_range_tree_ffi.h"
+#include "keyed_numeric_index_ffi.h"
+#include "config.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
@@ -78,6 +80,18 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       fs->tree = NULL;
     }
   }
+  if (FIELD_IS(fs, INDEXFLD_T_MAP_NUMERIC)) {
+    KeyedNumericIndex_Free(fs->mapNumericOpts.index);
+    fs->mapNumericOpts.index = NULL;
+  }
+}
+
+struct KeyedNumericIndex *FieldSpec_OpenMapNumericIndex(FieldSpec *fs, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_MAP_NUMERIC));
+  if (!fs->mapNumericOpts.index && create_if_missing) {
+    fs->mapNumericOpts.index = KeyedNumericIndex_New(RSGlobalConfig.numericCompress);
+  }
+  return fs->mapNumericOpts.index;
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -93,6 +107,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_GEO:      return SPEC_GEO_STR;
   case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
   case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
+  case IXFLDPOS_MAP_NUMERIC: return SPEC_MAP_NUMERIC_STR;
 
   default:
     RS_ABORT_ALWAYS("oops");

@@ -1261,7 +1261,7 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
   const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
   static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
                                        SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
-                                       SPEC_VECTOR_STR};
+                                       SPEC_VECTOR_STR,   SPEC_MAP_STR};
   for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
     if (!strcasecmp(next, starts[i])) {
       return true;
@@ -1417,6 +1417,39 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
   return 1;
 }
 
+// Parse what follows `MAP`: `NUMERIC`, with no other type or option on the field.
+static int parseMapNumericField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  if (!AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "MAP must be followed by NUMERIC");
+    return 0;
+  }
+  if (!isSpecJson(sp)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "MAP NUMERIC fields are supported only on JSON indexes");
+    return 0;
+  }
+  if (!validateJsonFieldPath(sp, fs, status)) {
+    return 0;
+  }
+  fs->types |= INDEXFLD_T_MAP_NUMERIC;
+  fs->mapNumericOpts.index = NULL;
+
+  // Say so instead of reading an option as the name of the next field.
+  static const char *const options[] = {SPEC_SORTABLE_STR,  SPEC_UNF_STR,        SPEC_NOINDEX_STR,
+                                        SPEC_INDEXMISSING_STR, SPEC_INDEXEMPTY_STR};
+  if (!AC_IsAtEnd(ac) && !startsFieldDefinition(ac)) {
+    const char *arg = AC_StringArg(ac, ac->offset, NULL);
+    for (size_t i = 0; i < sizeof(options) / sizeof(*options); i++) {
+      if (!strcasecmp(arg, options[i])) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "MAP NUMERIC fields do not take options");
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
@@ -1435,6 +1468,16 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
+    return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_MAP_STR)) {  // MAP NUMERIC field
+    // FT.CREATE and FT.ALTER both parse fields here; RDB load does not.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, MAP_NUMERIC_UNSTABLE_ERR);
+      goto error;
+    }
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_MAP_NUMERIC_STR, fs, status)) goto error;
+    if (!parseMapNumericField(sp, fs, ac, status)) goto error;
+    // The field takes no other type and no option.
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
@@ -2487,6 +2530,7 @@ RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpe
       break;
     case INDEXFLD_T_VECTOR:    // Not in legacy
     case INDEXFLD_T_GEOMETRY:  // Not in legacy
+    case INDEXFLD_T_MAP_NUMERIC:  // Not in legacy
     case INDEXFLD_T_FULLTEXT:  // Text fields don't get a per-field index
     default:
       RS_ABORT_ALWAYS("Unsupported field type for legacy formatted key");
@@ -2832,6 +2876,19 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
     f->types = fieldTypeMap[f->types];
+  }
+
+  // The field has no payload beyond its type bit; the bit, not the encoding version, identifies
+  // it. It takes no other type or option.
+  if (FIELD_IS(f, INDEXFLD_T_MAP_NUMERIC)) {
+    if (f->types != INDEXFLD_T_MAP_NUMERIC ||
+        (f->options & (FieldSpec_Sortable | FieldSpec_NotIndexable | FieldSpec_UNF |
+                       FieldSpec_IndexEmpty | FieldSpec_IndexMissing))) {
+      RedisModule_LogIOError(rdb, "warning", "Invalid MAP NUMERIC field options or types in encoding version %d",
+                             encver);
+      goto fail;
+    }
+    f->mapNumericOpts.index = NULL;
   }
 
   // Load text specific options
