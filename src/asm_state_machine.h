@@ -128,6 +128,24 @@ static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *
 }
 
 /**
+ * An SST import of the slots failed (disk_asm_import_rebuild.h): they stay in, or enter, the
+ * import window until their documents are scheduled for deletion.
+ */
+static inline void ASM_StateMachine_AwaitFailedImportCleanup(
+    const RedisModuleSlotRangeArray *slots) {
+  DiskASM_ImportWindow_Open(slots);
+}
+
+/**
+ * The documents of a failed SST import's slots are scheduled for deletion: the slots leave the
+ * import window.
+ */
+static inline void ASM_StateMachine_FinishFailedImportCleanup(
+    const RedisModuleSlotRangeArray *slots) {
+  DiskASM_ImportWindow_Close(slots);
+}
+
+/**
  * When slots have finished migrating, we need to mark them as fully available but not owned.
  * This means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
 */

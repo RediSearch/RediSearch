@@ -34,7 +34,12 @@ extern "C" {
  *   tail is indexed by its notifications, and its deletes find the sweep's own docIds. A sweep
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
+ * - A failed rebuild, including a refused gate, aborts the attempt
+ *   (RedisModule_ClusterAbortSlotMigration).
  * - IMPORT_COMPLETED / IMPORT_FAILED: tears the coordinator down, stopping its sweep.
+ * - After IMPORT_FAILED, the slots stay in the import window until their documents are scheduled
+ *   for deletion: on their trim, or at the latest when a new import of them starts. Imports of
+ *   other slots are not held back meanwhile.
  *
  * Every function runs on the main thread or under the GIL.
  */
@@ -44,8 +49,16 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info);
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
                                         const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
+// Returns whether the slots stay in the import window until their cleanup.
+bool DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
                                          bool completed);
+
+// An import of `slots` is starting, of any kind.
+void DiskASM_ImportRebuild_OnImportStarted(const RedisModuleSlotRangeArray *slots);
+
+// Flex trimmed `slots`. `docsDeleted`: the trim already scheduled the deletion of their
+// documents (Indexes_DeleteSlots).
+void DiskASM_ImportRebuild_OnSlotsTrimmed(const RedisModuleSlotRangeArray *slots, bool docsDeleted);
 
 #ifdef ENABLE_ASSERT
 // Whether `key`'s slot is being rebuilt. Flex promises that no write and no delete reaches such a
