@@ -106,7 +106,10 @@ static inline void ASM_StateMachine_FailImport(void) {
   asm_schema_registry_end_import();
 }
 
-/** Clears pre-snapshot schema records before Core restores import state. */
+/**
+ * A replica full sync during an import may carry no Search aux payload, so records from before the
+ * snapshot must be dropped here rather than when it loads.
+ */
 static inline void ASM_StateMachine_BeginLoading(void) {
   asm_schema_registry_begin_loading();
 }
