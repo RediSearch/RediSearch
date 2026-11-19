@@ -34,6 +34,10 @@ extern "C" {
  *   tail is indexed by its notifications, and its deletes find the sweep's own docIds. A sweep
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
+ * - IMPORT_COMPLETED: backfills the slots, in one more sweep, into the indexes created after the
+ *   overlay ended, which the rebuild never indexes into and whose own backfill skips slots this
+ *   node does not serve yet. Until it finishes they lack the imported documents, as any index
+ *   does right after FT.CREATE.
  * - IMPORT_COMPLETED / IMPORT_FAILED: tears the coordinator down, stopping its sweep.
  *
  * Every function runs on the main thread or under the GIL.
