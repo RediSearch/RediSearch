@@ -13,8 +13,18 @@
 /**
  * One numeric range tree per key.
  *
- * A tree is created on the first [`add`](KeyedNumericIndex::add) for its key. A key whose
- * tree holds no entries is dropped by [`remove_empty_keys`](KeyedNumericIndex::remove_empty_keys).
+ * A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
+ * a key never maps to a tree that was never filled. GC empties trees through
+ * [`update_tree`](KeyedNumericIndex::update_tree) and then drops them with
+ * [`remove_key_if_empty`](KeyedNumericIndex::remove_key_if_empty).
+ *
+ * # Tree identity
+ *
+ * A tree's address does not identify it: once its key is removed and added again, a new
+ * tree can be allocated at the same address. Anything that holds on to a tree across a
+ * release of the lock guarding the index must identify it by
+ * [`NumericRangeTree::unique_id`] and look it up again with
+ * [`get_checked`](KeyedNumericIndex::get_checked).
  */
 typedef struct KeyedNumericIndex KeyedNumericIndex;
 
@@ -25,12 +35,18 @@ extern "C" {
 /**
  * Add (`doc_id`, `value`) under the key of `key_len` bytes at `key`.
  *
- * Returns the change to the key's tree, as `_NumericRangeTree_Add` does.
+ * Returns the change to the key's tree, as [`NumericRangeTree::add`] does. The result
+ * excludes the new key and the tree's base size, which only
+ * [`KeyedNumericIndex_MemoryUsage`] reflects.
+ *
+ * A document must be added at most once per key; a repeat is dropped, as are an
+ * out-of-order `doc_id` and a `NaN` value. See [`KeyedNumericIndex::add`].
  *
  * # Safety
  *
  * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. The caller must have unique access to `index`.
+ * 2. The caller must have unique access to `index`: no other reference to it, and no
+ *    pointer from [`KeyedNumericIndex_Get`] being dereferenced, while this runs.
  * 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
  */
 struct AddResult KeyedNumericIndex_Add(struct KeyedNumericIndex *index, t_docId doc_id, const uint8_t *key, size_t key_len, double value, bool has_field_expiration, size_t max_depth_range);
@@ -49,22 +65,44 @@ void KeyedNumericIndex_Free(struct KeyedNumericIndex *index);
 /**
  * The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.
  *
- * The tree stays at the returned address until the key is removed or the
- * index is freed.
+ * The address does not identify the tree: after its key is removed and re-added, another
+ * tree may live at the same address. A caller that releases the spec lock must compare
+ * [`NumericRangeTree::unique_id`] through [`KeyedNumericIndex_GetChecked`] instead of
+ * trusting the pointer.
  *
  * # Safety
  *
  * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+ * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+ *    the spec read lock.
+ * 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+ * 4. The returned pointer may only be dereferenced while that lock is still held. Any
+ *    mutator run under the write lock, such as [`KeyedNumericIndex_Add`] or key removal,
+ *    may change the tree behind it or free it.
  */
 const struct NumericRangeTree *KeyedNumericIndex_Get(const struct KeyedNumericIndex *index, const uint8_t *key, size_t key_len);
 
 /**
- * Bytes used by the index, its keys and their trees.
+ * Like [`KeyedNumericIndex_Get`], but NULL unless the tree's
+ * [`NumericRangeTree::unique_id`] equals `expected_tree_id`.
+ *
+ * This is how a reader re-resolves a tree it saw before releasing the spec lock: NULL
+ * means the key is gone or its tree was replaced.
  *
  * # Safety
  *
- * `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * Same as [`KeyedNumericIndex_Get`].
+ */
+const struct NumericRangeTree *KeyedNumericIndex_GetChecked(const struct KeyedNumericIndex *index, const uint8_t *key, size_t key_len, uint32_t expected_tree_id);
+
+/**
+ * Bytes used by the index, its keys, their trees and the map's table.
+ *
+ * # Safety
+ *
+ * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+ *    the spec read lock.
  */
 size_t KeyedNumericIndex_MemoryUsage(const struct KeyedNumericIndex *index);
 
@@ -78,7 +116,9 @@ struct KeyedNumericIndex *KeyedNumericIndex_New(bool compress_floats);
  *
  * # Safety
  *
- * `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+ *    the spec read lock.
  */
 size_t KeyedNumericIndex_NumKeys(const struct KeyedNumericIndex *index);
 
@@ -87,7 +127,9 @@ size_t KeyedNumericIndex_NumKeys(const struct KeyedNumericIndex *index);
  *
  * # Safety
  *
- * `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+ *    the spec read lock.
  */
 uint32_t KeyedNumericIndex_UniqueId(const struct KeyedNumericIndex *index);
 

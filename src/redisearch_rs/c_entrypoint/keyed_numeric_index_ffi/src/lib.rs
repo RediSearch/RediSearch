@@ -43,12 +43,18 @@ pub unsafe extern "C" fn KeyedNumericIndex_Free(index: *mut KeyedNumericIndex) {
 
 /// Add (`doc_id`, `value`) under the key of `key_len` bytes at `key`.
 ///
-/// Returns the change to the key's tree, as `_NumericRangeTree_Add` does.
+/// Returns the change to the key's tree, as [`NumericRangeTree::add`] does. The result
+/// excludes the new key and the tree's base size, which only
+/// [`KeyedNumericIndex_MemoryUsage`] reflects.
+///
+/// A document must be added at most once per key; a repeat is dropped, as are an
+/// out-of-order `doc_id` and a `NaN` value. See [`KeyedNumericIndex::add`].
 ///
 /// # Safety
 ///
 /// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
-/// 2. The caller must have unique access to `index`.
+/// 2. The caller must have unique access to `index`: no other reference to it, and no
+///    pointer from [`KeyedNumericIndex_Get`] being dereferenced, while this runs.
 /// 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn KeyedNumericIndex_Add(
@@ -70,13 +76,20 @@ pub unsafe extern "C" fn KeyedNumericIndex_Add(
 
 /// The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.
 ///
-/// The tree stays at the returned address until the key is removed or the
-/// index is freed.
+/// The address does not identify the tree: after its key is removed and re-added, another
+/// tree may live at the same address. A caller that releases the spec lock must compare
+/// [`NumericRangeTree::unique_id`] through [`KeyedNumericIndex_GetChecked`] instead of
+/// trusting the pointer.
 ///
 /// # Safety
 ///
 /// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
-/// 2. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+/// 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+///    the spec read lock.
+/// 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+/// 4. The returned pointer may only be dereferenced while that lock is still held. Any
+///    mutator run under the write lock, such as [`KeyedNumericIndex_Add`] or key removal,
+///    may change the tree behind it or free it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn KeyedNumericIndex_Get(
     index: *const KeyedNumericIndex,
@@ -84,36 +97,65 @@ pub unsafe extern "C" fn KeyedNumericIndex_Get(
     key_len: usize,
 ) -> *const NumericRangeTree {
     debug_assert!(!index.is_null(), "index cannot be NULL");
-    // SAFETY: 1.
+    // SAFETY: 1, 2.
     let index = unsafe { &*index };
-    // SAFETY: 2.
+    // SAFETY: 3.
     let key = unsafe { key_bytes(key, key_len) };
     index
         .get(key)
         .map_or(std::ptr::null(), |tree| tree as *const _)
 }
 
+/// Like [`KeyedNumericIndex_Get`], but NULL unless the tree's
+/// [`NumericRangeTree::unique_id`] equals `expected_tree_id`.
+///
+/// This is how a reader re-resolves a tree it saw before releasing the spec lock: NULL
+/// means the key is gone or its tree was replaced.
+///
+/// # Safety
+///
+/// Same as [`KeyedNumericIndex_Get`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn KeyedNumericIndex_GetChecked(
+    index: *const KeyedNumericIndex,
+    key: *const u8,
+    key_len: usize,
+    expected_tree_id: u32,
+) -> *const NumericRangeTree {
+    // SAFETY: the caller upholds the contract of `KeyedNumericIndex_Get`.
+    let tree = unsafe { KeyedNumericIndex_Get(index, key, key_len) };
+    // SAFETY: a non-NULL result points to a live tree while the caller holds the lock.
+    match unsafe { tree.as_ref() } {
+        Some(t) if u32::from(t.unique_id()) == expected_tree_id => tree,
+        _ => std::ptr::null(),
+    }
+}
+
 /// The number of keys that have a tree.
 ///
 /// # Safety
 ///
-/// `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+///    the spec read lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn KeyedNumericIndex_NumKeys(index: *const KeyedNumericIndex) -> usize {
     debug_assert!(!index.is_null(), "index cannot be NULL");
-    // SAFETY: the caller upholds the contract above.
+    // SAFETY: 1, 2.
     unsafe { &*index }.num_keys()
 }
 
-/// Bytes used by the index, its keys and their trees.
+/// Bytes used by the index, its keys, their trees and the map's table.
 ///
 /// # Safety
 ///
-/// `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+///    the spec read lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn KeyedNumericIndex_MemoryUsage(index: *const KeyedNumericIndex) -> usize {
     debug_assert!(!index.is_null(), "index cannot be NULL");
-    // SAFETY: the caller upholds the contract above.
+    // SAFETY: 1, 2.
     unsafe { &*index }.memory_usage()
 }
 
@@ -121,11 +163,13 @@ pub unsafe extern "C" fn KeyedNumericIndex_MemoryUsage(index: *const KeyedNumeri
 ///
 /// # Safety
 ///
-/// `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
+///    the spec read lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn KeyedNumericIndex_UniqueId(index: *const KeyedNumericIndex) -> u32 {
     debug_assert!(!index.is_null(), "index cannot be NULL");
-    // SAFETY: the caller upholds the contract above.
+    // SAFETY: 1, 2.
     unsafe { &*index }.unique_id().into()
 }
 
