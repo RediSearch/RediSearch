@@ -210,7 +210,10 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
 TEST_F(WildcardEmptyPatternTest, suffixTrieMapListSignalsUnusable) {
   TrieMap *tm = NewTrieMap();
   struct timespec timeout = {};
-  EXPECT_EQ((void *)GetList_SuffixTrieMap_Wildcard(tm, "", 0, timeout, 100, true), BAD_POINTER);
+  arrayof(char *) arr = NULL;
+  EXPECT_EQ(GetList_SuffixTrieMap_Wildcard(tm, "", 0, timeout, 100, true, &arr),
+            SUFFIX_WILDCARD_NO_ANCHOR);
+  EXPECT_EQ(arr, nullptr);
   TrieMap_Free(tm, NULL);
 }
 
@@ -302,9 +305,10 @@ TEST_F(SuffixLongWildcardPatternTest, suffixTrieMapListHandlesLongPattern) {
   std::string pattern = longWildcardPattern();
   struct timespec timeout = {};
 
-  arrayof(char *) arr =
-      GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), timeout, 100, true);
-  ASSERT_NE((void *)arr, BAD_POINTER);
+  arrayof(char *) arr = NULL;
+  ASSERT_EQ(GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), timeout, 100, true,
+                                           &arr),
+            SUFFIX_WILDCARD_MATCHES);
   ASSERT_NE(arr, nullptr);
   ASSERT_EQ(array_len(arr), 1u);
   EXPECT_STREQ(arr[0], "hello");

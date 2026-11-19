@@ -541,11 +541,13 @@ fn eval_wildcard<'index>(
             .collect()
     } else if index.has_suffix() {
         let (timeout, skip_timeout_checks) = suffix_lookup_timeout(ctx);
-        // SAFETY: the index is live for evaluation and `pattern` is readable
-        // for the call. The callee also reads the byte at `pattern[len]` while
-        // scanning for `*` runs, so it relies on the NUL terminator that
-        // `tok_ref`, an `RSTokenRefNulTerminated`, guarantees sits there.
-        let matches = unsafe {
+        let mut matches = std::ptr::null_mut();
+        // SAFETY: the index is live for evaluation, `pattern` is readable for
+        // the call and `matches` is a valid out-pointer. The callee also reads
+        // the byte at `pattern[len]` while scanning for `*` runs, so it relies
+        // on the NUL terminator that `tok_ref`, an `RSTokenRefNulTerminated`,
+        // guarantees sits there.
+        let status = unsafe {
             ffi::TagIndex_GetSuffixWildcardMatches(
                 index.as_ptr(),
                 pattern.as_ptr().cast(),
@@ -553,39 +555,37 @@ fn eval_wildcard<'index>(
                 timeout,
                 max_prefix_expansions as i64,
                 skip_timeout_checks,
+                &mut matches,
             )
         };
-        let matches = NonNull::new(matches)?;
-        // `TagIndex_GetSuffixWildcardMatches` returns the `BAD_POINTER_ADDR`
-        // sentinel, rather than a match array, when the pattern has no literal
-        // segment for the suffix trie to anchor on (it is empty or made only of
-        // `*`). The trie cannot answer such a pattern, so fall back to scanning
-        // every tag value, whereas a null result means the trie found no match.
-        // FIXME: return a proper type when porting
-        // `TagIndex_GetSuffixWildcardMatches` to Rust.
-        if matches.addr().get() == ffi::BAD_POINTER_ADDR as usize {
-            collect_filtered_readers(
+        match status {
+            ffi::SuffixWildcardStatus_SUFFIX_WILDCARD_MATCHES => {
+                let matches = NonNull::new(matches)
+                    .expect("SUFFIX_WILDCARD_MATCHES must come with a match array");
+                // SAFETY: the match array is a fat array of `char *` elements,
+                // built by the C array API and so aligned for them and freeable
+                // by `array_free`, whose ownership the call hands to us. Each
+                // element points to a NUL-terminated string owned by the
+                // suffix trie.
+                let matches = unsafe { FatArray::new(matches) };
+                collect_wildcard_suffix_readers(
+                    ctx,
+                    index,
+                    matches.as_slice(),
+                    field.index,
+                    max_prefix_expansions,
+                )
+            }
+            ffi::SuffixWildcardStatus_SUFFIX_WILDCARD_NO_MATCHES => return None,
+            ffi::SuffixWildcardStatus_SUFFIX_WILDCARD_NO_ANCHOR => collect_filtered_readers(
                 ctx,
                 index,
                 pattern,
                 PatternMode::Wildcard,
                 field.index,
                 max_prefix_expansions,
-            )
-        } else {
-            // SAFETY: any other non-null result is a fat array of `char *`
-            // elements, built by the C array API and so aligned for them and
-            // freeable by `array_free`, whose ownership the call hands to us.
-            // Each element points to a NUL-terminated string owned by the
-            // suffix trie.
-            let matches = unsafe { FatArray::new(matches) };
-            collect_wildcard_suffix_readers(
-                ctx,
-                index,
-                matches.as_slice(),
-                field.index,
-                max_prefix_expansions,
-            )
+            ),
+            _ => unreachable!("unknown SuffixWildcardStatus {status}"),
         }
     } else {
         collect_filtered_readers(
