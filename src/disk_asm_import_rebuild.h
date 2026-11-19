@@ -34,7 +34,11 @@ extern "C" {
  *   tail is indexed by its notifications, and its deletes find the sweep's own docIds. A sweep
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
+ * - A failed rebuild, including a refused gate, aborts the attempt
+ *   (RedisModule_ClusterAbortSlotMigration).
  * - IMPORT_COMPLETED / IMPORT_FAILED: tears the coordinator down, stopping its sweep.
+ * - After IMPORT_FAILED, the slots stay in the import window until Flex trims them with
+ *   TRIM_BACKGROUND, whose handler deletes their documents.
  *
  * Every function runs on the main thread or under the GIL.
  */
@@ -44,7 +48,8 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info);
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
                                         const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
+// Returns whether the slots stay in the import window until their trim.
+bool DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
                                          bool completed);
 
 #ifdef ENABLE_ASSERT

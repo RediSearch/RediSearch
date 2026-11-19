@@ -73,6 +73,16 @@ bool DiskASM_IsSlotBeingImported(unsigned int slot) {
   return slotBits && testBit(slot);
 }
 
+bool DiskASM_IsAnySlotBeingImported(const RedisModuleSlotRangeArray *slots) {
+  if (!slotBits || !slots) return false;
+  for (int32_t r = 0; r < slots->num_ranges; r++) {
+    for (unsigned int slot = slots->ranges[r].start; slot <= slots->ranges[r].end; slot++) {
+      if (testBit(slot)) return true;
+    }
+  }
+  return false;
+}
+
 bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key) {
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);

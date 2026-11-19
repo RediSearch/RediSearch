@@ -128,6 +128,39 @@ static inline void ASM_StateMachine_FailImport(const RedisModuleSlotRangeArray *
 }
 
 /**
+ * An SST import of the slots failed (disk_asm_import_rebuild.h): they stay in, or enter, the
+ * import window until Flex trims them.
+ */
+static inline void ASM_StateMachine_AwaitFailedImportTrim(const RedisModuleSlotRangeArray *slots) {
+  DiskASM_ImportWindow_Open(slots);
+}
+
+/**
+ * The slots were trimmed with TRIM_BACKGROUND: a failed SST import's slots leave the import
+ * window. No live import's slots are trimmed.
+ */
+static inline void ASM_StateMachine_TrimmedInBackground(const RedisModuleSlotRangeArray *slots) {
+  if (SearchDisk_IsEnabled()) {
+    DiskASM_ImportWindow_Close(slots);
+  }
+}
+
+/**
+ * An import of the slots starts. On disk, a slot still in the import window belongs to a failed
+ * SST import that Flex never trimmed with TRIM_BACKGROUND: it leaves the window so the new
+ * import's writes are indexed, and the failed import's documents stay in the indexes.
+ */
+static inline void ASM_StateMachine_StartImportOverStaleWindow(
+    const RedisModuleSlotRangeArray *slots) {
+  if (SearchDisk_IsEnabled() && DiskASM_IsAnySlotBeingImported(slots)) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "ASM import: a failed import of these slots was never trimmed in the "
+                    "background; its documents stay in the indexes");
+    DiskASM_ImportWindow_Close(slots);
+  }
+}
+
+/**
  * When slots have finished migrating, we need to mark them as fully available but not owned.
  * This means that these slots are fully available in the key space, but we don't own them, as they will start trimming.
 */

@@ -60,6 +60,9 @@ void DiskASM_ImportWindow_Reset(void);
 // Whether `slot` is in the window.
 bool DiskASM_IsSlotBeingImported(unsigned int slot);
 
+// Whether any slot of `slots` is in the window.
+bool DiskASM_IsAnySlotBeingImported(const RedisModuleSlotRangeArray *slots);
+
 // The out-of-line part of DiskASM_IsKeyBeingImported.
 bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key);
 
