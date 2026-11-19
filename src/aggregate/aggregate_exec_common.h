@@ -43,13 +43,12 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
 /**
- * Memory checkpoint for replaying the rows a finished pipeline buffered. It
- * reads memory only, not the request's stop flags, which a timeout has already
- * set when the replay runs from the timeout callback. On true the caller stops
- * replaying; the query OOM warning is then set in `err`. Never an error: the
- * reply has started, and StoredResults_StopBeforeReply decided ON_OOM FAIL.
+ * Memory checkpoint of the request's `limits` for replaying the rows a finished
+ * pipeline buffered. On true the caller stops replaying; the query OOM warning
+ * is then set in `err`. Never an error: the reply has started, and
+ * StoredResults_StopBeforeReply decided ON_OOM FAIL.
  */
-bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
+bool StoredResults_ShouldStopForMemory(struct QueryRequestLimits *limits, QueryError *err);
 
 /**
  * Exact memory check under ON_OOM FAIL right before the header of a reply that
@@ -75,7 +74,7 @@ bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolic
  * blocked-client timeout is the upstream stages' check.
  */
 bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestLimits *limits,
-                          RSOomPolicy oomPolicy, uint32_t *counter, int *rc);
+                          RSOomPolicy oomPolicy, int *rc);
 
 void destroyResults(SearchResult **results);
 

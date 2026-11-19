@@ -2189,7 +2189,6 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
-  uint32_t memoryCheckCalls;           // QueryMemory_Checkpoint counter for the buffer
 } RPSafeDepleter;
 
 /*
@@ -2318,7 +2317,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // ON_OOM FAIL). Under a RETURN policy the upstream ends the rows. The blocked-client flag is
     // read here because a filled sorter yields from its heap without checking it, and the
     // timeout callback waits for this drain; the wall-clock deadline is the upstream's own check.
-    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls) ||
+    if (RP_FillShouldStop(&self->base) ||
         QueryRequestLimits_IsBlockedClientTimedOut(self->depletingThreadCtx->limits)) {
       rc = RS_RESULT_STOPPED;
       break;
