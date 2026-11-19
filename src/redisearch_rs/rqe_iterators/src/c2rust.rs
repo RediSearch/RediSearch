@@ -184,7 +184,8 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIterator<'index> + ProfilePrint + 'index,
+        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I::Suspended: crate::RQESuspendedIterator<'index, Resumed<'index> = I>,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
@@ -371,42 +372,39 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         match self.type_ {
             IteratorType::Intersect => {
                 // SAFETY:
-                // - `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
-                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
-                //   wrapped intersection).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
+                // 1. and 2. `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
+                //    `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
+                //    inner type (`NewIntersectionIterator` is the sole constructor of a C
+                //    wrapped intersection). `as_raw` returns the owning pointer, whose
+                //    provenance spans the whole wrapper; a pointer derived from
+                //    `&QueryIterator` would cover only the header and make the read of the
+                //    wrapped iterator UB.
+                // 3. The borrow ends within this expression, while `self` keeps the iterator
+                //    alive.
                 let n = unsafe {
                     RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
                         self.as_raw(),
                     )
-                    .inner
+                    .inner()
                     .num_children()
                 };
                 1.0 / n.max(1) as f64
             }
             IteratorType::Union if prioritize_union_children => {
                 // SAFETY:
-                // - `type_ == Union` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new_inner` with
-                //   `UnionOpaque<CRQEIterator>` as the inner type
-                //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
+                // 1. and 2. `type_ == Union` guarantees `self` was produced by
+                //    `RQEIteratorWrapper::boxed_new_inner` with `UnionOpaque<CRQEIterator>` as
+                //    the inner type (`NewUnionIterator` is the sole constructor of a C wrapped
+                //    union). `as_raw` returns the owning pointer, whose provenance spans the
+                //    whole wrapper; a pointer derived from `&QueryIterator` would cover only
+                //    the header and make the read of the wrapped iterator UB.
+                // 3. The borrow ends within this expression, while `self` keeps the iterator
+                //    alive.
                 let n = unsafe {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
                         self.as_raw(),
                     )
-                    .inner
+                    .inner()
                     .num_children_active()
                 };
                 n.max(1) as f64
