@@ -21,8 +21,8 @@ extern "C" {
  * Rebuilds search for the slots of an SST (physical) slot-migration import, on disk.
  *
  * An SST import installs the source's keys with the source's DocIdMeta, and search keeps out of
- * their slots while the RAM overlay replays (disk_asm_import_window.h). One coordinator per import
- * attempt (`task_id`) then rebuilds them:
+ * their slots while the RAM overlay replays (disk_asm_import_window.h). Each import attempt
+ * (`task_id`) then rebuilds them:
  *
  * - IMPORT_SST_BASE_READY: takes the import gate, which holds back the source's later writes
  *   (the live tail) until search releases it. An attempt whose gate is refused is failed.
@@ -34,7 +34,7 @@ extern "C" {
  *   tail is indexed by its notifications, and its deletes find the sweep's own docIds. A sweep
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
- * - IMPORT_COMPLETED / IMPORT_FAILED: tears the coordinator down, stopping its sweep.
+ * - IMPORT_COMPLETED / IMPORT_FAILED: ends the attempt, stopping its sweep.
  *
  * Every function runs on the main thread or under the GIL.
  */

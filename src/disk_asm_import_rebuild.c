@@ -27,7 +27,7 @@
 typedef enum {
   // The gate is held; waiting for the overlay to end.
   DISK_ASM_IMPORT_AWAITING_OVERLAY_END,
-  // The sweep is queued or running, and owns the coordinator until its finish.
+  // The sweep is queued or running, and owns the DiskASMImport until its finish.
   DISK_ASM_IMPORT_SCANNING,
   // The slots are rebuilt and the gate released.
   DISK_ASM_IMPORT_REBUILT,
@@ -76,15 +76,15 @@ typedef struct {
   // frozenMaxSpecId.
   arrayof(WeakRef) specs;
   uint64_t frozenMaxSpecId;
-  // The attempt ended while the sweep ran: the sweep stops and frees the coordinator. Read by the
-  // sweep without the GIL.
+  // The attempt ended while the sweep ran: the sweep stops and frees the import. Read by the sweep
+  // without the GIL.
   bool ended;
 } DiskASMImport;
 
 // Flex runs at most one ASM task per node, and ends an attempt before retrying it. An ended
 // attempt whose sweep still runs is owned by that sweep, not by this.
 static DiskASMImport *activeImport = NULL;
-// The latest attempt that ended, for INFO once no coordinator is left.
+// The latest attempt that ended, for INFO once no import is active.
 static DiskASMImportStats lastEnded;
 static DiskASMImportPhase lastEndedPhase;
 static bool anyEnded = false;
@@ -227,7 +227,7 @@ static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScan
                   "ASM import %s: rebuilt the imported slots (scanned=%zu, indexed=%zu)",
                   imp->taskId, imp->stats.keysScanned, imp->stats.keysIndexed);
   if (RedisModule_ClusterReleaseImportGate(ctx, imp->taskId) != REDISMODULE_OK) {
-    // ENOENT: the attempt is gone, and its IMPORT_FAILED tears this coordinator down.
+    // ENOENT: the attempt is gone, and its IMPORT_FAILED ends this import.
     imp->stats.lastError = "releasing the import gate failed";
     RedisModule_Log(ctx, "warning", "ASM import %s: releasing the import gate failed: %s",
                     imp->taskId, strerror(errno));
@@ -284,7 +284,7 @@ static void freezeSpec(IndexSpec *sp, void *ud) {
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   DiskASMImport *imp = activeImport;
   if (!imp) {
-    // Base-ready precedes the overlay and creates a coordinator even when the gate is refused.
+    // Base-ready precedes the overlay and creates the import even when the gate is refused.
     RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready");
     return;
   }
@@ -306,8 +306,8 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
 }
 
 void DiskASM_ImportRebuild_OnImportEnded(bool completed) {
-  // Only an SST import creates a coordinator: a logical import, or one that failed before its base
-  // was ready, ends with none.
+  // Only an SST import creates a DiskASMImport: a logical import, or one that failed before its
+  // base was ready, ends with none.
   if (!activeImport) return;
   if (completed) {
     // The gate is held until the rebuild completed, and Flex completes no import before.
