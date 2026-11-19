@@ -9,11 +9,11 @@
 
 The schema is in utils/multi_value_aggregation.py. Every FT.AGGREGATE query is
 checked in DIALECT 1, 2 and 3 and must return the same rows there, and in
-cluster mode the same rows as standalone, except where a test says otherwise.
+cluster mode the same rows as standalone.
 """
 
 from common import *
-from utils.multi_value_aggregation import index_docs, aggregate, expect_rows
+from utils.multi_value_aggregation import index_docs, index_hash_docs, aggregate, expect_rows
 
 A = {'name': 'A', 'tags': ['cat'], 'nums': [30]}
 B = {'name': 'B', 'tags': ['fox', 'bat', 'cat'], 'nums': [25, 5, 40]}
@@ -79,23 +79,63 @@ def test_groupby_two_multi_value_fields_forms_every_combination(env):
 
 @skip(no_json=True)
 def test_groupby_single_valued_field_is_unchanged(env):
-    """A single-valued field keeps its per-dialect form."""
+    """A single-valued field keeps its per-dialect form, also after SORTBY."""
     index_docs(env, A, B)
-    env.assertEqual(aggregate(env, 'GROUPBY 1 @name', dialect=2),
-                    [{'name': 'A'}, {'name': 'B'}])
-    env.assertEqual(aggregate(env, 'GROUPBY 1 @name', dialect=3),
-                    [{'name': '["A"]'}, {'name': '["B"]'}])
+    for query in ('GROUPBY 1 @name', 'SORTBY 2 @name ASC GROUPBY 1 @name'):
+        env.assertEqual(aggregate(env, query, dialect=2), [{'name': 'A'}, {'name': 'B'}])
+        env.assertEqual(aggregate(env, query, dialect=3), [{'name': '["A"]'}, {'name': '["B"]'}])
 
 
 @skip(no_json=True)
-def test_groupby_after_loading_the_field(env):
-    """LOADing the field first changes nothing."""
+def test_groupby_after_sortby_or_limit_forms_a_group_per_value(env):
+    """GROUPBY after SORTBY or LIMIT groups the same way; in cluster the coordinator
+    does it."""
     index_docs(env, A, B)
-    expect_rows(env, 'LOAD 1 @tags GROUPBY 1 @tags REDUCE COUNT 0 AS count', [
-        {'tags': 'bat', 'count': '1'},
-        {'tags': 'cat', 'count': '2'},
-        {'tags': 'fox', 'count': '1'},
-    ])
+    for arrange in ('SORTBY 2 @name ASC', 'LIMIT 0 10'):
+        expect_rows(env, f'{arrange} GROUPBY 1 @tags REDUCE COUNT 0 AS count', [
+            {'tags': 'bat', 'count': '1'},
+            {'tags': 'cat', 'count': '2'},
+            {'tags': 'fox', 'count': '1'},
+        ])
+
+
+@skip(no_json=True)
+def test_reducers_after_sortby_take_every_value(env):
+    """The coordinator runs SUM itself here, over every value."""
+    index_docs(env, A, B)
+    expect_rows(env, 'SORTBY 2 @name ASC GROUPBY 0 REDUCE SUM 1 @nums AS sum', [{'sum': '100'}])
+
+
+@skip(no_json=True)
+def test_groupby_after_sortby_single_valued_field_is_unchanged_with_format_expand():
+    """FORMAT EXPAND (RESP3) still shows a single-valued field as its array of matches
+    when, in cluster, the coordinator groups."""
+    env = Env(protocol=3)
+    index_docs(env, A, B)
+    env.assertEqual(aggregate(env, 'FORMAT EXPAND SORTBY 2 @name ASC GROUPBY 1 @name', dialect=3),
+                    [{'name': ['A']}, {'name': ['B']}])
+
+
+def test_hash_index_is_unchanged(env):
+    """A HASH TAG holds one string, and groups on it whole, also after SORTBY."""
+    index_hash_docs(env, {'name': 'A', 'tags': 'cat,fox', 'nums': '30'})
+    for arrange in ('', 'SORTBY 2 @name ASC'):
+        expect_rows(env, f'{arrange} GROUPBY 1 @tags REDUCE SUM 1 @nums AS sum', [
+            {'tags': 'cat,fox', 'sum': '30'},
+        ])
+
+
+@skip(no_json=True)
+def test_groupby_after_loading_or_filtering_on_the_field(env):
+    """Reading the field first changes nothing, also when the coordinator groups."""
+    index_docs(env, A, B)
+    for steps in ('LOAD 1 @tags', 'LOAD 1 @tags SORTBY 2 @name ASC',
+                  "LOAD 1 @tags FILTER 'exists(@tags)' SORTBY 2 @name ASC"):
+        expect_rows(env, f'{steps} GROUPBY 1 @tags REDUCE COUNT 0 AS count', [
+            {'tags': 'bat', 'count': '1'},
+            {'tags': 'cat', 'count': '2'},
+            {'tags': 'fox', 'count': '1'},
+        ])
 
 
 @skip(no_json=True)
@@ -111,20 +151,23 @@ def test_groupby_on_a_load_alias_groups_the_loaded_value(env):
 
 @skip(no_json=True)
 def test_groupby_on_an_apply_alias_groups_the_computed_value(env):
-    """A value computed under the field's name replaces the field."""
+    """A value computed under the field's name replaces the field, also after SORTBY."""
     index_docs(env, A, B)
-    expect_rows(env, "APPLY '\"pet\"' AS tags GROUPBY 1 @tags REDUCE COUNT 0 AS count", [
-        {'tags': 'pet', 'count': '2'},
-    ])
+    for arrange in ('', 'SORTBY 2 @name ASC'):
+        expect_rows(env, f"APPLY '\"pet\"' AS tags {arrange} GROUPBY 1 @tags REDUCE COUNT 0 AS count", [
+            {'tags': 'pet', 'count': '2'},
+        ])
 
 
 @skip(no_json=True)
 def test_groupby_document_without_values_groups_under_null(env):
-    """An empty array, a missing field and only nulls all group under null."""
+    """An empty array, a missing field and only nulls all group under null, also when
+    the coordinator groups."""
     index_docs(env, {'name': 'E', 'tags': []}, {'name': 'F'}, {'name': 'G', 'tags': [None]})
-    expect_rows(env, 'GROUPBY 1 @tags REDUCE COUNT 0 AS count', [
-        {'tags': None, 'count': '3'},
-    ])
+    for arrange in ('', 'SORTBY 2 @name ASC'):
+        expect_rows(env, f'{arrange} GROUPBY 1 @tags REDUCE COUNT 0 AS count', [
+            {'tags': None, 'count': '3'},
+        ])
 
 
 @skip(no_json=True)
@@ -203,18 +246,25 @@ def test_count_distinctish_counts_each_value(env):
     expect_rows(env, 'GROUPBY 0 REDUCE COUNT_DISTINCTISH 1 @tags AS count', [{'count': '3'}])
 
 
-# Not in cluster yet: the coordinator runs COUNT_DISTINCT itself, over the first
-# value of each document, and counts 2.
-@skip(no_json=True, cluster=True)
+@skip(no_json=True)
 def test_count_distinct_counts_each_value(env):
     """cat, in both documents, counts once."""
     index_docs(env, A, B)
     expect_rows(env, 'GROUPBY 0 REDUCE COUNT_DISTINCT 1 @tags AS count', [{'count': '3'}])
 
 
-# Not in cluster yet: the coordinator runs FIRST_VALUE itself, over the first
-# value of each document.
-@skip(no_json=True, cluster=True)
+@skip(no_json=True)
+def test_count_distinct_in_a_group_per_value(env):
+    """cat holds A and B; in cluster COUNT_DISTINCT makes the coordinator group."""
+    index_docs(env, A, B)
+    expect_rows(env, 'GROUPBY 1 @tags REDUCE COUNT_DISTINCT 1 @name AS names', [
+        {'tags': 'bat', 'names': '1'},
+        {'tags': 'cat', 'names': '2'},
+        {'tags': 'fox', 'names': '1'},
+    ])
+
+
+@skip(no_json=True)
 def test_first_value_compares_a_document_by_its_best_value(env):
     """P has the smallest value (5) and Q the largest (40)."""
     index_docs(env, {'name': 'P', 'nums': [5, 20]}, {'name': 'Q', 'nums': [10, 40]})
@@ -227,9 +277,7 @@ def test_first_value_compares_a_document_by_its_best_value(env):
     ], dialects=(1, 2))
 
 
-# Not in cluster yet: the coordinator runs RANDOM_SAMPLE itself, over the first
-# value of each document.
-@skip(no_json=True, cluster=True)
+@skip(no_json=True)
 def test_random_sample_samples_values(env):
     """A sample larger than the four tags holds each of them, cat twice."""
     index_docs(env, A, B)
@@ -293,3 +341,13 @@ def test_avg_shard_count_is_not_a_user_reducer(env):
     index_docs(env, A, B)
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '0',
                'REDUCE', '__COUNT_NUMBERS', '1', '@nums').error().contains('No such reducer')
+
+
+@skip(no_json=True)
+def test_groupby_on_the_coordinators_request_name_is_an_unknown_property(env):
+    """The prefixed name the coordinator asks shards for is not a property to group by."""
+    for index in (lambda: index_docs(env, A),
+                  lambda: index_hash_docs(env, {'name': 'A', 'tags': 'cat', 'nums': '30'})):
+        index()
+        env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@\x01tags').error() \
+            .contains('No such property')

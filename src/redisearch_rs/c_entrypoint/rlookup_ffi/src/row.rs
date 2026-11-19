@@ -187,6 +187,27 @@ pub unsafe extern "C" fn RLookupRow_MoveDynamicKey(
     src.move_dynamic_key_to(key, dst);
 }
 
+/// [`RLookup::fill_unanswered_all_values`]: on a coordinator, gives each
+/// all-values key a shard left out of `row` the field's ordinary value.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`] of `lookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_FillUnansweredAllValues<'a>(
+    lookup: *const RLookup<'a>,
+    row: *mut OpaqueRLookupRow,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref() }.expect("lookup must not be null");
+    // Safety: ensured by caller (2.)
+    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
+    lookup.fill_unanswered_all_values(row);
+}
+
 /// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
 /// for which it is not necessary to use the boilerplate of getting an explicit
 /// key.

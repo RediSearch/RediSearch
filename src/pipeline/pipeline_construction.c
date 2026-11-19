@@ -403,7 +403,7 @@ bool hasQuerySortby(const AGGPlan *pln) {
 }
 
 static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
-                               QueryError *status) {
+                               bool isInternal, QueryError *status) {
   if (!loadStep || !lookup) {
     return REDISMODULE_ERR;
   }
@@ -441,8 +441,17 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
       name = path;
     }
 
-    // Create the RLookupKey
-    RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
+    // Create the RLookupKey. A coordinator may LOAD a name requesting every value
+    // of a field (see RLookup_GetKey_AllValues); a declined request loads nothing.
+    RLookupKey *kk = NULL;
+    bool allValuesRequest = false;
+    if (isInternal && name == path) {
+      kk = RLookup_GetKey_LoadAllValuesRequest(lookup, name, strlen(name), loadFlags,
+                                               &allValuesRequest);
+    }
+    if (!allValuesRequest) {
+      kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
+    }
     // We only get a NULL return if the key already exists, which means
     // that we don't need to retrieve it again.
     if (kk && loadStep->nkeys < loadStep->args.argc) {
@@ -461,7 +470,8 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
   }
 
   // Process the LOAD step arguments to populate keys array
-  if (processLoadStepArgs(loadStep, lookup, loadFlags, status) != REDISMODULE_OK) {
+  if (processLoadStepArgs(loadStep, lookup, loadFlags, reqflags & QEXEC_F_INTERNAL, status) !=
+      REDISMODULE_OK) {
     return NULL;
   }
 

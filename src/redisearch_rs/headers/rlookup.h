@@ -120,6 +120,13 @@ enum RLookup_Opt
    * FT.AGGREGATE's first lookup.
    */
   RLOOKUP_OPT_ALLVALUES = 0x04,
+  /**
+   * Lets [`RLookup::get_key_all_values`] hand out all-values keys that the
+   * shards load. Set on an FT.AGGREGATE coordinator's lookup, which has no
+   * documents, when the coordinator runs the GROUPBY rather than merging the
+   * shards' groups.
+   */
+  RLOOKUP_OPT_ALLVALUESFROMSHARDS = 0x08,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_Opt;

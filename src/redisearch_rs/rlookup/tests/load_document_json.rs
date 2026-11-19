@@ -630,3 +630,191 @@ fn loading_the_field_itself_keeps_its_all_values_key() {
         .unwrap();
     assert!(has_all_values_key(&mut rlookup, c"tags"));
 }
+
+fn coordinator_rlookup() -> RLookup<'static> {
+    let mut rlookup = RLookup::new();
+    rlookup.enable_options(RLookupOption::AllowUnresolved | RLookupOption::AllValuesFromShards);
+    rlookup
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_all_values_key_is_left_to_the_shards() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let mut rlookup = coordinator_rlookup();
+        let (key, _) = rlookup.get_key_all_values(c"tags", &japi).unwrap();
+        assert!(key.flags.contains(
+            RLookupKeyFlag::Unresolved | RLookupKeyFlag::Hidden | RLookupKeyFlag::AllValues
+        ));
+        assert_eq!(key.name().as_ref(), c"\x01tags");
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_requests_the_ordinary_value_too() {
+    let mut rlookup = coordinator_rlookup();
+    assert!(has_all_values_key(&mut rlookup, c"tags"));
+    let cursor = rlookup.find_key_by_name(c"tags").unwrap();
+    assert!(
+        cursor
+            .current()
+            .unwrap()
+            .flags
+            .contains(RLookupKeyFlag::Unresolved)
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_leaves_shadowing_to_the_shards() {
+    // `tags` from a shard step (`LOAD 1 @tags`, or `APPLY ... AS tags`): only the
+    // shard knows which, so the coordinator requests every value anyway.
+    let mut rlookup = coordinator_rlookup();
+    rlookup
+        .get_key_write(c"tags", RLookupKeyFlags::empty())
+        .unwrap();
+    assert!(has_all_values_key(&mut rlookup, c"tags"));
+}
+
+/// What the coordinator's all-values key of `tags` holds after
+/// [`RLookup::fill_unanswered_all_values`], when a shard answered `answer` and sent
+/// `ordinary` for `tags`.
+fn coordinator_value(answer: Option<SharedValue>, ordinary: SharedValue) -> SharedValue {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let mut rlookup = coordinator_rlookup();
+        rlookup.get_key_all_values(c"tags", &japi).unwrap();
+        let mut row = RLookupRow::new();
+        row.write_key_by_name(&mut rlookup, c"tags", ordinary);
+        if let Some(answer) = answer {
+            row.write_key_by_name(&mut rlookup, c"\x01tags", answer);
+        }
+        rlookup.fill_unanswered_all_values(&mut row);
+        let cursor = rlookup.find_key_by_name(c"\x01tags").unwrap();
+        row.get(cursor.current().unwrap()).unwrap().clone()
+    })
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_takes_an_unanswered_all_values_key_from_the_ordinary_value() {
+    // A shard that declined, or an older one, sends only `tags`.
+    let value = coordinator_value(None, SharedValue::new_num(1.0));
+    assert_eq!(value.to_number(), Some(1.0));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_keeps_an_ordinary_array_value_as_one_value() {
+    // FORMAT EXPAND sends a single-valued field as its array of matches.
+    let expanded = SharedValue::new_array([SharedValue::new_num(1.0)]);
+    let value = coordinator_value(None, expanded);
+    let Value::Array(values) = &*value else {
+        panic!("expected the wrapped array");
+    };
+    assert_eq!(values.len(), 1);
+    assert!(matches!(*values[0], Value::Array(_)));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_keeps_an_answered_all_values_key() {
+    let answer = SharedValue::new_array([SharedValue::new_num(1.0), SharedValue::new_num(2.0)]);
+    let value = coordinator_value(Some(answer), SharedValue::new_num(1.0));
+    let Value::Array(values) = &*value else {
+        panic!("expected the shard's array");
+    };
+    assert_eq!(values.len(), 2);
+}
+
+/// The key a shard loads for the coordinator's request `name`, as its flags and path.
+fn shard_key(
+    rlookup: &mut RLookup<'static>,
+    name: &'static CStr,
+) -> Option<(RLookupKeyFlags, Option<CString>)> {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let key = rlookup.get_key_load_all_values(name, RLookupKeyFlags::empty(), &japi)?;
+        Some((key.flags, key.path().as_deref().map(CStr::to_owned)))
+    })
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn shard_loads_every_value_of_a_requested_multi_value_field() {
+    let (flags, path) = shard_key(&mut rlookup_with_multi_value_field(), c"\x01tags").unwrap();
+    assert!(flags.contains(RLookupKeyFlag::AllValues));
+    // The coordinator receives it, so it is not hidden.
+    assert!(!flags.contains(RLookupKeyFlag::Hidden));
+    assert_eq!(path.as_deref(), Some(c"$[*]"));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn shard_declines_a_request_for_a_single_valued_field() {
+    // The coordinator then uses the field's ordinary value.
+    assert!(shard_key(&mut rlookup_with_multi_value_field(), c"\x01name").is_none());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn shard_declines_a_request_for_a_shadowed_field() {
+    // `APPLY ... AS tags` on the shard: the coordinator uses that value.
+    let mut rlookup = rlookup_with_multi_value_field();
+    rlookup
+        .get_key_write(c"tags", RLookupKeyFlags::empty())
+        .unwrap();
+    assert!(shard_key(&mut rlookup, c"\x01tags").is_none());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn shard_without_the_option_declines_a_request() {
+    let mut rlookup = rlookup_with_multi_value_field();
+    rlookup.disable_options(RLookupOption::AllValues.into());
+    assert!(shard_key(&mut rlookup, c"\x01tags").is_none());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn shard_loads_a_repeated_request_once() {
+    let mut rlookup = rlookup_with_multi_value_field();
+    assert!(shard_key(&mut rlookup, c"\x01tags").is_some());
+    assert!(shard_key(&mut rlookup, c"\x01tags").is_none());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn coordinator_fill_without_an_ordinary_value_writes_nothing() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let mut rlookup = coordinator_rlookup();
+        rlookup.get_key_all_values(c"tags", &japi).unwrap();
+        let mut row = RLookupRow::new();
+        rlookup.fill_unanswered_all_values(&mut row);
+        let cursor = rlookup.find_key_by_name(c"\x01tags").unwrap();
+        assert!(row.get(cursor.current().unwrap()).is_none());
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn fill_does_nothing_outside_a_coordinator_that_opted_in() {
+    // A lookup without the option, even one holding an all-values key.
+    let mut rlookup = rlookup_with_multi_value_field();
+    assert!(has_all_values_key(&mut rlookup, c"tags"));
+    let mut row = RLookupRow::new();
+    row.write_key_by_name(&mut rlookup, c"tags", SharedValue::new_num(1.0));
+    rlookup.fill_unanswered_all_values(&mut row);
+    let cursor = rlookup.find_key_by_name(c"\x01tags").unwrap();
+    assert!(row.get(cursor.current().unwrap()).is_none());
+}
+
+#[test]
+fn only_a_prefixed_name_is_an_all_values_request() {
+    assert!(rlookup::is_all_values_request(c"\x01tags"));
+    assert!(!rlookup::is_all_values_request(c"tags"));
+    assert!(!rlookup::is_all_values_request(c""));
+}

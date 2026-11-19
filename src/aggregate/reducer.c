@@ -108,14 +108,13 @@ static int getKey(const ReducerOptions *options, bool allValues, const RLookupKe
 
 const RLookupKey *Aggregate_GetAllValuesKey(RLookup *lookup, const char *name,
                                             const RLookupKey ***loadKeys) {
-  if (!loadKeys) {
-    return NULL;
-  }
   bool isNew = false;
   const RLookupKey *key = RLookup_GetKey_AllValues(lookup, name, strlen(name), &isNew);
-  if (isNew) {
+  if (isNew && loadKeys) {
     *loadKeys = array_ensure_append_1(*loadKeys, key);
   }
+  RS_LOG_ASSERT(!isNew || loadKeys || (RLookupKey_GetFlags(key) & RLOOKUP_F_UNRESOLVED),
+                "an all-values key with nothing to load it must be a coordinator's");
   return key;
 }
 
