@@ -441,10 +441,9 @@ where
 
 // Union variants are always wrapped by `UnionOpaque`, which prints the real
 // `UNION` profile (including children); this impl exists only to satisfy the
-// `ProfilePrint` supertrait of `RQESuspendedIterator`, and is not reached in
-// practice. It is limited to the suspended form so the active one cannot print a
-// placeholder by mistake.
-impl<I> crate::profile_print::ProfilePrint for RawUnionTrimmed<'_, Suspended, I> {
+// `ProfilePrint` bound every iterator form carries, and is not reached in
+// practice.
+impl<Rf: Ref, I> crate::profile_print::ProfilePrint for RawUnionTrimmed<'_, Rf, I> {
     fn print_profile(
         &self,
         map: &mut redis_reply::MapBuilder<'_>,

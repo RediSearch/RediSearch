@@ -51,7 +51,7 @@ use nodes::{
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
-pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
+pub type EvalResult<'index> = rqe_iterators::TypeErasedRQEIterator<'index>;
 
 /// The outcome of evaluating a query node.
 ///
@@ -150,7 +150,9 @@ impl<'index> Evaluated<'index> {
                 // a C iterator constructor, `Evaluated::RustCompound` from
                 // `RQEIteratorWrapper::boxed_new_compound` — exactly the
                 // preconditions of `CRQEIterator::new`.
-                Box::new(unsafe { CRQEIterator::new(it) })
+                rqe_iterators::TypeErasedRQEIterator::new(Box::new(unsafe {
+                    CRQEIterator::new(it)
+                }))
             }
         }
     }
