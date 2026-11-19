@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <stddef.h>
 
+#include "disk_asm_import_window.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -97,11 +98,18 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
 static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
   if (*meta == 0) return;
 
   dict *specIdToDocId = (dict *)*meta;
   if (dictSize(specIdToDocId) == 0) return;
+
+  // The key may hold the docIds of a slot migration's source, which can name unrelated documents
+  // here, so it deletes none. Its metadata is freed with it, so nothing is left to invalidate.
+  // See disk_asm_import_window.h.
+  if (SearchDisk_IsEnabled() && ctx &&
+      DiskASM_IsKeyBeingImported(RedisModule_GetKeyNameFromOptCtx(ctx))) {
+    return;
+  }
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;
