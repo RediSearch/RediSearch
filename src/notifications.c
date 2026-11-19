@@ -566,7 +566,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
       ASM_StateMachine_StartImport(slots);
-      ASM_StateMachine_StartImportOverStaleWindow(slots);
       workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
