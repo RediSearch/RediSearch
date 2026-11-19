@@ -251,6 +251,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ * 8. `idx` must be the inverted index that `tag_idx` stores for `term`'s tag.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
