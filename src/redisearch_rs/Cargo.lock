@@ -2697,6 +2697,7 @@ dependencies = [
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "keyed_numeric_index_ffi",
  "language_ffi",
  "memchr",
  "metrics_ffi",
