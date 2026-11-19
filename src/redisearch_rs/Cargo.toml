@@ -95,7 +95,7 @@ wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 pin-project = "1.1.10"
 
 [workspace.dependencies.bindgen]
-version = "0.71.1"
+version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
