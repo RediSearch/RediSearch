@@ -681,6 +681,10 @@ const fn is_decimal_header(header: u8) -> bool {
     header & 0b101_11_000 == 0b101_01_000
 }
 
+/// Exact powers of ten for building expected decimals. `f64::powi` is not required to be
+/// exact, and Miri deliberately perturbs it, so expected values must not use it.
+const POWERS_OF_TEN: [f64; 8] = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7];
+
 /// A positive [decimal](super#decimal-value) record assembled byte by byte, so the decoder
 /// can be fed every delta and mantissa width the format describes, including mantissas wider
 /// than an encoder writes. Returns the record, its delta and the value a reader must see.
@@ -699,7 +703,7 @@ fn handmade_decimal(delta_bytes: usize, mantissa_bytes: usize) -> (Vec<u8>, u64,
     delta[..delta_bytes].copy_from_slice(&DELTA[..delta_bytes]);
     let mut mantissa = [0; 8];
     mantissa[..mantissa_bytes].copy_from_slice(&MANTISSA[..mantissa_bytes]);
-    let value = u64::from_le_bytes(mantissa) as f64 / 10f64.powi(SCALE.into());
+    let value = u64::from_le_bytes(mantissa) as f64 / POWERS_OF_TEN[SCALE as usize];
 
     (record, u64::from_le_bytes(delta), value)
 }
@@ -1074,7 +1078,7 @@ mod property_based {
             scale in 1u32..=7,
             negative in proptest::bool::ANY,
         ) {
-            let magnitude = mantissa as f64 / 10f64.powi(scale as i32);
+            let magnitude = mantissa as f64 / POWERS_OF_TEN[scale as usize];
             let value = if negative { -magnitude } else { magnitude };
 
             let mut buf = Cursor::new(Vec::new());
