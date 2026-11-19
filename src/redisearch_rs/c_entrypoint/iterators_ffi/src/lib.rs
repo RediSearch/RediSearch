@@ -16,8 +16,33 @@ pub mod intersection;
 pub mod inverted_index;
 pub mod metric;
 pub mod not;
+pub mod numeric_top_k;
 pub mod profile;
 mod profile_print;
 pub mod union;
 pub mod vector_top_k;
 pub mod wildcard;
+
+use std::ptr::NonNull;
+
+use ffi::QueryIterator;
+use rqe_iterators::interop::patch_vtable;
+
+/// Probe the query deadline once every this many candidate documents.
+const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+
+/// Hand a freshly boxed top-k iterator to C with its `SkipTo` cleared.
+///
+/// Top-k yields in score order, so it cannot seek by doc id; without `SkipTo`
+/// the C highlighter finds a document by reading instead.
+///
+/// # Safety
+///
+/// `ptr` comes straight from an
+/// [`RQEIteratorWrapper`](rqe_iterators::interop::RQEIteratorWrapper) constructor
+/// and has no other alias.
+unsafe fn without_skip_to(ptr: NonNull<QueryIterator>) -> *mut QueryIterator {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
+    ptr.as_ptr()
+}

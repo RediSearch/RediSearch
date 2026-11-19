@@ -81,6 +81,195 @@ def testCountDistinctishAcrossShards():
     approx_count = int(to_dict(res[1])['approx'])
     env.assertAlmostEqual(exact_count, approx_count, delta=exact_count * 0.20)
 
+@skip(cluster=False)
+def testFirstValueAcrossShards():
+    """FIRST_VALUE is distributed (`distributeFirstValue` in `src/coord/dist_plan.cpp`): each
+    shard ships one pick per group together with the sort value it won with, and the
+    coordinator picks among the shards' picks by that value. Keys are hash-tagged onto two
+    known shards, and the groups are built so that each way of getting that merge wrong
+    changes an answer:
+      - `prices`: the shards' best prices disagree between numeric and bytewise order in both
+        directions (999 vs 1000 going down, 9 vs 10 going up);
+      - `sparse`: one shard holds only rows without the sort key, which must lose to the other
+        shard's row whichever shard replies first;
+      - `nameless`: the row with the best price has no return value, so the answer is null;
+      - `single`: a group that exists on one shard only.
+    """
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'name', 'TAG', 'price', 'NUMERIC').ok()
+
+    # (hash tag, group, name, price); a None field is left off the hash.
+    docs = [
+        ('lo', 'prices', 'n9', 9), ('lo', 'prices', 'n50', 50),
+        ('lo', 'prices', 'n999', 999),
+        ('hi', 'prices', 'n10', 10), ('hi', 'prices', 'n100', 100),
+        ('hi', 'prices', 'n1000', 1000),
+        ('lo', 'sparse', 's_lo_1', None), ('lo', 'sparse', 's_lo_2', None),
+        ('hi', 'sparse', 's_hi', 7),
+        ('lo', 'nameless', 'nm_lo', 5), ('hi', 'nameless', None, 8),
+        ('hi', 'single', 'only', 3),
+    ]
+    for i, (tag, group, name, price) in enumerate(docs):
+        fields = ['group', group]
+        fields += ['name', name] if name is not None else []
+        fields += ['price', price] if price is not None else []
+        conn.execute_command('HSET', f'doc:{i}:{{{tag}}}', *fields)
+    # The scenarios only hold if the two tags land on different shards.
+    shards_holding = {tag: [shard for shard in range(1, env.shardsCount + 1)
+                            if env.getConnection(shard).keys(f'*{{{tag}}}')]
+                      for tag in ('lo', 'hi')}
+    env.assertEqual([len(s) for s in shards_holding.values()], [1, 1], message=shards_holding)
+    env.assertNotEqual(shards_holding['lo'], shards_holding['hi'], message=shards_holding)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@group',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'DESC', 'AS', 'top_name',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@price', 'DESC', 'AS', 'top_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'ASC', 'AS', 'bottom_name',
+                  'REDUCE', 'FIRST_VALUE', '3', '@name', 'BY', '@price', 'AS', 'default_dir_name',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@name', 'DESC',
+                  'AS', 'last_name_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@name', 'ASC',
+                  'AS', 'first_name_price',
+                  'REDUCE', 'FIRST_VALUE', '1', '@name', 'AS', 'any_name',
+                  'REDUCE', 'COUNT', '0', 'AS', 'cnt')
+    env.assertEqual(res[0], 4, message=res)
+    groups = {row['group']: row for row in map(to_dict, res[1:])}
+
+    # Without BY any row of the group may be picked, including one without a name.
+    expected_any_name = {
+        'prices': {'n9', 'n50', 'n999', 'n10', 'n100', 'n1000'},
+        'sparse': {'s_lo_1', 's_lo_2', 's_hi'},
+        'nameless': {'nm_lo', None},
+        'single': {'only'},
+    }
+    expected = {
+        'prices': {'top_name': 'n1000', 'top_price': '1000',
+                   'bottom_name': 'n9', 'default_dir_name': 'n9',
+                   'last_name_price': '999', 'first_name_price': '10', 'cnt': '6'},
+        'sparse': {'top_name': 's_hi', 'top_price': '7',
+                   'bottom_name': 's_hi', 'default_dir_name': 's_hi',
+                   'last_name_price': None, 'first_name_price': '7', 'cnt': '3'},
+        'nameless': {'top_name': None, 'top_price': '8',
+                     'bottom_name': 'nm_lo', 'default_dir_name': 'nm_lo',
+                     'last_name_price': '5', 'first_name_price': '5', 'cnt': '2'},
+        'single': {'top_name': 'only', 'top_price': '3',
+                   'bottom_name': 'only', 'default_dir_name': 'only',
+                   'last_name_price': '3', 'first_name_price': '3', 'cnt': '1'},
+    }
+    env.assertEqual(set(groups), set(expected), message=res)
+    for group, row in groups.items():
+        env.assertIn(row.pop('any_name'), expected_any_name[group], message=res)
+        row.pop('group')
+        env.assertEqual(row, expected[group], message=f'{group}: {res}')
+
+def testFirstValueCaseDistinctFields(env):
+    """Field names are case-sensitive, so `@Price BY @price` on an index with both fields is one
+    FIRST_VALUE over two different properties. In cluster it becomes two per-shard reducers whose
+    output names must not collide (`firstValueRemoteAlias` in `src/coord/dist_plan.cpp`), or the
+    shard rejects the duplicate field instead of answering."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG',
+               'Price', 'NUMERIC', 'price', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 'Price', 1, 'price', 2)
+    conn.execute_command('HSET', 'doc2', 'g', 'a', 'Price', 3, 'price', 1)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@Price', 'BY', '@price', 'ASC',
+                  'AS', 'Price_of_min_price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@price', 'BY', '@Price', 'ASC',
+                  'AS', 'price_of_min_Price',
+                  'REDUCE', 'FIRST_VALUE', '4', '@Price', 'BY', '@Price', 'DESC', 'AS', 'max_Price')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'g': 'a', 'Price_of_min_price': '3',
+                                      'price_of_min_Price': '2', 'max_Price': '3'}, message=res)
+
+def testFirstValueWithQuantileResolution(env):
+    """QUANTILE takes an optional resolution. In cluster it is forwarded to the coordinator-side
+    estimator (`distributeQuantile` in `src/coord/dist_plan.cpp`), so a GROUPBY that mixes it
+    with a distributed FIRST_VALUE keeps working once FIRST_VALUE no longer pins the GROUPBY
+    to the coordinator."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 'name', 'TAG', 'price', 'NUMERIC').ok()
+    for i in range(1, 101):
+        conn.execute_command('HSET', f'doc:{i}', 'g', 'a', 'name', f'n{i}', 'price', i)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@name', 'BY', '@price', 'DESC', 'AS', 'top',
+                  'REDUCE', 'QUANTILE', '3', '@price', '0.5', '100', 'AS', 'median',
+                  'REDUCE', 'QUANTILE', '2', '@price', '0.5', 'AS', 'median_default')
+    env.assertEqual(res[0], 1, message=res)
+    row = to_dict(res[1])
+    env.assertEqual(row['top'], 'n100', message=res)
+    # Every shard holds fewer rows than the 500-row sample, so both estimates see all 100 values.
+    for key in ('median', 'median_default'):
+        env.assertTrue(45 <= float(row[key]) <= 56, message=f'{key}={row[key]} in {res}')
+
+def testFirstValueSeparatorInFieldNames(env):
+    """`@a,b BY @c` and `@a BY @b,c` are different reducers that read alike once their arguments
+    are joined with commas; each per-shard reducer still needs its own output name."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 'a,b', 'ab1', 'c', 2, 'a', 'a1', 'b,c', 2)
+    conn.execute_command('HSET', 'doc2', 'g', 'a', 'a,b', 'ab2', 'c', 1, 'a', 'a2', 'b,c', 1)
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '4', '@a,b', '@c', '@a', '@b,c',
+                  'GROUPBY', '1', '@g',
+                  'REDUCE', 'FIRST_VALUE', '4', '@a,b', 'BY', '@c', 'ASC', 'AS', 'x',
+                  'REDUCE', 'FIRST_VALUE', '4', '@a', 'BY', '@b,c', 'ASC', 'AS', 'y')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'g': 'a', 'x': 'ab2', 'y': 'a2'}, message=res)
+
+def testFirstValueLoadsItsPropertiesOnTheShards(env):
+    """In cluster, `distributeFirstValue` has the shards LOAD the properties a FIRST_VALUE
+    names, as the coordinator-side GROUPBY had them do before the reducer was distributed. So
+    without a LOAD, a FIRST_VALUE keeps working over `@__key` and over a field outside the
+    schema, and keeps returning a SORTABLE field as stored rather than normalized. Standalone
+    has never done any of that. A property the FIRST_VALUE does not name follows the usual
+    rules in both modes: the GROUPBY key below comes normalized from the sort vector, unless
+    the FIRST_VALUE names it too and so has it loaded."""
+    verify_shard_init(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'TAG', 't', 'TEXT', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'doc1', 'g', 'a', 't', 'Hello World', 'name', 'x')
+
+    def first_value(reducer_args, group='@g', load=()):
+        return env.cmd('FT.AGGREGATE', 'idx', '*', *load, 'GROUPBY', '1', group,
+                       'REDUCE', 'FIRST_VALUE', str(len(reducer_args)), *reducer_args, 'AS', 'fv')
+
+    unloaded = (['@name'], ['@__key'], ['@name', 'BY', '@t'], ['@t', 'BY', '@name'])
+    if env.isCluster():
+        env.assertEqual(first_value(['@name']), [1, ['g', 'a', 'fv', 'x']])
+        env.assertEqual(first_value(['@__key']), [1, ['g', 'a', 'fv', 'doc1']])
+        env.assertEqual(first_value(['@name', 'BY', '@t']), [1, ['g', 'a', 'fv', 'x']])
+        env.assertEqual(first_value(['@t', 'BY', '@name']), [1, ['g', 'a', 'fv', 'Hello World']])
+        env.assertEqual(first_value(['@t']), [1, ['g', 'a', 'fv', 'Hello World']])
+        env.assertEqual(first_value(['@t'], group='@t'),
+                        [1, ['t', 'Hello World', 'fv', 'Hello World']])
+        # `LOAD *` does not provide the document key; the explicit load still does.
+        env.assertEqual(first_value(['@__key'], load=('LOAD', '*')), [1, ['g', 'a', 'fv', 'doc1']])
+    else:
+        for reducer_args in unloaded:
+            env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@g',
+                       'REDUCE', 'FIRST_VALUE', str(len(reducer_args)), *reducer_args, 'AS', 'fv') \
+               .error().contains('Property not loaded nor in pipeline')
+        env.assertEqual(first_value(['@t']), [1, ['g', 'a', 'fv', 'hello world']])
+        env.assertEqual(first_value(['@t'], group='@t'),
+                        [1, ['t', 'hello world', 'fv', 'hello world']])
+
+    # Both modes agree once the properties are LOADed, and on a GROUPBY key the FIRST_VALUE
+    # does not name.
+    for reducer_args in unloaded:
+        res = first_value(reducer_args, load=('LOAD', '3', '@name', '@__key', '@t'))
+        env.assertEqual(res[0], 1, message=res)
+        expected = {'@name': 'x', '@__key': 'doc1', '@t': 'Hello World'}[reducer_args[0]]
+        env.assertEqual(to_dict(res[1])['fv'], expected, message=res)
+    env.assertEqual(first_value(['@name'], group='@t', load=('LOAD', '1', '@name')),
+                    [1, ['t', 'hello world', 'fv', 'x']])
+
 @skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol

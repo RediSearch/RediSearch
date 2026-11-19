@@ -23,16 +23,44 @@ use rqe_iterators::{
 use rqe_iterators_test_utils::ContractChecker;
 use top_k::Ascending;
 use top_k::{
-    BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
+    BatchStrategy, ScoreBatch, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch,
+    mock::MockScoreSource,
 };
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
+
+struct InterruptibleBatch {
+    inner: MockScoreBatch,
+    remaining: Option<usize>,
+}
+
+impl ScoreBatch for InterruptibleBatch {
+    fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        if let Some(remaining) = &mut self.remaining {
+            if *remaining == 0 {
+                return Err(RQEIteratorError::Stopped);
+            }
+            *remaining -= 1;
+        }
+        self.inner.next()
+    }
+
+    fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        while let Some(pair) = self.next()? {
+            if pair.0 >= target {
+                return Ok(Some(pair));
+            }
+        }
+        Ok(None)
+    }
+}
 
 /// [`ScoreSource`] that serves one batch and then fails, so a collection abort
 /// leaves entries already in the heap.
 #[derive(Default)]
 struct PartialThenTimingOutSource {
     batches_served: usize,
+    batch_error_after: Option<usize>,
 }
 
 impl ScoreSource for PartialThenTimingOutSource {
@@ -45,12 +73,15 @@ impl ScoreSource for PartialThenTimingOutSource {
         false
     }
 
-    type Batch = MockScoreBatch;
+    type Batch = InterruptibleBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         if self.batches_served == 0 {
             self.batches_served += 1;
-            return Ok(Some(MockScoreBatch::new(vec![(1, 0.5), (2, 0.25)])));
+            return Ok(Some(InterruptibleBatch {
+                inner: MockScoreBatch::new(vec![(1, 0.5), (2, 0.25)]),
+                remaining: self.batch_error_after,
+            }));
         }
         Err(RQEIteratorError::Stopped)
     }
@@ -302,6 +333,58 @@ fn make_crqe_child(ids: Vec<DocId>) -> CRQEIterator {
 // ── State machine ─────────────────────────────────────────────────────────────
 
 #[test]
+fn candidate_rejection_uses_the_score_in_every_collection_mode() {
+    for (name, mode, ids) in [
+        ("filtered", TopKMode::Batches, Some(vec![1, 2, 3])),
+        ("unfiltered", TopKMode::Batches, None),
+        ("adhoc", TopKMode::AdhocBF, Some(vec![1, 2, 3])),
+        ("direct", TopKMode::Unfiltered, None),
+    ] {
+        let scores = vec![(1, 1.0), (2, 2.0), (3, 3.0)];
+        let source =
+            MockScoreSource::new(vec![scores.clone()], scores, |_, _| BatchStrategy::Continue)
+                .with_candidate_filter(|_, score| Ok(score > 1.0));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            ids.map(IdList::<true>::new),
+            NonZeroUsize::new(3).unwrap(),
+            Ascending,
+            mode,
+        );
+        let mut ids = Vec::new();
+        while let Some(result) = it.read().unwrap() {
+            ids.push(result.doc_id);
+        }
+        assert_eq!(ids, vec![2, 3], "{name}");
+    }
+}
+
+#[test]
+fn candidate_errors_propagate_with_a_child_and_in_direct_mode() {
+    for (mode, child) in [
+        (TopKMode::Batches, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::AdhocBF, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::Unfiltered, None),
+    ] {
+        let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![(1, 1.0)], |_, _| {
+            BatchStrategy::Continue
+        })
+        .with_candidate_filter(|_, _| Err(RQEIteratorError::Stopped));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            child,
+            NonZeroUsize::new(1).unwrap(),
+            Ascending,
+            mode,
+        );
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
 fn read_triggers_collection_on_first_call() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
@@ -531,6 +614,35 @@ fn failed_collection_yields_what_it_collected() {
     assert!(it.at_eof(), "the spent iterator must report EOF");
 }
 
+#[test]
+fn batch_read_errors_preserve_already_collected_hits() {
+    for (name, child_ids, batch_error_after) in [
+        ("unfiltered next", None, 1),
+        ("filtered next", Some(vec![1, 2]), 1),
+        ("filtered skip", Some(vec![1, 4]), 2),
+    ] {
+        let source = PartialThenTimingOutSource {
+            batch_error_after: Some(batch_error_after),
+            ..Default::default()
+        };
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            child_ids.map(IdList::<true>::new),
+            NonZeroUsize::new(5).unwrap(),
+            Ascending,
+            TopKMode::Batches,
+        );
+
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
+            "{name}"
+        );
+        let emitted: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+        assert_eq!(emitted, vec![1], "{name}");
+        assert!(it.at_eof(), "{name}");
+    }
+}
+
 /// Only an explicit rewind starts a new scan, so a failed collection does not
 /// leave the iterator permanently spent.
 #[test]
@@ -649,6 +761,22 @@ fn batches_no_child_keeps_top_k() {
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![2, 4, 5]);
+}
+
+#[test]
+fn batches_no_child_keeps_top_k_across_chunks() {
+    for (name, docs) in [("full chunk", 64), ("partial final chunk", 200)] {
+        let score = |id: DocId| ((id * 37) % 211) as f64;
+        let batch: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, score(id))).collect();
+        let k = 70;
+        let mut expected: Vec<DocId> = (1..=docs).collect();
+        expected.sort_by(|&a, &b| score(a).total_cmp(&score(b)));
+        expected.truncate(k);
+
+        let mut it = batches_no_child(vec![batch], k);
+        let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+        assert_eq!(doc_ids, expected, "{name}");
+    }
 }
 
 #[test]

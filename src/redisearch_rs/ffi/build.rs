@@ -140,6 +140,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DocTable_Exists",
             "DocTable_ForEachLiveId",
             "DocTable_Free",
+            "DocTable_IsVisible",
             "DocTable_KeyEquals",
             "DocTable_Put",
             "DocTable_StartKeyMap",
@@ -613,6 +614,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `src/stemmer.h` includes `language.h`, which carries the `RSLanguage_*`
+    // declarations and the `RSLanguage` enum.
+    // The enum is embedded by value in `Stemmer`, `Document` and
+    // `RSSearchOptions`, so its full definition is required.
+    "language.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`

@@ -14,6 +14,9 @@
 extern "C" {
 #include "rules.h"
 #include "search_disk.h"
+#include "tag_index.h"
+#include "triemap_ffi.h"
+int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
@@ -66,6 +69,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline int closeOnMainThreadCalls = 0;
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
+  static inline SearchDiskCompactionCallbacks compactionCallbacks{};
 
   static bool recordSchema(RedisModuleCtx *ctx, void *privateData, IndexFlags flags,
                            const SearchDiskField *fields, size_t n) {
@@ -120,8 +124,9 @@ class DiskSchemaOpenTest : public ::testing::Test {
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
                                  const char *, size_t, DocumentType, bool, IndexFlags flags,
                                  const SearchDiskField *fields, size_t n,
-                                 const SearchDiskCompactionCallbacks *, void *privateData,
+                                 const SearchDiskCompactionCallbacks *callbacks, void *privateData,
                                  QueryError *status) {
+      compactionCallbacks = *callbacks;
       events.emplace_back("openIndex");
       if (openError) {
         QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, openError);
@@ -512,3 +517,90 @@ TEST_F(DiskSchemaOpenLoadTest, SstOpenFailureConsumesPendingState) {
 }
 
 }  // namespace
+
+TEST_F(DiskSchemaOpenTest, TagCompactionCallbackUpdatesOnlyTheSelectedField) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_compaction_counts", {"first", "TAG", "second", "TAG"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *values[] = {"hello"};
+  for (size_t field = 0; field < 2; ++field) {
+    TagIndex_Commit(TagIndex_Open(&sp->fields[field]), values, 1, &sp->stats);
+  }
+  TagIndex_Commit(TagIndex_Open(&sp->fields[1]), values, 1, &sp->stats);
+  ASSERT_NE(compactionCallbacks.decrementTagValueCount, nullptr);
+  void *update = compactionCallbacks.beginUpdate(sp);
+  EXPECT_FALSE(compactionCallbacks.decrementTagValueCount(update, 1, "hello", 5, 1));
+  EXPECT_TRUE(compactionCallbacks.decrementTagValueCount(update, 1, "hello", 5, 1));
+  compactionCallbacks.endUpdate(update);
+  EXPECT_EQ(TrieMap_Find(TagIndex_Open(&sp->fields[1])->values, "hello", 5), TRIEMAP_NOTFOUND);
+  EXPECT_EQ(
+      reinterpret_cast<uintptr_t>(TrieMap_Find(TagIndex_Open(&sp->fields[0])->values, "hello", 5)),
+      1u);
+}
+
+TEST_F(DiskSchemaOpenTest, TagDebugCommandsReportDiskCountsAndRejectPostingDumps) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_debug_counts", {"tags", "TAG"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *values[] = {"hello"};
+  auto *idx = TagIndex_Open(&sp->fields[0]);
+  TagIndex_Commit(idx, values, 1, &sp->stats);
+  TagIndex_Commit(idx, values, 1, &sp->stats);
+
+  Restore createHook{RedisModule_CreateSubcommand};
+  Restore flagsHook{RedisModule_GetContextFlagsAll};
+  Restore arrayHook{RedisModule_ReplyWithArray};
+  Restore lengthHook{RedisModule_ReplySetArrayLength};
+  Restore stringHook{RedisModule_ReplyWithStringBuffer};
+  Restore integerHook{RedisModule_ReplyWithLongLong};
+  static RedisModuleCmdFunc dump;
+  static RedisModuleCmdFunc info;
+  static std::vector<std::string> replies;
+  dump = info = nullptr;
+  RedisModule_GetContextFlagsAll = [] { return 0; };
+  RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
+                                    RedisModuleCmdFunc callback, const char *, int, int, int) {
+    if (strcmp(name, "DUMP_TAGIDX") == 0) dump = callback;
+    if (strcmp(name, "INFO_TAGIDX") == 0) info = callback;
+    return REDISMODULE_OK;
+  };
+  ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
+  ASSERT_NE(dump, nullptr);
+  ASSERT_NE(info, nullptr);
+  RedisModule_ReplyWithArray = [](RedisModuleCtx *, long length) {
+    replies.push_back("array:" + std::to_string(length));
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplySetArrayLength = [](RedisModuleCtx *, long length) {
+    replies.push_back("length:" + std::to_string(length));
+  };
+  RedisModule_ReplyWithStringBuffer = [](RedisModuleCtx *, const char *value, size_t len) {
+    replies.emplace_back(value, len);
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *, long long value) {
+    replies.push_back(std::to_string(value));
+    return REDISMODULE_OK;
+  };
+
+  RMCK::ArgvList dumpArgs(RSDummyContext, "FT.DEBUG", "DUMP_TAGIDX", "tag_debug_counts", "tags");
+  replies.clear();
+  EXPECT_EQ(dump(RSDummyContext, dumpArgs.data(), dumpArgs.size()), REDISMODULE_OK);
+  EXPECT_EQ(replies, (std::vector<std::string>{"array:-1", "array:2", "hello", "2", "length:1"}));
+
+  RMCK::ArgvList infoArgs(RSDummyContext, "FT.DEBUG", "INFO_TAGIDX", "tag_debug_counts", "tags",
+                          "COUNT_VALUE_ENTRIES", "LIMIT", "10");
+  replies.clear();
+  EXPECT_EQ(info(RSDummyContext, infoArgs.data(), infoArgs.size()), REDISMODULE_OK);
+  EXPECT_EQ(replies, (std::vector<std::string>{"array:-1", "num_values", "1", "values", "array:-1",
+                                               "array:-1", "value", "hello", "num_entries", "2",
+                                               "length:4", "length:1", "length:4"}));
+
+  RMCK::ArgvList postingArgs(RSDummyContext, "FT.DEBUG", "INFO_TAGIDX", "tag_debug_counts", "tags",
+                             "DUMP_ID_ENTRIES");
+  RMCK_GetLastError(RSDummyContext).clear();
+  EXPECT_EQ(info(RSDummyContext, postingArgs.data(), postingArgs.size()), REDISMODULE_OK);
+  EXPECT_EQ(RMCK_GetLastError(RSDummyContext),
+            "dump_id_entries not supported for disk-mode indexes");
+  RMCK_GetLastError(RSDummyContext).clear();
+}
