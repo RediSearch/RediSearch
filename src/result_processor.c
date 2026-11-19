@@ -110,6 +110,8 @@ typedef struct {
   // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
   // ascending order over a doc table too big to stay cached.
   bool prefetchDmd;
+  // RAM doc-table mode only: ids above the query's snapshot are not visible. Fixed per query.
+  t_docId ramSnapshotCutoff;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -165,9 +167,22 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
     DiskReadFailureReason failureReason = DISK_READ_ERROR;
-    const bool foundDocument =
-        !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime, &failureReason);
+    bool foundDocument;
+    if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
+      // The live vector index can yield ids newer than the query's snapshot.
+      foundDocument = !deleted && it->current->docId <= self->ramSnapshotCutoff;
+      if (foundDocument) {
+        IndexSpec_LockRead(spec);
+        foundDocument = DocTable_CopyById(docs, it->current->docId, diskDmd, &sctx->currentTime);
+        IndexSpec_Unlock(spec);
+      }
+      foundDocument = foundDocument &&
+                      SearchDisk_IsRamDocVisible(spec->diskSpec, diskDmd->id, diskDmd->slot);
+    } else {
+      foundDocument =
+          !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
+                                                     diskDmd, &sctx->currentTime, &failureReason);
+    }
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -580,6 +595,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->prefetchDmd = denseAscendingScan && !sctx->spec->diskSpec &&
                      sctx->spec->docs.size * sizeof(RSDocumentMetadata) >
                          WILDCARD_DMD_PREFETCH_MIN_BYTES;
+  if (sctx->spec->diskSpec && IndexSpec_DocTableMode(sctx->spec) == DocTableMode_Ram) {
+    ret->ramSnapshotCutoff = SearchDisk_GetSnapshotCutoff(sctx->diskSnapshot);
+  }
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
@@ -605,8 +623,8 @@ void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp) {
   RPQueryIterator *self = (RPQueryIterator *)rp;
   RS_ASSERT(!self->async.asyncPool);
   RedisSearchCtx *sctx = self->sctx;
-  if (!sctx->spec->diskSpec || !SearchDisk_IsAsyncIOSupported() ||
-      !SearchDisk_GetAsyncIOEnabled()) {
+  if (!sctx->spec->diskSpec || IndexSpec_DocTableMode(sctx->spec) != DocTableMode_Disk ||
+      !SearchDisk_IsAsyncIOSupported() || !SearchDisk_GetAsyncIOEnabled()) {
     return;
   }
 

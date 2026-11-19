@@ -200,7 +200,15 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
                          "slot cleanup exceeds the document count");
     RS_LOG_ASSERT_ALWAYS(spec->stats.scoring.totalDocsLen >= totalDocLen,
                          "slot cleanup exceeds the total document length");
-    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+    const bool ramDocTable = IndexSpec_DocTableMode(spec) == DocTableMode_Ram;
+    for (size_t i = 0; i < numIds; ++i) {
+      IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+      if (ramDocTable) {
+        RSDocumentMetadata *dmd = DocTable_DeleteById(&spec->docs, ids[i]);
+        RS_LOG_ASSERT_ALWAYS(dmd, "slot cleanup trimmed a document missing from the doc table");
+        DMD_Return(dmd);
+      }
+    }
     spec->stats.scoring.numDocuments -= numIds;
     spec->stats.scoring.totalDocsLen -= totalDocLen;
     IndexSpec_DeferGCDeletes(spec, numIds);

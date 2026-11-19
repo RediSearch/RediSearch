@@ -1849,7 +1849,43 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
     {.name = NULL}
   };
   ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  bool docTableSeen = false;
+  // DOCTABLE is handled outside the spec table because the table cannot detect a repeat.
+  for (;;) {
+    rc = AC_ParseArgSpec(ac, argopts, &errarg);
+    if (rc != AC_ERR_ENOENT || !flex) break;
+    const char *arg;
+    AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
+    if (strcasecmp(arg, "DOCTABLE") != 0) break;
+    AC_Advance(ac);
+    if (docTableSeen) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DOCTABLE was specified more than once");
+      return REDISMODULE_ERR;
+    }
+    docTableSeen = true;
+    const char *value;
+    if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DOCTABLE requires a value");
+      return REDISMODULE_ERR;
+    }
+    DocTableMode mode;
+    if (!strcasecmp(value, "DISK")) {
+      mode = DocTableMode_Disk;
+    } else if (!strcasecmp(value, "RAM")) {
+      mode = DocTableMode_Ram;
+    } else if (!strcasecmp(value, "RAM_SLIM") || !strcasecmp(value, "RAM_SLIM_WITH_DISK_KEYS")) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "DOCTABLE value not yet implemented:", " `%s`", value);
+      return REDISMODULE_ERR;
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "Unknown DOCTABLE value:", " `%s`", value);
+      return REDISMODULE_ERR;
+    }
+    options->flags = (options->flags & ~INDEX_DOCTABLE_MODE_MASK) |
+                     ((IndexFlags)mode << INDEX_DOCTABLE_MODE_SHIFT);
+  }
   if (rc == AC_ERR_ENOENT && flex) {
     const char *arg;
     AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
@@ -3134,6 +3170,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     // A crash can interrupt a change to the deleted set; inspecting it would reenter Rust.
     doc_table_size += DocTable_DeletedDocsMemoryUsage(&sp->docs);
   }
+  if (isDisk && IndexSpec_DocTableMode(sp) == DocTableMode_Ram) {
+    doc_table_size += sp->docs.memsize;
+  }
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
@@ -3317,6 +3356,48 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 
 // A new top-level schema-defining member saved here must be mirrored in
 // schemaFingerprint.
+// RAM-mode doc table section of the SST block: count, then per document
+// id, key, score, flags, maxTermFreq, docLen, expirationTimeNs.
+static void docTableRamRdbSave(RedisModuleIO *rdb, DocTable *dt) {
+  uint64_t count = 0;
+  DOCTABLE_FOREACH(dt, count++);
+  RedisModule_SaveUnsigned(rdb, count);
+  DOCTABLE_FOREACH(dt, {
+    RedisModule_SaveUnsigned(rdb, dmd->id);
+    RedisModule_SaveStringBuffer(rdb, dmd->keyPtr, sdslen(dmd->keyPtr));
+    RedisModule_SaveFloat(rdb, dmd->score);
+    RedisModule_SaveUnsigned(rdb, dmd->flags);
+    RedisModule_SaveUnsigned(rdb, dmd->maxTermFreq);
+    RedisModule_SaveUnsigned(rdb, dmd->docLen);
+    RedisModule_SaveSigned(rdb, __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED));
+  });
+}
+
+static int docTableRamRdbLoad(RedisModuleIO *rdb, DocTable *dt, DocumentType type) {
+  uint64_t count = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+  for (uint64_t i = 0; i < count; ++i) {
+    t_docId id = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    size_t keyLen;
+    char *key = LoadStringBuffer_IOError(rdb, &keyLen, return REDISMODULE_ERR);
+    float score = RedisModule_LoadFloat(rdb);
+    if (RedisModule_IsIOError(rdb)) {
+      RedisModule_Free(key);
+      return REDISMODULE_ERR;
+    }
+    RSDocumentFlags flags = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    uint32_t maxTermFreq = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    uint32_t docLen = LoadUnsigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    int64_t expirationTimeNs = LoadSigned_IOError(rdb, RedisModule_Free(key); return REDISMODULE_ERR);
+    RSDocumentMetadata *dmd = DocTable_PutWithId(dt, id, key, keyLen, score, flags, type);
+    RedisModule_Free(key);
+    dmd->maxTermFreq = maxTermFreq;
+    dmd->docLen = docLen;
+    __atomic_store_n(&dmd->expirationTimeNs, expirationTimeNs, __ATOMIC_RELAXED);
+    DMD_Return(dmd);
+  }
+  return REDISMODULE_OK;
+}
+
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3382,6 +3463,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
         rdb, (uint64_t)(sp->scan_in_progress || RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM)));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+    if (IndexSpec_DocTableMode(sp) == DocTableMode_Ram) {
+      docTableRamRdbSave(rdb, &sp->docs);
+    }
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3559,6 +3643,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
     if (!sp->terms) {
+      goto cleanup;
+    }
+
+    if (IndexSpec_DocTableMode(sp) == DocTableMode_Ram &&
+        docTableRamRdbLoad(rdb, &sp->docs, sp->rule->type) != REDISMODULE_OK) {
       goto cleanup;
     }
 
@@ -4184,6 +4273,36 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
   return DocTable_Borrow(&sp->docs, docId);
 }
 
+// Removes `docId` from wherever the doc table lives and reports its length.
+// False if the document is absent.
+static bool removeDocFromDocTable(IndexSpec *spec, t_docId docId, uint32_t *docLen) {
+  if (SearchDisk_IsEnabled()) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    if (IndexSpec_DocTableMode(spec) == DocTableMode_Ram) {
+      // The disk layer has no record to read, so gate on the C table to avoid marking an
+      // already-removed id twice.
+      RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+      if (!md) {
+        return false;
+      }
+      *docLen = md->docLen;
+      DMD_Return(md);
+      uint32_t ignored = 0;
+      RS_LOG_ASSERT_ALWAYS(SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &ignored),
+                         "marking a RAM doc-table document deleted must not fail");
+      return true;
+    }
+    return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, docLen);
+  }
+  RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+  if (!md) {
+    return false;
+  }
+  *docLen = md->docLen;
+  DMD_Return(md);
+  return true;
+}
+
 // Logical de-index of a still-existing key that should no longer be indexed
 // (filter no longer matches, REPLACE, changed indexed field). Physical key
 // removal goes through the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
@@ -4198,20 +4317,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   }
 
   uint32_t docLen = 0;
-  if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Failed to delete
-      return;
-    }
-  } else {
-    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, (t_docId)docId);
-    if (!md) {
-      // Nothing to delete
-      return;
-    }
-    docLen = md->docLen;
-    DMD_Return(md);
+  if (!removeDocFromDocTable(spec, (t_docId)docId, &docLen)) {
+    // Nothing to delete
+    return;
   }
 
   // Drop the mapping so a surviving-but-de-indexed key isn't left pointing at a
@@ -4240,20 +4348,8 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
-  if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Document not found on disk
-      return false;
-    }
-  } else {
-    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
-    if (!md) {
-      // Document not found in the in-memory table
-      return false;
-    }
-    docLen = md->docLen;
-    DMD_Return(md);
+  if (!removeDocFromDocTable(spec, docId, &docLen)) {
+    return false;
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);

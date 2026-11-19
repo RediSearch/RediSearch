@@ -1017,14 +1017,39 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID whose key should be replaced
    * @param newKey New key name
    * @param newKeyLen Length of the new key
+   * @param oldKey Previous key name, only for RAM doc-table indexes (NULL on disk, where the stored row holds it)
+   * @param oldKeyLen Length of the previous key
+   * @param docLen Document length, only for RAM doc-table indexes
    * @return true if the document was found and updated, false if not found or on error
    */
-  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
+  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen,
+                     const char* oldKey, size_t oldKeyLen, uint32_t docLen);
   /**
    * Return accumulated query-worker wait time for async document metadata reads, in nanoseconds.
    * Requires a live, non-NULL pool created with isProfiled=true and no concurrent mutation.
    */
   uint64_t (*asyncReadPoolGetAsyncWaitTime)(RedisSearchDiskAsyncReadPool pool);
+
+  /**
+   * @brief Returns the highest document ID that existed when `snapshot` was created.
+   *
+   * RAM doc-table queries read the live C table, so this is their point-in-time bound.
+   *
+   * @param snapshot Snapshot returned by `IndexDiskAPI.createSnapshot`
+   */
+  t_docId (*getSnapshotCutoff)(RedisSearchDiskSnapshot *snapshot);
+
+  /**
+   * @brief Whether a RAM doc-table document is visible to queries.
+   *
+   * False if the ID is deleted or covered by a pending slot trim. Takes the cluster slot
+   * cached in the document metadata rather than the key.
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID
+   * @param slot Cluster hash slot of the document's key
+   */
+  bool (*isRamDocVisible)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint16_t slot);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {

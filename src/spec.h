@@ -600,6 +600,10 @@ IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 
+static inline DocTableMode IndexSpec_DocTableMode(const IndexSpec *sp) {
+  return (DocTableMode)((sp->flags & INDEX_DOCTABLE_MODE_MASK) >> INDEX_DOCTABLE_MODE_SHIFT);
+}
+
 /** Parsed CREATE options. Strings and cursor slices borrow the input arguments and
  * remain valid only while those arguments live. No cleanup is needed. Copy the
  * prefix/stopword cursors before consuming them to retain the parsed result.
