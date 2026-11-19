@@ -142,7 +142,8 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp);
 
 // This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx, bool isAof);
+bool Indexes_LoadedAofSstBase(void);
 
 // This function is called in case the server ends RDB loading.
 void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);

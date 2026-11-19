@@ -272,6 +272,13 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   array_free(specs);
 }
 
+static bool loadingAof;
+static bool aofSstBase;
+
+bool Indexes_LoadedAofSstBase(void) {
+  return aofSstBase;
+}
+
 // Load one spec from the RDB stream and resolve its registry-dependent state:
 // parse it (IndexSpec core), detect a duplicate against the registry, then open
 // its on-disk index if appropriate. Returns the spec (not yet registered - the
@@ -296,6 +303,18 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
     IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
+  if (aofSstBase && useSst && sp->pendingDiskRdbState && !sp->isDuplicate) {
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+    if (!IndexSpec_SSTRdbOpenAndApply(ctx, sp)) {
+      if (sp->diskSpec) {
+        SearchDisk_CloseIndexOnMainThread(ctx, sp);
+      }
+      IndexSpec_RdbLoadDiscard(sp->own_ref);
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not restore disk index");
+      return NULL;
+    }
+    return sp;
+  }
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
     IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
@@ -305,6 +324,7 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load");
+  aofSstBase |= loadingAof && useSst;
   size_t nIndexes = 0;
   QueryError status = QueryError_Default();
 
@@ -380,7 +400,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
     if (!SearchDisk_IsEnabled()) {
       IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
     } else if (sp->diskSpec) {
-      RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
+      RS_ASSERT(aofSstBase || !IS_SST_RDB_IN_PROCESS(RSDummyContext));
       IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
       IndexSpec_ResumeDiskSlotTrims(sp);
     }
@@ -1331,7 +1351,9 @@ void Indexes_ReplyWithClusterStatePayload(RedisModule_Reply *reply, const char *
   RedisModule_EndReply(reply);
 }
 
-void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx, bool isAof) {
+  loadingAof = isAof;
+  aofSstBase = false;
   Indexes_Free(ctx, specDict_g, false);
   if (!SearchDisk_IsEnabled()) {
     if (legacySpecDict) {
@@ -1359,6 +1381,8 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 }
 
 void Indexes_EndLoading() {
+  loadingAof = false;
+  aofSstBase = false;
   g_isLoading = false;
 }
 
@@ -1375,18 +1399,20 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     RS_ASSERT(sp);
-    RS_ASSERT(sp->pendingDiskRdbState);
-    RS_ASSERT(sp->diskSpec == NULL);
-    RS_ASSERT(!sp->diskRegistered);
-    bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
-    RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
-    // The spec was published while diskSpec was still NULL, so its usage was
-    // not activated then.
-    SearchDisk_ActivateUsage(sp);
-    // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
-    // (diskSpec was NULL there); start it now that the disk handle exists.
-    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
-    IndexSpec_ResumeDiskSlotTrims(sp);
+    if (!aofSstBase) {
+      RS_ASSERT(sp->pendingDiskRdbState);
+      RS_ASSERT(sp->diskSpec == NULL);
+      RS_ASSERT(!sp->diskRegistered);
+      bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
+      RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
+      // The spec was published while diskSpec was still NULL, so its usage was
+      // not activated then.
+      SearchDisk_ActivateUsage(sp);
+      // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
+      // (diskSpec was NULL there); start it now that the disk handle exists.
+      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+      IndexSpec_ResumeDiskSlotTrims(sp);
+    }
 
     // If the source node was still background-indexing when the snapshot was
     // taken, the on-disk index is only partially populated. Restart the async

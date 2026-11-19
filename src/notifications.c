@@ -1382,7 +1382,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
                          : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
                                                                                : "RDB_FILE";
-    Indexes_StartRDBLoadingEvent(ctx);
+    Indexes_StartRDBLoadingEvent(ctx, subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "LOAD start source=%s sst=%s disk=%s", source,
                     useSst ? "true" : "false", useSst ? "reuse-from-SST" : "rebuild-from-keyspace");
@@ -1400,7 +1400,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_ENDED: {
     // The server may have cleared the SST_RDB flag before firing this event
     // (see g_sstLoadStaged), so decide from the latch as well as the flag.
-    bool finishSst = useSst || g_sstLoadStaged;
+    bool finishSst = useSst || g_sstLoadStaged || Indexes_LoadedAofSstBase();
     g_sstLoadStaged = false;
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
