@@ -42,6 +42,37 @@ impl From<KeyedNumericIndexId> for u32 {
     }
 }
 
+/// The `(key, value)` members of one document's object, collected before the index is locked.
+///
+/// Collecting first lets the caller validate the whole object, and fail the document
+/// without touching the index, before anything is added.
+#[derive(Debug, Default)]
+pub struct KeyedNumericBatch {
+    members: Vec<(Box<[u8]>, f64)>,
+}
+
+impl KeyedNumericBatch {
+    /// An empty batch, which a document with an empty object also yields.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append a member. Keys must be distinct within a batch, as the members of a JSON object are.
+    pub fn push(&mut self, key: &[u8], value: f64) {
+        self.members.push((key.into(), value));
+    }
+
+    /// The number of members.
+    pub const fn len(&self) -> usize {
+        self.members.len()
+    }
+
+    /// Whether the batch has no member.
+    pub const fn is_empty(&self) -> bool {
+        self.members.is_empty()
+    }
+}
+
 /// One numeric range tree per key.
 ///
 /// A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
@@ -135,6 +166,30 @@ impl KeyedNumericIndex {
         self.keys.insert(key.into(), tree);
         self.memory_usage = self.memory_usage - table_before + self.table_bytes();
         result
+    }
+
+    /// Add every member of `batch` for `doc_id`, as [`add`](Self::add) does one by one.
+    ///
+    /// The returned [`AddResult`] sums the changes to the members' trees; its `changed`
+    /// flag is set if any tree changed structurally.
+    pub fn add_batch(
+        &mut self,
+        doc_id: DocId,
+        batch: &KeyedNumericBatch,
+        has_field_expiration: bool,
+        max_depth_range: usize,
+    ) -> AddResult {
+        let mut total = AddResult::default();
+        for (key, value) in &batch.members {
+            let r = self.add(doc_id, key, *value, has_field_expiration, max_depth_range);
+            total.size_delta += r.size_delta;
+            total.num_records_delta += r.num_records_delta;
+            total.changed |= r.changed;
+            total.num_ranges_delta += r.num_ranges_delta;
+            total.num_leaves_delta += r.num_leaves_delta;
+            total.block_count_delta += r.block_count_delta;
+        }
+        total
     }
 
     /// The tree holding the values added under `key`, if any.

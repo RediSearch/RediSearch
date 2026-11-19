@@ -8,6 +8,7 @@
 */
 
 #include "json.h"
+#include "keyed_numeric_index_ffi.h"
 
 #include <math.h>
 #include <string.h>
@@ -132,8 +133,9 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     }
     break;
   case JSONType_Object:
-    if (fieldType == INDEXFLD_T_GEOMETRY) {
-      // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
+    if (fieldType == INDEXFLD_T_GEOMETRY || fieldType == INDEXFLD_T_MAP_NUMERIC) {
+      // A GEOSHAPE field can be represented as GEOJSON "geoshape" object, and a MAP NUMERIC
+      // field as an object of numbers
       rv = REDISMODULE_OK;
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
@@ -818,6 +820,52 @@ int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, 
   return ret;
 }
 
+// Collect the (key, number) members of a MAP NUMERIC object. A member that is not a number,
+// including null, fails the whole document, so a partial object is never indexed.
+static int JSON_StoreMapNumericInDocField(RedisJSON obj, struct DocumentField *df,
+                                          QueryError *status) {
+  KeyedNumericBatch *batch = KeyedNumericBatch_New();
+  JSONKeyValuesIterator iter = japi->getKeyValues(obj);
+  RedisJSONPtr value_ptr = japi->allocJson();
+  RedisModuleString *keyName;
+  int rv = REDISMODULE_OK;
+
+  while (rv == REDISMODULE_OK && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
+    double d = 0;
+    switch (japi->getType(*value_ptr)) {
+      case JSONType_Int: {
+        long long ll;
+        japi->getInt(*value_ptr, &ll);
+        d = (double)ll;
+        break;
+      }
+      case JSONType_Double:
+        japi->getDouble(*value_ptr, &d);
+        break;
+      default:
+        QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                            "Invalid JSON type: MAP NUMERIC members must be numbers");
+        rv = REDISMODULE_ERR;
+        break;
+    }
+    if (rv == REDISMODULE_OK) {
+      size_t keyLen;
+      const char *key = RedisModule_StringPtrLen(keyName, &keyLen);
+      KeyedNumericBatch_Push(batch, (const uint8_t *)key, keyLen, d);
+    }
+    RedisModule_FreeString(NULL, keyName);
+  }
+
+  japi->freeJson(value_ptr);
+  japi->freeKeyValuesIter(iter);
+  if (rv != REDISMODULE_OK) {
+    KeyedNumericBatch_Free(batch);
+    return rv;
+  }
+  df->mapBatch = batch;
+  df->unionType = FLD_VAR_T_MAP_NUMERIC;
+  return REDISMODULE_OK;
+}
 
 int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df, QueryError *status) {
   int rv = REDISMODULE_OK;
@@ -869,6 +917,11 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
         case INDEXFLD_T_NUMERIC:
           rv = JSON_StoreNumericInDocFieldFromArr(json, df, status);
           break;
+        case INDEXFLD_T_MAP_NUMERIC:
+          rv = REDISMODULE_ERR;
+          QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                              "MAP NUMERIC field must be a single JSON object, not an array");
+          break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
           QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "GEOMETRY field does not support array type");
@@ -880,8 +933,12 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       }
       break;
     case JSONType_Object:
-      rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
+      if (fs->types == INDEXFLD_T_MAP_NUMERIC) {
+        rv = JSON_StoreMapNumericInDocField(json, df, status);
+      } else {
+        rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
+      }
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");
@@ -1115,6 +1172,11 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       case INDEXFLD_T_VECTOR:;
         // Handling multiple values as Vector
         rv = JSON_StoreMultiVectorInDocFieldFromIter(fs, jsonIter, len, df, status);
+        break;
+      case INDEXFLD_T_MAP_NUMERIC:
+        rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                            "MAP NUMERIC path must resolve to exactly one JSON object");
         break;
       default:
         rv = REDISMODULE_ERR;

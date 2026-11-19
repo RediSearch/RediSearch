@@ -7,6 +7,8 @@
 
 """Flow tests for the schema of MAP NUMERIC fields."""
 
+import json
+
 from common import *
 
 GATE_ERROR = 'ENABLE_UNSTABLE_FEATURES'
@@ -141,3 +143,196 @@ def testGateOffKeepsMapAsFieldName(env):
     env.assertEqual(attributes(env, 'i2'), [('n', 'NUMERIC'), ('MAP', 'NUMERIC')])
     env.expect('FT.CREATE', 'i3', 'SCHEMA', 'MAP', 'NUMERIC').ok()
     env.assertEqual(attributes(env, 'i3'), [('MAP', 'NUMERIC')])
+
+
+# ---- JSON indexing ----
+
+def set_doc(env, i, metrics, hq='US'):
+    conn = getConnectionByEnv(env)
+    doc = {'hq': hq}
+    if metrics is not None:
+        doc['metrics'] = metrics
+    env.assertEqual(conn.execute_command('JSON.SET', f'company:{i}', '$', json.dumps(doc)), 'OK')
+
+
+def index_errors(env, field=None):
+    """Index-level error counters, or the ones of the attribute `field`."""
+    if field is None:
+        errors = index_info(env)['Index Errors']
+    else:
+        stats = [to_dict(s) for s in index_info(env)['field statistics']]
+        errors = [s for s in stats if s['attribute'] == field][0]['Index Errors']
+    return to_dict(errors)
+
+
+def num_docs(env):
+    return int(index_info(env)['num_docs'])
+
+
+def metrics_stats(env):
+    stats = metrics_field_stats(env)
+    return int(stats['num_keys']), int(stats['memory'])
+
+
+@skip(cluster=True)
+def testIndexingCountsKeysAndMemory(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'rev:fy0': 48200000, 'rev:fym1': 41000000.5, 'headcount': 212})
+    set_doc(env, 2, {'rev:fy0': 1, 'other': -3})
+    env.assertEqual(num_docs(env), 2)
+    num_keys, memory = metrics_stats(env)
+    env.assertEqual(num_keys, 4)
+    env.assertGreater(memory, 0)
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+
+    # A key already present grows its tree, not the key count.
+    set_doc(env, 3, {'rev:fy0': 5})
+    env.assertEqual(metrics_stats(env)[0], 4)
+    env.assertGreater(metrics_stats(env)[1], memory)
+
+
+@skip(cluster=True)
+def testBackfillIndexesExistingDocuments(env):
+    enable_unstable_features(env)
+    set_doc(env, 1, {'a': 1, 'b': 2})
+    set_doc(env, 2, {'a': 3})
+    create_index(env)
+    waitForIndex(env)
+    env.assertEqual(num_docs(env), 2)
+    env.assertEqual(metrics_stats(env)[0], 2)
+
+
+@skip(cluster=True)
+def testEmptyObjectIsIndexedWithoutKeys(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {})
+    env.assertEqual(num_docs(env), 1)
+    env.assertEqual(metrics_stats(env)[0], 0)
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+    env.expect('FT.SEARCH', 'idx', '@hq:{US}', 'NOCONTENT').equal([1, 'company:1'])
+
+
+@skip(cluster=True)
+def testMissingAndNullFieldIsAbsent(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, None)
+    set_doc(env, 2, None)
+    getConnectionByEnv(env).execute_command('JSON.SET', 'company:2', '$.metrics', 'null')
+    env.assertEqual(num_docs(env), 2)
+    env.assertEqual(metrics_stats(env)[0], 0)
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+
+
+@skip(cluster=True)
+def testInvalidValuesFailTheDocument(env):
+    enable_unstable_features(env)
+    create_index(env)
+    bad = [
+        ('string member', {'ok': 1, 'bad': 'x'}),
+        ('numeric string member', {'bad': '12'}),
+        ('bool member', {'bad': True}),
+        ('null member', {'bad': None}),
+        ('array member', {'bad': [1, 2]}),
+        ('nested object member', {'bad': {'inner': 1}}),
+        ('array of objects', [{'a': 1}]),
+        ('scalar', 5),
+        ('string', 'text'),
+    ]
+    for i, (_, metrics) in enumerate(bad, start=1):
+        set_doc(env, i, metrics)
+
+    # A failing document is not indexed, and none of its members is.
+    env.assertEqual(num_docs(env), 0)
+    env.assertEqual(metrics_stats(env)[0], 0)
+    env.assertEqual(index_errors(env)['indexing failures'], len(bad))
+    env.assertEqual(index_errors(env, 'metrics')['indexing failures'], len(bad))
+    env.assertEqual(int(index_info(env)['hash_indexing_failures']), len(bad))
+
+    # A good document next to the bad ones is indexed normally.
+    set_doc(env, 100, {'a': 1})
+    env.assertEqual(num_docs(env), 1)
+    env.assertEqual(metrics_stats(env)[0], 1)
+
+
+@skip(cluster=True)
+def testMultipleMatchesFailTheDocument(env):
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'company:', 'SCHEMA',
+               '$..metrics', 'AS', 'metrics', 'MAP', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('JSON.SET', 'company:1', '$', '{"metrics": {"a": 1}}')
+    conn.execute_command('JSON.SET', 'company:2', '$',
+                         '{"metrics": {"a": 1}, "sub": {"metrics": {"b": 2}}}')
+    env.assertEqual(num_docs(env), 1)
+    env.assertEqual(metrics_stats(env)[0], 1)
+    env.assertEqual(index_errors(env)['indexing failures'], 1)
+
+
+@skip(cluster=True)
+def testFailureLeavesOtherFieldsOfGoodDocsIndexed(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1})
+    set_doc(env, 2, {'a': 'bad'}, hq='UK')
+    env.expect('FT.SEARCH', 'idx', '@hq:{US}', 'NOCONTENT').equal([1, 'company:1'])
+    env.expect('FT.SEARCH', 'idx', '@hq:{UK}', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True)
+def testUpdateReindexesTheDocument(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1, 'b': 2})
+    env.assertEqual(metrics_stats(env)[0], 2)
+
+    set_doc(env, 1, {'a': 5, 'c': 7})
+    env.assertEqual(num_docs(env), 1)
+    # Old entries stay until GC; the new key is added.
+    env.assertEqual(metrics_stats(env)[0], 3)
+
+    # An update that fails removes the document, as for the other types.
+    set_doc(env, 1, {'a': 'bad'})
+    env.assertEqual(num_docs(env), 0)
+    env.assertEqual(index_errors(env)['indexing failures'], 1)
+
+
+@skip(cluster=True)
+def testDelete(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1})
+    env.assertEqual(num_docs(env), 1)
+    env.expect('DEL', 'company:1').equal(1)
+    env.assertEqual(num_docs(env), 0)
+
+
+@skip(cluster=True)
+def testExpire(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1})
+    env.assertEqual(num_docs(env), 1)
+    env.expect('PEXPIRE', 'company:1', 1).equal(1)
+    with TimeLimit(30, 'document was not expired'):
+        while num_docs(env) != 0:
+            time.sleep(0.05)
+
+
+@skip(cluster=True)
+def testReloadReindexes(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1, 'b': 2})
+    set_doc(env, 2, {'a': 3})
+    set_doc(env, 3, {'a': 'bad'})
+    before = metrics_stats(env)[0]
+    env.assertEqual(before, 2)
+
+    env.broadcast('DEBUG RELOAD')
+    waitForIndex(env)
+    env.assertEqual(num_docs(env), 2)
+    env.assertEqual(metrics_stats(env)[0], before)
+    env.assertGreater(metrics_stats(env)[1], 0)

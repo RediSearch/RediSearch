@@ -16,6 +16,7 @@
 #include "forward_index.h"
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
+#include "keyed_numeric_index_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
@@ -417,6 +418,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_MAP_NUMERIC:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -570,11 +572,18 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   return 0;
 }
 
-
-// TODO: index the JSON object's members.
+// The members were validated and collected when the JSON object was loaded.
 FIELD_PREPROCESSOR(mapNumericPreprocessor) {
-  (void)aCtx; (void)sctx; (void)field; (void)fs; (void)fdata;
-  return 0;
+  switch (field->unionType) {
+    case FLD_VAR_T_NULL:
+      fdata->isNull = 1;
+      return 0;
+    case FLD_VAR_T_MAP_NUMERIC:
+      return 0;
+    default:
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid MAP NUMERIC value");
+      return -1;
+  }
 }
 
 FIELD_PREPROCESSOR(geometryPreprocessor) {
@@ -659,6 +668,24 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
       return -1;
     }
   }
+  return 0;
+}
+
+FIELD_BULK_INDEXER(mapNumericIndexer) {
+  KeyedNumericIndex *idx = FieldSpec_OpenMapNumericIndex(&ctx->spec->fields[fs->index], true);
+  if (!idx) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC,
+                        "Could not open MAP NUMERIC index for indexing");
+    return -1;
+  }
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
+  AddResult rv =
+      KeyedNumericIndex_AddBatch(idx, aCtx->doc->docId, field->mapBatch, fieldHasExpiration,
+                                 RSGlobalConfig.numericTreeMaxDepthRange);
+  ctx->spec->stats.invertedSize += rv.size_delta;
+  ctx->spec->stats.numRecords += rv.num_records_delta;
+  IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
   return 0;
 }
 
@@ -783,6 +810,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_MAP_NUMERIC:
       RS_ABORT_ALWAYS("Unsupported field type for GEO index");
       break;
   }
@@ -975,8 +1003,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
         case IXFLDPOS_GEOMETRY:
           rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
           break;
-        case IXFLDPOS_FULLTEXT:
         case IXFLDPOS_MAP_NUMERIC:
+          rc = mapNumericIndexer(cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_FULLTEXT:
           break;
         default:
           rc = -1;
@@ -1247,6 +1277,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_MAP_NUMERIC:
       RS_ABORT_ALWAYS("invalid types");
       break;
   }

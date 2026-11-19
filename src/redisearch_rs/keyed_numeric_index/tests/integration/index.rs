@@ -9,8 +9,9 @@
 
 //! Unit-style tests for [`KeyedNumericIndex`].
 
+use crate::helpers::MAX_DEPTH_RANGE;
 use crate::helpers::{add, all, inclusive, matches};
-use keyed_numeric_index::KeyedNumericIndex;
+use keyed_numeric_index::{KeyedNumericBatch, KeyedNumericIndex};
 use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::gc_all_ranges;
 
@@ -293,4 +294,32 @@ fn memory_usage_stays_exact_after_remove_empty_keys() {
     assert_memory_consistent(&index);
     assert_eq!(index.remove_empty_keys(), 2000);
     assert_memory_consistent(&index);
+}
+
+#[test]
+fn add_batch_adds_every_member_and_sums_the_changes() {
+    let mut index = KeyedNumericIndex::new(false);
+    let mut batch = KeyedNumericBatch::new();
+    batch.push(b"rev", 1.0);
+    batch.push(b"cost", -2.5);
+    assert_eq!(batch.len(), 2);
+
+    let result = index.add_batch(7, &batch, false, MAX_DEPTH_RANGE);
+
+    assert_eq!(result.num_records_delta, 2);
+    assert_eq!(all(&index, b"rev"), vec![(7, 1.0)]);
+    assert_eq!(all(&index, b"cost"), vec![(7, -2.5)]);
+    assert_memory_consistent(&index);
+}
+
+#[test]
+fn an_empty_batch_changes_nothing() {
+    let mut index = KeyedNumericIndex::new(false);
+    let batch = KeyedNumericBatch::new();
+    assert!(batch.is_empty());
+
+    let result = index.add_batch(1, &batch, false, MAX_DEPTH_RANGE);
+
+    assert_eq!(result, Default::default());
+    assert_eq!(index.num_keys(), 0);
 }

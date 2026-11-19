@@ -13,6 +13,7 @@
 #include <time.h>
 
 #include "document.h"
+#include "keyed_numeric_index_ffi.h"
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
@@ -558,6 +559,10 @@ void ClearOwnedField(DocumentField *field) {
       rm_free(field->blobArr);
     field->blobArrLen = 0;
     break;
+    case FLD_VAR_T_MAP_NUMERIC:
+      KeyedNumericBatch_Free(field->mapBatch);
+      field->mapBatch = NULL;
+      break;
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEOMETRY:

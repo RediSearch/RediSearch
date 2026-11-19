@@ -17,7 +17,7 @@
 use numeric_range_tree::{AddResult, NumericRangeTree};
 use rqe_core::DocId;
 
-pub use keyed_numeric_index::KeyedNumericIndex;
+pub use keyed_numeric_index::{KeyedNumericBatch, KeyedNumericIndex};
 
 /// Create an empty index. Release it with [`KeyedNumericIndex_Free`].
 #[unsafe(no_mangle)]
@@ -72,6 +72,84 @@ pub unsafe extern "C" fn KeyedNumericIndex_Add(
     // SAFETY: 3.
     let key = unsafe { key_bytes(key, key_len) };
     index.add(doc_id, key, value, has_field_expiration, max_depth_range)
+}
+
+/// Create an empty batch. Release it with [`KeyedNumericBatch_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn KeyedNumericBatch_New() -> *mut KeyedNumericBatch {
+    Box::into_raw(Box::new(KeyedNumericBatch::new()))
+}
+
+/// Free a batch.
+///
+/// # Safety
+///
+/// `batch` must be NULL (a no-op), or a pointer returned by [`KeyedNumericBatch_New`]
+/// that was not freed yet.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn KeyedNumericBatch_Free(batch: *mut KeyedNumericBatch) {
+    if batch.is_null() {
+        return;
+    }
+    // SAFETY: the caller guarantees `batch` came from `Box::into_raw` and is live.
+    drop(unsafe { Box::from_raw(batch) });
+}
+
+/// Append the member (`key`, `value`) to a batch. See [`KeyedNumericBatch::push`].
+///
+/// # Safety
+///
+/// 1. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+/// 2. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn KeyedNumericBatch_Push(
+    batch: *mut KeyedNumericBatch,
+    key: *const u8,
+    key_len: usize,
+    value: f64,
+) {
+    debug_assert!(!batch.is_null(), "batch cannot be NULL");
+    // SAFETY: 1.
+    let batch = unsafe { &mut *batch };
+    // SAFETY: 2.
+    let key = unsafe { key_bytes(key, key_len) };
+    batch.push(key, value);
+}
+
+/// The number of members in a batch.
+///
+/// # Safety
+///
+/// `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn KeyedNumericBatch_Len(batch: *const KeyedNumericBatch) -> usize {
+    debug_assert!(!batch.is_null(), "batch cannot be NULL");
+    // SAFETY: the caller guarantees `batch` is valid.
+    unsafe { &*batch }.len()
+}
+
+/// Add every member of `batch` for `doc_id`. See [`KeyedNumericIndex::add_batch`].
+///
+/// # Safety
+///
+/// 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+/// 2. The caller must have unique access to `index`, as for [`KeyedNumericIndex_Add`].
+/// 3. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn KeyedNumericIndex_AddBatch(
+    index: *mut KeyedNumericIndex,
+    doc_id: DocId,
+    batch: *const KeyedNumericBatch,
+    has_field_expiration: bool,
+    max_depth_range: usize,
+) -> AddResult {
+    debug_assert!(!index.is_null(), "index cannot be NULL");
+    debug_assert!(!batch.is_null(), "batch cannot be NULL");
+    // SAFETY: 1, 2.
+    let index = unsafe { &mut *index };
+    // SAFETY: 3.
+    let batch = unsafe { &*batch };
+    index.add_batch(doc_id, batch, has_field_expiration, max_depth_range)
 }
 
 /// The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.

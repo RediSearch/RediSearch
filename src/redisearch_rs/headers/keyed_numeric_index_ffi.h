@@ -11,6 +11,14 @@
 #include "rqe_core.h"
 
 /**
+ * The `(key, value)` members of one document's object, collected before the index is locked.
+ *
+ * Collecting first lets the caller validate the whole object, and fail the document
+ * without touching the index, before anything is added.
+ */
+typedef struct KeyedNumericBatch KeyedNumericBatch;
+
+/**
  * One numeric range tree per key.
  *
  * A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
@@ -33,6 +41,40 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Free a batch.
+ *
+ * # Safety
+ *
+ * `batch` must be NULL (a no-op), or a pointer returned by [`KeyedNumericBatch_New`]
+ * that was not freed yet.
+ */
+void KeyedNumericBatch_Free(struct KeyedNumericBatch *batch);
+
+/**
+ * The number of members in a batch.
+ *
+ * # Safety
+ *
+ * `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+ */
+size_t KeyedNumericBatch_Len(const struct KeyedNumericBatch *batch);
+
+/**
+ * Create an empty batch. Release it with [`KeyedNumericBatch_Free`].
+ */
+struct KeyedNumericBatch *KeyedNumericBatch_New(void);
+
+/**
+ * Append the member (`key`, `value`) to a batch. See [`KeyedNumericBatch::push`].
+ *
+ * # Safety
+ *
+ * 1. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+ * 2. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
+ */
+void KeyedNumericBatch_Push(struct KeyedNumericBatch *batch, const uint8_t *key, size_t key_len, double value);
+
+/**
  * Add (`doc_id`, `value`) under the key of `key_len` bytes at `key`.
  *
  * Returns the change to the key's tree, as [`NumericRangeTree::add`] does. The result
@@ -50,6 +92,17 @@ extern "C" {
  * 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
  */
 struct AddResult KeyedNumericIndex_Add(struct KeyedNumericIndex *index, t_docId doc_id, const uint8_t *key, size_t key_len, double value, bool has_field_expiration, size_t max_depth_range);
+
+/**
+ * Add every member of `batch` for `doc_id`. See [`KeyedNumericIndex::add_batch`].
+ *
+ * # Safety
+ *
+ * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
+ * 2. The caller must have unique access to `index`, as for [`KeyedNumericIndex_Add`].
+ * 3. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+ */
+struct AddResult KeyedNumericIndex_AddBatch(struct KeyedNumericIndex *index, t_docId doc_id, const struct KeyedNumericBatch *batch, bool has_field_expiration, size_t max_depth_range);
 
 /**
  * Free an index and all its trees.
