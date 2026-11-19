@@ -170,6 +170,15 @@ typedef enum {
   DISK_GC_RUN_RETRY_REQUIRED,
 } DiskGCRunResult;
 
+typedef enum {
+  DISK_VECTOR_COMPACT_DONE = 0,
+  // Nothing to do until the next document write: nothing was worth compacting, or the
+  // compaction failed and the backend logged it.
+  DISK_VECTOR_COMPACT_NOT_NEEDED,
+  // Stopped before finishing, e.g. by a consistency window or an index drop; retry later.
+  DISK_VECTOR_COMPACT_CANCELLED,
+} DiskVectorCompactResult;
+
 // Stats reported by a single GC attempt, including a retry outcome.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
@@ -194,6 +203,9 @@ typedef struct SearchDiskResourceConfig {
   size_t minMemoryBudgetPercentage;
   size_t wbmBudgetPerIndexMB;
   int maxOpenFiles;
+  // `compactVectorStorage` leaves a vector storage alone below either threshold.
+  size_t vectorCompactMinRuns;
+  size_t vectorCompactMinBytes;
 } SearchDiskResourceConfig;
 
 /** A schema field borrowed by the index-open APIs. */
@@ -730,6 +742,26 @@ typedef struct IndexDiskAPI {
   bool (*compactNonGcStorage)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Compact the index's vector storage if that would speed up its reads.
+   *
+   * The disk GC calls this, on its own thread, once every vector field has reported idle
+   * (`vectorIndexIsBackgroundIdle`) on two GC runs at least one interval apart, with no busy
+   * report or document write between them. The implementation compacts only what passes the
+   * `vectorCompactMin*` thresholds of the SearchDiskResourceConfig it was opened with. Blocks
+   * until done. A failed compaction is logged and not retried until the next document write.
+   *
+   * It is not called while background work is paused. A `pauseBackgroundWork` that lands during
+   * the call may block it until `continueBackgroundWork`; pausing is a test-support primitive.
+   *
+   * Must return DISK_VECTOR_COMPACT_CANCELLED promptly once compactions are disabled by
+   * `openConsistencyWindow` or `markToBeDeleted`: the consistency window and shutdown wait
+   * for the GC run that is calling this.
+   *
+   * @param index Pointer to the disk index
+   */
+  DiskVectorCompactResult (*compactVectorStorage)(RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Pause background flush and compaction work on the index's database.
    *
    * Reference-counted: each call must be balanced by continueBackgroundWork.
@@ -1085,6 +1117,18 @@ typedef struct VectorDiskAPI {
    * @return true when the index contains data, false otherwise
    */
   bool (*vectorIndexHasData)(void *vecIndex, bool takeLocks);
+
+  /**
+   * @brief Check whether a disk vector index has no background indexing work left.
+   *
+   * Running queries are not work. A loaded index stays busy until its storage is bound and its
+   * jobs are replayed. Never blocks: a contended internal lock reads as busy, so callers poll it.
+   * Writes that race the check are the caller's to detect.
+   *
+   * @param vecIndex VecSimIndex* handle for the field
+   * @return true when the index is idle, false when it is busy
+   */
+  bool (*vectorIndexIsBackgroundIdle)(void *vecIndex);
 
   /**
    * @brief Stream the in-memory state of a quiesced VecSimIndex* directly

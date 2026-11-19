@@ -2865,6 +2865,25 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-vector-compact-min-runs", DEFAULT_DISK_VECTOR_COMPACT_MIN_RUNS,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      DISK_VECTOR_COMPACT_MIN_RUNS_MIN, DISK_VECTOR_COMPACT_MIN_RUNS_MAX,
+      get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskVectorCompactMinRuns)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_disk-vector-compact-min-bytes", DEFAULT_DISK_VECTOR_COMPACT_MIN_BYTES,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskVectorCompactMinBytes)
+    )
+  )
+
+  RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-disk-drop-read-cache", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,

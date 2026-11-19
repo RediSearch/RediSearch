@@ -732,6 +732,11 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks);
 
 /**
+ * @brief See `vectorIndexIsBackgroundIdle` in search_disk_api.h.
+ */
+bool SearchDisk_VectorIndexIsBackgroundIdle(void *vecIndex);
+
+/**
  * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
  *        the field's RedisModuleIO RDB stream.
  *
@@ -961,6 +966,11 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
  * @brief Debug only: see `compactNonGcStorage` in search_disk_api.h.
  */
 bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief See `compactVectorStorage` in search_disk_api.h.
+ */
+DiskVectorCompactResult SearchDisk_CompactVectorStorage(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Pause background flush and compaction work on the index's database.

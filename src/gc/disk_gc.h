@@ -47,6 +47,17 @@ typedef struct DiskGC {
   RS_Atomic(size_t) totalTimeMs;
   // Wall-clock duration of the most recent attempt, in milliseconds.
   RS_Atomic(size_t) lastRunTimeMs;
+
+  // Bumped on every document write, update and delete, slot-trim deletes included. The vector
+  // storage is compacted at most once per epoch.
+  RS_Atomic(uint64_t) vectorEpoch;
+  // Touched only by the periodic callback, which never overlaps itself for one index: the epoch
+  // the vector storage was last compacted at (or found not to need it), and the epoch at which
+  // every vector field was last seen idle (0 once one is seen busy).
+  uint64_t compactedVectorEpoch;
+  uint64_t idleVectorEpoch;
+  // Vector storage compactions that ran to completion.
+  RS_Atomic(size_t) vectorCompactions;
 } DiskGC;
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
