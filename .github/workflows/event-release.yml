@@ -98,6 +98,9 @@ jobs:
     runs-on: ubuntu-slim
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
+    permissions:
+      contents: read       # actions/checkout; the push uses the App token below
+      pull-requests: write # `gh pr create --reviewer` below, via github.token
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
       # Common environment variables for security (shell injection prevention)
@@ -110,6 +113,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate-tag.outputs.release_branch }}
+          # The persisted GITHUB_TOKEN header would override the App token
+          # in the push URL below.
+          persist-credentials: false
+
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
@@ -117,12 +124,28 @@ jobs:
         # find the line with the patch version and replace it with the next patch version
         run: sed -i "s/^$PATCH_LINE_PREFIX [0-9]\+$/$PATCH_LINE_PREFIX $NEXT_PATCH/" src/version.h
 
+      # GITHUB_TOKEN can never hold `workflows` permission, so GitHub checks
+      # each of its pushes for workflow-file changes; that check intermittently
+      # times out and rejects the push (actions/checkout#2287). A token with
+      # `workflows: write` skips the check. Scoped to this push only.
+      - name: Generate GitHub App token for push
+        id: push-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Commit and push
         id: push
         env:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           SENDER_ID: ${{ github.event.sender.id }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
         run: |
           git config --global user.name "$TRIGGERING_ACTOR"
           git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
@@ -140,7 +163,7 @@ jobs:
           git checkout -b "$BRANCH"
           git add src/version.h
           git commit -m "Bump version from $CUR_VERSION to $NEXT_VERSION"
-          git push origin "$BRANCH"
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
 
       - name: Create Pull Request
         if: steps.push.outputs.skip != 'true'
