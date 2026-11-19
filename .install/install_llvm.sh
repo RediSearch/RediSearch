@@ -229,9 +229,28 @@ accept_native_llvm() {
     actual=$(llvm_major "$clang_cmd")
     [[ "$actual" == "$LLVM_VER" ]] || return 1
 
-    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
-    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-    export LIBCLANG_PATH=/usr/lib64
+    # RHEL-family puts shared libs in /usr/lib64, except for side-by-side LLVM
+    # packages (EPEL's clang21) that use their own libdir; expose it for
+    # bindgen/clang-sys.
+    local libdir=/usr/lib64 cfg_libdir=""
+    if command -v "llvm-config-${LLVM_VER}" &>/dev/null; then
+        cfg_libdir=$("llvm-config-${LLVM_VER}" --libdir 2>/dev/null || true)
+        if [[ -n "$cfg_libdir" ]] && compgen -G "${cfg_libdir}/libclang*.so*" >/dev/null; then
+            libdir="$cfg_libdir"
+        fi
+    fi
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=${libdir}" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH="$libdir"
+}
+
+# EPEL carries LLVM ${LLVM_VER} side by side with the distro's newer default
+# (EL9 only ships the newer one), under versioned package names.
+install_epel_llvm() {
+    $MODE dnf install -y epel-release dnf-plugins-core >/dev/null 2>&1 || return 1
+    $MODE dnf config-manager --set-enabled crb >/dev/null 2>&1 \
+        || $MODE dnf config-manager --set-enabled powertools >/dev/null 2>&1 || true
+    $MODE dnf install -y --nobest "clang${LLVM_VER}" "clang${LLVM_VER}-devel" \
+        "lld${LLVM_VER}" "llvm${LLVM_VER}" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -381,6 +400,14 @@ install_llvm() {
                 "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null \
                 && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
             echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
+        # EL8 keeps LLVM ${LLVM_VER} in AppStream as version ${LLVM_VER}.x of the
+        # unversioned packages, not as clang-${LLVM_VER}.
+        elif $MODE dnf install -y --nobest --skip-broken \
+                "clang-${LLVM_VER}.*" "lld-${LLVM_VER}.*" "clang-devel-${LLVM_VER}.*" "llvm-${LLVM_VER}.*" 2>/dev/null \
+                && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang ${LLVM_VER}.x from native dnf repos (versioned package spec)"
+        elif install_epel_llvm && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang ${LLVM_VER} from EPEL"
         elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
                 && accept_native_llvm clang lld; then
             echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
