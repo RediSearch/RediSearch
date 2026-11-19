@@ -43,39 +43,38 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
 /**
- * Memory checkpoint for replaying rows a finished pipeline buffered: the
- * stored-results replay and the RETURN-STRICT drain. It reads memory only, not
- * the request's stop flags, which a timeout has already set when these run
- * from the timeout callback. On true the caller stops replaying; the query OOM
- * warning is then set in `err`. Never an error: replies may have started, and
- * ON_OOM FAIL was already decided by AggregateResults.
+ * Memory checkpoint for replaying the rows a finished pipeline buffered. It
+ * reads memory only, not the request's stop flags, which a timeout has already
+ * set when the replay runs from the timeout callback. On true the caller stops
+ * replaying; the query OOM warning is then set in `err`. Never an error: the
+ * reply has started, and StoredResults_StopBeforeReply decided ON_OOM FAIL.
  */
 bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
 
 /**
- * Exact memory check right before the header of a reply that replays buffered
- * rows. A reply that has started cannot become an error, so ON_OOM FAIL decides
- * here: on a stop `err` gets the OOM error and the replay must not start, and
- * the replay itself then never checks memory. Under RETURN a stop sets the OOM
- * warning and the reply carries no rows. A blocked-client timeout owns its reply:
- * no stop is reported then.
+ * Exact memory check under ON_OOM FAIL right before the header of a reply that
+ * replays buffered rows. A reply that has started cannot become an error, so on
+ * a stop `err` gets the OOM error and the replay must not start; the replay
+ * itself then never checks memory. Under ON_OOM RETURN it checks nothing: the
+ * replay's per-row check cuts the rows. A blocked-client timeout owns its
+ * reply: no stop is reported then.
  */
-bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+void StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                                    QueryError *err);
 
 /**
- * Per-row memory stop check of the inline reply loops, before each upstream
- * read: a memory stop already requested on the request, or memory pressure. It
- * does not read the timeout state: a blocked-client timeout is the upstream
- * stages' check, so none of it may be dropped as redundant. The reply grows
- * the client output buffer, which only the memory ratio sees, so this is the
- * loop's only memory check. On true `rc` is RS_RESULT_STOPPED, which the
- * caller maps like a pipeline stop (ApplyOomStop for an OOM stop). An OOM stop
- * under ON_OOM RETURN does not end the loop, as in AggregateResults: the rows
- * the pipeline's stages already hold still reach the reply, and `qctx`'s row
- * source is ended (RP_EndRowSourceOnStop).
+ * Per-row memory stop check of the loops that read a pipeline's rows (the
+ * inline reply loops and AggregateResults): a memory stop already requested on
+ * `limits`, or memory pressure. The reply grows the client output buffer, which
+ * only the memory ratio sees, so this is a reply loop's only memory check. On
+ * true `rc` is RS_RESULT_STOPPED, which the caller maps like a pipeline stop
+ * (ApplyOomStop for an OOM stop). An OOM stop under ON_OOM RETURN does not end
+ * the loop: the rows the pipeline's stages already hold still come, and
+ * `qctx`'s row source is ended (RP_EndRowSourceOnStop). Those rows read nothing
+ * upstream, so the clock deadline of `limits` is read here then. A
+ * blocked-client timeout is the upstream stages' check.
  */
-bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestLimits *timeout,
+bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestLimits *limits,
                           RSOomPolicy oomPolicy, uint32_t *counter, int *rc);
 
 void destroyResults(SearchResult **results);

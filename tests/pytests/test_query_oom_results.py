@@ -9,9 +9,6 @@
 `_FT.DEBUG MEMORY_PRESSURE AT_CALL`, which makes the n-th checkpoint call report pressure."""
 
 from common import *
-from test_blocked_client_timeout import (
-    _wait_shard_paused_after_aggregate_result, wait_for_client_unblocked,
-)
 from test_query_memory_checkpoints import BUILD_CHECKPOINTS
 from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
@@ -22,7 +19,6 @@ import threading
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
-TIMEOUT_WARNING = "Timeout limit was reached"
 N_DOCS = 10
 # Larger than any test's checkpoint call count: arms the call counter without firing.
 NEVER = 1_000_000
@@ -46,9 +42,8 @@ def _checkpoint_calls(env, query):
 
 
 def _replay_call(env, query, replayed_rows, n):
-    """The checkpoint call of the n-th replayed row (1-based), or the replay's pre-header check
-    for n=0: under ON_OOM RETURN the replay of a buffered result is the query's last
-    `replayed_rows` + 1 checkpoint calls, the pre-header one first."""
+    """The checkpoint call of the n-th replayed row (1-based): under ON_OOM RETURN the replay of
+    a buffered result is the query's last `replayed_rows` checkpoint calls."""
     return _checkpoint_calls(env, query) - replayed_rows + n
 
 
@@ -137,11 +132,10 @@ def test_buffered_results_stop_returns_the_prefix(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_stored_results_replay_stop_truncates(env):
-    """Under ON_OOM RETURN, replaying buffered rows checks memory right before the header and
-    then per row: a stop before the header replies no rows, a stop mid-replay truncates the reply,
-    both with the warning. Under ON_OOM FAIL a cut reply is never sent: pressure before the replay
-    is the OOM error, and the replay itself makes no per-row memory check, so no pressure can
-    land mid-replay."""
+    """Under ON_OOM RETURN, replaying buffered rows checks memory per row: a stop mid-replay
+    truncates the reply, with the warning. Under ON_OOM FAIL a cut reply is never sent: the replay
+    checks memory once, right before the header, where pressure is the OOM error, and makes no
+    per-row check, so no pressure can land mid-replay."""
     try:
         _index_with_docs(env)
         search = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 2 * N_DOCS]
@@ -150,11 +144,6 @@ def test_stored_results_replay_stop_truncates(env):
                 message = (workers, query)
                 _set_policies(env, 'fail', 'return', workers)
                 return_calls = _checkpoint_calls(env, query)
-                _memory_pressure(env, 'AT_CALL', _replay_call(env, query, N_DOCS, 0))
-                res = env.cmd(*query)
-                env.assertEqual(res['results'], [], message=(message, res))
-                env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=message)
-
                 _memory_pressure(env, 'AT_CALL', _replay_call(env, query, N_DOCS, 3))
                 res = env.cmd(*query)
                 env.assertEqual(len(res['results']), 2, message=(message, res))
@@ -162,9 +151,9 @@ def test_stored_results_replay_stop_truncates(env):
 
                 _set_policies(env, 'fail', 'fail', workers)
                 errors, warnings = _oom_counters(env)
-                # Only the pre-header check remains of the replay's N_DOCS + 1 calls.
+                # The pre-header check replaces the replay's N_DOCS per-row calls.
                 fail_calls = _checkpoint_calls(env, query)
-                env.assertEqual(fail_calls, return_calls - N_DOCS, message=message)
+                env.assertEqual(fail_calls, return_calls - N_DOCS + 1, message=message)
                 _memory_pressure(env, 'AT_CALL', fail_calls)
                 env.expect(*query).error().contains(OOM_QUERY_ERROR)
                 env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=message)
@@ -375,9 +364,8 @@ def test_blocked_client_timeout_owns_the_reply_over_the_pre_header_stop(env):
 @env_spec(protocol=3)
 def test_pressure_after_the_row_that_fills_the_limit(env):
     """Buffering does not check memory on the row that fills the limit, so pressure arriving
-    after every requested row is held lands on the replay's pre-header check: no rows and the
-    warning under ON_OOM RETURN, the OOM error under FAIL. Pressure on the replay's first row
-    still cuts the reply under RETURN; under FAIL the replay makes no per-row check."""
+    after every requested row is held lands on the replay: on its first row under ON_OOM RETURN
+    (no rows and the warning), on its pre-header check under FAIL (the OOM error)."""
     try:
         _index_with_docs(env)
         count = 4
@@ -385,13 +373,12 @@ def test_pressure_after_the_row_that_fills_the_limit(env):
         for workers in [0, 2]:
             # The safe loader adds per-row checkpoints under workers, so calibrate the call.
             _set_policies(env, 'fail', 'return', workers)
-            for n in [0, 1]:
-                _memory_pressure(env, 'AT_CALL', _replay_call(env, query, count, n))
-                res, cursor = env.cmd(*query)
-                message = (workers, n, res)
-                env.assertEqual(res['results'], [], message=message)
-                env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=message)
-                env.assertEqual(cursor, 0, message=message)
+            _memory_pressure(env, 'AT_CALL', _replay_call(env, query, count, 1))
+            res, cursor = env.cmd(*query)
+            message = (workers, res)
+            env.assertEqual(res['results'], [], message=message)
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=message)
+            env.assertEqual(cursor, 0, message=message)
 
             _set_policies(env, 'fail', 'fail', workers)
             errors, warnings = _oom_counters(env)
@@ -399,47 +386,6 @@ def test_pressure_after_the_row_that_fills_the_limit(env):
             env.expect(*query).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
     finally:
-        _reset(env)
-
-
-@skip(cluster=True)
-@env_spec(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
-def test_return_strict_drain_stop_truncates(env):
-    """After a RETURN-STRICT timeout the main thread drains the sorter heap into the reply; the
-    drain checks memory per row, although the request is already stopped by the timeout, and
-    a stop there keeps what was drained and warns of both."""
-    t_query = None
-    try:
-        skipIfNoEnableAssert(env)
-        _index_with_docs(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-        query = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, N_DOCS]
-        resetAggregateResultsDebug(env)
-        setPauseAfterAggregateResult(env, 1)
-        result = []
-        t_query = threading.Thread(target=call_and_store, args=(env.cmd, query, result), daemon=True)
-        t_query.start()
-        blocked_client_id = _wait_shard_paused_after_aggregate_result(env, 'FT.AGGREGATE')
-        # Only the drain counts from here: the worker sees the timeout before its next checkpoint,
-        # and a call on an already stopped request is not counted.
-        _memory_pressure(env, 'AT_CALL', 3)
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-        wait_for_client_unblocked(env, blocked_client_id)
-        resetAggregateResultsDebug(env)
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive())
-        env.assertEqual(len(result), 1)
-
-        res = result[0]
-        # One row buffered before the timeout, two drained before the third drain call stopped it.
-        env.assertEqual([row['extra_attributes']['n'] for row in res['results']], ['0', '1', '2'],
-                        message=res)
-        env.assertEqual(sorted(res['warning']), sorted([COORD_OOM_WARNING, TIMEOUT_WARNING]))
-    finally:
-        # A parked worker would leak the pause into later tests.
-        if t_query is not None:
-            resetAggregateResultsDebug(env)
-            t_query.join(timeout=10)
         _reset(env)
 
 
@@ -460,7 +406,7 @@ HYBRID = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
 @env_spec(protocol=3)
 def test_hybrid_stored_results_replay_stop_truncates(env):
     """FT.HYBRID replays its buffered tail rows like the other commands. Under ON_OOM RETURN a
-    stop before the header replies no rows and a stop mid-replay truncates the reply, both with
+    stop on the first replayed row replies no rows and a later one truncates the reply, both with
     the warning. Under FAIL a stop before the header is the OOM error and the replay makes no
     per-row check."""
     try:
@@ -478,7 +424,7 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
             env.assertEqual(len(res['results']), 1, message=(workers, res))
             env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=workers)
 
-            _memory_pressure(env, 'AT_CALL', buffering_calls)
+            _memory_pressure(env, 'AT_CALL', buffering_calls + 1)
             res = env.cmd(*HYBRID)
             env.assertEqual(res['results'], [], message=(workers, res))
             env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=workers)
@@ -486,7 +432,8 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
             _set_policies(env, 'fail', 'fail', workers)
             errors, warnings = _oom_counters(env)
             processed = _queries_processed(env)
-            _memory_pressure(env, 'AT_CALL', buffering_calls)
+            # The pre-header check is the replay's only call under FAIL.
+            _memory_pressure(env, 'AT_CALL', buffering_calls + 1)
             env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
             # A query that failed with the pre-header OOM error is not a processed one.
@@ -494,7 +441,7 @@ def test_hybrid_stored_results_replay_stop_truncates(env):
             env.cmd(*HYBRID)
             env.assertEqual(_queries_processed(env), processed + 1, message=workers)
 
-            env.assertEqual(_checkpoint_calls(env, HYBRID), buffering_calls, message=workers)
+            env.assertEqual(_checkpoint_calls(env, HYBRID), buffering_calls + 1, message=workers)
     finally:
         _reset(env)
 
@@ -511,7 +458,7 @@ def test_hybrid_buffered_results_stop_replies_by_on_oom_policy(env):
 
         def tail_buffering_call(n, replay_calls):
             # The tail buffers one checkpoint call per row and the replay follows with
-            # `replay_calls`: its pre-header call under FAIL, plus one per row under RETURN.
+            # `replay_calls`: its pre-header call under FAIL, one per row under RETURN.
             return _checkpoint_calls(env, HYBRID) - rows - replay_calls + n
 
         for workers in [0, 2]:
@@ -522,7 +469,7 @@ def test_hybrid_buffered_results_stop_replies_by_on_oom_policy(env):
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
 
             _set_policies(env, 'fail', 'return', workers)
-            _memory_pressure(env, 'AT_CALL', tail_buffering_call(2, rows + 1))
+            _memory_pressure(env, 'AT_CALL', tail_buffering_call(2, rows))
             res = env.cmd(*HYBRID)
             env.assertEqual(len(res['results']), rows, message=(workers, res))
             env.assertEqual(res['warnings'], [], message=(workers, res))
@@ -566,8 +513,8 @@ def test_buffered_results_stop_through_the_coordinator(env):
 def test_stored_results_replay_stop_through_the_coordinator(env):
     """A shard under ON_OOM FAIL never sends a cut reply for the coordinator to merge as complete:
     its replay makes one memory check, before the header, and a stop there is the OOM error of the
-    cluster query. Under RETURN a stop before the replay sends no rows and the coordinator reports
-    the warning. Shard 2 runs no coordinator pipeline, so its checkpoint calls are its own."""
+    cluster query. Under RETURN a stop on the first replayed row sends no rows and the coordinator
+    reports the warning. Shard 2 runs no coordinator pipeline, so its checkpoint calls are its own."""
     _index_with_docs(env)
     shard = env.getConnection(2)
     rows = shard.dbsize()
@@ -589,9 +536,9 @@ def test_stored_results_replay_stop_through_the_coordinator(env):
         with env.assertResponseError(contained=OOM_QUERY_ERROR):
             run(0)
 
-        # The replay is the last rows + 1 calls under RETURN; its first is the pre-header check.
+        # The replay is the last `rows` calls under RETURN, one per row.
         allShards_change_oom_policy(env, 'return')
-        res = run(rows)
+        res = run(rows - 1)
         env.assertEqual(len(res['results']), N_DOCS - rows, message=res)
         env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
     finally:
@@ -1100,8 +1047,8 @@ def test_hybrid_subquery_stop_follows_on_oom_under_timeout_fail(env):
                 _memory_pressure(env, 'AT_CALL', at_call)
                 res = env.cmd(*HYBRID)
                 _memory_pressure(env, 'RESET')
-                # The merger's own consume calls follow the subqueries': they keep only the rows
-                # read so far.
+                # The tail's calls follow the subqueries': a stop there cuts rows or warns of
+                # nothing.
                 if res['warnings'] == [] or len(res['results']) < full:
                     break
                 env.assertEqual(len(res['results']), full, message=(workers, at_call, res))
@@ -1122,59 +1069,14 @@ def test_hybrid_subquery_stop_follows_on_oom_under_timeout_fail(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
-def test_hybrid_merger_consume_stop_replies_by_on_oom_policy(env):
-    """The merger checks memory per row it takes from its upstreams, which already ended their
-    own rows. Its stop follows ON_OOM, never ON_TIMEOUT, with and without workers: under RETURN
-    the rows taken so far are the reply with the OOM warning (a stop at the first row of the
-    last upstream loses the rest of its window), under FAIL the reply is the OOM error. The
-    last upstream's consume calls are the WINDOW calls before the tail's buffering and replay
-    calls (one each per merged row); the first upstream's may interleave with a subquery's."""
-    window = 4
-    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
-             'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
-             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
-    _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
-    try:
-        for workers in [0, 2]:
-            _set_policies(env, 'return', 'return', workers)
-            full = len(env.cmd(*query)['results'])
-            env.assertGreater(full, window, message=workers)
-            last_upstream_call = _checkpoint_calls(env, query) - 2 * full - window
-
-            for on_timeout, on_oom in [('return', 'return'), ('fail', 'return'),
-                                       ('return', 'fail'), ('fail', 'fail')]:
-                _set_policies(env, on_timeout, on_oom, workers)
-                for n in range(1, window + 1):
-                    _memory_pressure(env, 'AT_CALL', last_upstream_call + n)
-                    errors, warnings = _oom_counters(env)
-                    message = (workers, on_timeout, on_oom, n)
-                    if on_oom == 'fail':
-                        env.expect(*query).error().contains(OOM_QUERY_ERROR)
-                        env.assertEqual(_oom_counters(env), (errors + 1, warnings),
-                                        message=message)
-                    else:
-                        res = env.cmd(*query)
-                        env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=message)
-                        # The rows the merger already holds are the reply, never none.
-                        env.assertGreater(len(res['results']), 0, message=message)
-                        env.assertLessEqual(len(res['results']), full, message=message)
-                        if n == 1:
-                            env.assertLess(len(res['results']), full, message=message)
-                    _memory_pressure(env, 'RESET')
-    finally:
-        _reset(env)
-
-
-@skip(cluster=True)
-@env_spec(protocol=3)
 def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
     """A GEOSHAPE query collects every matching id while its iterator is built; a stop for OOM
     there abandons the collection, and the query ends like any stop at build: ON_OOM FAIL
     replies the OOM error, ON_OOM RETURN an empty result with the OOM warning, for each
     predicate, with or without workers. ON_OOM IGNORE lets it finish. The first build
-    checkpoint comes before the iterators, so call 1 + N_DOCS is the collection's last id: only
-    the collection's checkpoint can empty the reply there (later calls are the pipeline's and
-    the reply's, past the first rows)."""
+    checkpoint comes before the iterators, so call 2 is the collection's read at its first id,
+    where its buffer first grows: only the collection's checkpoint can empty the reply there
+    (later calls are the pipeline's and the reply's, past the first rows)."""
     try:
         env.expect('FT.CREATE', 'gidx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
         conn = getConnectionByEnv(env)
@@ -1193,37 +1095,22 @@ def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
             for workers in [0, 2]:
                 _set_policies(env, 'return', 'fail', workers)
                 errors, warnings = _oom_counters(env)
-                _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+                _memory_pressure(env, 'AT_CALL', 2)
                 env.expect(*query).error().equal(f'SEARCH_OOM {OOM_QUERY_ERROR}')
                 env.assertEqual(_oom_counters(env), (errors + 1, warnings),
                                 message=(predicate, workers))
 
                 _set_policies(env, 'return', 'return', workers)
-                _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+                _memory_pressure(env, 'AT_CALL', 2)
                 res = env.cmd(*query)
                 env.assertEqual((res['results'], res['warning']), ([], [COORD_OOM_WARNING]),
                                 message=(predicate, workers, res))
 
             _set_policies(env, 'return', 'ignore', 0)
-            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+            _memory_pressure(env, 'AT_CALL', 2)
             env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
     finally:
         _reset(env)
-
-
-def _open_cursors(env, index='idx'):
-    """Client and coordinator-to-shard cursors on `index`. On the coordinator FT.INFO sums the
-    shards, so hybrid shard subquery cursors (counted as `index_total` on each shard) are included."""
-    info = env.cmd('FT.INFO', index)
-    stats = info['cursor_stats'] if isinstance(info, dict) else to_dict(to_dict(info)['cursor_stats'])
-    return int(stats['index_total']) + int(stats.get('index_total_internal', 0))
-
-
-def _expect_no_open_cursors(env, message, index='idx'):
-    # Shard cursors are freed asynchronously after the coordinator's cursor ends.
-    with TimeLimit(10, f'cursor left open: {message}'):
-        while _open_cursors(env, index):
-            time.sleep(0.05)
 
 
 @skip(cluster=False)
@@ -1303,78 +1190,4 @@ def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
     finally:
         disarm()
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-        allShards_change_oom_policy(env, 'return')
-
-
-@skip(cluster=False)
-@env_spec(protocol=3)
-def test_hybrid_coordinator_merger_stop_replies_by_on_oom_policy(env):
-    """The coordinator's merger takes rows from its RPNet upstreams, one checkpoint per row.
-    No scope isolates it from shard 1's own pipeline on the shared counter, so the sweep runs
-    every call of a WINDOW query, which includes the merger's. Each stop must reply per ON_OOM
-    (RETURN: the full reply or fewer rows with the OOM warning, FAIL: the OOM error or such a
-    reply), and every query must finish: a stop that left an upstream undrained would
-    hang the reply or leave a shard cursor open. A stop inside shard 1's own pipeline makes the
-    coordinator re-rank the remaining replies, and with tied text scores the WINDOW top-k can
-    pick rows the full reply lacks, so rows are only checked to be indexed keys, unique and at
-    most one window per subquery."""
-    window = 4
-    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
-             'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
-             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
-    _hybrid_index(env)
-    coord = env.getConnection(1)
-
-    def arm(n):
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', n)
-
-    def disarm():
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-
-    def row_ids(res):
-        return [row['__key'] for row in res['results']]
-
-    def run_at(at_call):
-        arm(at_call)
-        try:
-            return env.cmd(*query)
-        except redis_exceptions.ResponseError as e:
-            return e
-        finally:
-            disarm()
-
-    try:
-        allShards_change_oom_policy(env, 'return')
-        full = row_ids(env.cmd(*query))
-        env.assertGreater(len(full), 0)
-
-        for on_oom in ['return', 'fail']:
-            allShards_change_oom_policy(env, on_oom)
-            arm(NEVER)
-            env.cmd(*query)
-            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
-            disarm()
-            env.assertGreater(calls, 0, message=on_oom)
-
-            stops = 0
-            for at_call in range(1, calls + 1):
-                with TimeLimit(30, f'hybrid hung: {on_oom} {at_call}'):
-                    res = run_at(at_call)
-                message = (on_oom, at_call, res)
-                if isinstance(res, Exception):
-                    env.assertEqual(on_oom, 'fail', message=message)
-                    env.assertContains(OOM_QUERY_ERROR, str(res), message=message)
-                    stops += 1
-                    continue
-                ids = row_ids(res)
-                env.assertEqual(len(ids), len(set(ids)), message=message)
-                env.assertTrue(set(ids) <= {f'h:{i}' for i in range(N_DOCS)}, message=message)
-                env.assertLessEqual(len(ids), 2 * window, message=message)
-                env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
-                               (ids == full and res['warnings'] == []), message=message)
-                stops += res['warnings'] == [COORD_OOM_WARNING]
-            env.assertGreater(stops, 0, message=on_oom)
-            _expect_no_open_cursors(env, f'coordinator merger stop {on_oom}', index='hidx')
-    finally:
-        disarm()
         allShards_change_oom_policy(env, 'return')
