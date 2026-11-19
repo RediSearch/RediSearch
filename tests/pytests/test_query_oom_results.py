@@ -865,6 +865,25 @@ def test_hybrid_tail_stop_fails_over_a_soft_tail_error(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_pre_header_stop_fails_over_a_soft_tail_error(env):
+    """Under ON_OOM FAIL the replay's pre-header check fails the query with the OOM error even when
+    a tail APPLY on a field no doc has already recorded a soft error in the same slot."""
+    try:
+        _hybrid_index(env)
+        query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+                 'LOAD', 1, '@opt', 'APPLY', '@opt', 'AS', 'x',
+                 'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+        for workers in [0, 2]:
+            _set_policies(env, 'fail', 'fail', workers)
+            # The pre-header check is the replay's only call under FAIL, so the query's last.
+            _memory_pressure(env, 'AT_CALL', _checkpoint_calls(env, query))
+            env.expect(*query).error().contains(OOM_QUERY_ERROR)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_reply_loop_stop_truncates(env):
     """FT.HYBRID streams its tail rows into the reply with the same per-row check; a stop there
     ends the stream at the tail's merger, so some stop positions keep a strict prefix of the

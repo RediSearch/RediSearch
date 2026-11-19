@@ -412,10 +412,13 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
 // checked before the fatal error is selected and the header written. A timeout or an error that
 // ended the pipeline owns the reply.
 static void stopBeforeReplay_hybrid(HybridRequest *hreq, SearchResult **results, int rc) {
+  QueryError *err = hreq->tailPipeline->qctx.err;
   if (results && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) &&
-      !HybridRequest_GetFatalError(hreq)) {
-    StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
-                                  hreq->tailPipeline->qctx.err);
+      !HybridRequest_GetFatalError(hreq) &&
+      StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, err) &&
+      clearSoftTailErrorForOom(hreq, err)) {
+    // A soft tail error in the slot kept the OOM error out; it is cleared now.
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 }
 
