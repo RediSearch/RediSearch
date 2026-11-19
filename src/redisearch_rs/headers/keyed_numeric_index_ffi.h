@@ -66,9 +66,8 @@ void KeyedNumericIndex_Free(struct KeyedNumericIndex *index);
  * The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.
  *
  * The address does not identify the tree: after its key is removed and re-added, another
- * tree may live at the same address. A caller that releases the spec lock must compare
- * [`NumericRangeTree::unique_id`] through [`KeyedNumericIndex_GetChecked`] instead of
- * trusting the pointer.
+ * tree may live at the same address. A caller that releases the spec lock must look the
+ * key up again instead of trusting the pointer.
  *
  * # Safety
  *
@@ -81,19 +80,6 @@ void KeyedNumericIndex_Free(struct KeyedNumericIndex *index);
  *    may change the tree behind it or free it.
  */
 const struct NumericRangeTree *KeyedNumericIndex_Get(const struct KeyedNumericIndex *index, const uint8_t *key, size_t key_len);
-
-/**
- * Like [`KeyedNumericIndex_Get`], but NULL unless the tree's
- * [`NumericRangeTree::unique_id`] equals `expected_tree_id`.
- *
- * This is how a reader re-resolves a tree it saw before releasing the spec lock: NULL
- * means the key is gone or its tree was replaced.
- *
- * # Safety
- *
- * Same as [`KeyedNumericIndex_Get`].
- */
-const struct NumericRangeTree *KeyedNumericIndex_GetChecked(const struct KeyedNumericIndex *index, const uint8_t *key, size_t key_len, uint32_t expected_tree_id);
 
 /**
  * Bytes used by the index, its keys, their trees and the map's table.

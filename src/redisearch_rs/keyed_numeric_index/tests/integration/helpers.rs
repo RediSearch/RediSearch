@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 //! Helpers shared by the test modules.
 
 use index_result::RSIndexResult;
@@ -25,7 +34,10 @@ pub fn matches(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<(u64, f64
     for range in tree.find(filter) {
         let mut reader = range.reader();
         let mut result = RSIndexResult::build_numeric(0.0).build();
-        while reader.next_record(&mut result).unwrap_or(false) {
+        while reader
+            .next_record(&mut result)
+            .expect("reading a numeric range")
+        {
             // SAFETY: a numeric index only ever holds numeric records
             let value = unsafe { result.as_numeric_unchecked() };
             if filter.value_in_range(value) {

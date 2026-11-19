@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 //! Unit-style tests for [`KeyedNumericIndex`].
 
 use crate::helpers::{add, all, inclusive, matches};
@@ -253,4 +262,35 @@ fn range_queries_respect_inclusivity() {
     filter.min_inclusive = false;
     filter.max_inclusive = false;
     assert_eq!(matches(tree, &filter), [(2, 2.0)]);
+}
+
+#[test]
+fn memory_usage_stays_exact_across_scattered_removals() {
+    let mut index = KeyedNumericIndex::new(false);
+    for i in 0..3000u32 {
+        add(&mut index, 1, format!("key{i}").as_bytes(), 1.0);
+    }
+    assert_memory_consistent(&index);
+    for i in (0..3000u32).filter(|i| i % 7 != 0) {
+        let key = format!("key{i}");
+        gc_away_every_doc(&mut index, key.as_bytes());
+        assert_memory_consistent(&index);
+        let id = index.get(key.as_bytes()).unwrap().unique_id();
+        assert!(index.remove_key_if_empty(key.as_bytes(), id));
+        assert_memory_consistent(&index);
+    }
+}
+
+#[test]
+fn memory_usage_stays_exact_after_remove_empty_keys() {
+    let mut index = KeyedNumericIndex::new(false);
+    for i in 0..3000u32 {
+        add(&mut index, 1, format!("key{i}").as_bytes(), 1.0);
+    }
+    for i in (0..3000u32).filter(|i| i % 3 != 0) {
+        gc_away_every_doc(&mut index, format!("key{i}").as_bytes());
+    }
+    assert_memory_consistent(&index);
+    assert_eq!(index.remove_empty_keys(), 2000);
+    assert_memory_consistent(&index);
 }

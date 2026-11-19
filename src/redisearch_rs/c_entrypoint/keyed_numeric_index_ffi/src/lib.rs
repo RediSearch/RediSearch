@@ -77,9 +77,8 @@ pub unsafe extern "C" fn KeyedNumericIndex_Add(
 /// The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.
 ///
 /// The address does not identify the tree: after its key is removed and re-added, another
-/// tree may live at the same address. A caller that releases the spec lock must compare
-/// [`NumericRangeTree::unique_id`] through [`KeyedNumericIndex_GetChecked`] instead of
-/// trusting the pointer.
+/// tree may live at the same address. A caller that releases the spec lock must look the
+/// key up again instead of trusting the pointer.
 ///
 /// # Safety
 ///
@@ -104,31 +103,6 @@ pub unsafe extern "C" fn KeyedNumericIndex_Get(
     index
         .get(key)
         .map_or(std::ptr::null(), |tree| tree as *const _)
-}
-
-/// Like [`KeyedNumericIndex_Get`], but NULL unless the tree's
-/// [`NumericRangeTree::unique_id`] equals `expected_tree_id`.
-///
-/// This is how a reader re-resolves a tree it saw before releasing the spec lock: NULL
-/// means the key is gone or its tree was replaced.
-///
-/// # Safety
-///
-/// Same as [`KeyedNumericIndex_Get`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn KeyedNumericIndex_GetChecked(
-    index: *const KeyedNumericIndex,
-    key: *const u8,
-    key_len: usize,
-    expected_tree_id: u32,
-) -> *const NumericRangeTree {
-    // SAFETY: the caller upholds the contract of `KeyedNumericIndex_Get`.
-    let tree = unsafe { KeyedNumericIndex_Get(index, key, key_len) };
-    // SAFETY: a non-NULL result points to a live tree while the caller holds the lock.
-    match unsafe { tree.as_ref() } {
-        Some(t) if u32::from(t.unique_id()) == expected_tree_id => tree,
-        _ => std::ptr::null(),
-    }
 }
 
 /// The number of keys that have a tree.

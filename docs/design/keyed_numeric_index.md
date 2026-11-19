@@ -66,8 +66,7 @@ Indexing rules:
 
 ```rust
 pub struct KeyedNumericIndex {
-    /// Boxed so a tree keeps its address when the map grows while a query
-    /// iterator is parked across a lock release.
+    /// Boxed so growing the map moves a pointer instead of a whole tree.
     keys: FxHashMap<Box<[u8]>, Box<NumericRangeTree>>,
     memory_usage: usize,
     /// Tells a replaced index apart from the one a GC scan saw.

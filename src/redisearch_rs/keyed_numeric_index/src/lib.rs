@@ -58,8 +58,9 @@ impl From<KeyedNumericIndexId> for u32 {
 /// [`get_checked`](KeyedNumericIndex::get_checked).
 #[derive(Debug)]
 pub struct KeyedNumericIndex {
-    /// Boxed so a tree keeps its address while the map grows. That is not an identity
-    /// guarantee; see the type's docs.
+    /// Boxed so growing the map moves a pointer instead of a whole tree, and so a tree's
+    /// address stays stable while the lock is held. It is not an identity guarantee; see
+    /// the type's docs.
     keys: FxHashMap<Box<[u8]>, Box<NumericRangeTree>>,
     /// Bytes owned by the trees, the keys and the map's table, kept equal to
     /// [`computed_memory_usage`](Self::computed_memory_usage) by every mutator.
@@ -81,7 +82,10 @@ impl KeyedNumericIndex {
         index
     }
 
-    /// Heap bytes the map's table holds: one entry and one control byte per slot.
+    /// Estimate of the heap bytes the map's table holds: one entry and one control byte
+    /// per slot, following [`FxHashMap::capacity`]. The exact allocation size is not
+    /// available from the standard map, so this is what [`memory_usage`](Self::memory_usage)
+    /// tracks. The capacity, and so the estimate, can change when entries are removed.
     fn table_bytes(&self) -> usize {
         self.keys.capacity() * (std::mem::size_of::<(Box<[u8]>, Box<NumericRangeTree>)>() + 1)
     }
@@ -178,8 +182,8 @@ impl KeyedNumericIndex {
 
     /// Drop the tree of `key` if it is the one identified by `expected` and holds no entries.
     ///
-    /// Returns whether it was dropped. The map's table keeps its capacity, so the memory it
-    /// holds is not given back.
+    /// Returns whether it was dropped. The table is not shrunk, but its reported capacity
+    /// can still drop, and [`memory_usage`](Self::memory_usage) follows it.
     pub fn remove_key_if_empty(&mut self, key: &[u8], expected: TreeUniqueId) -> bool {
         let Some(tree) = self.keys.get(key) else {
             return false;
@@ -187,8 +191,10 @@ impl KeyedNumericIndex {
         if tree.unique_id() != expected || tree.num_entries() > 0 {
             return false;
         }
+        let table_before = self.table_bytes();
         let (key, tree) = self.keys.remove_entry(key).expect("the key was just found");
         self.memory_usage -= key.len() + tree.mem_usage();
+        self.memory_usage = self.memory_usage - table_before + self.table_bytes();
         true
     }
 
@@ -197,6 +203,7 @@ impl KeyedNumericIndex {
     /// Visits every key, so GC of a known tree should use
     /// [`remove_key_if_empty`](Self::remove_key_if_empty).
     pub fn remove_empty_keys(&mut self) -> usize {
+        let table_before = self.table_bytes();
         let mut freed = 0;
         let mut removed = 0;
         self.keys.retain(|key, tree| {
@@ -208,6 +215,7 @@ impl KeyedNumericIndex {
             keep
         });
         self.memory_usage -= freed;
+        self.memory_usage = self.memory_usage - table_before + self.table_bytes();
         removed
     }
 
