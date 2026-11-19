@@ -1,0 +1,40 @@
+name: Redis Build Sanity (PR)
+
+# Shift-left for redis/redis's `Modules Build Flow`: a change to what bootstraps or builds
+# the module can break that flow on a distro without breaking any Search CI job. The nightly
+# (event-nightly.yml) covers distro drift; this runs the same flow when such a change is made.
+
+# Floor, not a grant: every job below declares what it needs.
+permissions: {}
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.install/**'
+      - 'build.sh'
+      - '.github/workflows/task-get-config.yml'
+      - '.github/workflows/task-redis-build-sanity.yml'
+      - '.github/workflows/flow-redis-build-sanity.yml'
+      - '.github/workflows/event-pull_request-redis-build-sanity.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  redis-build-sanity:
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/flow-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      # The distros redis's modules build is most likely to break on (EL 8/9/10, AL2023),
+      # plus one Debian and one Ubuntu, on both architectures. The nightly runs the full list.
+      platform: almalinux:8,almalinux:9,almalinux:10,rockylinux:8,rockylinux:9,rockylinux:10,amazonlinux:2023,debian:bookworm,ubuntu:noble
+      architecture: all
+      redis-repository: redis/redis
+      redis-ref: unstable
+      redisearch-repository: ${{ github.event.pull_request.head.repo.full_name }}
+      redisearch-ref: ${{ github.event.pull_request.head.sha }}
