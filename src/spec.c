@@ -3344,10 +3344,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
-  if (saveDiskSpec) {
-    // Preserve the v30 wire format for snapshots that carry TAG dictionaries.
-    RedisModule_SaveUnsigned(rdb, 1);
-  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveDiskSpec, needLock);
   }
@@ -3472,15 +3468,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexSpec_MakeKeyless(sp);
   RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
   loadDiskSpec = isSpecOnDisk(sp) && useSst;
-  if (loadDiskSpec && encver >= INDEX_SST_TAG_VALUES_VERSION) {
-    uint64_t tagDictionaryMarker = LoadUnsigned_IOError(rdb, goto cleanup);
-    if (tagDictionaryMarker > 1) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                          "Invalid SST RDB TAG dictionary marker");
-      goto cleanup;
-    }
-    loadTagDictionaries = tagDictionaryMarker == 1;
-  }
+  loadTagDictionaries = loadDiskSpec && encver >= INDEX_SST_TAG_VALUES_VERSION;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst, loadTagDictionaries) !=

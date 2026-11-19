@@ -641,12 +641,11 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     RedisModule_Free(RMCK_LoadStringBuffer(io, nullptr));
   }
 
-  size_t tagDictionaryMarkerOffset() {
+  void skipIndexHeader() {
     io->read_pos = 0;
     skipRdbString();        // Index name
     RMCK_LoadUnsigned(io);  // Index flags
     RMCK_LoadUnsigned(io);  // Number of fields
-    return io->read_pos;
   }
 
   // Advance over the schema for one TAG field in this fixture.
@@ -748,28 +747,11 @@ TEST_F(DiskTagPersistenceTest, SstTagIndexWithoutDictionariesFailsTheSpecLoad) {
   expectLoadError(INDEX_SST_TAG_VALUES_VERSION - 1, "SST RDB is missing the TAG dictionary");
 }
 
-TEST_F(DiskTagPersistenceTest, MissingDictionaryMarkerFailsTheTagSpecLoad) {
-  ASSERT_NE(saveSource(), nullptr);
-  io->buffer.at(tagDictionaryMarkerOffset()) = 0;
-  discardSource();
-  expectLoadError(INDEX_SST_TAG_VALUES_VERSION, "SST RDB is missing the TAG dictionary");
-}
-
-TEST_F(DiskTagPersistenceTest, InvalidDictionaryMarkerFailsTheSpecLoad) {
-  ASSERT_NE(saveSource(), nullptr);
-  io->buffer.at(tagDictionaryMarkerOffset()) = 2;
-  discardSource();
-  expectLoadError(INDEX_CURRENT_VERSION, "Invalid SST RDB TAG dictionary marker");
-}
-
 TEST_F(DiskTagPersistenceTest, LegacySstWithoutTagFieldsCanLoad) {
   QueryError err = QueryError_Default();
   IndexSpec *sp = create("legacy_sst_without_tag", {"number", "NUMERIC"}, &err);
   ASSERT_NE(sp, nullptr);
   IndexSpec_RdbSave(io, sp, REDISMODULE_CTX_FLAGS_SST_RDB);
-  const size_t offset = tagDictionaryMarkerOffset();
-  ASSERT_EQ(RMCK_LoadUnsigned(io), 1u);
-  io->buffer.erase(io->buffer.begin() + offset, io->buffer.begin() + io->read_pos);
   discardSource();
   load(INDEX_SST_TAG_VALUES_VERSION - 1);
   ASSERT_NE(loaded, nullptr);
@@ -788,8 +770,7 @@ TEST_F(DiskTagPersistenceTest, LegacyPlainRdbTagIndexCanLoadWithoutDictionaries)
 
 TEST_F(DiskTagPersistenceTest, InvalidSecondDictionaryDiscardsLoadedCountValues) {
   ASSERT_NE(saveSource(), nullptr);
-  tagDictionaryMarkerOffset();
-  ASSERT_EQ(RMCK_LoadUnsigned(io), 1u);
+  skipIndexHeader();
   skipTagFieldSchema();
   auto *firstDictionary = TagIndex_RdbLoad(io, 0, false);
   ASSERT_NE(firstDictionary, nullptr);
