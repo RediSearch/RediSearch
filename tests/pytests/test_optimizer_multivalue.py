@@ -72,3 +72,33 @@ def testMultivalueOptimizerMatchesNonOptimized(env):
             # plain carries the real count; compare id lists only.
             env.assertEqual(opt[1:], plain[1:],
                             message=f'{idx} {direction} optimized vs plain')
+
+
+@skip(no_json=True, cluster=True)
+def testUnionDoesNotBoundMultivalueSortField(env):
+    """Predicates on a multivalue field constrain any of a document's values, not the first one it
+    sorts by, so a union of them must not bound the optimizer's walk: walking only [0, 1] would
+    rank `a` by its 0 and `b` by its 1, though they sort by 100 and 10."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.n[*]', 'AS', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn.execute_command('JSON.SET', 'a', '$', json.dumps({'n': [100, 0]}))
+    conn.execute_command('JSON.SET', 'b', '$', json.dumps({'n': [10, 1]}))
+
+    query = ['ft.search', 'idx', '@n:[0 0] | @n:[1 1]', 'SORTBY', 'n', 'ASC',
+             'LIMIT', 0, 1, 'NOCONTENT']
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT', 'DIALECT', 3)[1:],
+                    env.cmd(*query, 'DIALECT', 3)[1:])
+
+
+@skip(no_json=True, cluster=True)
+def testMultivalueDocCollectedOnceAcrossWindows(env):
+    """A document whose values span several numeric windows is collected once, however many of
+    the windows the optimizer walks."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n[*]', 'AS', 'n', 'NUMERIC').ok()
+    conn.execute_command('JSON.SET', 'one', '$', json.dumps({'n': list(range(5000))}))
+
+    query = ['ft.search', 'idx', '@n:[-inf +inf] | @n:[0 0]', 'SORTBY', 'n',
+             'LIMIT', 0, 2, 'NOCONTENT']
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT')[1:], ['one'])
