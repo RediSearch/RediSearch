@@ -22,6 +22,8 @@
 #include "doc_types.h"
 #include "doc_id_meta.h"
 #include "debug_commands.h"
+#include "disk_asm_import_rebuild.h"
+#include "indexes_scan.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include "rs_wall_clock.h"
@@ -43,6 +45,9 @@ extern DebugCTX globalDebugCtx;
 
 // Backoff between BUSY retries of Start / NextBatch.
 #define ASYNC_SCAN_BUSY_BACKOFF_US 1000
+
+// Backoff between checks while a backfill waits for an SST import to end.
+#define ASYNC_SCAN_IMPORT_WAIT_US 10000
 
 // Per-batch work hint for Start / NextBatch: sizes the hash range each batch sweeps. A hint,
 // not a delivery cap; passed explicitly so we don't defer to the engine's default (128).
@@ -711,6 +716,33 @@ static void Backfill_Finish(AsyncScanJob *base, RedisModuleCtx *ctx, const Async
   rm_free(job);
 }
 
+// Holds the backfill back while DiskASM_ImportRebuild_DefersBackfill says so, on the reindex
+// thread: every job queued behind it would have to wait for the import too, or for this sweep.
+// Gives up on a dropped index, which the sweep then reports, and at shutdown.
+static void Backfill_WaitForImport(BackfillJob *job) {
+  IndexesScanner *scanner = job->scanner;
+  StrongRef ref = IndexSpecRef_Promote(scanner->spec_ref);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return;
+  }
+  const uint64_t specId = sp->specId;
+  IndexSpecRef_Release(ref);
+  if (!DiskASM_ImportRebuild_DefersBackfill(specId)) {
+    return;
+  }
+  RedisModule_Log(RSDummyContext, "notice",
+                  "AsyncScan: index %s waits for the slot-migration import to end before its "
+                  "backfill",
+                  scanner->spec_name_for_logs);
+  while (DiskASM_ImportRebuild_DefersBackfill(specId)) {
+    if (Backfill_ShouldStop(&job->base) || ReindexPool_IsJoining()) {
+      return;
+    }
+    usleep(ASYNC_SCAN_IMPORT_WAIT_US);
+  }
+}
+
 void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
   BackfillJob *job = rm_calloc(1, sizeof(*job));
@@ -725,5 +757,6 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
       .onKey = Backfill_OnKey,
       .finish = Backfill_Finish,
   };
+  Backfill_WaitForImport(job);
   AsyncScan_Drive(&job->base);
 }

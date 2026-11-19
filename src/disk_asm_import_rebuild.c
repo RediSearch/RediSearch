@@ -90,6 +90,23 @@ static arrayof(DiskASMImport *) imports = NULL;
 // The latest attempt that ended, for INFO once no coordinator is left.
 static DiskASMImportStats lastEnded = {.taskId = "", .phase = DISK_ASM_IMPORT_COMPLETED};
 static bool anyEnded = false;
+// The lowest frozen specId among the attempts whose overlay ended and that have not ended, or
+// UINT64_MAX. Written under the GIL, read by reindex threads without it.
+static uint64_t backfillDeferredAboveSpecId = UINT64_MAX;
+
+static void updateBackfillDeferral(void) {
+  uint64_t lowest = UINT64_MAX;
+  for (size_t i = 0; imports && i < array_len(imports); i++) {
+    if (imports[i]->specs && imports[i]->frozenMaxSpecId < lowest) {
+      lowest = imports[i]->frozenMaxSpecId;
+    }
+  }
+  __atomic_store_n(&backfillDeferredAboveSpecId, lowest, __ATOMIC_RELEASE);
+}
+
+bool DiskASM_ImportRebuild_DefersBackfill(uint64_t specId) {
+  return specId > __atomic_load_n(&backfillDeferredAboveSpecId, __ATOMIC_ACQUIRE);
+}
 
 static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slots) {
   size_t size = sizeof(*slots) + slots->num_ranges * sizeof(slots->ranges[0]);
@@ -140,6 +157,7 @@ static void detach(DiskASMImport *imp, DiskASMImportPhase endPhase) {
   size_t i = findIndex(imp->taskId);
   RS_ASSERT(i != SIZE_MAX);
   array_del(imports, i);
+  updateBackfillDeferral();
   lastEnded = imp->stats;
   lastEnded.phase = endPhase;
   lastEnded.gateHeld = false;
@@ -256,138 +274,6 @@ static void importScanTask(void *arg) {
 }
 
 //---------------------------------------------------------------------------------------------
-// The backfill of indexes created during the import
-
-// One sweep of a completed import's slots for the indexes created after its overlay ended.
-typedef struct {
-  AsyncScanJob job;
-  char *nameForLogs;
-  RedisModuleSlotRangeArray *slots;
-  arrayof(WeakRef) specs;
-  size_t keysScanned;
-} DiskASMLateBackfill;
-
-static void lateBackfillFree(DiskASMLateBackfill *bf) {
-  for (size_t i = 0; i < array_len(bf->specs); i++) {
-    WeakRef_Release(bf->specs[i]);
-  }
-  array_free(bf->specs);
-  rm_free(bf->slots);
-  rm_free(bf->nameForLogs);
-  rm_free(bf);
-}
-
-// Stops once every index is dropped. Lock-free, as the backfill's own drop check
-// (util/references.c).
-static bool lateBackfillShouldStop(AsyncScanJob *job) {
-  DiskASMLateBackfill *bf = (DiskASMLateBackfill *)job;
-  for (size_t i = 0; i < array_len(bf->specs); i++) {
-    StrongRef ref = IndexSpecRef_Promote(bf->specs[i]);
-    if (StrongRef_Get(ref)) {
-      IndexSpecRef_Release(ref);
-      return false;
-    }
-  }
-  return true;
-}
-
-static bool lateBackfillIsCancelled(AsyncScanJob *job) {
-  REDISMODULE_NOT_USED(job);
-  return false;
-}
-
-static RedisModuleAsyncScanResult lateBackfillStart(AsyncScanJob *job, RedisModuleCtx *ctx,
-                                                    RedisModuleScanCursor *cursor,
-                                                    RedisModuleAsyncScanKeyCB key_cb,
-                                                    RedisModuleAsyncScanCallDoneCB done_cb,
-                                                    size_t batchSizeHint, void *privdata) {
-  DiskASMLateBackfill *bf = (DiskASMLateBackfill *)job;
-  return RedisModule_AsyncScanStartInSlots(ctx, cursor, bf->slots, /*include_importing=*/0, NULL,
-                                           REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL, key_cb,
-                                           done_cb, batchSizeHint, privdata);
-}
-
-// The live tail may already have indexed a key into one of the indexes, and the index's own
-// backfill may reach the slots too: Indexes_AsyncScanIndexKey skips a key that has a docId.
-static bool lateBackfillOnKey(AsyncScanJob *job, RedisModuleCtx *ctx, RedisModuleKey *key,
-                              RedisModuleString *name) {
-  DiskASMLateBackfill *bf = (DiskASMLateBackfill *)job;
-  bf->keysScanned++;
-  DocumentType type = getDocType(key);
-  if (type == DocumentType_Unsupported) {
-    return true;
-  }
-  for (size_t i = 0; i < array_len(bf->specs); i++) {
-    StrongRef ref = IndexSpecRef_Promote(bf->specs[i]);
-    IndexSpec *sp = StrongRef_Get(ref);
-    if (!sp) {
-      continue;
-    }
-    Indexes_AsyncScanIndexKey(sp, ctx, key, name, type);
-    IndexSpecRef_Release(ref);
-  }
-  return true;
-}
-
-static void lateBackfillFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScanEnd *end) {
-  DiskASMLateBackfill *bf = (DiskASMLateBackfill *)job;
-  if (end->outcome == ASYNC_SCAN_OUTCOME_COMPLETED) {
-    RedisModule_Log(ctx, "notice", "%s: done (scanned=%zu)", bf->nameForLogs, bf->keysScanned);
-  } else {
-    // The slots are local now, so these indexes miss their imported documents until rebuilt.
-    RedisModule_Log(ctx, "warning",
-                    "%s: ended early (%s, scanned=%zu); indexes created during the import may "
-                    "miss its documents until they are dropped and recreated",
-                    bf->nameForLogs, AsyncScanOutcome_ToString(end->outcome), bf->keysScanned);
-  }
-  lateBackfillFree(bf);
-}
-
-static void lateBackfillTask(void *arg) {
-  AsyncScan_Drive(&((DiskASMLateBackfill *)arg)->job);
-}
-
-typedef struct {
-  uint64_t frozenMaxSpecId;
-  arrayof(WeakRef) specs;
-} LateSpecs;
-
-static void collectLateSpec(IndexSpec *sp, void *ud) {
-  LateSpecs *late = ud;
-  if (sp->specId > late->frozenMaxSpecId) {
-    array_append(late->specs, StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(sp)));
-  }
-}
-
-// Queues the backfill of the completed import's slots for the indexes created after its overlay
-// ended, if any still exist.
-static void startLateBackfill(const DiskASMImport *imp) {
-  LateSpecs late = {.frozenMaxSpecId = imp->frozenMaxSpecId, .specs = array_new(WeakRef, 1)};
-  Indexes_ForEachSpec(collectLateSpec, &late);
-  if (array_len(late.specs) == 0) {
-    array_free(late.specs);
-    return;
-  }
-  DiskASMLateBackfill *bf = rm_calloc(1, sizeof(*bf));
-  bf->specs = late.specs;
-  rm_asprintf(&bf->nameForLogs, "ASM import %s: backfill of indexes created during the import",
-              imp->taskId);
-  bf->slots = copySlots(imp->slots);
-  bf->job = (AsyncScanJob){
-      .nameForLogs = bf->nameForLogs,
-      .scannedKeys = &bf->keysScanned,
-      .shouldStop = lateBackfillShouldStop,
-      .isCancelled = lateBackfillIsCancelled,
-      .start = lateBackfillStart,
-      .onKey = lateBackfillOnKey,
-      .finish = lateBackfillFinish,
-  };
-  RedisModule_Log(RSDummyContext, "notice", "%s: %u indexes", bf->nameForLogs,
-                  array_len(bf->specs));
-  ReindexPool_AddImportTask(lateBackfillTask, bf);
-}
-
-//---------------------------------------------------------------------------------------------
 // Stage events
 
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
@@ -450,6 +336,7 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
   // keys belong to.
   imp->specs = array_new(WeakRef, 1);
   Indexes_ForEachSpec(freezeSpec, imp);
+  updateBackfillDeferral();
 
   imp->stats.phase = DISK_ASM_IMPORT_SCANNING;
   imp->scanRunning = true;
@@ -467,7 +354,6 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
     // The gate is held until the rebuild completed, and Flex completes no import before.
     RS_LOG_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_REBUILT,
                   "ASM import: completed before search rebuilt its slots");
-    startLateBackfill(imp);
   }
   detach(imp, completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
 }
