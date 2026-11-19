@@ -835,7 +835,7 @@ static int JSON_StoreMapNumericInDocField(RedisJSON obj, RedisModuleCtx *ctx,
         QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
                             "MAP NUMERIC field must be a JSON object");
         break;
-      default:
+      case KeyedNumericBatchError_ApiUnavailable:
         QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "RedisJSON API is not available");
         break;
     }

@@ -89,7 +89,8 @@ impl KeyedNumericBatch {
 
     /// Collect the members of the JSON object `obj`.
     ///
-    /// The whole object is validated first, so a failure leaves nothing partially collected.
+    /// A member that is not a number fails the whole object; nothing is returned partially
+    /// collected.
     /// Integers are converted to `f64`, which rounds those beyond 2^53.
     ///
     /// # Safety
@@ -110,7 +111,8 @@ impl KeyedNumericBatch {
         for (key, value) in iter {
             let value = value.as_ref();
             let number = match value.get_type() {
-                // An integer beyond `i64` may be reported as an int that `get_int` rejects.
+                // Defensive: providers and the mock may report numbers beyond `i64` as `Int`
+                // although `get_int` rejects them; RedisJSON itself reports them as `Double`.
                 JsonType::Int => value
                     .get_int()
                     .map(|i| i as f64)

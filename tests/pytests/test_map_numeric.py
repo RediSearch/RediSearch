@@ -401,10 +401,10 @@ def testEdgeCaseNumbers(env):
     conn = getConnectionByEnv(env)
     raw = ('{"metrics": {"above_2_53": 9007199254740993, "i64_max": 9223372036854775807,'
            ' "i64_min": -9223372036854775808, "neg_zero": -0.0, "neg": -7,'
-           ' "frac": 0.1, "neg_frac": -2.5, "big": 1.5e300}}')
+           ' "frac": 0.1, "neg_frac": -2.5, "big": 1.5e300, "u64_max": 18446744073709551615}}')
     env.assertEqual(conn.execute_command('JSON.SET', 'company:1', '$', raw), 'OK')
     env.assertEqual(index_errors(env)['indexing failures'], 0)
-    env.assertEqual(metrics_stats(env)[0], 8)
+    env.assertEqual(metrics_stats(env)[0], 9)
 
     def matches(key, lo, hi):
         return search_ids(env, f'@metrics[{key}]:[{lo} {hi}]') == {1}
@@ -430,6 +430,7 @@ def testEdgeCaseNumbers(env):
     env.assertEqual(search_ids(env, '@metrics[neg_frac]:[(-2.5 +inf]'), set())
     env.assertTrue(matches('big', 1e299, 1e301))
     env.assertTrue(matches('big', '-inf', '+inf'))
+    env.assertTrue(matches('u64_max', 1.8446744073709550e19, 1.8446744073709552e19))
 
 
 @skip(cluster=True)

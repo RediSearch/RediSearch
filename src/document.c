@@ -956,11 +956,7 @@ FIELD_BULK_APPLIER(geoApplier) {
 }
 
 FIELD_BULK_APPLIER(mapNumericApplier) {
-  (void)field;
-  (void)fdata;
-  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
-    return;
-  }
+  (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_MAP_NUMERIC, 1);
 }
 

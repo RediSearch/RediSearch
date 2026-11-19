@@ -99,7 +99,8 @@ pub unsafe extern "C" fn KeyedNumericBatch_FromJson(
     };
     let obj = NonNull::new(obj.cast_mut()).expect("obj cannot be NULL");
     let ctx = NonNull::new(ctx).expect("ctx cannot be NULL");
-    // SAFETY: 1 (`obj` came from the RedisJSON API).
+    // SAFETY: 1 (`obj` is a live RedisJSON value handle, and the batch copies what it needs
+    // before returning).
     let obj = unsafe { JsonValueRef::from_raw(obj, &api) };
     // SAFETY: 2.
     match unsafe { KeyedNumericBatch::from_json(obj, ctx) } {
