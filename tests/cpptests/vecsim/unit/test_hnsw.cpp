@@ -2642,3 +2642,11 @@ TYPED_TEST(HNSWTest, updateVectorsRejectsSeveralVectorsInSingle) {
 
     VecSimIndex_Free(index);
 }
+
+// The HNSW neighbor scan returns exactly the brute-force results; see the helper for coverage.
+TYPED_TEST(HNSWTest, neighborScanMatchesBruteForce) {
+    runNeighborScanMatchesBruteForceTest<TEST_DATA_T, TEST_DIST_T>(
+        TypeParam::get_index_type(), [](std::mt19937 &gen) {
+            return TEST_DATA_T(std::uniform_real_distribution<double>(-1.0, 1.0)(gen));
+        });
+}

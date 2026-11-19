@@ -1179,3 +1179,10 @@ TEST_F(INT8TieredTest, CosineBlobCorrectness) {
         VecSimBatchIterator_Free(batchIterator);
     }
 }
+
+// The HNSW neighbor scan returns exactly the brute-force results; see the helper for coverage.
+TEST(INT8NeighborScanTest, matchesBruteForce) {
+    runNeighborScanMatchesBruteForceTest<int8_t, float>(VecSimType_INT8, [](std::mt19937 &gen) {
+        return int8_t(std::uniform_int_distribution<int>(-127, 127)(gen));
+    });
+}

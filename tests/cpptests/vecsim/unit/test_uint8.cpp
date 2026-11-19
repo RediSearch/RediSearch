@@ -1022,3 +1022,10 @@ TEST_F(UINT8TieredTest, getElementNeighbors) {
     HNSWParams params = {.dim = 4, .M = 20};
     get_element_neighbors(params);
 }
+
+// The HNSW neighbor scan returns exactly the brute-force results; see the helper for coverage.
+TEST(UINT8NeighborScanTest, matchesBruteForce) {
+    runNeighborScanMatchesBruteForceTest<uint8_t, float>(VecSimType_UINT8, [](std::mt19937 &gen) {
+        return uint8_t(std::uniform_int_distribution<int>(0, 255)(gen));
+    });
+}

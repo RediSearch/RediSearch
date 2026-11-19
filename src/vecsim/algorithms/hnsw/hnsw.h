@@ -39,6 +39,8 @@
 #include <random>
 #include <iostream>
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <unordered_map>
 #include <sys/resource.h>
 #include <fstream>
@@ -174,6 +176,9 @@ protected:
     HNSWIndex() = delete;                  // default constructor is disabled.
     HNSWIndex(const HNSWIndex &) = delete; // default (shallow) copy constructor is disabled.
     size_t getRandomLevel(double reverse_size);
+    template <typename Visitor>
+    void forEachUnvisitedNeighbor(const ElementLevelData &node_level, tag_t *elements_tags,
+                                  tag_t visited_tag, Visitor &&visit) const;
     template <typename Identifier> // Either idType or labelType
     void processCandidate(idType curNodeId, const void *data_point, size_t layer, size_t ef,
                           tag_t *elements_tags, tag_t visited_tag,
@@ -708,6 +713,82 @@ void HNSWIndex<DataType, DistType>::emplaceToHeap(
     heap.emplace(dist, getExternalLabel(id));
 }
 
+// Calls `visit(candidate_id, candidate_data)`, in link order, for every neighbor in `node_level`
+// that is neither visited nor in process, marking each one visited first. The caller holds the
+// node's links lock.
+//
+// The search is bound by memory latency rather than by distance computation. Each batch of links
+// is first filtered against the visited tags, so no memory traffic is spent on the vectors of
+// neighbors that will be skipped, and then each surviving candidate's vector is prefetched
+// VECTOR_PREFETCH_AHEAD candidates before its distance is computed. A vector of up to
+// WHOLE_VECTOR_PREFETCH_MAX_BYTES (e.g. SQ8 at dim 768, 784 bytes) is prefetched whole; of a
+// larger one (e.g. FP32 at dim 768, 3072 bytes) only the first LARGE_VECTOR_PREFETCH_BYTES are,
+// since prefetching hundreds of lines ahead saturates the memory system and slowed such queries.
+// The limits are in bytes so they mean the same on every cache line size.
+template <typename DataType, typename DistType>
+template <typename Visitor>
+void HNSWIndex<DataType, DistType>::forEachUnvisitedNeighbor(const ElementLevelData &node_level,
+                                                             tag_t *elements_tags,
+                                                             tag_t visited_tag,
+                                                             Visitor &&visit) const {
+    // The prefetch step. A wrong value only costs speed: a smaller step than the real line
+    // repeats prefetches of the same line, a larger one skips lines.
+#if defined(__APPLE__) && defined(__aarch64__)
+    constexpr size_t CACHE_LINE_SIZE = 128; // Apple M-series
+#else
+    constexpr size_t CACHE_LINE_SIZE = 64; // x86, Arm Neoverse (Graviton, Grace, Ampere)
+#endif
+    constexpr size_t VECTOR_PREFETCH_AHEAD = 4;
+    constexpr size_t BATCH_SIZE = 64;
+    constexpr size_t WHOLE_VECTOR_PREFETCH_MAX_BYTES = 1024;
+    constexpr size_t LARGE_VECTOR_PREFETCH_BYTES = 256;
+    constexpr size_t LARGE_VECTOR_PREFETCH_LINES = LARGE_VECTOR_PREFETCH_BYTES / CACHE_LINE_SIZE;
+
+    const size_t num_links = node_level.getNumLinks();
+    if (num_links == 0) {
+        return;
+    }
+
+    // Vectors are packed back to back in their block, so a vector need not start on a cache line:
+    // a whole-vector prefetch covers every line its bytes touch, from the line holding its first
+    // byte to the line holding its last. The loop counts lines rather than comparing addresses;
+    // GCC dropped an address-range form of it when the end was capped at run time.
+    const size_t vector_size = this->getStoredDataSize();
+    const bool whole = vector_size <= WHOLE_VECTOR_PREFETCH_MAX_BYTES;
+    auto prefetchVector = [vector_size, whole](const char *data) {
+        const uintptr_t address = std::bit_cast<uintptr_t>(data);
+        const uintptr_t first = address / CACHE_LINE_SIZE;
+        const uintptr_t last = (address + vector_size - 1) / CACHE_LINE_SIZE;
+        const size_t lines = whole ? last - first + 1 : LARGE_VECTOR_PREFETCH_LINES;
+        for (size_t i = 0; i < lines; i++) {
+            __builtin_prefetch(std::bit_cast<const char *>((first + i) * CACHE_LINE_SIZE));
+        }
+    };
+
+    std::array<idType, BATCH_SIZE> batch;
+    for (size_t start = 0; start < num_links; start += BATCH_SIZE) {
+        const size_t end = std::min(num_links, start + BATCH_SIZE);
+        size_t batch_size = 0;
+        for (size_t j = start; j < end; j++) {
+            const idType id = node_level.getLinkAtPos(j);
+            if (elements_tags[id] == visited_tag || isInProcess(id))
+                continue;
+            elements_tags[id] = visited_tag;
+            batch[batch_size++] = id;
+        }
+
+        for (size_t i = 0; i < std::min(batch_size, VECTOR_PREFETCH_AHEAD); i++) {
+            prefetchVector(getDataByInternalId(batch[i]));
+        }
+        for (size_t i = 0; i < batch_size; i++) {
+            if (i + VECTOR_PREFETCH_AHEAD < batch_size) {
+                prefetchVector(getDataByInternalId(batch[i + VECTOR_PREFETCH_AHEAD]));
+            }
+            visit(batch[i], getDataByInternalId(batch[i]));
+        }
+    }
+}
+
 // This function handles both label heaps and internal ids heaps. It uses the `emplaceToHeap`
 // overloading to emplace correctly for both cases.
 template <typename DataType, typename DistType>
@@ -720,78 +801,28 @@ void HNSWIndex<DataType, DistType>::processCandidate(
     ElementGraphData *cur_element = getGraphDataByInternalId(curNodeId);
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
-    linkListSize num_links = node_level.getNumLinks();
-    if (num_links > 0) {
+    auto visit = [this, query_data, ef, &top_candidates, &candidate_set,
+                  &lowerBound](idType candidate_id, const char *cur_data) {
+        DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
+        if (lowerBound > cur_dist || top_candidates.size() < ef) {
 
-        const char *cur_data, *next_data;
-        // Pre-fetch first candidate tag address.
-        __builtin_prefetch(elements_tags + node_level.getLinkAtPos(0));
-        // Pre-fetch first candidate data block address.
-        next_data = getDataByInternalId(node_level.getLinkAtPos(0));
-        __builtin_prefetch(next_data);
+            candidate_set.emplace(-cur_dist, candidate_id);
 
-        for (linkListSize j = 0; j < num_links - 1; j++) {
-            idType candidate_id = node_level.getLinkAtPos(j);
-            cur_data = next_data;
+            // Insert the candidate to the top candidates heap only if it is not marked as
+            // deleted.
+            if (!isMarkedDeleted(candidate_id))
+                emplaceToHeap(top_candidates, cur_dist, candidate_id);
 
-            // Pre-fetch next candidate tag address.
-            __builtin_prefetch(elements_tags + node_level.getLinkAtPos(j + 1));
-            // Pre-fetch next candidate data block address.
-            next_data = getDataByInternalId(node_level.getLinkAtPos(j + 1));
-            __builtin_prefetch(next_data);
+            if (top_candidates.size() > ef)
+                top_candidates.pop();
 
-            if (elements_tags[candidate_id] == visited_tag || isInProcess(candidate_id))
-                continue;
-
-            elements_tags[candidate_id] = visited_tag;
-
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (lowerBound > cur_dist || top_candidates.size() < ef) {
-
-                candidate_set.emplace(-cur_dist, candidate_id);
-
-                // Insert the candidate to the top candidates heap only if it is not marked as
-                // deleted.
-                if (!isMarkedDeleted(candidate_id))
-                    emplaceToHeap(top_candidates, cur_dist, candidate_id);
-
-                if (top_candidates.size() > ef)
-                    top_candidates.pop();
-
-                // If we have marked deleted elements, we need to verify that `top_candidates` is
-                // not empty (since we might have not added any non-deleted element yet).
-                if (!top_candidates.empty())
-                    lowerBound = top_candidates.top().first;
-            }
+            // If we have marked deleted elements, we need to verify that `top_candidates` is
+            // not empty (since we might have not added any non-deleted element yet).
+            if (!top_candidates.empty())
+                lowerBound = top_candidates.top().first;
         }
-
-        // Running the last neighbor outside the loop to avoid prefetching invalid neighbor
-        idType candidate_id = node_level.getLinkAtPos(num_links - 1);
-        cur_data = next_data;
-
-        if (elements_tags[candidate_id] != visited_tag && !isInProcess(candidate_id)) {
-
-            elements_tags[candidate_id] = visited_tag;
-
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (lowerBound > cur_dist || top_candidates.size() < ef) {
-                candidate_set.emplace(-cur_dist, candidate_id);
-
-                // Insert the candidate to the top candidates heap only if it is not marked as
-                // deleted.
-                if (!isMarkedDeleted(candidate_id))
-                    emplaceToHeap(top_candidates, cur_dist, candidate_id);
-
-                if (top_candidates.size() > ef)
-                    top_candidates.pop();
-
-                // If we have marked deleted elements, we need to verify that `top_candidates` is
-                // not empty (since we might have not added any non-deleted element yet).
-                if (!top_candidates.empty())
-                    lowerBound = top_candidates.top().first;
-            }
-        }
-    }
+    };
+    forEachUnvisitedNeighbor(node_level, elements_tags, visited_tag, visit);
     unlockNodeLinks(curNodeId);
 }
 
@@ -804,61 +835,19 @@ void HNSWIndex<DataType, DistType>::processCandidate_RangeSearch(
     auto *cur_element = getGraphDataByInternalId(curNodeId);
     lockNodeLinks(curNodeId);
     ElementLevelData &node_level = getElementLevelData(cur_element, layer);
-    linkListSize num_links = node_level.getNumLinks();
+    auto visit = [this, query_data, dyn_range, radius, &candidate_set,
+                  &results](idType candidate_id, const char *cur_data) {
+        DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
+        if (cur_dist < dyn_range) {
+            candidate_set.emplace(-cur_dist, candidate_id);
 
-    if (num_links > 0) {
-
-        const char *cur_data, *next_data;
-        // Pre-fetch first candidate tag address.
-        __builtin_prefetch(elements_tags + node_level.getLinkAtPos(0));
-        // Pre-fetch first candidate data block address.
-        next_data = getDataByInternalId(node_level.getLinkAtPos(0));
-        __builtin_prefetch(next_data);
-
-        for (linkListSize j = 0; j < num_links - 1; j++) {
-            idType candidate_id = node_level.getLinkAtPos(j);
-            cur_data = next_data;
-
-            // Pre-fetch next candidate tag address.
-            __builtin_prefetch(elements_tags + node_level.getLinkAtPos(j + 1));
-            // Pre-fetch next candidate data block address.
-            next_data = getDataByInternalId(node_level.getLinkAtPos(j + 1));
-            __builtin_prefetch(next_data);
-
-            if (elements_tags[candidate_id] == visited_tag || isInProcess(candidate_id))
-                continue;
-
-            elements_tags[candidate_id] = visited_tag;
-
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (cur_dist < dyn_range) {
-                candidate_set.emplace(-cur_dist, candidate_id);
-
-                // If the new candidate is in the requested radius, add it to the results set.
-                if (cur_dist <= radius && !isMarkedDeleted(candidate_id)) {
-                    results->emplace(getExternalLabel(candidate_id), cur_dist);
-                }
+            // If the new candidate is in the requested radius, add it to the results set.
+            if (cur_dist <= radius && !isMarkedDeleted(candidate_id)) {
+                results->emplace(getExternalLabel(candidate_id), cur_dist);
             }
         }
-        // Running the last candidate outside the loop to avoid prefetching invalid candidate
-        idType candidate_id = node_level.getLinkAtPos(num_links - 1);
-        cur_data = next_data;
-
-        if (elements_tags[candidate_id] != visited_tag && !isInProcess(candidate_id)) {
-
-            elements_tags[candidate_id] = visited_tag;
-
-            DistType cur_dist = this->calcDistanceForQuery(cur_data, query_data);
-            if (cur_dist < dyn_range) {
-                candidate_set.emplace(-cur_dist, candidate_id);
-
-                // If the new candidate is in the requested radius, add it to the results set.
-                if (cur_dist <= radius && !isMarkedDeleted(candidate_id)) {
-                    results->emplace(getExternalLabel(candidate_id), cur_dist);
-                }
-            }
-        }
-    }
+    };
+    forEachUnvisitedNeighbor(node_level, elements_tags, visited_tag, visit);
     unlockNodeLinks(curNodeId);
 }
 
