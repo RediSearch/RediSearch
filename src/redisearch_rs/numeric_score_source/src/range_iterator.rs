@@ -84,17 +84,18 @@ pub struct NumericRangeIterator<'index> {
     pos: usize,
     /// Value predicate applied to each record as a batch is read.
     filter: NumericFilter,
-    /// Doc ids already handed out by an earlier batch or window, or `None` when
-    /// no document in the tree carries more than one value.
+    /// Doc ids currently holding a top-k heap slot, or `None` when no document
+    /// in the tree carries more than one value.
     ///
     /// A multivalue field indexes one entry per value, so a doc's values can
     /// fall in different range chunks and be split across `next_n` batches — or
     /// even across expanded windows. Ranges are strictly value-ordered and
-    /// disjoint, so a doc's first emission is on its best value; later, worse
-    /// occurrences are dropped to keep it scored exactly once. A single-valued
-    /// field occupies one range per doc and needs no such tracking, so it skips
-    /// the per-record set lookup entirely.
-    emitted: Option<HashSet<DocId>>,
+    /// disjoint, so a doc's later occurrences score worse than its first, and
+    /// one the heap rejected or evicted cannot win a slot back: only heap
+    /// members need tracking. A single-valued field occupies one range per doc
+    /// and needs no such tracking, so it skips the per-record set lookup
+    /// entirely.
+    retained: Option<HashSet<DocId>>,
     /// Construction-time snapshot of [`NumericRangeTree::revision_id`], never
     /// refreshed: a changed tree revision invalidates this cursor.
     revision_id: u32,
@@ -116,7 +117,7 @@ impl<'index> NumericRangeIterator<'index> {
             window,
             pos: 0,
             filter: *filter,
-            emitted: None,
+            retained: None,
             revision_id,
         }
     }
@@ -124,8 +125,8 @@ impl<'index> NumericRangeIterator<'index> {
     fn ranges(&mut self) -> &[&'index NumericRange] {
         self.ranges.get_or_insert_with(|| {
             let tree = self.tree.get();
-            if self.emitted.is_none() && tree.has_multivalued_docs() {
-                self.emitted = Some(HashSet::new());
+            if self.retained.is_none() && tree.has_multivalued_docs() {
+                self.retained = Some(HashSet::new());
             }
             tree.find_windowed(&self.filter, self.window)
         })
@@ -148,10 +149,7 @@ impl<'index> NumericRangeIterator<'index> {
     /// Re-resolve onto `window`, usually the next one, and restart from its
     /// first matching range.
     ///
-    /// The emitted-doc set is kept: expansion moves to a strictly worse,
-    /// disjoint value window, so a doc already scored on a better value must
-    /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
-    /// when restarting the whole query.
+    /// The retained-doc set is kept, as the heap carries over.
     pub fn refind(&mut self, window: RangeWindow) {
         self.ranges = None;
         self.window = window;
@@ -166,11 +164,10 @@ impl<'index> NumericRangeIterator<'index> {
         self.filter.ascending
     }
 
-    /// Drop the record of already-emitted doc ids, so a full rewind can score
-    /// every doc afresh.
-    pub fn forget_emitted(&mut self) {
-        if let Some(emitted) = &mut self.emitted {
-            emitted.clear();
+    /// Forget every tracked heap member.
+    pub fn forget_retained(&mut self) {
+        if let Some(retained) = &mut self.retained {
+            retained.clear();
         }
     }
 
@@ -197,18 +194,27 @@ impl<'index> NumericRangeIterator<'index> {
         }
         let end = (self.pos + n.max(1)).min(len);
         let ranges = &self.ranges.as_deref().unwrap_or_default()[self.pos..end];
-        let batch = NumericScoreBatch::new(ranges, self.filter, self.emitted.is_some());
+        let batch = NumericScoreBatch::new(ranges, self.filter, self.retained.is_some());
         self.pos = end;
         Some(batch)
     }
 
-    /// Record `doc_id` as handed out, returning `false` if an earlier batch or
-    /// window already did, on a better value.
+    /// Whether `doc_id` already holds a heap slot.
     #[inline(always)]
-    pub fn first_emission(&mut self, doc_id: DocId) -> bool {
-        self.emitted
-            .as_mut()
-            .is_none_or(|emitted| emitted.insert(doc_id))
+    pub fn is_retained(&self, doc_id: DocId) -> bool {
+        self.retained
+            .as_ref()
+            .is_some_and(|retained| retained.contains(&doc_id))
+    }
+
+    /// Track that `doc_id` took a heap slot from `evicted`.
+    pub fn record_admission(&mut self, doc_id: DocId, evicted: Option<DocId>) {
+        if let Some(retained) = &mut self.retained {
+            if let Some(evicted) = evicted {
+                retained.remove(&evicted);
+            }
+            retained.insert(doc_id);
+        }
     }
 }
 
@@ -232,7 +238,8 @@ mod tests {
         let mut pairs = Vec::new();
         while let Some(mut batch) = it.next_n(per_batch) {
             while let Some((doc_id, score)) = batch.next().unwrap() {
-                if it.first_emission(doc_id) {
+                if !it.is_retained(doc_id) {
+                    it.record_admission(doc_id, None);
                     pairs.push((doc_id, score));
                 }
             }

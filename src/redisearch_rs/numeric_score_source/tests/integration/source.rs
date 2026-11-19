@@ -220,8 +220,8 @@ fn batch_exhausts_after_the_maximum_doc_id() {
 
 #[test]
 fn single_valued_ranges_do_not_track_emitted_doc_ids() {
-    for (name, multivalued, accepts_repeat) in
-        [("single-valued", false, true), ("multivalued", true, false)]
+    for (name, multivalued, tracked) in
+        [("single-valued", false, false), ("multivalued", true, true)]
     {
         let mut tree = NumericRangeTree::new(false);
         tree.add(1, 1.0, false, multivalued, 0);
@@ -232,8 +232,11 @@ fn single_valued_ranges_do_not_track_emitted_doc_ids() {
             NumericRangeIterator::new(&tree, &full_range(true), RangeWindow::UNBOUNDED);
         let mut batch = ranges.next_n(8).expect("nonempty tree");
         let (doc_id, _) = batch.next().unwrap().expect("one document");
-        assert!(ranges.first_emission(doc_id), "{name}");
-        assert_eq!(ranges.first_emission(doc_id), accepts_repeat, "{name}");
+        assert!(!ranges.is_retained(doc_id), "{name}");
+        ranges.record_admission(doc_id, None);
+        assert_eq!(ranges.is_retained(doc_id), tracked, "{name}");
+        ranges.record_admission(2, Some(doc_id));
+        assert!(!ranges.is_retained(doc_id), "{name}: evicted");
     }
 }
 
