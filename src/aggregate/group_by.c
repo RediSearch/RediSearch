@@ -108,10 +108,6 @@ typedef struct Grouper {
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
-
-  // QueryMemory_Checkpoint counter. Counts rows, not new groups: reducer state also grows inside
-  // existing groups. A multi-valued row adds one count per group it reaches.
-  uint32_t memoryCheckCalls;
 } Grouper;
 
 static void setAggregateGroupLimitError(const Grouper *g) {
@@ -289,7 +285,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     // The array values of one row can reach up to maxGroups groups, new or existing, before the
     // per-row check.
     if (combinations > 1 && g->base.parent->limits &&
-        QueryMemory_Checkpoint(g->base.parent->limits, &g->memoryCheckCalls)) {
+        QueryMemory_Checkpoint(g->base.parent->limits)) {
       RP_EndRowSourceOnStop(g->base.parent);
       return RS_RESULT_STOPPED;
     }
@@ -311,7 +307,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
     if (rc == RS_RESULT_OK && base->parent->limits &&
-        QueryMemory_Checkpoint(base->parent->limits, &g->memoryCheckCalls)) {
+        QueryMemory_Checkpoint(base->parent->limits)) {
       // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
       RP_EndRowSourceOnStop(base->parent);
       rc = RS_RESULT_STOPPED;

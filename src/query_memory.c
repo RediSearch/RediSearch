@@ -90,30 +90,20 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
   return true;
 }
 
-bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+bool QueryMemory_Checkpoint(QueryRequestLimits *limits) {
+  RS_ASSERT(limits);
+  if (QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
-  const uint32_t interval = QueryMemory_GetRatioReadInterval();
-  // Both counters advance on every call, so a site that is called too rarely to reach the
-  // interval alone still triggers a read through the request-wide count.
-  bool due = ++*counter >= interval;
-  if (limits) {
-    // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
-    // atomic RMW on the hot path.
-    const uint32_t shared =
-        atomic_load_explicit(&limits->memory.counter, memory_order_relaxed) + 1;
-    atomic_store_explicit(&limits->memory.counter, shared, memory_order_relaxed);
-    due |= shared >= interval;
-  }
-  if (!forcedPressure && !due) {
+  // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
+  // atomic RMW on the hot path.
+  const uint32_t calls = atomic_load_explicit(&limits->memory.counter, memory_order_relaxed) + 1;
+  if (!forcedPressure && calls < QueryMemory_GetRatioReadInterval()) {
+    atomic_store_explicit(&limits->memory.counter, calls, memory_order_relaxed);
     return false;
   }
-  *counter = 0;
-  if (limits) {
-    atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
-  }
+  atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
   return memoryStops(limits, forcedPressure);
 }
 

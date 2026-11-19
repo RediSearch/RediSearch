@@ -346,20 +346,20 @@ static void RP_HoldStop(const ResultProcessor *rp) {
   }
 }
 
-bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits, counter)) {
+bool RP_FillShouldStop(ResultProcessor *rp) {
+  if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);
   return RP_StopPolicy(rp) != TimeoutPolicy_Return;
 }
 
-bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter) {
+bool RP_FillShouldCut(ResultProcessor *rp) {
   const QueryRequestLimits *limits = rp->parent->limits;
   // The stop lasts the whole request, so one already requested belongs to an upstream stage that
   // holds rows past it.
   const bool heldUpstream = limits && QueryRequestLimits_IsMemoryStopped(limits);
-  if (RP_FillShouldStop(rp, counter)) {
+  if (RP_FillShouldStop(rp)) {
     return true;
   }
   // The checkpoint's stop under RETURN is on a stage that holds no rows upstream of it unless
@@ -888,9 +888,6 @@ typedef struct {
 
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
-
-  // QueryMemory_Checkpoint counter for the heap's growth.
-  uint32_t memoryCheckCalls;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -977,7 +974,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
     *self->pooledResult = SearchResult_New();
     // The heap grows only here; once full, each row replaces one it holds.
-    if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+    if (RP_FillShouldStop(rp)) {
       return rpsortNext_Stopped(rp, r);
     }
   } else {
@@ -1384,10 +1381,6 @@ typedef struct RPSafeLoader {
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
-
-  // QueryMemory_Checkpoint counter for the buffer and for the values loaded under the GIL, which
-  // never run at the same time.
-  uint32_t memoryCheckCalls;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1494,7 +1487,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     // A timeout never cuts the load: its callback waits for this worker.
-    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->memoryCheckCalls)) {
+    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout)) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_STOPPED;
@@ -1567,7 +1560,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
     resToBuffer = SearchResult_New();
     const bool heldUpstream = timeout && QueryRequestLimits_IsMemoryStopped(timeout);
-    const bool fillStopped = RP_FillShouldStop(rp, &self->memoryCheckCalls);
+    const bool fillStopped = RP_FillShouldStop(rp);
     ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
     if (fillStopped) {
       result_status = RS_RESULT_STOPPED;
@@ -1812,7 +1805,6 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
-  sl->memoryCheckCalls = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1995,8 +1987,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
-   // QueryMemory_Checkpoint counter for the pool's growth.
-   uint32_t memoryCheckCalls;
  } RPMaxScoreNormalizer;
 
 
@@ -2066,7 +2056,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   *self->pooledResult = SearchResult_New();
-  if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+  if (RP_FillShouldStop(rp)) {
     return RPMaxScoreNormalizer_Stopped(rp, r);
   }
   return RESULT_QUEUED;
@@ -3376,7 +3366,6 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
-  uint32_t memoryCheckCalls;        // QueryMemory_Checkpoint counter for the buffer
   bool totalPreloaded;              // See RPDepleter_SetTotalPreloaded
 } RPDepleter;
 
@@ -3411,7 +3400,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     self->depleted_results++;
     const QueryRequestLimits *limits = self->base.parent->limits;
     const bool heldUpstream = limits && QueryRequestLimits_IsMemoryStopped(limits);
-    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+    if (RP_FillShouldStop(&self->base)) {
       rc = RS_RESULT_STOPPED;
       break;
     }

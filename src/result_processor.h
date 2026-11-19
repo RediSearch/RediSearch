@@ -500,7 +500,7 @@ void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
  * RS_RESULT_STOPPED and keeps the rows buffering stages upstream already held. Always false for
  * a pipeline without a timeout state.
  */
-bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
+bool RP_FillShouldStop(ResultProcessor *rp);
 
 /**
  * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
@@ -509,7 +509,7 @@ bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
  * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
  * held rows pass.
  */
-bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter);
+bool RP_FillShouldCut(ResultProcessor *rp);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY

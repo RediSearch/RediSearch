@@ -634,7 +634,6 @@ fn collect_filtered_readers(
             .map(|remaining| Instant::now() + remaining),
     );
 
-    let mut memory_counter = 0;
     let mut children = Vec::new();
     while let Some((value, _)) = values.next() {
         if children.len() == max_prefix_expansions {
@@ -643,7 +642,7 @@ fn collect_filtered_readers(
                 .set_reached_max_prefix_expansions();
             break;
         }
-        if memory_stop(ctx, &mut memory_counter) {
+        if memory_stop(ctx) {
             break;
         }
         children.extend(open_reader_child(ctx, index, value, field_index));
@@ -679,7 +678,6 @@ fn collect_suffix_readers(
     // whose ownership the call hands to us. Its elements, the inner arrays,
     // stay owned by the suffix trie.
     let matches = unsafe { FatArray::new(NonNull::new(matches)?) };
-    let mut memory_counter = 0;
     let mut children = Vec::new();
     'outer: for &inner in matches.as_slice() {
         if children.len() >= max_prefix_expansions {
@@ -698,7 +696,7 @@ fn collect_suffix_readers(
                     .set_reached_max_prefix_expansions();
                 break;
             }
-            if memory_stop(ctx, &mut memory_counter) {
+            if memory_stop(ctx) {
                 break 'outer;
             }
             debug_assert!(!value.is_null(), "a suffix match must carry a string");
@@ -718,7 +716,6 @@ fn collect_wildcard_suffix_readers(
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
-    let mut memory_counter = 0;
     let mut children = Vec::new();
     for &value in matches {
         if children.len() >= max_prefix_expansions {
@@ -727,7 +724,7 @@ fn collect_wildcard_suffix_readers(
                 .set_reached_max_prefix_expansions();
             break;
         }
-        if memory_stop(ctx, &mut memory_counter) {
+        if memory_stop(ctx) {
             break;
         }
         debug_assert!(!value.is_null(), "a suffix match must carry a string");
