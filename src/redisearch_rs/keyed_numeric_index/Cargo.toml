@@ -21,6 +21,8 @@ build_utils = { path = "../build_utils" }
 
 [dependencies]
 numeric_range_tree.workspace = true
+redis-module.workspace = true
+redis_json_api.workspace = true
 rqe_core.workspace = true
 rustc-hash.workspace = true
 workspace_hack.workspace = true
@@ -35,3 +37,5 @@ proptest = { workspace = true, features = ["std"] }
 # Crate required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
+redis_json_api = { workspace = true, features = ["test-mock"] }
+serde_json.workspace = true

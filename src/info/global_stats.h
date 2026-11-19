@@ -52,6 +52,7 @@ typedef struct {
   size_t numericTotalDocsIndexed;
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
+  size_t mapNumericTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
   size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;

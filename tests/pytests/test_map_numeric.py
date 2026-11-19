@@ -5,7 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-"""Flow tests for the schema of MAP NUMERIC fields."""
+"""Flow tests for MAP NUMERIC fields: schema, JSON indexing, keyed queries and syntax compatibility."""
 
 import json
 import random
@@ -121,6 +121,34 @@ def testExistingFieldTypesUnchanged(env):
     env.assertEqual(types, ['TEXT', 'TAG', 'NUMERIC', 'GEO', 'GEOSHAPE', 'VECTOR'])
 
 
+def modules_info_line(env, name):
+    """The value of `name` in INFO MODULES, or None if absent."""
+    res = getConnectionByEnv(env).execute_command('INFO MODULES')
+    for line in res.splitlines():
+        if line.startswith(name + ':'):
+            return line.split(':', 1)[1]
+    return None
+
+
+def map_numeric_modules_info(env):
+    return modules_info_line(env, 'search_fields_map_numeric')
+
+
+def testInfoModulesCountsMapNumericFields(env):
+    """INFO MODULES reports MAP NUMERIC fields only while some exist."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'other', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG').ok()
+    env.assertEqual(map_numeric_modules_info(env), None, message='absent without the field')
+    create_index(env)
+    env.assertContains('MapNumeric=1', map_numeric_modules_info(env))
+    env.assertEqual(modules_info_line(env, 'search_total_indexing_ops_map_numeric_fields'), None)
+    set_doc(env, 1, {'a': 1})
+    set_doc(env, 2, {'a': 2})
+    env.assertEqual(modules_info_line(env, 'search_total_indexing_ops_map_numeric_fields'), '2')
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(map_numeric_modules_info(env), None, message='gone after the index drops')
+
+
 def testHashAlterRejected(env):
     enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
@@ -140,9 +168,15 @@ def testGateOffKeepsMapAsFieldName(env):
     env.expect('FT.CREATE', 'i1', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'NOSTEM',
                'MAP', 'NUMERIC').ok()
     env.assertEqual(attributes(env, 'i1'), [('t', 'TEXT'), ('MAP', 'NUMERIC')])
+    t = index_info(env, 'i1')['attributes'][0]
+    env.assertContains('SORTABLE', t, message='t keeps SORTABLE')
+    env.assertContains('NOSTEM', t, message='t keeps NOSTEM')
     env.expect('FT.CREATE', 'i2', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'INDEXMISSING',
                'MAP', 'NUMERIC').ok()
     env.assertEqual(attributes(env, 'i2'), [('n', 'NUMERIC'), ('MAP', 'NUMERIC')])
+    n = index_info(env, 'i2')['attributes'][0]
+    env.assertContains('SORTABLE', n, message='n keeps SORTABLE')
+    env.assertContains('INDEXMISSING', n, message='n keeps INDEXMISSING')
     env.expect('FT.CREATE', 'i3', 'SCHEMA', 'MAP', 'NUMERIC').ok()
     env.assertEqual(attributes(env, 'i3'), [('MAP', 'NUMERIC')])
 
@@ -171,6 +205,10 @@ def num_docs(env):
     return int(index_info(env)['num_docs'])
 
 
+def info_num_records(env):
+    return int(index_info(env)['num_records'])
+
+
 def metrics_stats(env):
     stats = metrics_field_stats(env)
     return int(stats['num_keys']), int(stats['memory'])
@@ -178,6 +216,7 @@ def metrics_stats(env):
 
 @skip(cluster=True)
 def testIndexingCountsKeysAndMemory(env):
+    """Keys, memory and record counts follow the indexed members."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {'rev:fy0': 48200000, 'rev:fym1': 41000000.5, 'headcount': 212})
@@ -186,6 +225,8 @@ def testIndexingCountsKeysAndMemory(env):
     num_keys, memory = metrics_stats(env)
     env.assertEqual(num_keys, 4)
     env.assertGreater(memory, 0)
+    # 5 (doc, key) records plus one `hq` tag record per document.
+    env.assertEqual(info_num_records(env), 7)
     env.assertEqual(index_errors(env)['indexing failures'], 0)
 
     # A key already present grows its tree, not the key count.
@@ -196,6 +237,7 @@ def testIndexingCountsKeysAndMemory(env):
 
 @skip(cluster=True)
 def testBackfillIndexesExistingDocuments(env):
+    """Documents that exist before FT.CREATE are indexed by the background scan."""
     enable_unstable_features(env)
     set_doc(env, 1, {'a': 1, 'b': 2})
     set_doc(env, 2, {'a': 3})
@@ -206,7 +248,25 @@ def testBackfillIndexesExistingDocuments(env):
 
 
 @skip(cluster=True)
+def testAlterBackfillsTheNewField(env):
+    """FT.ALTER ... ADD scans existing documents for the new MAP NUMERIC field."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'company:', 'SCHEMA',
+               '$.hq', 'AS', 'hq', 'TAG').ok()
+    set_doc(env, 1, {'a': 1, 'b': 2})
+    set_doc(env, 2, {'a': 3})
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '$.metrics', 'AS', 'metrics',
+               'MAP', 'NUMERIC').ok()
+    waitForIndex(env)
+    env.assertEqual(num_docs(env), 2)
+    env.assertEqual(metrics_stats(env)[0], 2)
+    env.assertEqual(search_ids(env, '@metrics[a]:[1 3]'), {1, 2})
+    env.assertEqual(search_ids(env, '@metrics[b]:[2 2]'), {1})
+
+
+@skip(cluster=True)
 def testEmptyObjectIsIndexedWithoutKeys(env):
+    """An empty object indexes the document, with no key."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {})
@@ -218,6 +278,7 @@ def testEmptyObjectIsIndexedWithoutKeys(env):
 
 @skip(cluster=True)
 def testMissingAndNullFieldIsAbsent(env):
+    """A missing or null attribute leaves the field absent, which is not a failure."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, None)
@@ -230,21 +291,27 @@ def testMissingAndNullFieldIsAbsent(env):
 
 @skip(cluster=True)
 def testInvalidValuesFailTheDocument(env):
+    """Each kind of invalid value fails its document, with its own error text."""
     enable_unstable_features(env)
     create_index(env)
+    member_error = 'MAP NUMERIC members must be numbers'
     bad = [
-        ('string member', {'ok': 1, 'bad': 'x'}),
-        ('numeric string member', {'bad': '12'}),
-        ('bool member', {'bad': True}),
-        ('null member', {'bad': None}),
-        ('array member', {'bad': [1, 2]}),
-        ('nested object member', {'bad': {'inner': 1}}),
-        ('array of objects', [{'a': 1}]),
-        ('scalar', 5),
-        ('string', 'text'),
+        ('string member', {'ok': 1, 'bad': 'x'}, member_error),
+        ('numeric string member', {'bad': '12'}, member_error),
+        ('bool member', {'bad': True}, member_error),
+        ('null member', {'bad': None}, member_error),
+        ('array member', {'bad': [1, 2]}, member_error),
+        ('nested object member', {'bad': {'inner': 1}}, member_error),
+        ('array of objects', [{'a': 1}], 'must be a single JSON object'),
+        ('scalar', 5, 'Invalid JSON type'),
+        ('string', 'text', 'Invalid JSON type'),
     ]
-    for i, (_, metrics) in enumerate(bad, start=1):
+    for i, (name, metrics, expected_error) in enumerate(bad, start=1):
         set_doc(env, i, metrics)
+        env.assertContains(expected_error, index_errors(env, 'metrics')['last indexing error'],
+                           message=name)
+        env.assertEqual(index_errors(env, 'metrics')['last indexing error key'], f'company:{i}',
+                        message=name)
 
     # A failing document is not indexed, and none of its members is.
     env.assertEqual(num_docs(env), 0)
@@ -261,6 +328,7 @@ def testInvalidValuesFailTheDocument(env):
 
 @skip(cluster=True)
 def testMultipleMatchesFailTheDocument(env):
+    """A path matching several objects fails the document, so a (doc, key) is added once."""
     enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'company:', 'SCHEMA',
                '$..metrics', 'AS', 'metrics', 'MAP', 'NUMERIC').ok()
@@ -271,10 +339,12 @@ def testMultipleMatchesFailTheDocument(env):
     env.assertEqual(num_docs(env), 1)
     env.assertEqual(metrics_stats(env)[0], 1)
     env.assertEqual(index_errors(env)['indexing failures'], 1)
+    env.assertContains('exactly one JSON object', index_errors(env, 'metrics')['last indexing error'])
 
 
 @skip(cluster=True)
 def testFailureLeavesOtherFieldsOfGoodDocsIndexed(env):
+    """A document that fails on MAP NUMERIC is not indexed for its other fields either."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {'a': 1})
@@ -285,46 +355,130 @@ def testFailureLeavesOtherFieldsOfGoodDocsIndexed(env):
 
 @skip(cluster=True)
 def testUpdateReindexesTheDocument(env):
+    """An update adds the new members; the old entries stay in the tree until GC."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {'a': 1, 'b': 2})
     env.assertEqual(metrics_stats(env)[0], 2)
+    # Two (doc, key) records plus the document's `hq` tag record.
+    env.assertEqual(info_num_records(env), 3)
 
     set_doc(env, 1, {'a': 5, 'c': 7})
     env.assertEqual(num_docs(env), 1)
-    # Old entries stay until GC; the new key is added.
-    env.assertEqual(metrics_stats(env)[0], 3)
+    env.assertEqual(metrics_stats(env)[0], 3, message='the new key is added')
+    # The update indexes a new document version: two more (doc, key) records and a tag record.
+    env.assertEqual(info_num_records(env), 6, message='old entries stay until GC')
+    env.assertEqual(search_ids(env, '@metrics[a]:[5 5]'), {1})
+    env.assertEqual(search_ids(env, '@metrics[c]:[7 7]'), {1})
 
     # An update that fails removes the document, as for the other types.
     set_doc(env, 1, {'a': 'bad'})
     env.assertEqual(num_docs(env), 0)
     env.assertEqual(index_errors(env)['indexing failures'], 1)
+    env.assertEqual(search_ids(env, '@metrics[a]:[-inf +inf]'), set())
+
+
+@skip(cluster=True)
+def testUpdateDropsTheOldValueFromQueries(env):
+    """After an update the old value no longer matches, though its entry stays in the tree."""
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1, 'b': 2})
+    env.assertEqual(search_ids(env, '@metrics[a]:[1 1]'), {1})
+    env.assertEqual(search_ids(env, '@metrics[b]:[2 2]'), {1})
+
+    set_doc(env, 1, {'a': 5})
+    env.assertEqual(search_ids(env, '@metrics[a]:[1 1]'), set(), message='old value')
+    env.assertEqual(search_ids(env, '@metrics[a]:[5 5]'), {1}, message='new value')
+    env.assertEqual(search_ids(env, '@metrics[b]:[-inf +inf]'), set(), message='dropped key')
+
+
+@skip(cluster=True)
+def testEdgeCaseNumbers(env):
+    """Large integers, -0.0, negatives and floats match the ranges a double comparison gives."""
+    enable_unstable_features(env)
+    create_index(env)
+    conn = getConnectionByEnv(env)
+    raw = ('{"metrics": {"above_2_53": 9007199254740993, "i64_max": 9223372036854775807,'
+           ' "i64_min": -9223372036854775808, "neg_zero": -0.0, "neg": -7,'
+           ' "frac": 0.1, "neg_frac": -2.5, "big": 1.5e300}}')
+    env.assertEqual(conn.execute_command('JSON.SET', 'company:1', '$', raw), 'OK')
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+    env.assertEqual(metrics_stats(env)[0], 8)
+
+    def matches(key, lo, hi):
+        return search_ids(env, f'@metrics[{key}]:[{lo} {hi}]') == {1}
+
+    # An integer beyond 2^53 is stored as the nearest double, 2^53.
+    env.assertTrue(matches('above_2_53', 9007199254740992, 9007199254740992))
+    env.assertTrue(matches('above_2_53', 9007199254740990, 9007199254740994))
+    env.assertFalse(matches('above_2_53', 9007199254740994, 9007199254741000))
+    env.assertTrue(matches('i64_max', 9223372036854775000, 9223372036854776000))
+    env.assertFalse(matches('i64_max', 0, 9223372036854770000))
+    env.assertTrue(matches('i64_min', '-inf', -9223372036854770000))
+    env.assertFalse(matches('i64_min', -9223372036854770000, 0))
+    # -0.0 equals 0.
+    env.assertTrue(matches('neg_zero', 0, 0))
+    env.assertTrue(matches('neg_zero', -1, 1))
+    env.assertEqual(search_ids(env, '@metrics[neg_zero]:[(0 +inf]'), set())
+    env.assertEqual(search_ids(env, '@metrics[neg_zero]:[-inf (0]'), set())
+    env.assertTrue(matches('neg', -10, -1))
+    env.assertFalse(matches('neg', -6, 0))
+    env.assertTrue(matches('frac', 0.05, 0.15))
+    env.assertFalse(matches('frac', 0.2, 1))
+    env.assertTrue(matches('neg_frac', -2.6, -2.4))
+    env.assertEqual(search_ids(env, '@metrics[neg_frac]:[(-2.5 +inf]'), set())
+    env.assertTrue(matches('big', 1e299, 1e301))
+    env.assertTrue(matches('big', '-inf', '+inf'))
+
+
+@skip(cluster=True)
+def testEmptyStringKey(env):
+    """The empty key indexes without failure and is queried through a parameter."""
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'': 1, 'a': 2})
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+    env.assertEqual(num_docs(env), 1)
+    env.assertEqual(metrics_stats(env)[0], 2)
+    env.assertEqual(search_ids(env, '@metrics[$k]:[1 1]', 'PARAMS', 2, 'k', '', 'DIALECT', 2), {1})
 
 
 @skip(cluster=True)
 def testDelete(env):
+    """A deleted document leaves the index at once; its keys stay until GC."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {'a': 1})
     env.assertEqual(num_docs(env), 1)
     env.expect('DEL', 'company:1').equal(1)
     env.assertEqual(num_docs(env), 0)
+    env.assertEqual(metrics_stats(env)[0], 1, message='the key stays until GC')
+    env.assertEqual(search_ids(env, '@metrics[a]:[-inf +inf]'), set())
 
 
 @skip(cluster=True)
 def testExpire(env):
+    """An expired document leaves the index. Active expiry is off, so the read below expires it."""
     enable_unstable_features(env)
     create_index(env)
-    set_doc(env, 1, {'a': 1})
-    env.assertEqual(num_docs(env), 1)
-    env.expect('PEXPIRE', 'company:1', 1).equal(1)
-    with TimeLimit(30, 'document was not expired'):
-        while num_docs(env) != 0:
-            time.sleep(0.05)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        set_doc(env, 1, {'a': 1})
+        env.assertEqual(num_docs(env), 1)
+        env.expect('PEXPIRE', 'company:1', 1).equal(1)
+        time.sleep(0.01)
+        env.expect('EXISTS', 'company:1').equal(0)
+        env.assertEqual(num_docs(env), 0)
+        env.assertEqual(search_ids(env, '@metrics[a]:[-inf +inf]'), set())
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
 
 
 @skip(cluster=True)
 def testReloadReindexes(env):
+    """Reloading rebuilds the index from the documents; failing documents stay out."""
     enable_unstable_features(env)
     create_index(env)
     set_doc(env, 1, {'a': 1, 'b': 2})

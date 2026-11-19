@@ -820,54 +820,33 @@ int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, 
   return ret;
 }
 
-// Collect the (key, number) members of a MAP NUMERIC object. A member that is not a number,
-// including null, fails the whole document, so a partial object is never indexed.
-static int JSON_StoreMapNumericInDocField(RedisJSON obj, struct DocumentField *df,
-                                          QueryError *status) {
-  KeyedNumericBatch *batch = KeyedNumericBatch_New();
-  JSONKeyValuesIterator iter = japi->getKeyValues(obj);
-  RedisJSONPtr value_ptr = japi->allocJson();
-  RedisModuleString *keyName;
-  int rv = REDISMODULE_OK;
-
-  while (rv == REDISMODULE_OK && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
-    double d = 0;
-    switch (japi->getType(*value_ptr)) {
-      case JSONType_Int: {
-        long long ll;
-        japi->getInt(*value_ptr, &ll);
-        d = (double)ll;
-        break;
-      }
-      case JSONType_Double:
-        japi->getDouble(*value_ptr, &d);
-        break;
-      default:
+// Collect the members of a MAP NUMERIC object into a Rust-owned batch.
+static int JSON_StoreMapNumericInDocField(RedisJSON obj, RedisModuleCtx *ctx,
+                                          struct DocumentField *df, QueryError *status) {
+  KeyedNumericBatchError err;
+  KeyedNumericBatch *batch = KeyedNumericBatch_FromJson(obj, ctx, &err);
+  if (!batch) {
+    switch (err) {
+      case KeyedNumericBatchError_MemberNotNumber:
         QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
                             "Invalid JSON type: MAP NUMERIC members must be numbers");
-        rv = REDISMODULE_ERR;
+        break;
+      case KeyedNumericBatchError_NotAnObject:
+        QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                            "MAP NUMERIC field must be a JSON object");
+        break;
+      default:
+        QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "RedisJSON API is not available");
         break;
     }
-    if (rv == REDISMODULE_OK) {
-      size_t keyLen;
-      const char *key = RedisModule_StringPtrLen(keyName, &keyLen);
-      KeyedNumericBatch_Push(batch, (const uint8_t *)key, keyLen, d);
-    }
-    RedisModule_FreeString(NULL, keyName);
-  }
-
-  japi->freeJson(value_ptr);
-  japi->freeKeyValuesIter(iter);
-  if (rv != REDISMODULE_OK) {
-    KeyedNumericBatch_Free(batch);
-    return rv;
+    return REDISMODULE_ERR;
   }
   df->mapBatch = batch;
   df->unionType = FLD_VAR_T_MAP_NUMERIC;
   return REDISMODULE_OK;
 }
 
-int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df, QueryError *status) {
+int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status) {
   int rv = REDISMODULE_OK;
 
   int boolval;
@@ -934,7 +913,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       break;
     case JSONType_Object:
       if (fs->types == INDEXFLD_T_MAP_NUMERIC) {
-        rv = JSON_StoreMapNumericInDocField(json, df, status);
+        rv = JSON_StoreMapNumericInDocField(json, ctx, df, status);
       } else {
         rv = REDISMODULE_ERR;
         QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Object type is not supported");
@@ -1153,7 +1132,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       return REDISMODULE_ERR;
     }
 
-    if (JSON_StoreInDocField(json, jsonType, fs, df, status) != REDISMODULE_OK) {
+    if (JSON_StoreInDocField(json, jsonType, fs, df, ctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   } else {

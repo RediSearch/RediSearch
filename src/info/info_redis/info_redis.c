@@ -284,6 +284,11 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
+  // Shown only once used, so servers without MAP NUMERIC fields report exactly what they did.
+  if (RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed > 0) {
+    RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_map_numeric_fields",
+                                    RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed);
+  }
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

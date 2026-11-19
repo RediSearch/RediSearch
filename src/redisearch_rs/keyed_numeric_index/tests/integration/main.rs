@@ -11,6 +11,7 @@
 
 mod helpers;
 mod index;
+mod json;
 mod properties;
 
 // Link both Rust-provided and C-provided symbols

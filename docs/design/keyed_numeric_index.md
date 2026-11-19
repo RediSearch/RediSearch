@@ -52,10 +52,14 @@ Indexing rules:
   number; a non-numeric or nested-object member fails indexing of that document
   (counted as an indexing failure, as for an invalid sparse vector).
 - An empty object is valid and indexes no keys.
+- Values are stored as doubles, so an integer beyond 2^53 is rounded, as in a
+  `NUMERIC` field.
 - `LOAD` and `SORTBY` use the existing JSON path loading, for example
   `$.metrics["rev:fy0"]`. The field is not sortable and has no new load path.
 - The field takes no other type or option (`SORTABLE`, `NOINDEX`, ...). Keyed
-  predicates are not used by the query optimizer.
+  predicates are not used by the query optimizer. With the flag on, in
+  `t TEXT SORTABLE NOSTEM MAP NUMERIC` the word `NOSTEM` is read as the name of a
+  new `MAP NUMERIC` field, the lookahead rule `NOSTEM NUMERIC` already follows.
 - JSON only. `FT.CREATE` and `FT.ALTER` reject the field on HASH indexes, and on
   Flex indexes through `SearchDisk_MarkUnsupportedFieldIfDiskEnabled`, as for
   GEOSHAPE. With `ENABLE_UNSTABLE_FEATURES` off, `FT.CREATE`, `FT.ALTER` and

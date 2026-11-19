@@ -7,8 +7,35 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redismodule.h"
+#include "rejson_api.h"
 #include "numeric_range_tree.h"
 #include "rqe_core.h"
+
+/**
+ * Why [`KeyedNumericBatch_FromJson`] returned NULL.
+ */
+enum KeyedNumericBatchError
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * The RedisJSON API is not available.
+   */
+  KeyedNumericBatchError_ApiUnavailable = 0,
+  /**
+   * The value is not a JSON object.
+   */
+  KeyedNumericBatchError_NotAnObject = 1,
+  /**
+   * A member is not a number.
+   */
+  KeyedNumericBatchError_MemberNotNumber = 2,
+};
+#ifndef __cplusplus
+typedef uint8_t KeyedNumericBatchError;
+#endif // __cplusplus
 
 /**
  * The `(key, value)` members of one document's object, collected before the index is locked.
@@ -36,6 +63,8 @@ typedef struct KeyedNumericBatch KeyedNumericBatch;
  */
 typedef struct KeyedNumericIndex KeyedNumericIndex;
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -45,53 +74,25 @@ extern "C" {
  *
  * # Safety
  *
- * `batch` must be NULL (a no-op), or a pointer returned by [`KeyedNumericBatch_New`]
+ * `batch` must be NULL (a no-op), or a pointer returned by [`KeyedNumericBatch_FromJson`]
  * that was not freed yet.
  */
 void KeyedNumericBatch_Free(struct KeyedNumericBatch *batch);
 
 /**
- * The number of members in a batch.
+ * Collect the members of the JSON object `obj` into a new batch.
+ *
+ * Returns NULL and sets `err` if the value cannot be collected; see
+ * [`KeyedNumericBatch::from_json`]. Release a batch with [`KeyedNumericBatch_Free`].
  *
  * # Safety
  *
- * `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
+ * 1. `obj` must be a valid, non-null `RedisJSON` value, and the RedisJSON module must be
+ *    initialized.
+ * 2. `ctx` must be a valid, non-null Redis module context.
+ * 3. `err` must be valid for writes and cannot be NULL.
  */
-size_t KeyedNumericBatch_Len(const struct KeyedNumericBatch *batch);
-
-/**
- * Create an empty batch. Release it with [`KeyedNumericBatch_Free`].
- */
-struct KeyedNumericBatch *KeyedNumericBatch_New(void);
-
-/**
- * Append the member (`key`, `value`) to a batch. See [`KeyedNumericBatch::push`].
- *
- * # Safety
- *
- * 1. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
- * 2. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
- */
-void KeyedNumericBatch_Push(struct KeyedNumericBatch *batch, const uint8_t *key, size_t key_len, double value);
-
-/**
- * Add (`doc_id`, `value`) under the key of `key_len` bytes at `key`.
- *
- * Returns the change to the key's tree, as [`NumericRangeTree::add`] does. The result
- * excludes the new key and the tree's base size, which only
- * [`KeyedNumericIndex_MemoryUsage`] reflects.
- *
- * A document must be added at most once per key; a repeat is dropped, as are an
- * out-of-order `doc_id` and a `NaN` value. See [`KeyedNumericIndex::add`].
- *
- * # Safety
- *
- * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. The caller must have unique access to `index`: no other reference to it, and no
- *    pointer from [`KeyedNumericIndex_Get`] being dereferenced, while this runs.
- * 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
- */
-struct AddResult KeyedNumericIndex_Add(struct KeyedNumericIndex *index, t_docId doc_id, const uint8_t *key, size_t key_len, double value, bool has_field_expiration, size_t max_depth_range);
+struct KeyedNumericBatch *KeyedNumericBatch_FromJson(RedisJSON obj, struct RedisModuleCtx *ctx, KeyedNumericBatchError *err);
 
 /**
  * Add every member of `batch` for `doc_id`. See [`KeyedNumericIndex::add_batch`].
@@ -99,7 +100,7 @@ struct AddResult KeyedNumericIndex_Add(struct KeyedNumericIndex *index, t_docId 
  * # Safety
  *
  * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. The caller must have unique access to `index`, as for [`KeyedNumericIndex_Add`].
+ * 2. The caller must have unique access to `index`: no other reference to it while this runs.
  * 3. `batch` must point to a valid [`KeyedNumericBatch`] and cannot be NULL.
  */
 struct AddResult KeyedNumericIndex_AddBatch(struct KeyedNumericIndex *index, t_docId doc_id, const struct KeyedNumericBatch *batch, bool has_field_expiration, size_t max_depth_range);
@@ -114,25 +115,6 @@ struct AddResult KeyedNumericIndex_AddBatch(struct KeyedNumericIndex *index, t_d
  * 2. Nothing may still borrow from the index.
  */
 void KeyedNumericIndex_Free(struct KeyedNumericIndex *index);
-
-/**
- * The tree of the key of `key_len` bytes at `key`, or NULL if the key has none.
- *
- * The address does not identify the tree: after its key is removed and re-added, another
- * tree may live at the same address. A caller that releases the spec lock must look the
- * key up again instead of trusting the pointer.
- *
- * # Safety
- *
- * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
- *    the spec read lock.
- * 3. `key` must be valid for reads of `key_len` bytes, or may be NULL if `key_len` is 0.
- * 4. The returned pointer may only be dereferenced while that lock is still held. Any
- *    mutator run under the write lock, such as [`KeyedNumericIndex_Add`] or key removal,
- *    may change the tree behind it or free it.
- */
-const struct NumericRangeTree *KeyedNumericIndex_Get(const struct KeyedNumericIndex *index, const uint8_t *key, size_t key_len);
 
 /**
  * Bytes used by the index, its keys, their trees and the map's table.
@@ -160,17 +142,6 @@ struct KeyedNumericIndex *KeyedNumericIndex_New(bool compress_floats);
  *    the spec read lock.
  */
 size_t KeyedNumericIndex_NumKeys(const struct KeyedNumericIndex *index);
-
-/**
- * Identifies this index instance among all that were ever created.
- *
- * # Safety
- *
- * 1. `index` must point to a valid [`KeyedNumericIndex`] and cannot be NULL.
- * 2. No `&mut` access to `index` may exist while this runs: the caller holds at least
- *    the spec read lock.
- */
-uint32_t KeyedNumericIndex_UniqueId(const struct KeyedNumericIndex *index);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -672,6 +672,9 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 }
 
 FIELD_BULK_INDEXER(mapNumericIndexer) {
+  RS_LOG_ASSERT_ALWAYS(!SearchDisk_IsEnabled(),
+                       "mapNumericIndexer is not commit-batched; disk-mode MAP NUMERIC is not supported");
+
   KeyedNumericIndex *idx = FieldSpec_OpenMapNumericIndex(&ctx->spec->fields[fs->index], true);
   if (!idx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC,
@@ -952,6 +955,15 @@ FIELD_BULK_APPLIER(geoApplier) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
 
+FIELD_BULK_APPLIER(mapNumericApplier) {
+  (void)field;
+  (void)fdata;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+    return;
+  }
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_MAP_NUMERIC, 1);
+}
+
 FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
@@ -1030,7 +1042,7 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
       // sites know which happened. They keep both counters instead.
       case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
-      case IXFLDPOS_MAP_NUMERIC: break;
+      case IXFLDPOS_MAP_NUMERIC: mapNumericApplier(aCtx, field, fs, fdata); break;
     }
   }
 }

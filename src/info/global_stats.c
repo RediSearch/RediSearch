@@ -301,6 +301,9 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) 
     case INDEXFLD_T_GEOMETRY:
       RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
       break;
+    case INDEXFLD_T_MAP_NUMERIC:
+      RSGlobalStats.fieldsStats.mapNumericTotalDocsIndexed += toAdd;
+      break;
   }
 }
 

@@ -102,7 +102,7 @@ impl<'a> JsonValueRef<'a> {
     /// # Safety
     ///
     /// 1. `ptr` must be a valid ptr obtained from `getKey*`.
-    pub(crate) const unsafe fn from_raw(ptr: NonNull<c_void>, api: &'a RedisJsonApi) -> Self {
+    pub const unsafe fn from_raw(ptr: NonNull<c_void>, api: &'a RedisJsonApi) -> Self {
         Self { ptr, api }
     }
 

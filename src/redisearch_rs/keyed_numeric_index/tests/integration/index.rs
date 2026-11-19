@@ -313,6 +313,19 @@ fn add_batch_adds_every_member_and_sums_the_changes() {
 }
 
 #[test]
+fn add_batch_drops_a_repeated_key() {
+    let mut index = KeyedNumericIndex::new(false);
+    let mut batch = KeyedNumericBatch::new();
+    batch.push(b"rev", 1.0);
+    batch.push(b"rev", 2.0);
+
+    let result = index.add_batch(7, &batch, false, MAX_DEPTH_RANGE);
+
+    assert_eq!(result.num_records_delta, 1);
+    assert_eq!(all(&index, b"rev"), vec![(7, 1.0)]);
+}
+
+#[test]
 fn an_empty_batch_changes_nothing() {
     let mut index = KeyedNumericIndex::new(false);
     let batch = KeyedNumericBatch::new();

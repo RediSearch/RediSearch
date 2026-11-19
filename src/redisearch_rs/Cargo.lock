@@ -1346,10 +1346,13 @@ dependencies = [
  "keyed_numeric_index",
  "numeric_range_tree",
  "proptest",
+ "redis-module",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
  "rustc-hash",
+ "serde_json",
  "workspace_hack",
 ]
 
@@ -1357,8 +1360,12 @@ dependencies = [
 name = "keyed_numeric_index_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
+ "ffi",
  "keyed_numeric_index",
  "numeric_range_tree",
+ "redis-module",
+ "redis_json_api",
  "rqe_core",
  "workspace_hack",
 ]

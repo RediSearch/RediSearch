@@ -14,8 +14,10 @@
 //! the entries that belong to it.
 
 use numeric_range_tree::{AddResult, NumericRangeTree, TreeUniqueId};
+use redis_json_api::{JsonType, JsonValueRef};
 use rqe_core::DocId;
 use rustc_hash::FxHashMap;
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Source of [`KeyedNumericIndexId`]s.
@@ -51,13 +53,26 @@ pub struct KeyedNumericBatch {
     members: Vec<(Box<[u8]>, f64)>,
 }
 
+/// Why a JSON value cannot be collected into a [`KeyedNumericBatch`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchFromJsonError {
+    /// The value is not a JSON object.
+    NotAnObject,
+    /// A member is not a number. `null`, booleans, strings, arrays and nested objects all count.
+    MemberNotNumber,
+}
+
 impl KeyedNumericBatch {
     /// An empty batch, which a document with an empty object also yields.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Append a member. Keys must be distinct within a batch, as the members of a JSON object are.
+    /// Append a member.
+    ///
+    /// Keys should be distinct, as the members of a JSON object are. If a key repeats,
+    /// [`KeyedNumericIndex::add_batch`] drops the later member, since a document is
+    /// added at most once per key.
     pub fn push(&mut self, key: &[u8], value: f64) {
         self.members.push((key.into(), value));
     }
@@ -70,6 +85,43 @@ impl KeyedNumericBatch {
     /// Whether the batch has no member.
     pub const fn is_empty(&self) -> bool {
         self.members.is_empty()
+    }
+
+    /// Collect the members of the JSON object `obj`.
+    ///
+    /// The whole object is validated first, so a failure leaves nothing partially collected.
+    /// Integers are converted to `f64`, which rounds those beyond 2^53.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ctx` must be a valid Redis module context.
+    pub unsafe fn from_json(
+        obj: JsonValueRef<'_>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
+    ) -> Result<Self, BatchFromJsonError> {
+        if obj.get_type() != JsonType::Object {
+            return Err(BatchFromJsonError::NotAnObject);
+        }
+        // SAFETY: ensured by caller (1.).
+        let iter = unsafe { obj.key_values(ctx) }.ok_or(BatchFromJsonError::NotAnObject)?;
+        let mut batch = Self {
+            members: Vec::with_capacity(iter.len()),
+        };
+        for (key, value) in iter {
+            let value = value.as_ref();
+            let number = match value.get_type() {
+                // An integer beyond `i64` may be reported as an int that `get_int` rejects.
+                JsonType::Int => value
+                    .get_int()
+                    .map(|i| i as f64)
+                    .or_else(|| value.get_double()),
+                JsonType::Double => value.get_double(),
+                _ => None,
+            };
+            let number = number.ok_or(BatchFromJsonError::MemberNotNumber)?;
+            batch.push(key.as_slice(), number);
+        }
+        Ok(batch)
     }
 }
 

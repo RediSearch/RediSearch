@@ -15,7 +15,11 @@ bench = false
 workspace = true
 
 [dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
 keyed_numeric_index.workspace = true
 numeric_range_tree.workspace = true
+redis-module.workspace = true
+redis_json_api.workspace = true
 rqe_core.workspace = true
 workspace_hack.workspace = true

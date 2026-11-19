@@ -137,6 +137,9 @@ after_includes = """
 typedef struct RSQueryNode RSQueryNode;
 """
 
+[header.keyed_numeric_index_ffi]
+includes = ["redismodule.h", "rejson_api.h"]
+
 [header.module_init_ffi]
 includes = ["redismodule.h"]
 
