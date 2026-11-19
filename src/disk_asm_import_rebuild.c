@@ -129,13 +129,6 @@ static DiskASMImport *find(const char *taskId) {
 
 // Flex ends the attempt with IMPORT_FAILED and does not retry it.
 static void abortAttempt(DiskASMImport *imp, const char *error) {
-  if (!RedisModule_ClusterAbortSlotMigration) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "ASM import %s: the server cannot abort the import; it stays blocked on the "
-                    "import gate, or completes with the slots unindexed without it",
-                    imp->taskId);
-    return;
-  }
   if (RedisModule_ClusterAbortSlotMigration(RSDummyContext, imp->taskId, error) == REDISMODULE_OK) {
     imp->stats.abortRequested = true;
     return;
