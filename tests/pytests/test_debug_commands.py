@@ -129,6 +129,7 @@ class TestDebugCommands(object):
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
             'MEMORY_PRESSURE',
+            'FORCE_TIMEOUT',
             'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',

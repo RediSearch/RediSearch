@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "util/rs_atomic.h"
 
 #ifdef __cplusplus
@@ -55,7 +56,8 @@ typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
 
 /* Search fanout uses the caller's blocked client and MRCtx_SetReduceFunction callback,
- * discarding replies after the MRCtx_SetAbortFlag flag is set. */
+ * discarding replies after the MRCtx_SetAbortFlag flag is set, or once the query stops
+ * (MRCtx_SetStopFlag, MRCtx_SetReplyCheckpoint). */
 int MR_FanoutSearch(struct MRCtx *ctx, MRCommand cmd);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
@@ -137,6 +139,17 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag);
 bool MRCtx_IsAborted(const struct MRCtx *ctx);
 
+/* The search request's stop flag, borrowed like the abort flag. Once it is set, search replies
+ * that land are discarded, but unlike an abort nothing else owns the reply: the reduce function
+ * still runs when the last reply lands, over the replies kept before the stop. */
+void MRCtx_SetStopFlag(struct MRCtx *ctx, const RS_Atomic(bool) * stopFlag);
+
+/* Runs on the I/O thread for each search reply with rows before it is kept, unless the stop flag
+ * is already set; true means the query stops (the callback sets the stop flag) and the reply is
+ * discarded. Error replies and failed sends are kept as before. */
+typedef bool (*MRReplyCheckpoint)(struct MRCtx *ctx);
+void MRCtx_SetReplyCheckpoint(struct MRCtx *ctx, MRReplyCheckpoint checkpoint);
+
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
 
@@ -196,6 +209,8 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
  *                               other's state (see MRIterator_ArmShardCursorRead)
  *                               must share a runtime so those touches stay on one
  *                               IO thread.
+ * @param memoryCheckpoint       The per-reply callback reads memory before it resends a
+ *                               command (see MRIteratorCallback_HasMemoryCheckpoint).
  */
 typedef struct {
   MRIteratorCallback successCB;
@@ -204,6 +219,7 @@ typedef struct {
   void (*cbPrivateDataDestructor)(void *);
   MRCommandModifier commandModifier;
   IORuntimeCtx *ioRuntime;
+  bool memoryCheckpoint;
 } MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
@@ -244,6 +260,10 @@ MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *c
  * IO thread. The callback receives the iterator itself. */
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *));
 
+/* Retire an iterator that was never passed to MR_StartIterator, so that releasing it frees it
+ * without sending anything to the shards. The caller must be the only user of the iterator. */
+void MRIterator_DiscardUnstarted(MRIterator *it);
+
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
@@ -274,6 +294,25 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
+
+/* Whether the iterator was created with MRIteratorConfig.memoryCheckpoint. */
+bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx);
+
+/* Memory ran short while shard replies were landing: called on the IO thread, which has no
+ * request to stop. Also sets the timed-out flag (MRIteratorCallback_SetTimedOut), so no command
+ * is resent; a reader that sees that flag also sees the memory stop. The reader polls
+ * MRIterator_IsMemoryStopped and stops its request. Sticky. */
+void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx);
+bool MRIterator_IsMemoryStopped(MRIterator *it);
+
+/* A shard replied an OOM error, or a reply that carries the shard OOM warning (see
+ * ShardReply_ReportsOom). The IO thread counts it before pushing that reply, so a reader that pops
+ * the reply, or any reply pushed after it, also sees the count. MRIterator_HasShardOom covers
+ * every such reply received, the ones the reader already consumed included; a reader that counts
+ * the ones it popped can tell those still queued from MRIterator_ShardOomReplies. */
+void MRIterator_SetShardOom(MRIterator *it);
+uint32_t MRIterator_ShardOomReplies(MRIterator *it);
+bool MRIterator_HasShardOom(MRIterator *it);
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 

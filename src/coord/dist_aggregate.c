@@ -22,6 +22,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
+#include "query_memory.h"
 #include "profile/profile.h"
 #include "resp3.h"
 #include "config.h"
@@ -203,10 +204,13 @@ static inline bool isFirstShardReply(const MRCommand *cmd) {
 // events bypass this callback so dispatch happens exactly once.
 static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  // Wired only until dispatch (MRIterator_SwapCallbacks), so every reply here, a shard's first or
+  // a follow-up read of a shard that already answered, is still waiting for the barrier.
+  AggregateIteratorContext *iterCtx =
+      (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
+  MRIterator *it = MRIteratorCallback_GetIterator(ctx);
+  bool dispatch = false;
   if (isFirstShardReply(cmd)) {
-    AggregateIteratorContext *iterCtx =
-        (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
-    MRIterator *it = MRIteratorCallback_GetIterator(ctx);
     bool isError = MRReply_Type(rep) == MR_REPLY_ERROR;
     if (!isError) {
       long long shardTotal;
@@ -215,17 +219,27 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    bool timedOut =
-        QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
+    bool timedOut = QueryRequestLimits_IsMemoryStopped(&iterCtx->areq->base.limits) ||
+                    QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
       }
       MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
-      dispatchDeferred(iterCtx);
+      dispatch = true;
     }
   }
   netCursorCallback(ctx, rep);
+  // Dispatch only after netCursorCallback's memory read, so a worker that starts at once cannot
+  // run RPNet_MemoryStops before this reply's stop is published. A memory stop found there
+  // dispatches too, rather than waiting for the remaining shards' first replies.
+  if (!dispatch && MRIterator_IsMemoryStopped(it)) {
+    MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
+    dispatch = true;
+  }
+  if (dispatch) {
+    dispatchDeferred(iterCtx);
+  }
 }
 
 // WITHCOUNT no-reply termination callback. Stays wired for the iterator's
@@ -249,7 +263,8 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
+  bool timedOut = QueryRequestLimits_IsMemoryStopped(&iterCtx->areq->base.limits) ||
+                  QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -318,13 +333,15 @@ static void rpnetCreateIterator(RPNet *nc) {
     .forProfiling = nc->cmd.forProfiling,
   };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
-    .successCB = cb,
-    .errorCB = errCb,
-    .cbPrivateData = iterCtx,
-    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
-    .commandModifier = cmdModifier,
-  });
+  MRIterator *it = MR_CreateIteratorTakingCmd(
+      &nc->cmd, &(MRIteratorConfig){
+                    .successCB = cb,
+                    .errorCB = errCb,
+                    .cbPrivateData = iterCtx,
+                    .cbPrivateDataDestructor = aggregateIteratorContext_Free,
+                    .commandModifier = cmdModifier,
+                    .memoryCheckpoint = true,
+                });
   nc->cmd = replyShape;
 
   nc->it = it;
@@ -348,8 +365,9 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
 #endif
 
-  // Check if the request timed out before starting the iterator
-  if (QueryRequestLimits_IsBlockedClientTimedOut(&nc->areq->base.limits)) {
+  // Check if the request timed out or was stopped before starting the iterator
+  if (QueryRequestLimits_IsMemoryStopped(&nc->areq->base.limits) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(&nc->areq->base.limits)) {
     return RS_RESULT_STOPPED;
   }
 
@@ -387,6 +405,9 @@ static void executeAggregateDeferred(void *arg) {
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
+  // A memory stop releases the barrier before every shard's first reply is summed.
+  const bool barrierReleasedEarly =
+      MRIterator_IsMemoryStopped(nc->it) && iterCtx->numResponded < MRIterator_GetNumShards(nc->it);
 
   bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits);
 
@@ -405,8 +426,25 @@ static void executeAggregateDeferred(void *arg) {
 
     // Copy the WITHCOUNT total (accumulated on the IO thread by withCountReplyCb)
     // into qctx so the result emitter picks it up.
-    if (nc->withCount) {
+    if (nc->withCount && barrierReleasedEarly) {
+      // The barrier holds only part of the shards' totals, which could be below the rows the
+      // pipeline reads. Count the rows rpnetNext decodes instead.
+      nc->countStreamedRows = true;
+    } else if (nc->withCount) {
       qctx->totalResults = totalResults;
+    }
+
+    // The plan may never read the iterator (LIMIT 0 0), so publish its memory stop here.
+    // Same order as rpnetNext: an elapsed deadline keeps its ON_TIMEOUT outcome.
+    if (r->base.limits.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+        !QueryRequestLimits_IsTimedOutExact(&r->base.limits)) {
+      RPNet_MemoryStops(nc);
+    }
+    // Such a plan ends EOF, which ApplyOomStop leaves as is, so a requested OOM stop puts its
+    // warning on the reply here. Under ON_OOM FAIL the buffering pipeline sees the stop and fails.
+    if (QueryRequestLimits_IsMemoryStopped(&r->base.limits) &&
+        r->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+      QueryError_SetQueryOOMWarning(qctx->err);
     }
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
@@ -942,9 +980,20 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   r->sctx->redisCtx = NULL;
   // Defer the unblock to executeAggregateDeferred.
   dispatch->bc = NULL;
-  // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
-  // shard first-replies are in.
-  MR_StartIterator(nc->it, iterStartCb);
+  MRIterator *it = nc->it;
+  // Capture before dispatching: the worker may free the request, and nc with it.
+  const bool stopped = QueryRequestLimits_IsMemoryStopped(&r->base.limits) ||
+                       QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits);
+  if (stopped) {
+    // Already stopped: no reply is awaited, and the fan-out would only make the shards run an
+    // expensive query nobody reads. The worker still runs to reply and release the request.
+    MRIterator_DiscardUnstarted(it);
+    dispatchDeferred(iterCtx);
+  } else {
+    // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
+    // shard first-replies are in.
+    MR_StartIterator(it, iterStartCb);
+  }
   // Release the dispatcher's StrongRef; the spec is no longer pinned across
   // the async wait. executeAggregateDeferred re-promotes iterCtx->spec_ref.
   IndexSpecRef_Release(strong_ref);
@@ -986,6 +1035,18 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, status) !=
       REDISMODULE_OK) {
+    goto err;
+  }
+
+  // Last chance to stop before the fan-out: past this point shards run the query. A RETURN stop
+  // is recorded and dispatchAggregateDeferred skips the fan-out; FAIL replies the error. Profile
+  // is left to RPNet_MemoryStops, so its stop still replies the shards' profiles. An elapsed
+  // clock deadline keeps its ON_TIMEOUT outcome.
+  if (HasWithCount(r) && !IsProfile(r) &&
+      (r->base.limits.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+       !QueryRequestLimits_IsTimedOutExact(&r->base.limits)) &&
+      QueryMemory_CheckBeforeExecution(&r->base.limits, r->base.reqConfig.oomPolicy, status) !=
+          REDISMODULE_OK) {
     goto err;
   }
 
