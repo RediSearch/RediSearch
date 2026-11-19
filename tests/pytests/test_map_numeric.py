@@ -58,11 +58,11 @@ def testInvalidArguments(env):
     base = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.m', 'AS', 'm']
     for opt in ['SORTABLE', 'NOINDEX', 'INDEXMISSING', 'INDEXEMPTY', 'UNF']:
         env.expect(*base, 'MAP', 'NUMERIC', opt).error().contains('do not take options')
-    env.expect(*base, 'MAP').error()
+    env.expect(*base, 'MAP').error().contains('MAP must be followed by NUMERIC')
     env.expect(*base, 'MAP', 'TAG').error().contains('MAP must be followed by NUMERIC')
-    env.expect(*base, 'MAP', 'NUMERIC', 'TAG').error()
-    env.expect(*base, 'MAP', 'NUMERIC', 'NUMERIC').error()
-    env.expect(*base, 'MAP', 'NUMERIC', 'WEIGHT', 2).error()
+    env.expect(*base, 'MAP', 'NUMERIC', 'TAG').error().contains('Field `TAG` does not have a type')
+    env.expect(*base, 'MAP', 'NUMERIC', 'NUMERIC').error().contains('Field `NUMERIC` does not have a type')
+    env.expect(*base, 'MAP', 'NUMERIC', 'WEIGHT', 2).error().contains('Invalid field type for field `WEIGHT`')
     # Nothing was created by the failed attempts.
     env.expect('FT._LIST').equal([])
 
@@ -92,7 +92,6 @@ def testGateOffRejectsCreateAndAlter(env):
 def testReloadKeepsField(env):
     enable_unstable_features(env)
     create_index(env)
-    env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD')
     env.assertEqual(metrics_attribute(env)['type'], 'MAP NUMERIC')
     env.assertEqual(metrics_field_stats(env)['num_keys'], 0)
@@ -102,7 +101,6 @@ def testReloadWithFlagOff(env):
     """Only creating a field is gated: an existing one still loads."""
     enable_unstable_features(env)
     create_index(env)
-    env.broadcast('SAVE')
     set_unstable_features(env, False)
     env.broadcast('DEBUG RELOAD')
     env.assertEqual(metrics_attribute(env)['type'], 'MAP NUMERIC')
@@ -117,3 +115,29 @@ def testExistingFieldTypesUnchanged(env):
                'DISTANCE_METRIC', 'L2').ok()
     types = [to_dict(a)['type'] for a in index_info(env)['attributes']]
     env.assertEqual(types, ['TEXT', 'TAG', 'NUMERIC', 'GEO', 'GEOSHAPE', 'VECTOR'])
+
+
+def testHashAlterRejected(env):
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'm', 'MAP', 'NUMERIC').error().contains('JSON')
+
+
+def attributes(env, idx):
+    """(name, type) per attribute; attributes with flags are not key-value pairs."""
+    return [(a[a.index('attribute') + 1], a[a.index('type') + 1])
+            for a in index_info(env, idx)['attributes']]
+
+
+def testGateOffKeepsMapAsFieldName(env):
+    """With the flag off, `MAP NUMERIC` after a field parses as it always did:
+    `MAP` is the name of a following NUMERIC field."""
+    set_unstable_features(env, False)
+    env.expect('FT.CREATE', 'i1', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'NOSTEM',
+               'MAP', 'NUMERIC').ok()
+    env.assertEqual(attributes(env, 'i1'), [('t', 'TEXT'), ('MAP', 'NUMERIC')])
+    env.expect('FT.CREATE', 'i2', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'INDEXMISSING',
+               'MAP', 'NUMERIC').ok()
+    env.assertEqual(attributes(env, 'i2'), [('n', 'NUMERIC'), ('MAP', 'NUMERIC')])
+    env.expect('FT.CREATE', 'i3', 'SCHEMA', 'MAP', 'NUMERIC').ok()
+    env.assertEqual(attributes(env, 'i3'), [('MAP', 'NUMERIC')])

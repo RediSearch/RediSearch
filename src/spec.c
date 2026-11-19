@@ -1261,11 +1261,18 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
   const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
   static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
                                        SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
-                                       SPEC_VECTOR_STR,   SPEC_MAP_STR};
+                                       SPEC_VECTOR_STR};
   for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
     if (!strcasecmp(next, starts[i])) {
       return true;
     }
+  }
+  // `MAP` is a type only when followed by `NUMERIC` and the feature is on; otherwise it keeps
+  // its meaning as an option keyword or field name in existing schemas.
+  if (RSGlobalConfig.enableUnstableFeatures && !strcasecmp(next, SPEC_MAP_STR) &&
+      AC_NumRemaining(ac) >= 3 &&
+      !strcasecmp(AC_StringArg(ac, ac->offset + 2, NULL), SPEC_NUMERIC_STR)) {
+    return true;
   }
   return false;
 }
@@ -1477,7 +1484,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     }
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_MAP_NUMERIC_STR, fs, status)) goto error;
     if (!parseMapNumericField(sp, fs, ac, status)) goto error;
-    // The field takes no other type and no option.
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
@@ -2099,6 +2105,8 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
+    // The index is owned by the live field; a snapshot must not reach it.
+    if (FIELD_IS(fs, INDEXFLD_T_MAP_NUMERIC)) field->mapNumericOpts.index = NULL;
     // The live field owns its compiled path for indexing and keeps it across snapshot rebuilds.
     // Query loaders own their compiled paths, so this snapshot needs no indexing handle.
     field->compiledPath = NULL;
@@ -2881,9 +2889,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // The field has no payload beyond its type bit; the bit, not the encoding version, identifies
   // it. It takes no other type or option.
   if (FIELD_IS(f, INDEXFLD_T_MAP_NUMERIC)) {
-    if (f->types != INDEXFLD_T_MAP_NUMERIC ||
-        (f->options & (FieldSpec_Sortable | FieldSpec_NotIndexable | FieldSpec_UNF |
-                       FieldSpec_IndexEmpty | FieldSpec_IndexMissing))) {
+    if (f->types != INDEXFLD_T_MAP_NUMERIC || f->options != 0) {
       RedisModule_LogIOError(rdb, "warning", "Invalid MAP NUMERIC field options or types in encoding version %d",
                              encver);
       goto fail;

@@ -264,6 +264,11 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  if (RSGlobalStats.fieldsStats.numMapNumericFields > 0) {
+    RedisModule_InfoBeginDictField(ctx, "fields_map_numeric");
+    RedisModule_InfoAddFieldLongLong(ctx, "MapNumeric", RSGlobalStats.fieldsStats.numMapNumericFields);
+    RedisModule_InfoEndDictField(ctx);
+  }
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);

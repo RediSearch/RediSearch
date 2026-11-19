@@ -126,8 +126,21 @@ cover the format itself, which requirement 3 of
 [CONTRIBUTING-unstable-features.md](../CONTRIBUTING-unstable-features.md#3-do-not-touch-persisted-or-replicated-state)
 excludes. An RDB without a `MAP NUMERIC` field loads on an older build unchanged. An older
 build that meets the unknown type bit does not reject it: the field loads with no
-recognised type, so `FT.INFO` on that index aborts the server and documents fail
-indexing. Downgrading therefore requires dropping the field first.
+recognised type, and the server later crashes or fails on it:
+
+- `FT.INFO` reaches `RS_ABORT_ALWAYS` in `FieldSpec_GetTypeNames`, and so does the
+  crash-report `INFO` section (`IndexSpec_AddToInfo`).
+- A query that resolves the field through the spec cache (`RETURN`, `LOAD`, `SORTBY`,
+  or `@m` in `APPLY`/`FILTER`) panics in the `rlookup` crate, where
+  `FieldSpecTypes::from_bits(..).unwrap()` rejects the unknown bit.
+- Documents with a value at the field's path fail indexing.
+
+Downgrading therefore requires dropping the field first.
+
+Bumping the encoding version would not help. The loader checks only a lower bound
+(`INDEX_MIN_COMPAT_VERSION`) and has no upper-bound check, so an RDB with a higher version
+loads into the same unknown-type field and fails the same way. A bump would only change
+the RDB stamp of every user's index.
 
 ## Garbage collection
 

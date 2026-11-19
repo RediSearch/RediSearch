@@ -38,7 +38,6 @@ typedef enum {
   INDEXFLD_T_TAG = 0x08,
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
-  // 0x40 is reserved for the sparse vector field type.
   INDEXFLD_T_MAP_NUMERIC = 0x80,
 } FieldType;
 
@@ -180,7 +179,9 @@ void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
 
 /* The MAP NUMERIC field's index, created first if `create_if_missing` and there is none.
- * Returns NULL only when the index does not exist and `create_if_missing` is false. */
+ * Returns NULL only when the index does not exist and `create_if_missing` is false.
+ * `fs` must be an element of the spec's own `fields`, never a spec-cache copy (the cache
+ * clears the pointer). Hold the spec write lock when `create_if_missing`, a read lock otherwise. */
 struct KeyedNumericIndex *FieldSpec_OpenMapNumericIndex(FieldSpec *fs, bool create_if_missing);
 /**
  * Convert field type given by integer to the name type in string form.

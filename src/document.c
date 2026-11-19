@@ -571,7 +571,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
 }
 
 
-// Documents are not indexed into MAP NUMERIC fields yet.
+// TODO: index the JSON object's members.
 FIELD_PREPROCESSOR(mapNumericPreprocessor) {
   (void)aCtx; (void)sctx; (void)field; (void)fs; (void)fdata;
   return 0;
