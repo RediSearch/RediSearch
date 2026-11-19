@@ -139,8 +139,8 @@ extern GlobalStats RSGlobalStats;
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 
 /**
- * Add or increase `toAdd` number of errors to the global index errors counter of field_type.
- * `toAdd` can be negative to decrease the counter.
+ * Update the global index error counter for one supported field type.
+ * Invalid or combined field types are ignored. `toAdd` can be negative to decrease the counter.
  */
 void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
 

@@ -21,8 +21,7 @@ use rqe_iterators::{
     utils::{AnyTimeoutContext, OwnedSlice},
 };
 
-/// Probe the query deadline once every this many candidate documents.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+use crate::TIMEOUT_CHECK_GRANULARITY;
 
 /// A [`MemTracker`] that adjusts an externally-owned `usize` counter through a
 /// raw pointer — the geometry index's allocation counter, shared from C across

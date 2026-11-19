@@ -404,11 +404,11 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 /// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
 /// implementation will provide iterators `rqe_iterators` does not know about.
 ///
-/// Each iterator constructor requires a `snapshot` handle. It must be a
-/// [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) returned from the disk API's
-/// `createSnapshot` for the same `index`, and it must remain valid for the lifetime of the
-/// returned iterator. This is what guarantees every iterator created for one query observes
-/// the same database state — there is no live-database fallback.
+/// Each iterator constructor requires a `view` handle: the query's disk read view, a
+/// [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) returned from the disk API's
+/// `createQueryView` for the same `index`, which must remain valid for the lifetime of the
+/// returned iterator. It is what makes every iterator created for one query agree on which
+/// documents the query can see; there is no fallback for reading without one.
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
@@ -424,7 +424,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
         status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -434,13 +434,17 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the given weight. The iterator will also filter the results according to the given
     /// field mask. Use this variant for phrase queries, slop constraints, or any query that needs
     /// term positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_with_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        num_docs: usize,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
@@ -449,13 +453,17 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the given weight. The iterator will also filter the results according to the given
     /// field mask. Use this variant for BM25_STD queries or any query that doesn't need term
     /// positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_without_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        num_docs: usize,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
@@ -466,7 +474,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over documents missing the given schema field.
@@ -476,7 +484,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
@@ -486,7 +494,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -503,6 +511,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
