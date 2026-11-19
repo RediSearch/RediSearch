@@ -127,6 +127,29 @@ fi
 # ---------------------------------------------------------------------------
 # Detect distro and install.
 # ---------------------------------------------------------------------------
+# The official LLVM tarballs are built on Ubuntu 22.04 and need GLIBCXX_3.4.30
+# from libstdc++. EL9 (GCC 11) stops at 3.4.29, so a tarball clang cannot even
+# start there: "version `GLIBCXX_3.4.30' not found (required by clang-21)".
+TARBALL_MIN_GLIBCXX="3.4.30"
+tarball_runtime_ok() {
+    local lib
+    lib=$(ls /usr/lib64/libstdc++.so.6 /usr/lib/*-linux-gnu/libstdc++.so.6 2>/dev/null | head -1)
+    [[ -n "$lib" ]] || return 0  # nothing to check against; let the tarball try
+    grep -aq "GLIBCXX_${TARBALL_MIN_GLIBCXX}" "$lib"
+}
+
+llvm_major() {
+    { "$1" --version 2>/dev/null || true; } | head -1 | sed -En 's/.*[Vv]ersion[[:space:]]+([0-9]+).*/\1/p'
+}
+
+# Keep whatever clang the distro ships, for bindgen's libclang only: LTO needs
+# clang-${LLVM_VER} and stays off (task-get-config sets enable_lto accordingly).
+accept_native_libclang() {
+    command -v clang &>/dev/null || return 1
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
+}
+
 install_llvm() {
     # ----- macOS (Homebrew) ---------------------------------------------------
     if [[ "$OS_TYPE" == "Darwin" ]]; then
@@ -226,8 +249,27 @@ install_llvm() {
         fi
         ;;
 
+    # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
+    rhel|rocky|almalinux|centos|fedora|amzn)
+        if tarball_runtime_ok; then
+            echo ">>> ${distro} ${distro_version} — installing from official tarball"
+            install_from_tarball
+        else
+            # EL9: the tarball clang cannot run on this libstdc++. Keep the
+            # distro's clang for bindgen; LTO is unavailable on this platform.
+            $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
+                || $MODE yum install -y clang lld clang-devel
+            if accept_native_libclang; then
+                echo ">>> libstdc++ lacks GLIBCXX_${TARBALL_MIN_GLIBCXX}; the LLVM ${LLVM_VER} tarball cannot run here."
+                echo ">>> Keeping the distro's clang $(llvm_major clang) for bindgen; LTO is unavailable on this platform."
+            else
+                echo "ERROR: no usable clang: the distro has no LLVM ${LLVM_VER} and the official tarball needs GLIBCXX_${TARBALL_MIN_GLIBCXX}" >&2
+                return 1
+            fi
+        fi
+        ;;
     # ----- Everything else: official tarball ----------------------------------
-    # Rocky, CentOS, RHEL, AlmaLinux, Fedora, Amazon Linux, Mariner, Azure Linux
+    # Mariner, Azure Linux, and anything else
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball
