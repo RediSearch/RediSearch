@@ -109,7 +109,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   // See disk_asm_import_window.h.
   const RedisModuleString *keyName = ctx ? RedisModule_GetKeyNameFromOptCtx(ctx) : NULL;
   if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(keyName)) {
-    RS_LOG_ASSERT(!DiskASM_ImportRebuild_IsSweepingKey(keyName),
+    RS_LOG_ASSERT(!DiskASM_ImportRebuild_IsRebuildingKey(keyName),
                   "ASM import: a delete reached a slot being rebuilt");
     return;
   }

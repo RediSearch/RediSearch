@@ -48,9 +48,9 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
                                          bool completed);
 
 #ifdef ENABLE_ASSERT
-// Whether a sweep is rebuilding `key`'s slot. Flex promises that no write and no delete reaches
-// such a slot until the gate is released, which debug builds assert. `key` may be NULL.
-bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key);
+// Whether `key`'s slot is being rebuilt. Flex promises that no write and no delete reaches such a
+// slot until the gate is released, which debug builds assert. `key` may be NULL.
+bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key);
 #endif
 
 // INFO fields of the latest import attempt, active or ended.
