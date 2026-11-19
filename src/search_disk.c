@@ -445,7 +445,8 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
-      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec);
+      c_index_spec->tagDictionariesAvailable, c_index_spec->flags, fields, c_index_spec->numFields,
+      &callbacks, c_index_spec);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);
