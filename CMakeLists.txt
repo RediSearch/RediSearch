@@ -3,6 +3,13 @@ cmake_minimum_required(VERSION 3.15)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 
+option(REDISJSON_LEGACY_API "Use string JSONPath lookup with RedisJSON API V8 or later" OFF)
+if(REDISJSON_LEGACY_API)
+    add_compile_definitions(REDISJSON_LEGACY_API=1)
+else()
+    add_compile_definitions(REDISJSON_LEGACY_API=0)
+endif()
+
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 # The `binroot` path includes a platform+profile segment
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)

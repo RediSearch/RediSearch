@@ -50,6 +50,7 @@ class JSONPathIndexingTest : public ::testing::Test {
   std::vector<StrongRef> specs;
   RedisJSONAPI *savedApi = nullptr;
   int savedVersion = 0;
+  int offeredVersion = 0;
 
   static JSONPath parse(const char *path) {
     ++current->parses;
@@ -139,8 +140,13 @@ class JSONPathIndexingTest : public ::testing::Test {
       return static_cast<const Value *>(json)->string ? JSONType_String : JSONType_Double;
     };
     api.getJsonFromHandle = [](RedisModuleKey *) -> RedisJSON { return current->root; };
+#if REDISJSON_LEGACY_API
+    // Leave every post-V8 slot empty: an accidental use must fail this test.
+    api.getWithPath = nullptr;
+    api.pathParseNoErrorMsg = nullptr;
+#endif
     japi = &api;
-    japi_ver = 10;
+    japi_ver = RedisJSONAPI_MIN_API_VER;
   }
 
   void TearDown() override {
@@ -171,6 +177,24 @@ class JSONPathIndexingTest : public ::testing::Test {
     return spec;
   }
 };
+
+TEST_F(JSONPathIndexingTest, negotiationHonorsBuildMinimum) {
+  auto savedGetSharedAPI = RedisModule_GetSharedAPI;
+  RedisModule_GetSharedAPI = [](RedisModuleCtx *, const char *name) -> void * {
+    return name == "RedisJSON_V" + std::to_string(current->offeredVersion) ? &current->api
+                                                                           : nullptr;
+  };
+  for (int version : {7, 8, 9, 10}) {
+    offeredVersion = version;
+    japi = nullptr;
+    japi_ver = 0;
+    bool supported = version >= RedisJSONAPI_MIN_API_VER;
+    EXPECT_EQ(GetJSONAPIs(ctx, 0), supported);
+    EXPECT_EQ(japi, supported ? &api : nullptr);
+    EXPECT_EQ(japi_ver, supported ? version : 0);
+  }
+  RedisModule_GetSharedAPI = savedGetSharedAPI;
+}
 
 TEST_F(JSONPathIndexingTest, schemaFieldsLoadThroughUpdatesAndAlter) {
   auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.price", "AS", "first", "NUMERIC", "$.price",
@@ -220,7 +244,7 @@ TEST_F(JSONPathIndexingTest, schemaFieldsLoadThroughUpdatesAndAlter) {
 
   // The existing paths survived document updates and ALTER without another compile per load.
   EXPECT_EQ(parses, 3);
-  EXPECT_EQ(stringGets, 0);
+  EXPECT_EQ(stringGets, REDISJSON_LEGACY_API ? 10 : 0);
   RedisModule_CloseKey(key);
 }
 
@@ -237,7 +261,7 @@ TEST_F(JSONPathIndexingTest, languageAndScorePathsAreCompiledAndReused) {
   EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, &second, "second"), 0.2);
 
   EXPECT_EQ(parses, 3);
-  EXPECT_EQ(stringGets, 0);
+  EXPECT_EQ(stringGets, REDISJSON_LEGACY_API ? 4 : 0);
 }
 
 TEST_F(JSONPathIndexingTest, emptyLanguageFallsBackToDefault) {

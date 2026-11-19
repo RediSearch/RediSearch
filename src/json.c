@@ -76,8 +76,24 @@ RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
   return japi->getJsonFromHandle(key);
 }
 
-JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+JSONPath JSON_CompilePath(const char *path) {
+#if REDISJSON_LEGACY_API
+  RedisModuleString *error = NULL;
+  JSONPath compiled = japi->pathParse(path, RSDummyContext, &error);
+  if (error) RedisModule_FreeString(RSDummyContext, error);
+  return compiled;
+#else
+  return japi->pathParseNoErrorMsg(path);
+#endif
+}
+
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path,
+                                             const char *pathString) {
+#if REDISJSON_LEGACY_API
+  return path ? japi->get(root, pathString) : NULL;
+#else
   return path ? japi->getWithPath(root, path) : NULL;
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

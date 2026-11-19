@@ -18,7 +18,14 @@ extern "C" {
 
 extern RedisJSONAPI *japi;
 extern int japi_ver;
+#ifndef REDISJSON_LEGACY_API
+#define REDISJSON_LEGACY_API 0
+#endif
+#if REDISJSON_LEGACY_API
+#define RedisJSONAPI_MIN_API_VER 8
+#else
 #define RedisJSONAPI_MIN_API_VER 10
+#endif
 
 #define JSON_ROOT "$"
 
@@ -47,9 +54,13 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
+/* Compile an owned indexing path with the Redis GIL held. Invalid paths yield NULL. */
+JSONPath JSON_CompilePath(const char *path);
+
 /* Evaluate an owned indexing path with the Redis GIL held and a live JSON root.
- * The compiled handle must remain alive through iteration. NULL paths yield no results. */
-JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path);
+ * The handle and original string must remain alive through iteration. NULL paths yield no results.
+ */
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path, const char *pathString);
 
 /* Get the RedisJSON root from an already-open RedisModuleKey handle.
  *
