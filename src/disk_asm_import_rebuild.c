@@ -74,7 +74,7 @@ typedef struct {
   DiskASMImportStats stats;
   // The participating indexes, frozen when the overlay ends. All have a specId of at most
   // frozenMaxSpecId: specIds only grow, so an index created later, even under a reused name, is
-  // never swept. TODO(MOD-20203): make FT.CREATE during an import wait for it to end, so such an
+  // never swept. TODO: make FT.CREATE during an import wait for it to end, so such an
   // index gets the imported keys.
   arrayof(WeakRef) specs;
   uint64_t frozenMaxSpecId;
