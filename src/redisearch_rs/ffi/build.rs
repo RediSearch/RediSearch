@@ -358,6 +358,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DiskGCRunResult",
             "DocTableDiskAPI",
             "IndexDiskAPI",
+            "IndexInfoTotals",
             "SlotMigrationAPI",
             "MetricsDiskAPI",
             "RedisSearchDisk",

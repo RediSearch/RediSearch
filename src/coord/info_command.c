@@ -69,6 +69,13 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
+static InfoFieldSpec docTableSpecs[] = {
+    {.name = "num_docs", .type = InfoField_WholeSum},
+    {.name = "max_doc_id", .type = InfoField_Max},
+    {.name = "memtable_bytes", .type = InfoField_WholeSum},
+    {.name = "storage_bytes", .type = InfoField_WholeSum},
+};
+
 static InfoFieldSpec textResourceSpecs[] = {
     {.name = "ram_metadata_bytes", .type = InfoField_WholeSum},
     {.name = "memtable_bytes", .type = InfoField_WholeSum},
@@ -137,6 +144,7 @@ typedef struct {
   MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
   InfoValue textResources[ARRAY_SIZE(textResourceSpecs)];
+  InfoValue docTable[ARRAY_SIZE(docTableSpecs)];
 } InfoFields;
 
 /**
@@ -306,7 +314,10 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
     if (MRReply_Type(value) == MR_REPLY_ARRAY || MRReply_Type(value) == MR_REPLY_MAP) {
       for (size_t i = 0; i + 1 < MRReply_Length(value); i += 2) {
         const char *group = MRReply_String(MRReply_ArrayElement(value, i), NULL);
-        if (group && !strcmp(group, "text")) {
+        if (group && !strcmp(group, "doc_table")) {
+          processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->docTable,
+                         docTableSpecs, ARRAY_SIZE(docTableSpecs), 1, error);
+        } else if (group && !strcmp(group, "text")) {
           processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->textResources,
                          textResourceSpecs, ARRAY_SIZE(textResourceSpecs), 1, error);
         }
@@ -395,6 +406,9 @@ static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
   InfoValue *values = fields->toplevelValues;
   const InfoValue *docs =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
+  if (fields->docTable[0].isSet) {
+    docs = &fields->docTable[0];
+  }
   const InfoValue *records =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;
   const InfoValue *size =
@@ -448,15 +462,21 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   replyIndexAverages(reply, fields);
-  if (fields->textResources[0].isSet) {
+  if (fields->textResources[0].isSet || fields->docTable[0].isSet) {
     RedisModule_ReplyKV_Map(reply, "column_families");
-    RedisModule_ReplyKV_Map(reply, "text");
-    replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
-                 ARRAY_SIZE(textResourceSpecs));
-    RedisModule_Reply_MapEnd(reply);
+    if (fields->docTable[0].isSet) {
+      RedisModule_ReplyKV_Map(reply, "doc_table");
+      replyKvArray(reply, fields, fields->docTable, docTableSpecs, ARRAY_SIZE(docTableSpecs));
+      RedisModule_Reply_MapEnd(reply);
+    }
+    if (fields->textResources[0].isSet) {
+      RedisModule_ReplyKV_Map(reply, "text");
+      replyKvArray(reply, fields, fields->textResources, textResourceSpecs,
+                   ARRAY_SIZE(textResourceSpecs));
+      RedisModule_Reply_MapEnd(reply);
+    }
     RedisModule_Reply_MapEnd(reply);
   }
-
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
