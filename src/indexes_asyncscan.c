@@ -716,10 +716,14 @@ static void Backfill_Finish(AsyncScanJob *base, RedisModuleCtx *ctx, const Async
   rm_free(job);
 }
 
-// Holds the backfill back while DiskASM_ImportRebuild_DefersBackfill says so, on the reindex
-// thread: every job queued behind it would have to wait for the import too, or for this sweep.
-// Gives up on a dropped index, which the sweep then reports, and at shutdown.
+// On disk only, where SST imports rebuild their slots: holds the backfill back while
+// DiskASM_ImportRebuild_DefersBackfill says so, on the reindex thread. Every job queued behind it
+// would have to wait for the import too, or for this sweep. Gives up on a dropped index, which the
+// sweep then reports, and at shutdown.
 static void Backfill_WaitForImport(BackfillJob *job) {
+  if (!SearchDisk_IsEnabled()) {
+    return;
+  }
   IndexesScanner *scanner = job->scanner;
   StrongRef ref = IndexSpecRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(ref);

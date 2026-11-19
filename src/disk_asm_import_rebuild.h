@@ -56,7 +56,8 @@ void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationIn
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key);
 #endif
 
-// Whether the backfill of the index `specId` must not start yet. Lock-free, for reindex threads.
+// Whether the backfill of the index `specId` must not start yet. Only meaningful on disk, the only
+// mode with SST imports. Lock-free, for reindex threads.
 bool DiskASM_ImportRebuild_DefersBackfill(uint64_t specId);
 
 // INFO fields of the latest import attempt, active or ended.
