@@ -287,6 +287,7 @@ def test_restore_schema_of_existing_aliased_index(env: Env):
         env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
 
     env.assertEqual(env.cmd('FT._LIST'), ['idx'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
     # A restored schema does not scan existing keys, so finding doc:1 shows the original index
     # still answers through each name.
     for name in ('idx', 'a1', 'a2'):
@@ -294,6 +295,7 @@ def test_restore_schema_of_existing_aliased_index(env: Env):
     env.expect('FT.ALIASDEL', 'a1').ok()
     env.expect('FT.ALIASADD', 'a1', 'idx').ok()
     env.expect('FT.SEARCH', 'a1', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
 
 @skip(cluster=True)
 def test_forward_index_reuse_after_large_document(env: Env):
