@@ -27,7 +27,7 @@
 typedef enum {
   // The gate is held; waiting for the overlay to end.
   DISK_ASM_IMPORT_AWAITING_OVERLAY_END,
-  // The sweep is queued or running.
+  // The sweep is queued or running, and owns the coordinator until its finish.
   DISK_ASM_IMPORT_SCANNING,
   // The slots are rebuilt and the gate released.
   DISK_ASM_IMPORT_REBUILT,
@@ -76,8 +76,6 @@ typedef struct {
   // frozenMaxSpecId.
   arrayof(WeakRef) specs;
   uint64_t frozenMaxSpecId;
-  // The sweep task holds the coordinator from the moment it is queued until its finish.
-  bool scanRunning;
   // The attempt ended while the sweep ran: the sweep stops and frees the coordinator. Read by the
   // sweep without the GIL.
   bool ended;
@@ -100,7 +98,6 @@ static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slo
 }
 
 static void importFree(DiskASMImport *imp) {
-  RS_ASSERT(!imp->scanRunning);
   if (imp->specs) {
     for (size_t i = 0; i < array_len(imp->specs); i++) {
       WeakRef_Release(imp->specs[i]);
@@ -123,15 +120,15 @@ static void fail(DiskASMImport *imp, const char *error) {
                   error);
 }
 
-// Clears `activeImport` and frees `imp`, or leaves it to its running sweep.
-static void detach(DiskASMImport *imp, DiskASMImportPhase endPhase) {
-  RS_ASSERT(imp == activeImport);
+// Clears `activeImport` and frees it, or leaves it to its running sweep.
+static void detach(DiskASMImportPhase endPhase) {
+  DiskASMImport *imp = activeImport;
   activeImport = NULL;
   lastEnded = imp->stats;
   lastEnded.phase = endPhase;
   lastEnded.gateHeld = false;
   anyEnded = true;
-  if (imp->scanRunning) {
+  if (imp->stats.phase == DISK_ASM_IMPORT_SCANNING) {
     __atomic_store_n(&imp->ended, true, __ATOMIC_RELAXED);
   } else {
     importFree(imp);
@@ -200,12 +197,11 @@ static bool importOnKey(AsyncScanJob *job, RedisModuleCtx *ctx, RedisModuleKey *
 
 static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScanEnd *end) {
   DiskASMImport *imp = (DiskASMImport *)job;
-  imp->scanRunning = false;
+  RS_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_SCANNING);
   if (imp->ended) {
     importFree(imp);
     return;
   }
-  RS_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_SCANNING);
   if (imp->clearFailed) {
     fail(imp, "clearing the DocIdMeta of an imported key failed");
     return;
@@ -249,7 +245,7 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info) {
   if (activeImport) {
     RS_LOG_ASSERT(false, "ASM import: IMPORT_SST_BASE_READY while another attempt is live");
-    detach(activeImport, DISK_ASM_IMPORT_FAILED);
+    detach(DISK_ASM_IMPORT_FAILED);
   }
 
   DiskASMImport *imp = rm_calloc(1, sizeof(*imp));
@@ -303,7 +299,6 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   Indexes_ForEachSpec(freezeSpec, imp);
 
   imp->stats.phase = DISK_ASM_IMPORT_SCANNING;
-  imp->scanRunning = true;
   RedisModule_Log(ctx, "notice",
                   "ASM import %s: rebuilding the imported slots for %u indexes (max specId %lu)",
                   imp->taskId, array_len(imp->specs), (unsigned long)imp->frozenMaxSpecId);
@@ -319,7 +314,7 @@ void DiskASM_ImportRebuild_OnImportEnded(bool completed) {
     RS_LOG_ASSERT(activeImport->stats.phase == DISK_ASM_IMPORT_REBUILT,
                   "ASM import: completed before search rebuilt its slots");
   }
-  detach(activeImport, completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
+  detach(completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
 }
 
 //---------------------------------------------------------------------------------------------
