@@ -867,14 +867,17 @@ def test_hybrid_tail_stop_fails_over_a_soft_tail_error(env):
 @env_spec(protocol=3)
 def test_hybrid_pre_header_stop_fails_over_a_soft_tail_error(env):
     """Under ON_OOM FAIL the replay's pre-header check fails the query with the OOM error even when
-    a tail APPLY on a field no doc has already recorded a soft error in the same slot."""
+    a tail APPLY recorded a soft error in the same slot. No doc has `opt`, and the AND
+    short-circuits on the missing value, so the rows are kept next to the soft error."""
     try:
         _hybrid_index(env)
         query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
-                 'LOAD', 1, '@opt', 'APPLY', '@opt', 'AS', 'x',
+                 'LOAD', 1, '@opt', 'APPLY', '@opt && 1', 'AS', 'x',
                  'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
         for workers in [0, 2]:
             _set_policies(env, 'fail', 'fail', workers)
+            res = env.cmd(*query)
+            env.assertGreater(len(res['results']), 0, message=(workers, res))
             # The pre-header check is the replay's only call under FAIL, so the query's last.
             _memory_pressure(env, 'AT_CALL', _checkpoint_calls(env, query))
             env.expect(*query).error().contains(OOM_QUERY_ERROR)
