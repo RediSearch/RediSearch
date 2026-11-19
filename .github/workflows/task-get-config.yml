@@ -182,17 +182,19 @@ jobs:
                   }
               },
               "rockylinux:9": {
+                  # No LTO: EL9's libstdc++ (GCC 11) cannot run the official LLVM
+                  # tarball and the distro ships no clang matching Rust's LLVM.
                   "x86_64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 9 x86_64',
-                      'enable_lto': '1'
+                      'enable_lto': '0'
                   },
                   "aarch64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 9 ARM64',
-                      'enable_lto': '1'
+                      'enable_lto': '0'
                   }
               },
               "rockylinux:10": {
