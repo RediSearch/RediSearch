@@ -171,17 +171,17 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         let value = self.load_root(key_name)?;
 
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
-            rlk.into_current().unwrap()
+            rlk.into_current()
         } else {
             // A SORTABLE schema field on `$` makes the key value-available from
             // the sorting vector, in which case `get_key_load` returns `None`
             // unless forced.
-            rlookup
-                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlag::ForceLoad.into())
-                .unwrap()
+            rlookup.get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlag::ForceLoad.into())
         };
 
-        dst_row.write_key(rlk, value);
+        if let Some(rlk) = rlk {
+            dst_row.write_key(rlk, value);
+        }
 
         Ok(())
     }
