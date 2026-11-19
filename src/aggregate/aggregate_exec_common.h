@@ -53,14 +53,14 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
 bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
 
 /**
- * Exact memory check right before the header of a reply that replays buffered
- * rows. A reply that has started cannot become an error, so ON_OOM FAIL decides
- * here: on a stop `err` gets the OOM error and the replay must not start, and
- * the replay itself then never checks memory. Under RETURN a stop sets the OOM
- * warning and the reply carries no rows. A blocked-client timeout owns its reply:
- * no stop is reported then.
+ * Exact memory check under ON_OOM FAIL right before the header of a reply that
+ * replays buffered rows. A reply that has started cannot become an error, so on
+ * a stop `err` gets the OOM error and the replay must not start; the replay
+ * itself then never checks memory. Under ON_OOM RETURN it checks nothing: the
+ * replay's per-row check cuts the rows. A blocked-client timeout owns its
+ * reply: no stop is reported then.
  */
-bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+void StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                                    QueryError *err);
 
 /**

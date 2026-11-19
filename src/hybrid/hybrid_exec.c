@@ -385,24 +385,38 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   return ApplyOomStop(&hreq->base.limits, oomPolicy, err, rc);
 }
 
-// With `stopped` set the rows are freed without serializing.
-static void HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results,
-                                          HybridRequest *hreq, cachedVars *cv, bool stopped) {
-  uint32_t memoryCheckCounter = 0;
-  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
-  // already applied while buffering made the held rows the reply, so only a new one cuts.
-  const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
-                           !QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
-  array_foreach(results, res, {
-    stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
-                                             &memoryCheckCounter, hreq->tailPipeline->qctx.err));
-    if (!stopped) {
-      serializeResult_hybrid(hreq, reply, res, cv);
-    }
-    SearchResult_Destroy(res);
-    rm_free(res);
-  });
-  array_free(results);
+static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
+  SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
+    // populate the reply with an array containing the serialized results
+    int len = array_len(results);
+    uint32_t memoryCheckCounter = 0;
+    bool stopped = false;
+    // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
+    // already applied while buffering made the held rows the reply, so only a new one cuts.
+    const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+                             !QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
+    array_foreach(results, res, {
+      stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
+                                               &memoryCheckCounter, hreq->tailPipeline->qctx.err));
+      if (!stopped) {
+        serializeResult_hybrid(hreq, reply, res, cv);
+      }
+      SearchResult_Destroy(res);
+      rm_free(res);
+    });
+    array_free(results);
+    return len;
+}
+
+// Under ON_OOM FAIL a memory stop before the replay of buffered rows is the reply's error, so it is
+// checked before the fatal error is selected and the header written. A timeout or an error that
+// ended the pipeline owns the reply.
+static void stopBeforeReplay_hybrid(HybridRequest *hreq, SearchResult **results, int rc) {
+  if (results && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) &&
+      !HybridRequest_GetFatalError(hreq)) {
+    StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
+                                  hreq->tailPipeline->qctx.err);
+  }
 }
 
 /**
@@ -512,43 +526,21 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
  * Serializes results and handles the main reply logic for hybrid.
  * Sets *results to NULL after consuming them, so finishSendChunk_HREQ won't double-free.
  * Returns true if reply was sent, false if error/timeout occurred before replying.
- * `*countQuery` is cleared when the error replied is the pre-header OOM one, which no error slot
- * holds.
  */
 static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
                                             ResultProcessor *rp, QueryProcessingCtx *qctx, int rc,
                                             cachedVars *cv, SearchResult *r,
-                                            SearchResult ***results, const QueryError *err,
-                                            bool *countQuery) {
+                                            SearchResult ***results, const QueryError *err) {
 
   // If an error occurred, or a timeout in strict mode - return a simple error
   if (handleSendChunkError_hybrid(hreq, reply, err, rc)) {
     return false;
   }
 
-  bool replayStopped = false;
-  if (*results != NULL && !err && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF)) {
-    // Under ON_OOM FAIL a stop here is the reply's error, so it must come before the header.
-    QueryError oomErr = QueryError_Default();
-    replayStopped =
-        StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, &oomErr);
-    if (replayStopped && QueryError_HasError(&oomErr)) {
-      handleSendChunkError_hybrid(hreq, reply, &oomErr, rc);
-      QueryError_ClearError(&oomErr);
-      // The error lives in no request slot, so the caller's count would call it a success.
-      *countQuery = false;
-      return false;
-    }
-    if (replayStopped) {
-      QueryError_SetQueryOOMWarning(qctx->err);
-    }
-    QueryError_ClearError(&oomErr);
-  }
-
   prepareSendChunkReply_hybrid(hreq, reply, qctx);
 
   if (*results != NULL) {
-    HREQ_populateReplyWithResults(reply, *results, hreq, cv, replayStopped);
+    HREQ_populateReplyWithResults(reply, *results, hreq, cv);
     *results = NULL;  // Results consumed and freed by HREQ_populateReplyWithResults
   } else {
     if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
@@ -739,10 +731,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     QueryRequest_RecordInlineReply(&hreq->base);
 
+    stopBeforeReplay_hybrid(hreq, results, rc);
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError,
-                                    &countQuery);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
@@ -764,11 +756,12 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
+    stopBeforeReplay_hybrid(hreq, results, rc);
     const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
     bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results,
-                                    fatalError, &countQuery);
+                                    fatalError);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;
