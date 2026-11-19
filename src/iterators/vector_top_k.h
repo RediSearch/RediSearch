@@ -36,10 +36,9 @@ int RS_VecSimCheckMemory(QueryRequestLimits *timeout);
 int RS_VecSimShouldStop(void *ctx);
 
 // The memory checkpoint of a per-document loop (the adhoc-BF scan), where a read per call would
-// cost more than the work between calls. Like RS_VecSimCheckMemory, but reads memory only every
-// QUERY_MEMORY_RATIO_READ_INTERVAL-th call counted by `counter`; every call still observes an
-// already requested stop. `counter` is owned by the caller's scan, zero-initialized.
-int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout, uint32_t *counter);
+// cost more than the work between calls. Like RS_VecSimCheckMemory, but on the amortized cadence
+// of QueryMemory_Checkpoint.
+int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout);
 
 #ifdef __cplusplus
 }

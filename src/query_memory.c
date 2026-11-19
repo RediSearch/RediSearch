@@ -91,26 +91,19 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
   return true;
 }
 
-bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits) {
+  if (QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
-  // The request-wide count lets a site called too rarely to reach the interval alone still
-  // trigger a read.
-  if (!QueryMemory_CountCall(limits, counter) && !forcedPressure) {
+  if (!QueryMemory_CountCall(limits) && !forcedPressure) {
     return false;
   }
-  return QueryMemory_ReadAndReset(limits, counter, forcedPressure);
+  return QueryMemory_ReadAndReset(limits, forcedPressure);
 }
 
-bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, uint32_t *counter, bool forcedPressure) {
-  if (counter) {
-    *counter = 0;
-  }
-  if (limits) {
-    atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
-  }
+bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, bool forcedPressure) {
+  atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
   return memoryStops(limits, forcedPressure);
 }
 

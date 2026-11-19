@@ -21,14 +21,13 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout) {
   return vecsimTimeoutCallback(timeout);
 }
 
-// VecSim calls this at every search step, from any worker thread and from SVS search threads, so
-// it holds no state of its own: the request-wide counter of the checkpoint sets the read cadence.
+// VecSim calls this at every search step, from any worker thread and from SVS search threads.
 int RS_VecSimShouldStop(void *ctx) {
   QueryRequestLimits *limits = ctx;
   // Compared with the default so the common case skips the indirect call.
   int (*timedOut)(QueryRequestLimits *) = vecsimTimeoutCallback;
   const int stopped = timedOut == VecSim_TimedOut ? VecSim_TimedOut(limits) : timedOut(limits);
-  return stopped || QueryMemory_Checkpoint(limits, NULL);
+  return stopped || QueryMemory_Checkpoint(limits);
 }
 
 void RS_VecSimSetTimeoutCallback(int (*callback)(QueryRequestLimits *timeout)) {
@@ -41,6 +40,6 @@ int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {
   return QueryMemory_CheckpointExact(timeout);
 }
 
-int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout, uint32_t *counter) {
-  return QueryMemory_Checkpoint(timeout, counter);
+int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout) {
+  return QueryMemory_Checkpoint(timeout);
 }

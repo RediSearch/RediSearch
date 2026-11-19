@@ -27,27 +27,18 @@ extern "C" {
  *
  * Returns true when the query should stop: a memory stop was already
  * requested, or this call found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it
- * requests a memory stop first. Memory is read when either the caller's
- * `counter` or the request's shared memory.counter reaches
- * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
- * up and a site called fewer times than the interval still contributes to a
- * read. A read resets both counters. Priming `counter` to the interval minus
- * one reads on the next call. The other calls only read the request's flags.
- * Each site owns its counter, zero-initialized, and must not share it between
- * threads. With a NULL `limits` only `counter` counts.
+ * requests a memory stop first. Memory is read when the request's memory.counter reaches
+ * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add up; the read resets
+ * it. The other calls only read the request's flags. `limits` must not be NULL.
  *
  * The memory check is off, and only an already requested memory stop is
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
  * RedisModule_GetUsedMemoryRatioEstimate; the fake pressure below overrides
- * the last two. Callable with or without the GIL, from any thread. The shared
- * request counter is a relaxed atomic, so concurrent calls only shift when
- * memory is read. Each site's own `counter` must not be shared between
- * threads. The ON_OOM policy is the global one, read with a
- * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
- * owning request) still reports pressure but records no memory stop. A NULL `counter` leaves the
- * cadence to the request's shared counter alone.
+ * the last two. Callable with or without the GIL, from any thread. The request counter is a
+ * relaxed atomic, so concurrent calls only shift when memory is read. The ON_OOM policy is the
+ * global one, read with a relaxed atomic load because CONFIG SET writes it on the main thread.
  */
-static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
+static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits);
 
 /* Process-wide state of the inline fast path of QueryMemory_Checkpoint, written only through the
  * debug and test hooks below. */
@@ -55,43 +46,35 @@ extern RS_Atomic(uint32_t) QueryMemory_ratioReadInterval;
 extern RS_Atomic(uint32_t) QueryMemory_pressureArmed;
 
 /** The full checkpoint, used while a fake pressure is armed. Same semantics as the fast path. */
-bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits, uint32_t *counter);
+bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits);
+
+/** The memory read of a due checkpoint, or of a forced pressure: resets the call counter first. */
+bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, bool forcedPressure);
 
 /**
- * The memory read of a due checkpoint, or of a forced pressure: resets the call counters first.
- * `counter` may be NULL.
+ * Counts one checkpoint call in the request's counter and returns whether it reached the read
+ * interval. Shared by the fast path and QueryMemory_CheckpointSlow.
  */
-bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, uint32_t *counter, bool forcedPressure);
-
-/**
- * Counts one checkpoint call in `counter` (NULL: not counted) and in the request's shared counter,
- * and returns whether either reached the read interval. Shared by the fast path and
- * QueryMemory_CheckpointSlow.
- */
-static inline bool QueryMemory_CountCall(QueryRequestLimits *limits, uint32_t *counter) {
-  const uint32_t interval = RS_AtomicUintLoadRelaxed(&QueryMemory_ratioReadInterval);
-  bool due = counter && ++*counter >= interval;
-  if (limits) {
-    // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
-    // atomic RMW on the hot path.
-    const uint32_t shared = RS_AtomicUintLoadRelaxed(&limits->memory.counter) + 1;
-    RS_AtomicUintStoreRelaxed(&limits->memory.counter, shared);
-    due |= shared >= interval;
-  }
-  return due;
+static inline bool QueryMemory_CountCall(QueryRequestLimits *limits) {
+  // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
+  // atomic RMW on the hot path.
+  const uint32_t calls = RS_AtomicUintLoadRelaxed(&limits->memory.counter) + 1;
+  RS_AtomicUintStoreRelaxed(&limits->memory.counter, calls);
+  return calls >= RS_AtomicUintLoadRelaxed(&QueryMemory_ratioReadInterval);
 }
 
-static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits) {
+  RS_ASSERT(limits);
+  if (QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   if (__builtin_expect(RS_AtomicUintLoadRelaxed(&QueryMemory_pressureArmed) != 0, 0)) {
-    return QueryMemory_CheckpointSlow(limits, counter);
+    return QueryMemory_CheckpointSlow(limits);
   }
-  if (__builtin_expect(!QueryMemory_CountCall(limits, counter), 1)) {
+  if (__builtin_expect(!QueryMemory_CountCall(limits), 1)) {
     return false;
   }
-  return QueryMemory_ReadAndReset(limits, counter, false);
+  return QueryMemory_ReadAndReset(limits, false);
 }
 
 /**
