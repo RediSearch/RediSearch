@@ -601,6 +601,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "redis-module",
+ "sorting_vector",
  "workspace_hack",
 ]
 
@@ -2552,6 +2553,7 @@ dependencies = [
  "build_utils",
  "cheadergen",
  "decorum",
+ "document_metadata",
  "ffi",
  "field",
  "geo",
@@ -2579,6 +2581,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rstest",
  "rstest_reuse",
+ "sorting_vector",
  "thiserror",
  "timeout",
  "tracing",
@@ -2622,6 +2625,7 @@ version = "0.0.1"
 dependencies = [
  "dict",
  "document",
+ "document_metadata",
  "ffi",
  "field",
  "geo",
@@ -2638,6 +2642,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "sorting_vector",
  "ttl_table",
  "varint_ffi",
  "workspace_hack",

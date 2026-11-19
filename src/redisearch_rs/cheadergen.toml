@@ -307,6 +307,7 @@ after_includes = """
 #define METRIC_LAZY_SORTED_BY_SCORE_ITERATOR IteratorType_MetricLazySortedByScore
 #define PROFILE_ITERATOR                  IteratorType_Profile
 #define OPTIMUS_ITERATOR                  IteratorType_Optimus
+#define ELEMENT_FILTER_ITERATOR           IteratorType_ElementFilter
 #define MAX_ITERATOR                      IteratorType_Max
 """
 

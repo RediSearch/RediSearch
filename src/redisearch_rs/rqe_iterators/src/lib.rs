@@ -37,6 +37,7 @@ pub mod c2rust;
 mod composite;
 pub mod config;
 pub mod deferred;
+pub mod element_filter;
 pub mod empty;
 pub mod expiration_checker;
 pub mod geo_shape;
@@ -71,6 +72,10 @@ pub use boxed::{
     TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
+pub use element_filter::{
+    Candidates, DocumentElementValues, ElementFilter, ElementPredicate, ElementValues,
+    QueryElementFilter, SortableElementValues,
+};
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use geo_shape::{GeoShape, MemTracker, NoTracker};

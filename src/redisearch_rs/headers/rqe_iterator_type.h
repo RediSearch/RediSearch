@@ -30,6 +30,7 @@
 #define METRIC_LAZY_SORTED_BY_SCORE_ITERATOR IteratorType_MetricLazySortedByScore
 #define PROFILE_ITERATOR                  IteratorType_Profile
 #define OPTIMUS_ITERATOR                  IteratorType_Optimus
+#define ELEMENT_FILTER_ITERATOR           IteratorType_ElementFilter
 #define MAX_ITERATOR                      IteratorType_Max
 
 
@@ -77,7 +78,8 @@ enum IteratorType
    * Used only in tests.
    */
   IteratorType_Mock = 23,
-  IteratorType_Max = 24,
+  IteratorType_ElementFilter = 24,
+  IteratorType_Max = 25,
 };
 #ifndef __cplusplus
 typedef uint32_t IteratorType;

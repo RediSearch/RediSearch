@@ -241,6 +241,23 @@ fn optional_optimized_with_child() {
     insta::assert_debug_snapshot!(reply);
 }
 
+// ── ElementFilter ───────────────────────────────────────────────
+
+#[test]
+fn element_filter_with_child() {
+    let mut replier = init();
+    let iter = rqe_iterators::ElementFilter::new(
+        rqe_iterators::Empty,
+        1.0,
+        rqe_iterators::Candidates::CommonPositions,
+        vec![],
+        (),
+        rqe_iterators::utils::NoTimeoutChecker,
+    );
+    let reply = print(&mut replier, &iter, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
 // ── Intersection ────────────────────────────────────────────────
 
 #[test]
