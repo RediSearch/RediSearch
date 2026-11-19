@@ -434,6 +434,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Optimus => 1.0,
             IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
+            IteratorType::SparseVector => 1.0,
             IteratorType::Max => 1.0,
         }
     }

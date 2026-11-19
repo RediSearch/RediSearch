@@ -163,6 +163,11 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
   return NULL;
 }
 
+bool Extensions_IsAutomaticScorer(const char *name) {
+  // Case sensitive, as the lookup above is.
+  return strcmp(name, SPARSE_SCORER_NAME) == 0;
+}
+
 /* The implementation of the actual query expansion. This function either turns the current node
  * into a union node with the original token node and new token node as children. Or if it is
  * already a union node (in consecutive calls), it just adds a new token node as a child to it */

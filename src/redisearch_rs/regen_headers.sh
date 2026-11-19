@@ -96,6 +96,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" \
     --package=rqe_iterator_type \
     --package=rqe_iterators \
     --package=search_result \
+    --package=sparse_vector_index \
     --package=query_flags \
     --package=query_types \
     --package=query_eval \

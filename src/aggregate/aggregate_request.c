@@ -1668,6 +1668,18 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
   return REDISMODULE_OK;
 }
 
+static bool hasSparseVectorNode(const QueryNode *n) {
+  if (n->type == QN_SPARSE_VECTOR) {
+    return true;
+  }
+  for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+    if (hasSparseVectorNode(n->children[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1730,16 +1742,20 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  const bool scorerDefaulted = !opts->scorerName;
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s",
+                                       opts->scorerName);
+      return REDISMODULE_ERR;
+    }
+    if (Extensions_IsAutomaticScorer(opts->scorerName)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, AUTOMATIC_SCORER_ERR);
       return REDISMODULE_ERR;
     }
   } else {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
-
-
 
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
@@ -1769,11 +1785,34 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // The parser only builds a sparse node on a sparse field, so an index without one skips the walk.
+  // A vector query joined below never adds one.
+  const bool hasSparse =
+      (index->flags & Index_HasSparseVec) && ast->root && hasSparseVectorNode(ast->root);
+
+  // A sparse vector query ranks by its dot product unless a SCORER says otherwise: the text
+  // scorers would score its documents as zero.
+  if (scorerDefaulted && hasSparse) {
+    opts->scorerName = SPARSE_SCORER_NAME;
+  }
+
   if (req->parsedVectorData) {
     int rv = applyVectorQuery(req, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+  }
+
+  // Not yet supported in FT.HYBRID, in the SEARCH clause or the VSIM FILTER. Not reported as
+  // VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a generic vector-expression error. Checked
+  // here rather than through the QAST validation flags, which an index with no TEXT or TAG field
+  // skips.
+  if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && hasSparse) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        IsHybridSearchSubquery(req)
+                            ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH"
+                            : "SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER");
+    return REDISMODULE_ERR;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
