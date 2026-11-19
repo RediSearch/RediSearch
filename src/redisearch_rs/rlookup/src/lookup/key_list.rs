@@ -213,9 +213,13 @@ impl<'a> KeyList<'a> {
         store.find_slot(name)
     }
 
-    pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
+    /// Insert a key at the next logical row slot and return that slot.
+    ///
+    /// Returns `None`, leaving the list unchanged, once every slot a
+    /// [`dstidx`](super::key::RLookupKeyHeader::dstidx) can address is taken.
+    pub(crate) fn push(&mut self, mut key: RLookupKey<'a>) -> Option<u16> {
+        let slot = u16::try_from(self.live().len()).ok()?;
         let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
-        let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
         key.dstidx = slot;
         store.live.push(OwnedKey::new(key));
         if store.by_name.is_some() {
@@ -225,20 +229,18 @@ impl<'a> KeyList<'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push");
 
-        slot
+        Some(slot)
     }
 
-    /// Insert a key at the next logical row slot.
-    pub(crate) fn push(&mut self, key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
-        let slot = self.push_slot(key);
-
-        self.store
-            .as_mut()
-            .unwrap()
-            .live
-            .get_mut(usize::from(slot))
-            .unwrap()
-            .get_pin_mut()
+    #[cfg(test)]
+    pub(crate) fn fill_all_but_last_row_slot(&mut self) {
+        let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
+        let first = u16::try_from(store.live.len()).unwrap();
+        store.live.extend((first..u16::MAX).map(|slot| {
+            let mut key = RLookupKey::new(c"filler", RLookupKeyFlags::empty());
+            key.dstidx = slot;
+            OwnedKey::new(key)
+        }));
     }
 
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
@@ -478,6 +480,22 @@ mod tests {
     }
 
     #[test]
+    fn push_is_refused_once_every_dstidx_is_taken() {
+        let mut keys = KeyList::new();
+        keys.fill_all_but_last_row_slot();
+
+        assert_eq!(
+            keys.push(RLookupKey::new(c"last", RLookupKeyFlags::empty())),
+            Some(u16::MAX)
+        );
+        assert_eq!(
+            keys.push(RLookupKey::new(c"overflow", RLookupKeyFlags::empty())),
+            None
+        );
+        assert_eq!(keys.row_len(), u32::from(u16::MAX) + 1);
+    }
+
+    #[test]
     fn duplicate_names_resolve_to_first_slot() {
         let mut keys = KeyList::new();
         keys.push(RLookupKey::new(c"same", RLookupKeyFlags::empty()));
@@ -657,7 +675,9 @@ mod tests {
         assert_eq!(keys.find_slot(c"pre"), Some(0));
 
         // ...nor of a name first seen after promotion.
-        let post_slot = keys.push_slot(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
+        let post_slot = keys
+            .push(RLookupKey::new(c"post", RLookupKeyFlags::empty()))
+            .unwrap();
         keys.push(RLookupKey::new(c"post", RLookupKeyFlags::empty()));
         assert_eq!(keys.find_slot(c"post"), Some(post_slot));
 
