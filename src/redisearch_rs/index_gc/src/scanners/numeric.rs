@@ -152,6 +152,13 @@ pub struct NumericTreeKey {
     pub nodes: Vec<NodeIndex>,
 }
 
+/// Every node of `tree`, children before parents, as [`collect_numeric`] visits them.
+pub fn listed_nodes(tree: &NumericRangeTree) -> Vec<NodeIndex> {
+    tree.indexed_post_order_iter()
+        .map(|(node_idx, _)| node_idx)
+        .collect()
+}
+
 /// List the nodes of every initialised NUMERIC and GEO tree in the spec.
 pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
     spec.field_specs()
@@ -169,10 +176,7 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
                     unique_id: u32::from(tree.unique_id()),
                 },
                 revision_id: tree.revision_id(),
-                nodes: tree
-                    .indexed_post_order_iter()
-                    .map(|(node_idx, _)| node_idx)
-                    .collect(),
+                nodes: listed_nodes(tree),
             })
         })
         .collect()
@@ -193,10 +197,20 @@ pub fn ranges_of_nodes_added_since(
     let Some(tree) = key.id.tree(spec) else {
         return Vec::new();
     };
-    if tree.revision_id() == key.revision_id {
+    ranges_of_nodes_added_to(tree, key.revision_id, &key.nodes)
+}
+
+/// [`ranges_of_nodes_added_since`] for a tree already in hand, which listed `nodes` at
+/// `revision_id`.
+pub fn ranges_of_nodes_added_to(
+    tree: &NumericRangeTree,
+    revision_id: u32,
+    nodes: &[NodeIndex],
+) -> Vec<RangeInclusive<DocId>> {
+    if tree.revision_id() == revision_id {
         return Vec::new();
     }
-    let listed: HashSet<NodeIndex> = key.nodes.iter().copied().collect();
+    let listed: HashSet<NodeIndex> = nodes.iter().copied().collect();
     tree.indexed_post_order_iter()
         .filter(|(node_idx, _)| !listed.contains(node_idx))
         .filter_map(|(_, node)| node.range()?.entries().doc_id_range())
@@ -258,7 +272,16 @@ pub fn snapshot_numeric_node(
     node_idx: NodeIndex,
     live: &impl DocLiveness,
 ) -> Option<NumericNodeSnapshot> {
-    let node = id.tree(spec)?.try_node(node_idx)?;
+    snapshot_tree_node(id.tree(spec)?, node_idx, live)
+}
+
+/// [`snapshot_numeric_node`] for a tree already in hand.
+pub fn snapshot_tree_node(
+    tree: &NumericRangeTree,
+    node_idx: NodeIndex,
+    live: &impl DocLiveness,
+) -> Option<NumericNodeSnapshot> {
+    let node = tree.try_node(node_idx)?;
     let index = node.range()?.entries().gc_snapshot(live)?;
     Some(NumericNodeSnapshot {
         position: node_idx.position(),
@@ -284,6 +307,21 @@ pub fn scan_numeric_node(
         generation: node_idx.generation(),
         delta,
     })
+}
+
+/// The GC delta of every node of `tree` that has garbage, children before parents.
+pub fn tree_node_deltas<'t>(
+    tree: &'t NumericRangeTree,
+    live: impl DocLiveness + Copy + 't,
+) -> impl Iterator<Item = NumericNodeDelta> + 't {
+    tree.indexed_post_order_iter()
+        .filter_map(move |(node_idx, node)| {
+            node.scan_gc(live).map(|delta| NumericNodeDelta {
+                position: node_idx.position(),
+                generation: node_idx.generation(),
+                delta,
+            })
+        })
 }
 
 /// Collect GC deltas for every numeric and geo field in the spec and write
@@ -322,16 +360,7 @@ pub fn collect_numeric(
             }),
         )?;
 
-        for node_delta in tree
-            .indexed_post_order_iter()
-            .filter_map(|(node_idx, node)| {
-                node.scan_gc(live).map(|delta| NumericNodeDelta {
-                    position: node_idx.position(),
-                    generation: node_idx.generation(),
-                    delta,
-                })
-            })
-        {
+        for node_delta in tree_node_deltas(tree, live) {
             serialize(writer, Some(node_delta))?;
         }
 
@@ -430,13 +459,18 @@ pub(crate) fn compact_tree(
     guard: &mut IndexSpecWriteGuard<'_>,
     resolved_tree: NumericTreeId,
 ) -> Result<GcApplyStats, GcError> {
-    let result = resolved_tree.tree_mut(guard)?.compact_if_sparse();
+    Ok(compact_stats(resolved_tree.tree_mut(guard)?))
+}
 
-    Ok(GcApplyStats {
+/// Compact `tree` if GC left it sparse and return what the compaction freed.
+pub(crate) fn compact_stats(tree: &mut NumericRangeTree) -> GcApplyStats {
+    let result = tree.compact_if_sparse();
+
+    GcApplyStats {
         bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
         block_count_delta: result.block_count_delta.into(),
         ..GcApplyStats::default()
-    })
+    }
 }
 
 /// Receive and apply one field's node deltas, then compact if `clean_numeric_empty_nodes`.

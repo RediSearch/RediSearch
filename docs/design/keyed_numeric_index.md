@@ -168,12 +168,29 @@ the RDB stamp of every user's index.
 ## Garbage collection
 
 A sibling of the numeric GC scanner (like #8346's sparse scanner) covers these
-fields in both the fork and the thread policies, reusing the per-tree scan and
-apply code. A tree is identified by (field index, index `unique_id`, key, tree
-`unique_id`). Applying a delta skips the entry if the index was replaced, the key
-is gone, or it holds a different tree. Emptied keys are removed under the write
-lock and the memory accounting is adjusted. `FT.INFO` reports the number of keys
-and the memory used by the field.
+fields in both the fork and the thread policies. It reuses the per-tree scan and
+apply code of the numeric scanner, which works on a tree rather than on a field
+position.
+
+A tree is identified by (field index, index `unique_id`, key, tree `unique_id`).
+
+- Fork policy: the child sends, per key whose tree has garbage, that identity as a
+  header, then one delta per tree node and a node terminator; a final terminator
+  ends the stream. The parent applies each delta under the write lock through
+  `KeyedNumericIndex::update_tree`, which keeps the index's memory accounting exact.
+  When the index was replaced, or the key is gone or holds another tree, the rest of
+  that tree's stream is read and dropped so the pipe stays aligned.
+- Thread policy: one read hold lists every key's nodes; the nodes of all keys are then
+  snapshotted, scanned and applied in the same bounded holds as the numeric scanner,
+  and stale targets are skipped.
+- After a tree's deltas land, it is compacted when `clean_numeric_empty_nodes` is set,
+  and its key is removed with `remove_key_if_empty` if it holds no entry. The removal
+  does not depend on the compaction setting.
+
+Spec statistics (records, collected bytes, blocks) follow the numeric scanner. A key
+removed from the index adjusts only the blocks its tree still held, because the tree's
+own overhead was never added to the spec statistics. `FT.INFO` reports the number of
+keys and the memory used by the field.
 
 ## Limits and out of scope
 

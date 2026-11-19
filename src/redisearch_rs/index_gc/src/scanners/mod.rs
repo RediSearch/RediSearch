@@ -18,6 +18,7 @@
 //! parent.
 
 pub mod existing_docs;
+pub mod keyed_numeric;
 pub mod missing_docs;
 pub mod numeric;
 pub mod tags;

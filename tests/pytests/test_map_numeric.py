@@ -457,6 +457,13 @@ def testDelete(env):
     env.assertEqual(metrics_stats(env)[0], 1, message='the key stays until GC')
     env.assertEqual(search_ids(env, '@metrics[a]:[-inf +inf]'), set())
 
+    memory_before = metrics_stats(env)[1]
+    forceInvokeGC(env)
+    num_keys, memory = metrics_stats(env)
+    env.assertEqual(num_keys, 0, message='GC drops the emptied key')
+    env.assertLess(memory, memory_before)
+    env.assertEqual(info_num_records(env), 0)
+
 
 @skip(cluster=True)
 def testExpire(env):
@@ -792,6 +799,127 @@ def testCursorSurvivesWritesToTheKey(env):
     env.assertEqual(len(ids), len(set(ids)), message='no document twice')
     env.assertEqual(set(ids) - possible, set())
     env.assertGreater(len(ids), 1)
+
+
+# ---- Garbage collection ----
+
+def gc_scenario(env):
+    """Delete, update and fully remove documents; return the surviving docs (id -> metrics)."""
+    enable_unstable_features(env)
+    create_index(env)
+    docs = {}
+    for i in range(1, 41):
+        docs[i] = {'shared': float(i), f'only_{i % 4}': float(i)}
+        set_doc(env, i, docs[i])
+    # `only_3` loses every document; `shared` and the others lose some.
+    for i in range(3, 41, 4):
+        env.expect('DEL', f'company:{i}').equal(1)
+        del docs[i]
+    for i in range(1, 41, 5):
+        if i in docs:
+            # An update indexes a new document version and leaves the old entries behind.
+            docs[i] = {'shared': float(i) + 0.5}
+            set_doc(env, i, docs[i])
+    return docs
+
+
+def check_after_gc(env, docs, keys_before, memory_before):
+    expected_keys = {k for m in docs.values() for k in m}
+    num_keys, memory = metrics_stats(env)
+    env.assertEqual(num_keys, len(expected_keys))
+    env.assertLess(num_keys, keys_before)
+    env.assertLess(memory, memory_before)
+    # What is left is exactly what an index built from the surviving documents holds.
+    env.assertEqual(info_num_records(env), sum(len(m) for m in docs.values()) + len(docs))
+    for key in sorted(expected_keys | {'only_3'}):
+        want = {i for i, m in docs.items() if key in m}
+        env.assertEqual(search_ids(env, f'@metrics[{key}]:[-inf +inf]'), want, message=key)
+    want = {i for i, m in docs.items() if 'shared' in m and 10 <= m['shared'] <= 20}
+    env.assertEqual(search_ids(env, '@metrics[shared]:[10 20]'), want)
+    env.assertEqual(index_errors(env)['indexing failures'], 0)
+
+
+@skip(cluster=True)
+def testGCCollectsDeletedAndUpdatedEntries(env):
+    """Forced GC removes the entries of deleted and replaced documents and the keys left empty."""
+    docs = gc_scenario(env)
+    keys_before, memory_before = metrics_stats(env)
+    env.assertGreater(info_num_records(env), sum(len(m) for m in docs.values()) + len(docs))
+    forceInvokeGC(env)
+    check_after_gc(env, docs, keys_before, memory_before)
+    # A second run has nothing left to do.
+    forceInvokeGC(env)
+    env.assertEqual(metrics_stats(env)[0], keys_before - 1)
+
+
+@skip(cluster=True)
+def testGCDropsAKeyWhoseDocumentsAreAllDeleted(env):
+    enable_unstable_features(env)
+    create_index(env)
+    for i in range(1, 6):
+        set_doc(env, i, {'gone': float(i), 'kept': float(i)})
+    for i in range(1, 4):
+        env.expect('DEL', f'company:{i}').equal(1)
+    forceInvokeGC(env)
+    env.assertEqual(metrics_stats(env)[0], 2)
+    for i in (4, 5):
+        env.expect('DEL', f'company:{i}').equal(1)
+    memory_before = metrics_stats(env)[1]
+    forceInvokeGC(env)
+    num_keys, memory = metrics_stats(env)
+    env.assertEqual(num_keys, 0)
+    env.assertLess(memory, memory_before)
+    env.assertEqual(search_ids(env, '@metrics[gone]:[-inf +inf]'), set())
+    # The key can be indexed again afterwards.
+    set_doc(env, 9, {'gone': 1})
+    env.assertEqual(metrics_stats(env)[0], 1)
+    env.assertEqual(search_ids(env, '@metrics[gone]:[1 1]'), {9})
+
+
+@skip(cluster=True)
+def testThreadGCCollectsKeyedTrees():
+    env = Env(moduleArgs='GC_POLICY THREAD', redisConfigFile=thread_gc_conf(clean_threshold=0))
+    docs = gc_scenario(env)
+    keys_before, memory_before = metrics_stats(env)
+    forceInvokeGC(env)
+    check_after_gc(env, docs, keys_before, memory_before)
+
+
+@skip(cluster=True)
+def testCursorSurvivesGCRemovingTheKey(env):
+    """GC drops a key between cursor reads: the cursor ends or keeps going without crashing, and
+    never returns a document that was deleted, even once the key is indexed again."""
+    enable_unstable_features(env)
+    create_index(env)
+    for i in range(1, 101):
+        set_doc(env, i, {'k': float(i)})
+    rows, cursor = env.cmd('FT.AGGREGATE', 'idx', '@metrics[k]:[-inf +inf]', 'LOAD', 1, '@__key',
+                           'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0)
+    seen = [to_dict(r)['__key'] for r in rows[1:]]
+
+    for i in range(1, 101):
+        env.expect('DEL', f'company:{i}').equal(1)
+    forceInvokeGC(env)
+    env.assertEqual(metrics_stats(env)[0], 0, message='GC removed the key')
+    for i in range(101, 111):
+        set_doc(env, i, {'k': float(i)})
+
+    steps = 0
+    while cursor and steps < 200:
+        steps += 1
+        try:
+            rows, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1)
+        except redis_exceptions.ResponseError as e:
+            env.debugPrint(str(e))
+            break
+        seen += [to_dict(r)['__key'] for r in rows[1:]]
+    env.assertEqual(getConnectionByEnv(env).execute_command('PING'), True)
+    ids = [int(k.split(':')[1]) for k in seen]
+    env.assertEqual(len(ids), len(set(ids)))
+    # Only the first read (before the deletes) may return documents that no longer exist.
+    env.assertEqual([i for i in ids[1:] if i <= 100], [])
+    env.assertEqual(search_ids(env, '@metrics[k]:[-inf +inf]'), set(range(101, 111)))
 
 
 # ---- Existing query syntax is unchanged ----
