@@ -70,8 +70,8 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
   return RS_RESULT_EOF;
 }
 
-bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
-  if (!QueryMemory_Checkpoint(NULL, counter)) {
+bool StoredResults_ShouldStopForMemory(QueryRequestLimits *limits, QueryError *err) {
+  if (!QueryMemory_Checkpoint(limits)) {
     return false;
   }
   QueryError_SetQueryOOMWarning(err);
@@ -96,8 +96,8 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *limits, RSOomPoli
 }
 
 bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *limits,
-                          RSOomPolicy oomPolicy, uint32_t *counter, int *rc) {
-  if (!QueryMemory_Checkpoint(limits, counter)) {
+                          RSOomPolicy oomPolicy, int *rc) {
+  if (!QueryMemory_Checkpoint(limits)) {
     return false;
   }
   // Held rows read nothing upstream, so no per-row check there sees a clock deadline: this one
@@ -154,7 +154,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
-   uint32_t memoryCheckCounter = 0;
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
@@ -176,7 +175,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // These rows are what fills memory. Not on the row that fills the limit, which would end a
      // full cursor chunk: startPipelineCommon checks the stop after.
      if (rp->parent->resultLimit &&
-         ReplyLoop_ShouldStop(rp->parent, ctx->limits, ctx->oomPolicy, &memoryCheckCounter, rc)) {
+         ReplyLoop_ShouldStop(rp->parent, ctx->limits, ctx->oomPolicy, rc)) {
        break;
      }
    }

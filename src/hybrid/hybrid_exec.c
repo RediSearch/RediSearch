@@ -389,7 +389,6 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
   SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
     // populate the reply with an array containing the serialized results
     int len = array_len(results);
-    uint32_t memoryCheckCounter = 0;
     bool stopped = false;
     // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
     // already applied while buffering made the held rows the reply, so only a new one cuts.
@@ -397,7 +396,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
                              !QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
     array_foreach(results, res, {
       stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
-                                               &memoryCheckCounter, hreq->tailPipeline->qctx.err));
+                                               &hreq->base.limits, hreq->tailPipeline->qctx.err));
       if (!stopped) {
         serializeResult_hybrid(hreq, reply, res, cv);
       }
@@ -552,10 +551,9 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 
     SearchResult_Clear(r);
     if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
-      uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
              !ReplyLoop_ShouldStop(rp->parent, &hreq->base.limits, hreq->base.reqConfig.oomPolicy,
-                                   &memoryCheckCounter, &rc) &&
+                                   &rc) &&
              (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
         serializeResult_hybrid(hreq, reply, r, cv);
         SearchResult_Clear(r);

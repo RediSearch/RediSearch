@@ -529,16 +529,14 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
  */
 static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
                                      cachedVars *cv, RespSchema *schema) {
-  uint32_t memoryCheckCounter = 0;
   bool stopped = false;
   // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
   // already applied while buffering made the held rows the reply, so only a new one cuts.
   const bool checkPerRow = req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
                            !QueryRequestLimits_IsMemoryStopped(&req->base.limits);
   array_foreach(results, res, {
-    stopped =
-        stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
-                                       &memoryCheckCounter, AREQ_QueryProcessingCtx(req)->err));
+    stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
+                                             &req->base.limits, AREQ_QueryProcessingCtx(req)->err));
     if (!stopped) {
       serializeResult(req, reply, res, cv, schema);
     }
@@ -815,15 +813,12 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       goto done_2;
     }
 
-    {
-      uint32_t memoryCheckCounter = 0;
-      while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
-                                   &memoryCheckCounter, &rc) &&
-             (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-        serializeResult(req, reply, state->r, cv, &schema);
-        SearchResult_Clear(state->r);
-      }
+    while (
+        --rp->parent->resultLimit &&
+        !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy, &rc) &&
+        (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
+      serializeResult(req, reply, state->r, cv, &schema);
+      SearchResult_Clear(state->r);
     }
 
 done_2:
@@ -1059,10 +1054,9 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
         goto done_3;
       }
 
-      uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
              !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
-                                   &memoryCheckCounter, &rc) &&
+                                   &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
         SearchResult_Clear(state->r);

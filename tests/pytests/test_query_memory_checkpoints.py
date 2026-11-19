@@ -862,7 +862,7 @@ def test_expression_passes_the_rows_a_stopped_sorter_holds(env):
 @env_spec(protocol=3)
 def test_safe_loader_stop_on_a_cursor_created_without_workers(env):
     """A LOAD cursor created with WORKERS 0 holds a plain loader, which the first read after workers
-    are enabled swaps for a safe loader. That loader starts with fresh stop state and counters, so
+    are enabled swaps for a safe loader. That loader starts with fresh stop state, so
     a stop in either phase of that read replies the loaded prefix with the OOM warning and ends the
     cursor."""
     create_index(env)
