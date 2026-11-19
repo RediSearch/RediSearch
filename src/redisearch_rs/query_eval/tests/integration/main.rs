@@ -11,6 +11,7 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
+mod disk_limits;
 mod fuzzy;
 mod geo;
 mod geometry;
