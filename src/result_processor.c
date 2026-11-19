@@ -2757,14 +2757,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
-/* An upstream's own deadline that elapsed beside its memory stop: the timeout outranks an OOM stop
- * under ON_OOM RETURN (an OOM error still outranks it), as in HybridRequest_ApplyOomStop. */
-static bool RPHybridMerger_UpstreamTimedOutBesideStop(const ResultProcessor *upstream) {
-  const QueryRequestLimits *limits = upstream->parent ? upstream->parent->limits : NULL;
-  return limits && QueryRequestLimits_IsMemoryStopped(limits) &&
-         QueryRequestLimits_IsTimedOutExact(limits);
-}
-
 /* Whether the merged rows end on a timeout. An upstream stopped for OOM ended its rows by design:
  * under ON_OOM FAIL RPHybridMerger_StopFails already ended the query, and under RETURN the tail
  * must not apply its timeout policy to them; the reply maps the stop from the subquery's own
@@ -2773,8 +2765,7 @@ static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     const QueryProcessingCtx *parent = self->upstreams[i]->parent;
     if (self->upstreamReturnCodes[i] == RS_RESULT_STOPPED &&
-        (!parent || !parent->limits || !QueryRequestLimits_IsMemoryStopped(parent->limits) ||
-         RPHybridMerger_UpstreamTimedOutBesideStop(self->upstreams[i]))) {
+        (!parent || !parent->limits || !QueryRequestLimits_IsMemoryStopped(parent->limits))) {
       return true;
     }
   }
@@ -2787,15 +2778,8 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     // An upstream outside a pipeline (unit tests) applies the tail's policy.
     const ResultProcessor *upstream = self->upstreams[i]->parent ? self->upstreams[i] : &self->base;
-    if (self->upstreamReturnCodes[i] != RS_RESULT_STOPPED) {
-      continue;
-    }
-    RSTimeoutPolicy policy = RP_StopPolicy(upstream);
-    if (policy == TimeoutPolicy_Return && self->upstreams[i]->parent &&
-        RPHybridMerger_UpstreamTimedOutBesideStop(upstream)) {
-      policy = upstream->parent->timeoutPolicy;
-    }
-    if (policy == TimeoutPolicy_Fail) {
+    if (self->upstreamReturnCodes[i] == RS_RESULT_STOPPED &&
+        RP_StopPolicy(upstream) == TimeoutPolicy_Fail) {
       return true;
     }
   }
@@ -3578,11 +3562,10 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
   return self->depletionTime;
 }
 
-bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
+RPStatus RPDepleter_GetLastResult(const ResultProcessor *depleter) {
   RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
-  const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
-                                                    : ((const RPSafeDepleter *)depleter)->last_rc;
-  return rc == RS_RESULT_STOPPED;
+  return depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
+                                       : ((const RPSafeDepleter *)depleter)->last_rc;
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {

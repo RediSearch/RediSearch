@@ -61,10 +61,10 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
 
 /**
- * ApplyOomStop for FT.HYBRID: maps a stop for OOM of the tail pipeline (`rc`) or
- * of any subquery (its code in subqueriesReturnCodes; the subquery's own
- * timeout carries the reason) to the request's ON_OOM policy, with the error or
- * warning on the tail; a subquery stopped for OOM no longer reports a timeout.
+ * ApplyOomStop for FT.HYBRID: each stopped subquery (its code in
+ * subqueriesReturnCodes) goes through ApplyOomStop with the subquery's own
+ * limits, then the tail's `rc` with the request's, with the error or warning
+ * on the tail; a subquery stopped for OOM alone no longer reports a timeout.
  * Not after a blocked-client timeout, whose reply is the timeout's. Idempotent.
  */
 int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc);

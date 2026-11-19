@@ -222,6 +222,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
   static constexpr int kSameRc = -1;
   static QueryRequestLimits* timeoutToTrip;  // marked timed out from inside the upstream read
   FakeRP upstream[2][2]{};                    // per subquery: [0] root, [1] middle
+  RPStatus subqueriesReturnCodes[2]{};
   QueryError status = QueryError_Default();
 
   static int fakeNext(ResultProcessor* rp, SearchResult*) {
@@ -243,6 +244,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
     QueryRequestLimits_Init(&hybrid.base.limits, &timeoutConfig);
     QueryRequestLimits_BeginCycle(&hybrid.base.limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     hybrid.base.replyDeferred = true;  // the reply callback replies, not StartCursors
+    hybrid.subqueriesReturnCodes = subqueriesReturnCodes;
 
     AREQ* subs[2] = {&first, &second};
     for (int q = 0; q < 2; q++) {
