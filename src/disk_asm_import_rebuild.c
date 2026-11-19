@@ -79,8 +79,6 @@ typedef struct {
   // The attempt ended while the sweep ran: the sweep stops and frees the coordinator. Read by the
   // sweep without the GIL.
   bool ended;
-  // Some key's DocIdMeta could not be cleared, so the slots cannot leave the window.
-  bool clearFailed;
 } DiskASMImport;
 
 // Flex runs at most one ASM task per node, and ends an attempt before retrying it. An ended
@@ -168,7 +166,8 @@ static bool importOnKey(AsyncScanJob *job, RedisModuleCtx *ctx, RedisModuleKey *
   }
   imp->stats.keysScanned++;
   if (DocIdMeta_ClearWithOpenKey(key) != REDISMODULE_OK) {
-    imp->clearFailed = true;
+    // The slots cannot leave the window; the finish fails the rebuild with this error.
+    imp->stats.lastError = "clearing the DocIdMeta of an imported key failed";
     return false;
   }
   if (RedisModule_IsKeyExpired(key)) {
@@ -202,8 +201,8 @@ static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScan
     importFree(imp);
     return;
   }
-  if (imp->clearFailed) {
-    fail(imp, "clearing the DocIdMeta of an imported key failed");
+  if (imp->stats.lastError) {
+    fail(imp, imp->stats.lastError);
     return;
   }
   if (end->outcome != ASYNC_SCAN_OUTCOME_COMPLETED) {
