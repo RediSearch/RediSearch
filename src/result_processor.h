@@ -185,11 +185,13 @@ typedef struct ResultProcessor {
 } ResultProcessor;
 
 /** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
- * `itr` visits every docId in ascending order, which a profile wrapper hides. */
+ * `itr` visits every docId in ascending order, which a profile wrapper hides.
+ * `failOnRevalidateAbort` makes a read fail with `SEARCH_SAFE_DEPLETER_FAILURE` when the index
+ * changed under `itr`, instead of ending as if the index were exhausted. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
                                      const RedisModuleSlotRangeArray *querySlots,
                                      uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled,
-                                     bool denseAscendingScan);
+                                     bool denseAscendingScan, bool failOnRevalidateAbort);
 
 /** Read candidate counts from a profiled Index processor. */
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,

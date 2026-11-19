@@ -110,6 +110,7 @@ typedef struct {
   // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
   // ascending order over a doc table too big to stay cached.
   bool prefetchDmd;
+  bool failOnRevalidateAbort;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -391,9 +392,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
   }
-  // Only FT.HYBRID background depletion sets the bound, and it revalidates only before its first
-  // row, so failing loses nothing where reading on would answer the subquery as empty.
-  if (revalidateOutcome == REVALIDATE_ABORTED && sctx->maxVisibleDocId) {
+  if (revalidateOutcome == REVALIDATE_ABORTED && self->failOnRevalidateAbort) {
     QueryError_SetWithoutUserDataFmt(base->parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                                      "Index changed before the query started; retry");
     return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_ERROR);
@@ -575,13 +574,15 @@ static void rpQueryItFree(ResultProcessor *iter) {
 ResultProcessor *RPQueryIterator_New(QueryIterator *root,
                                      const RedisModuleSlotRangeArray *querySlots,
                                      uint32_t keySpaceVersion, RedisSearchCtx *sctx,
-                                     bool isProfiled, bool denseAscendingScan) {
+                                     bool isProfiled, bool denseAscendingScan,
+                                     bool failOnRevalidateAbort) {
   RS_ASSERT(root != NULL);
   RS_ASSERT(sctx && sctx->limits);
   RPQueryIterator *ret = rm_calloc(1, isProfiled ? sizeof(RPQueryIteratorProfiled) : sizeof(*ret));
   ret->iterator = root;
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
+  ret->failOnRevalidateAbort = failOnRevalidateAbort;
   // Other iterators skip ids, so the ids just ahead are not their next rows. Decided once: a
   // cursor keeps the choice while the table grows or shrinks between reads.
   ret->prefetchDmd = denseAscendingScan && !sctx->spec->diskSpec &&
