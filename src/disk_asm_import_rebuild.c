@@ -85,8 +85,9 @@ typedef struct {
   bool clearFailed;
 } DiskASMImport;
 
-// Live coordinators, in creation order.
-static arrayof(DiskASMImport *) imports = NULL;
+// The live coordinator. Flex runs at most one ASM task per node, and ends an attempt before
+// retrying it. An ended attempt whose sweep still runs is owned by that sweep, not by `current`.
+static DiskASMImport *current = NULL;
 // The latest attempt that ended, for INFO once no coordinator is left.
 static DiskASMImportStats lastEnded = {.taskId = "", .phase = DISK_ASM_IMPORT_COMPLETED};
 static bool anyEnded = false;
@@ -112,17 +113,12 @@ static void importFree(DiskASMImport *imp) {
   rm_free(imp);
 }
 
-static size_t findIndex(const char *taskId) {
-  if (!imports || !taskId) return SIZE_MAX;
-  for (size_t i = 0; i < array_len(imports); i++) {
-    if (!strcmp(imports[i]->taskId, taskId)) return i;
-  }
-  return SIZE_MAX;
-}
-
-static DiskASMImport *find(const char *taskId) {
-  size_t i = findIndex(taskId);
-  return i == SIZE_MAX ? NULL : imports[i];
+// The coordinator an event of `info` applies to. Only an SST import creates one: an end event of a
+// logical import, or of one that failed before its base was ready, finds none.
+static DiskASMImport *currentFor(const RedisModuleClusterSlotMigrationInfo *info) {
+  RS_LOG_ASSERT(!current || !strcmp(current->taskId, info->task_id),
+                "ASM import: an event for a task other than the live one");
+  return current;
 }
 
 static void fail(DiskASMImport *imp, const char *error) {
@@ -135,11 +131,10 @@ static void fail(DiskASMImport *imp, const char *error) {
                   error);
 }
 
-// Takes `imp` out of the registry and frees it, or leaves it to its running sweep.
+// Clears `current` and frees `imp`, or leaves it to its running sweep.
 static void detach(DiskASMImport *imp, DiskASMImportPhase endPhase) {
-  size_t i = findIndex(imp->taskId);
-  RS_ASSERT(i != SIZE_MAX);
-  array_del(imports, i);
+  RS_ASSERT(imp == current);
+  current = NULL;
   lastEnded = imp->stats;
   lastEnded.phase = endPhase;
   lastEnded.gateHeld = false;
@@ -260,11 +255,9 @@ static void importScanTask(void *arg) {
 
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info) {
-  DiskASMImport *stale = find(info->task_id);
-  if (stale) {
-    // Flex fires the stages once per attempt and ends an attempt before retrying it.
-    RS_LOG_ASSERT(false, "ASM import: a second IMPORT_SST_BASE_READY for one attempt");
-    detach(stale, DISK_ASM_IMPORT_FAILED);
+  if (current) {
+    RS_LOG_ASSERT(false, "ASM import: IMPORT_SST_BASE_READY while another attempt is live");
+    detach(current, DISK_ASM_IMPORT_FAILED);
   }
 
   DiskASMImport *imp = rm_calloc(1, sizeof(*imp));
@@ -282,8 +275,7 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
       .onKey = importOnKey,
       .finish = importFinish,
   };
-  if (!imports) imports = array_new(DiskASMImport *, 1);
-  array_append(imports, imp);
+  current = imp;
 
   if (RedisModule_ClusterAcquireImportGate(ctx, imp->taskId) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "ASM import %s: acquiring the import gate failed: %s",
@@ -303,10 +295,10 @@ static void freezeSpec(IndexSpec *sp, void *ud) {
 
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
                                         const RedisModuleClusterSlotMigrationInfo *info) {
-  DiskASMImport *imp = find(info->task_id);
+  DiskASMImport *imp = currentFor(info);
   if (!imp) {
-    RedisModule_Log(ctx, "warning", "ASM import %s: overlay ended for an unknown attempt; ignored",
-                    info->task_id);
+    // Base-ready precedes the overlay and creates a coordinator even when the gate is refused.
+    RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready");
     return;
   }
   if (imp->stats.phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
@@ -329,7 +321,7 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
 
 void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
                                          bool completed) {
-  DiskASMImport *imp = find(info->task_id);
+  DiskASMImport *imp = currentFor(info);
   if (!imp) return;
   if (completed) {
     // The gate is held until the rebuild completed, and Flex completes no import before.
@@ -351,26 +343,18 @@ static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int sl
 }
 
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key) {
-  if (!imports || !key) return false;
+  if (!current || current->stats.phase != DISK_ASM_IMPORT_SCANNING || !key) return false;
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
-  unsigned int slot = RedisModule_ClusterKeySlotC(name, len);
-  for (size_t i = 0; i < array_len(imports); i++) {
-    DiskASMImport *imp = imports[i];
-    if (imp->stats.phase == DISK_ASM_IMPORT_SCANNING && slotsContain(imp->slots, slot)) {
-      return true;
-    }
-  }
-  return false;
+  return slotsContain(current->slots, RedisModule_ClusterKeySlotC(name, len));
 }
 #endif
 
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
-  const size_t active = imports ? array_len(imports) : 0;
-  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_imports_active", active);
+  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_imports_active", current != NULL);
   const DiskASMImportStats *stats = NULL;
-  if (active) {
-    stats = &imports[active - 1]->stats;
+  if (current) {
+    stats = &current->stats;
   } else if (anyEnded) {
     stats = &lastEnded;
   }
