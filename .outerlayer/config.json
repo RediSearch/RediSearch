@@ -2,5 +2,6 @@
   "targets": [
     "claude-code"
   ],
-  "layout": 2
+  "layout": 2,
+  "agent": "codex"
 }
