@@ -297,8 +297,10 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
         if (setOptimizerRoot(req, opt, root, status) != REDISMODULE_OK) {
           return REDISMODULE_ERR;
         }
-      } else if (req->ast.root->type == QN_NUMERIC) {
-        // trim the union numeric iterator to have the minimal number of ranges
+      } else if (req->ast.root->type == QN_NUMERIC && !req->ast.root->nn.key) {
+        // trim the union numeric iterator to have the minimal number of ranges.
+        // A keyed filter never reads the sort field's tree, so trimming its ranges
+        // would drop matches.
         if (root->type == UNION_ITERATOR) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }

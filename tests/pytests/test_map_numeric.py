@@ -621,6 +621,13 @@ def testParamKey(env):
                                'DIALECT', 2), {1000})
     env.expect('FT.SEARCH', 'idx', '@metrics[$k]:[1 2]', 'NOCONTENT', 'DIALECT', 2).error() \
         .contains('Parameter not found')
+    # The key ends at the last ']' before the colon, so a parameter name may hold an escaped
+    # one and spaces may precede the colon.
+    env.expect('FT.SEARCH', 'idx', '@metrics[$a\\]]:[1 2]', 'NOCONTENT', 'DIALECT', 2).error() \
+        .contains('Parameter not found')
+    env.assertEqual(search_ids(env, '@metrics[rev:fy0] :[1 100]'), ref(docs, 'rev:fy0', 1, 100))
+    env.assertEqual(search_ids(env, '@metrics[$k] :[1 100]', 'PARAMS', 2, 'k', 'rev:fy0',
+                               'DIALECT', 2), ref(docs, 'rev:fy0', 1, 100))
 
 
 @skip(cluster=True)
@@ -639,14 +646,17 @@ def testAggregateLoadSort(env):
 
 
 @skip(cluster=True)
-def testProfileShowsKeyedNode(env):
-    setup_docs(env)
-    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@metrics[rev:fy0]:[1 100]',
-                  'NOCONTENT', 'LIMIT', 0, 5)
-    text = str(res)
-    env.assertContains('NUMERIC', text)
-    explain = env.cmd('FT.EXPLAIN', 'idx', '@metrics[rev:fy0]:[1 100]', 'DIALECT', 2)
-    env.assertContains('@metrics[rev:fy0]', explain)
+def testProfileShowsKeyedNode():
+    env = Env(protocol=3)
+    docs = setup_docs(env)
+    query = '@metrics[rev:fy0]:[1 100]'
+    expected = ref(docs, 'rev:fy0', 1, 100)
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', query, 'NOCONTENT', 'LIMIT', 0, 1000)
+    env.assertEqual(res['Results']['total_results'], len(expected))
+    profile = res['Profile']['Shards'][0]['Iterators profile']
+    env.assertEqual(profile['Type'], 'NUMERIC')
+    env.assertEqual(profile['Number of reading operations'], len(expected))
+    env.assertContains('@metrics[rev:fy0]', env.cmd('FT.EXPLAIN', 'idx', query, 'DIALECT', 2))
 
 
 @skip(cluster=True)
@@ -693,6 +703,96 @@ def testQueryGateOff(env):
     env.assertEqual(search_ids(env, '@metrics[a]:[1 2]'), {1})
 
 
+@skip(cluster=True)
+def testSortbyOtherFieldKeepsEveryRange(env):
+    """A keyed filter is never trimmed to the sort field's ranges: the sort field is
+    anticorrelated with the key so the best results sit in the key's last ranges."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'company:', 'SCHEMA',
+               '$.n', 'AS', 'n', 'NUMERIC', 'SORTABLE',
+               '$.metrics', 'AS', 'metrics', 'MAP', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    count = 1500
+    for i in range(1, count + 1):
+        doc = {'n': count - i, 'metrics': {'k': float(i)}}
+        conn.execute_command('JSON.SET', f'company:{i}', '$', json.dumps(doc))
+    query = '@metrics[k]:[-inf +inf]'
+    # 1500 distinct values split the key's tree into several ranges, which is what a trim drops.
+    for extra in ([], ['WITHOUTCOUNT']):
+        expected = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'SORTBY', 'n',
+                           'LIMIT', 0, 10, 'DIALECT', 2)
+        env.assertEqual(expected[1:], [f'company:{i}' for i in range(count, count - 10, -1)])
+        got = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'SORTBY', 'n', 'LIMIT', 0, 10,
+                      'DIALECT', 4, *extra)
+        env.assertEqual(got[1:], expected[1:], message=f'DIALECT 4 {extra}')
+
+
+@skip(cluster=True)
+def testHybridSearchSubqueryWithKeyedClause(env):
+    """A keyed clause in the SEARCH subquery of FT.HYBRID filters like in FT.SEARCH."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'company:', 'SCHEMA',
+               '$.hq', 'AS', 'hq', 'TAG',
+               '$.metrics', 'AS', 'metrics', 'MAP', 'NUMERIC',
+               '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(1, 11):
+        doc = {'hq': 'US', 'metrics': {'k': i}, 'vec': [float(i), 0.0]}
+        conn.execute_command('JSON.SET', f'company:{i}', '$', json.dumps(doc))
+    blob = struct.pack('<2f', 1.0, 0.0)
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '@metrics[k]:[4 6]',
+                  'VSIM', '@vec', '$BLOB', 'KNN', 2, 'K', 1, 'PARAMS', 2, 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(res)
+    # K=1 puts only company:1 on the vector side; the rest can only come from the text side.
+    env.assertEqual(set(results.keys()), {'company:1', 'company:4', 'company:5', 'company:6'})
+
+
+@skip(cluster=True)
+def testCursorSurvivesWritesToTheKey(env):
+    """Writes under the key between cursor reads (enough to split its tree) do not crash the
+    query, and what it returns is a subset of what the key could have matched."""
+    enable_unstable_features(env)
+    create_index(env)
+    conn = getConnectionByEnv(env)
+    initial = 200
+    for i in range(1, initial + 1):
+        set_doc(env, i, {'k': float(i)})
+    possible = set(range(1, initial + 1))
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '@metrics[k]:[-inf +inf]', 'LOAD', 1, '@__key',
+                  'WITHCURSOR', 'COUNT', 1)
+    rows, cursor = res
+    seen = [to_dict(r)['__key'] for r in rows[1:]]
+    next_doc = initial + 1
+    step = 0
+    while cursor:
+        step += 1
+        # Add enough documents to grow and split the tree, update some and delete some.
+        for _ in range(60):
+            set_doc(env, next_doc, {'k': float(next_doc)})
+            possible.add(next_doc)
+            next_doc += 1
+        for i in range(step, initial, 7):
+            set_doc(env, i, {'k': float(i) + 0.5})
+        for i in range(step + 3, initial, 11):
+            env.cmd('DEL', f'company:{i}')
+        try:
+            rows, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 1)
+        except redis_exceptions.ResponseError as e:
+            # The query may legitimately give up once the tree it reads was replaced.
+            env.debugPrint(str(e))
+            break
+        seen += [to_dict(r)['__key'] for r in rows[1:]]
+        if step > 400:
+            break
+    env.assertEqual(conn.execute_command('PING'), True)
+    ids = [int(k.split(':')[1]) for k in seen]
+    env.assertEqual(len(ids), len(set(ids)), message='no document twice')
+    env.assertEqual(set(ids) - possible, set())
+    env.assertGreater(len(ids), 1)
+
+
 # ---- Existing query syntax is unchanged ----
 
 def run_compat_checks(env):
@@ -724,6 +824,12 @@ def run_compat_checks(env):
     env.assertEqual(ids('@txt:hello\\[there\\]'), [])
     env.assertEqual(ids('@txt:hello \\[there\\]'), [])
     env.assertEqual(ids('@g:[1.0 1.0 50 km]'), ['d1', 'd3'])
+    env.assertEqual(ids('@txt:hel*'), ['d1', 'd2'])
+    env.assertEqual(ids('@txt:*llo'), ['d1', 'd2'])
+    env.assertEqual(ids('@txt:*ell*'), ['d1', 'd2'])
+    env.assertEqual(ids("@txt:w'h?llo'"), ['d1', 'd2'])
+    env.assertEqual(ids('@n :[0 10]'), ['d1'])
+    env.assertEqual(ids('@n: [0 10]'), ['d1'])
     res = env.cmd('FT.SEARCH', 'cidx', '*=>[KNN 2 @v $b]', 'PARAMS', 2, 'b', vec(0.1, 0.1),
                   'SORTBY', '__v_score', 'NOCONTENT', 'DIALECT', 2)
     env.assertEqual(res[1:], ['d1', 'd2'])
@@ -732,6 +838,9 @@ def run_compat_checks(env):
     env.assertEqual(res[1:], ['d1', 'd2'])
     # A bracket after a field name without the key syntax is still the same syntax error.
     env.expect('FT.SEARCH', 'cidx', '@n[1]', 'DIALECT', 2).error()
+    env.expect('FT.SEARCH', 'cidx', '@n[0 10]', 'DIALECT', 2).error().contains('Syntax error')
+    # Older dialects never had the keyed syntax, whatever the flag says.
+    env.expect('FT.SEARCH', 'cidx', '@n[a]:[1 2]', 'DIALECT', 1).error().contains('Syntax error')
 
 
 @skip(cluster=True)

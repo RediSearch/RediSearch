@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{f64, ptr::NonNull, rc::Rc};
+use std::{f64, ptr::NonNull, sync::Arc};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
@@ -77,7 +77,7 @@ pub struct RangeSource {
     /// tree's [revision](NumericRangeTree::revision_id) is unchanged.
     node: NodeIndex,
     /// Set when the tree is owned by a [`KeyedNumericIndex`], which can drop it.
-    keyed: Option<Rc<KeyedBinding>>,
+    keyed: Option<Arc<KeyedBinding>>,
 }
 
 /// Locates a tree owned by a [`KeyedNumericIndex`], so an iterator can find it again
@@ -94,6 +94,14 @@ pub struct KeyedBinding {
     key: Box<[u8]>,
     tree_id: TreeUniqueId,
 }
+
+// SAFETY: the only non-thread-safe member is `spec`, which is dereferenced solely under the
+// spec lock (see `resolve`), as the C query iterators it sits in are, and which outlives
+// every iterator holding the binding (1. of `KeyedBinding::new`). A query moves between
+// threads while parked, so its iterators may share a binding across them.
+unsafe impl Send for KeyedBinding {}
+// SAFETY: as for `Send`; `resolve` only reads through `spec`.
+unsafe impl Sync for KeyedBinding {}
 
 impl KeyedBinding {
     /// Bind to `tree`, the tree of `key` in the index of field `field_index`.
@@ -194,7 +202,7 @@ impl RangeSource {
     pub const unsafe fn new_keyed(
         tree: NonNull<NumericRangeTree>,
         node: NodeIndex,
-        binding: Rc<KeyedBinding>,
+        binding: Arc<KeyedBinding>,
     ) -> Self {
         Self {
             tree,
@@ -720,7 +728,7 @@ impl<'index> NumericIteratorVariant<'index> {
     /// and `binding`.
     pub unsafe fn from_keyed_tree(
         tree: NonNull<NumericRangeTree>,
-        binding: Rc<KeyedBinding>,
+        binding: Arc<KeyedBinding>,
         sctx: NonNull<ffi::RedisSearchCtx>,
         filter: &'index NumericFilter,
         field_ctx: &field::FieldFilterContext,
@@ -735,7 +743,7 @@ impl<'index> NumericIteratorVariant<'index> {
     /// [`from_keyed_tree`](Self::from_keyed_tree).
     unsafe fn from_tree_bound(
         tree: NonNull<NumericRangeTree>,
-        binding: Option<Rc<KeyedBinding>>,
+        binding: Option<Arc<KeyedBinding>>,
         sctx: NonNull<ffi::RedisSearchCtx>,
         filter: &'index NumericFilter,
         field_ctx: &field::FieldFilterContext,
@@ -793,7 +801,7 @@ impl<'index> NumericIteratorVariant<'index> {
                 let source = match &binding {
                     // SAFETY: by the contract of `from_keyed_tree`.
                     Some(binding) => unsafe {
-                        RangeSource::new_keyed(tree, node, Rc::clone(binding))
+                        RangeSource::new_keyed(tree, node, Arc::clone(binding))
                     },
                     // SAFETY: by 3.
                     None => unsafe { RangeSource::new(tree, node) },
@@ -1063,20 +1071,19 @@ pub unsafe fn build_numeric_filter_iterator(
 /// keeps for `key`.
 ///
 /// The keyed counterpart of [`build_numeric_filter_iterator`]: the field is a map numeric
-/// field and the returned iterator re-resolves the key's tree whenever it revalidates, so
+/// field, and the returned iterator re-resolves the key's tree whenever it revalidates, so
 /// it aborts instead of reading a tree GC has removed.
 ///
 /// Returns [`None`] — an empty (matchless) result, not an error — when the field has no
-/// index yet, the key was never indexed, or no sub-range matches the filter.
+/// index yet (or is not a map numeric field), the key was never indexed, or no sub-range
+/// matches the filter.
 ///
 /// # Safety
 ///
 /// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
 ///    and its spec must remain valid for the lifetime of the returned iterator.
-/// 2. `flt.field_index` must be within `sctx.spec`'s current field count, and the
-///    field at that index must be of map numeric type.
-/// 3. `field_ctx.field` must be a field index (not a field mask).
-/// 4. The spec lock is held for reading.
+/// 2. `field_ctx.field` must be a field index (not a field mask).
+/// 3. The spec lock is held for reading.
 pub unsafe fn build_keyed_numeric_filter_iterator(
     sctx: &RedisSearchCtx,
     flt: &NumericFilter,
@@ -1087,26 +1094,27 @@ pub unsafe fn build_keyed_numeric_filter_iterator(
     let spec_ptr = NonNull::new(sctx.spec)?;
     // SAFETY: 1.
     let spec = unsafe { spec_ptr.as_ref() };
-    debug_assert!(
-        flt.field_index < spec.numFields,
-        "field_index must be within the spec's current field count"
-    );
-    // SAFETY: 2.
+    if flt.field_index >= spec.numFields {
+        return None;
+    }
+    // SAFETY: `field_index` is within the `numFields`-sized field array.
     let fs_ptr = unsafe { spec.fields.add(flt.field_index as usize) };
     // SAFETY: as above, so `fs_ptr` points to a live field spec.
     let fs = unsafe { &*fs_ptr };
-    debug_assert!(fs.types() & FieldType_INDEXFLD_T_MAP_NUMERIC != 0);
-    // SAFETY: 2., so the union member holds the index slot.
+    if fs.types() & FieldType_INDEXFLD_T_MAP_NUMERIC == 0 {
+        return None;
+    }
+    // SAFETY: the field is a map numeric field, so the union member holds the index slot.
     let index = unsafe { fs.__bindgen_anon_1.mapNumericOpts.index };
     // SAFETY: a non-null slot points to the field's live index, mutated only under the
-    // write lock, which 4. excludes.
+    // write lock, which 3. excludes.
     let index = unsafe { index.cast::<KeyedNumericIndex>().as_ref() }?;
     let tree = index.get(key)?;
 
-    // SAFETY: 1. and 2., and `tree` is what `index` holds under `key`.
+    // SAFETY: 1. and the checks above, and `tree` is what `index` holds under `key`.
     let binding =
-        Rc::new(unsafe { KeyedBinding::new(spec_ptr, flt.field_index, index, key, tree) });
-    // SAFETY: 1., 3., and the binding resolves under 4. for as long as the iterators
+        Arc::new(unsafe { KeyedBinding::new(spec_ptr, flt.field_index, index, key, tree) });
+    // SAFETY: 1., 2., and the binding resolves under 3. for as long as the iterators
     // are used under the locking protocol; `tree` is only read before this function returns.
     let variants = unsafe {
         NumericIteratorVariant::from_keyed_tree(

@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -200,11 +201,13 @@ int RSQuery_ParseMapKey_v2(void *pParser, QueryToken tok, QueryParseCtx *q, cons
       escaped = !escaped && *lsqb == '\\';
       ++lsqb;
     }
-    const char *rsqb = lsqb;
-    while (rsqb < te && *rsqb != ']') {
-      ++rsqb;
-    }
     const char *colon = te - 1;
+    // The key ends at the ']' right before the colon (spaces aside): a parameter name
+    // can hold an escaped ']' of its own.
+    const char *rsqb = colon - 1;
+    while (isspace((unsigned char)*rsqb)) {
+      --rsqb;
+    }
 
     tok.type = QT_TERM;
     tok.pos = ts - q->raw;

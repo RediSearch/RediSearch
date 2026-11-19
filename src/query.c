@@ -341,7 +341,7 @@ QueryNode *NewKeyedNumericNode(QueryParseCtx *q, QueryParam *p, const FieldSpec 
   if (key->type == QT_PARAM_TERM_CASE) {
     // Resolved from PARAMS with the other parameters of the node.
     Param none = {0};
-    array_append(ret->params, none);
+    ret->params = array_ensure_append_1(ret->params, none);
     QueryNode_SetParam(q, &ret->params[array_len(ret->params) - 1], &ret->nn.key, &ret->nn.keyLen,
                        key);
   } else {
