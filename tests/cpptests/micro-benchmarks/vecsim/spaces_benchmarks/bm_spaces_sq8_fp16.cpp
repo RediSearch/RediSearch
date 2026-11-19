@@ -54,6 +54,16 @@ public:
 #ifdef CPU_FEATURES_ARCH_X86_64
 cpu_features::X86Features opt = cpu_features::GetX86Info().features;
 
+// The native tier has no L2 kernel; its dispatcher only takes dim >= SQ8_FP16_NATIVE_MIN_DIM,
+// so the low-dimension cases here measure the kernel below its production range.
+#ifdef OPT_AVX512_FP16_BW_VL
+bool avx512_fp16_bw_vl_supported = opt.avx512f && opt.avx512_fp16 && opt.avx512bw && opt.avx512vl;
+INITIALIZE_BENCHMARKS_SET_IP(BM_VecSimSpaces_SQ8_FP16, SQ8_FP16, AVX512FP16_BW_VL, 32,
+                             avx512_fp16_bw_vl_supported);
+INITIALIZE_BENCHMARKS_SET_Cosine(BM_VecSimSpaces_SQ8_FP16, SQ8_FP16, AVX512FP16_BW_VL, 32,
+                                 avx512_fp16_bw_vl_supported);
+#endif
+
 // AVX-512F is sufficient — _mm512_cvtph_ps is part of AVX-512F, no F16C/VNNI/BW/VL needed.
 #ifdef OPT_AVX512F
 bool avx512f_supported = opt.avx512f;
