@@ -159,6 +159,16 @@ static long long getIntervalMsCb(void *ctx) {
   return gc->retryIntervalMs;
 }
 
+static bool indexExistsCb(void *ctx) {
+  const IndexGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  if (!StrongRef_Get(ref)) {
+    return false;
+  }
+  StrongRef_Release(ref);
+  return true;
+}
+
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   IndexGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (IndexGC){
@@ -175,6 +185,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getIntervalMs = getIntervalMsCb;
+  callbacks->indexExists = indexExistsCb;
   callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;

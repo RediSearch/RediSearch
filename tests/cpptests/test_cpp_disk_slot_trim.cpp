@@ -996,6 +996,23 @@ TEST_F(DiskSlotTrimTest, FreeingAJobRetainsItsPendingIntentAndFilter) {
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
 }
 
+// A GC step asks this before arming the next one, so a dropped index is collected at once.
+TEST_F(DiskSlotTrimTest, GcIndexExistsTracksTheSpec) {
+  EXPECT_TRUE(gc.callbacks.indexExists(gc.gcCtx));
+
+  DiskGC *diskGc = static_cast<DiskGC *>(gc.gcCtx);
+  StrongRef strong = StrongRef_New(spec, [](void *) {});
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = diskGc->index;
+  diskGc->index = dropped;
+  const bool exists = gc.callbacks.indexExists(gc.gcCtx);
+  diskGc->index = index;
+  WeakRef_Release(dropped);
+  EXPECT_FALSE(exists);
+}
+
 TEST_F(DiskSlotTrimTest, InvalidatedOwnerCancelsBeforeCallingTheBackend) {
   static size_t released;
   released = 0;

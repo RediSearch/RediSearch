@@ -1528,6 +1528,14 @@ void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
   return;
 }
 
+// Tests need bytes that vary, not randomness, so a counter keeps runs reproducible.
+void RMCK_GetRandomBytes(unsigned char *dst, size_t len) {
+  static std::atomic<unsigned char> next{0};
+  for (size_t i = 0; i < len; ++i) {
+    dst[i] = next++;
+  }
+}
+
 int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
   return ctx ? ctx->ctx_flags : 0;
 }
@@ -1982,6 +1990,7 @@ static void registerApis() {
   REGISTER_API(SetCommandACLCategories);
   REGISTER_API(SetCommandInfo);
   REGISTER_API(Yield);
+  REGISTER_API(GetRandomBytes);
   REGISTER_API(GetContextFlags);
   REGISTER_API(GetSelectedDb);
   REGISTER_API(SelectDb);

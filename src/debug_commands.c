@@ -1494,14 +1494,14 @@ DEBUG_COMMAND(ttl) {
     return RedisModule_ReplyWithError(ctx, "Index is not temporary");
   }
 
-  uint64_t remaining = 0;
-  if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, &remaining, NULL) != REDISMODULE_OK) {
+  if (RedisModule_GetTimerInfo(RSDummyContext, sp->timerId, NULL, NULL) != REDISMODULE_OK) {
     // timer was called but free operation is async so its gone be free each moment.
     // lets return 0 timeout.
     return RedisModule_ReplyWithLongLong(ctx, 0);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, remaining / 1000);  // return the results in seconds
+  // in seconds
+  return RedisModule_ReplyWithLongLong(ctx, (long long)(IndexSpec_TimeoutRemainingMs(sp) / 1000));
 }
 
 DEBUG_COMMAND(ttlPause) {

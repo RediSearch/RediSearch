@@ -27,6 +27,7 @@
 #include "redis_index.h"
 #include "index_utils.h"
 #include "notifications.h"
+#include "rmalloc.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -40,6 +41,7 @@ extern "C" {
 #include <atomic>
 #include <chrono>
 #include <climits>
+#include <vector>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -967,6 +969,216 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   WeakRef_Release(dropped);
   ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
   ASSERT_EQ(0, pruned);
+}
+
+// A GC step asks this before arming the next one, so a dropped index is collected at once.
+TEST_F(IndexGCTest, testIndexExistsTracksTheSpec) {
+  GCContext *gc = get_spec(ism)->gc;
+  EXPECT_TRUE(gc->callbacks.indexExists(gc->gcCtx));
+
+  StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
+  WeakRef dropped = StrongRef_Demote(strong);
+  StrongRef_Invalidate(strong);
+  StrongRef_Release(strong);
+  WeakRef index = fgc->index;
+  fgc->index = dropped;
+  const bool exists = gc->callbacks.indexExists(gc->gcCtx);
+  fgc->index = index;
+  WeakRef_Release(dropped);
+  EXPECT_FALSE(exists);
+}
+
+TEST(GCTimerDelayTest, testJitterRange) {
+  EXPECT_EQ(GC_TimerDelayMs(0, 12345), 0);
+  EXPECT_EQ(GC_TimerDelayMs(-1000, 12345), 0);  // not a config value, but never a negative delay
+  EXPECT_EQ(GC_TimerDelayMs(10000, 0), 10000);
+  EXPECT_EQ(GC_TimerDelayMs(10000, 7), 10007);
+  EXPECT_EQ(GC_TimerDelayMs(10000, 19999), 19999);  // almost twice the interval, never twice
+  EXPECT_EQ(GC_TimerDelayMs(10000, 20000), 10000);
+}
+
+TEST(GCTimerDelayTest, testSaturates) {
+  const long long maxIntervalMs = LLONG_MAX / 2;  // GC_IntervalSecToMs's bound
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(SIZE_MAX), 0), GC_IntervalSecToMs(SIZE_MAX));
+  EXPECT_EQ(GC_TimerDelayMs(LLONG_MAX, 0), maxIntervalMs);
+  // The largest interval with the largest jitter it can draw still fits.
+  EXPECT_EQ(GC_TimerDelayMs(LLONG_MAX, maxIntervalMs - 1), 2 * maxIntervalMs - 1);
+  EXPECT_GT(GC_TimerDelayMs(LLONG_MAX, ULONG_MAX), 0);
+}
+
+// Past what one module timer can wait, the delay keeps its full value and jitter; the arming
+// splits it into steps (GCSchedulerTest.testLongDelayIsArmedInSteps).
+TEST(GCTimerDelayTest, testKeepsTheFullDelayPastOneTimer) {
+  static_assert(RS_MAX_TIMER_DELAY_MS <= INT_MAX);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2147484), 0), 2147484000LL);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2592000), 2591999999UL), 5183999999LL);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 1073741999), 2147483999LL);
+}
+
+TEST(ModuleTimerTest, testDelayToDeadline) {
+  const uint64_t now = 1000;
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(0, now), 0);  // past
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now, now), 0);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + 1, now), 1);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS, now), RS_MAX_TIMER_DELAY_MS);
+  // Further out, the timer fires at the cap and re-arms for what is left.
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS + 1, now), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(UINT64_MAX, now), RS_MAX_TIMER_DELAY_MS);
+}
+
+/**
+ * Timer arming in steps. A hand-built GCContext with a fake GC behind its callbacks and fake
+ * timers, so each scheduling state is set up directly rather than raced.
+ */
+
+namespace {
+struct FakeGCTimers {
+  static inline std::vector<mstime_t> armed;  // the delay of each arm, in order
+  static inline std::vector<RedisModuleTimerID> stopped;
+  static inline RedisModuleTimerID lastId = 0;
+  static inline RedisModuleTimerProc lastProc = nullptr;
+  static inline void *lastData = nullptr;
+  static inline uint64_t nowMs = 0;
+  static inline long long intervalMs;  // what the fake GC asks for next
+  static inline bool indexExists = true;
+  static inline std::atomic<bool> terminated{false};
+
+  static RedisModuleTimerID Create(RedisModuleCtx *, mstime_t period, RedisModuleTimerProc proc,
+                                   void *data) {
+    armed.push_back(period);
+    lastProc = proc;
+    lastData = data;
+    return ++lastId;
+  }
+  // What Redis does when the last timer armed expires: its delay has passed.
+  static void Fire() {
+    nowMs += armed.back();
+    lastProc(RSDummyContext, lastData);
+  }
+  static uint64_t Now() {
+    return nowMs;
+  }
+  static int Stop(RedisModuleCtx *, RedisModuleTimerID id, void **) {
+    stopped.push_back(id);
+    return REDISMODULE_OK;
+  }
+  static long long GetIntervalMs(void *) {
+    return intervalMs;
+  }
+  static bool IndexExists(void *) {
+    return indexExists;
+  }
+  // The run that finds the index gone: no reschedule, and the context is freed after onTerm.
+  static bool DroppedIndexRun(void *, GCForcedRun *) {
+    return false;
+  }
+  static void OnTerm(void *) {
+    terminated = true;
+  }
+};
+}  // namespace
+
+class GCSchedulerTest : public ::testing::Test {
+ protected:
+  GCContext gc{};
+  const decltype(RedisModule_CreateTimer) savedCreateTimer = RedisModule_CreateTimer;
+  const decltype(RedisModule_StopTimer) savedStopTimer = RedisModule_StopTimer;
+  const decltype(GC_NowMs) savedNowMs = GC_NowMs;
+
+  void SetUp() override {
+    // Installing a timer API makes RS_IsMock false for the whole process, so a GC job still
+    // running from an earlier test would take the real path into an event loop the mock has not.
+    ASSERT_EQ(GC_ThreadPoolJobsInProgress(), (size_t)0);
+    FakeGCTimers::armed.clear();
+    FakeGCTimers::stopped.clear();
+    FakeGCTimers::lastId = 0;
+    FakeGCTimers::nowMs = 1000;
+    GC_NowMs = FakeGCTimers::Now;
+    FakeGCTimers::intervalMs = 1000000;
+    FakeGCTimers::indexExists = true;
+    FakeGCTimers::terminated = false;
+    // Installing a timer API also turns RS_IsMock off for the scheduler, which is what lets
+    // it arm at all.
+    RedisModule_CreateTimer = FakeGCTimers::Create;
+    RedisModule_StopTimer = FakeGCTimers::Stop;
+    gc.callbacks.getIntervalMs = FakeGCTimers::GetIntervalMs;
+    gc.callbacks.indexExists = FakeGCTimers::IndexExists;
+  }
+
+  void TearDown() override {
+    RedisModule_CreateTimer = savedCreateTimer;
+    RedisModule_StopTimer = savedStopTimer;
+    GC_NowMs = savedNowMs;
+  }
+};
+
+TEST_F(GCSchedulerTest, testShortDelayIsOneTimer) {
+  GCContext_Start(&gc);
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)1);
+  EXPECT_GE(FakeGCTimers::armed.back(), FakeGCTimers::intervalMs);
+  EXPECT_LT(FakeGCTimers::armed.back(), FakeGCTimers::intervalMs * 2);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);  // its own expiry is the deadline
+}
+
+// Redis cannot serve a module timer past RS_MAX_TIMER_DELAY_MS (MOD-21060), so a longer delay is
+// armed in steps, and the steps add up to the whole interval and jitter.
+TEST_F(GCSchedulerTest, testLongDelayIsArmedInSteps) {
+  const long long intervalMs = 5000000000LL;  // about 58 days, so at least three steps
+  FakeGCTimers::intervalMs = intervalMs;
+  GCContext_Start(&gc);
+  ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
+
+  // Each step fires and arms the next, never a run, until the one that ends at the deadline.
+  for (int step = 0; gc.stepDeadlineMs != 0; ++step) {
+    ASSERT_LT(step, 10);
+    EXPECT_EQ(FakeGCTimers::armed.back(), RS_MAX_TIMER_DELAY_MS);
+    FakeGCTimers::Fire();
+    ASSERT_NE(gc.timerID, 0);
+    EXPECT_FALSE(gcSchedFlags(&gc) & GC_SCHED_RUN_PENDING);
+  }
+  ASSERT_GE(FakeGCTimers::armed.size(), (size_t)3);
+  EXPECT_LE(FakeGCTimers::armed.back(), RS_MAX_TIMER_DELAY_MS);
+
+  mstime_t total = 0;
+  for (mstime_t step : FakeGCTimers::armed) {
+    total += step;
+  }
+  EXPECT_GE(total, intervalMs);
+  EXPECT_LT(total, intervalMs * 2);
+}
+
+// A step that fires at or past its deadline, as when the event loop ran late, arms a timer due at
+// once instead of another step; that timer's firing is the run.
+TEST_F(GCSchedulerTest, testLateStepArmsTheRun) {
+  FakeGCTimers::intervalMs = 5000000000LL;
+  GCContext_Start(&gc);
+  ASSERT_NE(gc.stepDeadlineMs, (uint64_t)0);
+
+  FakeGCTimers::nowMs = gc.stepDeadlineMs + 1 - FakeGCTimers::armed.back();
+  FakeGCTimers::Fire();
+  ASSERT_EQ(FakeGCTimers::armed.size(), (size_t)2);
+  EXPECT_EQ(FakeGCTimers::armed.back(), 0);
+  EXPECT_EQ(gc.stepDeadlineMs, (uint64_t)0);
+}
+
+// A drop discovered at a step frees the context now, not at a deadline that may be weeks away.
+TEST_F(GCSchedulerTest, testStepHandsADroppedIndexToARun) {
+  // Heap-allocated like a real context, since the run that finds the drop frees it.
+  GCContext *dropped = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
+  dropped->callbacks = gc.callbacks;
+  dropped->callbacks.periodicCallback = FakeGCTimers::DroppedIndexRun;
+  dropped->callbacks.onTerm = FakeGCTimers::OnTerm;
+  FakeGCTimers::intervalMs = 5000000000LL;
+  GCContext_Start(dropped);
+  ASSERT_NE(dropped->stepDeadlineMs, (uint64_t)0);
+
+  FakeGCTimers::indexExists = false;
+  FakeGCTimers::Fire();
+  EXPECT_EQ(FakeGCTimers::armed.size(), (size_t)1);  // no further step
+  for (int i = 0; i < 5000 && !FakeGCTimers::terminated; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  EXPECT_TRUE(FakeGCTimers::terminated);
 }
 
 // In-memory THREAD cycles fork nothing, so their timers fire on the interval; FORK and disk
