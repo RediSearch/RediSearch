@@ -9,9 +9,8 @@
 
 //! `Box<Self>`-based suspend/resume trait scaffolding.
 //!
-//! This module introduces the suspend/resume trait hierarchy that will
-//! supersede the legacy
-//! [`RQEIterator::revalidate`] design:
+//! This module defines the suspend/resume trait hierarchy that revalidates
+//! iterators across a spec lock release:
 //!
 //! | Concept              | Concrete (type-state preserved)   | Dyn-safe sibling                    |
 //! |----------------------|-----------------------------------|-------------------------------------|
@@ -59,10 +58,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Suspended};
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    c2rust,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, ResumeOutcome, SkipToOutcome, c2rust};
 
 /// Concrete-typed active iterator trait — the new shape of
 /// [`RQEIterator`].
@@ -130,8 +126,7 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// index and re-validating the iterator's state against any changes
     /// that happened while the iterator was suspended.
     ///
-    /// Returns a [`ResumeOutcome`], mirroring the legacy
-    /// [`RQEIterator::revalidate`]'s [`RQEValidateStatus`]:
+    /// Returns a [`ResumeOutcome`]:
     ///
     /// - [`Ok`](ResumeOutcome::Ok) — resumed at the same position.
     /// - [`Moved`](ResumeOutcome::Moved) — resumed but the position moved
@@ -153,8 +148,7 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// Exhaustion must also survive the cycle: an iterator suspended at
     /// [`at_eof`](RQEIterator::at_eof) must resume at it.
     ///
-    /// Resume re-reads/seeks the index to restore position (mirroring
-    /// [`RQEIterator::revalidate`]), so it can fail with an
+    /// Resume re-reads/seeks the index to restore position, so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
     /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
     /// `Err` the suspended iterator is consumed and dropped.
@@ -712,14 +706,6 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.0.skip_to(doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(spec)
     }
 
     #[inline(always)]

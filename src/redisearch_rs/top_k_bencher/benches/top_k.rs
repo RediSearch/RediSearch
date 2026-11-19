@@ -21,13 +21,10 @@ use std::num::NonZeroUsize;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm};
-use index_spec::IndexSpecReadGuard;
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{
-    IdList, Intersection, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-};
+use rqe_iterators::{IdList, Intersection, RQEIterator, RQEIteratorError, SkipToOutcome};
 use top_k::{Ascending, BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
 // ── Heap benchmarks ───────────────────────────────────────────────────────────
@@ -297,13 +294,6 @@ impl<'index> RQEIterator<'index> for TermLeaf<'index> {
         } else {
             SkipToOutcome::NotFound(&mut self.result)
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        _: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     fn rewind(&mut self) {

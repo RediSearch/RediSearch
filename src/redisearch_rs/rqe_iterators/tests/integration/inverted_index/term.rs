@@ -144,8 +144,13 @@ fn term_filter() {
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::{ExpirationTest, MockExpirationChecker};
-    use rqe_iterators::{RQEIterator, RQEValidateStatus};
+    use crate::inverted_index::utils::{
+        ExpirationTest, MockExpirationChecker, revalidate_after_block_buffer_moved,
+        revalidate_after_block_buffer_moved_and_gc, revalidate_after_document_deleted,
+        revalidate_at_eof, revalidate_at_eof_after_gc, revalidate_basic,
+    };
+    use rqe_iterators::{RQEIterator, ResumeOutcome, TypeErasedRQEIterator};
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
     struct TermExpirationTest {
         test: ExpirationTest,
@@ -338,163 +343,6 @@ mod not_miri {
         }
     }
 
-    #[test]
-    fn term_revalidate_basic() {
-        let test = TermRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_basic(&mut it);
-    }
-
-    #[test]
-    fn term_revalidate_at_eof() {
-        let test = TermRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_at_eof(&mut it);
-    }
-
-    #[test]
-    fn term_revalidate_at_eof_after_gc() {
-        let test = TermRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
-
-        test.test.revalidate_at_eof_after_gc(&mut it, ii);
-    }
-
-    /// Driven bare, deliberately: this test reaches for `swap_index`, which
-    /// swaps the index out from under the iterator by `&mut self`. The checker
-    /// deliberately hands out no mutable access to what it wraps — a mutation it
-    /// cannot see would leave its tracked position describing a different index.
-    #[test]
-    fn term_revalidate_after_index_disappears() {
-        let test = TermRevalidateTest::new(10);
-        // Declared before the iterator so it outlives the iterator's borrow of it.
-        let dummy = inverted_index::InvertedIndex::<inverted_index::full::Full>::new(
-            test.test.context.term_inverted_index().flags(),
-        );
-        let mut it = test.create_iterator();
-
-        // First, verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-        assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
-
-        // Simulate the term's inverted index being garbage collected and
-        // replaced by swapping the reader's stored index pointer to a
-        // different (dummy) index. Redis_OpenInvertedIndex will still
-        // return the original, so the pointer comparison will fail.
-        let mut dummy_ref = &dummy;
-
-        it.swap_index(&mut dummy_ref);
-
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
-    }
-
-    #[test]
-    fn term_revalidate_after_index_gc_collected() {
-        let test = TermRevalidateTest::new(10);
-
-        // Build the iterator with a query term that does not exist in keysDict.
-        // This simulates the GC having collected the entire inverted index for
-        // that term: Redis_OpenInvertedIndex will return null when revalidation
-        // tries to look it up.
-        let field_mask = test.test.context.text_field_bit();
-        let reader = test.test.context.term_inverted_index().reader(field_mask);
-        let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
-        // SAFETY: reader and sctx are valid pointers from the test context.
-        let mut it = ContractChecker::new(unsafe {
-            Term::new(
-                reader,
-                test.test.context.sctx,
-                gc_collected_term,
-                1.0,
-                NoOpChecker,
-            )
-        });
-
-        // The reader still works because it reads from the actual inverted
-        // index — only the query term stored in the result differs.
-        assert!(it.read().expect("failed to read").is_some());
-
-        // Revalidation looks up "gc_collected" in
-        // keysDict. The term is not there so Redis_OpenInvertedIndex returns
-        // null, triggering the abort path.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
-    }
-
-    /// Term records carry borrowed offsets into the block buffer, so a moved buffer puts both the
-    /// reader's cursor and the current record's offsets on freed memory.
-    #[test]
-    fn term_revalidate_after_block_buffer_moved() {
-        let test = TermRevalidateTest::new(10);
-        // `reserve_block_buffer` reallocates, so it has to run before the iterator caches an
-        // address. Reserving afterwards could free that address, and the relocation below could
-        // then land back on it, leaving the test passing via the length check instead of the
-        // moved-address one.
-        {
-            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
-            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
-        }
-        let mut it = ContractChecker::new(test.create_iterator());
-        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
-
-        test.test
-            .revalidate_after_block_buffer_moved(&mut it, ii, appended_record);
-    }
-
-    /// Driven bare, deliberately: this test garbage-collects the index while the iterator is
-    /// parked. `num_estimated()` shrinks with the collected document, while the checker's upper
-    /// bound counts every result yielded since the last rewind, including those yielded before the
-    /// GC. That bound only holds for an index that does not shrink underneath the iterator.
-    #[test]
-    fn term_revalidate_after_block_buffer_moved_and_gc() {
-        let test = TermRevalidateTest::new(10);
-        // `reserve_block_buffer` reallocates, so it has to run before the iterator caches an
-        // address. Reserving afterwards could free that address, and the relocation below could
-        // then land back on it, leaving the test passing via the length check instead of the
-        // moved-address one.
-        {
-            let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
-            inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
-        }
-        let mut it = test.create_iterator();
-        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
-
-        test.test
-            .revalidate_after_block_buffer_moved_and_gc(&mut it, ii, appended_record);
-    }
-
-    /// Build a record shaped like the ones [`TermRevalidateTest`] seeds the index with.
-    fn appended_record(doc_id: DocId) -> RSIndexResult<'static> {
-        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-
-        let mut term = RSQueryTerm::new("term", 1, 0);
-        term.set_idf(5.0);
-        term.set_bm25_idf(10.0);
-        expected_record(doc_id, u32::MAX as FieldMask, term, OFFSETS)
-    }
-
-    #[test]
-    fn term_revalidate_after_document_deleted() {
-        let test = TermRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
-
-        test.test.revalidate_after_document_deleted(&mut it, ii);
-    }
-
     /// FT.PROFILE prints the estimate from the reply path, which runs without
     /// the spec lock and — for stored replies — possibly after the index is
     /// gone, so the [`Profile`](rqe_iterators::profile::Profile) wrapper
@@ -527,188 +375,215 @@ mod not_miri {
         assert_eq!(profile.estimated(), captured);
     }
 
-    mod via_resume {
-        use super::*;
-        use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_at_eof_after_gc,
-            revalidate_basic,
+    /// The suspended form can no longer read the live count, so it reports the
+    /// one cached at suspend: an index that grew since construction must not see
+    /// its estimate fall back to the construction-time count across an unlock.
+    #[test]
+    fn suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let test = TermRevalidateTest::new(10);
+        let it = Box::new(test.create_iterator());
+        let constructed = it.num_estimated();
+
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
         };
-        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
-        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        let mut term = RSQueryTerm::new("term", 1, 0);
+        term.set_idf(5.0);
+        term.set_bm25_idf(10.0);
+        // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+        // fresh, larger one.
+        let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
+        ii.add_record(&record).expect("failed to add record");
+        assert_eq!(it.num_estimated(), constructed + 1);
 
-        /// The suspended form can no longer read the live count, so it reports the
-        /// one cached at suspend: an index that grew since construction must not see
-        /// its estimate fall back to the construction-time count across an unlock.
-        #[test]
-        fn suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            constructed + 1
+        );
+    }
 
-            let test = TermRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-            let constructed = it.num_estimated();
+    #[test]
+    fn term_revalidate_basic() {
+        let test = TermRevalidateTest::new(10);
+        let it = test.create_iterator();
+        revalidate_basic(&test.test, Box::new(it));
+    }
 
-            let ii = {
-                use inverted_index::{full::Full, opaque::OpaqueEncoding};
-                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
-            };
-            const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
-            let mut term = RSQueryTerm::new("term", 1, 0);
-            term.set_idf(5.0);
-            term.set_bm25_idf(10.0);
-            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
-            // fresh, larger one.
-            let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
-            ii.add_record(&record).expect("failed to add record");
-            assert_eq!(it.num_estimated(), constructed + 1);
+    #[test]
+    fn term_revalidate_at_eof() {
+        let test = TermRevalidateTest::new(10);
+        let it = test.create_iterator();
+        revalidate_at_eof(&test.test, Box::new(it));
+    }
 
-            let suspended = it.suspend();
-            assert_eq!(
-                RQESuspendedIterator::num_estimated(&*suspended),
-                constructed + 1
-            );
-        }
+    #[test]
+    fn term_revalidate_at_eof_after_gc() {
+        let test = TermRevalidateTest::new(10);
+        let it = test.create_iterator();
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
-        #[test]
-        fn term_revalidate_basic() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_basic(&test.test, Box::new(it));
-        }
+        revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
+    }
 
-        #[test]
-        fn term_revalidate_at_eof() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_at_eof(&test.test, Box::new(it));
-        }
+    #[test]
+    fn term_revalidate_after_index_disappears() {
+        let test = TermRevalidateTest::new(10);
+        let guard = test.test.context.spec_read();
 
-        #[test]
-        fn term_revalidate_at_eof_after_gc() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii =
-                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
+        // First, verify the iterator works normally through a resume cycle.
+        let it = Box::new(test.create_iterator());
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
+        assert!(it.read().expect("failed to read").is_some());
+        revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
-            revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
-        }
+        // Now simulate the term's inverted index being garbage collected and
+        // replaced: build a fresh iterator and swap its stored index pointer to
+        // a different (dummy) index. Redis_OpenInvertedIndex still returns the
+        // original, so the pointer comparison fails and resume must abort.
+        //
+        // (`resume` consumes the iterator and erases its concrete type, so the
+        // swap is performed on a fresh concrete iterator before the single
+        // aborting resume rather than between resumes of the same iterator.)
+        //
+        // Declared before the iterator so it outlives the iterator's borrow of it.
+        let dummy = inverted_index::InvertedIndex::<inverted_index::full::Full>::new(
+            test.test.context.term_inverted_index().flags(),
+        );
+        let mut it = Box::new(test.create_iterator());
+        let mut dummy_ref = &dummy;
+        it.swap_index(&mut dummy_ref);
 
-        #[test]
-        fn term_revalidate_after_index_disappears() {
-            let test = TermRevalidateTest::new(10);
-            let guard = test.test.context.spec_read();
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+    }
 
-            // First, verify the iterator works normally through a resume cycle.
-            let it = Box::new(test.create_iterator());
-            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-            assert!(it.read().expect("failed to read").is_some());
-            revalidate_via_resume(it, &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
+    #[test]
+    fn term_revalidate_after_index_gc_collected() {
+        let test = TermRevalidateTest::new(10);
 
-            // Now simulate the term's inverted index being garbage collected and
-            // replaced: build a fresh iterator and swap its stored index pointer to
-            // a different (dummy) index. Redis_OpenInvertedIndex still returns the
-            // original, so the pointer comparison fails and resume must abort.
-            //
-            // (Unlike the `revalidate` path, `resume` consumes the iterator and
-            // erases its concrete type, so the swap is performed on a fresh
-            // concrete iterator before the single aborting resume rather than
-            // between resumes of the same iterator.)
-            //
-            // Declared before the iterator so it outlives the iterator's borrow of it.
-            let dummy = inverted_index::InvertedIndex::<inverted_index::full::Full>::new(
-                test.test.context.term_inverted_index().flags(),
-            );
-            let mut it = Box::new(test.create_iterator());
-            let mut dummy_ref = &dummy;
-            it.swap_index(&mut dummy_ref);
+        // Build the iterator with a query term that does not exist in keysDict.
+        // This simulates the GC having collected the entire inverted index for
+        // that term: Redis_OpenInvertedIndex will return null when revalidation
+        // tries to look it up.
+        let field_mask = test.test.context.text_field_bit();
+        let reader = test.test.context.term_inverted_index().reader(field_mask);
+        let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
+        // SAFETY: reader and sctx are valid pointers from the test context.
+        let mut it = Box::new(unsafe {
+            Term::new(
+                reader,
+                test.test.context.sctx,
+                gc_collected_term,
+                1.0,
+                NoOpChecker,
+            )
+        });
 
-            let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-        }
+        // The reader still works because it reads from the actual inverted
+        // index — only the query term stored in the result differs.
+        assert!(it.read().expect("failed to read").is_some());
 
-        #[test]
-        fn term_revalidate_after_index_gc_collected() {
-            let test = TermRevalidateTest::new(10);
+        // Revalidation looks up "gc_collected" in
+        // keysDict. The term is not there so Redis_OpenInvertedIndex returns
+        // null, triggering the abort path.
+        let guard = test.test.context.spec_read();
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+    }
 
-            // Build the iterator with a query term that does not exist in keysDict.
-            // This simulates the GC having collected the entire inverted index for
-            // that term: Redis_OpenInvertedIndex will return null when revalidation
-            // tries to look it up.
-            let field_mask = test.test.context.text_field_bit();
-            let reader = test.test.context.term_inverted_index().reader(field_mask);
-            let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
-            // SAFETY: reader and sctx are valid pointers from the test context.
-            let mut it = Box::new(unsafe {
-                Term::new(
-                    reader,
-                    test.test.context.sctx,
-                    gc_collected_term,
-                    1.0,
-                    NoOpChecker,
-                )
-            });
+    #[test]
+    fn term_revalidate_after_document_deleted() {
+        let test = TermRevalidateTest::new(10);
+        let it = test.create_iterator();
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
-            // The reader still works because it reads from the actual inverted
-            // index — only the query term stored in the result differs.
-            assert!(it.read().expect("failed to read").is_some());
+        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
+    }
 
-            // Revalidation looks up "gc_collected" in
-            // keysDict. The term is not there so Redis_OpenInvertedIndex returns
-            // null, triggering the abort path.
-            let guard = test.test.context.spec_read();
-            let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-        }
+    /// Regression test for the "skip the first result" bug.
+    ///
+    /// A freshly-created iterator that is suspended *before any `read()`*
+    /// and then hit by a GC cycle (`NeedsReseek`) must still return its
+    /// first document on the first post-resume `read()`. The shared
+    /// `resume_in_place` re-seeks to the iterator's own `last_doc_id` (which
+    /// is 0 until the first read), not the reader's block-initialized
+    /// `first_doc_id`, so it must skip the re-seek entirely and leave the
+    /// iterator positioned at the start.
+    #[test]
+    fn term_resume_before_first_read_keeps_first_doc() {
+        let test = TermRevalidateTest::new(10);
+        let it = Box::new(test.create_iterator());
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
-        #[test]
-        fn term_revalidate_after_document_deleted() {
-            let test = TermRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii =
-                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
+        // Bump the GC marker *without reading the iterator first* by deleting
+        // a document that sits after the first one. This forces resume down
+        // the `NeedsReseek` branch while the iterator's `last_doc_id` is
+        // still 0, and leaves `doc_ids[0]` as the first live document.
+        let first = test.test.doc_ids[0];
+        test.test.remove_document(ii, test.test.doc_ids[5]);
 
-            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
-        }
+        let guard = test.test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
-        /// Regression test for the "skip the first result" bug.
-        ///
-        /// A freshly-created iterator that is suspended *before any `read()`*
-        /// and then hit by a GC cycle (`NeedsReseek`) must still return its
-        /// first document on the first post-resume `read()`. The shared
-        /// `resume_in_place` re-seeks to the iterator's own `last_doc_id` (which
-        /// is 0 until the first read), not the reader's block-initialized
-        /// `first_doc_id`, so it must skip the re-seek entirely and leave the
-        /// iterator positioned at the start.
-        #[test]
-        fn term_resume_before_first_read_keeps_first_doc() {
-            let test = TermRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-            let ii =
-                { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
+        // The first document must not be skipped.
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, first, "resume must not skip the first result");
+    }
 
-            // Bump the GC marker *without reading the iterator first* by deleting
-            // a document that sits after the first one. This forces resume down
-            // the `NeedsReseek` branch while the iterator's `last_doc_id` is
-            // still 0, and leaves `doc_ids[0]` as the first live document.
-            let first = test.test.doc_ids[0];
-            test.test.remove_document(ii, test.test.doc_ids[5]);
+    /// Term records carry borrowed offsets into the block buffer, so a moved buffer puts both
+    /// the reader's cursor and the current record's offsets on freed memory.
+    #[test]
+    fn term_revalidate_after_block_buffer_moved() {
+        let test = TermRevalidateTest::new(10);
+        reserve_term_block_buffer(&test);
+        let it = test.create_iterator();
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
 
-            let guard = test.test.context.spec_read();
-            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
+        revalidate_after_block_buffer_moved(&test.test, Box::new(it), ii, appended_record);
+    }
 
-            // The first document must not be skipped.
-            let doc = it
-                .read()
-                .expect("failed to read")
-                .expect("should not be at EOF");
-            assert_eq!(doc.doc_id, first, "resume must not skip the first result");
-        }
+    #[test]
+    fn term_revalidate_after_block_buffer_moved_and_gc() {
+        let test = TermRevalidateTest::new(10);
+        reserve_term_block_buffer(&test);
+        let it = test.create_iterator();
+        let ii = { Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut() };
+
+        revalidate_after_block_buffer_moved_and_gc(&test.test, Box::new(it), ii, appended_record);
+    }
+
+    /// `reserve_block_buffer` reallocates, so it has to run before the iterator caches an
+    /// address. Reserving afterwards could free that address, and the relocation could then
+    /// land back on it, leaving the test passing via the length check instead of the
+    /// moved-address one.
+    fn reserve_term_block_buffer(test: &TermRevalidateTest) {
+        let ii = Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut();
+        inverted_index::test_utils::reserve_block_buffer(ii, 0, 4096);
+    }
+
+    /// Build a record shaped like the ones [`TermRevalidateTest`] seeds the index with.
+    fn appended_record(doc_id: DocId) -> RSIndexResult<'static> {
+        const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+        let mut term = RSQueryTerm::new("term", 1, 0);
+        term.set_idf(5.0);
+        term.set_bm25_idf(10.0);
+        expected_record(doc_id, u32::MAX as FieldMask, term, OFFSETS)
     }
 }

@@ -9,8 +9,7 @@
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
-    wildcard::Wildcard,
+    IteratorType, RQEIterator, SkipToOutcome, empty::Empty, optional::Optional, wildcard::Wildcard,
 };
 
 use rqe_iterators_test_utils::ContractChecker;
@@ -679,262 +678,6 @@ mod optional_iterator_with_empty_child_test {
     }
 }
 
-mod optional_iterator_revalidate_test {
-    use super::*;
-
-    const MAX_DOC_ID: DocId = 100;
-    const WEIGHT: f64 = 2.;
-
-    const NUM_DOCS: usize = 5;
-    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
-
-    fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
-        ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>>,
-        utils::MockData,
-    ) {
-        // Create child iterator with specific docIds
-        let child = utils::Mock::new(CHILD_DOCS);
-        let data = child.data();
-
-        let it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
-
-        (it, data)
-    }
-
-    #[test]
-    fn test_revalidate_ok() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
-
-        // Child returns VALIDATE_OK
-        data.set_revalidate_result(utils::MockRevalidateResult::Ok);
-
-        // Read a few documents first to establish position
-        let _ = it
-            .read()
-            .expect("read without error")
-            .expect("read some result, be it virtual or real");
-        let _ = it
-            .read()
-            .expect("read without error")
-            .expect("read some result, be it virtual or real");
-
-        // Revalidate should return VALIDATE_OK
-        let status = it
-            .revalidate(&*mock_ctx.spec_read())
-            .expect("revalidate without error");
-        assert!(matches!(status, RQEValidateStatus::Ok));
-
-        // Verify child was revalidated
-        assert_eq!(data.revalidate_count(), 1);
-
-        // Should be able to continue reading
-        let _ = it
-            .read()
-            .expect("read without error after revalidate")
-            .expect("read some result after revalidate");
-    }
-
-    #[test]
-    fn test_revalidate_aborted() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
-
-        // Child returns VALIDATE_ABORTED
-        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-
-        // Read a document first
-        let _ = it
-            .read()
-            .expect("read without error")
-            .expect("read some result, be it virtual or real");
-
-        // Optional iterator handles child abort gracefully by replacing with empty iterator
-        let status = it
-            .revalidate(&*mock_ctx.spec_read())
-            .expect("revalidate without error");
-        assert!(matches!(status, RQEValidateStatus::Ok)); // Optional iterator continues even when child is aborted
-
-        // Should be able to continue reading (now all virtual hits)
-        let result = it
-            .read()
-            .expect("read without error after revalidate")
-            .expect("read some result after revalidate");
-        assert_eq!(result.weight, 0.);
-    }
-
-    #[test]
-    fn test_revalidate_moved() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
-
-        // Child returns VALIDATE_MOVED
-        data.set_revalidate_result(utils::MockRevalidateResult::Move);
-
-        // Read to a real hit (document from child)
-        const DOC_ID: DocId = 10;
-        match it
-            .skip_to(DOC_ID)
-            .expect("no error to be returned while skipping")
-        {
-            Some(SkipToOutcome::Found(result)) => {
-                assert_eq!(result.doc_id, DOC_ID);
-            }
-            outcome @ (None | Some(SkipToOutcome::NotFound(_))) => {
-                panic!("unexpected outcome: {outcome:?}");
-            }
-        }
-        assert_eq!(it.last_doc_id(), DOC_ID);
-
-        // Revalidate should handle child movement
-        let status = it
-            .revalidate(&*mock_ctx.spec_read())
-            .expect("revalidate without error");
-        // Should be MOVED (as real result was affected)
-        assert!(matches!(status, RQEValidateStatus::Moved { .. }));
-
-        // Should be able to continue reading after revalidation
-        let result = it
-            .read()
-            .expect("read returns either some result or EOF after revalidate")
-            .expect("should return an actual result here");
-        assert_eq!(12, result.doc_id);
-    }
-
-    #[test]
-    fn test_revalidate_moved_virtual_result() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
-
-        // Child returns VALIDATE_MOVED
-        data.set_revalidate_result(utils::MockRevalidateResult::Move);
-
-        // Read to a virtual hit (document not in child)
-        const DOC_ID: DocId = 15;
-        match it
-            .skip_to(DOC_ID)
-            .expect("no error to be returned while skipping")
-        {
-            Some(SkipToOutcome::Found(result)) => {
-                assert_eq!(result.doc_id, DOC_ID);
-            }
-            outcome @ (None | Some(SkipToOutcome::NotFound(_))) => {
-                panic!("unexpected outcome: {outcome:?}");
-            }
-        }
-        assert_eq!(it.last_doc_id(), DOC_ID);
-
-        // Since current result is virtual, revalidate should return OK
-        let status = it
-            .revalidate(&*mock_ctx.spec_read())
-            .expect("revalidate without error");
-        assert!(matches!(status, RQEValidateStatus::Ok));
-
-        // Should be able to continue reading
-        let result = it
-            .read()
-            .expect("read without error after revalidate")
-            .expect("read some result after revalidate");
-        assert_eq!(16, result.doc_id);
-    }
-}
-
-mod optional_iterator_revalidate_after_abort {
-    use super::*;
-
-    const MAX_DOC_ID: DocId = 20;
-    const WEIGHT: f64 = 2.;
-
-    /// After child abort + a second revalidate, the child is `None` and
-    /// `revalidate` should return `Ok` immediately.
-    #[test]
-    fn test_revalidate_twice_after_abort() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let child = utils::Mock::new([5, 10, 15]);
-        let mut data = child.data();
-        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
-
-        // Position on a virtual result (doc 1)
-        let doc = it.read().unwrap().unwrap();
-        assert_eq!(doc.doc_id, 1);
-
-        // First revalidate with abort: child is dropped
-        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Ok));
-
-        // Second revalidate: child is None, should return Ok immediately
-        let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-        assert!(matches!(status, RQEValidateStatus::Ok));
-
-        // Should still be able to read (all virtual)
-        let doc = it.read().unwrap().unwrap();
-        assert_eq!(doc.doc_id, 2);
-        assert_eq!(doc.weight, 0.);
-    }
-
-    /// After child abort, skip_to should still work (all virtual results).
-    /// When child is `None`, the skip_to falls through to the virtual result path.
-    #[test]
-    fn test_skip_to_after_abort() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let child = utils::Mock::new([5, 10, 15]);
-        let mut data = child.data();
-        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
-
-        // Position on a virtual result
-        let doc = it.read().unwrap().unwrap();
-        assert_eq!(doc.doc_id, 1);
-
-        // Abort the child
-        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let _ = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-
-        // skip_to with child=None should yield a virtual Found result
-        match it.skip_to(8).unwrap().unwrap() {
-            SkipToOutcome::Found(result) => {
-                assert_eq!(result.doc_id, 8);
-                assert_eq!(result.weight, 0.);
-            }
-            SkipToOutcome::NotFound(r) => panic!("unexpected NotFound: {r:?}"),
-        }
-
-        // Continue reading - all virtual
-        let doc = it.read().unwrap().unwrap();
-        assert_eq!(doc.doc_id, 9);
-        assert_eq!(doc.weight, 0.);
-    }
-
-    /// After child abort, rewind should work correctly with child=None.
-    #[test]
-    fn test_rewind_after_abort() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let child = utils::Mock::new([5, 10, 15]);
-        let mut data = child.data();
-        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
-
-        // Read several docs
-        for _ in 0..5 {
-            let _ = it.read().unwrap().unwrap();
-        }
-        assert_eq!(it.last_doc_id(), 5);
-
-        // Abort the child
-        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let _ = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-
-        // Rewind with child=None
-        it.rewind();
-        assert_eq!(it.last_doc_id(), 0);
-        assert!(!it.at_eof());
-
-        // Should produce all virtual results after rewind
-        let result = it.read().unwrap().unwrap();
-        assert_eq!(result.doc_id, 1);
-        assert_eq!(result.weight, 0.);
-    }
-}
-
 mod optional_iterator_non_sequential_reads {
     use super::*;
 
@@ -1024,13 +767,6 @@ mod optional_iterator_non_sequential_reads {
 
         fn at_eof(&self) -> bool {
             self.past_end()
-        }
-
-        fn revalidate(
-            &mut self,
-            _spec: &index_spec::IndexSpecReadGuard,
-        ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-            Ok(RQEValidateStatus::Ok)
         }
 
         #[inline(always)]
@@ -1203,7 +939,7 @@ mod optional_iterator_non_sequential_reads {
     }
 }
 
-mod via_resume {
+mod optional_iterator_resume_tests {
     use super::*;
     use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
     use index_result::{RSIndexResult, RSResultKind};
@@ -1384,10 +1120,9 @@ mod via_resume {
     /// current** — not the stale pre-suspend result.
     ///
     /// `ResumeOutcome::Moved` carries no `Option`, so the caller recovers the
-    /// new position from `current()`. The legacy `revalidate` forwarded
-    /// `read()` straight into `Moved { current }` and so surfaced EOF as
-    /// `current: None`; the resume path discarded the re-read's outcome, which
-    /// left `current()` handing back the very position the resume was repairing.
+    /// new position from `current()`. Discarding the re-read's outcome would
+    /// leave `current()` handing back the very position the resume was
+    /// repairing.
     #[test]
     fn resume_reread_to_eof_reports_no_current() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -1568,6 +1303,102 @@ mod via_resume {
             matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
             "a child resume error must propagate out of Optional::resume",
         );
+    }
+
+    /// Resume `optional` once with its child aborting, and hand back the
+    /// resumed iterator with the child gone.
+    fn drop_child_by_aborting<'index, const N: usize>(
+        optional: Box<Optional<'index, Mock<'index, N>>>,
+        child_data: &mut utils::MockData,
+        guard: &index_spec::IndexSpecReadGuard<'index>,
+    ) -> Box<Optional<'index, Mock<'index, N>>> {
+        child_data.set_revalidate_result(MockRevalidateResult::Abort);
+        let optional = match optional.suspend().resume(guard).expect("resume failed") {
+            ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Aborted => panic!("Optional never aborts as a whole for a child abort"),
+        };
+        assert!(
+            optional.child().is_none(),
+            "aborted child must be dropped to Gone"
+        );
+        optional
+    }
+
+    /// A child that resumes unchanged keeps the `Optional` where it was.
+    #[test]
+    fn resume_with_an_unchanged_child_is_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([10, 20, 30, 50, 80]);
+        let data = child.data();
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 1);
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 2);
+
+        let mut optional = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("an unchanged child must resume as Ok, not Moved"),
+            ResumeOutcome::Aborted => panic!("an unchanged child must resume as Ok, not Aborted"),
+        };
+        assert_eq!(
+            data.revalidate_count(),
+            1,
+            "the child must have been resumed"
+        );
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 3);
+    }
+
+    /// With its child gone, `skip_to` falls through to the virtual result path.
+    #[test]
+    fn skip_to_after_the_child_is_gone_is_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([5, 10, 15]);
+        let mut data = child.data();
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+        // Position on a virtual result.
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 1);
+
+        let mut optional = drop_child_by_aborting(optional, &mut data, &mock_ctx.spec_read());
+
+        // Doc 10 is still in the child's postings, but the child is gone.
+        match optional.skip_to(10).unwrap().unwrap() {
+            SkipToOutcome::Found(result) => {
+                assert_eq!(result.doc_id, 10);
+                assert_eq!(result.weight, 0.);
+            }
+            SkipToOutcome::NotFound(r) => panic!("unexpected NotFound: {r:?}"),
+        }
+        let doc = optional.read().unwrap().unwrap();
+        assert_eq!(doc.doc_id, 11);
+        assert_eq!(doc.weight, 0.);
+    }
+
+    /// With its child gone, a rewind starts the `Optional` over, all virtual.
+    #[test]
+    fn rewind_after_the_child_is_gone_is_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([5, 10, 15]);
+        let mut data = child.data();
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+        for _ in 0..4 {
+            optional.read().unwrap().unwrap();
+        }
+        assert_eq!(optional.last_doc_id(), 4);
+
+        let mut optional = drop_child_by_aborting(optional, &mut data, &mock_ctx.spec_read());
+
+        optional.rewind();
+        assert_eq!(optional.last_doc_id(), 0);
+        assert!(!optional.at_eof());
+        // Doc 5 was the child's: it comes back virtual.
+        for expected in 1..=5 {
+            let doc = optional.read().unwrap().unwrap();
+            assert_eq!(doc.doc_id, expected);
+            assert_eq!(doc.weight, 0.);
+        }
     }
 
     const MAX_DOC_ID: DocId = 100;

@@ -118,9 +118,13 @@ fn tag_empty_index() {
 // Creating the [`rqe_iterators_test_utils::TestContext`] requires ffi calls which are not supported by miri.
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
+    use crate::inverted_index::utils::{
+        RevalidateIndexType, RevalidateTest, revalidate_after_document_deleted, revalidate_at_eof,
+        revalidate_at_eof_after_gc, revalidate_basic,
+    };
     use inverted_index::opaque::OpaqueEncoding;
-    use rqe_iterators::RQEValidateStatus;
+    use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
     use std::ffi::c_void;
 
     struct TagRevalidateTest {
@@ -164,44 +168,84 @@ mod not_miri {
         }
     }
 
+    /// Test that `reader()` returns a reference to the underlying reader.
+    #[test]
+    fn tag_reader_accessor() {
+        let test = TagRevalidateTest::new(10);
+        let it = test.create_iterator();
+
+        let reader = it.reader();
+        let ii = DocIdsOnly::from_opaque(test.test.context.tag_inverted_index());
+        assert!(reader.points_to_ii(ii));
+    }
+
+    /// The suspended form can no longer read the live count, so it reports the
+    /// one cached at suspend: an index that grew since construction must not see
+    /// its estimate fall back to the construction-time count across an unlock.
+    #[test]
+    fn tag_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let test = TagRevalidateTest::new(10);
+        let it = Box::new(test.create_iterator());
+        let constructed = it.num_estimated();
+
+        // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+        // fresh, larger one.
+        DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index())
+            .add_record(
+                &RSIndexResult::build_term()
+                    .doc_id(23)
+                    .field_mask(RS_FIELDMASK_ALL)
+                    .build(),
+            )
+            .expect("failed to add record");
+        assert_eq!(it.num_estimated(), constructed + 1);
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            constructed + 1
+        );
+    }
+
     #[test]
     fn tag_revalidate_basic() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        revalidate_basic(&test.test, Box::new(it));
     }
 
     #[test]
     fn tag_revalidate_at_eof() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        revalidate_at_eof(&test.test, Box::new(it));
     }
 
     #[test]
     fn tag_revalidate_at_eof_after_gc() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
 
-        test.test.revalidate_at_eof_after_gc(&mut it, ii);
+        revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
     }
 
     #[test]
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = Box::new(test.create_iterator());
 
         // Verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
         // Simulate the tag's inverted index being garbage collected and
         // recreated by replacing the TrieMap entry with a new inverted index.
@@ -217,9 +261,6 @@ mod not_miri {
         let tag_index = test.test.context.tag_index();
 
         // Delete the old entry then add the new one.
-        // The iterator's reader holds a (now-dangling) raw pointer to the
-        // original II, but revalidation only compares it against the lookup's
-        // result via `points_to_ii` (`std::ptr::eq`) without dereferencing it.
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
         let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
@@ -230,24 +271,22 @@ mod not_miri {
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let outcome =
+            revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
-        // The new II will be freed when the TrieMap is freed during TagIndex cleanup.
         unsafe { drop(Box::from_raw(old_ii)) };
     }
 
     #[test]
     fn tag_revalidate_after_document_deleted() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when the tag value is removed
@@ -256,14 +295,14 @@ mod not_miri {
     #[test]
     fn tag_revalidate_after_triemap_entry_removed() {
         let test = TagRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let mut it = Box::new(test.create_iterator());
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
         // Save the old II pointer so we can free it after the test.
         let old_ii: *mut inverted_index::opaque::InvertedIndex =
@@ -280,187 +319,13 @@ mod not_miri {
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
         // The lookup no longer resolves the tag value, so the iterator aborts.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let outcome =
+            revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
         // and has not been freed. We are the sole owner after removing it from the TrieMap.
         unsafe { drop(Box::from_raw(old_ii)) };
-    }
-
-    /// Test that `reader()` returns a reference to the underlying reader.
-    #[test]
-    fn tag_reader_accessor() {
-        let test = TagRevalidateTest::new(10);
-        let it = test.create_iterator();
-
-        let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.tag_inverted_index());
-        assert!(reader.points_to_ii(ii));
-    }
-
-    mod via_resume {
-        use super::*;
-        use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_at_eof_after_gc,
-            revalidate_basic,
-        };
-        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
-        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
-
-        /// The suspended form can no longer read the live count, so it reports the
-        /// one cached at suspend: an index that grew since construction must not see
-        /// its estimate fall back to the construction-time count across an unlock.
-        #[test]
-        fn tag_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
-
-            let test = TagRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-            let constructed = it.num_estimated();
-
-            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
-            // fresh, larger one.
-            DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index())
-                .add_record(
-                    &RSIndexResult::build_term()
-                        .doc_id(23)
-                        .field_mask(RS_FIELDMASK_ALL)
-                        .build(),
-                )
-                .expect("failed to add record");
-            assert_eq!(it.num_estimated(), constructed + 1);
-
-            let suspended = it.suspend();
-            assert_eq!(
-                RQESuspendedIterator::num_estimated(&*suspended),
-                constructed + 1
-            );
-        }
-
-        #[test]
-        fn tag_revalidate_basic() {
-            let test = TagRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_basic(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn tag_revalidate_at_eof() {
-            let test = TagRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_at_eof(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn tag_revalidate_at_eof_after_gc() {
-            let test = TagRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
-
-            revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
-        }
-
-        #[test]
-        fn tag_revalidate_after_index_disappears() {
-            let test = TagRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-
-            // Verify the iterator works normally and read at least one document
-            let guard = test.test.context.spec_read();
-            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-            assert!(it.read().expect("failed to read").is_some());
-            let it = revalidate_via_resume(it, &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-
-            // Simulate the tag's inverted index being garbage collected and
-            // recreated by replacing the TrieMap entry with a new inverted index.
-            let new_ii =
-                Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-                    inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-                )));
-
-            // Save the old II pointer so we can free it after the test.
-            let old_ii: *mut inverted_index::opaque::InvertedIndex =
-                (test.test.context.tag_inverted_index()
-                    as *mut inverted_index::opaque::InvertedIndex)
-                    .cast();
-
-            let tag_index = test.test.context.tag_index();
-
-            // Delete the old entry then add the new one.
-            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-            // is a valid TrieMap.
-            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
-            let old_val = trie.remove(b"test_tag");
-            assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
-            let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
-            assert!(prev.is_none(), "insert should return None for new entry");
-
-            // Revalidate should return Aborted because the tag II no longer
-            // points to the same index the reader was created from.
-            let outcome =
-                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-
-            // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
-            // and has not been freed. We are the sole owner after removing it from the TrieMap.
-            unsafe { drop(Box::from_raw(old_ii)) };
-        }
-
-        #[test]
-        fn tag_revalidate_after_document_deleted() {
-            let test = TagRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
-
-            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
-        }
-
-        /// Test that revalidation returns `Aborted` when the tag value is removed
-        /// from the TagIndex's TrieMap, simulating the garbage collector removing
-        /// all documents for this tag.
-        #[test]
-        fn tag_revalidate_after_triemap_entry_removed() {
-            let test = TagRevalidateTest::new(10);
-            let mut it = Box::new(test.create_iterator());
-
-            // Read at least one document so the iterator has a position.
-            assert!(it.read().expect("failed to read").is_some());
-            let guard = test.test.context.spec_read();
-            let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-
-            // Save the old II pointer so we can free it after the test.
-            let old_ii: *mut inverted_index::opaque::InvertedIndex =
-                (test.test.context.tag_inverted_index()
-                    as *mut inverted_index::opaque::InvertedIndex)
-                    .cast();
-
-            // Simulate the garbage collector removing the tag's inverted index
-            // by deleting the TrieMap entry.
-            let tag_index = test.test.context.tag_index();
-            // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-            // is a valid TrieMap.
-            let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
-            let old_val = trie.remove(b"test_tag");
-            assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
-
-            // The lookup no longer resolves the tag value, so the iterator aborts.
-            let outcome =
-                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-
-            // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
-            // and has not been freed. We are the sole owner after removing it from the TrieMap.
-            unsafe { drop(Box::from_raw(old_ii)) };
-        }
     }
 }
 
@@ -477,17 +342,12 @@ impl rqe_iterators::inverted_index::TagLookup<DocIdsOnly> for RawLookup {
     }
 }
 
-/// Builds a tag iterator over the index `ii` points to, reads it up to
-/// `parked_on`, then runs `write` on the index through a `&mut`, as a writer or
-/// the garbage collector would while the query has released the spec lock.
-///
-/// The `&mut` invalidates the reference the reader was opened with, so the
-/// iterator only stays sound if revalidation stops reading through it.
-fn tag_parked_across_a_write<'index>(
+/// Builds a tag iterator over the index `ii` points to and reads it up to
+/// `parked_on`.
+fn tag_parked<'index>(
     ii: *mut inverted_index::InvertedIndex<DocIdsOnly>,
     mock_ctx: &'index MockContext,
     parked_on: DocId,
-    write: impl FnOnce(&mut inverted_index::InvertedIndex<DocIdsOnly>),
 ) -> Tag<'index, DocIdsOnly, RawLookup, NoOpChecker> {
     // SAFETY: `ii` is valid and not mutably aliased while the reader is built.
     let reader = unsafe { &*ii }.reader();
@@ -507,10 +367,6 @@ fn tag_parked_across_a_write<'index>(
         let record = it.read().expect("read failed").expect("doc expected");
         assert_eq!(record.doc_id, doc_id);
     }
-
-    // SAFETY: the iterator is parked, per the revalidation protocol.
-    write(unsafe { &mut *ii });
-
     it
 }
 
@@ -552,97 +408,28 @@ fn drain<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
     doc_ids
 }
 
-/// Revalidates `it`, checking it does not abort — the index it reads is still
-/// the one the lookup resolves — and returns whether it kept its position
-/// without a re-seek.
-fn revalidate_in_place<'index>(
-    it: &mut Tag<'index, DocIdsOnly, RawLookup, NoOpChecker>,
-    mock_ctx: &MockContext,
-) -> bool {
-    let status = it
-        .revalidate(&mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert!(
-        !matches!(status, rqe_iterators::RQEValidateStatus::Aborted),
-        "the index the reader holds is still registered, so it must not abort"
-    );
-    matches!(status, rqe_iterators::RQEValidateStatus::Ok)
-}
-
-/// A reader revalidated after a write to its index must not read through the
-/// pointer it was opened with: the writer's `&mut` invalidated it, even though
-/// the index kept its address and identity. Run under Miri to catch it.
-#[test]
-fn tag_revalidate_after_write_reads_through_a_live_pointer() {
-    const N: DocId = 4;
-    let mock_ctx = MockContext::new(N, N as usize);
-    let ii = new_tag_index(N);
-
-    let mut it = tag_parked_across_a_write(ii, &mock_ctx, 2, append(N + 1));
-    revalidate_in_place(&mut it, &mock_ctx);
-    assert_eq!(drain(&mut it), (3..=N + 1).collect::<Vec<_>>());
-
-    drop(it);
-    // SAFETY: allocated by `new_tag_index`; the iterator using it is gone.
-    drop(unsafe { Box::from_raw(ii) });
-}
-
-/// As [`tag_revalidate_after_write_reads_through_a_live_pointer`], but the write
-/// lands in a later block than the one the reader is parked in, so revalidation
-/// finds nothing to re-seek and the reader reads on from the block buffer it
-/// cached before the write.
-#[test]
-fn tag_revalidate_after_write_to_a_later_block_reads_on() {
-    use inverted_index::Encoder;
-
-    // One past a full block, so the index spans two and the reader parks in the
-    // first while the append lands in the second.
-    let n = DocId::from(DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES) + 1;
-    let mock_ctx = MockContext::new(n, n as usize);
-    let ii = new_tag_index(n);
-
-    let mut it = tag_parked_across_a_write(ii, &mock_ctx, 2, append(n + 1));
-    assert!(
-        revalidate_in_place(&mut it, &mock_ctx),
-        "a write past the reader's block must not force a re-seek"
-    );
-    assert_eq!(drain(&mut it), (3..=n + 1).collect::<Vec<_>>());
-
-    drop(it);
-    // SAFETY: allocated by `new_tag_index`; the iterator using it is gone.
-    drop(unsafe { Box::from_raw(ii) });
-}
-
-/// As [`tag_revalidate_after_write_reads_through_a_live_pointer`], with an
-/// in-place garbage-collection pass as the write.
-#[test]
-fn tag_revalidate_after_gc_reads_through_a_live_pointer() {
-    const N: DocId = 4;
-    let mock_ctx = MockContext::new(N, N as usize);
-    let ii = new_tag_index(N);
-
-    let mut it = tag_parked_across_a_write(ii, &mock_ctx, 2, collect(3));
-    revalidate_in_place(&mut it, &mock_ctx);
-    assert_eq!(drain(&mut it), vec![4]);
-
-    drop(it);
-    // SAFETY: allocated by `new_tag_index`; the iterator using it is gone.
-    drop(unsafe { Box::from_raw(ii) });
-}
-
-/// The suspend/resume counterpart of [`revalidate_in_place`]: suspends and
-/// resumes `it`, checking it does not abort, and returns it with whether it kept
-/// its position without a re-seek.
-fn resume_parked<'index>(
+/// Suspends `it`, runs `write` on the index `ii` points to through a `&mut`, as
+/// a writer or the garbage collector would while the query has released the
+/// spec lock, then resumes it. Checks it does not abort — the index it reads is
+/// still the one the lookup resolves — and returns it with whether it kept its
+/// position without a re-seek.
+///
+/// The `&mut` invalidates the reference the reader was opened with, so the
+/// iterator only stays sound if resumption stops reading through it.
+fn resume_across_write<'index>(
     it: Tag<'index, DocIdsOnly, RawLookup, NoOpChecker>,
     guard: &IndexSpecReadGuard<'index>,
+    ii: *mut inverted_index::InvertedIndex<DocIdsOnly>,
+    write: impl FnOnce(&mut inverted_index::InvertedIndex<DocIdsOnly>),
 ) -> (rqe_iterators::TypeErasedRQEIterator<'index>, bool) {
     use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
-    use rqe_iterators_test_utils::revalidate_via_resume;
+    use rqe_iterators_test_utils::revalidate_via_resume_across;
 
-    match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), guard)
-        .expect("resume failed")
-    {
+    let it = TypeErasedRQEIterator::new(Box::new(it));
+    // SAFETY: the iterator is suspended, so nothing reads `ii` until the resume.
+    let outcome = revalidate_via_resume_across(it, guard, || write(unsafe { &mut *ii }))
+        .expect("resume failed");
+    match outcome {
         ResumeOutcome::Ok(it) => (it, true),
         ResumeOutcome::Moved(it) => (it, false),
         ResumeOutcome::Aborted => {
@@ -651,16 +438,17 @@ fn resume_parked<'index>(
     }
 }
 
-/// The suspend/resume twin of
-/// [`tag_revalidate_after_write_reads_through_a_live_pointer`].
+/// A reader resumed after a write to its index must not read through the
+/// pointer it was opened with: the writer's `&mut` invalidated it, even though
+/// the index kept its address and identity. Run under Miri to catch it.
 #[test]
 fn tag_resume_after_write_reads_through_a_live_pointer() {
     const N: DocId = 4;
     let mock_ctx = MockContext::new(N, N as usize);
     let ii = new_tag_index(N);
 
-    let it = tag_parked_across_a_write(ii, &mock_ctx, 2, append(N + 1));
-    let (mut it, _) = resume_parked(it, &mock_ctx.spec_read());
+    let it = tag_parked(ii, &mock_ctx, 2);
+    let (mut it, _) = resume_across_write(it, &mock_ctx.spec_read(), ii, append(N + 1));
     assert_eq!(drain(&mut it), (3..=N + 1).collect::<Vec<_>>());
 
     drop(it);
@@ -668,18 +456,22 @@ fn tag_resume_after_write_reads_through_a_live_pointer() {
     drop(unsafe { Box::from_raw(ii) });
 }
 
-/// The suspend/resume twin of
-/// [`tag_revalidate_after_write_to_a_later_block_reads_on`].
+/// As [`tag_resume_after_write_reads_through_a_live_pointer`], but the write
+/// lands in a later block than the one the reader is parked in, so resumption
+/// finds nothing to re-seek and the reader reads on from the block buffer it
+/// cached before the write.
 #[test]
 fn tag_resume_after_write_to_a_later_block_reads_on() {
     use inverted_index::Encoder;
 
+    // One past a full block, so the index spans two and the reader parks in the
+    // first while the append lands in the second.
     let n = DocId::from(DocIdsOnly::RECOMMENDED_BLOCK_ENTRIES) + 1;
     let mock_ctx = MockContext::new(n, n as usize);
     let ii = new_tag_index(n);
 
-    let it = tag_parked_across_a_write(ii, &mock_ctx, 2, append(n + 1));
-    let (mut it, kept_position) = resume_parked(it, &mock_ctx.spec_read());
+    let it = tag_parked(ii, &mock_ctx, 2);
+    let (mut it, kept_position) = resume_across_write(it, &mock_ctx.spec_read(), ii, append(n + 1));
     assert!(
         kept_position,
         "a write past the reader's block must not force a re-seek"
@@ -691,16 +483,16 @@ fn tag_resume_after_write_to_a_later_block_reads_on() {
     drop(unsafe { Box::from_raw(ii) });
 }
 
-/// The suspend/resume twin of
-/// [`tag_revalidate_after_gc_reads_through_a_live_pointer`].
+/// As [`tag_resume_after_write_reads_through_a_live_pointer`], with an
+/// in-place garbage-collection pass as the write.
 #[test]
 fn tag_resume_after_gc_reads_through_a_live_pointer() {
     const N: DocId = 4;
     let mock_ctx = MockContext::new(N, N as usize);
     let ii = new_tag_index(N);
 
-    let it = tag_parked_across_a_write(ii, &mock_ctx, 2, collect(3));
-    let (mut it, _) = resume_parked(it, &mock_ctx.spec_read());
+    let it = tag_parked(ii, &mock_ctx, 2);
+    let (mut it, _) = resume_across_write(it, &mock_ctx.spec_read(), ii, collect(3));
     assert_eq!(drain(&mut it), vec![4]);
 
     drop(it);

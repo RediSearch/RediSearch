@@ -11,7 +11,7 @@ use std::{f64, ptr::NonNull};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
@@ -108,7 +108,7 @@ struct RangeTreeInfo {
 /// What revalidation finds when it looks the reader's range up again.
 enum RangeLookup {
     /// The tree changed shape, so the range may be gone: the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// [abort](ResumeOutcome::Aborted).
     Gone,
     /// The range's entries, freshly resolved through the tree, to
     /// [reseat](inverted_index::ReseatIndex) the reader on.
@@ -365,26 +365,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self.resolve_live_index() {
-            RangeLookup::Gone => return Ok(RQEValidateStatus::Aborted),
-            // `revalidate` reads the index's GC marker through the reader's
-            // pointer, which may not have survived a write to the index.
-            // SAFETY: 1. An unchanged revision keeps the reader's range on the node
-            // it was opened on. 2. `ii` was resolved just now, under the read lock
-            // `spec` witnesses. 3. The revalidation protocol only lets the index be
-            // written while the reader is parked across a lock release.
-            RangeLookup::Live(ii) => unsafe { self.it.reader.reseat(ii) },
-            RangeLookup::Untracked => {}
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -783,18 +763,6 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
             Self::Unfiltered(iter) => iter.at_eof(),
             Self::Filtered(iter) => iter.at_eof(),
             Self::Geo(iter) => iter.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            Self::Unfiltered(iter) => iter.revalidate(spec),
-            Self::Filtered(iter) => iter.revalidate(spec),
-            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 
