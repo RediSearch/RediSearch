@@ -12,8 +12,7 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{
     ExpirationChecker, IteratorType, MemTracker, NoOpChecker, NoTracker, RQEIterator,
-    RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
-    TypeErasedRQEIterator,
+    RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     geo_shape::GeoShape,
     utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };

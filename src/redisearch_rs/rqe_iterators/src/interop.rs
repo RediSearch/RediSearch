@@ -23,7 +23,7 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 use crate::{
-    RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::ProfilePrint,
 };
 
@@ -55,7 +55,7 @@ use crate::{
 #[repr(C)]
 pub struct RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     // The iterator header.
     // It *must* appear first for C-Rust interoperability to work as expected.
@@ -75,7 +75,7 @@ pub enum InnerState<'a, A, S> {
 /// Whether an [`RQEIteratorWrapper`]'s iterator is active or suspended.
 enum WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     Active(Box<I>),
     Suspended(Box<I::Suspended>),
@@ -85,7 +85,7 @@ where
 
 impl<'index, I> WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the active iterator. Panics otherwise.
     fn active_ref(&self) -> &I {
@@ -137,7 +137,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the iterator. Panics if it is suspended.
     ///
@@ -235,7 +235,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
     I::Suspended: RQESuspendedIterator<'index, Resumed<'index> = I>,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
@@ -295,7 +295,7 @@ where
 /// For these casts to remain valid after profiling, the wrapper's type parameter must
 /// stay the same. For example, `Intersection<CRQEIterator>` must remain
 /// `Intersection<CRQEIterator>` after its children are profiled — not become
-/// `Intersection<Box<dyn RQEIterator>>`.
+/// `Intersection<TypeErasedRQEIterator>`.
 ///
 /// This trait provides that guarantee: [`profile_children`](Self::profile_children)
 /// returns `Self`, so the type is preserved through profiling. Each child is profiled
@@ -333,7 +333,7 @@ where
 ///
 /// This trait will be removed when the C code that accesses iterator internals
 /// (profile printing, optimizer, mutation) is ported to Rust.
-pub trait ProfileChildren<'index>: RQEIteratorBoxed<'index> + Sized + 'index {
+pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
     /// Profile all children, preserving the concrete iterator type.
     fn profile_children(self) -> Self;
 }
@@ -377,7 +377,7 @@ unsafe fn wrapper_from_callback<'a, 'index, I>(
     base: *mut QueryIterator,
 ) -> &'a mut RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     // SAFETY: Guaranteed by 1., which rules out null.
@@ -388,7 +388,7 @@ where
 
 extern "C" fn read<'index, I>(base: *mut QueryIterator) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -416,7 +416,7 @@ where
 
 extern "C" fn skip_to<'index, I>(base: *mut QueryIterator, doc_id: DocId) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -471,7 +471,7 @@ pub fn mock_revalidate_timeout() -> bool {
 /// iterator that is already suspended, so nested unlock sites need not coordinate.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -487,7 +487,7 @@ where
     // transition their own typestate as part of the per-child dispatch. No
     // separate cascade pass is needed.
     let active = wrapper.state.take_active();
-    let suspended = <I as RQEIteratorBoxed>::suspend(active);
+    let suspended = <I as RQEIterator>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
     // Suspending may move the result, and it may point into index data freed while the lock is
     // released: a stray read must fail loudly.
@@ -501,7 +501,7 @@ extern "C" fn revalidate<'index, I>(
     spec: *mut ffi::IndexSpec,
 ) -> ValidateStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
     I::Suspended: RQESuspendedIterator<'index, Resumed<'index> = I>,
 {
     debug_assert!(base.is_aligned());
@@ -521,7 +521,7 @@ where
         // Not every unlock site calls `Suspend`, and the borrows may have gone stale while the
         // lock was released: run the whole cycle rather than trust them.
         let active = wrapper.state.take_active();
-        wrapper.state = WrapperState::Suspended(<I as RQEIteratorBoxed>::suspend(active));
+        wrapper.state = WrapperState::Suspended(<I as RQEIterator>::suspend(active));
     }
 
     // SAFETY: spec is a valid pointer (guaranteed by C caller).
@@ -571,7 +571,7 @@ fn debug_assert_resumed_in_place<S, I>(suspended_at: *const S, resumed: &I) {
 
 extern "C" fn rewind<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -586,7 +586,7 @@ where
 /// been suspended at the unlock site.
 extern "C" fn num_estimated<'index, I>(base: *const QueryIterator) -> usize
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. and 2. by invariant 1. of [`RQEIteratorWrapper`]. 3. C frees the iterator
@@ -659,7 +659,7 @@ where
 
 extern "C" fn free_iterator<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     if !base.is_null() {
         debug_assert!(base.is_aligned());
@@ -679,7 +679,7 @@ where
 ///   with inner type `I`.
 /// - `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
 /// - `ctx` must be a valid pointer to a [`ProfilePrintCtx`](crate::profile_print::ProfilePrintCtx).
-unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIteratorBoxed<'index> + 'index>(
+unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
     map: *mut ffi::RsMapBuilder,
     ctx: *mut ffi::RsProfilePrintCtx,

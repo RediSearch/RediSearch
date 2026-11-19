@@ -111,13 +111,12 @@ enum Ordering {
 ///
 /// # Limitations
 ///
-/// The checker verifies the [`RQEIterator`] surface only. It does not
-/// implement the suspend/resume machinery
-/// ([`RQEIteratorBoxed`](rqe_iterators::RQEIteratorBoxed)), so tests
-/// exercising that path still drive the unwrapped iterator. The cross-cycle
-/// guarantees are asserted by
-/// [`revalidate_via_resume`](crate::revalidate_via_resume) instead, which every
-/// resume test funnels through.
+/// The checker verifies the read surface only. Its
+/// [`suspend`](RQEIterator::suspend) unwraps it and suspends the inner iterator,
+/// so the iterator a resume hands back is no longer checked; tests exercising
+/// that path drive the unwrapped iterator. The cross-cycle guarantees are
+/// asserted by [`revalidate_via_resume`](crate::revalidate_via_resume) instead,
+/// which every resume test funnels through.
 #[expect(rustdoc::private_intra_doc_links)]
 pub struct ContractChecker<I> {
     inner: I,
@@ -295,7 +294,25 @@ impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
     }
 }
 
+impl<I: rqe_iterators::profile_print::ProfilePrint> rqe_iterators::profile_print::ProfilePrint
+    for ContractChecker<I>
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.inner.print_profile(map, ctx);
+    }
+}
+
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> {
+    type Suspended = I::Suspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        Box::new(self.inner).suspend()
+    }
+
     #[track_caller]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self.position {

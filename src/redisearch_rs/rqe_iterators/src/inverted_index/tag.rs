@@ -21,8 +21,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -186,11 +186,27 @@ where
 
 impl<'index, E, L, C> RQEIterator<'index> for Tag<'index, E, L, C>
 where
-    E: DecodedBy + 'index,
+    E: DecodedBy + 'index + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
-    L: TagLookup<E>,
+    C: ExpirationChecker + 'static,
+    L: TagLookup<E> + 'static,
 {
+    // The inner reader is concretely `RawIndexReaderCore<Rf, E>`, so the core
+    // iterator's frozen `RA` slot defaults to the `Active` reader and stays
+    // identical across the cast while the inner reader weakens.
+    type Suspended = RawTag<'index, Suspended, E, L, C>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTag` is a `#[repr(C)]` struct whose only `Rf`-dependent
+        // field is the inner `RawInvIndIterator`, layout-identical across modes
+        // by invariant 1 on [`RawInvIndIterator`] (const proof there); the
+        // `lookup` field carries no `Rf`. `Box::from_raw` reuses the same heap
+        // allocation.
+        unsafe { Box::from_raw(raw as *mut RawTag<'index, Suspended, E, L, C>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -253,30 +269,6 @@ where
         }
         ctx.print_optional_counters(map);
         ctx.print_estimated(map);
-    }
-}
-
-impl<'index, E, L, C> RQEIteratorBoxed<'index> for Tag<'index, E, L, C>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker + 'static,
-    L: TagLookup<E> + 'static,
-{
-    // The inner reader is concretely `RawIndexReaderCore<Rf, E>`, so the core
-    // iterator's frozen `RA` slot defaults to the `Active` reader and stays
-    // identical across the cast while the inner reader weakens.
-    type Suspended = RawTag<'index, Suspended, E, L, C>;
-
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        self.it.refresh_num_docs();
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTag` is a `#[repr(C)]` struct whose only `Rf`-dependent
-        // field is the inner `RawInvIndIterator`, layout-identical across modes
-        // by invariant 1 on [`RawInvIndIterator`] (const proof there); the
-        // `lookup` field carries no `Rf`. `Box::from_raw` reuses the same heap
-        // allocation.
-        unsafe { Box::from_raw(raw as *mut RawTag<'index, Suspended, E, L, C>) }
     }
 }
 

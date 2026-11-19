@@ -10,46 +10,36 @@
 //! `Box<Self>`-based suspend/resume trait scaffolding.
 //!
 //! This module defines the suspend/resume trait hierarchy that revalidates
-//! iterators across a spec lock release:
+//! iterators across a spec lock release. An iterator is either *active*
+//! (holding live references into the index) or *suspended* (a passive carrier
+//! that can be held across an index read-lock release); each state has a
+//! concrete, type-state-preserving trait and a dyn-safe sibling for type
+//! erasure:
 //!
 //! | Concept              | Concrete (type-state preserved)   | Dyn-safe sibling                    |
 //! |----------------------|-----------------------------------|-------------------------------------|
-//! | Active iterator      | [`RQEIteratorBoxed`]              | [`RQEDynIterator`]                  |
+//! | Active iterator      | [`RQEIterator`]                   | [`RQEDynIterator`]                  |
 //! | Suspended iterator   | [`RQESuspendedIterator`]          | [`RQEDynSuspendedIterator`]         |
 //! | Erasure wrapper type | [`TypeErasedRQEIterator`]         | [`TypeErasedRQESuspendedIterator`]  |
 //!
-//! Implementers only need to provide the *concrete* traits
-//! ([`RQEIteratorBoxed`] / [`RQESuspendedIterator`]); blanket bridge impls
-//! produce the corresponding [`RQEDynIterator`] / [`RQEDynSuspendedIterator`]
-//! implementations automatically.
+//! Implementers only provide the *concrete* traits
+//! ([`RQEIterator`] — defined in the crate root — and [`RQESuspendedIterator`]);
+//! blanket bridge impls in this module produce the corresponding
+//! [`RQEDynIterator`] / [`RQEDynSuspendedIterator`] implementations
+//! automatically.
 //!
-//! The receiver shape (`self: Box<Self>`) is what unlocks object safety
-//! while still letting the suspend/resume body reinterpret the heap
-//! allocation byte-identically — see [`RQEIteratorBoxed::suspend`] for the
-//! intended idiom.
+//! The receiver shape (`self: Box<Self>`) is what lets the suspend/resume body
+//! reinterpret the heap allocation byte-identically — see
+//! [`RQEIterator::suspend`] for the intended idiom.
 //!
-//! # Transitional shape
+//! # Object safety
 //!
-//! During the first phase of the revalidation work,
-//! the new `RQEIteratorBoxed` trait is a **subtrait** of the legacy [`RQEIterator`]:
-//!
-//! ```text
-//! trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
-//!     type Suspended: RQESuspendedIterator + 'static;
-//!     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
-//! }
-//! ```
-//!
-//! This means every iterator only needs to *add* `type Suspended` and
-//! `fn suspend` to migrate — the read/skip/rewind/etc. surface comes from
-//! the supertrait, and there is no method-name ambiguity at internal call
-//! sites that reach for `self.foo()`. The same goes for [`RQEDynIterator`]
-//! against the legacy trait on the dyn-erased side.
-//!
-//! In the second phase of the revalidation work, the legacy [`RQEIterator`] trait will be
-//! deleted entirely; its method signatures (sans `revalidate`) will be folded
-//! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
-//! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
+//! [`RQEIterator`] carries an associated `Suspended` type, so `dyn RQEIterator`
+//! is not a legal type. [`RQEDynIterator`] is therefore the sole dyn-safe trait:
+//! it redeclares the object-safe read/skip surface and replaces the concrete
+//! `suspend` (`-> Box<Self::Suspended>`) with a type-erased one
+//! (`-> TypeErasedRQESuspendedIterator`). Trait objects and dynamic children go
+//! through `dyn RQEDynIterator`, never `dyn RQEIterator`.
 
 use std::ptr::NonNull;
 
@@ -60,37 +50,8 @@ use ref_mode::{Active, Suspended};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, ResumeOutcome, SkipToOutcome, c2rust};
 
-/// Concrete-typed active iterator trait — the new shape of
-/// [`RQEIterator`].
-///
-/// Compared with the legacy trait it adds:
-///
-/// 1. [`suspend`](Self::suspend) consumes `self: Box<Self>` and returns
-///    `Box<Self::Suspended>`. The intended implementation is a pure pointer
-///    cast layout-compatible `Active`/`Suspended` counterparts. This preserves
-///    the box's heap address across the suspend/resume cycle, which matters
-///    for iterators that give out raw pointers to (parts of their) internal state.
-///
-/// The [`Box<Self>`] receiver also makes this method object-safe, which is
-/// what lets the [`RQEDynIterator`] sibling exist as a free blanket impl.
-pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
-    /// The suspended counterpart of this iterator. Carries no live
-    /// references into the *index* (those are weakened to raw pointers on
-    /// suspend), but may still borrow query-pipeline data for `'index` — see
-    /// the `'query` parameter on [`RQESuspendedIterator`]. It can therefore be
-    /// held across a lock release/reacquire cycle: the index pointers are
-    /// re-validated on resume, while the query-pipeline borrows stay live.
-    type Suspended: RQESuspendedIterator<'index> + 'index;
-
-    /// Transition to the suspended state.
-    ///
-    /// Must be called while the spec read lock is still held: an implementation may still read
-    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
-}
-
 /// Concrete-typed suspended iterator trait — counterpart of
-/// [`RQEIteratorBoxed`].
+/// [`RQEIterator`].
 ///
 /// Implementers are typically the `Raw…<Suspended, 'query>` instantiations of
 /// the same `#[repr(C)]` struct used in active mode.
@@ -105,12 +66,13 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
 /// suspended iterator holds no live *index* references, but may still borrow
 /// query-pipeline data for `'query`.
 ///
-/// It is also [`ProfilePrint`](crate::profile_print::ProfilePrint) so
-/// `FT.PROFILE` introspection can print a suspended iterator's profile tree
-/// without resuming it (see [`crate::interop::RQEIteratorWrapper`]'s
-/// `print_profile` callback). The profile fields (counters, wall-time, child
-/// accessors) are stored on the mode-independent `Raw…` structs, so the same
-/// `ProfilePrint` impl serves the active and suspended counterparts.
+/// It is also [`ProfilePrint`](crate::profile_print::ProfilePrint) — symmetric
+/// with [`RQEIterator`] — so `FT.PROFILE` introspection can print a suspended
+/// iterator's profile tree without resuming it (see
+/// [`crate::interop::RQEIteratorWrapper`]'s `print_profile` callback). The
+/// profile fields (counters, wall-time, child accessors) are stored on the
+/// mode-independent `Raw…` structs, so the same `ProfilePrint` impl serves the
+/// active and suspended counterparts.
 pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// The active counterpart this iterator resumes into, parameterised by
     /// the lifetime of the freshly re-acquired read guard.
@@ -118,7 +80,7 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// `'query: 'index` is required because the retained query-pipeline
     /// borrows must outlive the (shorter) guard window the iterator is
     /// resumed into.
-    type Resumed<'index>: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint
+    type Resumed<'index>: RQEIterator<'index>
     where
         'query: 'index;
 
@@ -173,15 +135,45 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     fn num_estimated(&self) -> usize;
 }
 
-/// Dyn-safe sibling of [`RQEIteratorBoxed`].
+/// Dyn-safe sibling of [`RQEIterator`].
+///
+/// This is the **only** dyn-safe trait in the hierarchy. [`RQEIterator`] carries
+/// an associated `Suspended` type, so `dyn RQEIterator` is impossible; instead,
+/// `RQEDynIterator` redeclares the object-safe read/skip surface and pairs it
+/// with a *type-erased* `suspend` (returning [`TypeErasedRQESuspendedIterator`]
+/// rather than a concrete `Box<Self::Suspended>`). Trait objects and dynamic
+/// children therefore go through `dyn RQEDynIterator`, never `dyn RQEIterator`.
 ///
 /// You shouldn't implement this trait by hand; the blanket
-/// `impl<T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T` below
-/// produces it for every concrete iterator.
-pub trait RQEDynIterator<'index>:
-    RQEIterator<'index> + crate::profile_print::ProfilePrint + 'index
-{
-    /// Type-erased counterpart of [`RQEIteratorBoxed::suspend`].
+/// `impl<T: RQEIterator<'index> + 'index> RQEDynIterator<'index> for T` below
+/// produces it for every concrete iterator by forwarding to its
+/// [`RQEIterator`] impl.
+pub trait RQEDynIterator<'index>: crate::profile_print::ProfilePrint + 'index {
+    /// Object-safe counterpart of [`RQEIterator::current`].
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
+    /// Object-safe counterpart of [`RQEIterator::read`].
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>;
+    /// Object-safe counterpart of [`RQEIterator::skip_to`].
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>;
+    /// Object-safe counterpart of [`RQEIterator::rewind`].
+    fn rewind(&mut self);
+    /// Object-safe counterpart of [`RQEIterator::num_estimated`].
+    fn num_estimated(&self) -> usize;
+    /// Object-safe counterpart of [`RQEIterator::last_doc_id`].
+    fn last_doc_id(&self) -> t_docId;
+    /// Object-safe counterpart of [`RQEIterator::at_eof`].
+    fn at_eof(&self) -> bool;
+    /// Object-safe counterpart of [`RQEIterator::type_`].
+    fn type_(&self) -> IteratorType;
+    /// Object-safe counterpart of [`RQEIterator::as_c_iterator`].
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator>;
+    /// Object-safe counterpart of [`RQEIterator::intersection_sort_weight`].
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
+
+    /// Type-erased counterpart of [`RQEIterator::suspend`].
     fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index>;
 }
 
@@ -203,15 +195,17 @@ pub trait RQEDynSuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     where
         'query: 'index;
 
+    /// Type-erased counterpart of [`RQESuspendedIterator::last_doc_id`].
     fn last_doc_id(&self) -> t_docId;
 
+    /// Type-erased counterpart of [`RQESuspendedIterator::num_estimated`].
     fn num_estimated(&self) -> usize;
 }
 
 /// Type-erased, active iterator.
 ///
 /// Newtype around `Box<dyn RQEDynIterator<'index> + 'index>`. The wrapper itself
-/// implements [`RQEIterator`] and [`RQEIteratorBoxed`] so composites can
+/// implements [`RQEIterator`] so composites can
 /// take it as their `I` parameter without knowing it's holding a trait
 /// object.
 #[repr(transparent)]
@@ -229,10 +223,7 @@ pub struct TypeErasedRQESuspendedIterator<'query>(
 
 impl<'index> TypeErasedRQEIterator<'index> {
     /// Wrap a concrete iterator into the type-erased wrapper.
-    pub fn new<I>(iter: Box<I>) -> Self
-    where
-        I: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint + 'index,
-    {
+    pub fn new<I: RQEIterator<'index> + 'index>(iter: Box<I>) -> Self {
         Self(iter as Box<dyn RQEDynIterator<'index> + 'index>)
     }
 }
@@ -266,7 +257,7 @@ pub const fn assert_layout_compatible<A, B>() {
 /// this type identity; equal layouts alone do not make the value valid as `I`.
 pub const fn assert_resumes_to_itself<I>()
 where
-    I: RQEIteratorBoxed<'static>,
+    I: RQEIterator<'static>,
     I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
 {
 }
@@ -329,7 +320,7 @@ where
 }
 
 /// Suspend a single child slot in place: read the value out, call its
-/// [`RQEIteratorBoxed::suspend`] through the trait, and write the suspended
+/// [`RQEIterator::suspend`] through the trait, and write the suspended
 /// counterpart back into the same slot.
 ///
 /// This is the composite-side primitive that lets `Vec<I>` storage hold
@@ -355,19 +346,19 @@ where
 /// `ptr::write` cast relies on is *not* a caller obligation: it is enforced at
 /// compile time by the `assert_layout_compatible` guard at the top of the body
 /// (a mismatched implementer fails to build). It holds for all
-/// `RQEIteratorBoxed` impls in this crate by their `#[repr(C)]` layouts over
+/// `RQEIterator` impls in this crate by their `#[repr(C)]` layouts over
 /// `SharedPtr`/fat-pointer fields.
 ///
 /// Between the `ptr::read` and the matching `ptr::write` the slot is logically
 /// uninitialised while the caller (and any composite that owns it) still
-/// considers it live. `RQEIteratorBoxed::suspend` is a safe trait method that
+/// considers it live. `RQEIterator::suspend` is a safe trait method that
 /// may dispatch to arbitrary (including dyn) implementations and could panic;
 /// if it did, unwinding past the uninitialised slot would let the owner drop a
 /// moved-from value (double drop). To keep the window sound, a panic from
 /// `suspend` is converted into a process abort rather than an unwind.
 pub unsafe fn suspend_child_slot_in_place<'index, I>(slot: NonNull<I>)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     // Statically enforce the size/alignment invariant the `ptr::write` cast
     // below relies on: a mismatched-layout implementer fails to compile here.
@@ -396,7 +387,7 @@ where
     // Either way the *inner* concrete iterator's heap allocation is preserved.
     // Only the outer wrapper bytes may differ (and the wrapper's address doesn't
     // matter, see [`crate::interop::revalidate`] for the rationale).
-    let suspended = *<I as RQEIteratorBoxed<'index>>::suspend(Box::new(active));
+    let suspended = *<I as RQEIterator<'index>>::suspend(Box::new(active));
     // SAFETY: `I` and `I::Suspended` share size and alignment (guaranteed by the
     // `assert_layout_compatible` guard at the top of the body). The slot is
     // uninitialised after the earlier `ptr::read`; writing a valid `I::Suspended`
@@ -425,7 +416,7 @@ pub(crate) unsafe fn suspend_children_in_place<'index, E, I>(
     mut children: NonNull<Vec<E>>,
     slot_of: impl Fn(NonNull<E>) -> NonNull<I>,
 ) where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     let (base, len) = {
         // SAFETY: 1. The borrow only reaches the buffer pointer and length, and
@@ -484,7 +475,7 @@ pub enum ResumeSlotOutcome {
 /// `ptr::write` cast relies on is *not* a caller obligation: it is enforced at
 /// compile time by the `assert_layout_compatible` guard at the top of the body
 /// (a mismatched implementer fails to build). It holds for all
-/// `RQEIteratorBoxed`/`RQESuspendedIterator` impls in this crate by their
+/// `RQEIterator`/`RQESuspendedIterator` impls in this crate by their
 /// `#[repr(C)]` layouts.
 ///
 /// Between the `ptr::read` and the matching `ptr::write` (or the caller's
@@ -633,16 +624,68 @@ impl<S> Drop for UninitBox<S> {
 
 /// Bridge concrete active iterators into the dyn-safe sibling.
 ///
-/// Only `suspend` is bridged here — the read/skip surface is inherited from
-/// the legacy [`RQEIterator`] supertrait, which the
-/// concrete iterator already implements.
-impl<'index, T> RQEDynIterator<'index> for T
-where
-    T: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint + 'index,
-{
+/// The read/skip surface is forwarded method-by-method to the concrete
+/// iterator's [`RQEIterator`] impl, and `suspend` is type-erased into a
+/// [`TypeErasedRQESuspendedIterator`]. Forwarding (rather than inheriting via a
+/// supertrait) is what keeps `RQEDynIterator` free of `RQEIterator`'s associated
+/// `Suspended` type, so `dyn RQEDynIterator` stays object-safe.
+impl<'index, T: RQEIterator<'index> + 'index> RQEDynIterator<'index> for T {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        <T as RQEIterator<'index>>::current(self)
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        <T as RQEIterator<'index>>::read(self)
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        <T as RQEIterator<'index>>::skip_to(self, doc_id)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        <T as RQEIterator<'index>>::rewind(self)
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        <T as RQEIterator<'index>>::num_estimated(self)
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        <T as RQEIterator<'index>>::last_doc_id(self)
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        <T as RQEIterator<'index>>::at_eof(self)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        <T as RQEIterator<'index>>::type_(self)
+    }
+
+    #[inline(always)]
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        <T as RQEIterator<'index>>::as_c_iterator(self)
+    }
+
+    #[inline(always)]
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        <T as RQEIterator<'index>>::intersection_sort_weight(self, prioritize_union_children)
+    }
+
     #[inline(always)]
     fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index> {
-        let suspended = <T as RQEIteratorBoxed<'index>>::suspend(self);
+        let suspended = <T as RQEIterator<'index>>::suspend(self);
         TypeErasedRQESuspendedIterator(
             suspended as Box<dyn RQEDynSuspendedIterator<'index> + 'index>,
         )
@@ -687,9 +730,30 @@ impl<'query, S: RQESuspendedIterator<'query> + 'query> RQEDynSuspendedIterator<'
 // --- Forwarding impls on the wrappers themselves ----------------------------
 
 /// Forwarding [`RQEIterator`] impl so [`TypeErasedRQEIterator`] can serve as the
-/// `I` type parameter of composite iterators (which bound on
-/// [`RQEIterator`] via the [`RQEIteratorBoxed`] supertrait).
+/// `I` type parameter of composite iterators (which bound on [`RQEIterator`]),
+/// and participate in the suspend/resume surface (its `Suspended` counterpart
+/// is [`TypeErasedRQESuspendedIterator`]).
 impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
+    type Suspended = TypeErasedRQESuspendedIterator<'index>;
+
+    #[inline(always)]
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        const { assert_layout_compatible::<Self, Self::Suspended>() };
+        // Reuse this box for the suspended form: lowered to C, it is the box
+        // `RQEIteratorWrapper` must find again on resume.
+        let slot = Box::into_raw(self);
+        // SAFETY: `slot` came from `Box::into_raw`. The value is moved out and the
+        // slot rewritten before it is reclaimed; a panic in between leaks it.
+        let TypeErasedRQEIterator(inner) = unsafe { slot.read() };
+        let suspended = <dyn RQEDynIterator<'index> as RQEDynIterator<'index>>::suspend(inner);
+        let slot = slot.cast::<Self::Suspended>();
+        // SAFETY: the slot is uninitialised, and laid out for `Self::Suspended`
+        // (asserted above).
+        unsafe { slot.write(suspended) };
+        // SAFETY: `slot` came from `Box::into_raw` and holds a valid value again.
+        unsafe { Box::from_raw(slot) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.0.current()
@@ -744,11 +808,12 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     }
 }
 
-/// Forwarding [`ProfilePrint`](crate::profile_print::ProfilePrint) impl so [`TypeErasedRQEIterator`] satisfies the
-/// `ProfilePrint` bound expected by [`crate::interop::RQEIteratorWrapper::boxed_new`].
+/// Forwarding [`crate::profile_print::ProfilePrint`] impl so [`TypeErasedRQEIterator`] satisfies the
+/// `ProfilePrint` bound (also a supertrait of [`RQEDynIterator`]).
 ///
-/// Delegates to the erased iterator, so `FT.PROFILE` prints the same tree
-/// whether or not a node was type-erased on its way into it.
+/// Delegates to the erased concrete iterator's own `print_profile` through the
+/// [`RQEDynIterator`] vtable, so `FT.PROFILE` reports the real iterator instead
+/// of a generic placeholder.
 impl crate::profile_print::ProfilePrint for TypeErasedRQEIterator<'_> {
     fn print_profile(
         &self,
@@ -759,16 +824,20 @@ impl crate::profile_print::ProfilePrint for TypeErasedRQEIterator<'_> {
     }
 }
 
-/// Forwarding [`RQEIteratorBoxed`] impl so [`TypeErasedRQEIterator`] also
-/// participates in the new suspend/resume surface (its `Suspended`
-/// counterpart is [`TypeErasedRQESuspendedIterator`]).
-impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
-    type Suspended = TypeErasedRQESuspendedIterator<'index>;
-
-    #[inline(always)]
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let TypeErasedRQEIterator(inner) = *self;
-        Box::new(<dyn RQEDynIterator<'index> as RQEDynIterator<'index>>::suspend(inner))
+/// Forwarding [`crate::profile_print::ProfilePrint`] impl so
+/// [`TypeErasedRQESuspendedIterator`] satisfies the `ProfilePrint` bound
+/// required by the `RQESuspendedIterator: ProfilePrint` supertrait.
+///
+/// Delegates to the erased concrete suspended iterator's own `print_profile`
+/// through the [`RQEDynSuspendedIterator`] vtable, so `FT.PROFILE` reports the
+/// real iterator even when the tree is suspended at the unlock site.
+impl crate::profile_print::ProfilePrint for TypeErasedRQESuspendedIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
 
@@ -788,17 +857,41 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     where
         'query: 'index,
     {
-        let TypeErasedRQESuspendedIterator(inner) = *self;
-        // `Self::Resumed` is the already-erased `TypeErasedRQEIterator`, so the
-        // concrete `ResumeOutcome<Box<Self::Resumed>>` shape forces a
-        // (deliberate) double box here. This is a transient allocation only on
-        // the resume path for an erased composite child; the hot path resumes
-        // the concrete inner via the blanket bridge (single box).
-        Ok(match inner.resume(guard)? {
-            ResumeOutcome::Ok(it) => ResumeOutcome::Ok(Box::new(it)),
-            ResumeOutcome::Moved(it) => ResumeOutcome::Moved(Box::new(it)),
-            ResumeOutcome::Aborted => ResumeOutcome::Aborted,
-        })
+        const { assert_layout_compatible::<Self, TypeErasedRQEIterator<'index>>() };
+        // Resume into this box, mirroring `suspend`.
+        let slot = Box::into_raw(self);
+        // SAFETY: `slot` came from `Box::into_raw`. The value is moved out and the
+        // slot rewritten or freed below; a panic in between leaks it.
+        let TypeErasedRQESuspendedIterator(inner) = unsafe { slot.read() };
+        let outcome = inner.resume(guard);
+        let slot = slot.cast::<TypeErasedRQEIterator<'index>>();
+        let reuse = |it| {
+            // SAFETY: the slot is uninitialised, and laid out for
+            // `TypeErasedRQEIterator` (asserted above).
+            unsafe { slot.write(it) };
+            // SAFETY: `slot` came from `Box::into_raw` and holds a valid value again.
+            unsafe { Box::from_raw(slot) }
+        };
+        // Nothing to put back: free the slot without dropping its moved-out bytes.
+        let free = || {
+            // SAFETY: `slot` came from `Box::into_raw`, and `MaybeUninit` has the
+            // layout of the value it was allocated for.
+            drop(unsafe {
+                Box::from_raw(slot.cast::<std::mem::MaybeUninit<TypeErasedRQEIterator<'index>>>())
+            })
+        };
+        match outcome {
+            Ok(ResumeOutcome::Ok(it)) => Ok(ResumeOutcome::Ok(reuse(it))),
+            Ok(ResumeOutcome::Moved(it)) => Ok(ResumeOutcome::Moved(reuse(it))),
+            Ok(ResumeOutcome::Aborted) => {
+                free();
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                free();
+                Err(e)
+            }
+        }
     }
 
     #[inline(always)]
@@ -809,22 +902,5 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
-    }
-}
-
-/// Forwarding [`crate::profile_print::ProfilePrint`] impl so
-/// [`TypeErasedRQESuspendedIterator`] satisfies the `ProfilePrint` bound
-/// required by the `RQESuspendedIterator: ProfilePrint` supertrait.
-///
-/// Delegates to the erased concrete suspended iterator's own `print_profile`
-/// through the [`RQEDynSuspendedIterator`] vtable, so `FT.PROFILE` reports the
-/// real iterator even when the tree is suspended at the unlock site.
-impl crate::profile_print::ProfilePrint for TypeErasedRQESuspendedIterator<'_> {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
-    ) {
-        self.0.print_profile(map, ctx);
     }
 }
