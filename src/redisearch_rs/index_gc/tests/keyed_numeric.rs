@@ -193,14 +193,51 @@ impl TestSpec {
         trees
     }
 
+    /// The parent's side for one key, flushing its statistics to the spec as the fork
+    /// parent does.
+    fn apply_next(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        stats: &mut GcApplyStats,
+        compact: bool,
+    ) -> Result<HandleOutcome, GcError> {
+        handle_keyed_numeric_with(cursor, self, stats, compact, |guard, key_stats| {
+            key_stats.apply_to_spec(guard);
+        })
+    }
+
+    /// Add one pair and charge the spec's statistics as the indexer does.
+    fn add_charged(&mut self, field: usize, doc_id: DocId, key: &[u8], value: f64) {
+        let r = self.index_mut(field).add(doc_id, key, value, false, 0);
+        let stats = &mut self.spec.stats;
+        stats.invertedSize = stats
+            .invertedSize
+            .wrapping_add_signed(r.size_delta as isize);
+        stats.numRecords = stats
+            .numRecords
+            .wrapping_add_signed(r.num_records_delta as isize);
+        stats.totalInvertedIndexBlocks = stats
+            .totalInvertedIndexBlocks
+            .wrapping_add_signed(r.block_count_delta as isize);
+    }
+
+    /// The spec statistics a keyed field's entries are charged to.
+    fn charged(&self) -> (usize, usize, usize) {
+        let stats = &self.spec.stats;
+        (
+            stats.invertedSize,
+            stats.numRecords,
+            stats.totalInvertedIndexBlocks,
+        )
+    }
+
     /// The parent's side: apply a whole stream, returning the stats and the number of
     /// trees it held.
     fn apply_stream(&mut self, bytes: &[u8], compact: bool) -> (GcApplyStats, usize) {
         let mut cursor = Cursor::new(bytes);
         let mut stats = GcApplyStats::default();
         let mut trees = 0;
-        while handle_keyed_numeric_with(&mut cursor, self, &mut stats, compact).unwrap()
-            == HandleOutcome::Collected
+        while self.apply_next(&mut cursor, &mut stats, compact).unwrap() == HandleOutcome::Collected
         {
             trees += 1;
         }
@@ -419,4 +456,120 @@ fn a_thread_gc_cycle_collects_every_keyed_field_and_drops_emptied_keys() {
         assert_memory_exact(&test, field);
     }
     assert_eq!(recorder.0.records_removed, 2 * 3);
+}
+
+/// Enough distinct values that the key's tree splits.
+const MANY: DocId = 2000;
+
+/// A spec holding the key `keep` and, after the baseline was taken, the key `big` with
+/// [`MANY`] documents, all charged to the spec's statistics.
+fn spec_with_a_split_key() -> (TestSpec, (usize, usize, usize)) {
+    let mut test = TestSpec::create(&[Some(&[])], &[]);
+    test.add_charged(0, MANY + 1, b"keep", 1.0);
+    let baseline = test.charged();
+    for doc_id in 1..=MANY {
+        test.add_charged(0, doc_id, b"big", doc_id as f64);
+    }
+    assert!(test.index(0).get(b"big").unwrap().num_ranges() > 1);
+    assert_ne!(test.charged(), baseline);
+    (test, baseline)
+}
+
+fn big_docs() -> Vec<DocId> {
+    (1..=MANY).collect()
+}
+
+fn fork_removes_a_split_key_exactly(compact: bool) {
+    let (mut test, baseline) = spec_with_a_split_key();
+    let bytes = test.collect_bytes(&big_docs());
+    test.apply_stream(&bytes, compact);
+    assert!(test.index(0).get(b"big").is_none());
+    assert_eq!(test.charged(), baseline);
+    assert_memory_exact(&test, 0);
+}
+
+#[test]
+fn removing_a_split_key_returns_the_spec_statistics_to_the_baseline() {
+    fork_removes_a_split_key_exactly(true);
+}
+
+#[test]
+fn removing_a_split_key_without_compaction_returns_the_spec_statistics_to_the_baseline() {
+    fork_removes_a_split_key_exactly(false);
+}
+
+#[test]
+fn the_thread_gc_returns_the_spec_statistics_to_the_baseline_too() {
+    for compact in [true, false] {
+        let (mut test, baseline) = spec_with_a_split_key();
+        test.spec.docs.deletedDocs =
+            Box::into_raw(Box::new(DeletedDocs::from_ids(big_docs()))).cast();
+        let mut recorder = Recorder::default();
+        run_cycle(&mut test, &mut recorder, compact).unwrap();
+        assert!(test.index(0).get(b"big").is_none());
+        assert_eq!(test.charged(), baseline, "compact {compact}");
+        assert_memory_exact(&test, 0);
+    }
+}
+
+#[test]
+fn a_stale_multi_node_stream_is_drained_and_the_next_key_still_applies() {
+    let (mut test, _) = spec_with_a_split_key();
+    test.add_charged(0, MANY + 2, b"y", 3.0);
+    test.add_charged(0, MANY + 3, b"y", 4.0);
+    let mut gone = big_docs();
+    gone.push(MANY + 2);
+    let bytes = test.collect_bytes(&gone);
+    // `big` is recreated with a tree of its own after the scan.
+    let old = test.index(0).get(b"big").unwrap().unique_id();
+    test.index_mut(0).update_tree(b"big", old, |tree| {
+        numeric_range_tree::test_utils::gc_all_ranges(tree, &|_| false);
+    });
+    assert!(test.index_mut(0).remove_key_if_empty(b"big", old));
+    test.add_charged(0, MANY + 10, b"big", 1.0);
+
+    let (_, trees) = test.apply_stream(&bytes, true);
+    assert_eq!(trees, 2);
+    assert_eq!(entries(&test, 0, b"big"), Some(1));
+    assert_eq!(entries(&test, 0, b"y"), Some(1));
+}
+
+#[test]
+fn a_stream_cut_after_a_header_is_a_codec_error() {
+    let (test, _) = spec_with_a_split_key();
+    let bytes = test.collect_bytes(&big_docs());
+    let mut cursor = Cursor::new(bytes.as_slice());
+    deserialize::<Option<KeyedTreeId>>(&mut cursor, "header").unwrap();
+    let header_end = cursor.position() as usize;
+    for cut in [header_end, header_end + 3] {
+        let mut test = TestSpec::create(&[Some(&[])], &[]);
+        let mut cursor = Cursor::new(&bytes[..cut]);
+        let error = test
+            .apply_next(&mut cursor, &mut GcApplyStats::default(), true)
+            .unwrap_err();
+        assert!(
+            matches!(error, GcError::Codec { .. }),
+            "cut at {cut}: {error}"
+        );
+    }
+}
+
+#[test]
+fn a_cycle_takes_the_keyed_holds_only_on_a_spec_with_a_keyed_field() {
+    let mut recorder = Recorder::default();
+    let without = run_cycle(&mut TestSpec::create(&[None], &[1]), &mut recorder, true).unwrap();
+    let with = run_cycle(
+        &mut TestSpec::create(&[Some(KEYS)], &[1]),
+        &mut recorder,
+        true,
+    )
+    .unwrap();
+    // Reads: deleted set, terms, numeric list, tags, missing fields, existing docs.
+    assert_eq!(without.read_locks, 6);
+    // Writes: the prune.
+    assert_eq!(without.write_locks, 1);
+    // A keyed field adds listing its keys, one snapshot chunk and the split check, then
+    // one hold to apply its delta and one to finish its tree.
+    assert_eq!(with.read_locks, without.read_locks + 3);
+    assert_eq!(with.write_locks, without.write_locks + 2);
 }

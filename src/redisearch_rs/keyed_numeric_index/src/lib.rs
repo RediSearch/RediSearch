@@ -127,6 +127,39 @@ impl KeyedNumericBatch {
     }
 }
 
+/// What a tree adds to the spec-wide statistics: the sum of everything
+/// [`KeyedNumericIndex::add`] reported for it, less what GC reported freeing.
+///
+/// A caller that drops a tree must subtract exactly this to keep those statistics exact.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TreeCharge {
+    /// Bytes of the tree's inverted indexes, as in `invertedSize`.
+    pub inverted_size: usize,
+    /// Records held by the tree's ranges, as in `numRecords`.
+    pub records: usize,
+    /// Blocks held by the tree's ranges, as in `totalInvertedIndexBlocks`.
+    pub blocks: usize,
+}
+
+impl TreeCharge {
+    fn of(tree: &NumericRangeTree) -> Self {
+        let (records, blocks) =
+            tree.iter()
+                .filter_map(|node| node.range())
+                .fold((0, 0), |(records, blocks), range| {
+                    (
+                        records + range.num_entries(),
+                        blocks + range.entries().num_blocks(),
+                    )
+                });
+        Self {
+            inverted_size: tree.inverted_indexes_size(),
+            records,
+            blocks,
+        }
+    }
+}
+
 /// One numeric range tree per key.
 ///
 /// A tree is created on the first successful [`add`](KeyedNumericIndex::add) for its key, so
@@ -186,9 +219,11 @@ impl KeyedNumericIndex {
     /// `NaN` is rejected like the numeric field type rejects it: nothing is added and no
     /// key is created. The infinities are accepted.
     ///
-    /// The returned [`AddResult`] describes the change to the key's tree only. A dropped
-    /// pair yields the default result. The change to [`memory_usage`](Self::memory_usage)
-    /// also covers a new key, the tree's base size and the map's growth.
+    /// The returned [`AddResult`] describes the change to the spec-wide statistics. For the
+    /// pair that creates a key its `size_delta` also covers the new tree's initial inverted
+    /// indexes, so that what the spec holds for a tree always equals
+    /// [`TreeCharge`]. A dropped pair yields the default result. The change to
+    /// [`memory_usage`](Self::memory_usage) also covers the key and the map's growth.
     ///
     /// See [`NumericRangeTree::add`] for the meaning of the other parameters.
     pub fn add(
@@ -211,10 +246,12 @@ impl KeyedNumericIndex {
 
         // Insert only a tree that took the pair, so a rejected add leaves no empty key behind.
         let mut tree = Box::new(NumericRangeTree::new(self.compress_floats));
-        let result = tree.add(doc_id, value, has_field_expiration, false, max_depth_range);
+        let mut result = tree.add(doc_id, value, has_field_expiration, false, max_depth_range);
         if tree.num_entries() == 0 {
             return result;
         }
+        // The tree's size counts its empty root, which the add did not report.
+        result.size_delta = tree.inverted_indexes_size() as i64;
         let table_before = self.table_bytes();
         self.memory_usage += key.len() + tree.mem_usage();
         self.keys.insert(key.into(), tree);
@@ -291,20 +328,25 @@ impl KeyedNumericIndex {
 
     /// Drop the tree of `key` if it is the one identified by `expected` and holds no entries.
     ///
-    /// Returns whether it was dropped. The table is not shrunk, but its reported capacity
+    /// Returns what the tree charged the spec statistics, to be subtracted by the caller,
+    /// or `None` if nothing was dropped. The table is not shrunk, but its reported capacity
     /// can still drop, and [`memory_usage`](Self::memory_usage) follows it.
-    pub fn remove_key_if_empty(&mut self, key: &[u8], expected: TreeUniqueId) -> bool {
-        let Some(tree) = self.keys.get(key) else {
-            return false;
-        };
+    pub fn remove_empty_key(&mut self, key: &[u8], expected: TreeUniqueId) -> Option<TreeCharge> {
+        let tree = self.keys.get(key)?;
         if tree.unique_id() != expected || tree.num_entries() > 0 {
-            return false;
+            return None;
         }
+        let charge = TreeCharge::of(tree);
         let table_before = self.table_bytes();
         let (key, tree) = self.keys.remove_entry(key).expect("the key was just found");
         self.memory_usage -= key.len() + tree.mem_usage();
         self.memory_usage = self.memory_usage - table_before + self.table_bytes();
-        true
+        Some(charge)
+    }
+
+    /// [`remove_empty_key`](Self::remove_empty_key), reporting only whether a tree was dropped.
+    pub fn remove_key_if_empty(&mut self, key: &[u8], expected: TreeUniqueId) -> bool {
+        self.remove_empty_key(key, expected).is_some()
     }
 
     /// Drop every key whose tree holds no entries, and return how many were dropped.

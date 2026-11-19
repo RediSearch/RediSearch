@@ -176,21 +176,26 @@ A tree is identified by (field index, index `unique_id`, key, tree `unique_id`).
 
 - Fork policy: the child sends, per key whose tree has garbage, that identity as a
   header, then one delta per tree node and a node terminator; a final terminator
-  ends the stream. The parent applies each delta under the write lock through
+  ends the stream. The parent reads one key's whole stream, then applies its deltas,
+  finishes the tree and flushes the statistics under a single write hold, through
   `KeyedNumericIndex::update_tree`, which keeps the index's memory accounting exact.
-  When the index was replaced, or the key is gone or holds another tree, the rest of
-  that tree's stream is read and dropped so the pipe stays aligned.
+  When the index was replaced, or the key is gone or holds another tree, the key's
+  stream has been read in full already, so the pipe stays aligned.
 - Thread policy: one read hold lists every key's nodes; the nodes of all keys are then
   snapshotted, scanned and applied in the same bounded holds as the numeric scanner,
-  and stale targets are skipped.
+  and stale targets are skipped. Compaction and key removal run in holds of up to
+  `DELTAS_PER_APPLY` keys. A spec with no initialised MAP NUMERIC index takes no hold
+  for this scanner. Known limit: the one listing hold grows with the number of keys
+  (chunking it needs a resumable position over the key map).
 - After a tree's deltas land, it is compacted when `clean_numeric_empty_nodes` is set,
   and its key is removed with `remove_key_if_empty` if it holds no entry. The removal
   does not depend on the compaction setting.
 
-Spec statistics (records, collected bytes, blocks) follow the numeric scanner. A key
-removed from the index adjusts only the blocks its tree still held, because the tree's
-own overhead was never added to the spec statistics. `FT.INFO` reports the number of
-keys and the memory used by the field.
+Spec statistics (records, bytes, blocks) stay exact: the pair that creates a key reports
+the new tree's initial size too, so what the spec holds for a tree always equals its
+`TreeCharge`, and removing the key subtracts exactly that charge. Statistics return to
+their value from before the key existed. `FT.INFO` reports the number of keys and the
+memory used by the field.
 
 ## Limits and out of scope
 

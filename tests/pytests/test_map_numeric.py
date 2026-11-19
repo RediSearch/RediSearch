@@ -869,6 +869,10 @@ def testGCDropsAKeyWhoseDocumentsAreAllDeleted(env):
     num_keys, memory = metrics_stats(env)
     env.assertEqual(num_keys, 0)
     env.assertLess(memory, memory_before)
+    # Nothing is charged to the index once its last document is gone.
+    info = index_info(env)
+    env.assertEqual(int(info['total_inverted_index_blocks']), 0)
+    env.assertEqual(float(info['inverted_sz_mb']), 0)
     env.assertEqual(search_ids(env, '@metrics[gone]:[-inf +inf]'), set())
     # The key can be indexed again afterwards.
     set_doc(env, 9, {'gone': 1})
@@ -887,6 +891,16 @@ def testThreadGCCollectsKeyedTrees():
 
 @skip(cluster=True)
 def testCursorSurvivesGCRemovingTheKey(env):
+    check_cursor_survives_gc_removing_the_key(env)
+
+
+@skip(cluster=True)
+def testCursorSurvivesThreadGCRemovingTheKey():
+    env = Env(moduleArgs='GC_POLICY THREAD', redisConfigFile=thread_gc_conf(clean_threshold=0))
+    check_cursor_survives_gc_removing_the_key(env)
+
+
+def check_cursor_survives_gc_removing_the_key(env):
     """GC drops a key between cursor reads: the cursor ends or keeps going without crashing, and
     never returns a document that was deleted, even once the key is indexed again."""
     enable_unstable_features(env)

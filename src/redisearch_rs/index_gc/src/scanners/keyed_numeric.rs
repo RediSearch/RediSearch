@@ -25,6 +25,7 @@ use numeric_range_tree::{NodeIndex, NumericRangeTree, TreeUniqueId};
 use rqe_core::FieldIndex;
 use serde::{Deserialize, Serialize};
 
+use super::field_index_of;
 use super::numeric::{
     NumericNodeDelta, NumericNodeSnapshot, apply_numeric_node, apply_numeric_node_with,
     compact_stats, listed_nodes, ranges_of_nodes_added_to, snapshot_tree_node, tree_node_deltas,
@@ -61,10 +62,6 @@ fn fetch_index_mut(fs: &mut FieldSpec) -> Option<&mut KeyedNumericIndex> {
     let index = unsafe { raw_fs.__bindgen_anon_1.mapNumericOpts.index };
     // SAFETY: as in `fetch_index`; the caller's write lock makes the borrow unique.
     unsafe { index.cast::<KeyedNumericIndex>().as_mut() }
-}
-
-fn field_index_of(position: usize) -> FieldIndex {
-    FieldIndex::try_from(position).expect("a spec has fewer fields than a field index can count")
 }
 
 /// One key's tree, named so it can be found again across spec lock releases, and
@@ -153,10 +150,10 @@ impl KeyedTreeId {
     /// Finish a tree whose deltas were applied: compact it if `compact` and it is
     /// sparse, then drop its key if it holds no entry.
     ///
-    /// The tree's memory beyond what its entries and blocks account for was never
-    /// added to the spec's statistics, so only the blocks an emptied tree still holds
-    /// are returned.
-    fn finish(
+    /// Dropping a key subtracts its whole [`TreeCharge`](keyed_numeric_index::TreeCharge), which is exactly what the
+    /// spec's statistics hold for it (see [`KeyedNumericIndex::add`]), so they return
+    /// to what they were before the key existed.
+    pub(crate) fn finish(
         &self,
         guard: &mut IndexSpecWriteGuard<'_>,
         compact: bool,
@@ -169,19 +166,10 @@ impl KeyedTreeId {
         let expected = self.expected(index).ok_or(GcError::TargetGone(
             "the key's numeric tree was removed or replaced since the scan",
         ))?;
-        let blocks_held = index
-            .get_checked(&self.key, expected)
-            .filter(|tree| tree.num_entries() == 0)
-            .map(|tree| {
-                tree.iter()
-                    .filter_map(|node| node.range())
-                    .map(|range| range.entries().num_blocks())
-                    .sum::<usize>()
-            });
-        if let Some(blocks_held) = blocks_held
-            && index.remove_key_if_empty(&self.key, expected)
-        {
-            stats.block_count_delta -= blocks_held as i64;
+        if let Some(charge) = index.remove_empty_key(&self.key, expected) {
+            stats.records_removed += charge.records;
+            stats.bytes_collected += charge.inverted_size;
+            stats.block_count_delta -= charge.blocks as i64;
         }
         Ok(stats)
     }
@@ -195,6 +183,11 @@ fn indexes<'s>(
         .iter()
         .enumerate()
         .filter_map(|(position, fs)| Some((position, fetch_index(fs)?)))
+}
+
+/// Whether the spec has a MAP NUMERIC field with an initialised index.
+pub fn has_map_numeric(spec: &IndexSpecReadGuard) -> bool {
+    indexes(spec).next().is_some()
 }
 
 /// Collect GC deltas for every key of every MAP NUMERIC field in the spec and write
@@ -228,11 +221,82 @@ pub fn collect_keyed_numeric(
     serialize(writer, None::<KeyedTreeId>)
 }
 
-/// Receive and apply one key's node deltas, then compact its tree if
-/// `clean_numeric_empty_nodes` and drop the key if it is empty.
+/// One key's stream off the fork pipe: its tree and the deltas of the nodes with work.
+struct KeyStream {
+    id: KeyedTreeId,
+    deltas: Vec<NumericNodeDelta>,
+}
+
+/// Read one key's whole stream, so applying it needs a single write hold. `None` is
+/// the global terminator.
 ///
-/// A tree that is gone or replaced by the time its deltas arrive is skipped, with its
-/// remaining deltas read and dropped so the stream stays aligned.
+/// The deltas of a key are held in memory together, which is bounded by the size of its tree.
+fn read_key_stream(reader: &mut impl Read) -> Result<Option<KeyStream>, GcError> {
+    let Some(id) = deserialize::<Option<KeyedTreeId>>(reader, "decoding keyed numeric tree")?
+    else {
+        return Ok(None);
+    };
+    let mut deltas = Vec::new();
+    while let Some(node) =
+        deserialize::<Option<NumericNodeDelta>>(&mut *reader, "decoding keyed numeric node")?
+    {
+        deltas.push(node);
+    }
+    Ok(Some(KeyStream { id, deltas }))
+}
+
+/// Apply one key's deltas, compact its tree if `clean_numeric_empty_nodes` and drop the
+/// key if it is empty, all under one write hold.
+///
+/// `flush` receives this key's [`GcApplyStats`] under the same hold, so the spec's
+/// statistics change atomically with the tree. A tree that is gone or replaced is skipped.
+fn apply_key_stream(
+    spec: &mut impl SpecWriteAccess,
+    stream: KeyStream,
+    stats: &mut GcApplyStats,
+    clean_numeric_empty_nodes: bool,
+    flush: impl FnOnce(&mut IndexSpecWriteGuard<'_>, &GcApplyStats),
+) -> Result<(), GcError> {
+    let KeyStream { id, deltas } = stream;
+    spec.with_write(|guard| {
+        let mut key_stats = GcApplyStats::default();
+        let mut reached_tree = false;
+        let mut failure = None;
+        for node in deltas {
+            match id.update(guard, |tree| apply_numeric_node(tree, node)) {
+                Ok(Some(node_stats)) => {
+                    key_stats.record(node_stats);
+                    reached_tree = true;
+                }
+                Ok(None) => {
+                    key_stats.numeric_nodes_missed += 1;
+                    reached_tree = true;
+                }
+                Err(GcError::TargetGone(reason)) => {
+                    tracing::debug!(reason, "fork GC skipped a stale keyed numeric tree");
+                    reached_tree = false;
+                    break;
+                }
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            }
+        }
+        if reached_tree && failure.is_none() {
+            match id.finish(guard, clean_numeric_empty_nodes) {
+                Ok(finished) => key_stats.record(finished),
+                Err(GcError::TargetGone(_)) => {}
+                Err(error) => failure = Some(error),
+            }
+        }
+        flush(guard, &key_stats);
+        stats.record(key_stats);
+        failure.map_or(Ok(()), Err)
+    })
+}
+
+/// Receive and apply one key's stream; see [`apply_key_stream`] for `flush`.
 ///
 /// Return [`HandleOutcome::Done`] when the child sent the global terminator instead of a header.
 pub fn handle_keyed_numeric_with(
@@ -240,70 +304,33 @@ pub fn handle_keyed_numeric_with(
     spec: &mut impl SpecWriteAccess,
     stats: &mut GcApplyStats,
     clean_numeric_empty_nodes: bool,
+    flush: impl FnOnce(&mut IndexSpecWriteGuard<'_>, &GcApplyStats),
 ) -> Result<HandleOutcome, GcError> {
-    let Some(id) = deserialize::<Option<KeyedTreeId>>(reader, "decoding keyed numeric tree")?
-    else {
+    let Some(stream) = read_key_stream(reader)? else {
         return Ok(HandleOutcome::Done);
     };
-
-    let mut skipped = false;
-    let mut applied = false;
-    while let Some(node) =
-        deserialize::<Option<NumericNodeDelta>>(&mut *reader, "decoding keyed numeric node")?
-    {
-        if skipped {
-            continue;
-        }
-        let outcome =
-            spec.with_write(|guard| Ok(id.update(guard, |tree| apply_numeric_node(tree, node))))?;
-        match outcome {
-            Ok(Some(node_stats)) => {
-                stats.record(node_stats);
-                applied = true;
-            }
-            Ok(None) => stats.numeric_nodes_missed += 1,
-            Err(GcError::TargetGone(reason)) => {
-                tracing::debug!(reason, "fork GC skipped a stale keyed numeric tree");
-                skipped = true;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    if applied {
-        match spec.with_write(|guard| Ok(id.finish(guard, clean_numeric_empty_nodes)))? {
-            Ok(finished) => stats.record(finished),
-            Err(GcError::TargetGone(_)) => {}
-            Err(error) => return Err(error),
-        }
-    }
+    apply_key_stream(spec, stream, stats, clean_numeric_empty_nodes, flush)?;
     Ok(HandleOutcome::Collected)
 }
 
-/// Handle one key off `fgc`'s pipe, flushing the tallied [`GcApplyStats`] to the spec and the GC.
+/// Handle one key off `fgc`'s pipe, flushing its [`GcApplyStats`] to the spec and the GC
+/// under the write hold that applied it.
 ///
 /// Return [`HandleOutcome::Done`] once the child has sent every key.
 pub fn handle_keyed_numeric(fgc: &mut ForkPipe) -> Result<HandleOutcome, GcError> {
+    let Some(stream) = read_key_stream(&mut fgc.reader())? else {
+        return Ok(HandleOutcome::Done);
+    };
     let mut spec = fgc.index_spec();
-    let mut stats = GcApplyStats::default();
     let clean_numeric_empty_nodes = fgc.clean_numeric_empty_nodes();
-
-    let result = handle_keyed_numeric_with(
-        &mut fgc.reader(),
+    apply_key_stream(
         &mut spec,
-        &mut stats,
+        stream,
+        &mut GcApplyStats::default(),
         clean_numeric_empty_nodes,
-    );
-
-    // No need to lock the spec and update the stats if there are none.
-    if stats != GcApplyStats::default() {
-        spec.with_write(|guard| {
-            stats.apply(fgc, guard);
-            Ok(())
-        })?;
-    }
-
-    result
+        |guard, key_stats| key_stats.apply(fgc, guard),
+    )?;
+    Ok(HandleOutcome::Collected)
 }
 
 /// The nodes of one key's tree, listed so they can be scanned one at a time across
@@ -378,13 +405,4 @@ pub fn apply_keyed_node_with(
         numeric_nodes_missed: 1,
         ..GcApplyStats::default()
     }))
-}
-
-/// [`KeyedTreeId::finish`] for the thread policy, which tracks the trees it applied to.
-pub fn finish_keyed_tree(
-    guard: &mut IndexSpecWriteGuard<'_>,
-    id: &KeyedTreeId,
-    compact: bool,
-) -> Result<GcApplyStats, GcError> {
-    id.finish(guard, compact)
 }

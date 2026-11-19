@@ -350,8 +350,7 @@ pub fn collect_numeric(
         })
         .filter_map(|(i, fs)| fs.tree().map(|tree| (i, tree)))
     {
-        let field_index = FieldIndex::try_from(field_index)
-            .expect("a spec has fewer fields than a field index can count");
+        let field_index = super::field_index_of(field_index);
         serialize(
             writer,
             Some(NumericField {

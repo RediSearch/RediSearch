@@ -336,3 +336,34 @@ fn an_empty_batch_changes_nothing() {
     assert_eq!(result, Default::default());
     assert_eq!(index.num_keys(), 0);
 }
+
+#[test]
+fn reported_size_deltas_sum_to_the_trees_size_across_splits() {
+    let mut index = KeyedNumericIndex::new(false);
+    let mut size = 0i64;
+    let mut records = 0i64;
+    for doc_id in 1..=3000u64 {
+        let r = index.add(doc_id, b"k", doc_id as f64, false, MAX_DEPTH_RANGE);
+        size += r.size_delta;
+        records += i64::from(r.num_records_delta);
+    }
+    let tree = index.get(b"k").unwrap();
+    assert!(tree.num_ranges() > 1, "the key must have split");
+    assert_eq!(size, tree.inverted_indexes_size() as i64);
+    assert_eq!(records, 3000);
+}
+
+#[test]
+fn removing_an_emptied_key_reports_what_it_charged() {
+    let mut index = KeyedNumericIndex::new(false);
+    add(&mut index, 1, b"k", 1.0);
+    gc_away_every_doc(&mut index, b"k");
+    let id = index.get(b"k").unwrap().unique_id();
+    let expected = {
+        let tree = index.get(b"k").unwrap();
+        (tree.inverted_indexes_size(), 0)
+    };
+    let charge = index.remove_empty_key(b"k", id).expect("the tree is empty");
+    assert_eq!((charge.inverted_size, charge.records), expected);
+    assert!(index.remove_empty_key(b"k", id).is_none());
+}
