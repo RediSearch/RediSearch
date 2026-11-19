@@ -40,18 +40,22 @@ run_step "Describe the build host" bash -c '
   if [[ $(id -u) -eq 0 ]]; then echo "root: yes"
   elif sudo -n true 2>/dev/null; then echo "root: passwordless sudo"
   else echo "root: none"; fi
-  for t in clang-21 clang cmake make gcc python3 curl git lcov; do
+  for t in clang-21 clang clang++ cmake make gcc g++ pkg-config python3 curl git lcov rsync unzip; do
     printf "%-10s %s\n" "$t" "$(command -v "$t" || echo missing)"
-  done'
+  done
+  pkg-config --modversion openssl 2>/dev/null && echo "openssl headers: yes" || echo "openssl headers: missing"'
 
 if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
   run_step "Fetch full Git history" git fetch --unshallow --tags origin
 fi
 run_step "Initialize submodules" git submodule update --init --recursive
 
-if [[ $(id -u) -eq 0 ]]; then
+# OuterLayer's managed sandboxes mount system directories read-only, root or not.
+if [[ ! -w /var/lib/apt && $(id -u) -eq 0 ]] || ! { [[ $(id -u) -eq 0 ]] || sudo -n true 2>/dev/null; }; then
+  install_mode=none
+elif [[ $(id -u) -eq 0 ]]; then
   install_mode=""
-elif sudo -n true 2>/dev/null; then
+elif sudo -n test -w /var/lib/apt 2>/dev/null; then
   install_mode=sudo
 else
   install_mode=none
