@@ -23,6 +23,7 @@ rqe_iterator_type.workspace = true
 field.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
+keyed_numeric_index.workspace = true
 ref_mode.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
@@ -44,6 +45,7 @@ value.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+numeric_range_tree = { workspace = true, features = ["test-utils"] }
 approx.workspace = true
 decorum.workspace = true
 insta.workspace = true

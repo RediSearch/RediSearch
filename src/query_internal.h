@@ -78,6 +78,10 @@ QueryNode *NewPhraseNode(int exact);
 QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefix, bool suffix);
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist);
 QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs);
+/* A numeric node on one key of a MAP NUMERIC field. `key` is a literal (QT_TERM_CASE) or a
+ * parameter (QT_PARAM_TERM_CASE) token. */
+QueryNode *NewKeyedNumericNode(QueryParseCtx *q, QueryParam *p, const FieldSpec *fs,
+                               QueryToken *key);
 QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const char *predicate, size_t len, QueryToken *wkt);
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);

@@ -115,6 +115,7 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_NUMERIC:
       NumericFilter_Free((void *)n->nn.nf);
+      rm_free(n->nn.key);
       break;
     case QN_PREFIX:
       QueryTokenNode_Free(&n->pfx.tok);
@@ -331,6 +332,23 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
+  return ret;
+}
+
+QueryNode *NewKeyedNumericNode(QueryParseCtx *q, QueryParam *p, const FieldSpec *fs,
+                               QueryToken *key) {
+  QueryNode *ret = NewNumericNode(p, fs);
+  if (key->type == QT_PARAM_TERM_CASE) {
+    // Resolved from PARAMS with the other parameters of the node.
+    Param none = {0};
+    array_append(ret->params, none);
+    QueryNode_SetParam(q, &ret->params[array_len(ret->params) - 1], &ret->nn.key, &ret->nn.keyLen,
+                       key);
+  } else {
+    // A key is case sensitive, so it is not normalized as a term is.
+    ret->nn.key = rm_strndup(key->s, key->len);
+    ret->nn.keyLen = key->len;
+  }
   return ret;
 }
 
@@ -1095,8 +1113,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       const FieldSpec *nfFs = spec->fields + f->fieldIndex;
-      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
-                       HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+      if (qs->nn.key) {
+        s = sdscatprintf(s, "NUMERIC {%f %s @%s[%.*s] %s %f}", f->min, f->minInclusive ? "<=" : "<",
+                         HiddenString_GetUnsafe(nfFs->fieldName, NULL), (int)qs->nn.keyLen,
+                         qs->nn.key, f->maxInclusive ? "<=" : "<", f->max);
+      } else {
+        s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
+                         HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+      }
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");

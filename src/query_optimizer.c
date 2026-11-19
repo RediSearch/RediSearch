@@ -115,7 +115,9 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && node->nn.nf->fieldIndex == targetFieldIndex) {
+      // A keyed filter reads one key of a map field, never the sort field's whole tree.
+      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && !node->nn.key &&
+          node->nn.nf->fieldIndex == targetFieldIndex) {
         ret = node;
       }
       break;

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{f64, ptr::NonNull};
+use std::{f64, ptr::NonNull, rc::Rc};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
@@ -17,8 +17,8 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
 use ffi::{
-    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
-    RedisSearchCtx,
+    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_MAP_NUMERIC, FieldType_INDEXFLD_T_NUMERIC,
+    IndexFlags, QueryIterator, RedisSearchCtx,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -26,13 +26,14 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, ReseatIndex,
     ResumableReader, SuspendableReader,
 };
+use keyed_numeric_index::{KeyedNumericIndex, KeyedNumericIndexId};
 use numeric_range_tree::{
     NodeIndex, NumericIndex, NumericIndexReader, NumericRangeTree, RangeWindow,
-    RawNumericIndexReader,
+    RawNumericIndexReader, TreeUniqueId,
 };
 use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldIndex};
 
 use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
 
@@ -64,14 +65,92 @@ pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>
 
 /// The range a [`Numeric`] iterator reads, located as a node of the tree that
 /// owns it, so revalidation can resolve it again.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RangeSource {
     /// The tree owning the range. A raw pointer rather than a reference, so
     /// that it stays usable across the writes [`RangeSource::new`] allows.
+    ///
+    /// For a keyed source (see [`KeyedBinding`]) it is only read while the
+    /// iterator is built; revalidation resolves the tree again through the binding.
     tree: NonNull<NumericRangeTree>,
     /// The node holding the range. It resolves to the same range only while the
     /// tree's [revision](NumericRangeTree::revision_id) is unchanged.
     node: NodeIndex,
+    /// Set when the tree is owned by a [`KeyedNumericIndex`], which can drop it.
+    keyed: Option<Rc<KeyedBinding>>,
+}
+
+/// Locates a tree owned by a [`KeyedNumericIndex`], so an iterator can find it again
+/// after the spec lock was released.
+///
+/// A keyed tree can be freed while an iterator is parked: GC removes the key once its tree
+/// is empty, and the index itself can be replaced. The binding therefore names the tree by
+/// field, key and identity instead of by address, and
+/// [`resolve`](Self::resolve) checks all of them.
+pub struct KeyedBinding {
+    spec: NonNull<ffi::IndexSpec>,
+    field_index: FieldIndex,
+    index_id: KeyedNumericIndexId,
+    key: Box<[u8]>,
+    tree_id: TreeUniqueId,
+}
+
+impl KeyedBinding {
+    /// Bind to `tree`, the tree of `key` in the index of field `field_index`.
+    ///
+    /// # Safety
+    ///
+    /// 1. `spec` must stay valid for as long as any iterator holding the binding lives.
+    /// 2. `index` must be the [`KeyedNumericIndex`] of the field `field_index` of `spec`.
+    /// 3. `tree` must be the tree `index` holds under `key`.
+    pub unsafe fn new(
+        spec: NonNull<ffi::IndexSpec>,
+        field_index: FieldIndex,
+        index: &KeyedNumericIndex,
+        key: &[u8],
+        tree: &NumericRangeTree,
+    ) -> Self {
+        Self {
+            spec,
+            field_index,
+            index_id: index.unique_id(),
+            key: key.into(),
+            tree_id: tree.unique_id(),
+        }
+    }
+
+    /// The tree the binding was made for, or [`None`] if the field no longer has the
+    /// index it had, or the key is gone or holds another tree.
+    ///
+    /// The result borrows from the spec's field array, which only a writer can change.
+    ///
+    /// # Safety
+    ///
+    /// 1. The spec lock must be held at least for reading.
+    /// 2. 1. of [`KeyedBinding::new`] still holds.
+    unsafe fn resolve<'a>(&self) -> Option<&'a NumericRangeTree> {
+        // SAFETY: 1. of `Self::new` and 1.
+        let spec = unsafe { self.spec.as_ref() };
+        if self.field_index >= spec.numFields {
+            return None;
+        }
+        // SAFETY: `field_index` is within the `numFields`-sized field array.
+        let fs_ptr = unsafe { spec.fields.add(self.field_index as usize) };
+        // SAFETY: as above, so `fs_ptr` points to a live field spec.
+        let fs = unsafe { &*fs_ptr };
+        if fs.types() & FieldType_INDEXFLD_T_MAP_NUMERIC == 0 {
+            return None;
+        }
+        // SAFETY: the field is a map numeric field, so the union member holds the index slot.
+        let index = unsafe { fs.__bindgen_anon_1.mapNumericOpts.index };
+        // SAFETY: a non-null slot of a map numeric field points to a live index, owned by
+        // the field and only mutated under the write lock, which 1. excludes.
+        let index = unsafe { index.cast::<KeyedNumericIndex>().as_ref() }?;
+        if index.unique_id() != self.index_id {
+            return None;
+        }
+        index.get_checked(&self.key, self.tree_id)
+    }
 }
 
 impl RangeSource {
@@ -92,7 +171,36 @@ impl RangeSource {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(tree: NonNull<NumericRangeTree>, node: NodeIndex) -> Self {
-        Self { tree, node }
+        Self {
+            tree,
+            node,
+            keyed: None,
+        }
+    }
+
+    /// Locate a range as `node` of a tree owned by a keyed index.
+    ///
+    /// Revalidation resolves the tree through `binding` instead of dereferencing `tree`,
+    /// so `tree` may be a pointer derived from a reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tree` must be [valid] for reads of the tree `binding` resolves to, at least
+    ///    until the iterator built with this source is constructed.
+    /// 2. The requirements of [`KeyedBinding::resolve`] hold whenever an iterator built
+    ///    with this source revalidates or resumes.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn new_keyed(
+        tree: NonNull<NumericRangeTree>,
+        node: NodeIndex,
+        binding: Rc<KeyedBinding>,
+    ) -> Self {
+        Self {
+            tree,
+            node,
+            keyed: Some(binding),
+        }
     }
 }
 
@@ -149,10 +257,17 @@ impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
             return RangeLookup::Untracked;
         };
 
-        // SAFETY: 1. and 2. of `RangeSource::new` keep the tree valid for the
-        // iterator's lifetime and its pointer valid across writes; by 3. nothing
-        // writes to it or borrows it mutably while the iterator revalidates.
-        let tree = unsafe { info.source.tree.as_ref() };
+        let tree = match &info.source.keyed {
+            // SAFETY: the caller holds the spec lock, and 2. of `RangeSource::new_keyed`.
+            Some(binding) => match unsafe { binding.resolve() } {
+                Some(tree) => tree,
+                None => return RangeLookup::Gone,
+            },
+            // SAFETY: 1. and 2. of `RangeSource::new` keep the tree valid for the
+            // iterator's lifetime and its pointer valid across writes; by 3. nothing
+            // writes to it or borrows it mutably while the iterator revalidates.
+            None => unsafe { info.source.tree.as_ref() },
+        };
         if tree.revision_id() != info.revision_id {
             return RangeLookup::Gone;
         }
@@ -590,6 +705,41 @@ impl<'index> NumericIteratorVariant<'index> {
         filter: &'index NumericFilter,
         field_ctx: &field::FieldFilterContext,
     ) -> Vec<Self> {
+        // SAFETY: forwarded from this function's contract; no binding.
+        unsafe { Self::from_tree_bound(tree, None, sctx, filter, field_ctx) }
+    }
+
+    /// [`from_tree`](Self::from_tree) for a tree owned by a [`KeyedNumericIndex`]:
+    /// the returned iterators resolve the tree again through `binding` when they
+    /// revalidate or resume, and abort if it is gone.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`from_tree`](Self::from_tree), except that `tree` only has to be
+    /// valid until this call returns; and those of [`RangeSource::new_keyed`] for `tree`
+    /// and `binding`.
+    pub unsafe fn from_keyed_tree(
+        tree: NonNull<NumericRangeTree>,
+        binding: Rc<KeyedBinding>,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        filter: &'index NumericFilter,
+        field_ctx: &field::FieldFilterContext,
+    ) -> Vec<Self> {
+        // SAFETY: forwarded from this function's contract.
+        unsafe { Self::from_tree_bound(tree, Some(binding), sctx, filter, field_ctx) }
+    }
+
+    /// # Safety
+    ///
+    /// As [`from_tree`](Self::from_tree) when `binding` is [`None`], else as
+    /// [`from_keyed_tree`](Self::from_keyed_tree).
+    unsafe fn from_tree_bound(
+        tree: NonNull<NumericRangeTree>,
+        binding: Option<Rc<KeyedBinding>>,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        filter: &'index NumericFilter,
+        field_ctx: &field::FieldFilterContext,
+    ) -> Vec<Self> {
         let field_index = match field_ctx.field {
             field::FieldMaskOrIndex::Index(index) => index,
             field::FieldMaskOrIndex::Mask(_) => {
@@ -640,8 +790,14 @@ impl<'index> NumericIteratorVariant<'index> {
                     )
                 };
 
-                // SAFETY: by 3.
-                let source = unsafe { RangeSource::new(tree, node) };
+                let source = match &binding {
+                    // SAFETY: by the contract of `from_keyed_tree`.
+                    Some(binding) => unsafe {
+                        RangeSource::new_keyed(tree, node, Rc::clone(binding))
+                    },
+                    // SAFETY: by 3.
+                    None => unsafe { RangeSource::new(tree, node) },
+                };
                 // SAFETY: 1. `reader` reads the range `node` holds.
                 unsafe {
                     Self::new(
@@ -900,6 +1056,76 @@ pub unsafe fn build_numeric_filter_iterator(
     // index (3).
     let variants =
         unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
+    union_of_variants(variants, node_type, min_union_iter_heap)
+}
+
+/// Build a numeric filter iterator over the ranges of the tree that field `flt.field_index`
+/// keeps for `key`.
+///
+/// The keyed counterpart of [`build_numeric_filter_iterator`]: the field is a map numeric
+/// field and the returned iterator re-resolves the key's tree whenever it revalidates, so
+/// it aborts instead of reading a tree GC has removed.
+///
+/// Returns [`None`] — an empty (matchless) result, not an error — when the field has no
+/// index yet, the key was never indexed, or no sub-range matches the filter.
+///
+/// # Safety
+///
+/// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
+///    and its spec must remain valid for the lifetime of the returned iterator.
+/// 2. `flt.field_index` must be within `sctx.spec`'s current field count, and the
+///    field at that index must be of map numeric type.
+/// 3. `field_ctx.field` must be a field index (not a field mask).
+/// 4. The spec lock is held for reading.
+pub unsafe fn build_keyed_numeric_filter_iterator(
+    sctx: &RedisSearchCtx,
+    flt: &NumericFilter,
+    key: &[u8],
+    min_union_iter_heap: usize,
+    field_ctx: &field::FieldFilterContext,
+) -> Option<NonNull<QueryIterator>> {
+    let spec_ptr = NonNull::new(sctx.spec)?;
+    // SAFETY: 1.
+    let spec = unsafe { spec_ptr.as_ref() };
+    debug_assert!(
+        flt.field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // SAFETY: 2.
+    let fs_ptr = unsafe { spec.fields.add(flt.field_index as usize) };
+    // SAFETY: as above, so `fs_ptr` points to a live field spec.
+    let fs = unsafe { &*fs_ptr };
+    debug_assert!(fs.types() & FieldType_INDEXFLD_T_MAP_NUMERIC != 0);
+    // SAFETY: 2., so the union member holds the index slot.
+    let index = unsafe { fs.__bindgen_anon_1.mapNumericOpts.index };
+    // SAFETY: a non-null slot points to the field's live index, mutated only under the
+    // write lock, which 4. excludes.
+    let index = unsafe { index.cast::<KeyedNumericIndex>().as_ref() }?;
+    let tree = index.get(key)?;
+
+    // SAFETY: 1. and 2., and `tree` is what `index` holds under `key`.
+    let binding =
+        Rc::new(unsafe { KeyedBinding::new(spec_ptr, flt.field_index, index, key, tree) });
+    // SAFETY: 1., 3., and the binding resolves under 4. for as long as the iterators
+    // are used under the locking protocol; `tree` is only read before this function returns.
+    let variants = unsafe {
+        NumericIteratorVariant::from_keyed_tree(
+            NonNull::from(tree),
+            binding,
+            NonNull::from(sctx),
+            flt,
+            field_ctx,
+        )
+    };
+    union_of_variants(variants, QueryNodeType::Numeric, min_union_iter_heap)
+}
+
+/// Combine one iterator per matching sub-range into a union, or [`None`] if there is none.
+fn union_of_variants(
+    variants: Vec<NumericIteratorVariant<'_>>,
+    node_type: QueryNodeType,
+    min_union_iter_heap: usize,
+) -> Option<NonNull<QueryIterator>> {
     if variants.is_empty() {
         return None;
     }

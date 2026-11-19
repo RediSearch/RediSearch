@@ -15,12 +15,16 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
 use rqe_core::RS_INVALID_FIELD_INDEX;
-use rqe_iterators::build_numeric_filter_iterator;
+use rqe_iterators::{build_keyed_numeric_filter_iterator, build_numeric_filter_iterator};
 use search_disk::SearchDiskHandle;
 
 use crate::{Config, Evaluated, QueryEvalContext};
 
-/// `QN_NUMERIC` — a numeric range filter on a numeric field.
+/// `QN_NUMERIC` — a numeric range filter on a numeric field, or on one key of a map
+/// numeric field when `key` is set.
+///
+/// A key that was never indexed matches nothing. The keyed iterator resolves the key's tree
+/// again whenever it revalidates, so it aborts if GC removed the tree meanwhile.
 ///
 /// When the spec is backed by an on-disk index, delegates to the enterprise
 /// numeric iterator via [`SearchDiskHandle::new_numeric_iterator`]. Otherwise
@@ -31,6 +35,7 @@ use crate::{Config, Evaluated, QueryEvalContext};
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     nf: &NumericFilter,
+    key: Option<&[u8]>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     // The numeric node always carries a field index; the filter targets that
@@ -40,6 +45,32 @@ pub(crate) fn eval<'index>(
         "numeric node must have a resolved field index"
     );
     let field_index = nf.field_index;
+
+    // Map numeric fields are rejected on disk-backed indexes, so a keyed filter never reaches
+    // the disk path below.
+    if let Some(key) = key {
+        let field_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::Index(field_index),
+            predicate: FieldExpirationPredicate::Default,
+        };
+        // SAFETY: `build_keyed_numeric_filter_iterator` preconditions hold:
+        // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
+        //    `QueryEvalContext` invariants (1)/(2).
+        // 2. `nf.field_index` is within the field count (asserted above) and the parser
+        //    only builds a keyed node for a map numeric field.
+        // 3. `field_ctx.field` is a field index, built as `Index` just above.
+        // 4. Evaluation runs under the spec read lock.
+        let iter = unsafe {
+            build_keyed_numeric_filter_iterator(
+                ctx.sctx(),
+                nf,
+                key,
+                config.min_union_iter_heap,
+                &field_ctx,
+            )
+        };
+        return iter.map(Evaluated::RustCompound);
+    }
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range

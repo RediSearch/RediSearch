@@ -84,6 +84,25 @@ key up again through the field's index on revalidation (as #8346's dimension
 iterators do). It aborts if the index was replaced (`unique_id`), the key is
 gone, or the key now holds a different tree.
 
+## Query parsing and evaluation
+
+Only the DIALECT 2+ parser knows the syntax. The lexer matches `@name[key]:` and
+`@name[$param]:` as one token run (`MODIFIER KEY COLON`), and the grammar adds
+`expr ::= modifier KEY COLON numeric_range`; the range then lexes as it always did.
+Because the pattern needs the closing `]` and the `:` right after it, `@f[1 2]`, `@f [..]` and
+every other existing use of `[` lex as before. With `ENABLE_UNSTABLE_FEATURES` off the lexer
+fails the query with the error that names the flag.
+
+Key escaping: an unquoted key holds only `[A-Za-z0-9_:.-]` and is taken verbatim, with no
+backslash escapes and no case folding (keys are case sensitive). Any other key, including the
+empty key, goes through `$param`, whose value is binary safe.
+
+The key is stored on the numeric query node next to its filter. A keyed node is not seen by
+the query optimizer's SORTBY range pagination. The field must be `MAP NUMERIC`: a keyed
+clause on another field type, and a plain `@metrics:[lo hi]` on a `MAP NUMERIC` field, are
+errors. `FT.HYBRID` evaluates its search subquery through the same path, so keyed clauses
+work there too, but it is not covered by tests.
+
 ## Why one tree per key
 
 A query names the key, so the lookup is a hash probe followed by an ordinary

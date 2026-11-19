@@ -179,13 +179,27 @@ fn as_enum_numeric() {
     let mut mock = MockQueryNode::new(QueryNodeType::Numeric);
     mock.set_numeric_filter(&raw mut nf);
     let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::Numeric { nf } = node.as_enum() else {
+    let QueryNode::Numeric { nf, key } = node.as_enum() else {
         panic!("expected Numeric");
     };
     assert_eq!(nf.min, 1.0);
     assert_eq!(nf.max, 10.0);
     assert!(nf.min_inclusive);
     assert!(!nf.max_inclusive);
+    assert!(key.is_none());
+}
+
+#[test]
+fn as_enum_numeric_with_key() {
+    let mut nf = NumericFilter::default();
+    let mut mock = MockQueryNode::new(QueryNodeType::Numeric);
+    mock.set_numeric_filter(&raw mut nf);
+    mock.set_numeric_key(b"rev:fy0");
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    let QueryNode::Numeric { key, .. } = node.as_enum() else {
+        panic!("expected Numeric");
+    };
+    assert_eq!(key, Some(&b"rev:fy0"[..]));
 }
 
 #[test]

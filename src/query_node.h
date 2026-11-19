@@ -63,9 +63,12 @@ typedef struct {
   int maxDist;
 } QueryFuzzyNode;
 
-/* A node with a numeric filter */
+/* A node with a numeric filter. `key` is set when the filter applies to one key of a MAP NUMERIC
+ * field, and holds `keyLen` bytes (NUL-terminated for convenience, but may contain NULs). */
 typedef struct {
   struct NumericFilter *nf;
+  char *key;
+  size_t keyLen;
 } QueryNumericNode;
 
 typedef struct {

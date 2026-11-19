@@ -44,6 +44,7 @@
 %left PERCENT.
 %left ATTRIBUTE.
 %left VERBATIM WILDCARD.
+%left KEY.
 
 // Thanks to these fallback directives, Any "as" appearing in the query,
 // other than in a vector_query, Will either be considered as a term,
@@ -860,6 +861,19 @@ numeric_range(A) ::= LSQB exclusive_param_num(B) exclusive_param_num(C) RSQB. [N
 
 numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
   A = NewNumericFilterQueryParam_WithParams(ctx, &B, &B, 1, 1);
+}
+
+// `@field[key]:[lo hi]` - a range on one key of a MAP NUMERIC field.
+expr(A) ::= modifier(B) KEY(K) COLON numeric_range(C). {
+  A = NULL;
+  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_MAP_NUMERIC)) {
+    REPORT_WRONG_FIELD_TYPE(B, SPEC_MAP_NUMERIC_STR);
+    QueryParam_Free(C);
+  } else if (C) {
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewKeyedNumericNode(ctx, C, ctx->sctx->spec ? B.fs : NULL, &K);
+  }
 }
 
 expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {

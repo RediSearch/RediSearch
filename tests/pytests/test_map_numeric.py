@@ -8,6 +8,8 @@
 """Flow tests for the schema of MAP NUMERIC fields."""
 
 import json
+import random
+import struct
 
 from common import *
 
@@ -336,3 +338,255 @@ def testReloadReindexes(env):
     env.assertEqual(num_docs(env), 2)
     env.assertEqual(metrics_stats(env)[0], before)
     env.assertGreater(metrics_stats(env)[1], 0)
+
+
+# ---- Queries ----
+
+KEYS = ['rev:fy0', 'rev:fym1', 'headcount:m2026_06', 'Rev:FY0']
+VALUES = [-5, 0, 1, 2.5, 10, 50, 100, 48200000]
+
+
+def gen_docs(seed=7, n=60):
+    """doc id -> (hq, metrics), with a random subset of keys per doc."""
+    rnd = random.Random(seed)
+    docs = {}
+    for i in range(1, n + 1):
+        metrics = {k: rnd.choice(VALUES) for k in KEYS if rnd.random() < 0.6}
+        docs[i] = (rnd.choice(['US', 'EU']), metrics)
+    return docs
+
+
+def load_docs(env, docs):
+    for i, (hq, metrics) in docs.items():
+        set_doc(env, i, metrics, hq)
+
+
+def in_range(v, lo, hi, lo_incl=True, hi_incl=True):
+    return (v > lo or (lo_incl and v == lo)) and (v < hi or (hi_incl and v == hi))
+
+
+def ref(docs, key, lo, hi, lo_incl=True, hi_incl=True, hq=None):
+    return {i for i, (h, m) in docs.items()
+            if (hq is None or h == hq) and key in m and in_range(m[key], lo, hi, lo_incl, hi_incl)}
+
+
+def search_ids(env, query, *args):
+    res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', 0, 1000, *args)
+    env.assertEqual(res[0], len(res) - 1)
+    return {int(doc.split(':')[1]) for doc in res[1:]}
+
+
+def setup_docs(env):
+    enable_unstable_features(env)
+    create_index(env)
+    docs = gen_docs()
+    load_docs(env, docs)
+    return docs
+
+
+@skip(cluster=True)
+def testKeyAndRangeMatchesReference(env):
+    docs = setup_docs(env)
+    inf = float('inf')
+    cases = [
+        ('[1 10]', 1, 10, True, True),
+        ('[(1 10]', 1, 10, False, True),
+        ('[1 (10]', 1, 10, True, False),
+        ('[(1 (10]', 1, 10, False, False),
+        ('[-inf +inf]', -inf, inf, True, True),
+        ('[(0 +inf]', 0, inf, False, True),
+        ('[-inf (0]', -inf, 0, True, False),
+        ('[100 100]', 100, 100, True, True),
+        ('[48200000]', 48200000, 48200000, True, True),
+    ]
+    for key in KEYS:
+        for text, lo, hi, lo_incl, hi_incl in cases:
+            expected = ref(docs, key, lo, hi, lo_incl, hi_incl)
+            env.assertEqual(search_ids(env, f'@metrics[{key}]:{text}'), expected,
+                            message=f'{key} {text}')
+    # Keys are case sensitive.
+    env.assertNotEqual(search_ids(env, '@metrics[rev:fy0]:[-inf +inf]'),
+                       search_ids(env, '@metrics[Rev:FY0]:[-inf +inf]'))
+
+
+@skip(cluster=True)
+def testMissingKeyMatchesNothing(env):
+    setup_docs(env)
+    env.expect('FT.SEARCH', 'idx', '@metrics[nokey]:[-inf +inf]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@metrics[rev:fy]:[-inf +inf]', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True)
+def testEmptyIndexMatchesNothing(env):
+    enable_unstable_features(env)
+    create_index(env)
+    env.expect('FT.SEARCH', 'idx', '@metrics[a]:[-inf +inf]', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True)
+def testCombinedWithTagAndMultipleKeys(env):
+    docs = setup_docs(env)
+    env.assertEqual(search_ids(env, '@hq:{US} @metrics[rev:fy0]:[(1 +inf]'),
+                    ref(docs, 'rev:fy0', 1, float('inf'), False, True, hq='US'))
+    both = ref(docs, 'rev:fy0', 1, 100) & ref(docs, 'headcount:m2026_06', -float("inf"), 10)
+    env.assertEqual(search_ids(env, '@metrics[rev:fy0]:[1 100] @metrics[headcount:m2026_06]:[-inf 10]'),
+                    both)
+    env.assertGreater(len(both), 0)
+    # The same key twice narrows to the intersection of the ranges.
+    env.assertEqual(search_ids(env, '@metrics[rev:fy0]:[0 50] @metrics[rev:fy0]:[10 100]'),
+                    ref(docs, 'rev:fy0', 10, 50))
+
+
+@skip(cluster=True)
+def testNotAndOr(env):
+    docs = setup_docs(env)
+    all_ids = set(docs)
+    a = ref(docs, 'rev:fy0', 10, 100)
+    b = ref(docs, 'headcount:m2026_06', -5, 0)
+    env.assertEqual(search_ids(env, '-@metrics[rev:fy0]:[10 100]'), all_ids - a)
+    env.assertEqual(search_ids(env, '@metrics[rev:fy0]:[10 100] | @metrics[headcount:m2026_06]:[-5 0]'),
+                    a | b)
+    env.assertEqual(search_ids(env, '@metrics[rev:fy0]:[10 100] -@metrics[headcount:m2026_06]:[-5 0]'),
+                    a - b)
+    env.assertEqual(search_ids(env, '-@metrics[nokey]:[-inf +inf]'), all_ids)
+    env.assertEqual(search_ids(env, '(@metrics[rev:fy0]:[10 100] | @metrics[rev:fym1]:[10 100]) @hq:{EU}'),
+                    {i for i in (a | ref(docs, 'rev:fym1', 10, 100)) if docs[i][0] == 'EU'})
+
+
+@skip(cluster=True)
+def testParamKey(env):
+    docs = setup_docs(env)
+    env.assertEqual(search_ids(env, '@metrics[$k]:[1 100]', 'PARAMS', 2, 'k', 'rev:fy0', 'DIALECT', 2),
+                    ref(docs, 'rev:fy0', 1, 100))
+    env.assertEqual(search_ids(env, '@metrics[$k]:[$lo $hi]', 'PARAMS', 6, 'k', 'Rev:FY0',
+                               'lo', 1, 'hi', 100, 'DIALECT', 2),
+                    ref(docs, 'Rev:FY0', 1, 100))
+    # A key outside the unquoted charset only works as a parameter.
+    set_doc(env, 1000, {'weird key,[1]': 3})
+    env.assertEqual(search_ids(env, '@metrics[$k]:[3 3]', 'PARAMS', 2, 'k', 'weird key,[1]',
+                               'DIALECT', 2), {1000})
+    env.expect('FT.SEARCH', 'idx', '@metrics[$k]:[1 2]', 'NOCONTENT', 'DIALECT', 2).error() \
+        .contains('Parameter not found')
+
+
+@skip(cluster=True)
+def testAggregateLoadSort(env):
+    docs = setup_docs(env)
+    res = env.cmd('FT.AGGREGATE', 'idx',
+                  '@hq:{US} @metrics[rev:fy0]:[(1 +inf] @metrics[headcount:m2026_06]:[(-inf +inf]',
+                  'LOAD', 3, '$.metrics["headcount:m2026_06"]', 'AS', 'hc',
+                  'SORTBY', 2, '@hc', 'DESC', 'LIMIT', 0, 1000, 'DIALECT', 2)
+    expected = ref(docs, 'rev:fy0', 1, float('inf'), False, True, hq='US') & \
+        ref(docs, 'headcount:m2026_06', -float("inf"), float("inf"))
+    rows = [to_dict(r) for r in res[1:]]
+    env.assertEqual(len(rows), len(expected))
+    got = [float(r['hc']) for r in rows]
+    env.assertEqual(got, sorted((docs[i][1]['headcount:m2026_06'] for i in expected), reverse=True))
+
+
+@skip(cluster=True)
+def testProfileShowsKeyedNode(env):
+    setup_docs(env)
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@metrics[rev:fy0]:[1 100]',
+                  'NOCONTENT', 'LIMIT', 0, 5)
+    text = str(res)
+    env.assertContains('NUMERIC', text)
+    explain = env.cmd('FT.EXPLAIN', 'idx', '@metrics[rev:fy0]:[1 100]', 'DIALECT', 2)
+    env.assertContains('@metrics[rev:fy0]', explain)
+
+
+@skip(cluster=True)
+def testUpdateAndDelete(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 5, 'b': 1})
+    set_doc(env, 2, {'a': 6})
+    env.assertEqual(search_ids(env, '@metrics[a]:[5 6]'), {1, 2})
+    set_doc(env, 1, {'a': 100})
+    env.assertEqual(search_ids(env, '@metrics[a]:[5 6]'), {2})
+    env.assertEqual(search_ids(env, '@metrics[a]:[100 100]'), {1})
+    env.assertEqual(search_ids(env, '@metrics[b]:[-inf +inf]'), set())
+    env.expect('DEL', 'company:2').equal(1)
+    env.assertEqual(search_ids(env, '@metrics[a]:[5 6]'), set())
+    set_doc(env, 1, {})
+    env.assertEqual(search_ids(env, '@metrics[a]:[-inf +inf]'), set())
+
+
+@skip(cluster=True)
+def testErrors(env):
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.hq', 'AS', 'hq', 'TAG',
+               '$.n', 'AS', 'n', 'NUMERIC', '$.metrics', 'AS', 'metrics', 'MAP', 'NUMERIC').ok()
+    env.expect('FT.SEARCH', 'idx', '@metrics:[1 2]', 'DIALECT', 2).error().contains('NUMERIC')
+    env.expect('FT.SEARCH', 'idx', '@n[a]:[1 2]', 'DIALECT', 2).error().contains('MAP NUMERIC')
+    env.expect('FT.SEARCH', 'idx', '@hq[a]:[1 2]', 'DIALECT', 2).error().contains('MAP NUMERIC')
+    env.expect('FT.SEARCH', 'idx', '@nofield[a]:[1 2]', 'DIALECT', 2).error().contains('Unknown field')
+    env.expect('FT.SEARCH', 'idx', '@metrics[a]:[5 1]', 'DIALECT', 2).error().contains('min > max')
+    env.expect('FT.SEARCH', 'idx', '@metrics[a]:hello', 'DIALECT', 2).error()
+
+
+@skip(cluster=True)
+def testQueryGateOff(env):
+    enable_unstable_features(env)
+    create_index(env)
+    set_doc(env, 1, {'a': 1})
+    set_unstable_features(env, False)
+    env.expect('FT.SEARCH', 'idx', '@metrics[a]:[1 2]', 'DIALECT', 2).error().contains(GATE_ERROR)
+    env.expect('FT.SEARCH', 'idx', '@metrics[$k]:[1 2]', 'PARAMS', 2, 'k', 'a',
+               'DIALECT', 2).error().contains(GATE_ERROR)
+    env.expect('FT.AGGREGATE', 'idx', '@metrics[a]:[1 2]', 'DIALECT', 2).error().contains(GATE_ERROR)
+    set_unstable_features(env, True)
+    env.assertEqual(search_ids(env, '@metrics[a]:[1 2]'), {1})
+
+
+# ---- Existing query syntax is unchanged ----
+
+def run_compat_checks(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'cidx', 'SCHEMA', 'txt', 'TEXT', 'tg', 'TAG', 'n', 'NUMERIC',
+               'g', 'GEO', 'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+               'DISTANCE_METRIC', 'L2').ok()
+    vec = lambda x, y: struct.pack('<2f', x, y)
+    conn.execute_command('HSET', 'd1', 'txt', 'hello world', 'tg', 'a[b', 'n', 5,
+                         'g', '1.0,1.0', 'v', vec(0, 0))
+    conn.execute_command('HSET', 'd2', 'txt', 'hello [there]', 'tg', 'c', 'n', 15,
+                         'g', '50.0,50.0', 'v', vec(1, 1))
+    conn.execute_command('HSET', 'd3', 'txt', 'other', 'tg', 'a', 'n', 25,
+                         'g', '1.1,1.1', 'v', vec(5, 5))
+
+    def ids(*args):
+        res = env.cmd('FT.SEARCH', 'cidx', *args, 'NOCONTENT', 'DIALECT', 2)
+        return sorted(res[1:])
+
+    env.assertEqual(ids('@n:[0 10]'), ['d1'])
+    env.assertEqual(ids('@n:[(5 25]'), ['d2', 'd3'])
+    env.assertEqual(ids('@n:[-inf +inf]'), ['d1', 'd2', 'd3'])
+    env.assertEqual(ids('@n:[$lo $hi]', 'PARAMS', 4, 'lo', 10, 'hi', 20), ['d2'])
+    env.assertEqual(ids('@n:[0 10] | @n:[20 30]'), ['d1', 'd3'])
+    env.assertEqual(ids('@txt:$p', 'PARAMS', 2, 'p', 'hello'), ['d1', 'd2'])
+    env.assertEqual(ids('@tg:{$p}', 'PARAMS', 2, 'p', 'c'), ['d2'])
+    env.assertEqual(ids('@tg:{a\\[b}'), ['d1'])
+    # The escaped brackets make one term, which the tokenizer never indexed.
+    env.assertEqual(ids('@txt:hello\\[there\\]'), [])
+    env.assertEqual(ids('@txt:hello \\[there\\]'), [])
+    env.assertEqual(ids('@g:[1.0 1.0 50 km]'), ['d1', 'd3'])
+    res = env.cmd('FT.SEARCH', 'cidx', '*=>[KNN 2 @v $b]', 'PARAMS', 2, 'b', vec(0.1, 0.1),
+                  'SORTBY', '__v_score', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[1:], ['d1', 'd2'])
+    res = env.cmd('FT.SEARCH', 'cidx', '@v:[VECTOR_RANGE 3 $b]=>{$YIELD_DISTANCE_AS: dist}',
+                  'PARAMS', 2, 'b', vec(0, 0), 'SORTBY', 'dist', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[1:], ['d1', 'd2'])
+    # A bracket after a field name without the key syntax is still the same syntax error.
+    env.expect('FT.SEARCH', 'cidx', '@n[1]', 'DIALECT', 2).error()
+
+
+@skip(cluster=True)
+def testExistingSyntaxFlagOff(env):
+    set_unstable_features(env, False)
+    run_compat_checks(env)
+
+
+@skip(cluster=True)
+def testExistingSyntaxFlagOn(env):
+    set_unstable_features(env, True)
+    run_compat_checks(env)

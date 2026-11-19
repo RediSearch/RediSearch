@@ -2592,6 +2592,7 @@ dependencies = [
  "insta",
  "inverted_index",
  "iterators_ffi",
+ "keyed_numeric_index",
  "libc",
  "numeric_range_tree",
  "proptest",
