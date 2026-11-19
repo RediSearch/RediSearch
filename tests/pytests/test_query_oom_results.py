@@ -9,9 +9,6 @@
 `_FT.DEBUG MEMORY_PRESSURE AT_CALL`, which makes the n-th checkpoint call report pressure."""
 
 from common import *
-from test_blocked_client_timeout import (
-    _wait_shard_paused_after_aggregate_result, wait_for_client_unblocked,
-)
 from test_query_memory_checkpoints import BUILD_CHECKPOINTS
 from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
@@ -22,7 +19,6 @@ import threading
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
-TIMEOUT_WARNING = "Timeout limit was reached"
 N_DOCS = 10
 # Larger than any test's checkpoint call count: arms the call counter without firing.
 NEVER = 1_000_000
@@ -390,47 +386,6 @@ def test_pressure_after_the_row_that_fills_the_limit(env):
             env.expect(*query).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
     finally:
-        _reset(env)
-
-
-@skip(cluster=True)
-@env_spec(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
-def test_return_strict_drain_stop_truncates(env):
-    """After a RETURN-STRICT timeout the main thread drains the sorter heap into the reply; the
-    drain checks memory per row, although the request is already stopped by the timeout, and
-    a stop there keeps what was drained and warns of both."""
-    t_query = None
-    try:
-        skipIfNoEnableAssert(env)
-        _index_with_docs(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-        query = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, N_DOCS]
-        resetAggregateResultsDebug(env)
-        setPauseAfterAggregateResult(env, 1)
-        result = []
-        t_query = threading.Thread(target=call_and_store, args=(env.cmd, query, result), daemon=True)
-        t_query.start()
-        blocked_client_id = _wait_shard_paused_after_aggregate_result(env, 'FT.AGGREGATE')
-        # Only the drain counts from here: the worker sees the timeout before its next checkpoint,
-        # and a call on an already stopped request is not counted.
-        _memory_pressure(env, 'AT_CALL', 3)
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-        wait_for_client_unblocked(env, blocked_client_id)
-        resetAggregateResultsDebug(env)
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive())
-        env.assertEqual(len(result), 1)
-
-        res = result[0]
-        # One row buffered before the timeout, two drained before the third drain call stopped it.
-        env.assertEqual([row['extra_attributes']['n'] for row in res['results']], ['0', '1', '2'],
-                        message=res)
-        env.assertEqual(sorted(res['warning']), sorted([COORD_OOM_WARNING, TIMEOUT_WARNING]))
-    finally:
-        # A parked worker would leak the pause into later tests.
-        if t_query is not None:
-            resetAggregateResultsDebug(env)
-            t_query.join(timeout=10)
         _reset(env)
 
 

@@ -293,12 +293,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
 
    SearchResult r = SearchResult_New();
-   uint32_t memoryCheckCounter = 0;
    while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-     // Checked once a row exists, so the warning always means a row was left out.
-     if (StoredResults_ShouldStopForMemory(&memoryCheckCounter, qctx->err)) {
-       break;
-     }
      qctx->resultLimit--;
      array_append(stored->results, SearchResult_AllocateMove(&r));
      r = SearchResult_New();
