@@ -295,11 +295,11 @@ where
     }
 }
 
-impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
+impl<'query, Rf: Ref, E: DecodedBy, C, RA> ProfilePrint for RawMissing<'query, Rf, E, C, RA>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MISSING");
@@ -367,7 +367,8 @@ where
 {
     type Suspended = RawMissing<'index, Suspended, E, C>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawMissing` is a `#[repr(C)]` newtype whose only
         // `Rf`-dependent field is the inner `RawInvIndIterator`, layout-identical
@@ -438,6 +439,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }

@@ -209,6 +209,26 @@ impl MockScoreSource {
     }
 }
 
+/// Renders the child subtree it is handed, so tests can check what a
+/// [`TopKIterator`](crate::TopKIterator) passes down to its source.
+impl crate::TopKSourceProfile for MockScoreSource {
+    fn print_profile(
+        &self,
+        _mode: crate::TopKMode,
+        _metrics: &crate::TopKMetrics,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+        child: Option<&dyn rqe_iterators::profile_print::ProfilePrint>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK SCORE SOURCE");
+        if let Some(child) = child {
+            let mut child_map = map.kv_map(c"Child iterator");
+            let mut child_ctx = ctx.child_ctx();
+            child.print_profile(&mut child_map, &mut child_ctx);
+        }
+    }
+}
+
 impl ScoreSource for MockScoreSource {
     type Batch = MockScoreBatch;
 

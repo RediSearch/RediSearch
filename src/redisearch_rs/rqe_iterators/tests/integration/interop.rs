@@ -22,13 +22,31 @@ use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
     ResumeOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    intersection::Intersection,
+    intersection::Intersection, maybe_empty::MaybeEmpty,
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 use rstest::rstest;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, drain_doc_ids};
+
+/// Drive the C lock-release protocol on `it`: `Suspend` before the lock is dropped, then
+/// `Revalidate` once it is re-acquired.
+///
+/// # Safety
+///
+/// `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor, and `spec` is the spec
+/// it is revalidated against.
+unsafe fn suspend_then_revalidate(
+    it: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
+) -> ValidateStatus {
+    // SAFETY: guaranteed by the caller; every wrapper constructor populates both callbacks.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
+    }
+}
 
 /// Call the C `Revalidate` callback on a Rust iterator lowered to the C ABI, then free it.
 fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
@@ -39,11 +57,7 @@ fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let it = RQEIteratorWrapper::boxed_new(mock).as_ptr();
     // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
     // spec the iterator is revalidated against. `boxed_new` populates every callback.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        let revalidate = (*it).Revalidate.expect("Revalidate must be populated");
-        revalidate(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -603,10 +617,7 @@ fn a_child_timeout_reaches_c_as_a_timeout_through_a_composite() {
     let it = RQEIteratorWrapper::boxed_new_compound(intersection).as_ptr();
 
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new_compound` and is not used after.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -629,10 +640,7 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     rqe_iterators::interop::set_mock_revalidate_timeout(false);
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
@@ -644,4 +652,275 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
         "the switch stands in for an expired deadline, so it must short-circuit rather than let \
          the iterator revalidate and then discard the outcome",
     );
+}
+
+/// A resume that did not move must hand C back the same result: a parent's aggregate result may
+/// still point at it.
+#[test]
+fn a_wrapper_hides_its_result_while_suspended_and_restores_it_on_resume() {
+    let ctx = MockContext::new(100, 10);
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3])).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        let read = (*it).Read.expect("Read must be populated");
+        assert_eq!(read(it), ffi::IteratorStatus_ITERATOR_OK);
+        let current = (*it).current;
+        assert!(!current.is_null());
+
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert!(
+            (*it).current.is_null(),
+            "a suspended iterator exposes no result"
+        );
+
+        assert_eq!(
+            ((*it).Revalidate.expect("Revalidate must be populated"))(
+                it,
+                (*ctx.sctx().as_ptr()).spec
+            ),
+            ValidateStatus_VALIDATE_OK
+        );
+        assert_eq!((*it).current, current, "the result must not have moved");
+        assert_eq!((*it).lastDocId, 1);
+        assert_eq!(read(it), ffi::IteratorStatus_ITERATOR_OK);
+        assert_eq!((*it).lastDocId, 2, "reading resumes where it left off");
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
+}
+
+/// Print the profile of a Rust iterator through its C `PrintProfile` callback.
+///
+/// # Safety
+///
+/// 1. `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor.
+#[cfg(not(miri))]
+unsafe fn print_profile_through_c_abi(
+    it: std::ptr::NonNull<QueryIterator>,
+) -> redis_mock::reply::ReplyValue {
+    rqe_iterators_test_utils::capture_profile(|map, ctx| {
+        // SAFETY: 1; every wrapper constructor populates `PrintProfile`.
+        unsafe { rqe_iterators::c2rust::call_print_profile(it, map, ctx) };
+    })
+}
+
+/// Print the profile of the wrapper `it` before and after suspending it, then free it.
+///
+/// # Safety
+///
+/// 1. `it` is the owning pointer returned by an [`RQEIteratorWrapper`] constructor, and is not
+///    used after this call.
+#[cfg(not(miri))]
+unsafe fn print_profile_before_and_after_suspend(
+    it: std::ptr::NonNull<QueryIterator>,
+) -> (redis_mock::reply::ReplyValue, redis_mock::reply::ReplyValue) {
+    // SAFETY: 1.
+    let header = unsafe { it.as_ref() };
+    let suspend = header.Suspend.expect("Suspend must be populated");
+    let free = header.Free.expect("Free must be populated");
+
+    // SAFETY: 1.
+    let active = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: 1.
+    unsafe { suspend(it.as_ptr()) };
+    // SAFETY: 1; suspending leaves the wrapper live.
+    let suspended = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: 1.
+    unsafe { free(it.as_ptr()) };
+    (active, suspended)
+}
+
+/// The profile is printed after the query has released its read lock, so by then the iterator
+/// tree is suspended. Printing it must not require resuming it, and must report the same profile
+/// as the active iterator did.
+#[cfg(not(miri))]
+#[test]
+fn a_suspended_wrapper_prints_the_profile_of_its_active_form() {
+    let it = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+
+    // SAFETY: `it` was just built by `boxed_new` and is not used afterwards.
+    let (active, suspended) = unsafe { print_profile_before_and_after_suspend(it) };
+
+    assert_eq!(suspended, active);
+    insta::assert_debug_snapshot!(suspended);
+}
+
+/// A suspended composite prints its children through their suspended forms, so each kind of
+/// child has to print as it did while active: a Rust leaf and an empty slot, both lowered to C.
+#[cfg(not(miri))]
+#[test]
+fn a_suspended_composite_prints_the_profile_of_its_active_form() {
+    let children = vec![
+        CRQEIterator::from_rust_leaf(Mock::new([1, 2, 3])),
+        CRQEIterator::from_rust_leaf(MaybeEmpty::<Mock<3>>::new_empty()),
+    ];
+    let it = RQEIteratorWrapper::boxed_new(Intersection::new(children, 1.0, false));
+
+    // SAFETY: `it` was just built by `boxed_new` and is not used afterwards.
+    let (active, suspended) = unsafe { print_profile_before_and_after_suspend(it) };
+
+    assert_eq!(suspended, active);
+    insta::assert_debug_snapshot!(suspended);
+}
+
+/// Type erasure must not hide the concrete iterator from the profile: a type-erased suspended
+/// iterator prints as the iterator it erases.
+#[cfg(not(miri))]
+#[test]
+fn a_type_erased_suspended_iterator_prints_the_profile_of_the_erased_one() {
+    let erased = Box::new(TypeErasedRQEIterator::new(Box::new(Mock::new([1, 2, 3]))));
+    let suspended = RQEIteratorBoxed::suspend(erased);
+
+    let profile = rqe_iterators_test_utils::profile_of(&*suspended);
+
+    insta::assert_debug_snapshot!(profile, @r#"{"Type": "MOCK"}"#);
+}
+
+/// Pipelines may stack several unlock sites that each suspend the root iterator before releasing
+/// the read lock, so a `Suspend` on an already suspended wrapper must leave it untouched.
+#[test]
+fn a_second_suspend_is_a_no_op() {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+    }
+    assert_eq!(
+        data.revalidate_count(),
+        1,
+        "two suspends and one revalidate make a single cycle"
+    );
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+}
+
+/// Number of times [`count_suspend_calls`] was invoked.
+static SUSPEND_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Stand-in `Suspend` callback: records that it was called.
+extern "C" fn count_suspend_calls(_it: *mut QueryIterator) {
+    SUSPEND_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A C iterator may hold lock-dependent state of its own, and a Rust iterator lowered to the C ABI
+/// only changes state through its `Suspend` callback, so suspending the handle has to reach it.
+#[test]
+fn suspending_a_c_iterator_forwards_to_its_suspend_callback() {
+    let it = Box::new(CRQEIterator::from_rust_leaf(Mock::new([1, 2, 3])));
+    // SAFETY: `it` owns the header and no reference into it is live across this call.
+    unsafe {
+        rqe_iterators::interop::patch_vtable(it.as_raw(), |h| h.Suspend = Some(count_suspend_calls))
+    };
+
+    let suspended = it.suspend();
+
+    assert_eq!(SUSPEND_CALLS.load(Ordering::Relaxed), 1);
+    drop(suspended);
+}
+
+/// `FT.PROFILE` asks for the estimate after the query has released its read lock, by which time
+/// the iterator tree is suspended, so the callback has to answer in that state too.
+#[test]
+fn a_suspended_wrapper_still_reports_its_estimate() {
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3])).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback.
+    unsafe {
+        let num_estimated = (*it).NumEstimated.expect("NumEstimated must be populated");
+        let active = num_estimated(it);
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(num_estimated(it), active);
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
+}
+
+/// C tells an exhausted iterator apart by `current` being NULL with `atEOF` set, so the header
+/// rebuilt on resume must keep both.
+#[test]
+fn an_exhausted_wrapper_stays_exhausted_across_a_cycle() {
+    let ctx = MockContext::new(100, 10);
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2])).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        let read = (*it).Read.expect("Read must be populated");
+        while read(it) == ffi::IteratorStatus_ITERATOR_OK {}
+        assert!((*it).current.is_null() && (*it).atEOF);
+
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+        assert!(
+            (*it).current.is_null(),
+            "an exhausted iterator publishes no result"
+        );
+        assert!((*it).atEOF);
+        assert_eq!((*it).lastDocId, 2, "the last position survives the cycle");
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
+}
+
+/// A `Revalidate` with no `Suspend` before it still resumes the iterator.
+#[test]
+fn revalidating_an_active_wrapper_runs_a_full_cycle() {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    let status = unsafe {
+        ((*it).Revalidate.expect("Revalidate must be populated"))(it, (*ctx.sctx().as_ptr()).spec)
+    };
+
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
+    assert_eq!(
+        data.revalidate_count(),
+        1,
+        "the iterator must have been resumed"
+    );
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+}
+
+/// Without a `Revalidate`, reading on after `Suspend` would read index data that may have been
+/// freed.
+#[test]
+#[should_panic(expected = "accessed while in Suspended state")]
+fn a_suspended_wrapper_refuses_access_to_its_iterator() {
+    /// Frees the iterator once the expected panic unwinds past it, so the test leaks nothing.
+    struct FreeOnDrop(*mut QueryIterator);
+
+    impl Drop for FreeOnDrop {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` is the owning pointer returned by `boxed_new`, not used afterwards.
+            unsafe { ((*self.0).Free.expect("Free must be populated"))(self.0) };
+        }
+    }
+
+    let it = FreeOnDrop(RQEIteratorWrapper::boxed_new(Mock::new([1, 2])).as_ptr());
+    // SAFETY: `it.0` was just built by `boxed_new`, which populates every callback.
+    unsafe { ((*it.0).Suspend.expect("Suspend must be populated"))(it.0) };
+
+    // SAFETY: `it.0` was built by `boxed_new` around a `Mock<2>`, nothing else borrows it, and
+    // the borrow ends before `it` frees the iterator.
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<Mock<'_, 2>>::ref_from_header_ptr(
+            std::ptr::NonNull::new(it.0).expect("boxed_new returns a non-null pointer"),
+        )
+    };
+    let _ = wrapper.inner();
 }

@@ -138,7 +138,9 @@ where
     fn reset_timeout(&mut self) {
         self.timeout_ctx.reset_counter();
     }
+}
 
+impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {
     /// Get a shared reference to the _child_ iterator
     /// wrapped by this [`Not`] iterator.
     pub const fn child(&self) -> Option<&I> {
@@ -513,7 +515,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mode-independent — mirrors the active `num_estimated`.
         self.max_doc_id as usize
     }
 }
@@ -521,7 +522,7 @@ where
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where
-    TC: TimeoutContext + 'index,
+    TC: TimeoutContext + 'static,
 {
     fn profile_children(self) -> Self {
         Not {
@@ -535,9 +536,9 @@ where
     }
 }
 
-impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+impl<'query, Rf: Ref, I, TC> ProfilePrint for RawNot<'query, Rf, I, TC>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

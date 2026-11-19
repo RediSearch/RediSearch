@@ -124,11 +124,11 @@ impl<'index, I: RQEIterator<'index>> UnionVariant<'index, I> {
 macro_rules! delegate_variant_ref {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match &$self.variant {
-            UnionVariant::FlatFull(it) => it.$method($($arg),*),
-            UnionVariant::FlatQuick(it) => it.$method($($arg),*),
-            UnionVariant::HeapFull(it) => it.$method($($arg),*),
-            UnionVariant::HeapQuick(it) => it.$method($($arg),*),
-            UnionVariant::Trimmed(it) => it.$method($($arg),*),
+            RawUnionVariant::FlatFull(it) => it.$method($($arg),*),
+            RawUnionVariant::FlatQuick(it) => it.$method($($arg),*),
+            RawUnionVariant::HeapFull(it) => it.$method($($arg),*),
+            RawUnionVariant::HeapQuick(it) => it.$method($($arg),*),
+            RawUnionVariant::Trimmed(it) => it.$method($($arg),*),
         }
     };
 }
@@ -195,15 +195,7 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
-    /// Set the weight on the union's aggregate result.
-    /// Must be called before the first read/skip.
-    pub fn set_result_weight(&mut self, weight: f64) {
-        if let Some(result) = self.current() {
-            result.weight = weight;
-        }
-    }
-
+impl<'query, Rf: Ref, I> RawUnionOpaque<'query, Rf, I> {
     /// Returns the total number of children (including exhausted ones).
     pub const fn num_children_total(&self) -> usize {
         delegate_variant_ref!(self, num_children_total)
@@ -218,6 +210,16 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Returns [`None`] if the index is out of range.
     pub fn child_at(&self, idx: usize) -> Option<&I> {
         delegate_variant_ref!(self, child_at, idx)
+    }
+}
+
+impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
+    /// Set the weight on the union's aggregate result.
+    /// Must be called before the first read/skip.
+    pub fn set_result_weight(&mut self, weight: f64) {
+        if let Some(result) = self.current() {
+            result.weight = weight;
+        }
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
@@ -289,9 +291,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 }
 
-impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawUnionOpaque<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
@@ -353,7 +355,7 @@ where
 }
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 /// `ProfileChildren` callback for union iterators.
 ///
@@ -371,9 +373,11 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     debug_assert!(!base.is_null());
     // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
     let base = unsafe { NonNull::new_unchecked(base) };
-    // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
+    // SAFETY: 1. and 2. the caller passes a union wrapper built by `build_union`. 3. The
+    // pointer is owning, so nothing else borrows the wrapper. 4. The borrow ends within this
+    // call, while the caller keeps the iterator alive.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
+    for child in wrapper.inner_mut().children_mut() {
         // Read the child's owning pointer without consuming the slot; ownership
         // is moved out here and handed back in place below.
         let it = child.as_raw();

@@ -145,6 +145,7 @@ impl MockData {
             revalidate_reseeks_to: None,
             revalidate_moves_in_place: false,
             drop_count: 0,
+            suspended_drop_count: 0,
         })))
     }
 
@@ -271,12 +272,15 @@ impl MockData {
         self.0.borrow().validation_count
     }
 
-    /// Number of [`Mock`] values that have been dropped, to check that an iterator is freed
-    /// exactly once.
-    ///
-    /// A mock dropped while suspended, as a [`MockSuspended`], is not counted.
+    /// Number of times the mock has been dropped, active or suspended, to check
+    /// that an iterator is freed exactly once.
     pub fn drop_count(&self) -> usize {
         self.0.borrow().drop_count
+    }
+
+    /// Number of those drops that happened while suspended, as a [`MockSuspended`].
+    pub fn suspended_drop_count(&self) -> usize {
+        self.0.borrow().suspended_drop_count
     }
 
     /// Force the next call to `read()` to return `None` even if not at EOF.
@@ -326,8 +330,10 @@ struct MockDataInternal {
     /// If true, `revalidate` reports `Moved` without moving — see
     /// [`MockData::set_revalidate_moves_in_place`].
     revalidate_moves_in_place: bool,
-    /// Number of [`Mock`] values dropped — see [`MockData::drop_count`].
+    /// See [`MockData::drop_count`].
     drop_count: usize,
+    /// See [`MockData::suspended_drop_count`].
+    suspended_drop_count: usize,
 }
 
 impl MockDataInternal {
@@ -696,6 +702,15 @@ pub struct MockSuspended<const N: usize> {
     positions: Option<[u8; N]>,
     next_index: usize,
     data: MockData,
+}
+
+// A wrapper that is suspended when C frees it drops this form, not `Mock`, so it has to count too.
+impl<const N: usize> Drop for MockSuspended<N> {
+    fn drop(&mut self) {
+        let mut data = self.data.0.borrow_mut();
+        data.drop_count += 1;
+        data.suspended_drop_count += 1;
+    }
 }
 
 // Compile-time proof that the `Mock` and `MockSuspended` are layout-identical.
@@ -1192,4 +1207,24 @@ fn mock_vec_upholds_current_contract() {
     let mut it = MockVec::new(CONTRACT_DOCS.to_vec());
     assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
     assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for MockSuspended<N> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for MockVecSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK VEC");
+    }
 }

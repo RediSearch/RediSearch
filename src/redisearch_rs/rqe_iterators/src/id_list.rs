@@ -19,6 +19,7 @@ use std::ptr::NonNull;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -352,7 +353,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 }
 
-impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
+impl<'query, Rf: Ref, const SORTED: bool> ProfilePrint for RawIdList<'query, Rf, SORTED> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         if SORTED {
             ctx.print_leaf(c"ID-LIST-SORTED", map);
@@ -413,23 +414,16 @@ impl<'query, const SORTED: bool> SuspendedIdList<'query, SORTED> {
             return Err(slot);
         }
 
-        // SAFETY: `slot` is aligned and points to an initialized
-        // `RawIdList<'query, Suspended, SORTED>` (caller contract 1). `&raw mut` forms a
-        // field pointer without creating a reference, leaving `slot`'s provenance
-        // over the whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*slot.as_ptr()).result };
-        // SAFETY: `result_slot` is a field pointer derived from the non-null `slot`, so it is
-        // non-null too.
-        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
-        // SAFETY: all preconditions of `into_active_in_place` are met:
-        // 1. `result_slot` points at an initialized `RawIndexResult<'query, Suspended>`.
-        // 2. `result_slot` is not aliased (caller contract 2).
-        // 3. `into_active`'s preconditions hold trivially: thanks to the runtime kind check above,
-        //    the result is virtual or metric. Those variants own their data.
-        //    So conditions (1)–(4) range over no pointers and hold for any `'a`; the
-        //    `'query: 'a` bound covers any retained query-pipeline pointers.
-        unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
-        Ok(slot.cast::<IdList<'a, SORTED>>())
+        // SAFETY:
+        // 1. Caller contracts 1 and 2.
+        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
+        // 3. Virtual and metric results hold no index pointers; `'query: 'a`
+        //    covers their query-pipeline ones.
+        Ok(unsafe {
+            resume_owned_result_in_place::<'query, 'a, _, IdList<'a, SORTED>>(slot, |it| {
+                &mut it.result
+            })
+        })
     }
 }
 
@@ -453,19 +447,10 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     pub(crate) unsafe fn suspend_in_place(
         slot: NonNull<Self>,
     ) -> NonNull<SuspendedIdList<'index, SORTED>> {
-        // SAFETY: `slot` is aligned and initialized (caller contract 1).
-        // `&raw mut` forms a field pointer without creating a reference, leaving
-        // `slot`'s provenance over the whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*slot.as_ptr()).result };
-        // SAFETY: `result_slot` is a field pointer derived from the non-null `slot`, so it is
-        // non-null too.
-        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
-        // SAFETY: `into_suspended_in_place`'s contract is met — `result_slot` points at
-        // an initialized `RSIndexResult<'index>` and is not aliased (caller contracts
-        // 1 and 2). Suspending is a safe widening conversion with no further precondition.
-        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
-
-        slot.cast::<SuspendedIdList<'index, SORTED>>()
+        // SAFETY:
+        // 1. Caller contracts 1 and 2.
+        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
+        unsafe { suspend_owned_result_in_place(slot, |it| &mut it.result) }
     }
 }
 

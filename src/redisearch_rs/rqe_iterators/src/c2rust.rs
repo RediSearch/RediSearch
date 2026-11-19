@@ -166,6 +166,10 @@ impl CRQEIterator {
             "The `Revalidate` callback is a NULL function pointer"
         );
         debug_assert!(
+            self_.Suspend.is_some(),
+            "The `Suspend` callback is a NULL function pointer"
+        );
+        debug_assert!(
             self_.NumEstimated.is_some(),
             "The `NumEstimated` callback is a NULL function pointer"
         );
@@ -184,7 +188,8 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIterator<'index> + ProfilePrint + 'index,
+        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I::Suspended: crate::RQESuspendedIterator<'index, Resumed<'index> = I>,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
@@ -371,42 +376,39 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         match self.type_ {
             IteratorType::Intersect => {
                 // SAFETY:
-                // - `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
-                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
-                //   wrapped intersection).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
+                // 1. and 2. `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
+                //    `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
+                //    inner type (`NewIntersectionIterator` is the sole constructor of a C
+                //    wrapped intersection). `as_raw` returns the owning pointer, whose
+                //    provenance spans the whole wrapper; a pointer derived from
+                //    `&QueryIterator` would cover only the header and make the read of the
+                //    wrapped iterator UB.
+                // 3. The borrow ends within this expression, while `self` keeps the iterator
+                //    alive.
                 let n = unsafe {
                     RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
                         self.as_raw(),
                     )
-                    .inner
+                    .inner()
                     .num_children()
                 };
                 1.0 / n.max(1) as f64
             }
             IteratorType::Union if prioritize_union_children => {
                 // SAFETY:
-                // - `type_ == Union` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new_inner` with
-                //   `UnionOpaque<CRQEIterator>` as the inner type
-                //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
+                // 1. and 2. `type_ == Union` guarantees `self` was produced by
+                //    `RQEIteratorWrapper::boxed_new_inner` with `UnionOpaque<CRQEIterator>` as
+                //    the inner type (`NewUnionIterator` is the sole constructor of a C wrapped
+                //    union). `as_raw` returns the owning pointer, whose provenance spans the
+                //    whole wrapper; a pointer derived from `&QueryIterator` would cover only
+                //    the header and make the read of the wrapped iterator UB.
+                // 3. The borrow ends within this expression, while `self` keeps the iterator
+                //    alive.
                 let n = unsafe {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
                         self.as_raw(),
                     )
-                    .inner
+                    .inner()
                     .num_children_active()
                 };
                 n.max(1) as f64
@@ -539,9 +541,27 @@ impl profile_print::ProfilePrint for CRQEIterator {
 impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
     type Suspended = CRQESuspendedIterator;
 
+    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
+    ///
+    /// Chains the suspend signal to the wrapped C iterator so it can drop any
+    /// lock-dependent state before the spec read lock is released. For a Rust
+    /// iterator nested under a `CRQEIterator` wrapper (the common case for
+    /// composite children), this triggers the inner wrapper's typestate flip
+    /// from Active to Suspended.
+    ///
+    /// Every iterator's vtable installs a non-null `Suspend`: a no-op for C
+    /// iterators without lock-dependent state, or the [`RQEIteratorWrapper`]
+    /// callback for Rust ones.
     fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // Snapshot while the read lock is still held, see the field.
+        // Snapshot while the read lock is still held, see the field. It has to precede the C-side
+        // `Suspend`, after which a Rust child no longer answers.
         self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null: every vtable installs a `Suspend`.
+        let callback = unsafe { self.Suspend.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`); the
+        // C-side callback is safe to call per invariant 4.
+        unsafe { callback(self.header.as_ptr()) };
         // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
         unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
     }
@@ -549,7 +569,8 @@ impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
 
 /// The suspended form of a [`CRQEIterator`].
 ///
-/// Exposes only the [`RQESuspendedIterator`] API, as every [`RQEIterator`] method calls into C
+/// Exposes only the [`RQESuspendedIterator`] API and
+/// [`ProfilePrint`], as every [`RQEIterator`] method calls into C
 /// callbacks that may read index memory.
 #[repr(transparent)]
 pub struct CRQESuspendedIterator(CRQEIterator);
@@ -606,5 +627,19 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
     fn num_estimated(&self) -> usize {
         // Not a call into C: see the field.
         self.0.num_estimated_snapshot
+    }
+}
+
+/// Printing goes through the iterator's `PrintProfile` callback, as the active form does. That
+/// is sound on a suspended iterator because every such callback reads only query-owned data: a
+/// Rust-wrapped iterator prints whichever form it holds, and C iterators print their own fields
+/// and recurse into their children.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }

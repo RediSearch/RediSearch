@@ -58,14 +58,9 @@ pub enum TagIteratorSuspended<'query> {
 //     fixed by the enum's alignment, so this also pins it; each payload's own
 //     layout is checked by the slot helpers.
 const _: () = {
-    /// (a) — fails to compile unless resuming `I`'s suspended form yields `I`.
-    const fn assert_resumes_to_itself<I>()
-    where
-        I: RQEIteratorBoxed<'static>,
-        I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
-    {
-    }
+    use rqe_iterators::boxed::assert_resumes_to_itself;
 
+    // (a)
     assert_resumes_to_itself::<Tag<'static, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>();
     assert_resumes_to_itself::<Tag<'static, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>(
     );
@@ -435,5 +430,18 @@ impl profile_print::ProfilePrint for TagIterator<'_> {
         ctx: &mut profile_print::ProfilePrintCtx<'_>,
     ) {
         tag_it_dispatch!(self, print_profile, map, ctx);
+    }
+}
+
+impl profile_print::ProfilePrint for TagIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            TagIteratorSuspended::Encoded(t) => t.print_profile(map, ctx),
+            TagIteratorSuspended::Raw(t) => t.print_profile(map, ctx),
+        }
     }
 }

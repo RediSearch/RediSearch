@@ -245,7 +245,8 @@ where
     // inner iterator's dispatch pointers unchanged across the cast.
     type Suspended = RawNumeric<'index, Suspended, R::Suspended, E, R>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner
         // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
@@ -319,9 +320,10 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }
+
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index> + ReseatIndex<NumericIndex>,
@@ -395,11 +397,7 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
-where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
-{
+impl<'query, Rf: Ref, R, E, RA> ProfilePrint for RawNumeric<'query, Rf, R, E, RA> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"NUMERIC");
         let term_str = format!(
@@ -810,7 +808,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 }
 
-impl ProfilePrint for NumericIteratorVariant<'_> {
+impl<Rf: Ref> ProfilePrint for RawNumericIteratorVariant<'_, Rf> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         match self {
             Self::Unfiltered(it) => it.print_profile(map, ctx),

@@ -55,8 +55,9 @@
 use std::ptr::NonNull;
 
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
@@ -107,7 +108,14 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
 /// That is why this trait carries `'query` instead of a `'static` bound: a
 /// suspended iterator holds no live *index* references, but may still borrow
 /// query-pipeline data for `'query`.
-pub trait RQESuspendedIterator<'query> {
+///
+/// It is also [`ProfilePrint`](crate::profile_print::ProfilePrint) so
+/// `FT.PROFILE` introspection can print a suspended iterator's profile tree
+/// without resuming it (see [`crate::interop::RQEIteratorWrapper`]'s
+/// `print_profile` callback). The profile fields (counters, wall-time, child
+/// accessors) are stored on the mode-independent `Raw…` structs, so the same
+/// `ProfilePrint` impl serves the active and suspended counterparts.
+pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// The active counterpart this iterator resumes into, parameterised by
     /// the lifetime of the freshly re-acquired read guard.
     ///
@@ -166,10 +174,8 @@ pub trait RQESuspendedIterator<'query> {
     /// resuming. Used by FFI introspection (`FT.PROFILE` printing) which
     /// is called after the iterator has been suspended at the unlock site.
     ///
-    /// The value is an estimate, so returning a snapshot from construction
-    /// is acceptable — the underlying invariant is that the FFI consumer
-    /// uses it for display only. Default returns 0 for iterators that do
-    /// not maintain a cached estimate.
+    /// The value is an estimate, so returning one cached before the suspend is
+    /// acceptable — the FFI consumer uses it for display only.
     fn num_estimated(&self) -> usize;
 }
 
@@ -188,7 +194,11 @@ pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
 /// As with [`RQEDynIterator`], implementers don't write this directly — the
 /// blanket bridge below produces it from any
 /// `T: RQESuspendedIterator`.
-pub trait RQEDynSuspendedIterator<'query> {
+///
+/// It is [`ProfilePrint`](crate::profile_print::ProfilePrint) (via the
+/// `RQESuspendedIterator: ProfilePrint` supertrait, forwarded by the blanket
+/// bridge) so a type-erased suspended child can print its profile.
+pub trait RQEDynSuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// Type-erased counterpart of [`RQESuspendedIterator::resume`].
     fn resume<'index>(
         self: Box<Self>,
@@ -249,6 +259,74 @@ pub const fn assert_layout_compatible<A, B>() {
         std::mem::align_of::<A>() == std::mem::align_of::<B>(),
         "alignment mismatch across suspend/resume transition: active and suspended representations must have identical alignment"
     );
+}
+
+/// Compile-time assertion that resuming `I`'s suspended form yields `I`.
+///
+/// Relabelling a slot back to `I` after [`resume_child_slot_in_place`] needs
+/// this type identity; equal layouts alone do not make the value valid as `I`.
+pub const fn assert_resumes_to_itself<I>()
+where
+    I: RQEIteratorBoxed<'static>,
+    I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
+{
+}
+
+/// Suspend, in place, an iterator whose only [`Ref`](ref_mode::Ref)-dependent
+/// state is the owned result `result` projects onto, returning `slot` as its
+/// suspended form `S`. The allocation never moves.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `A`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `S` is `A` with that field
+///    retyped to a [`Suspended`] [`RawIndexResult`]: same layout, and every
+///    other field valid unchanged at `S`.
+pub(crate) unsafe fn suspend_owned_result_in_place<'index, A, S>(
+    mut slot: NonNull<A>,
+    result: impl FnOnce(&mut A) -> &mut RSIndexResult<'index>,
+) -> NonNull<S> {
+    const { assert_layout_compatible::<A, S>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+    // Caller's 2: every field is now valid at `S`.
+    slot.cast::<S>()
+}
+
+/// Reverse [`suspend_owned_result_in_place`], returning `slot` as its active
+/// form `A`.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `S`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `A` is `S` with that field
+///    retyped to an [`Active`] [`RSIndexResult`] for `'a`: same layout, and
+///    every other field valid unchanged at `A`.
+/// 3. The preconditions of [`RawIndexResult::into_active`] hold for that field
+///    at `'a`.
+pub(crate) unsafe fn resume_owned_result_in_place<'query, 'a, S, A>(
+    mut slot: NonNull<S>,
+    result: impl FnOnce(&mut S) -> &mut RawIndexResult<'query, Suspended>,
+) -> NonNull<A>
+where
+    'query: 'a,
+{
+    const { assert_layout_compatible::<S, A>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    // 3. Caller's 3.
+    unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+    // Caller's 2: every field is now valid at `A`.
+    slot.cast::<A>()
 }
 
 /// Suspend a single child slot in place: read the value out, call its
@@ -722,5 +800,22 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
+    }
+}
+
+/// Forwarding [`crate::profile_print::ProfilePrint`] impl so
+/// [`TypeErasedRQESuspendedIterator`] satisfies the `ProfilePrint` bound
+/// required by the `RQESuspendedIterator: ProfilePrint` supertrait.
+///
+/// Delegates to the erased concrete suspended iterator's own `print_profile`
+/// through the [`RQEDynSuspendedIterator`] vtable, so `FT.PROFILE` reports the
+/// real iterator even when the tree is suspended at the unlock site.
+impl crate::profile_print::ProfilePrint for TypeErasedRQESuspendedIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
