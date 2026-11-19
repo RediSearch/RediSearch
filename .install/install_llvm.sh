@@ -536,11 +536,27 @@ _alpine_llvm_ok() {
     _llvm_ok_for "$installed_ver"
 }
 
+# True where install_llvm took the non-LTO fallback (dnf platforms whose
+# libstdc++ cannot run the LLVM tarball) and the distro clang plus libclang it
+# kept are present, so list/dry-run agree with what bootstrap accepted.
+_native_libclang_fallback_ok() {
+    local id=""
+    [[ "$OS_TYPE" == "Linux" ]] || return 1
+    [[ -f /etc/os-release ]] && id=$(. /etc/os-release && echo "${ID:-}")
+    case "$id" in
+        rhel|rocky|almalinux|centos|fedora|amzn) ;;
+        *) return 1 ;;
+    esac
+    ! tarball_runtime_ok || return 1
+    command -v clang >/dev/null 2>&1 || return 1
+    compgen -G "/usr/lib64/libclang.so*" >/dev/null
+}
+
 _llvm_check_ok() {
     if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
         _alpine_llvm_ok
     else
-        _llvm_ok
+        _llvm_ok || _native_libclang_fallback_ok
     fi
 }
 
