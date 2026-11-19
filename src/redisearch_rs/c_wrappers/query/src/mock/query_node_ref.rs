@@ -431,6 +431,18 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the same-element-node union variant's `group`, mirroring `NewSameElementNode`
+    /// (`query.c`).
+    pub fn set_same_element_group(&mut self, group: u16) {
+        self.debug_assert_type(QueryNodeType::SameElement);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // SameElement, per the assertion above, so the `se` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QuerySameElementNode>()).group = group;
+        }
+    }
+
     /// Set the tag-node union variant's `fieldIndex`, mirroring `NewTagNode`
     /// (`query.c`).
     pub fn set_tag_field_index(&mut self, field_index: rqe_core::FieldIndex) {

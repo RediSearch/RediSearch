@@ -61,6 +61,8 @@ typedef struct {
 typedef struct {
   QueryToken tok;
   const FieldSpec *fs;
+  // Position of the NESTED group that the name is, or -1. A name is not both a field and a group.
+  int group;
 } FieldName;
 
 #endif

@@ -108,6 +108,10 @@ typedef struct {
                             // pointer captured at parse time may already be freed by then
 } QueryMissingNode;
 
+typedef struct {
+  uint16_t group;  // position of the NESTED group in IndexSpec.nestedGroups
+} QuerySameElementNode;
+
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
  */
@@ -149,6 +153,7 @@ typedef struct RSQueryNode {
     QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
+    QuerySameElementNode se;
   };
 
   /* The node type, for resolving the union access */
@@ -162,6 +167,21 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
+
+/* What a child of a QN_SAME_ELEMENT node is, as a condition on one element of the array. */
+typedef enum {
+  SameElementChild_Unsupported,
+  // A TAG condition on a member of the group, or an OR of such conditions.
+  SameElementChild_Tags,
+  // A NUMERIC condition on a member of the group.
+  SameElementChild_Predicate,
+} SameElementChild;
+
+struct IndexSpec;
+/* The only statement of what a QN_SAME_ELEMENT node on the NESTED group at `group` accepts as
+ * a child: the parser and the evaluator both ask it about `n`. */
+SameElementChild QueryNode_SameElementChild(const struct IndexSpec *spec, uint16_t group,
+                                            const QueryNode *n);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

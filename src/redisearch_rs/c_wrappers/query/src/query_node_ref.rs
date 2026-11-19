@@ -154,6 +154,12 @@ pub enum QueryNode<'a> {
         /// which may already be freed by then.
         field_index: rqe_core::FieldIndex,
     },
+    /// Conditions on the members of a NESTED group that must all hold on one element of
+    /// the group's array.
+    SameElement {
+        /// Position of the group in `IndexSpec.nestedGroups`.
+        group: u16,
+    },
 }
 
 /// Safe read-only wrapper around a [`ffi::RSQueryNode`] pointer.
@@ -402,6 +408,11 @@ impl QueryNodeRef {
                 // SAFETY: per the paragraph above.
                 let end = unsafe { char_ptr_to_bound(lxrng.end, lxrng.includeEnd) };
                 QueryNode::LexRange { begin, end }
+            }
+            QueryNodeType::SameElement => {
+                // SAFETY: `type_` is `SameElement`, so the union holds a `QuerySameElementNode`.
+                let se = unsafe { &*union_ptr.cast::<ffi::QuerySameElementNode>() };
+                QueryNode::SameElement { group: se.group }
             }
             QueryNodeType::Max => {
                 unreachable!("Max is a sentinel, not a real node type")

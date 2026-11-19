@@ -199,8 +199,95 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+// Whether `field` names a field of type `type`. The name of a NESTED group has no field.
+static bool fieldNameIs(const FieldName *field, FieldType type) {
+  return field->fs && FIELD_IS(field->fs, type);
+}
+
+#define NOT_ONE_ELEMENT_CONDITION \
+  "A condition on one array element must be a TAG or NUMERIC condition" \
+  " on a field of the " SPEC_NESTED_STR " group, or an OR of such TAG conditions"
+
+// Report that `field` is not what its rule expects. A NESTED group takes only `@group:( ... )`.
+static void reportWrongField(QueryError *status, FieldName *field, const char *msg) {
+  reportSyntaxError(status, &field->tok, field->group >= 0 ? NOT_ONE_ELEMENT_CONDITION : msg);
+}
+
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
-  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+  reportWrongField(ctx->status, &F, "Expected a " type_literal " field")
+
+static bool isElementCondition(const IndexSpec *spec, uint16_t group,
+                               const struct RSQueryNode *n) {
+    return QueryNode_SameElementChild(spec, group, n) != SameElementChild_Unsupported;
+}
+
+// Give `n`, an expression inside `@group:( ... )`, its meaning on the elements of the array of
+// the group at `group`: an AND becomes a same-element node, and each child of an OR, a NOT or
+// an optional is scoped on its own. Returns the expression to use in place of `n`, which owns
+// what it keeps of `n`, or NULL for an expression that has no such meaning; `n` is then still
+// a valid tree that the caller frees.
+static struct RSQueryNode *scopeToElement(const IndexSpec *spec, uint16_t group,
+                                          struct RSQueryNode *n) {
+    switch (n->type) {
+        case QN_TAG:
+        case QN_NUMERIC:
+            return isElementCondition(spec, group, n) ? n : NULL;
+        case QN_PHRASE: {
+            if (n->pn.exact) {
+                return NULL;
+            }
+            for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+                if (!isElementCondition(spec, group, n->children[i])) {
+                    return NULL;
+                }
+            }
+            struct RSQueryNode *same = NewSameElementNode(group);
+            same->opts = n->opts;
+            n->opts.distField = NULL;
+            same->children = n->children;
+            n->children = NULL;
+            QueryNode_Free(n);
+            return same;
+        }
+        case QN_UNION:
+        case QN_NOT:
+        case QN_OPTIONAL:
+            for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+                struct RSQueryNode *scoped = scopeToElement(spec, group, n->children[i]);
+                if (!scoped) {
+                    return NULL;
+                }
+                n->children[i] = scoped;
+            }
+            return n;
+        default:
+            return NULL;
+    }
+}
+
+// Require the conditions of C to hold on one element of the NESTED group that G names. Only
+// a group holds conditions between its parentheses; any other name holds text there.
+static inline struct RSQueryNode* same_element_step(QueryParseCtx *ctx, FieldName *G,
+                                                    struct RSQueryNode* C) {
+    struct RSQueryNode *scoped = NULL;
+    if (!ctx->sctx->spec || G->group < 0) {
+        if (!QueryError_HasError(ctx->status)) {
+            QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX, "Syntax error",
+                                          " at offset %d near %.*s", G->tok.pos, G->tok.len,
+                                          G->tok.s);
+        }
+    } else {
+        // Text that holds only stop words parses to no expression. It is still text in a group.
+        scoped = C ? scopeToElement(ctx->sctx->spec, (uint16_t)G->group, C) : NULL;
+        if (!scoped && !QueryError_HasError(ctx->status)) {
+            reportSyntaxError(ctx->status, &G->tok, NOT_ONE_ELEMENT_CONDITION);
+        }
+    }
+    if (!scoped && C) {
+        QueryNode_Free(C);
+    }
+    return scoped;
+}
 
 /* Build the expression for `@field:>{v}` and friends.
  *
@@ -213,7 +300,7 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
  * without one. */
 static struct RSQueryNode *lex_range_step(QueryParseCtx *ctx, FieldName *field, QueryToken *bound,
                                           bool lower, bool inclusive) {
-  if (ctx->sctx->spec && !FIELD_IS(field->fs, INDEXFLD_T_TAG)) {
+  if (ctx->sctx->spec && !fieldNameIs(field, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE((*field), SPEC_TAG_STR);
     return NULL;
   }
@@ -446,7 +533,7 @@ text_union(A) ::= text_union(B) OR text_expr(C). [OR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON text_expr(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_FULLTEXT)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
     QueryNode_Free(C);
     A = NULL;
@@ -475,6 +562,12 @@ expr(A) ::= modifierlist(B) COLON text_expr(C) . {
     QueryNode_SetFieldMask(C, mask);
     A=C;
   }
+}
+
+// Text between the parentheses takes the `modifier COLON text_expr` rule: after text, RP is
+// shifted, by its precedence over TEXTEXPR.
+expr(A) ::= modifier(B) COLON LP expr(C) RP . {
+  A = same_element_step(ctx, &B, C);
 }
 
 expr(A) ::= LP expr(B) RP . {
@@ -669,10 +762,14 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 modifier(A) ::= MODIFIER(B) . {
   unescapeFieldName(ctx, &B);
   A.tok = B;
+  A.group = -1;
   if (ctx->sctx->spec) {
     A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
     if (!A.fs) {
-      reportSyntaxError(ctx->status, &A.tok, "Unknown field");
+      A.group = IndexSpec_FindNestedGroup(ctx->sctx->spec, B.s, B.len);
+      if (A.group < 0) {
+        reportSyntaxError(ctx->status, &A.tok, "Unknown field");
+      }
     }
   }
 }
@@ -680,15 +777,15 @@ modifier(A) ::= MODIFIER(B) . {
 modifierlist(A) ::= modifier(B) OR term(C). {
   unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
-    if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
+    if (!fieldNameIs(&B, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
       A = NULL;
     } else {
-      FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+      FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len), .group = -1 };
       if (!second.fs) {
         reportSyntaxError(ctx->status, &second.tok, "Unknown field");
         A = NULL;
-      } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+      } else if (!fieldNameIs(&second, INDEXFLD_T_FULLTEXT)) {
         REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
         A = NULL;
       } else {
@@ -700,7 +797,7 @@ modifierlist(A) ::= modifier(B) OR term(C). {
   } else {
     A = array_new(FieldName, 2);
     array_append(A, B);
-    FieldName second = { .tok = C };
+    FieldName second = { .tok = C, .group = -1 };
     array_append(A, second);
   }
 }
@@ -709,12 +806,12 @@ modifierlist(A) ::= modifier(B) OR term(C). {
 modifierlist(A) ::= modifierlist(B) OR term(C). {
   unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
-    FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
+    FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len), .group = -1 };
     if (!second.fs) {
       reportSyntaxError(ctx->status, &second.tok, "Unknown field");
       array_free(B);
       A = NULL;
-    } else if (!FIELD_IS(second.fs, INDEXFLD_T_FULLTEXT)) {
+    } else if (!fieldNameIs(&second, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(second, SPEC_TEXT_STR);
       array_free(B);
       A = NULL;
@@ -724,14 +821,14 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
     }
   } else {
     A = B;
-    FieldName second = { .tok = C };
+    FieldName second = { .tok = C, .group = -1 };
     array_append(A, second);
   }
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
-  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
-    reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
+  if (ctx->sctx->spec && !(B.fs && FieldSpec_IndexesMissing(B.fs))) {
+    reportWrongField(ctx->status, &B, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
     // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
@@ -746,7 +843,7 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
   } else if (C) {
@@ -807,7 +904,7 @@ tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     QueryParam_Free(C);
   } else if (C) {
@@ -863,7 +960,7 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 }
 
 expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -876,7 +973,7 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
 }
 
 expr(A) ::= modifier(B) EQUALS param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -888,7 +985,7 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
 }
 
 expr(A) ::= modifier(B) GT param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -900,7 +997,7 @@ expr(A) ::= modifier(B) GT param_num(C) . {
 }
 
 expr(A) ::= modifier(B) GE param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -912,7 +1009,7 @@ expr(A) ::= modifier(B) GE param_num(C) . {
 }
 
 expr(A) ::= modifier(B) LT param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -924,7 +1021,7 @@ expr(A) ::= modifier(B) LT param_num(C) . {
 }
 
 expr(A) ::= modifier(B) LE param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
@@ -977,7 +1074,7 @@ tag_bound(A) ::= LB param_term_case(B) RB . {
 
 expr(A) ::= modifier(B) COLON geo_filter(C). {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEO)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_GEO)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEO_STR);
     QueryParam_Free(C);
   } else if (C) {
@@ -1006,7 +1103,7 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
     QueryNode_Free(C);
   } else if (C) {
@@ -1156,7 +1253,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 // Every vector query will have basic command part.
 // It is this rule's job to create the new vector node for the query.
 vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
-  if (ctx->sctx->spec && !FIELD_IS(C.fs, INDEXFLD_T_VECTOR)) {
+  if (ctx->sctx->spec && !fieldNameIs(&C, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(C, SPEC_VECTOR_STR);
     A = NULL;
   } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
@@ -1166,7 +1263,7 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     // when the coordinator parses a KNN clause with no local spec, purely to read
     // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
     // itself is never evaluated. Otherwise `C.fs` is uninitialised parser-stack garbage, not
-    // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
+    // NULL - only pass it through under the same condition already guarding the type check above.
     VectorQuery_SetField(A->vn.vq, ctx->sctx->spec ? C.fs : NULL);
     VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
@@ -1204,7 +1301,7 @@ vector_attribute_list(A) ::= vector_attribute(B). {
 /*** Vector range queries ***/
 expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
+  if (ctx->sctx->spec && !fieldNameIs(&B, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (C) {

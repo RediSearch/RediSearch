@@ -17,6 +17,7 @@ extern "C" {
 #include "indexer.h"
 #include "indexes.h"
 #include "json.h"
+#include "query_test_utils.h"
 #include "redismock/redismock.h"
 #include "spec.h"
 
@@ -256,6 +257,217 @@ TEST_F(NestedGroupTest, createRejectsMemberPathThatDoesNotStartAtTheElement) {
               nullptr)
         << type;
     EXPECT_NE(error.find("must start at an element"), std::string::npos) << type << ": " << error;
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Query parser
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+const char *const kOneElementError = "A condition on one array element must be";
+
+// The root of `query` in DIALECT 2, or NULL and the error in `error`.
+const QueryNode *parsed(QASTCXX &ast, const char *query, std::string *error = nullptr) {
+  if (ast.parse(query, 2)) {
+    return ast.root;
+  }
+  if (error) {
+    *error = ast.getError();
+  }
+  return nullptr;
+}
+
+// Whether `node` requires its children to hold on one element of the group at `group`.
+bool isSameElement(const QueryNode *node, uint16_t group) {
+  return node && node->type == QN_SAME_ELEMENT && node->se.group == group;
+}
+
+TEST_F(NestedGroupTest, parserScopesAnAndToOneElement) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  for (const char *query : {"@metrics:(@k:{a} @v:[1 2])", "@metrics:(@k:{a} @r:{b})",
+                            "@metrics:(@v:[1 2] @v:[0 5])", "@metrics:(@k:{a} @r:{b} @v:[1 2])",
+                            "@metrics:(@k:{a} (@r:{b} | @r:{c}))",
+                            "@metrics:((@k:{a} | @r:{b}) @v:[1 2])"}) {
+    EXPECT_TRUE(isSameElement(parsed(ast, query), kMetrics)) << query;
+  }
+  EXPECT_TRUE(isSameElement(parsed(ast, "@owners:(@name:{a} @share:[1 2])"), kOwners));
+}
+
+// A query escapes a name as it escapes the name of a field.
+TEST_F(NestedGroupTest, parserFindsAGroupByItsEscapedName) {
+  RedisSearchCtx sctx = {.spec = create({"ON", "JSON", "SCHEMA",
+                                         "$.m[*]", "AS", "m-x", "NESTED", "2",
+                                         "$.k", "AS", "k", "TAG", "$.v", "AS", "v", "NUMERIC",
+                                         "$.t", "AS", "m-xy", "TAG"})};
+  QASTCXX ast(sctx);
+  EXPECT_TRUE(isSameElement(parsed(ast, "@m\\-x:(@k:{a} @v:[1 2])"), 0));
+  // A field whose name starts with the name of the group, and a name that is a prefix of it.
+  const QueryNode *field = parsed(ast, "@m\\-xy:{a}");
+  ASSERT_NE(field, nullptr);
+  EXPECT_EQ(field->type, QN_TAG);
+  std::string error;
+  EXPECT_EQ(parsed(ast, "@m\\-:(@k:{a} @v:[1 2])", &error), nullptr);
+  EXPECT_EQ(error, "SEARCH_SYNTAX Unknown field at offset 0 near m-");
+}
+
+TEST_F(NestedGroupTest, parserLeavesOneConditionAsItIs) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  const QueryNode *root = parsed(ast, "@metrics:(@k:{a})");
+  ASSERT_NE(root, nullptr);
+  EXPECT_EQ(root->type, QN_TAG);
+  root = parsed(ast, "@metrics:(@v:[1 2])");
+  ASSERT_NE(root, nullptr);
+  EXPECT_EQ(root->type, QN_NUMERIC);
+}
+
+TEST_F(NestedGroupTest, parserScopesEachAlternativeAndNegatedExpressionOnItsOwn) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+
+  const QueryNode *root = parsed(ast, "@metrics:((@k:{a} @v:[1 2]) | (@r:{b} @v:[3 4]) | @k:{c})");
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(root->type, QN_UNION);
+  ASSERT_EQ(QueryNode_NumChildren(root), 3);
+  EXPECT_TRUE(isSameElement(root->children[0], kMetrics));
+  EXPECT_TRUE(isSameElement(root->children[1], kMetrics));
+  EXPECT_EQ(root->children[2]->type, QN_TAG);
+
+  for (auto [query, type] : {std::pair{"@metrics:(-(@k:{a} @v:[1 2]))", QN_NOT},
+                             std::pair{"@metrics:(~(@k:{a} @v:[1 2]))", QN_OPTIONAL}}) {
+    root = parsed(ast, query);
+    ASSERT_NE(root, nullptr) << query;
+    ASSERT_EQ(root->type, type) << query;
+    EXPECT_TRUE(isSameElement(root->children[0], kMetrics)) << query;
+  }
+}
+
+TEST_F(NestedGroupTest, parserLeavesConditionsOutsideTheGroupOnTheDocument) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  const QueryNode *root = parsed(ast, "@hq:{us} @metrics:(@k:{a} @v:[1 2])");
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(root->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(root), 2);
+  EXPECT_EQ(root->children[0]->type, QN_TAG);
+  EXPECT_TRUE(isSameElement(root->children[1], kMetrics));
+
+  // The conditions of two groups are not merged.
+  root = parsed(ast, "@metrics:(@k:{a} @v:[1 2]) @owners:(@name:{b} @share:[3 4])");
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(root->type, QN_PHRASE);
+  ASSERT_EQ(QueryNode_NumChildren(root), 2);
+  EXPECT_TRUE(isSameElement(root->children[0], kMetrics));
+  EXPECT_TRUE(isSameElement(root->children[1], kOwners));
+}
+
+TEST_F(NestedGroupTest, parserKeepsTheWeightOfTheGroup) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  const QueryNode *root = parsed(ast, "@metrics:(@k:{a} @v:[1 2])=>{$weight: 3}");
+  ASSERT_TRUE(isSameElement(root, kMetrics));
+  EXPECT_EQ(root->opts.weight, 3);
+}
+
+TEST_F(NestedGroupTest, parserRejectsWhatHasNoMeaningOnOneElement) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  for (const char *query : {
+           "@metrics:(@k:{a} (@v:[1 2] | @r:{b}))",  // an OR that holds a NUMERIC condition
+           "@metrics:(@k:{a} -@v:[1 2])",            // a NOT inside an AND
+           "@metrics:(@k:{a} -@r:{b})",
+           "@metrics:(@k:{a} ~@r:{b})",              // an optional inside an AND
+           "@metrics:(@k:{a} @hq:{us})",             // a field of no group
+           "@metrics:(@hq:{us})",
+           "@metrics:(@name:{a} @v:[1 2])",          // a field of another group
+           "@owners:(@name:{a} @v:[1 2])",
+           "@metrics:(@k:{a} hello)",                // text
+           "@metrics:(hello world)",
+           "@metrics:(@k:{a} @title:hello)",
+           "@metrics:(@k:{a} @metrics:(@r:{b} @v:[1 2]))",  // a group inside a group
+       }) {
+    std::string error;
+    EXPECT_EQ(parsed(ast, query, &error), nullptr) << query;
+    EXPECT_EQ(ast.getErrorCode(), QUERY_ERROR_CODE_SYNTAX) << query;
+    EXPECT_NE(error.find(kOneElementError), std::string::npos) << query << ": " << error;
+  }
+}
+
+// A group is not a field: only the group syntax may name it.
+TEST_F(NestedGroupTest, parserRejectsGroupNameWhereAFieldIsExpected) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  for (const char *query : {"@metrics:hello", "@metrics:(hello)", "@metrics:{a}", "@metrics:[1 2]",
+                            "@metrics==1", "@metrics:>{a}", "@metrics:[1 2 3 km]",
+                            "@metrics|title:hello", "ismissing(@metrics)"}) {
+    std::string error;
+    EXPECT_EQ(parsed(ast, query, &error), nullptr) << query;
+    EXPECT_EQ(ast.getErrorCode(), QUERY_ERROR_CODE_SYNTAX) << query;
+    EXPECT_NE(error.find(kOneElementError), std::string::npos) << query << ": " << error;
+  }
+}
+
+// Only a group holds conditions between its parentheses. The error is at the name of the
+// field, with or without a group in the schema.
+const std::pair<const char *, const char *> kNoGroupErrors[] = {
+    {"@title:(@k:{x} @k:{x})", "SEARCH_SYNTAX Syntax error at offset 0 near title"},
+    {"@title:(hello @title:world)", "SEARCH_SYNTAX Syntax error at offset 0 near title"},
+    {"@title:(-@k:{a})", "SEARCH_SYNTAX Syntax error at offset 0 near title"},
+    {"@k:(@k:{x} @v:[1 2])", "SEARCH_SYNTAX Syntax error at offset 0 near k"},
+    {"@nosuchfield:(@k:{a} @v:[1 2])", "SEARCH_SYNTAX Unknown field at offset 0 near nosuchfield"},
+};
+
+TEST_F(NestedGroupTest, parserReportsConditionsInAFieldAtTheFieldName) {
+  IndexSpec *withGroups = createSpec();
+  IndexSpec *withoutGroups =
+      create({"ON", "JSON", "SCHEMA", "$.k", "AS", "k", "TAG", "$.v", "AS", "v", "NUMERIC",
+              "$.title", "AS", "title", "TEXT"});
+  for (IndexSpec *spec : {withoutGroups, withGroups}) {
+    RedisSearchCtx sctx = {.spec = spec};
+    QASTCXX ast(sctx);
+    for (auto [query, expected] : kNoGroupErrors) {
+      std::string error;
+      EXPECT_EQ(parsed(ast, query, &error), nullptr) << query;
+      EXPECT_EQ(error, expected) << query << " groups=" << (spec == withGroups);
+    }
+    const QueryNode *root = parsed(ast, "@title:(hello world)");
+    ASSERT_NE(root, nullptr);
+    EXPECT_EQ(root->type, QN_PHRASE);
+    EXPECT_NE(parsed(ast, "@k:{a} @v:[1 2]"), nullptr);
+  }
+}
+
+// Without a schema no name is known to be a group, so there is no group syntax.
+TEST_F(NestedGroupTest, parserWithoutSchemaHasNoGroupSyntax) {
+  RedisSearchCtx sctx = {.spec = nullptr};
+  QASTCXX ast(sctx);
+  std::string error;
+  EXPECT_EQ(parsed(ast, "@metrics:(@k:{x} @v:[1 2])", &error), nullptr);
+  EXPECT_EQ(error, "SEARCH_SYNTAX Syntax error at offset 0 near metrics");
+  EXPECT_NE(parsed(ast, "@metrics:(hello world)"), nullptr);
+}
+
+TEST_F(NestedGroupTest, dialect1RejectsConditionsOnAGroup) {
+  RedisSearchCtx sctx = {.spec = createSpec()};
+  QASTCXX ast(sctx);
+  for (const char *query : {"@metrics:(@k:{a} @v:[1 2])", "@metrics:@k:{a}", "@metrics:hello"}) {
+    EXPECT_FALSE(ast.parse(query, 1)) << query;
+    EXPECT_EQ(ast.getErrorCode(), QUERY_ERROR_CODE_SYNTAX) << query;
+    EXPECT_NE(std::string(ast.getError()).find("require DIALECT 2 or higher"), std::string::npos)
+        << query << ": " << ast.getError();
+  }
+  // The tag and numeric rules of DIALECT 1 do not know a group. As for a name that is not a
+  // field, the condition matches nothing.
+  for (const char *query : {"@metrics:{a}", "@metrics:[1 2]", "@nosuchfield:{a}",
+                            "@nosuchfield:[1 2]"}) {
+    ASSERT_TRUE(ast.parse(query, 1)) << query << ": " << ast.getError();
+    EXPECT_EQ(ast.root->type, QN_NULL) << query;
+  }
+  // A name that is not a group keeps its DIALECT 1 meaning.
+  for (const char *query : {"@title:(hello world)", "@title:(@v:[1 2])", "@k:{a} @v:[1 2]",
+                            "@nosuchfield:hello"}) {
+    EXPECT_TRUE(ast.parse(query, 1)) << query << ": " << ast.getError();
   }
 }
 

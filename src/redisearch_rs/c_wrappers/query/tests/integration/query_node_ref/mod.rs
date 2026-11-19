@@ -46,6 +46,7 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
         QueryNodeType::Missing,
+        QueryNodeType::SameElement,
     ] {
         let mock = MockQueryNode::new(ty);
         let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
@@ -278,6 +279,7 @@ fn as_enum_all_payload_variants() {
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Missing,
+        QueryNodeType::SameElement,
     ] {
         let mock = MockQueryNode::new(ty);
         let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
@@ -292,9 +294,23 @@ fn as_enum_all_payload_variants() {
                 | QueryNode::Vector { .. }
                 | QueryNode::WildcardQuery { .. }
                 | QueryNode::Missing { .. }
+                | QueryNode::SameElement { .. }
         );
         assert!(matches, "unexpected variant for {ty}");
     }
+}
+
+#[test]
+fn as_enum_same_element_carries_its_group() {
+    let mut mock = MockQueryNode::new(QueryNodeType::SameElement);
+    mock.set_same_element_group(7);
+    // SAFETY: `mock` is a valid node of the type whose payload was just set, and it outlives
+    // the reference.
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    assert!(matches!(
+        node.as_enum(),
+        QueryNode::SameElement { group: 7 }
+    ));
 }
 
 #[test]

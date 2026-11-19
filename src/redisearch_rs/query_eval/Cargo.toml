@@ -50,6 +50,8 @@ redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 rlookup.workspace = true
 rqe_iterators_test_utils.workspace = true
+sorting_vector.workspace = true
+value.workspace = true
 
 [lints]
 workspace = true

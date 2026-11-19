@@ -1303,11 +1303,23 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 7: /* expr ::= modifier COLON expr */
 {
-    if (yymsp[0].minor.yy17 == NULL) {
+    IndexSpec *spec = ctx->sctx->spec;
+    const t_fieldMask mask = spec ? IndexSpec_GetFieldBit(spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : 0;
+    // Only a name that is not a text field has no bit, so text queries pay no second lookup.
+    if (spec && !mask && IndexSpec_FindNestedGroup(spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) >= 0) {
+        // This dialect scopes text to a field; it has no syntax for conditions on one element.
+        QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
+            "Conditions on a " SPEC_NESTED_STR " group require DIALECT 2 or higher",
+            " at offset %d near %.*s", yymsp[-2].minor.yy0.pos, yymsp[-2].minor.yy0.len, yymsp[-2].minor.yy0.s);
+        if (yymsp[0].minor.yy17) {
+            QueryNode_Free(yymsp[0].minor.yy17);
+        }
+        yylhsminor.yy17 = NULL;
+    } else if (yymsp[0].minor.yy17 == NULL) {
         yylhsminor.yy17 = NULL;
     } else {
-        if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(yymsp[0].minor.yy17, IndexSpec_GetFieldBit(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len));
+        if (spec) {
+            QueryNode_SetFieldMask(yymsp[0].minor.yy17, mask);
         }
         yylhsminor.yy17 = yymsp[0].minor.yy17;
     }

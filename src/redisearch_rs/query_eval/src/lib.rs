@@ -45,8 +45,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, tag, token,
-    union, vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, same_element,
+    tag, token, union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -348,6 +348,7 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Tag { field_index } => {
             tag::eval(ctx, node, field_index, config, TagElements::Hidden)
         }
+        QueryNode::SameElement { group } => same_element::eval(ctx, node, group, config),
         // A lex range only ever hangs off a tag node, whose evaluator dispatches
         // its own children, so reaching it from here is a bug.
         QueryNode::LexRange { .. } => {

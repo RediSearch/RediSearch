@@ -252,11 +252,23 @@ union(A) ::= union(B) OR expr(C). [ORX] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= modifier(B) COLON expr(C) . [MODIFIER] {
-    if (C == NULL) {
+    IndexSpec *spec = ctx->sctx->spec;
+    const t_fieldMask mask = spec ? IndexSpec_GetFieldBit(spec, B.s, B.len) : 0;
+    // Only a name that is not a text field has no bit, so text queries pay no second lookup.
+    if (spec && !mask && IndexSpec_FindNestedGroup(spec, B.s, B.len) >= 0) {
+        // This dialect scopes text to a field; it has no syntax for conditions on one element.
+        QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
+            "Conditions on a " SPEC_NESTED_STR " group require DIALECT 2 or higher",
+            " at offset %d near %.*s", B.pos, B.len, B.s);
+        if (C) {
+            QueryNode_Free(C);
+        }
+        A = NULL;
+    } else if (C == NULL) {
         A = NULL;
     } else {
-        if (ctx->sctx->spec) {
-            QueryNode_SetFieldMask(C, IndexSpec_GetFieldBit(ctx->sctx->spec, B.s, B.len));
+        if (spec) {
+            QueryNode_SetFieldMask(C, mask);
         }
         A = C;
     }

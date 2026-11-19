@@ -154,6 +154,7 @@ void QueryNode_Free(QueryNode *n) {
     case QN_OPTIONAL:
     case QN_NULL:
     case QN_PHRASE:
+    case QN_SAME_ELEMENT:
       break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
@@ -344,6 +345,44 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
   p->params = NULL;
   rm_free(p);
   return ret;
+}
+
+QueryNode *NewSameElementNode(uint16_t group) {
+  QueryNode *ret = NewQueryNode(QN_SAME_ELEMENT);
+  ret->se.group = group;
+  return ret;
+}
+
+static bool isMemberOfGroup(const IndexSpec *spec, uint16_t group, t_fieldIndex fieldIndex,
+                            FieldType type) {
+  if (fieldIndex >= spec->numFields) {
+    return false;
+  }
+  const FieldSpec *fs = spec->fields + fieldIndex;
+  return FieldSpec_IsNestedMember(fs) && fs->nestedGroup == group && fs->types == type;
+}
+
+SameElementChild QueryNode_SameElementChild(const IndexSpec *spec, uint16_t group,
+                                            const QueryNode *n) {
+  switch (n->type) {
+    case QN_NUMERIC:
+      return isMemberOfGroup(spec, group, n->nn.nf->fieldIndex, INDEXFLD_T_NUMERIC)
+                 ? SameElementChild_Predicate
+                 : SameElementChild_Unsupported;
+    case QN_TAG:
+      return isMemberOfGroup(spec, group, n->tag.fieldIndex, INDEXFLD_T_TAG)
+                 ? SameElementChild_Tags
+                 : SameElementChild_Unsupported;
+    case QN_UNION:
+      for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+        if (QueryNode_SameElementChild(spec, group, n->children[i]) != SameElementChild_Tags) {
+          return SameElementChild_Unsupported;
+        }
+      }
+      return QueryNode_NumChildren(n) ? SameElementChild_Tags : SameElementChild_Unsupported;
+    default:
+      return SameElementChild_Unsupported;
+  }
 }
 
 QueryNode *NewMissingNode(const FieldSpec *field) {
@@ -728,6 +767,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       res = QueryNode_EvalParamsCommon(params, n, dialectVersion, status);
       break;
     case QN_UNION:
+    case QN_SAME_ELEMENT:
       // no immediately owned params to resolve
       RS_ASSERT(n->params == NULL);
       break;
@@ -899,6 +939,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_IDS:
     case QN_WILDCARD:
     case QN_GEOMETRY:
+    case QN_SAME_ELEMENT:
       break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
@@ -1204,6 +1245,15 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       const FieldSpec *missFs = spec->fields + qs->miss.fieldIndex;
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(missFs->fieldName, NULL));
     } break;
+    case QN_SAME_ELEMENT:
+      s = sdscatprintf(s, "SAME-ELEMENT:@%s {\n",
+                       HiddenString_GetUnsafe(spec->nestedGroups[qs->se.group].name, NULL));
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
+        s = QueryNode_DumpSds(s, spec, qs->children[ii], depth + 1);
+      }
+      s = doPad(s, depth);
+      s = sdscat(s, "}");
+      break;
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
