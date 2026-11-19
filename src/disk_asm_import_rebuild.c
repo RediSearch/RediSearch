@@ -294,10 +294,6 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
   if (!imports) imports = array_new(DiskASMImport *, 1);
   array_append(imports, imp);
 
-  if (!RedisModule_ClusterAcquireImportGate) {
-    fail(imp, "the server has no import gate");
-    return;
-  }
   if (RedisModule_ClusterAcquireImportGate(ctx, imp->taskId) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "ASM import %s: acquiring the import gate failed: %s",
                     imp->taskId, strerror(errno));
@@ -327,11 +323,6 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
                   "ASM import: the overlay ended twice");
     return;
   }
-  if (!RedisModule_AsyncScanStartInSlots || !RedisModule_IsKeyExpired) {
-    fail(imp, "the server cannot scan the imported slots");
-    return;
-  }
-
   // FT._RESTOREIFNX in the overlay starts no backfill, so these are all the indexes the imported
   // keys belong to.
   imp->specs = array_new(WeakRef, 1);
