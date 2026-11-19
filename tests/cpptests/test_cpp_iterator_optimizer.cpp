@@ -129,11 +129,6 @@ protected:
 
   void freeIterator() {
     if (optIter) {
-      // Freeing the optimizer does not give back the document references of results it never
-      // yielded, so hand them out first.
-      while (optIter->Read(optIter) == ITERATOR_OK) {
-        DMD_Return(optIter->current->dmd);
-      }
       optIter->Free(optIter);
       optIter = nullptr;
     }
@@ -211,6 +206,22 @@ TEST_F(OptimizerWithoutNumericIteratorTest, RevalidateFollowsChild) {
     if (expected == VALIDATE_OK) {
       expectRestAreMatches(first);
     }
+  }
+}
+
+// Results still in the heap when the iterator is freed were never handed out, so freeing it must
+// give back the document references the optimizer took for them.
+TEST_F(OptimizerWithoutNumericIteratorTest, FreeReleasesUnreadResults) {
+  readOne();
+  ASSERT_EQ(oi()->numericIter, nullptr);
+  freeIterator();
+
+  for (t_docId id = kNumDocs - kMatches + 1; id <= kNumDocs; id++) {
+    const RSDocumentMetadata *dmd = DocTable_Borrow(&sctx.spec->docs, id);
+    ASSERT_NE(dmd, nullptr);
+    // The doc table's own reference, plus the one just borrowed.
+    EXPECT_EQ(dmd->ref_count, 2) << "doc " << id;
+    DMD_Return(dmd);
   }
 }
 

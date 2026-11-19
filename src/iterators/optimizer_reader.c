@@ -154,6 +154,12 @@ void OptimizerIterator_Free(QueryIterator *self) {
     it->numericIter->Free(it->numericIter);
   }
 
+  // Results still in the heap were never yielded, so their document references are still ours.
+  while (heap_count(it->heap) > 0) {
+    RSIndexResult *res = heap_poll(it->heap);
+    DMD_Return(res->dmd);
+  }
+
   // we always use the array as RSResultData_Numeric. no need for IndexResult_Free
   rm_free(it->resArr);
   heap_free(it->heap);
