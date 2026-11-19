@@ -350,7 +350,7 @@ static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int sl
   return false;
 }
 
-bool DiskASM_ImportRebuild_IsSweepingKey(const RedisModuleString *key) {
+bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key) {
   if (!imports || !key) return false;
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
