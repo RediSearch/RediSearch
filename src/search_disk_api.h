@@ -12,7 +12,7 @@
 #include "redisearch.h"
 #include "field_spec.h"
 #include "index_flags.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -97,14 +97,15 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 // Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
 typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
 
-// Callback functions for applying text compaction delta updates.
+// Callback functions for applying text and tag compaction delta updates.
 // The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
 //
-// Lifecycle, per compaction, in calling order:
+// Lifecycle, per bounded apply chunk, in calling order:
 //
 //   beginUpdate(private_data) -> update_ctx    // once before delta apply
 //   decrementTrieTermCount(update_ctx, ...)    // 0..N times
 //   decrementNumTerms(update_ctx, ...)         // 0 or 1 time
+//   decrementTagValueCount(update_ctx, ...)    // 0..N times
 //   endUpdate(update_ctx)                      // once after delta apply
 //
 // `beginUpdate` / `endUpdate` bracket just the delta-apply window and are
@@ -124,6 +125,10 @@ typedef struct SearchDiskCompactionCallbacks {
 
   // Decrement numTerms in scoring stats.
   void (*decrementNumTerms)(void *update_ctx, uint64_t num_terms_removed);
+
+  // Subtract removed postings from a disk TAG value; returns true if it became empty.
+  bool (*decrementTagValueCount)(void *update_ctx, t_fieldIndex field_index, const char *tag,
+                                 size_t tag_len, size_t count);
 
   // Closes an update session.
   // Implementations may release internal locks here.
@@ -336,6 +341,7 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param tagCountsRestored Complete C-owned TAG dictionaries are ready for compaction updates.
    * @param flags The index's `IndexSpec::flags`, as for openIndexSpec.
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
@@ -348,8 +354,9 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, IndexFlags flags, const SearchDiskField *fields,
-      size_t numFields, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+      RedisSearchDiskRdbState *rdbState, bool tagCountsRestored, IndexFlags flags,
+      const SearchDiskField *fields, size_t numFields,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -594,13 +601,14 @@ typedef struct IndexDiskAPI {
    * @param term Pointer to the query term (contains term string, idf, bm25_idf)
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
+   * @param numDocs The term's document count from the terms trie, reported as the iterator's estimate
    * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
    * @param snapshot Required snapshot for the read view. Must have been returned by
    *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, size_t numDocs, bool needsOffsets, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Creates a new iterator for a tag index

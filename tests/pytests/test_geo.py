@@ -140,8 +140,8 @@ def testGeoDistanceFile(env):
 # causes server crash before MOD-5646 fix
 @skip(cluster=True)
 def testGeoOnReopen(env:Env):
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+  set_thread_gc_config(env, clean_threshold=0)
+  set_thread_gc_config(env, run_interval=1000)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
   conn = getConnectionByEnv(env)
 

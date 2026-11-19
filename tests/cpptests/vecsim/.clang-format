@@ -1,0 +1,9 @@
+IndentWidth: 4
+ColumnLimit: 100
+SortIncludes: false
+AlignEscapedNewlinesLeft: false
+AlignConsecutiveMacros: true
+SpacesBeforeTrailingComments: 1
+AlwaysBreakTemplateDeclarations: true
+SpaceAfterTemplateKeyword: true
+AccessModifierOffset: -4

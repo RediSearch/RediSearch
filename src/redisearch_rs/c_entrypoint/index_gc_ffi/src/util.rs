@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_void, ptr, ptr::NonNull};
+use std::ptr::NonNull;
 
-use index_gc::{ForkPipe, Frame};
-use nul_terminated_bytes::NulTerminatedBytes;
+use index_gc::ForkPipe;
 
 /// Borrow the [`ForkPipe`] behind a pointer received from C.
 ///
@@ -29,25 +28,4 @@ pub(crate) unsafe fn borrow_fork_pipe<'a>(fgc: *mut ffi::IndexGC) -> &'a mut For
     let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1) and (2).
     unsafe { ForkPipe::from_ptr_mut(fgc) }
-}
-
-/// Consume the frame, producing the `(buf, len)` pair that the C
-/// `ForkGC_recvBuffer` and `recvFieldHeader` API exposes through its
-/// out-parameters.
-///
-/// - [`Frame::Terminator`] → `(null, SIZE_MAX)`. Callers detect end-of-stream
-///   by checking `*len == SIZE_MAX`.
-/// - [`Frame::Empty`] → `(null, 0)`.
-/// - [`Frame::Data`] → hands the buffer off to the caller, which is
-///   responsible for releasing it with [`super::ForkGC_freeBuffer`]. The
-///   returned length is the payload length excluding the NUL terminator.
-pub(crate) fn frame_into_c_buffer(frame: Frame<NulTerminatedBytes>) -> (*mut c_void, usize) {
-    match frame {
-        Frame::Terminator => (ptr::null_mut(), usize::MAX),
-        Frame::Empty => (ptr::null_mut(), 0),
-        Frame::Data(data) => {
-            let (ptr, len) = data.into_inner().into_raw_parts();
-            (ptr.cast(), len)
-        }
-    }
 }

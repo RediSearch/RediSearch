@@ -33,4 +33,4 @@ platforms = [
 # Dependencies used by these developer tools alone are kept out of
 # `workspace_hack`, which every crate builds.
 [traversal-excludes]
-workspace-members = ["migration_stats"]
+workspace-members = ["migration_stats", "port_graph"]

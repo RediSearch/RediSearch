@@ -165,6 +165,10 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
+/* Whether DocTable_Borrow would return metadata, without acquiring a reference.
+ * Caller holds the spec read or write lock. */
+bool DocTable_IsVisible(const DocTable *t, t_docId docId);
+
 /* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
  * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
  * nothing for an id outside the table. Caller holds the spec lock, as for DocTable_Borrow. */
@@ -370,6 +374,11 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 
 /* Load the doc table from RDB. This is used for legacy RDB load only.
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ *
+ * The loaded table only lives until loading ends: Indexes_UpgradeLegacyIndexes then drops the
+ * legacy index keys, replaces this table with a new one and the index is rebuilt from the
+ * keyspace. Nothing loaded here, deleted docs and their postings included, ever reaches the GC,
+ * so it needs no record of them.
  */
 int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 

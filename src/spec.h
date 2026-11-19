@@ -200,7 +200,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 29
+#define INDEX_CURRENT_VERSION 30
+#define INDEX_SST_TAG_VALUES_VERSION 30
 #define INDEX_SST_SPEC_ID_VERSION 29
 #define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
@@ -386,6 +387,8 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
+  // Complete TAG dictionaries are available
+  bool tagDictionariesAvailable;
 
   // True when the SST+RDB stream indicated the source node was still
   // background-indexing (scan in progress, or a previous scan failed on OOM)

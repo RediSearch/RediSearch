@@ -11,7 +11,7 @@
 #include "rs_wall_clock.h"
 #include "util/workers.h"
 #include "concurrent_ctx.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "query_flags.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
@@ -91,11 +91,14 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
 }
 
 void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd) {
-  FieldIndexErrorCounter[INDEXTYPE_TO_POS(field_type)] += toAdd;
+  int pos = INDEXTYPE_TO_POS(field_type);
+  if (pos < 0) return;
+  FieldIndexErrorCounter[pos] += toAdd;
 }
 
 size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type) {
-  return FieldIndexErrorCounter[INDEXTYPE_TO_POS(field_type)];
+  int pos = INDEXTYPE_TO_POS(field_type);
+  return pos < 0 ? 0 : FieldIndexErrorCounter[pos];
 }
 
 void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration) {
