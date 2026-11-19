@@ -19,6 +19,7 @@
 #include "vecsim/spaces/L2/L2.h"
 #include "vecsim/spaces/functions/AVX512F.h"
 #include "vecsim/spaces/functions/AVX512FP16_VL.h"
+#include "vecsim/spaces/functions/AVX512FP16_BW_VL.h"
 #include "vecsim/spaces/functions/AVX.h"
 #include "vecsim/spaces/functions/AVX512BW_VBMI2.h"
 #include "vecsim/spaces/functions/AVX512BF16_VL.h"

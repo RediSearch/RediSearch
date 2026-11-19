@@ -86,6 +86,15 @@ static constexpr size_t SQ4_MAX_EXACT_SIMD_DIM = std::numeric_limits<uint32_t>::
 static constexpr size_t FP16_MAX_UNIT_IP_SIMD_DIM = 65504;
 static constexpr size_t FP16_MAX_UNIT_L2_SIMD_DIM = FP16_MAX_UNIT_IP_SIMD_DIM / 4;
 
+// Below this, the native SQ8 x FP16 tier's fixed reduction cost outweighs its cheaper inner loop
+// for dependent distance calls, so those dimensions stay on the mixed AVX-512F tier.
+static constexpr size_t SQ8_FP16_NATIVE_MIN_DIM = 256;
+// Above this, rounding the code dot in FP16 can add more distance error than SQ8 quantization
+// itself (the running sums carry the offset that the FP32 correction later cancels), so larger
+// dimensions stay on the mixed AVX-512F tier too.
+static constexpr size_t SQ8_FP16_NATIVE_MAX_DIM = 1024;
+static_assert(SQ8_FP16_NATIVE_MAX_DIM <= FP16_MAX_UNIT_IP_SIMD_DIM);
+
 static inline auto getCpuOptimizationFeatures(const void *arch_opt = nullptr) {
 
 #if defined(CPU_FEATURES_ARCH_AARCH64)
