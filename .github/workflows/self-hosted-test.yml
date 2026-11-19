@@ -22,7 +22,8 @@ jobs:
         v1: [1]
         #v2: [1,2,3,4,5]
     runs-on:
-      - staging-u-arm64-small
+      #- staging-u-arm64-small
+      - staging-u-x64-mini
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
