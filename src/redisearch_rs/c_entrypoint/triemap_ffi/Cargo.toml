@@ -14,8 +14,6 @@ workspace = true
 
 
 [dependencies]
-rdb_io.workspace = true
-trie_rdb.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true
@@ -24,8 +22,6 @@ redis-module.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-proptest = { workspace = true, features = ["std"] }
-trie_rdb = { workspace = true, features = ["test-utils"] }
 redis_mock.workspace = true
 
 [target.'cfg(miri)'.dependencies]

@@ -56,16 +56,13 @@ pub fn save<IO: RdbIO>(map: &StrTrieMap<TrieEntry>, writer: &mut IO, opts: RdbOp
 pub fn load_entries<IO: RdbIO>(
     reader: &mut IO,
     opts: RdbOpts,
-    mut sink: impl FnMut(String, TrieEntry),
+    sink: impl FnMut(String, TrieEntry),
 ) -> Result<(), RdbError> {
     read_entries(
         reader,
         opts,
         |bytes| String::from_utf8(bytes).map_err(|_| RdbError::InvalidUtf8),
-        |key, entry| {
-            sink(key, entry);
-            Ok(())
-        },
+        sink,
     )
 }
 

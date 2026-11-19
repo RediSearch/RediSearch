@@ -108,10 +108,10 @@ typedef struct TagIndex {
   TrieMap *values;
   TrieMap *suffix;
 
-  RedisSearchDiskIndexSpec *diskSpec;
+  // Disk mode support: diskSpec != NULL means disk mode
+  // Disk values are pointer-sized document counts; memory values are InvertedIndex pointers.
+  RedisSearchDiskIndexSpec *diskSpec;  // NULL for memory mode, non-NULL for disk mode
   t_fieldIndex fieldIndex;            // Field index (needed for disk API calls)
-  // Count values can be loaded before their disk storage is bound.
-  bool valuesAreCounts;
 } TagIndex;
 
 /* Create a new tag index
@@ -122,12 +122,6 @@ typedef struct TagIndex {
 TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix);
 
 void TagIndex_Free(TagIndex *index);
-
-/* Persist disk TAG counts, including an empty dictionary when index is NULL. */
-void TagIndex_RdbSave(RedisModuleIO *rdb, const TagIndex *index);
-
-/* Load count values before storage binding. Returns NULL on malformed data. */
-TagIndex *TagIndex_RdbLoad(RedisModuleIO *rdb, t_fieldIndex fieldIndex, bool withSuffix);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 

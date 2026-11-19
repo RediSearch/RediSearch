@@ -2573,7 +2573,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
-  sp->tagDictionariesAvailable = true;
   sp->resume_bg_indexing = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
@@ -2729,7 +2728,7 @@ fail:
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
-                              bool saveTagDictionary, bool takeLocks) {
+                              bool takeLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2781,9 +2780,6 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   }
-  if (saveTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
-    TagIndex_RdbSave(rdb, TagIndex_Open(f));
-  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2792,8 +2788,7 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
                                          // CHECKED: Not related to new data types - legacy code
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver,
-                             bool useSst, bool loadTagDictionary) {
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver, bool useSst) {
 
   f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
@@ -2975,10 +2970,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     }
-  }
-  if (loadTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
-    f->tagOpts.tagIndex = TagIndex_RdbLoad(rdb, f->index, FieldSpec_HasSuffixTrie(f));
-    if (!f->tagOpts.tagIndex) goto fail;
   }
 
   return REDISMODULE_OK;
@@ -3328,14 +3319,15 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 // schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
-  // read lock before serializing field state that background workers can mutate.
-  // The same lock guards the spec-level disk metadata below.
+  // read lock before serializing any field state. FieldSpec_RdbSave
+  // serializes the in-memory VecSimIndex of disk-backed vector fields (gated
+  // by REDISMODULE_CTX_FLAGS_SST_RDB), and background tiered-index threads
+  // can mutate that index concurrently. The same lock also guards the
+  // spec-level SST block below (terms trie, scoring stats, disk metadata).
   // In a forked child the memory is a snapshot and no lock is needed.
   const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
-  const bool saveDiskSpec = sp->diskSpec && storeDiskRdbData;
-  const bool saveTagDictionaries = saveDiskSpec && sp->tagDictionariesAvailable;
   const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
-  const bool needLock = saveDiskSpec && inMainProcess;
+  const bool needLock = sp->diskSpec && storeDiskRdbData && inMainProcess;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   if (needLock) {
@@ -3346,12 +3338,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
-  if (saveDiskSpec) {
-    // One availability flag governs all TAG dictionary payloads in the field records.
-    RedisModule_SaveUnsigned(rdb, saveTagDictionaries);
-  }
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveTagDictionaries, needLock);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3383,7 +3371,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   //
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
-  if (saveDiskSpec) {
+  if (sp->diskSpec && storeDiskRdbData) {
     RedisModule_SaveUnsigned(rdb, sp->specId);
     // Persist whether the source node was mid background-indexing, so the
     // loading node (replica / hot-restart) can restart the async scan and
@@ -3438,8 +3426,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   size_t len = 0;
   HiddenString* specName = NULL;
   RedisModuleCtx* ctx = RedisModule_GetContextFromIO(rdb);
-  bool loadDiskSpec = false;
-  bool loadTagDictionaries = false;
 
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
@@ -3473,20 +3459,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
   IndexSpec_MakeKeyless(sp);
   RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
-  loadDiskSpec = isSpecOnDisk(sp) && useSst;
-  if (loadDiskSpec) {
-    uint64_t available = 0;
-    if (encver >= INDEX_SST_TAG_VALUES_VERSION) {
-      available = LoadUnsigned_IOError(rdb, goto cleanup);
-      if (available > 1) goto cleanup;
-    }
-    sp->tagDictionariesAvailable = available != 0;
-  }
-  loadTagDictionaries = loadDiskSpec && sp->tagDictionariesAvailable;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst, loadTagDictionaries) !=
-        REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst) != REDISMODULE_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
       goto cleanup;
     }
@@ -3549,7 +3524,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // open that depends on it are handled by the registry layer after this returns
   // (see IndexSpec_RdbLoadOpenDisk + the loaders in indexes.c). The SST branch
   // below must run here regardless, since it consumes RDB stream data.
-  if (loadDiskSpec) {
+  if (isSpecOnDisk(sp) && useSst) {
     // Load the disk-related index data if we are on disk and the save flow used
     // sst-files. We load it into a temporary in-memory object first, then use it
     // to open the index with the RDB state applied.
@@ -3685,7 +3660,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->tagDictionariesAvailable = true;
   // IndexSpec_Free clears it, so it must be valid before the first failed read below.
   sp->stats.indexError = IndexError_Init();
 
@@ -3719,7 +3693,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false, false) != REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false) != REDISMODULE_OK) {
       StrongRef_Release(spec_ref);
       return NULL;
     }

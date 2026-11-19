@@ -345,7 +345,6 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
-   * @param tagCountsRestored Complete C-owned TAG dictionaries are ready for compaction updates.
    * @param flags The index's `IndexSpec::flags`, as for openIndexSpec.
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
@@ -358,9 +357,8 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, bool tagCountsRestored, IndexFlags flags,
-      const SearchDiskField *fields, size_t numFields,
-      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+      RedisSearchDiskRdbState *rdbState, IndexFlags flags, const SearchDiskField *fields,
+      size_t numFields, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
