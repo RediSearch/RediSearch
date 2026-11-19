@@ -61,11 +61,16 @@ static void retireLogicalDeletes(DiskGC *gc, size_t count) {
   IndexsGlobalStats_DecreaseLogicallyDeleted(retired);
 }
 
+static void markVectorsChanged(DiskGC *gc) {
+  atomic_fetch_add(&gc->vectorEpoch, 1);
+}
+
 static void takeDeferredDeletes(DiskGC *gc, IndexSpec *spec) {
   const size_t deferred = IndexSpec_TakeGCDeferredDeletes(spec);
   if (deferred) {
     recordLogicalDeletes(gc, deferred);
     atomic_fetch_add(&gc->deletesFromLastRun, deferred);
+    markVectorsChanged(gc);
   }
 }
 
@@ -77,6 +82,67 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   atomic_fetch_add(&gc->totalTimeMs, stats->cycle_time_ms);
   atomic_store(&gc->lastRunTimeMs, stats->cycle_time_ms);
   retireLogicalDeletes(gc, stats->num_cleaned_docs);
+}
+
+typedef enum {
+  VECTOR_FIELDS_NONE,  // no vector field has an index yet
+  VECTOR_FIELDS_BUSY,
+  VECTOR_FIELDS_IDLE,
+} VectorFieldsState;
+
+// Caller holds the spec read lock: FT.ALTER can reallocate sp->fields.
+static VectorFieldsState vectorFieldsState(const IndexSpec *sp) {
+  VectorFieldsState state = VECTOR_FIELDS_NONE;
+  for (int i = 0; i < sp->numFields; i++) {
+    const FieldSpec *f = &sp->fields[i];
+    if (!FIELD_IS(f, INDEXFLD_T_VECTOR) || !f->vectorOpts.vecSimIndex) continue;
+    if (!SearchDisk_VectorIndexIsBackgroundIdle(f->vectorOpts.vecSimIndex)) {
+      return VECTOR_FIELDS_BUSY;
+    }
+    state = VECTOR_FIELDS_IDLE;
+  }
+  return state;
+}
+
+// Compacts once the vector fields have reported idle on two runs, at least one GC interval apart,
+// with no busy report or write between them. A compaction rewrites the whole vector storage
+// however few writes it covers, so compacting after every small burst would only add write
+// amplification.
+// Every document write counts, vector or not: the epoch does not know which fields a write touched.
+static void maybeCompactVectorStorage(DiskGC *gc, IndexSpec *sp) {
+  const uint64_t epoch = atomic_load(&gc->vectorEpoch);
+  if (epoch == gc->compactedVectorEpoch) return;
+
+  IndexSpec_LockRead(sp);
+  const VectorFieldsState state = vectorFieldsState(sp);
+  IndexSpec_Unlock(sp);
+  if (state == VECTOR_FIELDS_NONE) {
+    // Nothing to compact yet. A vector index appears on a field's first write, which starts a new
+    // epoch, or at load, before this GC starts.
+    gc->compactedVectorEpoch = epoch;
+    return;
+  }
+  if (state == VECTOR_FIELDS_BUSY) {
+    gc->idleVectorEpoch = 0;
+    return;
+  }
+  if (gc->idleVectorEpoch != epoch) {
+    gc->idleVectorEpoch = epoch;
+    return;
+  }
+
+  switch (SearchDisk_CompactVectorStorage(sp->diskSpec)) {
+    case DISK_VECTOR_COMPACT_DONE:
+      atomic_fetch_add(&gc->vectorCompactions, 1);
+      gc->compactedVectorEpoch = epoch;
+      break;
+    case DISK_VECTOR_COMPACT_NOT_NEEDED:
+      gc->compactedVectorEpoch = epoch;
+      break;
+    case DISK_VECTOR_COMPACT_CANCELLED:
+      // Still idle at this epoch, so the next run retries without waiting another interval.
+      break;
+  }
 }
 
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
@@ -143,6 +209,13 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
   }
 
+  // Not on forced runs: their callers wait on the run, and they fall outside the interval
+  // schedule that measures the quiet period.
+  if (!forced && !g_diskGcDisabled && sp->diskSpec &&
+      !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    maybeCompactVectorStorage(gc, sp);
+  }
+
   pthread_rwlock_unlock(&g_diskGcRunLock);
   IndexSpecRef_Release(spec_ref);
   return true;
@@ -186,11 +259,13 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   size_t total_ms = atomic_load(&gc->totalTimeMs);
   size_t cycles = atomic_load(&gc->totalCycles);
   size_t last_ms = atomic_load(&gc->lastRunTimeMs);
+  size_t vector_compactions = atomic_load(&gc->vectorCompactions);
   REPLY_KVNUM("bytes_collected", (double)bytes);
   REPLY_KVNUM("total_ms_run", (double)total_ms);
   REPLY_KVNUM("total_cycles", (double)cycles);
   REPLY_KVNUM("average_cycle_time_ms", cycles ? (double)total_ms / (double)cycles : 0.0);
   REPLY_KVNUM("last_run_time_ms", (double)last_ms);
+  REPLY_KVNUM("vector_compactions", (double)vector_compactions);
 #undef REPLY_KVNUM
 }
 
@@ -201,6 +276,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   size_t total_ms = atomic_load(&gc->totalTimeMs);
   size_t cycles = atomic_load(&gc->totalCycles);
   size_t last_ms = atomic_load(&gc->lastRunTimeMs);
+  size_t vector_compactions = atomic_load(&gc->vectorCompactions);
   RedisModule_InfoBeginDictField(ctx, "gc_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "bytes_collected", bytes);
   RedisModule_InfoAddFieldLongLong(ctx, "total_ms_run", total_ms);
@@ -208,6 +284,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms",
                                  cycles ? (double)total_ms / (double)cycles : 0.0);
   RedisModule_InfoAddFieldDouble(ctx, "last_run_time_ms", (double)last_ms);
+  RedisModule_InfoAddFieldLongLong(ctx, "vector_compactions", vector_compactions);
   RedisModule_InfoEndDictField(ctx);
 }
 
@@ -215,17 +292,20 @@ static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
   recordLogicalDeletes(gc, 1);
   atomic_fetch_add(&gc->deletesFromLastRun, 1);
+  markVectorsChanged(gc);
 }
 
 static void updateCb(void *ctx) {
   DiskGC *gc = ctx;
   recordLogicalDeletes(gc, 1);
   atomic_fetch_add(&gc->updatesFromLastRun, 1);
+  markVectorsChanged(gc);
 }
 
 static void writeCb(void *ctx) {
   DiskGC *gc = ctx;
   atomic_fetch_add(&gc->writesFromLastRun, 1);
+  markVectorsChanged(gc);
 }
 
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
@@ -257,6 +337,9 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .deletesFromLastRun = (size_t)restoredDeletes,
       .updatesFromLastRun = 0,
       .logicallyDeleted = 0,
+      // Ahead of compactedVectorEpoch, so an opened or restored index is checked once even
+      // before its first write.
+      .vectorEpoch = 1,
   };
   recordLogicalDeletes(gc, (size_t)restoredDeletes);
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
