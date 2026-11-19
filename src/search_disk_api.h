@@ -1166,6 +1166,11 @@ typedef struct MissingResourceMetrics {
   uint64_t storage_bytes;
 } MissingResourceMetrics;
 
+typedef struct NumericResourceMetrics {
+  uint64_t memtable_bytes;
+  uint64_t storage_bytes;
+} NumericResourceMetrics;
+
 /* Numeric cached values; reading these never collects native properties. */
 typedef struct CachedIndexMetrics {
   uint64_t memory;
@@ -1175,6 +1180,7 @@ typedef struct CachedIndexMetrics {
   TagResourceMetrics tag;
   DocTableResourceMetrics doc_table;
   MissingResourceMetrics missing;
+  NumericResourceMetrics numeric;
 } CachedIndexMetrics;
 
 /* Search-owned totals across local indexes for INFO output. */

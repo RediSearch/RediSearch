@@ -82,7 +82,7 @@ static InfoFieldSpec dictionaryResourceSpecs[] = {
     {.name = "storage_bytes", .type = InfoField_WholeSum},
 };
 
-static InfoFieldSpec missingResourceSpecs[] = {
+static InfoFieldSpec storageResourceSpecs[] = {
     {.name = "memtable_bytes", .type = InfoField_WholeSum},
     {.name = "storage_bytes", .type = InfoField_WholeSum},
 };
@@ -150,7 +150,8 @@ typedef struct {
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
   InfoValue textResources[ARRAY_SIZE(dictionaryResourceSpecs)];
   InfoValue tagResources[ARRAY_SIZE(dictionaryResourceSpecs)];
-  InfoValue missingResources[ARRAY_SIZE(missingResourceSpecs)];
+  InfoValue missingResources[ARRAY_SIZE(storageResourceSpecs)];
+  InfoValue numericResources[ARRAY_SIZE(storageResourceSpecs)];
   InfoValue docTable[ARRAY_SIZE(docTableSpecs)];
 } InfoFields;
 
@@ -332,7 +333,10 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
                          dictionaryResourceSpecs, ARRAY_SIZE(dictionaryResourceSpecs), 1, error);
         } else if (group && !strcmp(group, "missing")) {
           processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->missingResources,
-                         missingResourceSpecs, ARRAY_SIZE(missingResourceSpecs), 1, error);
+                         storageResourceSpecs, ARRAY_SIZE(storageResourceSpecs), 1, error);
+        } else if (group && !strcmp(group, "numeric")) {
+          processKvArray(fields, MRReply_ArrayElement(value, i + 1), fields->numericResources,
+                         storageResourceSpecs, ARRAY_SIZE(storageResourceSpecs), 1, error);
         }
       }
     }
@@ -476,7 +480,8 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
   replyIndexAverages(reply, fields);
   if (fields->textResources[0].isSet || fields->docTable[0].isSet ||
-      fields->missingResources[0].isSet || fields->tagResources[0].isSet) {
+      fields->missingResources[0].isSet || fields->tagResources[0].isSet ||
+      fields->numericResources[0].isSet) {
     RedisModule_ReplyKV_Map(reply, "column_families");
     if (fields->docTable[0].isSet) {
       RedisModule_ReplyKV_Map(reply, "doc_table");
@@ -497,8 +502,14 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
     }
     if (fields->missingResources[0].isSet) {
       RedisModule_ReplyKV_Map(reply, "missing");
-      replyKvArray(reply, fields, fields->missingResources, missingResourceSpecs,
-                   ARRAY_SIZE(missingResourceSpecs));
+      replyKvArray(reply, fields, fields->missingResources, storageResourceSpecs,
+                   ARRAY_SIZE(storageResourceSpecs));
+      RedisModule_Reply_MapEnd(reply);
+    }
+    if (fields->numericResources[0].isSet) {
+      RedisModule_ReplyKV_Map(reply, "numeric");
+      replyKvArray(reply, fields, fields->numericResources, storageResourceSpecs,
+                   ARRAY_SIZE(storageResourceSpecs));
       RedisModule_Reply_MapEnd(reply);
     }
     RedisModule_Reply_MapEnd(reply);

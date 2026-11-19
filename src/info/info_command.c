@@ -359,6 +359,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     REPLY_KVINT("memtable_bytes", resources.missing.memtable_bytes);
     REPLY_KVINT("storage_bytes", resources.missing.storage_bytes);
     REPLY_MAP_END;
+    REPLY_KVMAP("numeric");
+    REPLY_KVINT("memtable_bytes", resources.numeric.memtable_bytes);
+    REPLY_KVINT("storage_bytes", resources.numeric.storage_bytes);
+    REPLY_MAP_END;
     REPLY_MAP_END;
   } else {
     REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
