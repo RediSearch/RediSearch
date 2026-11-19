@@ -480,6 +480,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "fills every row slot, too slow under Miri")]
     fn push_is_refused_once_every_dstidx_is_taken() {
         let mut keys = KeyList::new();
         keys.fill_all_but_last_row_slot();
