@@ -58,7 +58,6 @@ static const char *phaseName(DiskASMImportPhase phase) {
 
 typedef struct {
   char taskId[128];
-  DiskASMImportPhase phase;
   bool gateHeld;
   size_t keysScanned;
   size_t keysIndexed;
@@ -71,6 +70,7 @@ typedef struct {
   char *taskId;
   char *nameForLogs;
   RedisModuleSlotRangeArray *slots;
+  DiskASMImportPhase phase;
   DiskASMImportStats stats;
   // The participating indexes, frozen when the overlay ends. All have a specId of at most
   // frozenMaxSpecId.
@@ -85,7 +85,8 @@ typedef struct {
 // attempt whose sweep still runs is owned by that sweep, not by this.
 static DiskASMImport *activeImport = NULL;
 // The latest attempt that ended, for INFO once no coordinator is left.
-static DiskASMImportStats lastEnded = {.taskId = "", .phase = DISK_ASM_IMPORT_COMPLETED};
+static DiskASMImportStats lastEnded;
+static DiskASMImportPhase lastEndedPhase;
 static bool anyEnded = false;
 
 static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slots) {
@@ -109,7 +110,7 @@ static void importFree(DiskASMImport *imp) {
 }
 
 static void fail(DiskASMImport *imp, const char *error) {
-  imp->stats.phase = DISK_ASM_IMPORT_REBUILD_FAILED;
+  imp->phase = DISK_ASM_IMPORT_REBUILD_FAILED;
   imp->stats.lastError = error;
   // TODO(MOD-20202): abort the attempt with RedisModule_ClusterAbortSlotMigration; until then it
   // stays blocked on the gate, or, without the gate, completes with the slots unindexed.
@@ -123,10 +124,10 @@ static void detach(DiskASMImportPhase endPhase) {
   DiskASMImport *imp = activeImport;
   activeImport = NULL;
   lastEnded = imp->stats;
-  lastEnded.phase = endPhase;
+  lastEndedPhase = endPhase;
   lastEnded.gateHeld = false;
   anyEnded = true;
-  if (imp->stats.phase == DISK_ASM_IMPORT_SCANNING) {
+  if (imp->phase == DISK_ASM_IMPORT_SCANNING) {
     __atomic_store_n(&imp->ended, true, __ATOMIC_RELAXED);
   } else {
     importFree(imp);
@@ -196,7 +197,7 @@ static bool importOnKey(AsyncScanJob *job, RedisModuleCtx *ctx, RedisModuleKey *
 
 static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScanEnd *end) {
   DiskASMImport *imp = (DiskASMImport *)job;
-  RS_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_SCANNING);
+  RS_ASSERT(imp->phase == DISK_ASM_IMPORT_SCANNING);
   if (imp->ended) {
     importFree(imp);
     return;
@@ -220,7 +221,7 @@ static void importFinish(AsyncScanJob *job, RedisModuleCtx *ctx, const AsyncScan
   // Leave the window first: the gate release lets the live tail in, whose writes must be indexed
   // and whose deletes must find the docIds the sweep wrote.
   ASM_StateMachine_FinishImportRebuild(imp->slots);
-  imp->stats.phase = DISK_ASM_IMPORT_REBUILT;
+  imp->phase = DISK_ASM_IMPORT_REBUILT;
   imp->stats.gateHeld = false;
   RedisModule_Log(ctx, "notice",
                   "ASM import %s: rebuilt the imported slots (scanned=%zu, indexed=%zu)",
@@ -252,7 +253,7 @@ void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
   rm_asprintf(&imp->nameForLogs, "ASM import %s", imp->taskId);
   imp->slots = copySlots(info->slots);
   snprintf(imp->stats.taskId, sizeof(imp->stats.taskId), "%s", imp->taskId);
-  imp->stats.phase = DISK_ASM_IMPORT_AWAITING_OVERLAY_END;
+  imp->phase = DISK_ASM_IMPORT_AWAITING_OVERLAY_END;
   imp->job = (AsyncScanJob){
       .nameForLogs = imp->nameForLogs,
       .scannedKeys = &imp->stats.keysScanned,
@@ -287,8 +288,8 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
     RS_LOG_ASSERT(false, "ASM import: the overlay ended before the base was ready");
     return;
   }
-  if (imp->stats.phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
-    RS_LOG_ASSERT(imp->stats.phase == DISK_ASM_IMPORT_REBUILD_FAILED,
+  if (imp->phase != DISK_ASM_IMPORT_AWAITING_OVERLAY_END) {
+    RS_LOG_ASSERT(imp->phase == DISK_ASM_IMPORT_REBUILD_FAILED,
                   "ASM import: the overlay ended twice");
     return;
   }
@@ -297,7 +298,7 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   imp->specs = array_new(WeakRef, 1);
   Indexes_ForEachSpec(freezeSpec, imp);
 
-  imp->stats.phase = DISK_ASM_IMPORT_SCANNING;
+  imp->phase = DISK_ASM_IMPORT_SCANNING;
   RedisModule_Log(ctx, "notice",
                   "ASM import %s: rebuilding the imported slots for %u indexes (max specId %lu)",
                   imp->taskId, array_len(imp->specs), (unsigned long)imp->frozenMaxSpecId);
@@ -310,7 +311,7 @@ void DiskASM_ImportRebuild_OnImportEnded(bool completed) {
   if (!activeImport) return;
   if (completed) {
     // The gate is held until the rebuild completed, and Flex completes no import before.
-    RS_LOG_ASSERT(activeImport->stats.phase == DISK_ASM_IMPORT_REBUILT,
+    RS_LOG_ASSERT(activeImport->phase == DISK_ASM_IMPORT_REBUILT,
                   "ASM import: completed before search rebuilt its slots");
   }
   detach(completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
@@ -328,7 +329,7 @@ static bool slotsContain(const RedisModuleSlotRangeArray *slots, unsigned int sl
 }
 
 bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key) {
-  if (!activeImport || activeImport->stats.phase != DISK_ASM_IMPORT_SCANNING || !key) return false;
+  if (!activeImport || activeImport->phase != DISK_ASM_IMPORT_SCANNING || !key) return false;
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
   return slotsContain(activeImport->slots, RedisModule_ClusterKeySlotC(name, len));
@@ -338,14 +339,16 @@ bool DiskASM_ImportRebuild_IsRebuildingKey(const RedisModuleString *key) {
 void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_imports_active", activeImport != NULL);
   const DiskASMImportStats *stats = NULL;
+  const char *phase = "none";
   if (activeImport) {
     stats = &activeImport->stats;
+    phase = phaseName(activeImport->phase);
   } else if (anyEnded) {
     stats = &lastEnded;
+    phase = phaseName(lastEndedPhase);
   }
   RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_task_id", stats ? stats->taskId : "");
-  RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_phase",
-                                  stats ? phaseName(stats->phase) : "none");
+  RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_phase", phase);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_gate_held", stats ? stats->gateHeld : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_scanned",
                                     stats ? stats->keysScanned : 0);
