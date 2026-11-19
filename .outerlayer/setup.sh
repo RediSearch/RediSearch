@@ -30,6 +30,7 @@ for rc in "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.bashrc"; do
 # RediSearch build tools
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
 export PATH="$HOME/.local/bin:$HOME/.local/redis/bin:$PATH"
+[[ -d "$HOME/.local/llvm/lib" ]] && export LIBCLANG_PATH="$HOME/.local/llvm/lib"
 EOF
   fi
 done
@@ -77,16 +78,37 @@ check_setup_tools() {
   return "$missing"
 }
 
-if check_dependencies && check_setup_tools; then
-  echo "==> Build and test dependencies are already installed"
-elif [[ $install_mode == none ]]; then
-  echo "System build dependencies are missing and this build has no root to install them." >&2
-  echo "Install them in the image instead: .install/install_script.sh, run as root." >&2
-  exit 1
-else
+source .install/LLVM_VERSION.sh
+
+# Without root, LLVM goes in the home directory from the release tarball .install/install_llvm.sh
+# uses, with the versioned names build.sh looks up linked onto PATH.
+install_llvm_in_home() {
+  local dir="$HOME/.local/llvm" bin tool target tmp
+  if [[ "$(cat "$dir/.version" 2>/dev/null)" != "$LLVM_FULL_VERSION" ]]; then
+    tmp="$(mktemp -d)"
+    curl -fSL --retry 3 -o "$tmp/llvm.tar.xz" \
+      "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_FULL_VERSION/LLVM-$LLVM_FULL_VERSION-Linux-X64.tar.xz"
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    tar -xf "$tmp/llvm.tar.xz" -C "$dir" --strip-components=1
+    rm -rf "$tmp"
+    printf '%s\n' "$LLVM_FULL_VERSION" > "$dir/.version"
+  fi
+  bin="$dir/bin"
+  for tool in "clang-$LLVM_VERSION" "clang++-$LLVM_VERSION" "lld-$LLVM_VERSION" \
+    "ld.lld-$LLVM_VERSION" ld.lld llvm-config; do
+    target="$bin/$tool"
+    [[ -e "$target" ]] || target="$bin/${tool%-"$LLVM_VERSION"}"
+    ln -sf "$target" "$HOME/.local/bin/$tool"
+  done
+}
+
+if [[ $install_mode == none ]]; then
+  run_step "Install LLVM $LLVM_FULL_VERSION in the home directory" install_llvm_in_home
+  export LIBCLANG_PATH="$HOME/.local/llvm/lib"
+elif ! check_dependencies; then
   run_step "Install build and test dependencies" \
     bash -c "cd .install && env SKIP_BOOST=1 COV=1 bash ./install_script.sh $install_mode"
-  check_setup_tools
 fi
 
 install_rust_test_dependencies() {
@@ -115,6 +137,13 @@ install_rust_test_dependencies() {
 }
 
 run_step "Install Rust test dependencies" install_rust_test_dependencies
+
+if ! check_dependencies; then
+  echo "Build dependencies are still missing; the list above names them." >&2
+  exit 1
+fi
+check_setup_tools ||
+  echo "note: coverage builds (COV=1) cannot run until LCOV is in the image" >&2
 
 install_cargo_mutants() {
   local version=27.1.0
@@ -161,7 +190,6 @@ install_swamp() (
 
 run_step "Install swamp" install_swamp
 
-source .install/LLVM_VERSION.sh
 versioned_clang="$(command -v "clang-$LLVM_VERSION" || command -v clang)"
 versioned_clangxx="$(command -v "clang++-$LLVM_VERSION" || command -v clang++)"
 
