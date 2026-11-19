@@ -2,7 +2,7 @@
 
 Status: proof of concept, RAM only, behind `ENABLE_UNSTABLE_FEATURES`. It follows
 the shape of the sparse vector field (RediSearch/RediSearch#8346): an unstable
-field type with its own index structure, rejected where unsupported.
+field type with its own index structure, RAM and JSON only.
 
 ## Problem
 
@@ -54,16 +54,20 @@ Indexing rules:
 - An empty object is valid and indexes no keys.
 - `LOAD` and `SORTBY` use the existing JSON path loading, for example
   `$.metrics["rev:fy0"]`. The field is not sortable and has no new load path.
-- JSON only. `FT.CREATE` rejects the field on HASH indexes and on disk/Flex
-  indexes. Without `ENABLE_UNSTABLE_FEATURES` it is rejected as an unknown type.
-- `FT.HYBRID` does not support the field.
+- The field takes no other type or option (`SORTABLE`, `NOINDEX`, ...). Keyed
+  predicates are not used by the query optimizer.
+- JSON only. `FT.CREATE` and `FT.ALTER` reject the field on HASH indexes, and on
+  Flex indexes through `SearchDisk_MarkUnsupportedFieldIfDiskEnabled`, as for
+  GEOSHAPE. With `ENABLE_UNSTABLE_FEATURES` off, `FT.CREATE`, `FT.ALTER` and
+  parsing of `@field[key]:` fail with an error naming the flag. RDB load and
+  indexing are not gated.
 
 ## Data model
 
 ```rust
 pub struct KeyedNumericIndex {
-    /// Boxed so a tree keeps its address when the map grows: a query iterator
-    /// reads it with the spec lock released.
+    /// Boxed so a tree keeps its address when the map grows while a query
+    /// iterator is parked across a lock release.
     keys: FxHashMap<Box<[u8]>, Box<NumericRangeTree>>,
     memory_usage: usize,
     /// Tells a replaced index apart from the one a GC scan saw.
@@ -72,9 +76,14 @@ pub struct KeyedNumericIndex {
 ```
 
 One index per `MAP NUMERIC` field. It maps each key to a regular
-`NumericRangeTree`, reused unchanged: same splitting, same range iterator, same
-revalidation. A tree is created on the first value for its key. A key whose tree
-is empty after GC is removed from the map.
+`NumericRangeTree`, reused unchanged: same splitting and range iterator. A tree
+is created on the first value for its key. A key whose tree is empty after GC is
+removed from the map.
+
+Because GC can remove a key while a query is parked, a keyed iterator looks its
+key up again through the field's index on revalidation (as #8346's dimension
+iterators do). It aborts if the index was replaced (`unique_id`), the key is
+gone, or the key now holds a different tree.
 
 ## Why one tree per key
 
@@ -89,15 +98,13 @@ and poor for a key space that is nearly unique per document.
 
 ## Alternatives considered
 
-- **One field per key.** Hits the attribute cap, needs a schema change per new
-  key, and cannot be created lazily from data.
+- **One field per key.** See Problem.
 - **Multi-value numeric with coded values.** Encode the key into the number,
   such as `key_id * 2^k + value`, so one tree serves all keys and a key range is
   a numeric range. Doubles have 53 bits of mantissa, so key space and value
   precision compete; negative and fractional values need an order-preserving
   transform; the key-to-id dictionary needs its own persistence and GC; and
-  values returned from the index are not the user's values. A bounded-precision
-  trick should not define the semantics of a user-visible field.
+  values returned from the index are not the user's values.
 - **Element-scoped `NESTED` groups.** Index `(key, value)` pairs as elements of
   an array so a predicate must match within one element. This is the most
   general answer and also the largest: it needs element identity through the
@@ -107,25 +114,31 @@ and poor for a key space that is nearly unique per document.
 
 ## Persistence
 
-The field definition is stored in the spec RDB with a new field encoding
-version, as other field types are. The trees are not persisted: on load, the
-documents are re-indexed from the keyspace and the trees rebuilt, as numeric
-fields are. Like #8346, the field is stored regardless of the unstable gate
-state at load time; the gate applies to `FT.CREATE`.
+The spec RDB encoding version goes up by one. New bytes are written only for a
+`MAP NUMERIC` field. The trees are not persisted: on load the documents are
+re-indexed from the keyspace and the trees rebuilt, as numeric fields are.
+
+As in #8346, RDB load and indexing are not gated, so a field created with the
+flag on keeps loading and indexing after the flag is turned off. The gate cannot
+cover the format itself, which requirement 3 of
+[CONTRIBUTING-unstable-features.md](../CONTRIBUTING-unstable-features.md#3-do-not-touch-persisted-or-replicated-state)
+excludes. An RDB without a `MAP NUMERIC` field still loads on an older build;
+one with such a field does not, so downgrading requires dropping the field first.
 
 ## Garbage collection
 
-A tree is identified by the pair (field, key). The numeric GC scanner, which
-today addresses a tree by field index, addresses it by the pair for these
-fields, in both the fork and the thread policies. Applying a delta checks
-`unique_id` as today, so a field replaced between scan and apply is skipped.
-After applying, a key with an empty tree is removed from the map and the memory
-accounting is adjusted. `FT.INFO` reports the number of keys and the memory used
-by the field.
+A sibling of the numeric GC scanner (like #8346's sparse scanner) covers these
+fields in both the fork and the thread policies, reusing the per-tree scan and
+apply code. A tree is identified by (field index, index `unique_id`, key, tree
+`unique_id`). Applying a delta skips the entry if the index was replaced, the key
+is gone, or it holds a different tree. Emptied keys are removed under the write
+lock and the memory accounting is adjusted. `FT.INFO` reports the number of keys
+and the memory used by the field.
 
 ## Limits and out of scope
 
-- Flex/disk, HASH, `FT.HYBRID`, cluster-specific behavior.
+- Flex/disk, HASH, cluster-specific behavior.
+- `FT.HYBRID`: unsupported.
 - `MAP TAG` and other value types; `NESTED` syntax.
 - Sortable values; sorting uses JSON path loading of the value.
 - Unquoted key characters beyond `[A-Za-z0-9_:.-]`; use a parameter.
