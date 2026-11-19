@@ -558,7 +558,8 @@ _native_fallback_platform() {
 _native_fallback_ok() {
     command -v clang >/dev/null 2>&1 || return 1
     command -v lld >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1 || return 1
-    ls /usr/lib64/libclang.so* /usr/lib/libclang.so* >/dev/null 2>&1
+    # Either directory may hold libclang; `ls` over both fails if one has no match.
+    compgen -G "/usr/lib64/libclang.so*" >/dev/null || compgen -G "/usr/lib/libclang.so*" >/dev/null
 }
 
 _llvm_ok() {
