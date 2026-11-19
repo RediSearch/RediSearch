@@ -1,4 +1,4 @@
-redisbench_admin>=0.12.40
+redisbench_admin @ git+https://github.com/nonirosenfeldredis/redisbench-admin@b93dac162ec5230e51116410c2ff07a193bb1a0c
 numpy>=2.0.0
 pandas
 requests
