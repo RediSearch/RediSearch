@@ -90,6 +90,11 @@ enum RLookup_F
    * This key type is numeric
    */
   RLOOKUP_F_NUMERIC = 0x1000,
+  /**
+   * This key holds every value of a multi-value JSON field as an array (see
+   * [`super::RLookup::get_key_all_values`]).
+   */
+  RLOOKUP_F_ALLVALUES = 0x2000,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_F;
@@ -110,6 +115,11 @@ enum RLookup_Opt
    * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
    */
   RLOOKUP_OPT_ALLLOADED = 0x02,
+  /**
+   * Lets [`RLookup::get_key_all_values`] hand out all-values keys. Set on
+   * FT.AGGREGATE's first lookup.
+   */
+  RLOOKUP_OPT_ALLVALUES = 0x04,
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_Opt;

@@ -279,8 +279,10 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     env.expect('FT.AGGREGATE', 'idx_flat',
                expr, 'LOAD', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
 
-    env.expect('FT.AGGREGATE', 'idx_flat',
-               expr, 'GROUPBY', '1', '@val', *dialect_param).equal([1, ['val', expected[1][2][1]]])
+    # Groups per value (see test_multi_value_aggregation.py).
+    res = conn.execute_command('FT.AGGREGATE', 'idx_flat', expr, 'GROUPBY', '1', '@val', *dialect_param)
+    env.assertEqual([res[0], *sorted(res[1:])],
+                    [3, ['val', '21,22'], ['val', '29.7,34.9'], ['val', '40.6,70.35']], message=res)
 
     # Array
     env.expect('FT.SEARCH', 'idx_arr', expr,

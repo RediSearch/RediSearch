@@ -443,6 +443,50 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
         .map_or(ptr::null_mut(), NonNull::as_ptr)
 }
 
+/// [`RLookup::get_key_all_values`]: the all-values key of the multi-value field
+/// `field_name`, or null when `field_name` resolves as usual. `*is_new` is set to
+/// whether this call created the key.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. `field_name` must be [valid] for reads of `field_name_len` bytes followed by
+///    a nul terminator, all within a single allocation.
+/// 3. `is_new` must be a [valid], non-null pointer to a `bool`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetKey_AllValues<'a>(
+    lookup: *mut OpaqueRLookup,
+    field_name: *const c_char,
+    field_name_len: size_t,
+    is_new: *mut bool,
+) -> *mut RLookupKey<'a> {
+    // Safety: ensured by caller (1.)
+    let lookup =
+        unsafe { RLookup::from_opaque_mut_ptr(lookup) }.expect("`lookup` must not be null");
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_AllValues");
+
+    let field_name = CStr::from_bytes_with_nul(
+        // Safety: ensured by caller (2.)
+        unsafe { slice::from_raw_parts(field_name.cast::<u8>(), field_name_len + 1) },
+    )
+    .unwrap();
+    debug_assert!(!is_new.is_null(), "`is_new` must not be null");
+
+    // Safety: RedisJSON, when loaded, is initialized before any query runs.
+    let found = unsafe { RedisJsonApi::get() }
+        .and_then(|japi| lookup.get_key_all_values_ptr(field_name, &japi));
+    let (key, created) = match found {
+        Some((key, created)) => (key.as_ptr(), created),
+        None => (ptr::null_mut(), false),
+    };
+    // Safety: ensured by caller (3.)
+    unsafe { is_new.write(created) };
+    key
+}
+
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
 ///
 /// # Safety

@@ -67,7 +67,17 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
-    srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
+    srckeys[ii] = NULL;
+    if (loadKeys) {
+      bool isNew = false;
+      srckeys[ii] = RLookup_GetKey_AllValues(srclookup, fldname, fldname_len, &isNew);
+      if (isNew) {
+        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
+      }
+    }
+    if (!srckeys[ii]) {
+      srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
+    }
     if (!srckeys[ii]) {
       if (loadKeys) {
         // We failed to get the key for reading, so we know getting it for loading will succeed.
@@ -494,6 +504,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_SetCache(first, cache);
+  RLookup_EnableOptions(first, RLOOKUP_OPT_ALLVALUES);
 
   // Initialize the buffering policy from request flags. Highlighting needs the
   // index result downstream; score-returning requests stay on the conservative

@@ -118,7 +118,7 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     isJSON: None,
     pathParse: Some(path_parse),
     pathFree: Some(path_free),
-    pathIsSingle: None,
+    pathIsSingle: Some(path_is_single),
     pathHasDefinedOrder: None,
     getJSONFromIter: Some(get_json_from_iter),
     resetIter: Some(reset_iter),
@@ -232,6 +232,12 @@ unsafe extern "C" fn path_parse_no_error_msg(path: *const c_char) -> ffi::JSONPa
         .ok()
         .and_then(MockPath::parse)
         .map_or(ptr::null(), |path| Box::into_raw(Box::new(path)).cast())
+}
+
+unsafe extern "C" fn path_is_single(path: ffi::JSONPath) -> c_int {
+    // SAFETY: the API caller passes a live handle returned by a mock path parser.
+    let path = unsafe { &*path.cast::<MockPath>() };
+    c_int::from(!matches!(path, MockPath::Elements))
 }
 
 unsafe extern "C" fn path_free(path: ffi::JSONPath) {

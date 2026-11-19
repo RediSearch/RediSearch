@@ -201,9 +201,17 @@ impl FieldLoader for JsonFieldLoader<'_> {
             }
             CachedJsonPath::Path(path) => {
                 // SAFETY: the cache owns the path throughout iteration.
-                if let Some(iter) = unsafe { self.value.get_with_path(path) }
-                    && let Ok(Some(value)) = json_iter_to_value(self.ctx, iter, self.api_version)
-                {
+                let Some(iter) = (unsafe { self.value.get_with_path(path) }) else {
+                    return Ok(());
+                };
+                let value = if key.flags.contains(RLookupKeyFlag::AllValues) {
+                    Some(json_iter_to_all_values(self.ctx, iter))
+                } else {
+                    json_iter_to_value(self.ctx, iter, self.api_version)
+                        .ok()
+                        .flatten()
+                };
+                if let Some(value) = value {
                     dst_row.write_key(key, value);
                 }
             }
@@ -280,6 +288,23 @@ fn json_iter_to_value_expanded(
 
     let values: Box<_> = iter
         .map_into_iter(|json_val| json_val_to_value_expanded(ctx, json_val))
+        .collect();
+
+    SharedValue::new_array(values)
+}
+
+/// The value of an [all-values key][RLookup::get_key_all_values]: an array of the
+/// iterator's non-null matches, empty when there are none.
+fn json_iter_to_all_values(
+    ctx: NonNull<redis_module::RedisModuleCtx>,
+    iter: redis_json_api::ResultsIter<'_>,
+) -> SharedValue {
+    let values: Box<_> = iter
+        .map_into_iter(|json_val| {
+            (json_val.get_type() != JsonType::Null)
+                .then(|| json_val_to_value_expanded(ctx, json_val))
+        })
+        .flatten()
         .collect();
 
     SharedValue::new_array(values)

@@ -112,3 +112,65 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RSValue, index: u32) ->
         panic!("Expected 'Array' type, got '{}'", value.variant_name())
     }
 }
+
+/// Writes the elements of an array [`RSValue`] to `out` in order, skipping any
+/// whose [hash][value::hash::hash] equals an earlier element's, and returns how
+/// many it wrote. The written pointers are borrowed from the array.
+///
+/// # Safety
+///
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+/// 2. Unless the array is empty, `out` must be [valid] for writes of
+///    [`RSValue_ArrayLen`]`(value)` pointers.
+///
+/// # Panics
+///
+/// Panics if `value` is not an array.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_ArrayDistinct(
+    value: *const RSValue,
+    out: *mut *const RSValue,
+) -> u32 {
+    // Safety: ensured by caller (1.)
+    let value = unsafe { expect_value(value) };
+    let Value::Array(array) = value else {
+        panic!("Expected 'Array' type, got '{}'", value.variant_name())
+    };
+
+    if array.is_empty() {
+        return 0;
+    }
+    debug_assert!(
+        !out.is_null(),
+        "`out` must not be null for a non-empty array"
+    );
+    // Safety: ensured by caller (2.); the buffer may be uninitialized.
+    let out = unsafe {
+        std::slice::from_raw_parts_mut(out.cast::<MaybeUninit<*const RSValue>>(), array.len())
+    };
+
+    // GROUPBY calls this per row, and most arrays are short: compare those against
+    // the earlier hashes directly rather than allocating a set.
+    const SHORT: usize = 16;
+    let mut short = [0; SHORT];
+    let mut long =
+        (array.len() > SHORT).then(|| std::collections::HashSet::with_capacity(array.len()));
+    let mut written = 0;
+    for element in array.iter() {
+        let hash = value::hash::hash(element, 0);
+        let is_new = match &mut long {
+            Some(seen) => seen.insert(hash),
+            None => !short[..written].contains(&hash),
+        };
+        if is_new {
+            if long.is_none() {
+                short[written] = hash;
+            }
+            out[written].write(as_rs_value(element));
+            written += 1;
+        }
+    }
+    u32::try_from(written).expect("an array's length fits in u32")
+}

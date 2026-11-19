@@ -30,7 +30,7 @@ use redis_module::RedisString;
 use rlookup::{
     DocumentFormat, FieldLoader, FieldSpecBuilder, FieldSpecType, IndexSpecCache,
     JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup, RLookupKey, RLookupKeyFlag,
-    RLookupKeyFlags, RLookupRow,
+    RLookupKeyFlags, RLookupOption, RLookupRow,
 };
 use serde_json::json;
 use std::ffi::{CStr, CString};
@@ -473,4 +473,160 @@ fn borrow_falls_back_to_open_by_name() {
 
         assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"alice"[..]));
     });
+}
+
+// ===== All-values keys =====
+
+/// FT.AGGREGATE's first lookup over a JSON index with a multi-value field `tags` on
+/// `$[*]` and a single-valued field `name` on `$.name`.
+fn rlookup_with_multi_value_field() -> RLookup<'static> {
+    let mut rlookup = RLookup::new();
+    rlookup.set_cache(Some(IndexSpecCache::from_json_fields([
+        FieldSpecBuilder::new(c"$[*]")
+            .with_field_name(c"tags")
+            .with_types(FieldSpecType::Tag.into())
+            .with_options(FieldSpecOption::Sortable.into())
+            .finish(),
+        FieldSpecBuilder::new(c"$.name")
+            .with_field_name(c"name")
+            .with_types(FieldSpecType::Tag.into())
+            .finish(),
+    ])));
+    rlookup.enable_options(RLookupOption::AllValues.into());
+    rlookup
+}
+
+/// Whether `rlookup` hands out an all-values key for `field_name`.
+fn has_all_values_key(rlookup: &mut RLookup<'static>, field_name: &CStr) -> bool {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        rlookup.get_key_all_values(field_name, &japi).is_some()
+    })
+}
+
+/// The value the all-values key of `tags` loads from `doc`.
+fn load_all_values(doc: serde_json::Value) -> Option<SharedValue> {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(doc), |japi, ctx| {
+        let mut rlookup = rlookup_with_multi_value_field();
+        let (key, _) = rlookup.get_key_all_values(c"tags", &japi).unwrap();
+        // SAFETY: the path is static and outlives the cache.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$[*]")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
+        let key_name = make_redis_string(c"doc:1");
+        let mut row = RLookupRow::new();
+        format
+            .open(&key_name)
+            .unwrap()
+            .load_field_at(0, key, &mut row)
+            .unwrap();
+        row.get(key).cloned()
+    })
+}
+
+fn strings(value: &SharedValue) -> Vec<String> {
+    let Value::Array(elements) = &**value else {
+        panic!("expected an array, got {:?}", **value);
+    };
+    elements
+        .iter()
+        .map(|element| String::from_utf8(element.as_str_bytes().unwrap().to_vec()).unwrap())
+        .collect()
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn all_values_key_loads_every_non_null_value() {
+    let value = load_all_values(json!(["cat", null, "fox", "cat"])).unwrap();
+    assert_eq!(strings(&value), ["cat", "fox", "cat"]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn all_values_key_of_a_document_holding_only_nulls_is_empty() {
+    // Present but empty, unlike a key whose path matches nothing: a coordinator
+    // falls back to the field's ordinary value only for a missing key.
+    assert!(strings(&load_all_values(json!([null])).unwrap()).is_empty());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn all_values_key_is_created_once() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let mut rlookup = rlookup_with_multi_value_field();
+        assert!(rlookup.get_key_all_values(c"tags", &japi).unwrap().1);
+        assert!(!rlookup.get_key_all_values(c"tags", &japi).unwrap().1);
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn all_values_key_is_hidden_and_not_read_from_the_sorting_vector() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |japi, _ctx| {
+        let mut rlookup = rlookup_with_multi_value_field();
+        let (key, _) = rlookup.get_key_all_values(c"tags", &japi).unwrap();
+        assert!(
+            key.flags
+                .contains(RLookupKeyFlag::AllValues | RLookupKeyFlag::Hidden)
+        );
+        assert!(
+            !key.flags
+                .intersects(RLookupKeyFlag::SvSrc | RLookupKeyFlag::ValAvailable)
+        );
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn single_valued_field_has_no_all_values_key() {
+    assert!(!has_all_values_key(
+        &mut rlookup_with_multi_value_field(),
+        c"name"
+    ));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn hash_index_field_has_no_all_values_key() {
+    // Even when its name is a multi-value JSONPath.
+    let mut hash = RLookup::new();
+    hash.set_cache(Some(IndexSpecCache::from_fields([FieldSpecBuilder::new(
+        c"$[*]",
+    )
+    .finish()])));
+    hash.enable_options(RLookupOption::AllValues.into());
+    assert!(!has_all_values_key(&mut hash, c"$[*]"));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn lookup_without_the_option_has_no_all_values_key() {
+    // As FT.HYBRID's and a coordinator's.
+    let mut rlookup = rlookup_with_multi_value_field();
+    rlookup.disable_options(RLookupOption::AllValues.into());
+    assert!(!has_all_values_key(&mut rlookup, c"tags"));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn load_alias_named_like_the_field_shadows_its_all_values_key() {
+    // `LOAD 3 @name AS tags`: the alias, not the field, is what `tags` means.
+    let mut rlookup = rlookup_with_multi_value_field();
+    rlookup
+        .get_key_load(c"tags", c"name", RLookupKeyFlags::empty())
+        .unwrap();
+    assert!(!has_all_values_key(&mut rlookup, c"tags"));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn loading_the_field_itself_keeps_its_all_values_key() {
+    // `LOAD 1 @tags` loads the field's own key, which is no alias.
+    let mut rlookup = rlookup_with_multi_value_field();
+    rlookup
+        .get_key_load(c"tags", c"tags", RLookupKeyFlags::empty())
+        .unwrap();
+    assert!(has_all_values_key(&mut rlookup, c"tags"));
 }

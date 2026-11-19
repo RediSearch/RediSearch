@@ -411,6 +411,22 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
 /**
+ * [`RLookup::get_key_all_values`]: the all-values key of the multi-value field
+ * `field_name`, or null when `field_name` resolves as usual. `*is_new` is set to
+ * whether this call created the key.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. `field_name` must be [valid] for reads of `field_name_len` bytes followed by
+ *    a nul terminator, all within a single allocation.
+ * 3. `is_new` must be a [valid], non-null pointer to a `bool`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupKey *RLookup_GetKey_AllValues(struct RLookup *lookup, const char *field_name, size_t field_name_len, bool *is_new);
+
+/**
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table (unless the
