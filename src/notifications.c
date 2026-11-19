@@ -572,7 +572,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
       DiskASM_ImportRebuild_OnImportEnded(
-          info, subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED);
+          subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED);
       ASM_StateMachine_FailImport(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
@@ -599,7 +599,7 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
                       info->task_id);
       // The slots stay in the import window until the rebuild this starts completes.
-      DiskASM_ImportRebuild_OnOverlayEnd(ctx, info);
+      DiskASM_ImportRebuild_OnOverlayEnd(ctx);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:

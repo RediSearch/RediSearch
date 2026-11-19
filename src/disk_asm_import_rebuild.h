@@ -39,13 +39,12 @@ extern "C" {
  * Every function runs on the main thread or under the GIL.
  */
 
-// Handlers of the import's stage events. Callbacks naming an unknown `task_id` are ignored.
+// Handlers of the import's stage events. Flex runs at most one ASM task per node, so each applies
+// to the live attempt.
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx,
-                                        const RedisModuleClusterSlotMigrationInfo *info);
-void DiskASM_ImportRebuild_OnImportEnded(const RedisModuleClusterSlotMigrationInfo *info,
-                                         bool completed);
+void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx);
+void DiskASM_ImportRebuild_OnImportEnded(bool completed);
 
 #ifdef ENABLE_ASSERT
 // Whether `key`'s slot is being rebuilt. Flex promises that no write and no delete reaches such a
