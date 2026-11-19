@@ -47,13 +47,13 @@ jobs:
     steps:
       # The PR head, not the merge commit: the diff and the review's commit are the
       # head's, so the files Claude reads must have the head's line numbers.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: michael-denyer/pstack-claude
           ref: ${{ env.PSTACK_REF }}
@@ -103,7 +103,7 @@ jobs:
           wc -l .ci/review/*
 
       - id: claude
-        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
+        uses: anthropics/claude-code-action@7ca5eaf924c29f3c471600c72f9964e8c5534190 # v1.0.274
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # The job token, not the Claude GitHub App's: the App token exchange refuses
