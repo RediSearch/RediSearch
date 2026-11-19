@@ -101,6 +101,12 @@ install_llvm_in_home() {
     [[ -e "$target" ]] || target="$bin/${tool%-"$LLVM_VERSION"}"
     ln -sf "$target" "$HOME/.local/bin/$tool"
   done
+  # The system linker's LTO plugin is the distro LLVM's, which cannot read this LLVM's bitcode, so
+  # an `-flto` link (Redis's jemalloc, LTO module builds) must use this LLVM's lld. Clang reads
+  # these files beside its binary, and an unused option in them raises no warning.
+  for driver in clang clang++; do
+    printf '%s\n' '-fuse-ld=lld' > "$bin/$driver.cfg"
+  done
 }
 
 if [[ $install_mode == none ]]; then
