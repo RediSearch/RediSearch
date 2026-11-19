@@ -443,10 +443,10 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   }
   SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
+  // The RDB loader requires complete dictionaries for restored disk TAG fields.
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
-      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState,
-      c_index_spec->tagDictionariesAvailable, c_index_spec->flags, fields, c_index_spec->numFields,
-      &callbacks, c_index_spec);
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, true,
+      c_index_spec->flags, fields, c_index_spec->numFields, &callbacks, c_index_spec);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
   SearchDisk_CheckOpenResult(ctx, result);

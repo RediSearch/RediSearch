@@ -627,7 +627,7 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     io = RMCK_CreateRdbIO();
   }
 
-  IndexSpec *saveSource(bool tagDictionariesAvailable = true) {
+  IndexSpec *saveSource(int contextFlags = REDISMODULE_CTX_FLAGS_SST_RDB) {
     QueryError err = QueryError_Default();
     IndexSpec *sp = create("tag_sst_counts", {"first", "TAG", "second", "TAG"}, &err);
     EXPECT_NE(sp, nullptr) << QueryError_GetUserError(&err);
@@ -635,8 +635,7 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     const char *tags[] = {"hello", "world", ""};
     TagIndex_Commit(TagIndex_Open(&sp->fields[0]), tags, 3, &sp->stats);
     TagIndex_Commit(TagIndex_Open(&sp->fields[0]), tags, 1, &sp->stats);
-    sp->tagDictionariesAvailable = tagDictionariesAvailable;
-    IndexSpec_RdbSave(io, sp, REDISMODULE_CTX_FLAGS_SST_RDB);
+    IndexSpec_RdbSave(io, sp, contextFlags);
     return sp;
   }
 
@@ -644,7 +643,7 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     RedisModule_Free(RMCK_LoadStringBuffer(io, nullptr));
   }
 
-  size_t tagDictionaryFlagOffset() {
+  size_t tagDictionaryMarkerOffset() {
     io->read_pos = 0;
     skipRdbString();        // Index name
     RMCK_LoadUnsigned(io);  // Index flags
@@ -678,6 +677,15 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     EXPECT_EQ(io->read_pos, io->buffer.size());
   }
 
+  void expectLoadError(int version, const char *message) {
+    QueryError err = QueryError_Default();
+    loaded = IndexSpec_RdbLoad(io, version, true, &err);
+    EXPECT_EQ(loaded, nullptr);
+    EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_PARSE_ARGS);
+    EXPECT_NE(std::string(QueryError_GetUserError(&err)).find(message), std::string::npos);
+    QueryError_ClearError(&err);
+  }
+
   void TearDown() override {
     if (loaded) {
       if (loaded->diskSpec) SearchDisk_CloseIndexOnMainThread(RSDummyContext, loaded);
@@ -693,7 +701,6 @@ TEST_F(DiskTagPersistenceTest, CountsSurviveLoadingAndStorageBinding) {
   discardSource();
   load(INDEX_CURRENT_VERSION);
   ASSERT_NE(loaded, nullptr);
-  EXPECT_TRUE(loaded->tagDictionariesAvailable);
   auto *idx = TagIndex_Open(&loaded->fields[0]);
   ASSERT_NE(idx, nullptr);
   EXPECT_TRUE(idx->valuesAreCounts);
@@ -716,72 +723,75 @@ TEST_F(DiskTagPersistenceTest, UnboundCountDictionariesCanBeDiscarded) {
   EXPECT_EQ(loaded->diskSpec, nullptr);
 }
 
-TEST_F(DiskTagPersistenceTest, LegacyPayloadRemainsUnavailableAfterAnotherSave) {
-  ASSERT_NE(saveSource(false), nullptr);
-  const size_t offset = tagDictionaryFlagOffset();
-  ASSERT_LE(offset + sizeof(uint64_t), io->buffer.size());
-  io->buffer.erase(io->buffer.begin() + offset, io->buffer.begin() + offset + sizeof(uint64_t));
+TEST_F(DiskTagPersistenceTest, RestoredTagQueriesRequireExactValues) {
+  ASSERT_NE(saveSource(), nullptr);
+  discardSource();
+  load(INDEX_CURRENT_VERSION);
+  ASSERT_NE(loaded, nullptr);
+  ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
+  Restore unstable{RSGlobalConfig.enableUnstableFeatures};
+  RSGlobalConfig.enableUnstableFeatures = true;
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, loaded);
+  QASTCXX ast(sctx);
+  for (const char *query :
+       {"@first:{hel*}", "@first:{*llo}", "@first:{*ell*}", "@first:{w'hel*'}", "@first:>{a}"}) {
+    EXPECT_FALSE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0))) << query;
+    EXPECT_NE(std::string(ast.getError()).find("queries are not supported on Flex indexes"),
+              std::string::npos)
+        << query;
+  }
+  EXPECT_TRUE(ast.isValidQuery("@first:{hello}", static_cast<QASTValidationFlagsSet>(0)));
+  EXPECT_TRUE(ast.isValidQuery("@first:{hello|world}", static_cast<QASTValidationFlagsSet>(0)));
+}
+
+TEST_F(DiskTagPersistenceTest, SstTagIndexWithoutDictionariesFailsTheSpecLoad) {
+  // A plain RDB has the same field records as the SST encoding before TAG dictionaries.
+  ASSERT_NE(saveSource(0), nullptr);
+  discardSource();
+  expectLoadError(INDEX_SST_TAG_VALUES_VERSION - 1, "SST RDB is missing the TAG dictionary");
+}
+
+TEST_F(DiskTagPersistenceTest, MissingDictionaryMarkerFailsTheTagSpecLoad) {
+  ASSERT_NE(saveSource(), nullptr);
+  io->buffer.at(tagDictionaryMarkerOffset()) = 0;
+  discardSource();
+  expectLoadError(INDEX_SST_TAG_VALUES_VERSION, "SST RDB is missing the TAG dictionary");
+}
+
+TEST_F(DiskTagPersistenceTest, InvalidDictionaryMarkerFailsTheSpecLoad) {
+  ASSERT_NE(saveSource(), nullptr);
+  io->buffer.at(tagDictionaryMarkerOffset()) = 2;
+  discardSource();
+  expectLoadError(INDEX_CURRENT_VERSION, "Invalid SST RDB TAG dictionary marker");
+}
+
+TEST_F(DiskTagPersistenceTest, LegacySstWithoutTagFieldsCanLoad) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("legacy_sst_without_tag", {"number", "NUMERIC"}, &err);
+  ASSERT_NE(sp, nullptr);
+  IndexSpec_RdbSave(io, sp, REDISMODULE_CTX_FLAGS_SST_RDB);
+  const size_t offset = tagDictionaryMarkerOffset();
+  ASSERT_EQ(RMCK_LoadUnsigned(io), 1u);
+  io->buffer.erase(io->buffer.begin() + offset, io->buffer.begin() + io->read_pos);
   discardSource();
   load(INDEX_SST_TAG_VALUES_VERSION - 1);
   ASSERT_NE(loaded, nullptr);
-  EXPECT_FALSE(loaded->tagDictionariesAvailable);
-  ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
-  EXPECT_FALSE(restoredTagCounts);
-  {
-    Restore unstable{RSGlobalConfig.enableUnstableFeatures};
-    RSGlobalConfig.enableUnstableFeatures = true;
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, loaded);
-    QASTCXX ast(sctx);
-    for (const char *query :
-         {"@first:{hel*}", "@first:{*llo}", "@first:{*ell*}", "@first:{w'hel*'}", "@first:>{a}"}) {
-      EXPECT_FALSE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0))) << query;
-      EXPECT_NE(std::string(ast.getError()).find("drop and recreate"), std::string::npos) << query;
-    }
-    EXPECT_TRUE(ast.isValidQuery("@first:{hello}", static_cast<QASTValidationFlagsSet>(0)));
-    EXPECT_TRUE(ast.isValidQuery("@first:{hello|world}", static_cast<QASTValidationFlagsSet>(0)));
-  }
-
-  RedisModuleIO *next = RMCK_CreateRdbIO();
-  IndexSpec_RdbSave(next, loaded, REDISMODULE_CTX_FLAGS_SST_RDB);
-  SearchDisk_CloseIndexOnMainThread(RSDummyContext, loaded);
-  IndexSpec_RdbLoadDiscard(IndexSpec_GetStrongRefUnsafe(loaded));
-  loaded = nullptr;
-  RMCK_FreeRdbIO(io);
-  io = next;
-  load(INDEX_CURRENT_VERSION);
-  ASSERT_NE(loaded, nullptr);
-  EXPECT_FALSE(loaded->tagDictionariesAvailable);
-  ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
-  EXPECT_FALSE(restoredTagCounts);
+  EXPECT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
 }
 
-TEST_F(DiskTagPersistenceTest, InvalidDictionaryAvailabilityFailsTheSpecLoad) {
-  ASSERT_NE(saveSource(), nullptr);
-  io->buffer.at(tagDictionaryFlagOffset()) = 2;
+TEST_F(DiskTagPersistenceTest, LegacyPlainRdbTagIndexCanLoadWithoutDictionaries) {
+  ASSERT_NE(saveSource(0), nullptr);
   discardSource();
   QueryError err = QueryError_Default();
-  loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, true, &err);
-  EXPECT_EQ(loaded, nullptr);
-  QueryError_ClearError(&err);
-}
-
-TEST_F(DiskTagPersistenceTest, PlainRdbDiscardsLegacyDictionaryAvailability) {
-  auto *sp = saveSource(false);
-  ASSERT_NE(sp, nullptr);
-  io->buffer.clear();
-  IndexSpec_RdbSave(io, sp, 0);
-  discardSource();
-  QueryError err = QueryError_Default();
-  loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &err);
+  loaded = IndexSpec_RdbLoad(io, INDEX_SST_TAG_VALUES_VERSION - 1, false, &err);
   ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_TRUE(loaded->tagDictionariesAvailable);
   EXPECT_EQ(TagIndex_Open(&loaded->fields[0]), nullptr);
   EXPECT_EQ(io->read_pos, io->buffer.size());
 }
 
 TEST_F(DiskTagPersistenceTest, InvalidSecondDictionaryDiscardsLoadedCountValues) {
   ASSERT_NE(saveSource(), nullptr);
-  tagDictionaryFlagOffset();
+  tagDictionaryMarkerOffset();
   ASSERT_EQ(RMCK_LoadUnsigned(io), 1u);
   skipTagFieldSchema();
   auto *firstDictionary = TagIndex_RdbLoad(io, 0, false);

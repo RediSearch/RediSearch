@@ -2573,7 +2573,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
-  sp->tagDictionariesAvailable = true;
   sp->resume_bg_indexing = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
@@ -3333,7 +3332,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // In a forked child the memory is a snapshot and no lock is needed.
   const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   const bool saveDiskSpec = sp->diskSpec && storeDiskRdbData;
-  const bool saveTagDictionaries = saveDiskSpec && sp->tagDictionariesAvailable;
   const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
   const bool needLock = saveDiskSpec && inMainProcess;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -3347,11 +3345,11 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   if (saveDiskSpec) {
-    // One availability flag governs all TAG dictionary payloads in the field records.
-    RedisModule_SaveUnsigned(rdb, saveTagDictionaries);
+    // Preserve the v30 wire format for snapshots that carry TAG dictionaries.
+    RedisModule_SaveUnsigned(rdb, 1);
   }
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveTagDictionaries, needLock);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveDiskSpec, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3474,20 +3472,25 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexSpec_MakeKeyless(sp);
   RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
   loadDiskSpec = isSpecOnDisk(sp) && useSst;
-  if (loadDiskSpec) {
-    uint64_t available = 0;
-    if (encver >= INDEX_SST_TAG_VALUES_VERSION) {
-      available = LoadUnsigned_IOError(rdb, goto cleanup);
-      if (available > 1) goto cleanup;
+  if (loadDiskSpec && encver >= INDEX_SST_TAG_VALUES_VERSION) {
+    uint64_t tagDictionaryMarker = LoadUnsigned_IOError(rdb, goto cleanup);
+    if (tagDictionaryMarker > 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Invalid SST RDB TAG dictionary marker");
+      goto cleanup;
     }
-    sp->tagDictionariesAvailable = available != 0;
+    loadTagDictionaries = tagDictionaryMarker == 1;
   }
-  loadTagDictionaries = loadDiskSpec && sp->tagDictionariesAvailable;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst, loadTagDictionaries) !=
         REDISMODULE_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
+      goto cleanup;
+    }
+    if (loadDiskSpec && FIELD_IS(fs, INDEXFLD_T_TAG) && !loadTagDictionaries) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "SST RDB is missing the TAG dictionary for a disk index");
       goto cleanup;
     }
     if (fs->ftId != RS_INVALID_FIELD_ID) {
@@ -3685,7 +3688,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->tagDictionariesAvailable = true;
   // IndexSpec_Free clears it, so it must be valid before the first failed read below.
   sp->stats.indexError = IndexError_Init();
 

@@ -796,9 +796,7 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-// TAG clauses that expand terms need a complete dictionary before they can be enabled on Flex.
-static int validateDiskTagMultiTermQuery(QueryNodeType queryType, const IndexSpec *spec,
-                                         QueryError *status) {
+static int validateDiskTagMultiTermQuery(QueryNodeType queryType, QueryError *status) {
   if (!SearchDisk_IsEnabledForValidation()) {
     return REDISMODULE_OK;
   }
@@ -816,15 +814,9 @@ static int validateDiskTagMultiTermQuery(QueryNodeType queryType, const IndexSpe
     default:
       return REDISMODULE_OK;
   }
-  if (spec->tagDictionariesAvailable) {
-    // until MOD-20990 will enable multi term tag queries
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
-                                     "%s queries are not supported on Flex indexes", queryTypeName);
-  } else {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
-                        "TAG dictionary is unavailable after loading a legacy SST index; "
-                        "drop and recreate the index to use TAG multi-term queries");
-  }
+  // TODO(MOD-20990): Enable multi-term TAG queries on Flex indexes.
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+                                   "%s queries are not supported on Flex indexes", queryTypeName);
   return REDISMODULE_ERR;
 }
 
@@ -870,7 +862,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
           QueryNode *child = n->children[ii];
-          if (validateDiskTagMultiTermQuery(child->type, spec, status) != REDISMODULE_OK) {
+          if (validateDiskTagMultiTermQuery(child->type, status) != REDISMODULE_OK) {
             return REDISMODULE_ERR;
           }
         }
