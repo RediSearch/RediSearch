@@ -248,12 +248,12 @@ bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
-    .limits = &hreq->base.limits,
-    .oomPolicy = hreq->base.reqConfig.oomPolicy,
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
+      .limits = &hreq->base.limits,
+      .oomPolicy = hreq->base.reqConfig.oomPolicy,
+      // Only for AggregateResults' debug pause, which a subquery timeout releases:
+      // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ. The row-boundary
+      // timeout and memory checks read `limits`.
+      .areq = hreq->requests[SEARCH_INDEX],
   };
 
 #ifdef ENABLE_ASSERT
@@ -302,17 +302,123 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   qctx->skippedResults = 0;
 }
 
+// A subquery checkpoint stopped the request for memory (its own timeout carries the reason).
+static bool subqueryStoppedForOom(HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Under FAIL a soft tail error is not selected as fatal, so it must not mask the OOM failure.
+// The tail slot outranks the subquery slots when the fatal error is selected, so an OOM installed
+// on it would hide a sibling subquery's fatal error: returns false then, leaving the slot alone.
+static bool clearSoftTailErrorForOom(HybridRequest *hreq, QueryError *err) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (QueryError_HasError(&hreq->requests[i]->base.reply.err)) {
+      return false;
+    }
+  }
+  if (HybridRequest_IsSoftTailError(err)) {
+    QueryError_ClearError(err);
+  }
+  return true;
+}
+
+// Maps each stopped subquery's code through ApplyOomStop with that subquery's own limits, which
+// carry its stop and its deadline, so the merger's codes, the cursor reply and the inline reply
+// agree. Returns RS_RESULT_ERROR on an OOM error (set in `err`), RS_RESULT_STOPPED when a subquery
+// still ends on a timeout, and RS_RESULT_EOF otherwise.
+static int applySubqueryStops(HybridRequest *hreq, QueryError *err) {
+  int outcome = RS_RESULT_EOF;
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (hreq->subqueriesReturnCodes[i] != RS_RESULT_STOPPED) {
+      continue;
+    }
+    hreq->subqueriesReturnCodes[i] = ApplyOomStop(
+        &hreq->requests[i]->base.limits, hreq->base.reqConfig.oomPolicy, err, RS_RESULT_STOPPED);
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_ERROR) {
+      return RS_RESULT_ERROR;
+    }
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_STOPPED) {
+      outcome = RS_RESULT_STOPPED;
+    }
+  }
+  return outcome;
+}
+
+int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
+  // The timeout callback owns the reply of a blocked-client timeout: no OOM stop, of a subquery or
+  // of the tail, relabels it.
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.limits)) {
+    return rc;
+  }
+  const RSOomPolicy oomPolicy = hreq->base.reqConfig.oomPolicy;
+  QueryError *err = hreq->tailPipeline->qctx.err;
+  const bool tailStopped =
+      rc == RS_RESULT_STOPPED && QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
+  if (oomPolicy == OomPolicy_Fail && (tailStopped || subqueryStoppedForOom(hreq)) &&
+      !clearSoftTailErrorForOom(hreq, err)) {
+    // A subquery's fatal error is the reply's error; the OOM must not take the tail slot over it.
+    return RS_RESULT_ERROR;
+  }
+  if (applySubqueryStops(hreq, err) == RS_RESULT_ERROR) {
+    return RS_RESULT_ERROR;
+  }
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    // A subquery stage that kept its rows past the stop may hold no more than the merger's
+    // WINDOW takes, so the merger never reads the subquery's stop.
+    // A tail stop before the merger runs does not wait for the depleter threads that write it.
+    if (RS_AtomicBoolLoadRelaxed(&AREQ_QueryProcessingCtx(hreq->requests[i])->oomCut)) {
+      QueryError_SetQueryOOMWarning(err);
+    }
+  }
+  // A tail stage that kept its rows past an OOM stop may fill the pager's LIMIT, so the reply ends
+  // before the stop is read; when no later cursor read reports it, the reply is cut.
+  const bool lastReply =
+      rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(hreq->reqflags & QEXEC_F_IS_CURSOR));
+  if (lastReply && oomPolicy != OomPolicy_Fail && hreq->tailPipeline->qctx.oomCut) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return ApplyOomStop(&hreq->base.limits, oomPolicy, err, rc);
+}
+
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
   SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
     // populate the reply with an array containing the serialized results
     int len = array_len(results);
+    bool stopped = false;
+    // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
+    // already applied while buffering made the held rows the reply, so only a new one cuts.
+    const bool checkPerRow = hreq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+                             !QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
     array_foreach(results, res, {
-      serializeResult_hybrid(hreq, reply, res, cv);
+      stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
+                                               &hreq->base.limits, hreq->tailPipeline->qctx.err));
+      if (!stopped) {
+        serializeResult_hybrid(hreq, reply, res, cv);
+      }
       SearchResult_Destroy(res);
       rm_free(res);
     });
     array_free(results);
     return len;
+}
+
+// Under ON_OOM FAIL a memory stop before the replay of buffered rows is the reply's error, so it is
+// checked before the fatal error is selected and the header written. A timeout or an error that
+// ended the pipeline owns the reply.
+static void stopBeforeReplay_hybrid(HybridRequest *hreq, SearchResult **results, int rc) {
+  QueryError *err = hreq->tailPipeline->qctx.err;
+  if (results && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) &&
+      !HybridRequest_GetFatalError(hreq) &&
+      StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, err) &&
+      clearSoftTailErrorForOom(hreq, err)) {
+    // A soft tail error in the slot kept the OOM error out; it is cleared now.
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  }
 }
 
 /**
@@ -445,10 +551,15 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 
     SearchResult_Clear(r);
     if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
+      while (--rp->parent->resultLimit &&
+             !ReplyLoop_ShouldStop(rp->parent, &hreq->base.limits, hreq->base.reqConfig.oomPolicy,
+                                   &rc) &&
+             (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
         serializeResult_hybrid(hreq, reply, r, cv);
         SearchResult_Clear(r);
       }
+      // A stop for OOM in the reply loop keeps the rows already serialized.
+      rc = HybridRequest_ApplyOomStop(hreq, rc);
     }
   }
 
@@ -592,6 +703,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     }
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
+    rc = HybridRequest_ApplyOomStop(hreq, rc);
 
     // Refresh the background-scan-OOM capture now that the tail pipeline has
     // drained, mirroring the aggregate startPipeline: the reply path reads
@@ -620,6 +732,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     QueryRequest_RecordInlineReply(&hreq->base);
 
+    stopBeforeReplay_hybrid(hreq, results, rc);
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
@@ -644,6 +757,7 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
+    stopBeforeReplay_hybrid(hreq, results, rc);
     const QueryError *fatalError = HybridRequest_GetFatalError(hreq);
     bool countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
 
@@ -737,6 +851,12 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
     if (timedOut) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    }
+    // The shard wording, which the coordinator maps to ON_OOM.
+    if (subqueryStoppedForOom(hreq)) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
+                                             SHARD_ERR_WARN);
+      RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
     }
     for (size_t i = 0; i < hreq->nrequests; i++) {
       QueryError *err = &hreq->requests[i]->base.reply.err;
@@ -832,6 +952,9 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
       rc = RPDepleter_DepleteAll(depleters);
     }
+    for (size_t i = 0; i < req->nrequests; i++) {
+      req->subqueriesReturnCodes[i] = RPDepleter_GetLastResult(depleters[i]);
+    }
     array_free(depleters);
 
     // Refresh the background-scan-OOM capture now that depletion is done: the
@@ -843,8 +966,13 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
           RS_AtomicBoolLoadRelaxed(&hybridSctx->spec->scan_failed_OOM);
     }
 
+    // Each stopped subquery follows ApplyOomStop: an OOM error, a timeout, or (EOF) a stop for
+    // memory alone, whose warning replyWithCursors adds.
+    if (rc == RS_RESULT_STOPPED) {
+      rc = applySubqueryStops(req, status);
+    }
     bool depletionTimedOut = false;
-    if (rc != RS_RESULT_OK) {
+    if (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) {
       if (rc == RS_RESULT_STOPPED && req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
@@ -863,9 +991,9 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     // Depletion is over, so the buffered rows no longer need the iterators or the snapshot they
     // were read from. Release them now rather than for as long as the cursors stay parked.
-    // A partial (timed-out) depletion may leave disk reads in flight, which freeing the iterators
-    // would wait out before the reply; leave that to the cursor's teardown.
-    if (!depletionTimedOut) {
+    // A depletion that stopped (a timeout or memory pressure) may leave disk reads in flight, which
+    // freeing the iterators would wait out before the reply; leave that to the cursor's teardown.
+    if (rc == RS_RESULT_OK) {
       HybridRequest_ReleaseDepletedUpstream(req);
     }
 

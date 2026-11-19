@@ -215,9 +215,14 @@ impl Context<'_> {
             let stopped = unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
                 .load(std::sync::atomic::Ordering::Relaxed);
             if stopped {
-                // SAFETY: as above for `parent`; the chain runs on a single thread, so a plain
-                // store to `oomCut`, as C `RP_HoldStop` does, is sound.
-                unsafe { (*parent).oomCut = true };
+                // SAFETY: as above for `parent`; this only takes the address of its field.
+                let cut = unsafe { &raw mut (*parent).oomCut };
+                // SAFETY: `cut` points to the live `bool` `oomCut`, which has the size and
+                // alignment (1) of `AtomicBool`. A hybrid depleter thread writes it here while the
+                // tail's reply may read it, so every writer, including C `RP_HoldStop`, and the
+                // cross-thread reader use relaxed atomic accesses.
+                unsafe { std::sync::atomic::AtomicBool::from_ptr(cut) }
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
             }
         }
     }
