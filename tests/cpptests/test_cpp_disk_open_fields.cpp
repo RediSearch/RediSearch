@@ -612,12 +612,10 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
  protected:
   RedisModuleIO *io = nullptr;
   IndexSpec *loaded = nullptr;
-  static inline size_t diskMetadataOffset = 0;
 
   void SetUp() override {
     DiskSchemaOpenTest::SetUp();
     api.basic.indexSpecRdbSave = [](RedisModuleIO *rdb, RedisSearchDiskIndexSpec *) {
-      diskMetadataOffset = rdb->buffer.size();
       RMCK_SaveUnsigned(rdb, 123);
     };
     api.basic.loadRdbToTempObject = [](RedisModuleIO *rdb) {
@@ -629,7 +627,7 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     io = RMCK_CreateRdbIO();
   }
 
-  IndexSpec *saveSource() {
+  IndexSpec *saveSource(bool tagDictionariesAvailable = true) {
     QueryError err = QueryError_Default();
     IndexSpec *sp = create("tag_sst_counts", {"first", "TAG", "second", "TAG"}, &err);
     EXPECT_NE(sp, nullptr) << QueryError_GetUserError(&err);
@@ -637,8 +635,34 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     const char *tags[] = {"hello", "world", ""};
     TagIndex_Commit(TagIndex_Open(&sp->fields[0]), tags, 3, &sp->stats);
     TagIndex_Commit(TagIndex_Open(&sp->fields[0]), tags, 1, &sp->stats);
+    sp->tagDictionariesAvailable = tagDictionariesAvailable;
     IndexSpec_RdbSave(io, sp, REDISMODULE_CTX_FLAGS_SST_RDB);
     return sp;
+  }
+
+  void skipRdbString() {
+    RedisModule_Free(RMCK_LoadStringBuffer(io, nullptr));
+  }
+
+  size_t tagDictionaryFlagOffset() {
+    io->read_pos = 0;
+    skipRdbString();        // Index name
+    RMCK_LoadUnsigned(io);  // Index flags
+    RMCK_LoadUnsigned(io);  // Number of fields
+    return io->read_pos;
+  }
+
+  // Advance over the schema for one TAG field in this fixture.
+  void skipTagFieldSchema() {
+    skipRdbString();  // Field name
+    if (RMCK_LoadUnsigned(io)) {
+      skipRdbString();  // Field path
+    }
+    RMCK_LoadUnsigned(io);  // Field types
+    RMCK_LoadUnsigned(io);  // Field options
+    RMCK_LoadSigned(io);    // Sort index
+    RMCK_LoadUnsigned(io);  // TAG flags
+    skipRdbString();        // TAG separator
   }
 
   void discardSource() {
@@ -669,7 +693,7 @@ TEST_F(DiskTagPersistenceTest, CountsSurviveLoadingAndStorageBinding) {
   discardSource();
   load(INDEX_CURRENT_VERSION);
   ASSERT_NE(loaded, nullptr);
-  EXPECT_FALSE(loaded->tagValuesUnavailable);
+  EXPECT_TRUE(loaded->tagDictionariesAvailable);
   auto *idx = TagIndex_Open(&loaded->fields[0]);
   ASSERT_NE(idx, nullptr);
   EXPECT_TRUE(idx->valuesAreCounts);
@@ -693,20 +717,14 @@ TEST_F(DiskTagPersistenceTest, UnboundCountDictionariesCanBeDiscarded) {
 }
 
 TEST_F(DiskTagPersistenceTest, LegacyPayloadRemainsUnavailableAfterAnotherSave) {
-  auto *sp = saveSource();
-  ASSERT_NE(sp, nullptr);
-  RedisModuleIO *tags = RMCK_CreateRdbIO();
-  RMCK_SaveUnsigned(tags, 1);
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    TagIndex_RdbSave(tags, TagIndex_Open(&sp->fields[i]));
-  }
-  io->buffer.erase(io->buffer.begin() + diskMetadataOffset - tags->buffer.size(),
-                   io->buffer.begin() + diskMetadataOffset);
-  RMCK_FreeRdbIO(tags);
+  ASSERT_NE(saveSource(false), nullptr);
+  const size_t offset = tagDictionaryFlagOffset();
+  ASSERT_LE(offset + sizeof(uint64_t), io->buffer.size());
+  io->buffer.erase(io->buffer.begin() + offset, io->buffer.begin() + offset + sizeof(uint64_t));
   discardSource();
   load(INDEX_SST_TAG_VALUES_VERSION - 1);
   ASSERT_NE(loaded, nullptr);
-  EXPECT_TRUE(loaded->tagValuesUnavailable);
+  EXPECT_FALSE(loaded->tagDictionariesAvailable);
   ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
   EXPECT_FALSE(restoredTagCounts);
   {
@@ -720,6 +738,7 @@ TEST_F(DiskTagPersistenceTest, LegacyPayloadRemainsUnavailableAfterAnotherSave) 
       EXPECT_NE(std::string(ast.getError()).find("drop and recreate"), std::string::npos) << query;
     }
     EXPECT_TRUE(ast.isValidQuery("@first:{hello}", static_cast<QASTValidationFlagsSet>(0)));
+    EXPECT_TRUE(ast.isValidQuery("@first:{hello|world}", static_cast<QASTValidationFlagsSet>(0)));
   }
 
   RedisModuleIO *next = RMCK_CreateRdbIO();
@@ -731,22 +750,14 @@ TEST_F(DiskTagPersistenceTest, LegacyPayloadRemainsUnavailableAfterAnotherSave) 
   io = next;
   load(INDEX_CURRENT_VERSION);
   ASSERT_NE(loaded, nullptr);
-  EXPECT_TRUE(loaded->tagValuesUnavailable);
+  EXPECT_FALSE(loaded->tagDictionariesAvailable);
   ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
   EXPECT_FALSE(restoredTagCounts);
 }
 
-TEST_F(DiskTagPersistenceTest, MalformedTagCountsFailTheSpecLoad) {
-  auto *sp = saveSource();
-  ASSERT_NE(sp, nullptr);
-  RedisModuleIO *tags = RMCK_CreateRdbIO();
-  RMCK_SaveUnsigned(tags, 1);
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    TagIndex_RdbSave(tags, TagIndex_Open(&sp->fields[i]));
-  }
-  size_t offset = diskMetadataOffset - tags->buffer.size();
-  RMCK_FreeRdbIO(tags);
-  io->buffer[offset] = 2;
+TEST_F(DiskTagPersistenceTest, InvalidDictionaryAvailabilityFailsTheSpecLoad) {
+  ASSERT_NE(saveSource(), nullptr);
+  io->buffer.at(tagDictionaryFlagOffset()) = 2;
   discardSource();
   QueryError err = QueryError_Default();
   loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, true, &err);
@@ -755,23 +766,31 @@ TEST_F(DiskTagPersistenceTest, MalformedTagCountsFailTheSpecLoad) {
 }
 
 TEST_F(DiskTagPersistenceTest, PlainRdbDiscardsLegacyDictionaryAvailability) {
-  auto *sp = saveSource();
+  auto *sp = saveSource(false);
   ASSERT_NE(sp, nullptr);
-  sp->tagValuesUnavailable = true;
   io->buffer.clear();
   IndexSpec_RdbSave(io, sp, 0);
   discardSource();
   QueryError err = QueryError_Default();
   loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &err);
   ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_FALSE(loaded->tagValuesUnavailable);
+  EXPECT_TRUE(loaded->tagDictionariesAvailable);
   EXPECT_EQ(TagIndex_Open(&loaded->fields[0]), nullptr);
   EXPECT_EQ(io->read_pos, io->buffer.size());
 }
 
 TEST_F(DiskTagPersistenceTest, InvalidSecondDictionaryDiscardsLoadedCountValues) {
   ASSERT_NE(saveSource(), nullptr);
-  io->buffer[diskMetadataOffset - sizeof(uint64_t)] = 1;
+  tagDictionaryFlagOffset();
+  ASSERT_EQ(RMCK_LoadUnsigned(io), 1u);
+  skipTagFieldSchema();
+  auto *firstDictionary = TagIndex_RdbLoad(io, 0, false);
+  ASSERT_NE(firstDictionary, nullptr);
+  TagIndex_Free(firstDictionary);
+  skipTagFieldSchema();
+  ASSERT_EQ(RMCK_LoadUnsigned(io), 0u);
+  io->buffer.resize(io->read_pos - sizeof(uint64_t));
+  RMCK_SaveUnsigned(io, 1);  // The second dictionary now claims an entry that is missing.
   discardSource();
   QueryError err = QueryError_Default();
   loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, true, &err);

@@ -387,8 +387,8 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
-  // Legacy SST payloads lack complete TAG dictionaries until the index is recreated.
-  bool tagValuesUnavailable;
+  // Complete TAG dictionaries are available
+  bool tagDictionariesAvailable;
 
   // True when the SST+RDB stream indicated the source node was still
   // background-indexing (scan in progress, or a previous scan failed on OOM)

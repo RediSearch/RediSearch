@@ -796,16 +796,36 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-// Helper function to validate that trie-based query types are not used on disk indexes.
-// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
-static int validateQueryNotDisk(const char *queryTypeName,
-  QueryError *status) {
-  if (SearchDisk_IsEnabledForValidation()) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
-      "%s queries are not supported on Flex indexes", queryTypeName);
-    return REDISMODULE_ERR;
+// TAG clauses that expand terms need a complete dictionary before they can be enabled on Flex.
+static int validateDiskTagMultiTermQuery(QueryNodeType queryType, const IndexSpec *spec,
+                                         QueryError *status) {
+  if (!SearchDisk_IsEnabledForValidation()) {
+    return REDISMODULE_OK;
   }
-  return REDISMODULE_OK;
+  const char *queryTypeName;
+  switch (queryType) {
+    case QN_PREFIX:
+      queryTypeName = "TAG prefix/suffix/infix";
+      break;
+    case QN_WILDCARD_QUERY:
+      queryTypeName = "TAG wildcard";
+      break;
+    case QN_LEXRANGE:
+      queryTypeName = "TAG lexrange";
+      break;
+    default:
+      return REDISMODULE_OK;
+  }
+  if (spec->tagDictionariesAvailable) {
+    // until MOD-20990 will enable multi term tag queries
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+                                     "%s queries are not supported on Flex indexes", queryTypeName);
+  } else {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+                        "TAG dictionary is unavailable after loading a legacy SST index; "
+                        "drop and recreate the index to use TAG multi-term queries");
+  }
+  return REDISMODULE_ERR;
 }
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
@@ -848,26 +868,10 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         if (FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
-        // Block multi-term TAG queries in disk mode - unsupported.
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
           QueryNode *child = n->children[ii];
-          if (SearchDisk_IsEnabledForValidation() && spec->tagValuesUnavailable &&
-              (child->type == QN_PREFIX || child->type == QN_WILDCARD_QUERY ||
-               child->type == QN_LEXRANGE)) {
-            QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
-                                "TAG dictionary is unavailable after loading a legacy SST index; "
-                                "drop and recreate the index to use TAG multi-term queries");
+          if (validateDiskTagMultiTermQuery(child->type, spec, status) != REDISMODULE_OK) {
             return REDISMODULE_ERR;
-          }
-          if (child->type == QN_PREFIX) {
-            res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
-          } else if (child->type == QN_WILDCARD_QUERY) {
-            res = validateQueryNotDisk("TAG wildcard", status);
-          } else if (child->type == QN_LEXRANGE) {
-            res = validateQueryNotDisk("TAG lexrange", status);
-          }
-          if (res == REDISMODULE_ERR) {
-            return res;
           }
         }
       }
