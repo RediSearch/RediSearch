@@ -30,6 +30,12 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     japi->pathFree(fs->compiledPath);
     fs->compiledPath = NULL;
   }
+  if (fs->nestedValuesPath) {
+    japi->pathFree(fs->nestedValuesPath);
+    fs->nestedValuesPath = NULL;
+  }
+  rm_free(fs->nestedValuesPathText);
+  fs->nestedValuesPathText = NULL;
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
     HiddenString_Free(fs->fieldPath, true);

@@ -16,6 +16,7 @@
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"
+#include "rqe_iterators.h"
 
 struct InvertedIndex;
 typedef struct TrieMapIterator TrieMapIterator;
@@ -112,14 +113,19 @@ typedef struct TagIndex {
   // Disk values are pointer-sized document counts; memory values are InvertedIndex pointers.
   RedisSearchDiskIndexSpec *diskSpec;  // NULL for memory mode, non-NULL for disk mode
   t_fieldIndex fieldIndex;            // Field index (needed for disk API calls)
+  // The field is a member of a NESTED group: each entry also records the element numbers of
+  // the value.
+  bool storesElements;
 } TagIndex;
 
 /* Create a new tag index
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
  * @param fieldIndex Field index for disk API calls
  * @param withSuffix Let TagIndex support suffix searches
+ * @param storesElements See TagIndex.storesElements
  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix);
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix,
+                      bool storesElements);
 
 void TagIndex_Free(TagIndex *index);
 
@@ -187,6 +193,8 @@ typedef struct {
   t_docId docId;
   bool hasFieldExpiration;
   IndexStats *stats;
+  // Element number of each value, for a member of a NESTED group. NULL otherwise.
+  const uint32_t *elements;
 } TagIndexIndexCtx;
 
 /* Index a vector of pre-processed tags for a docId.
@@ -220,7 +228,8 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
  * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
  * NULL and populates `status` (when non-null) with the cause. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex, QueryError *status);
+                                   double weight, t_fieldIndex fieldIndex, TagElements elements,
+                                   QueryError *status);
 
 
 /* Open the tag index, returning NULL if it doesn't exist.

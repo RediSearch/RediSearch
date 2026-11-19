@@ -25,7 +25,7 @@ use std::os::fd::AsRawFd;
 
 use deleted_docs::DeletedDocs;
 use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
-use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
+use field_spec::{FieldSpecBuilder, FieldSpecOption, FieldSpecType, FieldSpecTypes};
 use index_gc::fork::wire::{deserialize, serialize};
 use index_gc::scanners::tags::{
     TagEntry, TagsCursor, apply_tag_entry, apply_tag_entry_with, collect_tags, handle_tags,
@@ -91,6 +91,7 @@ impl TestTagIndex {
             docId: doc_id,
             hasFieldExpiration: false,
             stats: &mut stats,
+            elements: std::ptr::null(),
         };
         // SAFETY: the helper owns a live memory-mode C tag index and the context points
         // to the live, NUL-terminated test tag; stats is exclusively owned here.
@@ -102,6 +103,29 @@ impl TestTagIndex {
             ));
             ffi::TagIndex_Commit(self.0, &mut tag_ptr, 1, &mut stats);
         }
+    }
+
+    /// Index `doc_id` under `tag` in the index of a member of a NESTED group: the tag occurs
+    /// in the array elements `elements`.
+    fn add_doc_elements(&self, tag: &CStr, doc_id: DocId, elements: &[u32]) {
+        // SAFETY: all-zero is valid for IndexStats; the C path only updates its counters.
+        let mut stats: ffi::IndexStats = unsafe { mem::zeroed() };
+        let mut values = vec![tag.as_ptr(); elements.len()];
+        let index_ctx = ffi::TagIndexIndexCtx {
+            batch: std::ptr::null_mut(),
+            values: values.as_mut_ptr(),
+            n: values.len(),
+            docId: doc_id,
+            hasFieldExpiration: false,
+            stats: &mut stats,
+            elements: elements.as_ptr(),
+        };
+        // SAFETY: the helper owns a live memory-mode C tag index, and the context points to
+        // `n` copies of the live, NUL-terminated test tag and to `n` element numbers.
+        let indexed = unsafe { ffi::TagIndex_Index(std::ptr::null_mut(), self.0, &index_ctx) };
+        assert!(indexed);
+        // SAFETY: as above; `stats` is exclusively owned here.
+        unsafe { ffi::TagIndex_Commit(self.0, values.as_mut_ptr(), values.len(), &mut stats) };
     }
 
     /// Populate this memory-mode index through the production C indexing API.
@@ -173,6 +197,26 @@ impl Field {
             .with_types(FieldSpecType::Tag.into())
             .finish();
         let tag_index = TestTagIndex::memory(&mut spec, tags, docs, with_suffix);
+        Self {
+            spec,
+            tag_index: Some(tag_index),
+        }
+    }
+
+    /// A TAG member of a NESTED group, whose index records element numbers. Documents
+    /// `1..=docs` have the tag `red` in the elements that [`red_elements`] gives them.
+    fn element_tag(name: &'static CStr, docs: DocId) -> Self {
+        let mut spec = FieldSpecBuilder::new(name)
+            .with_types(FieldSpecType::Tag.into())
+            .with_options(FieldSpecOption::NestedMember.into())
+            .finish();
+        // SAFETY: `spec` is a TAG field and a null disk spec selects the in-memory mode.
+        let tag_index =
+            TestTagIndex(unsafe { ffi::TagIndex_Ensure(&mut spec, std::ptr::null_mut(), false) });
+        assert!(tag_index.as_ref().storesElements);
+        for doc_id in 1..=docs {
+            tag_index.add_doc_elements(c"red", doc_id, &red_elements(doc_id));
+        }
         Self {
             spec,
             tag_index: Some(tag_index),
@@ -334,6 +378,22 @@ impl TestSpec {
         }
     }
 
+    /// Each entry of the `red` posting list of a member of a NESTED group: its document and
+    /// the element numbers that it records, as stored.
+    fn element_entries(&self) -> Vec<(DocId, Vec<u8>)> {
+        let Some(InvertedIndex::OffsetsOnly(ii)) = self.posting_list(0, b"red") else {
+            panic!("expected a posting list that records element numbers");
+        };
+        let mut reader = ii.reader();
+        let mut result = RSIndexResult::build_term().build();
+        let mut entries = Vec::new();
+        while reader.next_record(&mut result).unwrap() {
+            let elements = result.as_term().expect("a term record").offsets().to_vec();
+            entries.push((result.doc_id, elements));
+        }
+        entries
+    }
+
     fn scan(&self) -> TagEntry {
         let mut entries = receive_all(&collect_tags_from(self));
         assert_eq!(entries.len(), 1);
@@ -437,6 +497,19 @@ impl Drop for TestSpec {
             unsafe { ffi::HiddenString_Free(fs.fieldName, true) };
         }
     }
+}
+
+/// The array elements in which document `doc_id` has the tag `red`.
+const fn red_elements(doc_id: DocId) -> [u32; 2] {
+    let first = (doc_id % 5) as u32;
+    [first, first + 2]
+}
+
+/// [`red_elements`] as a posting list stores them: the first element, then the distance to
+/// the second one.
+fn stored_red_elements(doc_id: DocId) -> Vec<u8> {
+    let [first, second] = red_elements(doc_id);
+    vec![first as u8, (second - first) as u8]
 }
 
 /// Run the child-side tag collector and return its complete output.
@@ -887,6 +960,30 @@ fn removing_middle_block_preserves_new_blocks() {
     let entry = test.scan();
     let new_last = test.fill_to_blocks(4);
     test.apply_and_check(entry, (1..middle).chain(last..=new_last).collect(), 1);
+}
+
+/// A repaired block is written again entry by entry. For a member of a NESTED group an entry
+/// holds element numbers, which a group query reads.
+#[test]
+fn repair_keeps_the_element_numbers_of_surviving_entries() {
+    const DOCS: DocId = 250;
+    let mut test = TestSpec::create(vec![Field::element_tag(c"k", DOCS)]);
+    assert!(test.posting_list(0, b"red").unwrap().number_of_blocks() >= 3);
+    let all: Vec<_> = (1..=DOCS).map(|id| (id, stored_red_elements(id))).collect();
+    assert_eq!(test.element_entries(), all);
+
+    // Every block loses entries and keeps some.
+    let live: Vec<DocId> = (1..=DOCS).filter(|id| id % 3 == 0).collect();
+    test.set_live_docs(live.iter().copied());
+    let entry = test.scan();
+    let stats = apply_tag_entry(entry, &mut test.write_guard()).unwrap();
+
+    assert_eq!(stats.records_removed, DOCS as usize - live.len());
+    let survivors: Vec<_> = live
+        .iter()
+        .map(|&id| (id, stored_red_elements(id)))
+        .collect();
+    assert_eq!(test.element_entries(), survivors);
 }
 
 #[test]

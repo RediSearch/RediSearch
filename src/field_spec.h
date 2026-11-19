@@ -74,6 +74,9 @@ typedef enum {
   FieldSpec_UndefinedOrder = 0x80,
   FieldSpec_IndexEmpty = 0x100,       // Index empty values (i.e., empty strings)
   FieldSpec_IndexMissing = 0x200,     // Index missing values (non-existing field)
+  // A member of a NESTED group, which FieldSpec.nestedGroup names. Its path is relative to one
+  // element of the group's array.
+  FieldSpec_NestedMember = 0x400,
 } FieldSpecOptions;
 
 RS_ENUM_BITWISE_HELPER(FieldSpecOptions)
@@ -147,6 +150,16 @@ typedef struct FieldSpec {
 
   // Owned indexing path; NULL for HASH, invalid paths, and snapshots.
   JSONPath compiledPath;
+
+  // Position in IndexSpec.nestedGroups of the group of a member. Unused by every other field.
+  uint16_t nestedGroup;
+
+  // Owned path from the document root to all the values of a member of a NESTED group: the
+  // group's path followed by the member's. NULL for every other field.
+  char *nestedValuesPathText;
+  // Its compiled form, as NestedGroup.compiledPath is of the group's path. Only a NUMERIC
+  // member has it.
+  JSONPath nestedValuesPath;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -157,6 +170,7 @@ typedef struct FieldSpec {
 #define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separator
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
+#define FieldSpec_IsNestedMember(fs) ((fs)->options & FieldSpec_NestedMember)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))

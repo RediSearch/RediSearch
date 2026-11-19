@@ -581,6 +581,28 @@ struct RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 struct RSValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 
 /**
+ * Creates and returns the [`RSValue`] that a NUMERIC member of a NESTED group stores for one
+ * document: what [`ElementNumbers::store`] builds from the same arguments.
+ *
+ * Takes ownership of `shown`.
+ *
+ * The returned [`RSValue`] is heap-allocated. The caller must ensure it is eventually
+ * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
+ * transferred through other `RSValue_` functions before that happens.
+ *
+ * # Safety
+ *
+ * 1. `elements` and `numbers` must each be [valid] for reads of `len` items, and `len`
+ *    must not be zero.
+ * 2. Every item of `elements` must be below `num_elements`.
+ * 3. `shown` must be a [valid], non-null pointer to an [`RSValue`], and **must not** be used
+ *    or freed after this call, as this function takes ownership.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RSValue *RSValue_NewElementNumbers(const uint32_t *elements, const double *numbers, size_t len, uint32_t num_elements, struct RSValue *shown);
+
+/**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
  * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]

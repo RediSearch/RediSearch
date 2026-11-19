@@ -18,18 +18,20 @@ use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType,
     interop::RQEIteratorWrapper,
-    inverted_index::{Tag, TagLookup},
+    inverted_index::{ElementTag, Tag, TagElements, TagLookup},
     profile_print,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
-/// Tag inverted indices are always created with `DocIdsOnly` flags, so only
-/// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
-/// raw encoding ([`RawDocIdsOnly`]) are supported.
+/// Tag inverted indices are created with `DocIdsOnly` flags, which gives the standard
+/// variable-length encoding ([`DocIdsOnly`]) or the fixed 4-byte raw encoding
+/// ([`RawDocIdsOnly`]). A TAG member of a NESTED group uses the encoding that [`ElementTag`]
+/// reads.
 pub(super) enum TagIterator<'index> {
     Encoded(Tag<'index, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
     Raw(Tag<'index, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
+    Elements(ElementTag<'index, CTagIndexLookup, FieldExpirationChecker>),
 }
 
 impl Debug for TagIterator<'_> {
@@ -37,6 +39,7 @@ impl Debug for TagIterator<'_> {
         let variant = match self {
             TagIterator::Encoded(_) => "Encoded",
             TagIterator::Raw(_) => "Raw",
+            TagIterator::Elements(_) => "Elements",
         };
         write!(f, "TagIterator({variant})")
     }
@@ -48,6 +51,7 @@ macro_rules! tag_it_dispatch {
         match $self {
             TagIterator::Encoded(t) => t.$method($($arg),*),
             TagIterator::Raw(t) => t.$method($($arg),*),
+            TagIterator::Elements(t) => t.$method($($arg),*),
         }
     };
 }
@@ -159,13 +163,15 @@ where
 ///
 /// # Parameters
 ///
-/// * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
+/// * `idx` - Pointer to the tag's inverted index, in one of the encodings of [`TagIterator`].
 /// * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
 /// * `sctx` - Pointer to the Redis search context.
 /// * `field_mask_or_index` - Field mask or field index to filter on.
 /// * `term` - Pointer to the query term representing the tag value. Ownership is
 ///   transferred to the iterator.
 /// * `weight` - Weight to apply to the term results.
+/// * `elements` - The [`TagElements`] of the iterator. Read only for the index of a member
+///   of a NESTED group.
 ///
 /// # Returns
 ///
@@ -177,8 +183,8 @@ where
 ///
 /// The following invariants must be upheld when calling this function:
 ///
-/// 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
-///    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
+/// 1. `idx` must be a valid pointer to an [`InvertedIndex`](ffi::InvertedIndex) in one of the
+///    encodings of [`TagIterator`] and cannot be NULL.
 /// 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
 ///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
 /// 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
@@ -196,6 +202,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     field_mask_or_index: FieldMaskOrIndex,
     term: *mut RSQueryTerm,
     weight: f64,
+    elements: TagElements,
 ) -> *mut ffi::QueryIterator {
     debug_assert!(!idx.is_null(), "idx must not be null");
     debug_assert!(!tag_idx.is_null(), "tag_idx must not be null");
@@ -211,7 +218,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     let tag_idx_nn = unsafe { NonNull::new_unchecked(tag_idx as *mut _) };
     // SAFETY: 3., 4. guarantee tag_idx and its TrieMap stay valid for the
     // lifetime of the iterator; the encoding match is enforced by the
-    // DocIdsOnly/RawDocIdsOnly dispatch below.
+    // dispatch on the index's encoding below.
     let lookup = unsafe { CTagIndexLookup::new(tag_idx_nn) };
 
     // SAFETY: 5. guarantees sctx is valid and non-null
@@ -254,8 +261,19 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // The RawDocIdsOnly match arm ensures the encoding variant matches.
             TagIterator::Raw(unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) })
         }
+        inverted_index_ffi::InvertedIndex::OffsetsOnly(ii) => {
+            let reader = ii.reader();
+            // SAFETY: 5., 6. guarantee context/spec validity for the lifetime of the checker.
+            let checker =
+                unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx, reader.flags()) };
+            // SAFETY: as for the DocIdsOnly arm. The OffsetsOnly match arm ensures the encoding
+            // variant matches.
+            let tag = unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) };
+            TagIterator::Elements(ElementTag::new(tag, elements))
+        }
         _ => panic!(
-            "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+            "Tag iterator requires a DocIdsOnly, RawDocIdsOnly or OffsetsOnly inverted index, \
+             got: {:?}",
             std::mem::discriminant(ii_ref)
         ),
     };

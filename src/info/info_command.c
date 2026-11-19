@@ -253,6 +253,18 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
     }
+    const NestedGroup *group = IndexSpec_NestedGroupOf(sp, fs);
+    if (group) {
+      if (obfuscate) {
+        char obfuscatedGroup[MAX_OBFUSCATED_NESTED_GROUP_NAME];
+        Obfuscate_NestedGroup(fs->nestedGroup, obfuscatedGroup);
+        REPLY_KVSTR(SPEC_NESTED_STR, obfuscatedGroup);
+      } else {
+        REPLY_KVSTR(SPEC_NESTED_STR, HiddenString_GetUnsafe(group->name, NULL));
+        REPLY_KVSTR(SPEC_NESTED_PATH_STR, HiddenString_GetUnsafe(group->path, NULL));
+      }
+    }
+
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }

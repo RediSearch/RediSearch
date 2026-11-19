@@ -241,6 +241,45 @@ done:
   return rv;
 }
 
+// The elements that the array of the NESTED group at `group` has in one document.
+typedef struct {
+  JSONResultsIterator iter;
+  int group;
+} NestedGroupElements;
+
+// Load `field`, a member of a NESTED group, as the next field of `doc`. The members of a group
+// follow each other in the schema, so `nested` keeps one evaluation of the group's path for
+// them all.
+static int loadNestedMember(Document *doc, RedisSearchCtx *sctx, RedisJSON jsonRoot,
+                            FieldSpec *field, NestedGroupElements *nested, QueryError *status) {
+  if (field->nestedGroup != nested->group) {
+    if (nested->iter) {
+      japi->freeIter(nested->iter);
+    }
+    nested->group = field->nestedGroup;
+    nested->iter =
+        JSON_GetWithCompiledPath(jsonRoot, sctx->spec->nestedGroups[nested->group].compiledPath);
+  }
+  if (!nested->iter) {
+    return REDISMODULE_OK;
+  }
+  DocumentField *df = &doc->fields[doc->numFields];
+  if (JSON_LoadNestedMember(sctx->redisCtx, jsonRoot, nested->iter, field, df, status) !=
+      REDISMODULE_OK) {
+    FieldSpec_AddQueryError(field, status, doc->docKey);
+    char *path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog);
+    RedisModule_Log(sctx->redisCtx, "verbose", "Failed to load value from field %s", path);
+    rm_free(path);
+    return REDISMODULE_ERR;
+  }
+  if (df->elements) {
+    df->docFieldName = HiddenString_Duplicate(field->fieldName);
+    df->indexAs = field->types;
+    doc->numFields++;
+  }
+  return REDISMODULE_OK;
+}
+
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
                                  QueryError* status) {
   int rv = REDISMODULE_ERR;
@@ -249,6 +288,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   RedisModuleCtx *ctx = NULL;
   size_t nitems = 0;
   JSONResultsIterator jsonIter = NULL;
+  NestedGroupElements nested = {.group = -1};
   RedisModuleKey *k = NULL;
   RedisJSON jsonRoot;
   const char *keyName = NULL;
@@ -298,6 +338,13 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
+    if (FieldSpec_IsNestedMember(field)) {
+      if (loadNestedMember(doc, sctx, jsonRoot, field, &nested, status) != REDISMODULE_OK) {
+        goto done;
+      }
+      continue;
+    }
+
     jsonIter = JSON_GetWithCompiledPath(jsonRoot, field->compiledPath);
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
@@ -340,6 +387,9 @@ done:
   if (jsonIter) {
     japi->freeIter(jsonIter);
   }
+  if (nested.iter) {
+    japi->freeIter(nested.iter);
+  }
   // Only close a handle we opened ourselves; a borrowed `openKey` is the caller's.
   if (k && k != openKey) {
     RedisModule_CloseKey(k);
@@ -379,6 +429,8 @@ static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
+    RS_LOG_ASSERT(!FieldSpec_IsNestedMember(&fields[i]),
+                  "The path of a member of a NESTED group does not start at the document root");
     // TODO: Add a JSON path-existence API to avoid temporary iterator allocations.
     JSONResultsIterator iter = JSON_GetWithCompiledPath(jsonRoot, fields[i].compiledPath);
     if (!iter) {
@@ -549,6 +601,10 @@ void ClearOwnedField(DocumentField *field) {
           field->arrayLen = 0;
         } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
           array_free(field->arrNumval);
+        }
+        if (field->elements) {
+          array_free(field->elements);
+          field->elements = NULL;
         }
     if (field->multisv) {
       RSValue_DecrRef(field->multisv);

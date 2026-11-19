@@ -9,6 +9,7 @@
 
 pub use crate::{
     collection::{Array, Map},
+    element_numbers::ElementNumbers,
     redis_string::RedisString,
     shared::SharedValue,
     string::String,
@@ -19,6 +20,7 @@ use std::fmt::Debug;
 pub mod collection;
 pub mod comparison;
 pub mod debug;
+pub mod element_numbers;
 pub mod hash;
 mod pool;
 pub mod redis_string;

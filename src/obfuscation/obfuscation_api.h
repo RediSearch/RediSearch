@@ -19,6 +19,8 @@
 #define MAX_OBFUSCATED_PATH_NAME 10/*strlen("FieldPath")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_DOCUMENT_NAME 9/*strlen("Document@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_KEY_NAME MAX_OBFUSCATED_DOCUMENT_NAME
+#define MAX_OBFUSCATED_NESTED_GROUP_NAME \
+  12/*strlen("NestedGroup@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 
 // Writes into buffer the obfuscated name of the index, based on the sha input.
 // Assumes buffer size is at least MAX_OBFUSCATED_INDEX_NAME
@@ -31,6 +33,10 @@ void Obfuscate_Field(t_uniqueId fieldId, char *buffer);
 // Writes into buffer the obfuscated name of the field path, based on the field id.
 // Assumes buffer size is at least MAX_OBFUSCATED_PATH_NAME
 void Obfuscate_FieldPath(t_uniqueId fieldId, char *buffer);
+
+// Writes into buffer the obfuscated name of the NESTED group, based on its position in the schema.
+// Assumes buffer size is at least MAX_OBFUSCATED_NESTED_GROUP_NAME
+void Obfuscate_NestedGroup(t_uniqueId position, char *buffer);
 
 // Writes into buffer the obfuscated name of the document, based on the doc id.
 // Assumes buffer size is at least MAX_OBFUSCATED_DOCUMENT_NAME

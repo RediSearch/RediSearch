@@ -34,6 +34,10 @@ struct RedisModuleCtx;
 RedisJSONAPI *japi = NULL;
 int japi_ver = 0;
 
+// What a value of the wrong type in a field fails a document with.
+#define JSON_ERR_NOT_A_STRING "TEXT/TAG fields can only contain strings or nulls"
+#define JSON_ERR_NOT_A_NUMBER "NUMERIC fields can only contain numeric or nulls"
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
@@ -719,7 +723,7 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
       nulls++; // Skip Nulls
     } else {
       // Text/Tag fields can handle only strings or Nulls
-      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "TEXT/TAG fields can only contain strings or nulls");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, JSON_ERR_NOT_A_STRING);
       goto error;
     }
   }
@@ -768,7 +772,7 @@ int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct Docum
       ++nulls; // Skip Nulls (TODO: consider also failing or converting to a specific value, e.g., zero)
     } else {
       // Numeric fields can handle only numeric or Nulls
-      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "NUMERIC fields can only contain numeric or nulls");
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, JSON_ERR_NOT_A_NUMBER);
       goto error;
     }
   }
@@ -818,6 +822,173 @@ int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, 
   return ret;
 }
 
+
+// The sortable value of `fs`, a NUMERIC member of a NESTED group, for the document at `root`;
+// see RSValue_NewElementNumbers. `nums[i]` is the number of element `elements[i]` of the group's
+// array, which has `numElements` elements. Returns NULL when RedisJSON cannot give the values.
+static RSValue *nestedSortableValue(RedisModuleCtx *ctx, RedisJSON root, const FieldSpec *fs,
+                                    arrayof(double) nums, arrayof(uint32_t) elements,
+                                    uint32_t numElements) {
+  JSONResultsIterator values = JSON_GetWithCompiledPath(root, fs->nestedValuesPath);
+  if (!values) {
+    return NULL;
+  }
+  // What JSON_LoadDocumentField stores for a plain field at this path: a single value as
+  // itself, several as a multi value.
+  RSValue *shown = NULL;
+  if (japi->len(values) == 1) {
+    shown = RSValue_NewNumber(nums[0]);
+  } else {
+    jsonIterToValue(ctx, values, APIVERSION_RETURN_MULTI_CMP_FIRST, &shown);
+  }
+  japi->freeIter(values);
+  if (!shown) {
+    return NULL;
+  }
+  return RSValue_NewElementNumbers(elements, nums, array_len(nums), numElements, shown);
+}
+
+// The walk over the values that the elements of a group's array hold for one member.
+typedef struct {
+  JSONResultsIterator elementsIter;
+  const FieldSpec *fs;
+  uint32_t numElements;       // elements walked so far
+  uint32_t element;           // number of the element of the current value
+  JSONResultsIterator values; // owns the current value
+} NestedValues;
+
+// The next value of `walk`, with its type, skipping the elements where the member is missing
+// or null. NULL after the last element.
+static RedisJSON NestedValues_Next(NestedValues *walk, JSONType *type) {
+  if (walk->values) {
+    japi->freeIter(walk->values);
+    walk->values = NULL;
+  }
+  RedisJSON elementJson;
+  while ((elementJson = japi->next(walk->elementsIter))) {
+    walk->element = walk->numElements++;
+    JSONResultsIterator values = JSON_GetWithCompiledPath(elementJson, walk->fs->compiledPath);
+    if (!values) {
+      continue;
+    }
+    RedisJSON value = japi->next(values);
+    *type = value ? japi->getType(value) : JSONType_Null;
+    if (*type != JSONType_Null) {
+      walk->values = values;
+      return value;
+    }
+    japi->freeIter(values);
+  }
+  return NULL;
+}
+
+static NestedValues NestedValues_Start(JSONResultsIterator elementsIter, const FieldSpec *fs) {
+  japi->resetIter(elementsIter);
+  return (NestedValues){.elementsIter = elementsIter, .fs = fs};
+}
+
+// Ends a walk that stopped before the last element.
+static void NestedValues_Stop(NestedValues *walk) {
+  if (walk->values) {
+    japi->freeIter(walk->values);
+  }
+}
+
+static int loadNestedTags(JSONResultsIterator elementsIter, const FieldSpec *fs,
+                          struct DocumentField *df, QueryError *status) {
+  // In the form that `ClearOwnedField` frees `multiVal`: one tag per element at most.
+  char **tags = rm_malloc(japi->len(elementsIter) * sizeof(*tags));
+  size_t numTags = 0;
+  arrayof(uint32_t) elements = NULL;
+  int rv = REDISMODULE_OK;
+  NestedValues walk = NestedValues_Start(elementsIter, fs);
+  RedisJSON value;
+  JSONType type;
+  while (rv == REDISMODULE_OK && (value = NestedValues_Next(&walk, &type))) {
+    if (type == JSONType_String) {
+      const char *str;
+      size_t len;
+      japi->getString(value, &str, &len);
+      tags[numTags++] = rm_strndup(str, len);
+      array_ensure_append_1(elements, walk.element);
+    } else {
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, JSON_ERR_NOT_A_STRING);
+      rv = REDISMODULE_ERR;
+    }
+  }
+  NestedValues_Stop(&walk);
+  if (rv != REDISMODULE_OK || !elements) {
+    for (size_t i = 0; i < numTags; ++i) {
+      rm_free(tags[i]);
+    }
+    rm_free(tags);
+    if (elements) {
+      array_free(elements);
+    }
+    return rv;
+  }
+  df->multiVal = tags;
+  df->arrayLen = numTags;
+  df->elements = elements;
+  df->unionType = FLD_VAR_T_ARRAY;
+  return REDISMODULE_OK;
+}
+
+static int loadNestedNumbers(RedisModuleCtx *ctx, RedisJSON root, JSONResultsIterator elementsIter,
+                             const FieldSpec *fs, struct DocumentField *df, QueryError *status) {
+  arrayof(double) nums = NULL;
+  arrayof(uint32_t) elements = NULL;
+  RSValue *sortable = NULL;
+  int rv = REDISMODULE_OK;
+  NestedValues walk = NestedValues_Start(elementsIter, fs);
+  RedisJSON value;
+  JSONType type;
+  while (rv == REDISMODULE_OK && (value = NestedValues_Next(&walk, &type))) {
+    double num;
+    if (type == JSONType_Int) {
+      long long intval;
+      japi->getInt(value, &intval);
+      num = intval;
+    } else if (type == JSONType_Double) {
+      japi->getDouble(value, &num);
+    } else {
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, JSON_ERR_NOT_A_NUMBER);
+      rv = REDISMODULE_ERR;
+      break;
+    }
+    array_ensure_append_1(nums, num);
+    array_ensure_append_1(elements, walk.element);
+  }
+  NestedValues_Stop(&walk);
+  if (rv == REDISMODULE_OK && nums) {
+    sortable = nestedSortableValue(ctx, root, fs, nums, elements, walk.numElements);
+    if (!sortable) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to get value from iterator");
+      rv = REDISMODULE_ERR;
+    }
+  }
+  if (rv != REDISMODULE_OK || !elements) {
+    if (nums) {
+      array_free(nums);
+    }
+    if (elements) {
+      array_free(elements);
+    }
+    return rv;
+  }
+  df->arrNumval = nums;
+  df->multisv = sortable;
+  df->elements = elements;
+  df->unionType = FLD_VAR_T_ARRAY;
+  return REDISMODULE_OK;
+}
+
+int JSON_LoadNestedMember(RedisModuleCtx *ctx, RedisJSON root, JSONResultsIterator elementsIter,
+                          const FieldSpec *fs, struct DocumentField *df, QueryError *status) {
+  return FIELD_IS(fs, INDEXFLD_T_TAG)
+             ? loadNestedTags(elementsIter, fs, df, status)
+             : loadNestedNumbers(ctx, root, elementsIter, fs, df, status);
+}
 
 int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df, QueryError *status) {
   int rv = REDISMODULE_OK;
