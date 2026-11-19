@@ -126,23 +126,34 @@ fn generate_test_values() -> Vec<BenchGroup> {
         },
         BenchEncodingInputs {
             name: "Float | Small Positive",
-            values: vec![7.125, 15.75, 42.5],
+            // Exact in an f32 but with no short decimal form.
+            values: vec![0.0009765625, (1.0f32 / 3.0) as f64, 0.1f32 as f64],
             value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
             name: "Float | Small Negative",
-            values: vec![-7.125, -15.75, -42.5],
+            values: vec![-0.0009765625, -(1.0f32 / 3.0) as f64, -(0.1f32 as f64)],
             value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
             name: "Float | Big Positive",
-            values: vec![1.1, 0.3, 12.999999999999998],
+            values: vec![0.1 + 0.2, std::f64::consts::PI, 12.999999999999998],
             value_size_fn: |_| 8,
         },
         BenchEncodingInputs {
             name: "Float | Big Negative",
-            values: vec![-1.1, -0.3, -12.999999999999998],
+            values: vec![-(0.1 + 0.2), -std::f64::consts::PI, -12.999999999999998],
             value_size_fn: |_| 8,
+        },
+        BenchEncodingInputs {
+            name: "Float | Decimal Positive",
+            values: vec![0.3, 17.05, 40.750111],
+            value_size_fn: decimal_value_size,
+        },
+        BenchEncodingInputs {
+            name: "Float | Decimal Negative",
+            values: vec![-0.3, -17.05, -73.993896],
+            value_size_fn: decimal_value_size,
         },
     ];
 
@@ -215,6 +226,19 @@ fn generate_test_values() -> Vec<BenchGroup> {
             },
         )
         .collect()
+}
+
+/// The info byte plus the trimmed mantissa of the shortest exact decimal form of `n`.
+fn decimal_value_size(n: f64) -> usize {
+    let magnitude = n.abs();
+    let mantissa = (1..=7)
+        .find_map(|scale| {
+            let power = 10f64.powi(scale);
+            let mantissa = (magnitude * power).round();
+            (mantissa / power == magnitude).then_some(mantissa as u64)
+        })
+        .expect("benchmark inputs have a short decimal form");
+    1 + ((u64::BITS - mantissa.leading_zeros()) as usize).div_ceil(8)
 }
 
 fn encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup) {
