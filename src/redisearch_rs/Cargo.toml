@@ -9,6 +9,7 @@ members = [
     "field",
     "fnv",
     "index_gc",
+    "keyed_numeric_index",
     "generational_slab",
     "geo",
     "hyperloglog",
@@ -144,6 +145,7 @@ inverted_index = { path = "./inverted_index" }
 language = { path = "./language" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 over_aligned_alloc = { path = "./over_aligned_alloc" }
+keyed_numeric_index = { path = "./keyed_numeric_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
