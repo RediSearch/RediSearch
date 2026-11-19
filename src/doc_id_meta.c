@@ -104,9 +104,12 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   if (dictSize(specIdToDocId) == 0) return;
 
   // The key may hold the docIds of a slot migration's source, which can name unrelated documents
-  // here. See disk_asm_import_window.h.
-  const bool keepDocs = SearchDisk_IsEnabled() && ctx &&
-                        DiskASM_ImportWindow_ContainsKey(RedisModule_GetKeyNameFromOptCtx(ctx));
+  // here, so it deletes none. Its metadata is freed with it, so nothing is left to invalidate.
+  // See disk_asm_import_window.h.
+  if (SearchDisk_IsEnabled() && ctx &&
+      DiskASM_IsKeyBeingImported(RedisModule_GetKeyNameFromOptCtx(ctx))) {
+    return;
+  }
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;
@@ -116,7 +119,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
     // Find the IndexSpec by specId in the global dict (O(1) lookup).
     uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
-    IndexSpec *spec = keepDocs ? NULL : findSpecBySpecId(specId);
+    IndexSpec *spec = findSpecBySpecId(specId);
     if (spec) {
       // Delete the document from this index by its docId
       IndexSpec_DeleteDocById(spec, docId);

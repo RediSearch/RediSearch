@@ -68,13 +68,13 @@ void DiskASM_ImportWindow_Reset(void) {
   DiskASM_ImportWindow_numSlots_g = 0;
 }
 
-bool DiskASM_ImportWindow_ContainsSlot(unsigned int slot) {
+bool DiskASM_IsSlotBeingImported(unsigned int slot) {
   RS_LOG_ASSERT(slot < ASM_IMPORT_WINDOW_NUM_SLOTS, "invalid slot");
   return slotBits && testBit(slot);
 }
 
-bool DiskASM_ImportWindow_ContainsKeySlot(const RedisModuleString *key) {
+bool DiskASM_IsKeySlotBeingImported(const RedisModuleString *key) {
   size_t len;
   const char *name = RedisModule_StringPtrLen(key, &len);
-  return DiskASM_ImportWindow_ContainsSlot(RedisModule_ClusterKeySlotC(name, len));
+  return DiskASM_IsSlotBeingImported(RedisModule_ClusterKeySlotC(name, len));
 }
