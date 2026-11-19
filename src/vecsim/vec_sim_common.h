@@ -380,8 +380,9 @@ typedef struct {
     };
     size_t batchSize;
     VecSearchMode searchMode;
-    void *timeoutCtx; // This parameter is not exposed directly to the user, and we shouldn't expect
-                      // to get it from the parameters resolve function.
+    void *stopCtx; // The opaque context VecSim passes to the stop callback. Not exposed
+                   // directly to the user, and we shouldn't expect to get it from the
+                   // parameters resolve function.
 } VecSimQueryParams;
 
 /**
@@ -526,11 +527,12 @@ typedef struct {
 } VecSimMemoryFunctions;
 
 /**
- * @brief A struct to pass 3rd party timeout function to Vecsimlib.
- * @param ctx some generic context to pass to the function
- * @return the function should return a non-zero value on timeout
+ * @brief A 3rd party function that tells Vecsimlib to stop a running query, on a timeout or memory
+ * pressure. Called at every search step, so it should be cheap or amortize.
+ * @param ctx the query's stopCtx (VecSimQueryParams::stopCtx)
+ * @return the function should return a non-zero value to stop the query
  */
-typedef int (*timeoutCallbackFunction)(void *ctx);
+typedef int (*stopCallbackFunction)(void *ctx);
 
 /**
  * @brief A struct to pass 3rd party logging function to Vecsimlib.
@@ -546,7 +548,7 @@ static inline size_t RoundUpInitialCapacity(size_t initialCapacity, size_t block
                                        : initialCapacity;
 }
 
-#define VECSIM_TIMEOUT(ctx) (__builtin_expect(VecSimIndexInterface::timeoutCallback(ctx), false))
+#define VECSIM_STOP(ctx) (__builtin_expect(VecSimIndexInterface::stopCallback(ctx), false))
 
 #ifdef __cplusplus
 }

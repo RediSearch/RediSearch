@@ -71,7 +71,7 @@ template <typename DataType, typename DistType>
 HNSW_BatchIterator<DataType, DistType>::HNSW_BatchIterator(
     void *query_vector, const HNSWIndex<DataType, DistType> *index, VecSimQueryParams *queryParams,
     std::shared_ptr<VecSimAllocator> allocator)
-    : VecSimBatchIterator(query_vector, queryParams ? queryParams->timeoutCtx : nullptr,
+    : VecSimBatchIterator(query_vector, queryParams ? queryParams->stopCtx : nullptr,
                           std::move(allocator)),
       index(index), depleted(false), top_candidates_extras(this->allocator),
       candidates(this->allocator) {
@@ -104,8 +104,8 @@ VecSimQueryReply_Code HNSW_BatchIterator<DataType, DistType>::scanGraphInternal(
         if (curr_node_dist > this->lower_bound && top_candidates->size() >= this->ef) {
             break;
         }
-        if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
-            return VecSim_QueryReply_TimedOut;
+        if (VECSIM_STOP(this->getStopCtx())) {
+            return VecSim_QueryReply_Stopped;
         }
         // Checks if we need to add the current id to the top_candidates heap,
         // and updates the extras heap accordingly.
@@ -183,9 +183,9 @@ HNSW_BatchIterator<DataType, DistType>::scanGraph(VecSimQueryReply_Code *rc) {
         this->visitNode(this->entry_point);
         candidates.emplace(this->lower_bound, this->entry_point);
     }
-    // Checks that we didn't got timeout between iterations.
-    if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
-        *rc = VecSim_QueryReply_TimedOut;
+    // Checks that we weren't stopped between iterations.
+    if (VECSIM_STOP(this->getStopCtx())) {
+        *rc = VecSim_QueryReply_Stopped;
         return top_candidates;
     }
 
@@ -218,8 +218,8 @@ HNSW_BatchIterator<DataType, DistType>::getNextResults(size_t n_res, VecSimQuery
     // In the first iteration, we search the graph from top bottom to find the initial entry point,
     // and then we scan the graph to get results (layer 0).
     if (this->getResultsCount() == 0) {
-        idType bottom_layer_ep = this->index->searchBottomLayerEP(
-            this->getQueryBlob(), this->getTimeoutCtx(), &batch->code);
+        idType bottom_layer_ep = this->index->searchBottomLayerEP(this->getQueryBlob(),
+                                                                  this->getStopCtx(), &batch->code);
         if (VecSim_OK != batch->code) {
             return batch;
         }

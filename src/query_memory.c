@@ -14,17 +14,18 @@
 #include "config.h"
 #include "util/redis_mem_info.h"
 
-static _Atomic(uint32_t) ratioReadInterval = QUERY_MEMORY_RATIO_READ_INTERVAL;
+RS_Atomic(uint32_t) QueryMemory_ratioReadInterval = QUERY_MEMORY_RATIO_READ_INTERVAL;
+RS_Atomic(uint32_t) QueryMemory_pressureArmed = 0;
 static _Atomic(float) forcedRatio = -1;
 static _Atomic(uint64_t) pressureAtCall = 0;
 static _Atomic(uint64_t) checkpointCalls = 0;
 
 void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval) {
-  atomic_store_explicit(&ratioReadInterval, interval, memory_order_relaxed);
+  atomic_store_explicit(&QueryMemory_ratioReadInterval, interval, memory_order_relaxed);
 }
 
 uint32_t QueryMemory_GetRatioReadInterval(void) {
-  return atomic_load_explicit(&ratioReadInterval, memory_order_relaxed);
+  return atomic_load_explicit(&QueryMemory_ratioReadInterval, memory_order_relaxed);
 }
 
 void QueryMemory_SetForcedRatio(float ratio) {
@@ -39,6 +40,7 @@ void QueryMemory_SetPressureAtCall(uint64_t n) {
   atomic_store_explicit(&pressureAtCall, 0, memory_order_relaxed);
   atomic_store_explicit(&checkpointCalls, 0, memory_order_relaxed);
   atomic_store_explicit(&pressureAtCall, n, memory_order_relaxed);
+  atomic_store_explicit(&QueryMemory_pressureArmed, n != 0, memory_order_relaxed);
 }
 
 uint64_t QueryMemory_GetPressureAtCall(void) {
@@ -52,6 +54,7 @@ uint64_t QueryMemory_GetCheckpointCalls(void) {
 void QueryMemory_ResetFakePressure(void) {
   QueryMemory_SetForcedRatio(-1);
   atomic_store_explicit(&pressureAtCall, 0, memory_order_relaxed);
+  atomic_store_explicit(&QueryMemory_pressureArmed, 0, memory_order_relaxed);
   atomic_store_explicit(&checkpointCalls, 0, memory_order_relaxed);
   QueryMemoryDebug_SetRatioReadInterval(QUERY_MEMORY_RATIO_READ_INTERVAL);
 }
@@ -88,30 +91,19 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
   return true;
 }
 
-bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits) {
+  if (QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
-  const uint32_t interval = QueryMemory_GetRatioReadInterval();
-  // Both counters advance on every call, so a site that is called too rarely to reach the
-  // interval alone still triggers a read through the request-wide count.
-  bool due = ++*counter >= interval;
-  if (limits) {
-    // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
-    // atomic RMW on the hot path.
-    const uint32_t shared =
-        atomic_load_explicit(&limits->memory.counter, memory_order_relaxed) + 1;
-    atomic_store_explicit(&limits->memory.counter, shared, memory_order_relaxed);
-    due |= shared >= interval;
-  }
-  if (!forcedPressure && !due) {
+  if (!QueryMemory_CountCall(limits) && !forcedPressure) {
     return false;
   }
-  *counter = 0;
-  if (limits) {
-    atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
-  }
+  return QueryMemory_ReadAndReset(limits, forcedPressure);
+}
+
+bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, bool forcedPressure) {
+  atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
   return memoryStops(limits, forcedPressure);
 }
 

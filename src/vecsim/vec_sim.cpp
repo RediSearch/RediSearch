@@ -29,8 +29,8 @@
 static_assert(std::is_same_v<labelType, size_t>,
               "labelType must be size_t for C API compatibility");
 
-extern "C" void VecSim_SetTimeoutCallbackFunction(timeoutCallbackFunction callback) {
-    VecSimIndex::setTimeoutCallbackFunction(callback);
+extern "C" void VecSim_SetStopCallbackFunction(stopCallbackFunction callback) {
+    VecSimIndex::setStopCallbackFunction(callback);
 }
 
 extern "C" void VecSim_SetLogCallbackFunction(logCallbackFunction callback) {

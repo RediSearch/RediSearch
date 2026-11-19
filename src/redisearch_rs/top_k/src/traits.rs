@@ -111,7 +111,7 @@ pub trait ScoreSource {
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
-    /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
+    /// - `Err(RQEIteratorError::Stopped)`: the query ended early on a timeout or memory pressure.
     ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
@@ -314,9 +314,29 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
-    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// Poll the query deadline, returning [`RQEIteratorError::Stopped`] once
     /// it has been reached.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
+
+    /// Amortized stop checkpoint, polled once per document of the adhoc-BF
+    /// scan next to [`check_timeout`](Self::check_timeout).
+    ///
+    /// Kept apart from the timeout poll so the cheap deadline check keeps its
+    /// own cadence while the costlier memory read is amortized by the source.
+    /// Returns [`RQEIteratorError::Stopped`] when the query should stop; a
+    /// memory stop is told from a timeout by the request's memory stop, which
+    /// is sticky. The default never stops.
+    fn check_stop(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    /// Unamortized [`check_stop`](Self::check_stop), called once when the
+    /// adhoc-BF scan ends, because rerank and finalization copy the heap and
+    /// a scan shorter than the amortization interval would otherwise never
+    /// read memory. The default never stops.
+    fn check_stop_now(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///

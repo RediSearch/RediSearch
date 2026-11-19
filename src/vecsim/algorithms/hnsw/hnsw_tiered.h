@@ -1228,7 +1228,7 @@ TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator::TieredHNSW_BatchI
     // copies: flat_iterator copy is created during TieredHNSW_BatchIterator construction When
     // TieredHNSW_BatchIterator::getNextResults() is called and hnsw_iterator is not initialized, it
     // retrieves the blob from flat_iterator
-    : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->timeoutCtx : nullptr,
+    : TieredIndex_BatchIterator(nullptr, queryParams ? queryParams->stopCtx : nullptr,
                                 std::move(allocator)),
       index(index), backend_index_lock(index->mainIndexGuard, std::defer_lock),
       flat_iterator(UNINITIALIZED), hnsw_iterator(UNINITIALIZED) {
@@ -1299,6 +1299,12 @@ VecSimQueryReply *TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator:
         while (this->flat_results.size() < n_res && !this->flat_iterator->isDepleted()) {
             auto tail = this->flat_iterator->getNextResults(n_res - this->flat_results.size(),
                                                             BY_SCORE_THEN_ID);
+            // A stopped flat batch is empty and not depleted: retrying it would never end.
+            if (VecSim_OK != tail->code) {
+                auto code = tail->code;
+                VecSimQueryReply_Free(tail);
+                return new VecSimQueryReply(this->allocator, code);
+            }
             this->flat_results.insert(this->flat_results.end(), tail->results.begin(),
                                       tail->results.end());
             VecSimQueryReply_Free(tail);
