@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
 #include "query_request.h"
 
 #ifdef __cplusplus
@@ -27,26 +28,18 @@ extern "C" {
  *
  * Returns true when the query should stop: a memory stop was already
  * requested, or this call found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it
- * requests a memory stop first. Memory is read when either the caller's
- * `counter` or the request's shared memory.counter reaches
- * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
- * up and a site called fewer times than the interval still contributes to a
- * read. A read resets both counters. Priming `counter` to the interval minus
- * one reads on the next call. The other calls only read the request's flags.
- * Each site owns its counter, zero-initialized, and must not share it between
- * threads. With a NULL `limits` only `counter` counts.
+ * requests a memory stop first. Memory is read once every
+ * QUERY_MEMORY_RATIO_READ_INTERVAL calls, counted on the request's memory.counter
+ * across all its sites; the other calls only read the request's flags.
  *
  * The memory check is off, and only an already requested memory stop is
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
  * RedisModule_GetUsedMemoryRatioEstimate; the fake pressure below overrides
- * the last two. Callable with or without the GIL, from any thread. The shared
- * request counter is a relaxed atomic, so concurrent calls only shift when
- * memory is read. Each site's own `counter` must not be shared between
- * threads. The ON_OOM policy is the global one, read with a
- * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
- * owning request) still reports pressure but records no memory stop.
+ * the last two. Callable with or without the GIL, from any thread. The ON_OOM policy is the
+ * global one, read with a relaxed atomic load because CONFIG SET writes it on the main thread.
+ * `limits` must not be NULL.
  */
-bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
+bool QueryMemory_Checkpoint(QueryRequestLimits *limits);
 
 /**
  * The non-amortized checkpoint: reads memory on every call and touches no
@@ -55,6 +48,22 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
  * or expensive enough to make every call worth a read.
  */
 bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
+
+/**
+ * The memory checkpoint after a query is built, before it reads
+ * its first row. Unless a stop is already requested, reads memory on this call,
+ * whatever the read interval. Under
+ * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
+ * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
+ * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
+ * on a requested stop (RP_EndRowSourceOnStop) once it is built, so the
+ * pipeline ends at its first read: an FT.SEARCH or FT.AGGREGATE then replies
+ * an empty result with the OOM warning (ApplyOomStop). FT.HYBRID calls it under
+ * ON_OOM FAIL only: its reply does not map an OOM stop under RETURN yet, so
+ * RETURN is excluded there. `timeout` must not be NULL.
+ */
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
+                                     QueryError *err);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every

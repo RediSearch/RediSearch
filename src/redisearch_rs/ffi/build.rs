@@ -570,6 +570,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &["QueryMemory_Checkpoint"],
+        types: &[],
+        vars: &[],
+    },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
     // chosen for `vector_top_k` hybrid iteration.
     HeaderAllowlist {
