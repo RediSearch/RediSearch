@@ -681,7 +681,6 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
       ASM_StateMachine_StartTrim(slots);
       Indexes_DeleteSlots(slots);
       ASM_StateMachine_CompleteTrim(slots);
-      ASM_StateMachine_TrimmedInBackground(slots);
       break;
   }
 }
