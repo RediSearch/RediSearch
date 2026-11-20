@@ -50,11 +50,9 @@ typedef struct CommonPipelineCtx {
   const struct QueryRequestLimits *rowLimits;
 } CommonPipelineCtx;
 
-// A chunk observes its row budget and stop conditions. A complete coordinator
-// pipeline enforces pagination and cancellation in its processors (chunk == NULL).
-// When storeRows is false, consume the source for its counts and warnings only.
-SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
-                                       bool storeRows, int *rc);
+// Consume a complete pipeline. Count-only requests consume the source for its
+// counts and warnings without retaining rows.
+SearchResult **Pipeline_CollectResults(ResultProcessor *rp, bool storeRows, int *rc);
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
 

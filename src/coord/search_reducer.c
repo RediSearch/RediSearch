@@ -512,7 +512,7 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, bool fromTimeout) {
   reply->limit = ctx->searchCtx->limit;
   bool storeRows = reply->limit != 0;
   ResultProcessor *end = storeRows ? ctx->qctx.endProc : ctx->qctx.rootProc;
-  reply->results = Pipeline_CollectResults(end, NULL, storeRows, &reply->rc);
+  reply->results = Pipeline_CollectResults(end, storeRows, &reply->rc);
   reply->hasStoredResults = true;
   if (ctx->searchCtx->knn) {
     ctx->totalReplies = MIN(ctx->searchCtx->knn->k, ctx->totalReplies);

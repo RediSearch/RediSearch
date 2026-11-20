@@ -102,8 +102,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimi
 static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimits *limits) {}
 #endif
 
-SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
-                                       bool storeRows, int *rc) {
+static inline SearchResult **collectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
+                                            bool storeRows, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult row = SearchResult_New();
   while ((!chunk || rp->parent->resultLimit) && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
@@ -127,12 +127,16 @@ SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipeline
   return results;
 }
 
+SearchResult **Pipeline_CollectResults(ResultProcessor *rp, bool storeRows, int *rc) {
+  return storeRows ? collectResults(rp, NULL, true, rc) : collectResults(rp, NULL, false, rc);
+}
+
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results,
                          SearchResult *r, int *rc) {
   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return ||
       ctx->oomPolicy == OomPolicy_Fail) {
     // Aggregate all results before populating the response
-    *results = Pipeline_CollectResults(rp, ctx, true, rc);
+    *results = collectResults(rp, ctx, true, rc);
     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
     // same way.
     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
