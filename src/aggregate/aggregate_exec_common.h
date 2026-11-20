@@ -41,21 +41,22 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
 
 void destroyResults(SearchResult **results);
 
-// TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
-// on QueryProcessingCtx; the AREQ back-pointer is a temporary plumbing
-// shortcut for the main-thread RETURN-STRICT abort signal.
-SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
-
 typedef struct CommonPipelineCtx {
   const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
-  // AREQ for the request being executed; consulted by AggregateResults (and
+  // AREQ for the request being executed; consulted by the row collector (and
   // its debug pause loop) to observe the request timeout. NULL on paths without
   // a single owning AREQ (e.g. hybrid).
   // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
   struct AREQ *areq;
 } CommonPipelineCtx;
+
+// A chunk observes its row budget and stop conditions. A complete coordinator
+// pipeline enforces pagination and cancellation in its processors (chunk == NULL).
+// When storeRows is false, consume the source for its counts and warnings only.
+SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
+                                       bool storeRows, int *rc);
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
 
