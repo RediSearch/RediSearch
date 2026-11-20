@@ -12,6 +12,7 @@
 #include "search_result_ffi.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
+#include "aggregate/aggregate_exec_common.h"
 #include "concurrent_ctx.h"
 #include "debug_commands.h"
 #include "dist_profile.h"
@@ -508,21 +509,10 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, bool fromTimeout) {
   }
   QueryRequest_SetEndProcRef(&ctx->searchCtx->base, &ctx->qctx.endProc);
   ChunkReplyState *reply = &ctx->searchCtx->base.reply;
-  reply->results = array_new(SearchResult *, 8);
   reply->limit = ctx->searchCtx->limit;
-  SearchResult row = SearchResult_New();
-  // A count-only request still consumes envelopes but has no candidates to sort.
-  ResultProcessor *end = ctx->qctx.endProc;
-  if (ctx->searchCtx->limit == 0) end = ctx->qctx.rootProc;
-  while ((reply->rc = end->Next(end, &row)) == RS_RESULT_OK) {
-    if (ctx->searchCtx->limit != 0) {
-      array_append(reply->results, SearchResult_AllocateMove(&row));
-      row = SearchResult_New();
-    } else {
-      SearchResult_Clear(&row);
-    }
-  }
-  SearchResult_Destroy(&row);
+  bool storeRows = reply->limit != 0;
+  ResultProcessor *end = storeRows ? ctx->qctx.endProc : ctx->qctx.rootProc;
+  reply->results = Pipeline_CollectResults(end, NULL, storeRows, &reply->rc);
   reply->hasStoredResults = true;
   if (ctx->searchCtx->knn) {
     ctx->totalReplies = MIN(ctx->searchCtx->knn->k, ctx->totalReplies);
