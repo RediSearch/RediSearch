@@ -759,6 +759,75 @@ def testScorerTypes(env):
                                            params, 'scorer ' + scorer)
 
 
+@skip(cluster=True)
+def testScoresWithNumericSortby(env):
+    """Scores returned with a numeric SORTBY match whether or not the optimizer runs.
+
+    The optimizer reads only each match's numeric value, so scoring its results
+    would find no matched term and score every document 0.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    for query in [['ft.search', 'idx', 'foo', 'SORTBY', 'n'],
+                  ['ft.search', 'idx', 'foo @n:[10 100]', 'SORTBY', 'n']]:
+        for params in [['limit', 0, 3, 'NOCONTENT', 'WITHSCORES'],
+                       ['limit', 0, 1, 'NOCONTENT', 'WITHSCORES', 'EXPLAINSCORE']]:
+            compare_optimized_to_not_nocontent(env, query, params, ' '.join(map(str, params)))
+
+        # The comparison alone would pass if both paths scored 0.
+        res = env.cmd(*query, 'WITHOUTCOUNT', 'limit', 0, 3, 'NOCONTENT', 'WITHSCORES')
+        env.assertEqual(len(res), 7, message=res)
+        env.assertTrue(all(float(score) > 0 for score in res[2::2]), message=res)
+        res = env.cmd(*query, 'WITHOUTCOUNT', 'limit', 0, 1, 'NOCONTENT', 'WITHSCORES',
+                      'EXPLAINSCORE')
+        env.assertGreater(float(res[2][0]), 0, message=res)
+
+    # FT.AGGREGATE returns scores as a field with ADDSCORES.
+    query = ['ft.aggregate', 'idx', 'foo']
+    params = ['ADDSCORES', 'LOAD', 1, '@n', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 3]
+    compare_optimized_to_not_nocontent(env, query, params, 'ADDSCORES')
+    res = env.cmd(*query, 'WITHOUTCOUNT', *params)
+    env.assertEqual(len(res), 4, message=res)
+    env.assertTrue(all(float(to_dict(row)['__score']) > 0 for row in res[1:]), message=res)
+
+
+@skip(cluster=True)
+def testMatchedTermsWithNumericSortby(env):
+    """matched_terms() with a numeric SORTBY matches whether or not the optimizer runs.
+
+    The optimizer reads only each match's numeric value, so matched_terms() would
+    find no matched term in its results.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    sortby = ['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 3]
+    expected = [['n', '0', 'mt', ['foo']], ['n', '2', 'mt', ['foo']], ['n', '4', 'mt', ['foo']]]
+    apply = ['LOAD', 1, '@n', 'APPLY', 'matched_terms()', 'AS', 'mt', *sortby]
+
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', *apply)
+    env.assertEqual(res[1:], expected)
+    # DIALECT 4 optimizes without WITHOUTCOUNT. It must precede the pipeline steps to take effect.
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'DIALECT', 4, *apply)
+    env.assertEqual(res[1:], expected)
+
+    # Nested in another function: 1 when the document has matched terms, 0 otherwise.
+    has_terms = 'case(matched_terms(), 1, 0)'
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', 'LOAD', 1, '@n',
+                  'APPLY', has_terms, 'AS', 'mt', *sortby)
+    env.assertEqual(res[1:], [['n', '0', 'mt', '1'], ['n', '2', 'mt', '1'], ['n', '4', 'mt', '1']])
+
+    # In a FILTER, which drops the documents without matched terms.
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'WITHOUTCOUNT', 'LOAD', 1, '@n',
+                  'FILTER', has_terms, *sortby)
+    env.assertEqual(res[1:], [['n', '0'], ['n', '2'], ['n', '4']])
+
+
 def profile_iterator_types(env, query, params):
     """Collect the `Type` names of every iterator in the plan `query` compiles to."""
     res = env.cmd('ft.profile', query[1], 'search', 'QUERY', *query[2:], *params)

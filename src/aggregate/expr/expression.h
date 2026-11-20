@@ -176,6 +176,14 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
+
+/**
+ * Whether `expr`, or any sub-expression, calls a function that reads each
+ * result's RSIndexResult. matched_terms() is currently the only such function.
+ * An expression that does needs the index result kept, with its term records,
+ * up to the step that evaluates it.
+ */
+bool ExprAST_ReadsIndexResult(const RSExpr *expr);
 char *ExprAST_Dump(const RSExpr *expr, bool obfuscate);
 RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status);
 

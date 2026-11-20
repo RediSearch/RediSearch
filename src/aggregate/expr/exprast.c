@@ -11,6 +11,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <strings.h>
 
 #include "value_ffi.h"
 #include "obfuscation/obfuscation_api.h"
@@ -233,6 +234,33 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
 
 void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
+}
+
+bool ExprAST_ReadsIndexResult(const RSExpr *expr) {
+  if (!expr) return false;
+  switch (expr->t) {
+    case RSExpr_Function:
+      if (expr->func.name && !strcasecmp(expr->func.name, "matched_terms")) {
+        return true;
+      }
+      if (expr->func.args) {
+        for (size_t i = 0; i < expr->func.args->len; i++) {
+          if (ExprAST_ReadsIndexResult(expr->func.args->args[i])) return true;
+        }
+      }
+      return false;
+    case RSExpr_Op:
+      return ExprAST_ReadsIndexResult(expr->op.left) || ExprAST_ReadsIndexResult(expr->op.right);
+    case RSExpr_Predicate:
+      return ExprAST_ReadsIndexResult(expr->pred.left) ||
+             ExprAST_ReadsIndexResult(expr->pred.right);
+    case RSExpr_Inverted:
+      return ExprAST_ReadsIndexResult(expr->inverted.child);
+    case RSExpr_Literal:
+    case RSExpr_Property:
+      return false;
+  }
+  return false;
 }
 
 char *ExprAST_Dump(const RSExpr *e, bool obfuscate) {

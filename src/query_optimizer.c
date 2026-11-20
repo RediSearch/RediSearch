@@ -15,9 +15,11 @@
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
+#include "aggregate/expr/expression.h"
 #include "field.h"
 #include "field_spec.h"
 #include "obfuscation/hidden.h"
+#include "pipeline/pipeline.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "query_internal.h"
@@ -53,6 +55,27 @@ static bool planHasSortKeys(const AGGPlan *pln) {
   return false;
 }
 
+// The pipeline parses APPLY and FILTER expressions only once the optimizer has been chosen, so
+// parse them here to find out whether any of them reads the index result. A parse error is left
+// for the pipeline to report.
+static bool planReadsIndexResult(const AGGPlan *pln) {
+  DLLIST_FOREACH(nn, &pln->steps) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (stp->type != PLN_T_APPLY && stp->type != PLN_T_FILTER) {
+      continue;
+    }
+    QueryError status = QueryError_Default();
+    RSExpr *expr = ExprAST_Parse(((const PLN_MapFilterStep *)stp)->expr, &status);
+    const bool reads = ExprAST_ReadsIndexResult(expr);
+    ExprAST_Free(expr);
+    QueryError_ClearError(&status);
+    if (reads) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -68,12 +91,17 @@ void QOptimizer_Parse(AREQ *req) {
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
+      // The optimizer reader yields only each match's numeric value, dropping the term records
+      // that highlighting, scoring and matched_terms() read.
+      const bool needsTermRecords = QEFlags_RequireIndexResultsDownstream(AREQ_RequestFlags(req)) ||
+                                    planReadsIndexResult(AREQ_AGGPlan(req));
+      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC &&
+          !needsTermRecords) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
       } else {
-        // sortby other fields, or more than one sort key, no optimization
+        // sortby other fields, more than one sort key, or term records needed: no optimization
         opt->type = Q_OPT_NONE;
       }
     }
