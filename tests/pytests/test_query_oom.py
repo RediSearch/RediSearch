@@ -416,3 +416,54 @@ def test_oom_verbosity_cluster_return(env):
     # Index 13 is Warning array (after adding Workers queue time field at indices 6-7)
     n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[13])
     env.assertEqual(n_warnings, 2, message=f"res: {res}")
+
+
+def _timeout_return_keeps_rows_under_oom_fail(env):
+    """ON_OOM FAIL buffers the whole result before replying, under every timeout policy. Under
+    ON_TIMEOUT RETURN a timeout must still reply the rows produced before it, with the timeout
+    warning, as the unbuffered path does."""
+    n_docs, after_n = 100, 20
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc:{i}', 'title', f'hello doc {i}')
+    # (query, reply elements per row in RESP2)
+    queries = (
+        (('FT.SEARCH', 'idx', 'hello', 'RETURN', 1, 'title', 'LIMIT', 0, n_docs), 2),
+        (('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LIMIT', 0, n_docs), 1),
+        (('FT.AGGREGATE', 'idx', 'hello', 'LOAD', 1, '@title'), 1),
+        (('FT.AGGREGATE', 'idx', 'hello'), 1),
+    )
+    res = env.cmd('CONFIG', 'GET', 'search-on-timeout')
+    timeout_policy = res['search-on-timeout'] if isinstance(res, dict) else res[1]
+    env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+    allShards_change_oom_policy(env, 'fail')
+    try:
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for query, per_row in queries:
+                res = env.cmd(debug_cmd(), *query, 'TIMEOUT_AFTER_N', after_n,
+                              'DEBUG_PARAMS_COUNT', 2)
+                if env.protocol == 3:
+                    env.assertEqual(len(res['results']), after_n, message=(workers, query, res))
+                    env.assertEqual(res['warning'], ['Timeout limit was reached'],
+                                    message=(workers, query, res))
+                else:
+                    env.assertEqual((len(res) - 1) // per_row, after_n,
+                                    message=(workers, query, res))
+    finally:
+        set_workers(env, 0)
+        allShards_change_oom_policy(env, 'return')
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', timeout_policy).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_timeout_return_keeps_rows_under_oom_fail_resp3(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_timeout_return_keeps_rows_under_oom_fail_resp2(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)
