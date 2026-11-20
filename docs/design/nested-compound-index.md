@@ -121,7 +121,7 @@ $.items[*] AS items NESTED 4
 | Option | Applies to | Meaning | At ingest | Effect on the index and the planner |
 |---|---|---|---|---|
 | `MAXCARD <n>` | TAG level | At most `n` distinct values on this level, counted per parent node | A value that would be the `n+1`-th child is an index error for the doc (the doc isn't indexed and the error shows in `FT.INFO`, like a type mismatch) | Caps children per node, so tree size ≤ ∏ `MAXCARD` × terminal size. An `Any` walk on this level opens at most `n` children, so `FT.CREATE` can compute the worst-case number of terminals per query and reject an `INDEX` whose product exceeds `NESTED_MAX_TERMINALS_PER_QUERY` |
-| `BUCKETS <n> b₁ … bₙ` | NUMERIC level, any position | Fixed boundaries giving the intervals `[b₁,b₂) … [bₙ₋₁,bₙ)`. No dynamic splits | A value outside `[b₁, bₙ)` is an index error | **As a middle level**: an equality level whose children are the buckets (cardinality n−1). **As the terminal**: a range tree pre-split at the boundaries that never splits again, so leaf count and memory per terminal are fixed |
+| `BUCKETS <n> b₁ … bₙ` | NUMERIC level, any position | Fixed boundaries giving the intervals `[b₁,b₂) … [bₙ₋₁,bₙ)`, at most `MAX_BUCKETS` (1,024) of them, checked at `FT.CREATE` in either position. No dynamic splits | A value outside `[b₁, bₙ)` is an index error | **As a middle level**: an equality level whose children are the buckets (cardinality n−1). **As the terminal**: a range tree pre-split at the boundaries that never splits again, so leaf count and memory per terminal are fixed |
 | `RANGE <lo> <hi>` | NUMERIC terminal | Valid values are `[lo, hi]` | A value outside is an index error | Validation only. The range tree still splits dynamically, but within known bounds, which the first splits can use |
 
 #### Queries on a bucketed middle level
@@ -156,6 +156,40 @@ All three options are absent by default, which means no cardinality cap and dyna
 global safety limits (`NESTED_MAX_TERMINALS` at ingest and `NESTED_MAX_TERMINALS_PER_QUERY` at
 query time) still apply. Declared limits only make them reachable earlier and predictably: at
 `FT.CREATE` for the static check, at ingest per document.
+
+#### Limitation: only the terminal numeric adapts to the data
+
+The full `NumericRangeTree`, with ranges that split as data arrives and exact filtering of
+partial leaves, exists only at the **terminal**. Its leaves are posting lists of
+`(docId, value)`, and each entry carries the value the tree splits and filters on.
+
+A NUMERIC attribute on a **middle** level can only be a `BUCKETS` level. Its leaves own subtrees,
+and nothing below them stores the middle level's value, so the tree could neither redistribute
+elements on a split nor filter a range that cuts a leaf. Hence the fixed buckets, and the rule
+that a range must cover whole buckets.
+
+In practice:
+
+- **One numeric attribute per group**, such as the keyed `(k, v)` case or `color, size, price`:
+  declare it last. It gets the adaptive tree and needs no `BUCKETS`.
+- **Two numeric attributes**, such as `year` and `price`: only the last one adapts. The other is a
+  bucketed middle level, with user-chosen boundaries.
+
+Each node of a bucket level holds a slot for every declared bucket, used or not (8 bytes each),
+and a walk over the level reads every slot in its range. `MAX_BUCKETS` bounds both per node.
+
+Ways to lift the limitation later, all after the terminals PR:
+
+1. **An adaptive numeric middle level**: a range tree whose leaves own subtrees. Every terminal
+   entry also stores the middle level's value (8 more bytes per element per numeric middle level).
+   A split rebuilds the two halves of the subtree from those values, and a range that cuts a leaf
+   is filtered on them instead of rejected. This needs a reader that filters on two values.
+2. **A filter attribute**: store the value in terminal entries without routing on it,
+   `INDEX 3 color size price FILTER year`. Ranges on it are exact and need no splits, but a query
+   narrowing only by `year` still reads every terminal.
+3. **Sparse bucket storage**: keep only the buckets in use per node, sorted, so memory and walk
+   cost follow the data instead of the declared bucket count. This would let `MAX_BUCKETS` be
+   raised a lot.
 
 ### Code
 
@@ -193,7 +227,8 @@ The index has two layers:
   `CompoundIndex<T>` holds the routing levels and owns one terminal of type `T` per distinct
   path. It knows nothing about what a terminal stores. It provides:
   - the routing levels: `Level::Tag` (a TrieMap per node, optional per-node `max_cardinality`) and
-    `Level::Buckets` (fixed half-open buckets, one slot per bucket);
+    `Level::Buckets` (fixed half-open buckets, one slot per bucket on every node, at most
+    `MAX_BUCKETS` of them);
   - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
     bounds, cardinality) before creating anything, so a rejected insert leaves the index
     unchanged;
@@ -489,6 +524,8 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Parser and AST (5) |
 | The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Planner and eval (6) |
+| `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Schema (3) |
+| Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
 
 ## 8. Open questions
 
