@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
+    score_bound::MinCompetitiveScore,
 };
 
 #[repr(C)]
@@ -63,6 +64,10 @@ where
                 Rewind: Some(rewind::<I>),
                 ProfileChildren: profile_children,
                 PrintProfile: Some(print_profile::<I>),
+                ReportsScoreBounds: Some(reports_score_bounds::<I>),
+                CurrentMaxScore: Some(current_max_score::<I>),
+                CurrentBlockBound: Some(current_block_bound::<I>),
+                ReadWithThreshold: Some(read_with_threshold::<I>),
             },
             inner,
         });
@@ -243,10 +248,35 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { wrapper_from_callback::<I>(base) };
-    match wrapper.inner.read() {
+    let outcome = wrapper.inner.read();
+    publish_read(&mut wrapper.header, outcome)
+}
+
+extern "C" fn read_with_threshold<'index, I: RQEIterator<'index> + 'index>(
+    base: *mut QueryIterator,
+    min_competitive_score: f64,
+) -> IteratorStatus {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { wrapper_from_callback::<I>(base) };
+    // A threshold that does not apply could not drop anything, so a plain read is what it asks
+    // for.
+    let outcome = match MinCompetitiveScore::new(min_competitive_score) {
+        Some(min_competitive_score) => wrapper.inner.read_with_threshold(min_competitive_score),
+        None => wrapper.inner.read(),
+    };
+    publish_read(&mut wrapper.header, outcome)
+}
+
+/// Report the outcome of a read in the C header, as `Read` and `ReadWithThreshold` require.
+fn publish_read(
+    header: &mut QueryIterator,
+    outcome: Result<Option<&mut RSIndexResult<'_>>, RQEIteratorError>,
+) -> IteratorStatus {
+    match outcome {
         Ok(Some(result)) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
-            wrapper.header.lastDocId = result.doc_id;
+            header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
         Err(RQEIteratorError::TimedOut) => IteratorStatus_ITERATOR_TIMEOUT,
@@ -256,8 +286,8 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
             )
         }
         Ok(None) => {
-            wrapper.header.atEOF = true;
-            wrapper.header.current = std::ptr::null_mut();
+            header.atEOF = true;
+            header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -399,6 +429,55 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
         )
     };
     wrapper.inner.num_estimated()
+}
+
+extern "C" fn reports_score_bounds<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+) -> bool {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper.inner.reports_score_bounds()
+}
+
+extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+) -> f64 {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper.inner.current_max_score()
+}
+
+extern "C" fn current_block_bound<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    last_doc_id: *mut DocId,
+    max_score: *mut f64,
+) -> bool {
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    let Some(block) = wrapper.inner.current_block_bound() else {
+        return false;
+    };
+    debug_assert!(last_doc_id.is_aligned() && max_score.is_aligned());
+    // SAFETY: The `CurrentBlockBound` contract has the caller pass valid, writable outputs.
+    unsafe { last_doc_id.write(block.last_doc_id) };
+    // SAFETY: As above.
+    unsafe { max_score.write(block.max_score) };
+    true
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in
