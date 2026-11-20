@@ -1,0 +1,471 @@
+# Multi-level compound index on NESTED JSON arrays (TAG + NUMERIC)
+
+Status: in progress, landing as a stack of PRs (§7). The first PR adds this document and the
+routing layer, the `compound_index` crate.
+
+This design builds on two earlier proposals:
+
+- **Element-scoped matching for JSON arrays**: the `NESTED` schema syntax (R1) and the
+  `@group:( … )` query semantics, where every condition in the group must hold on the same array
+  element (R2).
+- **Keyed attribute index**: a compound `(key, value)` index that makes those conditions fast when
+  the group fixes a key. This document generalises it to several attributes, its "compound index
+  over several attributes" step.
+
+Scope: TAG and NUMERIC attributes only, JSON documents only, RAM mode. §4 sketches how Flex
+could be supported later.
+
+---
+
+## 1. What it is
+
+A NESTED field holds a JSON array of objects. A **compound index** on the group puts the
+attributes in an order, and each attribute's type decides what the level below it looks like:
+
+```
+INDEX 3 color size price
+
+color   TAG      → TrieMap: value → child
+size    TAG      → TrieMap: value → child
+price   NUMERIC  → NumericRangeTree → leaves → postings (docId, value)
+```
+
+Every **element** of the array follows exactly one path from the root to a terminal, and its doc
+id is posted at that terminal. A doc id in a terminal therefore means "this doc has an element
+with exactly these values on every level above". That makes the pairing correct by construction,
+whichever levels the query fixes.
+
+### Running example
+
+```json
+items:C1  {"items":[{"color":"red","size":"M","price":20},{"color":"blue","size":"L","price":90}]}
+items:C2  {"items":[{"color":"red","size":"L","price":45}]}
+items:C3  {"items":[{"color":"red","size":"M","price":35},{"color":"red","size":"M","price":15}]}
+items:C4  {"items":[{"color":"blue","size":"M","price":25}]}
+```
+
+Doc ids 1–4. The index contents:
+
+```
+color
+ ├─ "red"
+ │   └─ size
+ │       ├─ "M" → price tree: (d1,20) (d3,35) (d3,15)      ← d3 twice: two red/M elements
+ │       └─ "L" → price tree: (d2,45)
+ └─ "blue"
+     └─ size
+         ├─ "L" → price tree: (d1,90)
+         └─ "M" → price tree: (d4,25)
+```
+
+`@items:( @color:{red} @size:{L} @price:[(40 +inf] )` → one terminal (red → L), range read →
+{d2}. With today's flat indexes (`color` TAG, `size` TAG, `price` NUMERIC over `[*]`) the same
+conditions give red {1,2,3} ∩ L {1,2} ∩ price>40 {1,2} = **{d1, d2}**. d1 matches through its
+*blue* L item priced 90, because flat postings only share the doc id.
+
+---
+
+## 2. Creating the index
+
+### Syntax
+
+The NESTED group syntax comes from the element-scoped matching proposal. The `INDEX` clause comes
+from the keyed-attribute proposal, written in argument-count style so the `ArgsCursor` parser
+handles it the way it handles `NESTED <n>`:
+
+```
+FT.CREATE idx:orders ON JSON PREFIX 1 items: SCHEMA
+  $.order_id AS order_id TAG
+  $.items[*] AS items NESTED 3
+      $.color AS color TAG
+      $.size  AS size  TAG CASESENSITIVE
+      $.price AS price NUMERIC
+    INDEX 3 color size price
+```
+
+The keyed-attribute `(k, v)` case is one routing level and a terminal:
+
+```
+  $.metrics[*] AS metrics NESTED 2  $.k AS k TAG  $.v AS v NUMERIC  INDEX 2 k v
+```
+
+### Rules checked at `FT.CREATE`
+
+| Rule | Why |
+|---|---|
+| The NESTED path must end in `[*]` (or another multi-result path) | The group indexes elements |
+| Sub-paths are relative to the element (`$.color`) and must be single-valued per element in v1 | A multi-valued attribute would post the element under every combination (see §3, "cross product") |
+| `INDEX` lists each sub-field at most once: at most `MAX_LEVELS` routing levels (3, a constant of the `compound_index` crate) plus the terminal | Bounds recursion and planner fan-out |
+| Every level but the last must be TAG, or NUMERIC with `BUCKETS` (see "Optional limits" below) | A TAG level is an equality map with stable children. A NUMERIC level with dynamic ranges would need range nodes that own subtrees and re-bucket them on split. Fixed buckets never split, so they behave like an equality level |
+| The last level is NUMERIC (range tree) or TAG (posting list per value) | These are the two terminal kinds |
+| Every sub-field must appear in `INDEX` in v1 | The planner can then serve any group from the index alone (§5). Sub-fields outside the index need general element matching, out of scope |
+| Supported sub-field options: TAG `SEPARATOR`, `CASESENSITIVE`. NUMERIC has none. `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | Keeps ingest and GC simple |
+| A NESTED field counts as **one** field toward `SPEC_MAX_FIELDS` (1,024) | Many attributes per entity is the reason the feature exists |
+| Not supported `ON HASH` | Hashes have no arrays |
+
+### Optional limits: cardinality and numeric ranges
+
+The tree's size and the planner's worst-case fan-out are the product of the distinct values on
+each level. Declaring bounds up front makes both predictable and catches bad data at ingest.
+Each option is per sub-field and optional.
+
+```
+$.items[*] AS items NESTED 4
+    $.color AS color TAG     MAXCARD 64
+    $.size  AS size  TAG     MAXCARD 8
+    $.year  AS year  NUMERIC BUCKETS 4 2020 2022 2024 2026
+    $.price AS price NUMERIC RANGE 0 100000
+  INDEX 4 color size year price
+```
+
+| Option | Applies to | Meaning | At ingest | Effect on the index and the planner |
+|---|---|---|---|---|
+| `MAXCARD <n>` | TAG level | At most `n` distinct values on this level, counted per parent node | A value that would be the `n+1`-th child is an index error for the doc (the doc isn't indexed and the error shows in `FT.INFO`, like a type mismatch) | Caps children per node, so tree size ≤ ∏ `MAXCARD` × terminal size. An `Any` walk on this level opens at most `n` children, so `FT.CREATE` can compute the worst-case number of terminals per query and reject an `INDEX` whose product exceeds `NESTED_MAX_TERMINALS_PER_QUERY` |
+| `BUCKETS <n> b₁ … bₙ` | NUMERIC level, any position | Fixed boundaries giving the intervals `[b₁,b₂) … [bₙ₋₁,bₙ)`. No dynamic splits | A value outside `[b₁, bₙ)` is an index error | **As a middle level**: an equality level whose children are the buckets (cardinality n−1). **As the terminal**: a range tree pre-split at the boundaries that never splits again, so leaf count and memory per terminal are fixed |
+| `RANGE <lo> <hi>` | NUMERIC terminal | Valid values are `[lo, hi]` | A value outside is an index error | Validation only. The range tree still splits dynamically, but within known bounds, which the first splits can use |
+
+#### Queries on a bucketed middle level
+
+A range on a bucketed middle level selects every bucket that overlaps it. For buckets fully
+inside the range that's exact. For a bucket that is only **partly** inside (a range of
+`[2021, 2025)` against `[2020, 2022)` and `[2024, 2026)`), the entries below it include elements
+outside the range, and the terminal stores only the last level's value. There are two ways to
+handle this:
+
+1. **Aligned ranges only (v1)**: a range on a bucketed middle level must start and end on bucket
+   boundaries, otherwise the query fails with an error listing the boundaries. This is simple and
+   exact.
+2. **Carry the bucketed value (later)**: terminal entries store the middle level's raw value as
+   an extra payload, and edge buckets are filtered on it. This costs one extra value per entry.
+
+A bucketed **terminal** has no such problem. Its leaves hold `(docId, value)`, so edge leaves are
+filtered by value as in any numeric range query today.
+
+#### Defaults
+
+All three options are absent by default, which means no cardinality cap and dynamic ranges. The
+global safety limits (`NESTED_MAX_TERMINALS` at ingest and `NESTED_MAX_TERMINALS_PER_QUERY` at
+query time) still apply. Declared limits only make them reachable earlier and predictably: at
+`FT.CREATE` for the static check, at ingest per document.
+
+### Code
+
+- `src/field_spec.h`: add `INDEXFLD_T_NESTED = 0x80` (the next free bit), extend `INDEXTYPE_TO_POS` and
+  `INDEXFLD_NUM_TYPES`, and add a `nestedOpts` member:
+  ```c
+  struct {
+    arrayof(NestedSubField) subFields;   // name, relative path (compiled), type, tag flags, separator, limits
+    uint8_t levels[MAX_LEVELS + 1];      // sub-field index per level, in INDEX order, terminal last
+    uint8_t numLevels;
+    struct CompoundIndex *index;         // Rust-owned, opaque to C
+  } nestedOpts;
+  ```
+  Sub-fields are **not** `FieldSpec`s. They get no field bit, no field index and no top-level name.
+  They are only reachable inside `@items:( … )`.
+- `src/spec.c`: `parseFieldSpec` gets an `AC_AdvanceIfMatch(ac, SPEC_NESTED_STR)` branch that
+  reads `<n>` sub-field definitions using the existing TAG/NUMERIC option parsers on a sub-cursor,
+  then `INDEX <n> …`. Paths are compiled once with `japi->pathParse`.
+- `FT.ALTER … ADD` can add a new NESTED field, which triggers the usual rescan. Changing an existing
+  group's levels is not supported (you'd drop and recreate the index).
+- `FT.INFO` gets one attribute entry with a `nested` sub-array listing the sub-fields and levels,
+  plus index stats (§3, "Memory").
+
+---
+
+## 3. Indexing the data
+
+### Data structure
+
+The index has two layers:
+
+- **The routing layer**: the `compound_index` crate
+  ([lib.rs](../../src/redisearch_rs/compound_index/src/lib.rs)), added by the first PR.
+  `CompoundIndex<T>` holds the routing levels and owns one terminal of type `T` per distinct
+  path. It knows nothing about what a terminal stores. It provides:
+  - the routing levels: `Level::Tag` (a TrieMap per node, optional per-node `max_cardinality`) and
+    `Level::Buckets` (fixed half-open buckets, one slot per bucket);
+  - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
+    bounds, cardinality) before creating anything, so a rejected insert leaves the index
+    unchanged;
+  - `collect_terminals(constraints, max_terminals)`, the planner's walk (§5), which fails instead
+    of truncating past `max_terminals`;
+  - `retain_terminals(keep)`, which drops terminals and the nodes left without children, for GC.
+- **The terminals** (second PR), reusing existing structures unchanged:
+  ```rust
+  enum Terminal {
+      /// Last level NUMERIC: an ordinary range tree.
+      Numeric(NumericRangeTree),
+      /// Last level TAG: one doc-id posting list per value.
+      Tag(TrieMap<InvertedIndex /* DocIdsOnly */>),
+  }
+  ```
+  Each terminal is read by the iterators that exist today, which keeps the query side cheap.
+  The per-terminal stats the planner needs (`unique_docs`, `entries`) come from these structures.
+
+Keeping the routing layer generic over `T` is also what makes the Flex design in §4 possible: only
+the terminal type changes.
+
+### Ingest path
+
+1. **Load** (`document_basic.c`): for a NESTED field, `JSON_GetWithCompiledPath(root, path)`
+   returns the elements. For each element, evaluate every compiled sub-path with
+   `japi->getWithPath(element, subPath)`. That produces a row of `(value₁ … valueₙ)` per
+   element. Store the rows in the `DocumentField` (a new `FLD_VAR_T_NESTED_ROWS` variant).
+2. **Preprocess** (`document.c`, `preprocessorMap[IXFLDPOS_NESTED]`): validate the types and
+   normalise TAG values (case folding unless `CASESENSITIVE`, separator split). Drop elements
+   that are missing any level's attribute. They aren't indexed, so they never match a group,
+   which gives SQL's NULL behaviour. Reject the document (index error, like today's type
+   mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K).
+3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, for
+   each row, call `terminal_or_insert_with` on the routing values, then insert into the terminal:
+   - NUMERIC terminal: `NumericRangeTree::add(doc_id, value, is_multivalued = true, …)`.
+   - TAG terminal: append `doc_id` to that value's posting list.
+   - Rows are inserted in element order. A doc's rows can hit the same terminal several times
+     (C3 above). That's the multi-value case the numeric tree already handles
+     ([insert.rs](../../src/redisearch_rs/numeric_range_tree/src/tree/insert.rs)): the leaf gets
+     `Index_HasMultiValue`, and the reader skips repeats (`read_skip_multi`). For TAG terminals,
+     insert each `(terminal, value, doc_id)` only once per doc.
+4. **Apply** (`IndexerBulkApply`): update stats along each touched path.
+
+Doc ids are monotonic per terminal because every add or update of a document gets a new doc id.
+This is the invariant every posting list in the codebase already relies on.
+
+### Updates, deletes, GC
+
+- An update is a delete followed by an add, as today. Old entries become garbage under the old doc
+  id.
+- GC: add a scanner `index_gc/src/scanners/compound.rs`. It walks the tree depth-first and, at each
+  terminal, reuses the numeric and inverted-index GC routines. The fork-GC delta message carries
+  the **path** (`value₁ … valueₙ₋₁`) plus the existing per-terminal delta, so the parent finds the
+  same terminal. After the deltas are applied, `retain_terminals` drops the emptied terminals and
+  the TrieMap entries left without children, so a value that no element uses any more doesn't
+  leak a subtree.
+
+### Limits and costs
+
+- **Cross product**: if v1 ever allows a multi-valued attribute (`"color": ["red","white"]`), one
+  element would post under every combination. v1 rejects it at `FT.CREATE` (single-valued
+  sub-paths) and at ingest (a sub-path yielding more than one value is an index error).
+- **Memory**: a terminal costs about one range tree root, or one TrieMap entry plus one inverted
+  index. Many sparse prefixes mean many small terminals, a fixed cost per distinct path at every
+  level. Report `nested_terminals`, `nested_entries` and `nested_bytes` in `FT.INFO`, and add a
+  config cap `NESTED_MAX_TERMINALS` per field (proposed 1M) past which ingest fails with an error
+  naming the field.
+
+---
+
+## 4. Persistence
+
+### RDB
+
+In RAM mode the RDB stores only the **spec** (`IndexSpec_RdbSave` → `FieldSpec_RdbSave`,
+[spec.c](../../src/spec.c)). Inverted indexes and numeric trees are rebuilt after load by a full
+rescan (`IndexSpec_ScanAndReindex`, [indexes.c](../../src/indexes.c)). The compound index follows
+the same rule: only its definition is saved, and the tree is rebuilt by the rescan.
+
+Bump `INDEX_CURRENT_VERSION` to a new `INDEX_NESTED_VERSION` (32, the next free version), and only read the block below
+when `encver >= INDEX_NESTED_VERSION`. The field's `types` already round-trips as an unsigned, so
+loaders before 32 never see `INDEXFLD_T_NESTED`.
+
+```
+FieldSpec (existing header: name, path, types, options, sortIdx)
+if types & NESTED:
+  u64  nested_format          = 1
+  u64  num_sub_fields
+  repeat: string name, string rel_path, u64 type, u64 tag_flags, buffer[1] tag_sep,
+          u64 limit_flags                     (bit 0 MAXCARD, bit 1 BUCKETS, bit 2 RANGE)
+          if MAXCARD: u64 max_card
+          if BUCKETS: u64 n; repeat n: f64 boundary
+          if RANGE:   f64 lo, f64 hi
+  u64  num_levels
+  repeat: u64 sub_field_index
+```
+
+On load, re-run the §2 validation on the decoded definition (level types, the terminal kind,
+sub-field references) and fail `IndexSpec_RdbLoad` with `REDISMODULE_ERR` on any mismatch.
+
+### Flex (later)
+
+A possible Flex design: keep the **compound structure in memory** (the routing levels, the range
+trees' inner nodes and leaf bounds, and the stats), and store only the **posting lists** on
+disk. Each terminal, or each numeric leaf, gets a stable posting id, and its doc ids live in the
+disk engine under that id, the way `SearchDisk_IndexTags` and `SearchDisk_IndexNumeric` store
+postings today. The routing layer and the planner's walk (§5) are unchanged. Only the terminal
+type and its iterators switch to disk. This is to be designed with the Flex owners once the RAM
+version is in.
+
+---
+
+## 5. Query planning: from `@items:( … )` to iterators
+
+### Syntax and parsing
+
+`@items:( @color:{red} @size:{M} @price:[-inf (30] )`.
+
+- Grammar ([parser.y](../../src/query_parser/v2/parser.y)): today `modifier COLON text_expr`, with
+  `text_expr ::= LP text_expr RP`, owns `@field:( … )`. A NESTED group needs a full `expr` (tags
+  and ranges) inside the parentheses, which is an LALR conflict. Proposal: when the lexer emits a
+  `MODIFIER` whose field resolves to NESTED, it emits `NESTED_MODIFIER` instead, and a new rule
+  `expr ::= NESTED_MODIFIER COLON LP expr RP` takes it. While the inner `expr` is parsed, field
+  lookups go to the group's sub-fields (a scope pushed on `QueryParseCtx`), so `@color` means
+  `items.color`. Without a spec (coordinator-side parse), it falls back to text semantics, as
+  today.
+- AST: a new `QN_NESTED { const FieldSpec *fs; QueryNode *inner; }`. Inner leaves are the existing
+  `QN_TAG` and `QN_NUMERIC` nodes, each with a sub-field reference instead of a `FieldSpec`.
+- Eval: a new `query_eval/src/nodes/nested.rs`, next to `tag.rs` and `numeric.rs`.
+
+### Step 1: normalise the inner expression into per-level constraints
+
+Flatten ANDs and push NOTs down. Each conjunction becomes one `compound_index::Constraint` per
+routing level, plus a constraint on the terminal:
+
+| Inner clause | Constraint |
+|---|---|
+| `@color:{red}`, `@color:{red\|blue}` | `TagIn([red, blue])` |
+| `-@color:{red}` | `TagNotIn([red])` |
+| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, same limit as `MAXPREFIXEXPANSIONS`) |
+| no clause on the level | `Any` |
+| `@year:[lo hi]` on a `BUCKETS` middle level | `BucketRange { start, end }`, aligned on bucket boundaries in v1 (§2, "Optional limits") |
+| `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
+| `@price` absent | terminal range `[-inf, +inf]` |
+
+An `|` across sub-fields inside the group (`@color:{red} | @size:{M}`) becomes **disjunctive
+normal form**: each branch is its own conjunction, planned separately, and the branches are UNIONed.
+Cap the number of branches (`NESTED_MAX_DNF_BRANCHES`, proposed 16) and fail the query with a
+clear error past it. A clause on something that isn't a sub-field of the group is a parse error.
+
+### Step 2: walk the tree to collect terminals
+
+`CompoundIndex::collect_terminals` walks the routing levels with one constraint each:
+
+```
+TagIn(set)       → for v in set: if let Some(c) = node.children.find(v) { walk(c) }
+TagPrefix(p)     → for (_, c) in node.children.prefixed_iter(p): walk(c)
+TagNotIn(set)    → for (v, c) in node.children.iter(): if v ∉ set { walk(c) }
+BucketRange(r)   → for c in the slots of the buckets inside r: walk(c)
+Any              → for every child c: walk(c)
+at the terminal depth: return the terminal
+```
+
+For each terminal returned, build an existing iterator:
+
+- **Numeric terminal**: `build_numeric_filter_iterator` over **that** terminal's tree, which is
+  already a union of the overlapping leaves
+  ([numeric.rs](../../src/redisearch_rs/rqe_iterators/src/inverted_index/numeric.rs)).
+- **Tag terminal**: one inverted-index iterator per allowed value, or a UNION of them.
+
+Then **UNION all terminal iterators** (`union_opaque::build_union`, heap mode when many). The
+UNION and `read_skip_multi` remove duplicate doc ids, so each doc comes out once. The group's
+iterator is the result, in doc-id order, so it composes with outer INTERSECT, UNION, NOT and
+OPTIONAL with no change to them.
+
+### Why every shape is correct, not only the full prefix
+
+A doc id in a terminal stands for an element whose values on every level are exactly that path.
+If the walk only enters children that satisfy each level's constraint, and the terminal's
+iterator applies the last constraint, every doc returned has an element satisfying **all** the
+group's conditions. Skipping a level (`Any`) makes the walk wider, never less correct. So unlike
+a prefix-only compound index, **no fallback to a different matcher is needed**, as long as every
+condition is on an indexed level. That is guaranteed by the "every sub-field is a level" rule in
+§2. The crate's property test checks this walk against a brute-force filter over the inserted
+elements.
+
+### The shapes a query can take
+
+Using the running example's `INDEX 3 color size price`:
+
+| Query group | Walk | Terminals read |
+|---|---|---|
+| `color=red, size=M, price<30` | 2 lookups, 1 range | 1 |
+| `color={red\|blue}, size=M` | 2 × 1 lookup, full range | 2 |
+| `color=red, price<30` (size skipped) | 1 lookup, then all sizes under red | sizes(red) |
+| `size=M, price<30` (color skipped) | all colors, then 1 lookup each | colors |
+| `color=re*` | prefix walk | children under the matching colors |
+| `color≠red` | all colors but red | colors − 1 |
+| `price<30` only | every terminal | all |
+| `@color:{red} \| @size:{M}` | DNF: 2 walks, UNION | union of both |
+| `-@items:( color=red )` | the group as above, then the outer NOT | — (doc level: no red element) |
+
+### Step 3: estimates and guardrails
+
+- **Estimate**: the group's `num_estimated` is the sum of the visited terminals' `unique_docs`.
+  The outer INTERSECT uses this to order its children, so a selective group drives the
+  intersection.
+- **Expansion cap**: `collect_terminals` takes `NESTED_MAX_TERMINALS_PER_QUERY` (proposed 10K) as
+  its limit, and fails the query instead of truncating. Silent truncation, as prefix expansion
+  does today, would return wrong results.
+- **Profile**: `FT.PROFILE` shows a `NESTED` iterator with `terminals_visited`, `levels_fixed` and
+  the per-terminal children. That makes a badly ordered `INDEX` visible.
+
+### Later: making wide walks cheaper
+
+Two options, both deferred until measurements show a need:
+
+1. **Level postings**: an internal node optionally keeps a deduplicated doc-id posting of
+   everything below it. `@items:( color=red )` with every later level `Any` then reads one list
+   instead of unioning every size's terminal. It costs memory roughly equal to one TAG index per
+   materialised level. Possible syntax: `INDEX 3 color size price MATERIALIZE 1 color`.
+2. **Several indexes per group** with a cost-based choice: `INDEX …` repeated, the planner picks
+   the index with the longest constrained prefix, then the smallest estimated terminals. This
+   is MongoDB's model. v1 has one index per group, so the planner only ever chooses between
+   walks, never between indexes.
+
+---
+
+## 6. What this design does not cover
+
+- Sub-fields outside the index, TEXT, GEO, GEOSHAPE and VECTOR sub-fields, and arrays inside
+  arrays (general element matching, with element positions in postings or hidden
+  sub-documents).
+- NUMERIC on a non-terminal level without `BUCKETS`, and unaligned ranges on a bucketed middle
+  level.
+- Using the matched element's value in the pipeline. A natural follow-up: a NUMERIC terminal's
+  reader already decodes the value, so the group iterator could expose it as `@items.price` in
+  the result for SORTBY/APPLY. With several matching elements the rule (min, max or first) has to
+  be specified.
+- Returning only the matched elements.
+- Coordinator changes: none are expected, since matching is per document, so per shard. The
+  coordinator only has to forward the new syntax untouched.
+
+---
+
+## 7. PR stack
+
+Each PR builds on the one before it.
+
+1. **This document and the routing layer**: the `compound_index` crate with tag and bucket levels,
+   per-node cardinality limits, atomic path insert, the constraint walk with its terminal cap,
+   and `retain_terminals`. Pure Rust, tested under `miri`, including a property test against a
+   brute-force filter.
+2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting a
+   row into a terminal, the iterator builders (one numeric filter iterator or tag iterator per
+   terminal, UNIONed), and the per-terminal stats.
+3. **Schema**: `INDEXFLD_T_NESTED`, `nestedOpts`, the FFI crate `c_entrypoint/compound_index_ffi`,
+   `FT.CREATE` parsing and validation (including `MAXCARD`, `BUCKETS`, `RANGE`), `FT.INFO`, and the
+   spec RDB block with `INDEX_NESTED_VERSION`. Python tests for create and reject cases, and a
+   `DEBUG RELOAD` round-trip of the spec.
+4. **Ingest**: element rows in `document_basic.c`, the preprocessor, bulk add and apply, error
+   cases (missing attribute, multi-valued sub-path, limits).
+5. **Parser and AST**: `NESTED_MODIFIER`, scoped field lookup, `QN_NESTED`. Parser tests,
+   including a group on a non-NESTED field, which must keep today's text meaning.
+6. **Planner and eval**: `nested.rs` with normalisation into `Constraint`s, DNF, estimates, caps
+   and profile output. Python correctness tests against a brute-force evaluator on random
+   documents, for every shape in the §5 table.
+7. **GC**: the compound scanner, fork deltas keyed by path, pruning with `retain_terminals`. Tests
+   for update/delete churn followed by GC, checking that terminal and memory counts drop.
+8. **Benchmarks**: shard-sized data (about 55K docs × 280 elements), comparing the full prefix, a
+   skipped level and range-only against one NUMERIC field per combination.
+
+## 8. Open questions
+
+- Should the parser conflict be solved in the lexer (`NESTED_MODIFIER`), or with new syntax that
+  doesn't overlap `@f:(text)`?
+- Error or warning when the expansion cap is hit? This design says error. Product may prefer a
+  warning with partial results, as prefix queries do today.
+- Should v1 already allow sub-fields that aren't index levels, served by a slower
+  "filter on load" path, or keep the strict rule?
+- Default values for `NESTED_MAX_ELEMENTS`, `NESTED_MAX_TERMINALS` and the per-query cap.
+- When a value breaks `MAXCARD`, `BUCKETS` or `RANGE`: reject the whole document (proposed), or
+  index the document without the offending element?
+- Should `MAXCARD` count distinct values per parent node (as the routing layer does, which bounds
+  fan-out exactly) or across the whole level (easier to explain, but a looser bound)?
