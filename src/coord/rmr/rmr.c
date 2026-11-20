@@ -87,17 +87,6 @@ typedef struct MRCtx {
 
   MRCtxBeforeFanoutCB beforeFanout;
 
-  /**
-   * This is a reduce function inside the MRCtx.
-   * if set when replies will arrive we will not
-   * unblock the client and instead the reduce function
-   * will be called directly. This mechanism allows us to
-   * send commands and base on the response send more commands
-   * and do more aggregations. Only the last command/commands sent
-   * needs to unblock the client.
-   */
-  MRReduceFunc fn;
-
   MRCtxFreePrivDataCB freePrivDataCB;
 } MRCtx;
 
@@ -119,7 +108,6 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   if (ctx) {
     MRCommand_SetProtocol(&ret->cmd, ctx);
   }
-  ret->fn = NULL;
   ret->ioRuntime =
       MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->freePrivDataCB = NULL;
@@ -175,24 +163,8 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
 }
 
-int MRCtx_GetNumReplied(struct MRCtx *ctx) {
-  return ctx->numReplied;
-}
-
-MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
-  return ctx->replies;
-}
-
 RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx) {
   return ctx->redisCtx;
-}
-
-RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx) {
-  return ctx->bc;
-}
-
-void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
-  ctx->fn = fn;
 }
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
@@ -253,11 +225,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
-    if (ctx->fn) {
-      ctx->fn(ctx, ctx->numReplied, ctx->replies);
-    } else {
-      unblockFanout(ctx, true);
-    }
+    unblockFanout(ctx, true);
     MRCtx_DecrRef(ctx);
   }
 }
@@ -302,7 +270,6 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd) {
       RedisModule_BlockClient(mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
   RedisModule_BlockClientSetPrivateData(mrctx->bc, mrctx);
   RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
-  // The IO-thread reduce function may already be set with no unblock reducer.
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
 

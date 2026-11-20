@@ -14,7 +14,7 @@
 #include <string.h>
 #include "redismodule.h"
 #include "coord/rmr/command.h"
-#include "coord/special_case_ctx.h"
+#include "coord/knn_context.h"
 #include "config.h"
 #include "vector_index.h"
 

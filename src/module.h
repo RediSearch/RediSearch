@@ -17,7 +17,7 @@
 #include <util/heap.h>
 #include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
-#include "coord/special_case_ctx.h"
+#include "coord/knn_context.h"
 #include "rs_wall_clock.h"
 #include "thpool/thpool.h"
 #include "profile/options.h"
@@ -125,14 +125,14 @@ typedef struct searchRequestCtx {
   int noContent;
   uint32_t format; // QEXEC_FORMAT_EXPAND or QEXEC_FORMAT_DEFAULT (0 implies STRING)
 
-  specialCaseCtx** specialCases;
+  knnContext *knn;
+  const char *sortKey;
   const char** requiredFields;
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
-  void *reducer;
   bool queryOOM;
   bool timedOut;
 
@@ -168,9 +168,10 @@ void searchRequestCtx_Free(searchRequestCtx *r);
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
 // `params` is the request's parsed PARAMS dict (NULL if none); it is only read.
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status);
+knnContext *prepareOptionalKnnContext(const char *query_string, size_t query_len, dict *params,
+                                      uint dialectVersion, QueryError *status);
 
-void SpecialCaseCtx_Free(specialCaseCtx* ctx);
+void KnnContext_Free(knnContext *ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
 

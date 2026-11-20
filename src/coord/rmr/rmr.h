@@ -123,12 +123,6 @@ void MR_UnlockGIL(RedisModuleCtx *ctx);
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
-int MRCtx_GetNumReplied(struct MRCtx *ctx);
-MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
-RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
-void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
-
-// Available before fanout when MR_CreateCtx received a RedisModuleCtx.
 
 void MRCtx_IncrRef(struct MRCtx *ctx);
 void MRCtx_DecrRef(struct MRCtx *ctx);
