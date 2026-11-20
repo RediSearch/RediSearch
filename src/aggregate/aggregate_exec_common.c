@@ -78,7 +78,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
 // resume command while it is in flight.
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
+static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimits *limits) {
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -90,7 +90,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
+    if (limits && QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -99,7 +99,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
+static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimits *limits) {}
 #endif
 
 SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
@@ -115,9 +115,9 @@ SearchResult **Pipeline_CollectResults(ResultProcessor *rp, const CommonPipeline
     }
     if (chunk) {
       rp->parent->resultLimit--;
-      debugCheckAndPauseAfterAggregateResult(chunk->areq);
-      if (chunk->areq && (QueryRequestLimits_IsMemoryStopped(&chunk->areq->base.limits) ||
-                          QueryRequestLimits_IsBlockedClientTimedOut(&chunk->areq->base.limits))) {
+      debugCheckAndPauseAfterAggregateResult(chunk->rowLimits);
+      if (chunk->rowLimits && (QueryRequestLimits_IsMemoryStopped(chunk->rowLimits) ||
+                               QueryRequestLimits_IsBlockedClientTimedOut(chunk->rowLimits))) {
         *rc = RS_RESULT_STOPPED;
         break;
       }

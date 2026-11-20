@@ -45,11 +45,9 @@ typedef struct CommonPipelineCtx {
   const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
-  // AREQ for the request being executed; consulted by the row collector (and
-  // its debug pause loop) to observe the request timeout. NULL on paths without
-  // a single owning AREQ (e.g. hybrid).
-  // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
-  struct AREQ *areq;
+  // Hybrid applies the outer request's policy but checks the search subquery
+  // for a stop while collecting buffered rows.
+  const struct QueryRequestLimits *rowLimits;
 } CommonPipelineCtx;
 
 // A chunk observes its row budget and stop conditions. A complete coordinator
