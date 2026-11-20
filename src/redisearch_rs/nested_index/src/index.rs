@@ -36,10 +36,11 @@ pub struct IndexDelta {
     /// Terminals created, one per new path.
     pub new_terminals: usize,
     /// The change in the number of records, as the spec counts them. For a numeric terminal this
-    /// is the tree's own count, as for a NUMERIC field: a split re-adds entries to the new
-    /// ranges, and a rebalance that drops a retained inner range removes its entries, so one add
-    /// can raise or lower it. For a tag terminal it is one per distinct value per document, as for
-    /// a TAG field: a document counts once per distinct (path, value) pair.
+    /// is the tree's own [`AddResult::num_records_delta`], as for a NUMERIC field, so one add can
+    /// raise or lower it. For a tag terminal a document counts once per distinct (path, value)
+    /// pair, as for a TAG field.
+    ///
+    /// [`AddResult::num_records_delta`]: numeric_range_tree::AddResult::num_records_delta
     pub records: i64,
     /// The change, in bytes, of the postings' memory, including the initial range of each new
     /// numeric terminal.
@@ -98,6 +99,7 @@ impl NestedIndex {
         elements: &[Element<'_>],
         params: IndexParams,
     ) -> Result<IndexDelta, IndexError> {
+        debug_assert_ne!(doc_id, 0, "doc ids start at 1");
         if doc_id <= self.last_doc_id {
             return Err(IndexError::DocIdNotIncreasing {
                 doc_id,

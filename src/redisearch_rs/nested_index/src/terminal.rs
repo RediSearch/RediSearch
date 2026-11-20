@@ -44,10 +44,8 @@ impl TerminalKind {
 
 /// The postings at the end of one path: the elements whose routing values are exactly that path.
 ///
-/// A numeric terminal is the `NumericRangeTree` a top-level NUMERIC field uses, so the numeric
-/// iterators that read those fields read it unchanged. A tag terminal is the Rust
-/// [`TagIndex`]; top-level TAG fields still use the C tag index, so reading tag terminals is
-/// the first production use of [`TagIndex`]'s reader.
+/// A numeric terminal is the [`NumericRangeTree`] a top-level NUMERIC field uses, so the numeric
+/// iterators that read those fields read it unchanged. A tag terminal is a [`TagIndex`].
 pub enum Terminal {
     /// A numeric range tree over the elements' last attribute, as for a NUMERIC field.
     Numeric(NumericRangeTree),
