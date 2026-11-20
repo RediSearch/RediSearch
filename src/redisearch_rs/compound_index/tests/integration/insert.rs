@@ -108,3 +108,17 @@ fn a_rejected_insert_leaves_the_index_unchanged() {
         .unwrap();
     assert_eq!(union(&all), vec![1]);
 }
+
+#[test]
+fn a_panicking_init_leaves_the_index_unchanged() {
+    let mut index = Index::new(vec![tag_level_max(1), tag_level()]).unwrap();
+    let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = index.terminal_or_insert_with(&[tag("red"), tag("M")], || panic!("init failed"));
+    }));
+    assert!(attempt.is_err());
+
+    assert!(index.is_empty());
+    // The failed attempt took no slot under the cardinality limit.
+    post(&mut index, &[tag("blue"), tag("M")], 1);
+    assert_eq!(index.num_terminals(), 1);
+}

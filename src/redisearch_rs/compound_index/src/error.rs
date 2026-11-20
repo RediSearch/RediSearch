@@ -12,13 +12,22 @@
 pub enum BucketsError {
     /// Fewer than two boundaries, so no bucket.
     #[error("a bucket level needs at least 2 boundaries, got {got}")]
-    TooFewBoundaries { got: usize },
+    TooFewBoundaries {
+        /// The number of boundaries given.
+        got: usize,
+    },
     /// A boundary is NaN or infinite.
     #[error("bucket boundary {index} is not a finite number")]
-    NotFinite { index: usize },
+    NotFinite {
+        /// The position of the boundary.
+        index: usize,
+    },
     /// A boundary is not greater than the one before it.
     #[error("bucket boundary {index} is not greater than the previous one")]
-    NotIncreasing { index: usize },
+    NotIncreasing {
+        /// The position of the boundary.
+        index: usize,
+    },
 }
 
 /// Why [`CompoundIndex::new`](crate::CompoundIndex::new) rejected a list of levels.
@@ -29,7 +38,12 @@ pub enum SchemaError {
     NoLevels,
     /// More routing levels than [`MAX_LEVELS`](crate::MAX_LEVELS).
     #[error("a compound index supports at most {max} routing levels, got {got}")]
-    TooManyLevels { max: usize, got: usize },
+    TooManyLevels {
+        /// The limit, [`MAX_LEVELS`](crate::MAX_LEVELS).
+        max: usize,
+        /// The number of levels given.
+        got: usize,
+    },
 }
 
 /// Why a path of [`Key`](crate::Key)s does not route through the index.
@@ -37,13 +51,24 @@ pub enum SchemaError {
 pub enum PathError {
     /// The path does not have one key per level.
     #[error("expected one key per level ({expected}), got {got}")]
-    WrongLength { expected: usize, got: usize },
+    WrongLength {
+        /// The number of levels.
+        expected: usize,
+        /// The number given.
+        got: usize,
+    },
     /// A tag key on a bucket level, or a numeric key on a tag level.
     #[error("the key for level {level} does not match the level's type")]
-    KeyMismatch { level: usize },
+    KeyMismatch {
+        /// The position of the level.
+        level: usize,
+    },
     /// A numeric key outside every bucket of its level, or NaN.
     #[error("the value for level {level} is outside the level's buckets")]
-    OutsideBuckets { level: usize },
+    OutsideBuckets {
+        /// The position of the level.
+        level: usize,
+    },
 }
 
 /// Why [`CompoundIndex::terminal_or_insert_with`](crate::CompoundIndex::terminal_or_insert_with)
@@ -56,7 +81,12 @@ pub enum InsertError {
     /// The path needs a new child under a node that already holds its level's
     /// [`max_cardinality`](crate::TagLevel::max_cardinality) children.
     #[error("level {level} already holds its maximum of {max} distinct values under this path")]
-    CardinalityExceeded { level: usize, max: usize },
+    CardinalityExceeded {
+        /// The position of the level.
+        level: usize,
+        /// The level's limit.
+        max: usize,
+    },
 }
 
 /// Why [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) rejected a
@@ -65,14 +95,28 @@ pub enum InsertError {
 pub enum CollectError {
     /// The query does not have one constraint per level.
     #[error("expected one constraint per level ({expected}), got {got}")]
-    WrongLength { expected: usize, got: usize },
+    WrongLength {
+        /// The number of levels.
+        expected: usize,
+        /// The number given.
+        got: usize,
+    },
     /// A tag constraint on a bucket level, or a bucket range on a tag level.
     #[error("the constraint for level {level} does not match the level's type")]
-    ConstraintMismatch { level: usize },
-    /// A [`BucketRange`](crate::BucketRange) end that is not on a bucket boundary.
-    #[error("the range for level {level} must start and end on bucket boundaries")]
-    UnalignedBucketRange { level: usize },
+    ConstraintMismatch {
+        /// The position of the level.
+        level: usize,
+    },
+    /// A [`BucketRange`](crate::BucketRange) that covers part of a bucket, or has a NaN end.
+    #[error("the range for level {level} must cover whole buckets")]
+    UnalignedBucketRange {
+        /// The position of the level.
+        level: usize,
+    },
     /// The walk reached more than the allowed number of terminals.
     #[error("the query reaches more than {max} terminals")]
-    TooManyTerminals { max: usize },
+    TooManyTerminals {
+        /// The limit the walk was given.
+        max: usize,
+    },
 }

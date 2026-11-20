@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::Constraint;
+use compound_index::{Constraint, Key};
 
-use crate::util::{Index, orders, post, tag, tag_level, tag_level_max, union};
+use crate::util::{Index, bucket_level, orders, post, tag, tag_level, tag_level_max, union};
 
 #[test]
 fn retain_removes_the_rejected_terminals() {
@@ -49,4 +49,25 @@ fn retain_keeps_everything_when_asked_to() {
     post(&mut index, &[tag("red"), tag("M")], 1);
     assert_eq!(index.retain_terminals(|_| true), 0);
     assert_eq!(index.num_terminals(), 1);
+}
+
+#[test]
+fn retain_drops_emptied_bucket_children() {
+    let mut index = Index::new(vec![bucket_level(&[0.0, 10.0, 20.0]), tag_level()]).unwrap();
+    post(&mut index, &[Key::Numeric(5.0), tag("x")], 1);
+    post(&mut index, &[Key::Numeric(15.0), tag("x")], 2);
+
+    assert_eq!(index.retain_terminals(|docs| docs != &vec![1]), 1);
+    assert_eq!(
+        index.terminal(&[Key::Numeric(5.0), tag("x")]).unwrap(),
+        None
+    );
+    let all = index
+        .collect_terminals(&[Constraint::Any, Constraint::Any], usize::MAX)
+        .unwrap();
+    assert_eq!(union(&all), vec![2]);
+
+    // The emptied bucket takes a new path again.
+    post(&mut index, &[Key::Numeric(6.0), tag("y")], 3);
+    assert_eq!(index.num_terminals(), 2);
 }

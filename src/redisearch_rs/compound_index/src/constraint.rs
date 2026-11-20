@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ops::Bound;
+
 /// What a query asks of one routing [`Level`](crate::Level).
 ///
 /// [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) takes one
@@ -27,16 +29,20 @@ pub enum Constraint<'a> {
     BucketRange(BucketRange),
 }
 
-/// The half-open range of values `[start, end)` on a [`BucketLevel`](crate::BucketLevel).
+/// A numeric range on a [`BucketLevel`](crate::BucketLevel), with ends like a numeric query
+/// range: inclusive (`[lo`), exclusive (`(lo`), or unbounded (`-inf`, `+inf`).
 ///
-/// Each end must sit on a bucket boundary or outside the buckets (at or below the first boundary,
-/// or at or above the last), so that the range covers whole buckets. A bucket
-/// only partly inside the range would hold elements outside it, and the index keeps no value
-/// below a bucket level to filter them out.
+/// The range selects the buckets lying wholly inside it. A bucket only partly inside it would
+/// hold elements outside the range, and the index keeps no value below a bucket level to filter
+/// them out, so such a range is rejected with
+/// [`CollectError::UnalignedBucketRange`](crate::CollectError::UnalignedBucketRange). Over the
+/// buckets `[2022, 2024)` and `[2024, 2026)`, `[2022 (2024]` selects the first bucket, while
+/// `[2022 2024]` is rejected: it includes 2024, the first value of the second bucket. An end that
+/// is NaN is rejected too, and an empty range selects no bucket.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BucketRange {
-    /// The inclusive start of the range.
-    pub start: f64,
-    /// The exclusive end of the range.
-    pub end: f64,
+    /// The lower end of the range.
+    pub start: Bound<f64>,
+    /// The upper end of the range.
+    pub end: Bound<f64>,
 }

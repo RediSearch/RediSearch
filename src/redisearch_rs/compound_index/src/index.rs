@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Range;
+use std::ops::{Bound, Range};
 
 use trie_rs::TrieMap;
 
@@ -160,21 +160,19 @@ impl<T> CompoundIndex<T> {
         init: impl FnOnce() -> T,
     ) -> Result<&mut T, InsertError> {
         let steps = self.route(path)?;
-        self.check_cardinality(&steps)?;
+        let is_new = self.check_new_path(&steps)?;
+        // Built before anything is inserted, so a panicking `init` leaves the index unchanged.
+        let mut terminal = is_new.then(init);
 
         let levels = &self.levels;
-        let mut init = Some(init);
-        let mut created = false;
         let mut new_node = |depth: usize| -> Box<Node<T>> {
             Box::new(match levels.get(depth) {
                 Some(level) => Node::Inner(Children::for_level(level)),
-                None => {
-                    created = true;
-                    let init = init
+                None => Node::Terminal(
+                    terminal
                         .take()
-                        .expect("only the terminal depth consumes `init`");
-                    Node::Terminal(init())
-                }
+                        .expect("a new path reaches the terminal depth once"),
+                ),
             })
         };
 
@@ -196,7 +194,7 @@ impl<T> CompoundIndex<T> {
                 _ => unreachable!("{INVARIANT}"),
             };
         }
-        if created {
+        if is_new {
             self.num_terminals += 1;
         }
         match node {
@@ -258,11 +256,12 @@ impl<T> CompoundIndex<T> {
             .collect()
     }
 
-    /// Fails if inserting `steps` would add a child beyond a tag level's cardinality limit.
+    /// Whether `steps` leads to a path not inserted yet. Fails if inserting it would add a child
+    /// beyond a tag level's cardinality limit.
     ///
     /// Only the first missing node can break a limit: every node below it is new, so it starts
     /// empty and each limit is at least one.
-    fn check_cardinality(&self, steps: &[Step<'_>]) -> Result<(), InsertError> {
+    fn check_new_path(&self, steps: &[Step<'_>]) -> Result<bool, InsertError> {
         let mut node = &self.root;
         for (level_index, step) in steps.iter().enumerate() {
             let Node::Inner(children) = node else {
@@ -283,18 +282,18 @@ impl<T> CompoundIndex<T> {
                                 max: max.get(),
                             });
                         }
-                        return Ok(());
+                        return Ok(true);
                     }
                 },
                 (Children::Buckets(slots), Step::Bucket(bucket)) => match &slots[*bucket] {
                     Some(child) => child,
-                    None => return Ok(()),
+                    None => return Ok(true),
                 },
                 _ => unreachable!("{INVARIANT}"),
             };
             node = &**child;
         }
-        Ok(())
+        Ok(false)
     }
 
     fn plan<'c>(&self, constraints: &[Constraint<'c>]) -> Result<Vec<LevelPlan<'c>>, CollectError> {
@@ -342,25 +341,79 @@ impl<T> CompoundIndex<T> {
     }
 }
 
-/// The buckets covered by `range`, or [`None`] if an end is not aligned on a boundary.
+/// The buckets lying wholly inside `range`, or [`None`] if a bucket is only partly inside it or
+/// an end is NaN.
 fn bucket_span(buckets: &BucketLevel, range: BucketRange) -> Option<Range<usize>> {
-    let boundaries = buckets.boundaries();
-    let first = boundaries[0];
-    let last = boundaries[boundaries.len() - 1];
-    // Either end may lie outside the buckets: below the first boundary or above the last one.
-    let position = |value: f64| {
-        if value <= first {
-            Some(0)
-        } else if value >= last {
-            Some(buckets.num_buckets())
-        } else {
-            buckets.boundary_position(value)
-        }
+    let is_nan =
+        |bound: Bound<f64>| matches!(bound, Bound::Included(v) | Bound::Excluded(v) if v.is_nan());
+    if is_nan(range.start) || is_nan(range.end) {
+        return None;
+    }
+    // An empty range holds no value, so no bucket is even partly inside it.
+    let is_empty = match (range.start, range.end) {
+        (Bound::Included(start), Bound::Included(end)) => start > end,
+        (
+            Bound::Included(start) | Bound::Excluded(start),
+            Bound::Included(end) | Bound::Excluded(end),
+        ) => start >= end,
+        (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
     };
-    let start = position(range.start)?;
-    let end = position(range.end)?;
-    // An empty or inverted range covers no bucket.
-    Some(start..end.max(start))
+    if is_empty {
+        return Some(0..0);
+    }
+    let mut span: Option<Range<usize>> = None;
+    for (bucket, bounds) in buckets.boundaries().windows(2).enumerate() {
+        match overlap(bounds[0], bounds[1], range) {
+            Overlap::Inside => {
+                let start = span.map_or(bucket, |span| span.start);
+                span = Some(start..bucket + 1);
+            }
+            Overlap::Outside => {}
+            Overlap::Partial => return None,
+        }
+    }
+    // A range is an interval, so the buckets inside it are contiguous.
+    Some(span.unwrap_or(0..0))
+}
+
+/// How the bucket `[lo, hi)` sits relative to a range.
+enum Overlap {
+    /// Every value of the bucket is in the range.
+    Inside,
+    /// No value of the bucket is in the range.
+    Outside,
+    /// Some values of the bucket are in the range and some are not.
+    Partial,
+}
+
+/// Classifies the bucket `[lo, hi)` against `range`, whose ends are not NaN.
+fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
+    // Values just below `hi` belong to the bucket, so `hi` itself bounds them from above.
+    let all_above_start = match range.start {
+        Bound::Unbounded => true,
+        Bound::Included(start) => lo >= start,
+        Bound::Excluded(start) => lo > start,
+    };
+    let all_below_end = match range.end {
+        Bound::Unbounded => true,
+        Bound::Included(end) | Bound::Excluded(end) => hi <= end,
+    };
+    let all_before_start = match range.start {
+        Bound::Unbounded => false,
+        Bound::Included(start) | Bound::Excluded(start) => hi <= start,
+    };
+    let all_after_end = match range.end {
+        Bound::Unbounded => false,
+        Bound::Included(end) => lo > end,
+        Bound::Excluded(end) => lo >= end,
+    };
+    if all_before_start || all_after_end {
+        Overlap::Outside
+    } else if all_above_start && all_below_end {
+        Overlap::Inside
+    } else {
+        Overlap::Partial
+    }
 }
 
 fn collect<'s, T>(
@@ -383,7 +436,7 @@ fn collect<'s, T>(
     let mut visit = |child: &'s Node<T>| collect(child, rest, max_terminals, out);
     match (children, level_plan) {
         (Children::Tag(map), LevelPlan::Any) => {
-            for (_, child) in map.iter() {
+            for child in map.values() {
                 visit(child)?;
             }
         }
@@ -400,7 +453,7 @@ fn collect<'s, T>(
             }
         }
         (Children::Tag(map), LevelPlan::TagPrefix(prefix)) => {
-            for (_, child) in map.prefixed_iter(prefix) {
+            for child in map.prefixed_values(prefix) {
                 visit(child)?;
             }
         }

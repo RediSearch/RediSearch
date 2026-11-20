@@ -101,9 +101,4 @@ impl BucketLevel {
         }
         Some(self.boundaries.partition_point(|b| *b <= value) - 1)
     }
-
-    /// The position of `value` among the boundaries, when it is exactly one of them.
-    pub(crate) fn boundary_position(&self, value: f64) -> Option<usize> {
-        self.boundaries.iter().position(|b| *b == value)
-    }
 }

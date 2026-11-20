@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ops::Bound::{self, Excluded, Included, Unbounded};
+
 use compound_index::{BucketRange, CollectError, Constraint, Key};
 
 use crate::util::{Index, bucket_level, orders, post, tag, tag_in, tag_level, union};
@@ -126,18 +128,8 @@ fn invalid_queries_are_rejected() {
         ),
         (
             "bucket range on a tag level",
-            &[Constraint::Any, range(0.0, 1.0)],
+            &[Constraint::Any, range(Included(0.0), Excluded(1.0))],
             CollectError::ConstraintMismatch { level: 1 },
-        ),
-        (
-            "range start inside a bucket",
-            &[range(2021.0, 2024.0), Constraint::Any],
-            CollectError::UnalignedBucketRange { level: 0 },
-        ),
-        (
-            "range end inside a bucket",
-            &[range(2022.0, 2025.0), Constraint::Any],
-            CollectError::UnalignedBucketRange { level: 0 },
         ),
     ];
     for (name, constraints, expected) in cases {
@@ -149,7 +141,7 @@ fn invalid_queries_are_rejected() {
     }
 }
 
-const fn range(start: f64, end: f64) -> Constraint<'static> {
+const fn range(start: Bound<f64>, end: Bound<f64>) -> Constraint<'static> {
     Constraint::BucketRange(BucketRange { start, end })
 }
 
@@ -168,15 +160,44 @@ fn years() -> Index {
 }
 
 #[test]
-fn aligned_bucket_ranges_select_whole_buckets() {
+fn numeric_ranges_select_the_buckets_wholly_inside_them() {
     let index = years();
     let cases: &[(&str, Constraint<'_>, &[u32])] = &[
-        ("one bucket", range(2022.0, 2024.0), &[1]),
-        ("two buckets", range(2022.0, 2026.0), &[1, 2]),
-        ("open start", range(f64::NEG_INFINITY, 2024.0), &[0, 1]),
-        ("open end", range(2024.0, f64::INFINITY), &[2]),
-        ("empty", range(2022.0, 2022.0), &[]),
-        ("inverted", range(2024.0, 2022.0), &[]),
+        (
+            "[2022 (2024]",
+            range(Included(2022.0), Excluded(2024.0)),
+            &[1],
+        ),
+        (
+            "[2022 (2026]",
+            range(Included(2022.0), Excluded(2026.0)),
+            &[1, 2],
+        ),
+        (
+            "upper end on the last boundary, inclusive",
+            range(Included(2022.0), Included(2026.0)),
+            &[1, 2],
+        ),
+        ("[-inf (2024]", range(Unbounded, Excluded(2024.0)), &[0, 1]),
+        ("[2024 +inf]", range(Included(2024.0), Unbounded), &[2]),
+        (
+            "(2019 (2022]: exclusive start below the first boundary",
+            range(Excluded(2019.0), Excluded(2022.0)),
+            &[0],
+        ),
+        (
+            "ends outside every bucket",
+            range(Included(3000.0), Included(5000.0)),
+            &[],
+        ),
+        ("empty", range(Included(2022.0), Excluded(2022.0)), &[]),
+        (
+            "empty inside a bucket",
+            range(Excluded(2023.0), Included(2023.0)),
+            &[],
+        ),
+        ("inverted", range(Included(2024.0), Included(2022.0)), &[]),
+        ("unbounded", range(Unbounded, Unbounded), &[0, 1, 2]),
     ];
     for (name, constraint, expected) in cases {
         let terminals = index
@@ -184,4 +205,56 @@ fn aligned_bucket_ranges_select_whole_buckets() {
             .unwrap();
         assert_eq!(union(&terminals), *expected, "{name}");
     }
+}
+
+#[test]
+fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
+    let index = years();
+    let cases: &[(&str, Constraint<'_>)] = &[
+        (
+            "[2022 2024]: includes 2024, the first value of the next bucket",
+            range(Included(2022.0), Included(2024.0)),
+        ),
+        (
+            "(2022 (2024]: excludes 2022, the first value of its bucket",
+            range(Excluded(2022.0), Excluded(2024.0)),
+        ),
+        (
+            "start inside a bucket",
+            range(Included(2021.0), Excluded(2024.0)),
+        ),
+        (
+            "end inside a bucket",
+            range(Included(2022.0), Excluded(2025.0)),
+        ),
+        ("NaN start", range(Included(f64::NAN), Unbounded)),
+        ("NaN end", range(Unbounded, Excluded(f64::NAN))),
+        (
+            "NaN on both ends",
+            range(Excluded(f64::NAN), Included(f64::NAN)),
+        ),
+    ];
+    for (name, constraint) in cases {
+        assert_eq!(
+            index
+                .collect_terminals(&[constraint.clone(), Constraint::Any], usize::MAX)
+                .err(),
+            Some(CollectError::UnalignedBucketRange { level: 0 }),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn numeric_keys_route_to_their_bucket() {
+    let index = years();
+    // 2023.5 shares the bucket [2022, 2024) with doc 1's 2022.
+    assert_eq!(
+        index.terminal(&[Key::Numeric(2023.5), tag("x")]).unwrap(),
+        Some(&vec![1])
+    );
+    assert_eq!(
+        index.terminal(&[Key::Numeric(2024.0), tag("y")]).unwrap(),
+        None
+    );
 }
