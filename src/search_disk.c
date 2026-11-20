@@ -841,9 +841,9 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
   disk->index.flushNoWait(index);
 }
 
-bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index) {
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index, bool docTableCompacted) {
   RS_ASSERT(disk && index);
-  return disk->index.compactNonGcStorage(index);
+  return disk->index.compactNonGcStorage(index, docTableCompacted);
 }
 
 void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {

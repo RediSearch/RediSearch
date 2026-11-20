@@ -186,6 +186,8 @@ typedef struct DiskGCRunStats {
   // the disk implementation. Keeping it in this struct lets every per-cycle
   // counter be populated in one place on the disk side.
   size_t cycle_time_ms;
+  // A successful covering doc-table compaction completed in this cycle.
+  bool doc_table_compacted;
 } DiskGCRunStats;
 
 typedef struct SearchDiskResourceConfig {
@@ -727,7 +729,8 @@ typedef struct IndexDiskAPI {
    *         a consistency window). A failed compaction aborts the process, as in
    *         `runGC`.
    */
-  bool (*compactNonGcStorage)(RedisSearchDiskIndexSpec *index);
+  // Skip the doc table only when the preceding GC reported a covering compaction.
+  bool (*compactNonGcStorage)(RedisSearchDiskIndexSpec *index, bool docTableCompacted);
 
   /**
    * @brief Pause background flush and compaction work on the index's database.
