@@ -55,8 +55,9 @@
 use std::ptr::NonNull;
 
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
@@ -249,6 +250,74 @@ pub const fn assert_layout_compatible<A, B>() {
         std::mem::align_of::<A>() == std::mem::align_of::<B>(),
         "alignment mismatch across suspend/resume transition: active and suspended representations must have identical alignment"
     );
+}
+
+/// Compile-time assertion that resuming `I`'s suspended form yields `I`.
+///
+/// Relabelling a slot back to `I` after [`resume_child_slot_in_place`] needs
+/// this type identity; equal layouts alone do not make the value valid as `I`.
+pub const fn assert_resumes_to_itself<I>()
+where
+    I: RQEIteratorBoxed<'static>,
+    I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
+{
+}
+
+/// Suspend, in place, an iterator whose only [`Ref`](ref_mode::Ref)-dependent
+/// state is the owned result `result` projects onto, returning `slot` as its
+/// suspended form `S`. The allocation never moves.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `A`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `S` is `A` with that field
+///    retyped to a [`Suspended`] [`RawIndexResult`]: same layout, and every
+///    other field valid unchanged at `S`.
+pub(crate) unsafe fn suspend_owned_result_in_place<'index, A, S>(
+    mut slot: NonNull<A>,
+    result: impl FnOnce(&mut A) -> &mut RSIndexResult<'index>,
+) -> NonNull<S> {
+    const { assert_layout_compatible::<A, S>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+    // Caller's 2: every field is now valid at `S`.
+    slot.cast::<S>()
+}
+
+/// Reverse [`suspend_owned_result_in_place`], returning `slot` as its active
+/// form `A`.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `S`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `A` is `S` with that field
+///    retyped to an [`Active`] [`RSIndexResult`] for `'a`: same layout, and
+///    every other field valid unchanged at `A`.
+/// 3. The preconditions of [`RawIndexResult::into_active`] hold for that field
+///    at `'a`.
+pub(crate) unsafe fn resume_owned_result_in_place<'query, 'a, S, A>(
+    mut slot: NonNull<S>,
+    result: impl FnOnce(&mut S) -> &mut RawIndexResult<'query, Suspended>,
+) -> NonNull<A>
+where
+    'query: 'a,
+{
+    const { assert_layout_compatible::<S, A>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    // 3. Caller's 3.
+    unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+    // Caller's 2: every field is now valid at `A`.
+    slot.cast::<A>()
 }
 
 /// Suspend a single child slot in place: read the value out, call its
