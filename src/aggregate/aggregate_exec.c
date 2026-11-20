@@ -443,7 +443,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   CommonPipelineCtx ctx = {
     .limits = &req->base.limits,
     .oomPolicy = req->base.reqConfig.oomPolicy,
-    .areq = req,
+    .rowLimits = &req->base.limits,
   };
 
 #ifdef ENABLE_ASSERT
