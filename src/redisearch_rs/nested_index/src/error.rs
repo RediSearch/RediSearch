@@ -17,6 +17,14 @@ pub enum IndexError {
     /// limit.
     #[error(transparent)]
     Path(#[from] InsertError),
+    /// The document's id is not greater than the last one indexed.
+    #[error("doc id {doc_id} is not greater than the last one indexed, {last}")]
+    DocIdNotIncreasing {
+        /// The document's id.
+        doc_id: rqe_core::DocId,
+        /// The last doc id indexed.
+        last: rqe_core::DocId,
+    },
     /// An element's terminal value is numeric for a TAG terminal, or the reverse.
     #[error("element {element} has a value of the wrong type for this index")]
     ValueMismatch {

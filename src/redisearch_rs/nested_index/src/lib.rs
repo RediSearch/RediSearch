@@ -24,4 +24,4 @@ mod terminal;
 pub use compound_index::CompoundIndex;
 pub use error::IndexError;
 pub use index::{Element, IndexDelta, IndexParams, NestedIndex};
-pub use terminal::{FloatCompression, Terminal, TerminalKind, TerminalKindTag, TerminalValue};
+pub use terminal::{FloatCompression, Terminal, TerminalKind, TerminalValue};

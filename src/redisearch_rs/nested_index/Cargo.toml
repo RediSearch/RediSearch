@@ -25,8 +25,8 @@ thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-compound_index.workspace = true
-numeric_range_tree.workspace = true
+# `unittest` runs the tree's own delta and invariant checks on every add.
+numeric_range_tree = { workspace = true, features = ["unittest"] }
 tag_index = { workspace = true, features = ["test-utils"] }
 nested_index = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true

@@ -29,15 +29,23 @@ pub struct IndexParams {
     pub max_depth_range: usize,
 }
 
-/// What indexing one document changed, for the spec's statistics.
+/// What indexing one document changed, in the units a top-level field reports to the spec's
+/// statistics, so the caller folds it in the same way.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IndexDelta {
     /// Terminals created, one per new path.
     pub new_terminals: usize,
-    /// Postings written: one per numeric value, one per distinct tag value per terminal.
-    pub records: usize,
-    /// The change, in bytes, of the postings' memory.
+    /// The change in the number of records, as the spec counts them. For a numeric terminal this
+    /// is the tree's own count, as for a NUMERIC field: a split re-adds entries to the new
+    /// ranges, and a rebalance that drops a retained inner range removes its entries, so one add
+    /// can raise or lower it. For a tag terminal it is one per distinct value per document, as for
+    /// a TAG field.
+    pub records: i64,
+    /// The change, in bytes, of the postings' memory, including the initial range of each new
+    /// numeric terminal.
     pub size_delta: i64,
+    /// The change in the number of posting-list blocks.
+    pub block_delta: i64,
 }
 
 /// The index of one NESTED field. See the [crate documentation](crate).
@@ -45,6 +53,8 @@ pub struct NestedIndex {
     routing: CompoundIndex<Terminal>,
     terminal_kind: TerminalKind,
     num_records: usize,
+    /// The last document indexed, `0` before the first one; doc ids start at 1.
+    last_doc_id: DocId,
 }
 
 impl NestedIndex {
@@ -54,6 +64,7 @@ impl NestedIndex {
             routing: CompoundIndex::new(levels)?,
             terminal_kind,
             num_records: 0,
+            last_doc_id: 0,
         })
     }
 
@@ -67,27 +78,34 @@ impl NestedIndex {
         self.terminal_kind
     }
 
-    /// The postings written and not yet collected.
+    /// The records written and not yet collected, counted as [`IndexDelta::records`] counts them.
     pub const fn num_records(&self) -> usize {
         self.num_records
     }
 
     /// Indexes every element of the document `doc_id`.
     ///
-    /// Every element is checked first: its terminal value type, NaN, its path, and the cardinality
-    /// limits for all the document's paths together. Only then is anything written, so an error
-    /// leaves the index unchanged.
+    /// Everything is checked first: `doc_id` must be greater than every doc id indexed before, as
+    /// for any posting list; each element's value must have the terminal's type and not be NaN;
+    /// and all the document's paths must route and fit the cardinality limits together. Only then
+    /// is anything written, so an error leaves the index unchanged.
     ///
-    /// `doc_id` must be greater than every doc id indexed before, as for any posting list. Several
-    /// elements of one document may share a path; their values all land in the same terminal.
+    /// Several elements of one document may share a path; their values all land in the same
+    /// terminal.
     pub fn index_document(
         &mut self,
         doc_id: DocId,
         elements: &[Element<'_>],
         params: IndexParams,
     ) -> Result<IndexDelta, IndexError> {
+        if doc_id <= self.last_doc_id {
+            return Err(IndexError::DocIdNotIncreasing {
+                doc_id,
+                last: self.last_doc_id,
+            });
+        }
         for (position, element) in elements.iter().enumerate() {
-            if element.value.kind() != self.terminal_kind.tag() {
+            if !self.terminal_kind.accepts(&element.value) {
                 return Err(IndexError::ValueMismatch { element: position });
             }
             if let TerminalValue::Numeric(value) = element.value
@@ -99,33 +117,52 @@ impl NestedIndex {
         let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
         self.routing.check_paths(&paths)?;
 
-        let terminals_before = self.routing.num_terminals();
         let kind = self.terminal_kind;
         let mut delta = IndexDelta::default();
         for element in elements {
-            // Cannot fail: `check_paths` accepted every path together.
+            let mut created = false;
             let terminal = self
                 .routing
-                .terminal_or_insert_with(element.path, || Terminal::new(kind))?;
+                .terminal_or_insert_with(element.path, || {
+                    created = true;
+                    Terminal::new(kind)
+                })
+                .expect("check_paths accepted every path of the document together");
+            if created {
+                delta.new_terminals += 1;
+            }
             match (terminal, element.value) {
                 (Terminal::Numeric(tree), TerminalValue::Numeric(value)) => {
-                    // A NESTED element has no field expiration, and a document with several
-                    // elements on one path is multi-valued in that terminal.
+                    if created {
+                        // A new tree starts with one empty range, which a NUMERIC field counts
+                        // when it creates its tree.
+                        delta.size_delta += tree.inverted_indexes_size() as i64;
+                    }
+                    // A NESTED element has no field expiration. Several elements of one document
+                    // may share a terminal, which makes the document multi-valued there; doc ids
+                    // increase across documents, checked above, so accepting a repeated doc id
+                    // admits nothing else.
                     let added = tree.add(doc_id, value, false, true, params.max_depth_range);
-                    delta.records += 1;
+                    delta.records += i64::from(added.num_records_delta);
                     delta.size_delta += added.size_delta;
+                    delta.block_delta += i64::from(added.block_count_delta);
                 }
                 (Terminal::Tag(tags), TerminalValue::Tag(tag)) => {
                     let written = tags.index(&[tag], doc_id, false);
                     tags.commit(&[tag]);
-                    delta.records += written.num_records as usize;
+                    delta.records += i64::from(written.num_records);
                     delta.size_delta += written.size_delta as i64;
+                    delta.block_delta += i64::from(written.blocks_added);
                 }
-                _ => unreachable!("value kinds were checked against the terminal kind"),
+                _ => unreachable!("value types were checked against the terminal kind"),
             }
         }
-        delta.new_terminals = self.routing.num_terminals() - terminals_before;
-        self.num_records += delta.records;
+        // The tree's own records never drop below zero, so neither does their sum.
+        self.num_records = self
+            .num_records
+            .checked_add_signed(delta.records as isize)
+            .expect("the record count stays non-negative");
+        self.last_doc_id = doc_id;
         Ok(delta)
     }
 }

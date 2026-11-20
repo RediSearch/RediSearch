@@ -7,19 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{Constraint, InsertError, WalkLimits};
-use nested_index::{Element, IndexError, Terminal, TerminalValue};
+use compound_index::{Constraint, InsertError, PathError, WalkLimits};
+use nested_index::{
+    Element, FloatCompression, IndexDelta, IndexError, IndexParams, NestedIndex, Terminal,
+    TerminalKind, TerminalValue,
+};
+use numeric_range_tree::NumericRangeTree;
 
 use crate::util::{PARAMS, elements, item, materials, priced, tag, tag_value};
 
-fn numeric_terminal<'a>(
-    index: &'a nested_index::NestedIndex,
-    color: &str,
-    size: &str,
-) -> &'a numeric_range_tree::NumericRangeTree {
+fn numeric_terminal<'a>(index: &'a NestedIndex, color: &str, size: &str) -> &'a NumericRangeTree {
     match index.routing().terminal(&[tag(color), tag(size)]).unwrap() {
         Some(Terminal::Numeric(tree)) => tree,
-        other => panic!("expected a numeric terminal, got {}", other.is_some()),
+        other => panic!("expected a numeric terminal at ({color}, {size}), got {other:?}"),
     }
 }
 
@@ -63,6 +63,75 @@ fn later_documents_reuse_existing_terminals() {
 }
 
 #[test]
+fn numeric_deltas_add_up_to_the_trees_own_figures() {
+    // Enough distinct values to split leaves, with inner ranges kept two levels deep, so the
+    // tree re-adds entries on splits and drops some on rebalances.
+    let params = IndexParams { max_depth_range: 2 };
+    let mut index = priced(None);
+    let mut total = IndexDelta::default();
+    for doc in 1..=2_000u64 {
+        let delta = index
+            .index_document(doc, &elements(&[item("red", "M", doc as f64)]), params)
+            .unwrap();
+        total.records += delta.records;
+        total.size_delta += delta.size_delta;
+        total.block_delta += delta.block_delta;
+    }
+    let tree = numeric_terminal(&index, "red", "M");
+
+    assert!(
+        tree.num_ranges() > 1,
+        "the values should have split the tree"
+    );
+    // The `unittest` feature makes the tree check each add's delta against its own records.
+    assert_eq!(index.num_records() as i64, total.records);
+    // The deltas include the new tree's first range, so they sum to its whole postings size.
+    assert_eq!(total.size_delta, tree.inverted_indexes_size() as i64);
+    assert!(total.block_delta > 0);
+}
+
+#[test]
+fn compressed_numeric_terminals_index_values() {
+    let mut index = NestedIndex::new(
+        vec![compound_index::Level::Tag(compound_index::TagLevel::new())],
+        TerminalKind::Numeric(FloatCompression::On),
+    )
+    .unwrap();
+    let path = [tag("red")];
+    let doc = [Element {
+        path: &path,
+        value: TerminalValue::Numeric(1.5),
+    }];
+    index.index_document(1, &doc, PARAMS).unwrap();
+
+    let Some(Terminal::Numeric(tree)) = index.routing().terminal(&path).unwrap() else {
+        panic!("expected a numeric terminal");
+    };
+    assert_eq!(tree.num_entries(), 1);
+}
+
+#[test]
+fn infinite_values_are_ordinary_numbers() {
+    let mut index = priced(None);
+    let doc = [
+        item("red", "M", f64::INFINITY),
+        item("red", "M", f64::NEG_INFINITY),
+    ];
+    index.index_document(1, &elements(&doc), PARAMS).unwrap();
+    assert_eq!(numeric_terminal(&index, "red", "M").num_entries(), 2);
+}
+
+#[test]
+fn a_document_without_elements_changes_nothing() {
+    let mut index = priced(None);
+    assert_eq!(
+        index.index_document(1, &[], PARAMS).unwrap(),
+        IndexDelta::default()
+    );
+    assert!(index.routing().is_empty());
+}
+
+#[test]
 fn a_tag_terminal_counts_each_value_once_per_document() {
     let mut index = materials();
     let path = [tag("red")];
@@ -83,11 +152,26 @@ fn a_tag_terminal_counts_each_value_once_per_document() {
     let delta = index.index_document(1, &doc, PARAMS).unwrap();
 
     assert_eq!(delta.records, 2);
+    assert!(delta.size_delta > 0);
     let Some(Terminal::Tag(tags)) = index.routing().terminal(&path).unwrap() else {
         panic!("expected a tag terminal");
     };
     assert_eq!(tags.n_tags(), 2);
     assert_eq!(tags.find_value(b"steel").unwrap().unique_docs(), 1);
+}
+
+#[test]
+fn terminals_report_their_memory() {
+    let mut index = priced(None);
+    index
+        .index_document(1, &elements(&[item("red", "M", 20.0)]), PARAMS)
+        .unwrap();
+    let terminal = index
+        .routing()
+        .terminal(&[tag("red"), tag("M")])
+        .unwrap()
+        .unwrap();
+    assert!(terminal.mem_usage() > 0);
 }
 
 #[test]
@@ -113,9 +197,11 @@ fn walks_find_the_terminals_of_the_indexed_elements() {
 #[test]
 fn rejected_documents_leave_the_index_unchanged() {
     let red_m = [tag("red"), tag("M")];
-    let cases: &[(&str, Vec<Element<'_>>, IndexError)] = &[
+    let red = [tag("red")];
+    let cases: Vec<(&str, NestedIndex, Vec<Element<'_>>, IndexError)> = vec![
         (
             "a tag value for a numeric terminal",
+            priced(None),
             vec![
                 Element {
                     path: &red_m,
@@ -129,30 +215,52 @@ fn rejected_documents_leave_the_index_unchanged() {
             IndexError::ValueMismatch { element: 1 },
         ),
         (
-            "a NaN value",
-            vec![Element {
-                path: &red_m,
-                value: TerminalValue::Numeric(f64::NAN),
-            }],
-            IndexError::NotANumber { element: 0 },
+            "a numeric value for a tag terminal",
+            materials(),
+            vec![
+                Element {
+                    path: &red,
+                    value: tag_value("steel"),
+                },
+                Element {
+                    path: &red,
+                    value: TerminalValue::Numeric(1.0),
+                },
+            ],
+            IndexError::ValueMismatch { element: 1 },
+        ),
+        (
+            "a NaN after a valid value",
+            priced(None),
+            vec![
+                Element {
+                    path: &red_m,
+                    value: TerminalValue::Numeric(1.0),
+                },
+                Element {
+                    path: &red_m,
+                    value: TerminalValue::Numeric(f64::NAN),
+                },
+            ],
+            IndexError::NotANumber { element: 1 },
         ),
         (
             "a path that does not route",
+            priced(None),
             vec![Element {
                 path: &red_m[..1],
                 value: TerminalValue::Numeric(1.0),
             }],
-            IndexError::Path(InsertError::Path(compound_index::PathError::WrongLength {
+            IndexError::Path(InsertError::Path(PathError::WrongLength {
                 expected: 2,
                 got: 1,
             })),
         ),
     ];
-    for (name, doc, expected) in cases {
-        let mut index = priced(None);
+    for (name, mut index, doc, expected) in cases {
         assert_eq!(
-            index.index_document(1, doc, PARAMS).err(),
-            Some(expected.clone()),
+            index.index_document(1, &doc, PARAMS).err(),
+            Some(expected),
             "{name}"
         );
         assert!(index.routing().is_empty(), "{name}");
@@ -174,4 +282,40 @@ fn a_document_breaking_a_cardinality_limit_is_not_indexed_at_all() {
     );
     assert!(index.routing().is_empty());
     assert_eq!(index.num_records(), 0);
+}
+
+#[test]
+fn a_cardinality_limit_counts_values_from_earlier_documents() {
+    let mut index = priced(Some(1));
+    index
+        .index_document(1, &elements(&[item("red", "M", 20.0)]), PARAMS)
+        .unwrap();
+    assert_eq!(
+        index
+            .index_document(2, &elements(&[item("red", "L", 30.0)]), PARAMS)
+            .err(),
+        Some(IndexError::Path(InsertError::CardinalityExceeded {
+            level: 1,
+            max: 1
+        }))
+    );
+    assert_eq!(index.routing().num_terminals(), 1);
+    assert_eq!(index.num_records(), 1);
+}
+
+#[test]
+fn doc_ids_must_increase_across_documents() {
+    let mut index = priced(None);
+    index
+        .index_document(5, &elements(&[item("red", "M", 20.0)]), PARAMS)
+        .unwrap();
+    for doc_id in [5, 4] {
+        assert_eq!(
+            index
+                .index_document(doc_id, &elements(&[item("blue", "L", 1.0)]), PARAMS)
+                .err(),
+            Some(IndexError::DocIdNotIncreasing { doc_id, last: 5 })
+        );
+    }
+    assert_eq!(index.routing().num_terminals(), 1);
 }
