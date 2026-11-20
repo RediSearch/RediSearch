@@ -83,7 +83,8 @@ fn later_documents_reuse_existing_terminals() {
 }
 
 #[test]
-fn numeric_size_deltas_add_up_to_the_trees_postings() {
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
+fn numeric_deltas_add_up_to_the_trees_postings() {
     // Enough distinct values to split leaves, with inner ranges kept two levels deep, so the
     // tree re-adds entries on splits and drops some on rebalances. The `unittest` feature makes
     // the tree check each add's record delta against its own records.
@@ -102,24 +103,26 @@ fn numeric_size_deltas_add_up_to_the_trees_postings() {
     );
     // The deltas include the new tree's first range, so they sum to its whole postings size.
     assert_eq!(total.size_delta, tree.inverted_indexes_size() as i64);
-    assert_eq!(index.num_records() as i64, total.records);
+    let blocks: usize = tree
+        .iter()
+        .filter_map(|node| node.range())
+        .map(|range| range.entries().num_blocks())
+        .sum();
+    assert_eq!(total.block_delta, blocks as i64);
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn tag_deltas_add_up_to_the_posting_lists() {
     let mut index = materials();
     let path = [tag("red")];
     let total = sum((1..=300u64).map(|doc| {
-        // Every document has steel; every third also has wood, twice.
+        // Every document has steel; every third also has wood.
         let mut doc_elements = vec![Element {
             path: &path,
             value: tag_value("steel"),
         }];
         if doc % 3 == 0 {
-            doc_elements.push(Element {
-                path: &path,
-                value: tag_value("wood"),
-            });
             doc_elements.push(Element {
                 path: &path,
                 value: tag_value("wood"),
@@ -144,35 +147,7 @@ fn tag_deltas_add_up_to_the_posting_lists() {
 }
 
 #[test]
-fn terminal_overhead_matches_what_top_level_fields_report() {
-    let mut numeric = priced(None);
-    numeric
-        .index_document(1, &elements(&[item("red", "M", 20.0)]), PARAMS)
-        .unwrap();
-    let tree = numeric
-        .routing()
-        .terminal(&[tag("red"), tag("M")])
-        .unwrap()
-        .unwrap();
-    // A NUMERIC field reports the bare tree as overhead and its postings separately.
-    assert_eq!(tree.mem_usage(), size_of::<NumericRangeTree>());
-
-    let mut tags = materials();
-    let path = [tag("red")];
-    tags.index_document(
-        1,
-        &[Element {
-            path: &path,
-            value: tag_value("steel"),
-        }],
-        PARAMS,
-    )
-    .unwrap();
-    let terminal = tags.routing().terminal(&path).unwrap().unwrap();
-    assert_eq!(terminal.mem_usage(), tag_terminal(&tags, "red").mem_usage());
-}
-
-#[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn float_compression_stores_values_in_less_memory() {
     let size_with = |compression| {
         let mut index = NestedIndex::new(

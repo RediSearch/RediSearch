@@ -9,6 +9,8 @@
 
 //! A document is indexed whole or not at all, checked over generated documents.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use nested_index::{Constraint, NestedIndex, Terminal, WalkLimits};
 use proptest::prelude::*;
 
@@ -42,7 +44,7 @@ fn total_entries(index: &NestedIndex) -> usize {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 128,
+        cases: if cfg!(miri) { 8 } else { 128 },
         failure_persistence: None,
         ..ProptestConfig::default()
     })]
@@ -53,12 +55,27 @@ proptest! {
     ) {
         // Two sizes per color, so some documents break the limit.
         let mut index = priced(Some(2));
+        // The model: the sizes indexed under each color so far.
+        let mut sizes: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
         for (position, doc) in docs.iter().enumerate() {
             let items: Vec<_> = doc.iter().map(|(color, size, price)| item(color, size, *price)).collect();
             let entries_before = total_entries(&index);
             let terminals_before = index.routing().num_terminals();
 
             let result = index.index_document(position as u64 + 1, &elements(&items), PARAMS);
+
+            // Accepted exactly when no price is NaN and no color would end up with more than two
+            // sizes, counting the sizes indexed before and those this document brings.
+            let mut after = sizes.clone();
+            for (color, size, _) in doc {
+                after.entry(*color).or_default().insert(*size);
+            }
+            let accepted = doc.iter().all(|(_, _, price)| !price.is_nan())
+                && after.values().all(|s| s.len() <= 2);
+            prop_assert_eq!(result.is_ok(), accepted);
+            if accepted {
+                sizes = after;
+            }
 
             match result {
                 Ok(_) => prop_assert_eq!(total_entries(&index), entries_before + items.len()),

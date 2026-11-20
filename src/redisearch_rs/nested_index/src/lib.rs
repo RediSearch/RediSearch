@@ -23,9 +23,11 @@ mod terminal;
 
 // The routing types a caller needs to build paths, levels and queries for a `NestedIndex`.
 pub use compound_index::{
-    BucketLevel, BucketRange, CompoundIndex, Constraint, Key, Level, MAX_BUCKETS, MAX_LEVELS,
-    PathError, TagLevel, WalkLimits,
+    BucketLevel, BucketRange, CollectError, CompoundIndex, Constraint, Key, Level, MAX_BUCKETS,
+    MAX_LEVELS, PathError, SchemaError, TagLevel, WalkLimits,
 };
+// The value type of a tag terminal.
 pub use error::IndexError;
 pub use index::{Element, IndexDelta, IndexParams, NestedIndex};
+pub use tag_index::Tag;
 pub use terminal::{FloatCompression, Terminal, TerminalKind, TerminalValue};
