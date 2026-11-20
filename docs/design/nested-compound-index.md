@@ -503,8 +503,10 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    with their limits, path insert that checks before mutating, `check_paths` for a whole
    document, and the constraint walk with its terminal bound and timeout check. Pure Rust,
    tested under `miri`, with property tests against brute-force filters.
-2. **Terminals**: the `nested_index` crate. `Terminal` is a `NumericRangeTree` or a
-   `TagIndex<InMemoryMode>`, the structures top-level NUMERIC and TAG fields use. `NestedIndex`
+2. **Terminals**: the `nested_index` crate. `Terminal` is a `NumericRangeTree`, the tree
+   top-level NUMERIC fields use, or the Rust `TagIndex<InMemoryMode>`. Top-level TAG fields still
+   use the C tag index, so reading tag terminals in the read side (4) is the first production use
+   of the Rust `TagIndex` reader and iterator. `NestedIndex`
    pairs the routing layer with its terminal kind, and `index_document` checks every element of a
    document (value type, NaN, all paths together with `check_paths`) before writing any of them.
    Rust tests linked against the C bundle. Opening iterators on terminals needs the search
@@ -543,6 +545,8 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | Follow-up | Owner |
 |---|---|
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Write side (3), where ingest cost is measured |
+| Float compression is fixed when a `NestedIndex` is created, from `TerminalKind`. A top-level NUMERIC field reads the global setting when its tree is first created. Decide whether NESTED follows the field rule (read the setting per new terminal) or the index rule (fix it at `FT.CREATE`) | Write side (3) |
+| Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Budget test coverage for it | Read side (4) |
 | A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Revalidation must detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | Read side (4), with GC (5) bumping the counter |
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
 | Pass the request timeout (`rqe_iterators`' `TimeoutContextRequest`) to `collect_terminals`, map `CollectError::TimedOut` to the query's timeout error, and drop `max_nodes` from `NestedLimits`. Keep the terminal, reader and branch bounds as internal constants, not `FT.CONFIG` | Read side (4) |
