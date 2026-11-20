@@ -1,0 +1,110 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+use numeric_range_tree::NumericRangeTree;
+use tag_index::{InMemoryMode, Tag, TagIndex};
+
+/// Whether a numeric terminal stores its values with float compression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloatCompression {
+    /// Values are stored as given.
+    Off,
+    /// Values that fit are stored in a smaller representation. See
+    /// [`NumericRangeTree::new`].
+    On,
+}
+
+/// The kind of every [`Terminal`] of a [`NestedIndex`](crate::NestedIndex), set by the type of the
+/// last attribute in `INDEX`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalKind {
+    /// The last attribute is NUMERIC.
+    Numeric(FloatCompression),
+    /// The last attribute is TAG.
+    Tag,
+}
+
+/// The postings at the end of one path: the elements whose routing values are exactly that path.
+///
+/// Both kinds reuse the structures a top-level field of the same type uses, so the iterators that
+/// read those fields today read terminals unchanged.
+pub enum Terminal {
+    /// A numeric range tree over the elements' last attribute, as for a NUMERIC field.
+    Numeric(NumericRangeTree),
+    /// One doc-id posting list per value of the elements' last attribute, as for a TAG field.
+    Tag(TagIndex<InMemoryMode>),
+}
+
+impl Terminal {
+    /// An empty terminal of the given kind.
+    pub fn new(kind: TerminalKind) -> Self {
+        match kind {
+            TerminalKind::Numeric(compression) => Self::Numeric(NumericRangeTree::new(matches!(
+                compression,
+                FloatCompression::On
+            ))),
+            // No suffix trie: NESTED sub-fields reject WITHSUFFIXTRIE.
+            TerminalKind::Tag => Self::Tag(TagIndex::<InMemoryMode>::new(false)),
+        }
+    }
+
+    /// The kind of this terminal.
+    pub const fn kind(&self) -> TerminalKindTag {
+        match self {
+            Self::Numeric(_) => TerminalKindTag::Numeric,
+            Self::Tag(_) => TerminalKindTag::Tag,
+        }
+    }
+
+    /// Bytes the terminal's structures occupy.
+    pub const fn mem_usage(&self) -> usize {
+        match self {
+            Self::Numeric(tree) => tree.mem_usage(),
+            Self::Tag(tags) => tags.mem_usage(),
+        }
+    }
+}
+
+/// Which variant a [`Terminal`] or a [`TerminalValue`] is, without its data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalKindTag {
+    /// [`Terminal::Numeric`] or [`TerminalValue::Numeric`].
+    Numeric,
+    /// [`Terminal::Tag`] or [`TerminalValue::Tag`].
+    Tag,
+}
+
+/// One element's value for the last attribute, the one its terminal stores.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TerminalValue<'a> {
+    /// The value for a NUMERIC terminal.
+    Numeric(f64),
+    /// The value for a TAG terminal, already normalised by the caller.
+    Tag(Tag<'a>),
+}
+
+impl TerminalValue<'_> {
+    /// Which variant this value is.
+    pub const fn kind(&self) -> TerminalKindTag {
+        match self {
+            Self::Numeric(_) => TerminalKindTag::Numeric,
+            Self::Tag(_) => TerminalKindTag::Tag,
+        }
+    }
+}
+
+impl TerminalKind {
+    /// Which variant a terminal of this kind is.
+    pub const fn tag(&self) -> TerminalKindTag {
+        match self {
+            Self::Numeric(_) => TerminalKindTag::Numeric,
+            Self::Tag => TerminalKindTag::Tag,
+        }
+    }
+}
