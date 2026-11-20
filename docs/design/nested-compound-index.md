@@ -276,7 +276,7 @@ Public types, used by the later PRs:
 - **`Key`**: one element's value on one level, `Tag(bytes)` or `Numeric(f64)`. A path is one `Key`
   per level. Ingest builds it from an element's attributes, already normalised (case folding).
 - **`Constraint`**: what a query asks of one level: `Any`, `TagIn`, `TagNotIn`, `TagPrefix`, or
-  `BucketRange`. The planner (sixth PR) turns `@items:( … )` into one `Constraint` per level
+  `BucketRange`. The planner (fourth PR) turns `@items:( … )` into one `Constraint` per level
   (§5, step 1). The terminal attribute's own condition, such as a price range, is not a
   `Constraint`: the terminal applies it.
 - **`BucketRange`**: a numeric range on a bucket level with `Bound` ends (inclusive, exclusive or
@@ -541,30 +541,40 @@ Two options, both deferred until measurements show a need:
 
 ## 7. PR stack
 
-Each PR builds on the one before it.
+Each PR builds on the one before it. PRs 1 and 2 are Rust only. PR 3 is the write side and PR 4
+the read side, each testable end to end on its own. PR 5 reclaims memory: queries already skip
+deleted doc ids, so it is not needed for correctness, but it must land before the feature ships.
 
-1. **This document and the routing layer**: the `compound_index` crate with tag and bucket levels,
-   per-node cardinality limits, atomic path insert, the constraint walk with its terminal cap,
-   and `retain_terminals`. Pure Rust, tested under `miri`, including a property test against a
-   brute-force filter.
-2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting a
-   row into a terminal, the iterator builders (one numeric filter iterator or tag iterator per
-   terminal, UNIONed), and the per-terminal stats.
-3. **Schema**: `INDEXFLD_T_NESTED`, `nestedOpts`, the FFI crate `c_entrypoint/compound_index_ffi`,
-   `FT.CREATE` parsing and validation (including `MAXCARD`, `BUCKETS`, `RANGE`), `FT.INFO`, and the
-   spec RDB block with `INDEX_NESTED_VERSION`. Python tests for create and reject cases, and a
-   `DEBUG RELOAD` round-trip of the spec.
-4. **Ingest**: element rows in `document_basic.c`, the preprocessor, bulk add and apply, error
-   cases (missing attribute, multi-valued sub-path, limits).
-5. **Parser and AST**: `NESTED_MODIFIER`, scoped field lookup, `QN_NESTED`. Parser tests,
-   including a group on a non-NESTED field, which must keep today's text meaning.
-6. **Planner and eval**: `nested.rs` with normalisation into `Constraint`s, DNF, estimates, caps
-   and profile output. Python correctness tests against a brute-force evaluator on random
-   documents, for every shape in the §5 table.
-7. **GC**: the compound scanner, fork deltas keyed by path, pruning with `retain_terminals`. Tests
-   for update/delete churn followed by GC, checking that terminal and memory counts drop.
-8. **Benchmarks**: shard-sized data (about 55K docs × 280 elements), comparing the full prefix, a
-   skipped level and range-only against one NUMERIC field per combination.
+1. **Design and routing layer**: this document and the `compound_index` crate: tag and bucket
+   levels with their limits, path insert that checks before mutating, `check_paths` for a whole
+   document, the constraint walk with its `WalkLimits`, and `retain_terminals`. Pure Rust, tested
+   under `miri`, with property tests against brute-force filters.
+2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting an
+   element's terminal value, the iterator builders (one numeric filter iterator or tag iterator
+   per terminal, UNIONed), and the per-terminal stats the planner uses. Rust tests linked against
+   the C bundle.
+3. **Write side: schema and ingest**:
+   - `INDEXFLD_T_NESTED`, `nestedOpts`, and the FFI crate `c_entrypoint/compound_index_ffi`.
+   - `FT.CREATE` parsing and validation (`NESTED`, `INDEX`, `MAXCARD`, `BUCKETS`, `RANGE`), and
+     `FT.INFO`.
+   - The spec RDB block with `INDEX_NESTED_VERSION`.
+   - Ingest: element rows in `document_basic.c`, the preprocessor, `check_paths` on the whole
+     document, then bulk add and apply. Error cases: missing attribute, multi-valued sub-path,
+     limits.
+   - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, and a
+     `DEBUG RELOAD` round-trip.
+4. **Read side: parser, planner and eval**:
+   - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
+     a non-NESTED field must keep today's text meaning.
+   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, `WalkLimits`, the
+     UNION of terminal iterators, estimates and profile output.
+   - Python correctness tests against a brute-force evaluator on random documents, for every
+     shape in the §5 table.
+   - Benchmarks in the PR description: shard-sized data (about 55K docs × 280 elements), a full
+     prefix, a skipped level and range-only, against one NUMERIC field per combination.
+5. **GC**: the compound scanner, fork-GC deltas keyed by path, and pruning with
+   `retain_terminals`. Tests for update and delete churn followed by GC, checking that terminal
+   and memory counts drop.
 
 ### Follow-ups tracked from review
 
@@ -572,11 +582,11 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 
 | Follow-up | Owner |
 |---|---|
-| GC copies every key of a tag node on each pass, because `TrieMap` has no mutable iterator. Add a `retain` or mutable lending iterator to `trie_rs::TrieMap` | Terminals (2) or GC (7) |
+| GC copies every key of a tag node on each pass, because `TrieMap` has no mutable iterator. Add a `retain` or mutable lending iterator to `trie_rs::TrieMap` | Terminals (2) or GC (5) |
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
-| A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Parser and AST (5) |
-| The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Planner and eval (6) |
-| `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Schema (3) |
+| A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
+| The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Read side (4) |
+| `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Write side (3) |
 | Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
 
 ## 8. Open questions
