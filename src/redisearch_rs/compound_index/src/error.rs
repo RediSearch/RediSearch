@@ -16,6 +16,14 @@ pub enum BucketsError {
         /// The number of boundaries given.
         got: usize,
     },
+    /// More buckets than [`MAX_BUCKETS`](crate::MAX_BUCKETS).
+    #[error("a bucket level supports at most {max} buckets, got {got}")]
+    TooManyBuckets {
+        /// The limit, [`MAX_BUCKETS`](crate::MAX_BUCKETS).
+        max: usize,
+        /// The number of buckets the boundaries define.
+        got: usize,
+    },
     /// A boundary is NaN or infinite.
     #[error("bucket boundary {index} is not a finite number")]
     NotFinite {

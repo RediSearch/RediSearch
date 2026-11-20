@@ -11,6 +11,13 @@ use std::num::NonZeroUsize;
 
 use crate::BucketsError;
 
+/// The most buckets a [`BucketLevel`] accepts.
+///
+/// Every node on a bucket level holds one slot per bucket, used or not, and a walk over the
+/// level reads every slot. The bound keeps both the memory of a node and the work of a walk over
+/// it predictable.
+pub const MAX_BUCKETS: usize = 1024;
+
 /// A routing level of a [`CompoundIndex`](crate::CompoundIndex).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Level {
@@ -63,11 +70,18 @@ pub struct BucketLevel {
 impl BucketLevel {
     /// Builds a bucket level from its boundaries.
     ///
-    /// The boundaries must be finite, strictly increasing, and at least two of them.
+    /// The boundaries must be finite and strictly increasing, and define between one and
+    /// [`MAX_BUCKETS`] buckets.
     pub fn new(boundaries: Vec<f64>) -> Result<Self, BucketsError> {
         if boundaries.len() < 2 {
             return Err(BucketsError::TooFewBoundaries {
                 got: boundaries.len(),
+            });
+        }
+        if boundaries.len() - 1 > MAX_BUCKETS {
+            return Err(BucketsError::TooManyBuckets {
+                max: MAX_BUCKETS,
+                got: boundaries.len() - 1,
             });
         }
         if let Some(index) = boundaries.iter().position(|b| !b.is_finite()) {

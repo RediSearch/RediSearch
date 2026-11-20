@@ -33,7 +33,9 @@ pub struct WalkLimits {
     pub max_terminals: usize,
     /// The most nodes the walk may enter, terminals included. A level a query leaves open is
     /// entered through every child, even when few terminals match below it, so this bounds the
-    /// work of a walk that returns little.
+    /// work of a walk that returns little. On a bucket level the walk also reads the empty slots
+    /// in its range; those are not counted, and [`MAX_BUCKETS`](crate::MAX_BUCKETS) bounds them
+    /// per node entered.
     pub max_nodes: usize,
 }
 

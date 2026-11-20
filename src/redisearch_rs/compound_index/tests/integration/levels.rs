@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{BucketLevel, BucketsError, CompoundIndex, MAX_LEVELS, SchemaError};
+use compound_index::{
+    BucketLevel, BucketsError, CompoundIndex, MAX_BUCKETS, MAX_LEVELS, SchemaError,
+};
 use proptest::prelude::*;
 
 use crate::util::{Index, tag_level};
@@ -116,4 +118,17 @@ fn an_index_needs_between_one_and_max_levels() {
     );
     let most = (0..MAX_LEVELS).map(|_| tag_level()).collect();
     assert!(Index::new(most).is_ok());
+}
+
+#[test]
+fn a_bucket_level_holds_at_most_max_buckets() {
+    let boundaries = |buckets: usize| (0..=buckets).map(|b| b as f64).collect::<Vec<_>>();
+    assert!(BucketLevel::new(boundaries(MAX_BUCKETS)).is_ok());
+    assert_eq!(
+        BucketLevel::new(boundaries(MAX_BUCKETS + 1)),
+        Err(BucketsError::TooManyBuckets {
+            max: MAX_BUCKETS,
+            got: MAX_BUCKETS + 1
+        })
+    );
 }
