@@ -252,6 +252,58 @@ The index has two layers:
 Keeping the routing layer generic over `T` is also what makes the Flex design in §4 possible: only
 the terminal type changes.
 
+### Main types of the routing layer
+
+The crate is built around one rule: **check everything first, then touch the tree**. Writes check
+a whole path, or a whole document's paths, before inserting anything. Queries check every
+constraint before visiting any node. A bad path or query is rejected up front, and the only
+errors left during a walk are its `WalkLimits`.
+
+Public types, used by the later PRs:
+
+- **`CompoundIndex<T>`**: the tree. It holds the routing levels, one root node, and a terminal of
+  type `T` at the end of each distinct path. It is generic over `T` so the routing logic does not
+  depend on how postings are stored: a range tree or tag postings in RAM (second PR), postings on
+  disk for Flex (§4).
+- **`Level`**: one routing level, `Tag(TagLevel)` or `Buckets(BucketLevel)`, fixed at creation in
+  `INDEX` order. Each node stores its children according to its level's kind.
+  - **`TagLevel`**: children keyed by exact value in a `TrieMap`, the structure the TAG index
+    uses. Its optional `max_cardinality` (`MAXCARD`) caps the children of each node, which bounds
+    both memory and the fan-out of a walk.
+  - **`BucketLevel`**: fixed half-open buckets `[bᵢ, bᵢ₊₁)` with one slot per bucket on every
+    node, so a numeric value routes by array index. At most `MAX_BUCKETS` buckets, because every
+    node pays for every slot (§2, "Limitation").
+- **`Key`**: one element's value on one level, `Tag(bytes)` or `Numeric(f64)`. A path is one `Key`
+  per level. Ingest builds it from an element's attributes, already normalised (case folding).
+- **`Constraint`**: what a query asks of one level: `Any`, `TagIn`, `TagNotIn`, `TagPrefix`, or
+  `BucketRange`. The planner (sixth PR) turns `@items:( … )` into one `Constraint` per level
+  (§5, step 1). The terminal attribute's own condition, such as a price range, is not a
+  `Constraint`: the terminal applies it.
+- **`BucketRange`**: a numeric range on a bucket level with `Bound` ends (inclusive, exclusive or
+  unbounded), like a query's `[lo hi]`. It selects the buckets wholly inside it and is rejected if
+  one is only partly inside, since nothing below a bucket level can filter the elements outside
+  the range.
+- **`WalkLimits`**: the two budgets of one walk. `max_terminals` bounds how many terminals it
+  returns, so the number of iterators the UNION opens. `max_nodes` bounds how many nodes it
+  enters, so the work of a query that leaves a level open and matches little. Past either one,
+  the walk fails rather than returning a truncated, wrong result.
+- **`num_terminals`**: a running count of terminals, so `FT.INFO` and the ingest cap
+  `NESTED_MAX_TERMINALS` read it without a walk. It changes in exactly two places: +1 when an
+  insert creates a path, −1 when retain drops a terminal. Retain decrements per terminal, so the
+  count stays exact even if its callback panics.
+- **Errors**: `SchemaError` (levels), `BucketsError` (boundaries), `PathError` (a path that does not
+  route), `InsertError` (adds the cardinality limit), `CollectError` (adds the walk limits). Each
+  names the level at fault, so the C side can build a user-facing message.
+
+Internal types, private to the crate, that carry the "check first" rule:
+
+- **`Step`**: a `Key` after it is checked against its level. `route()` produces one per level, a
+  tag value or a bucket index, or a `PathError`. Every later walk over the path (lookup, insert,
+  cardinality check) uses `Step`s and never re-checks them.
+- **`LevelPlan`**: a `Constraint` after it is checked and prepared for its level. Sets are sorted
+  and deduplicated, and a `BucketRange` becomes a range of slot indexes. The walk reads
+  `LevelPlan`s, so this preparation runs once per query instead of once per node.
+
 ### Ingest path
 
 1. **Load** (`document_basic.c`): for a NESTED field, `JSON_GetWithCompiledPath(root, path)`
