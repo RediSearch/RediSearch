@@ -44,8 +44,10 @@ impl TerminalKind {
 
 /// The postings at the end of one path: the elements whose routing values are exactly that path.
 ///
-/// Both kinds reuse the structures a top-level field of the same type uses, so the iterators that
-/// read those fields today read terminals unchanged.
+/// A numeric terminal is the `NumericRangeTree` a top-level NUMERIC field uses, so the numeric
+/// iterators that read those fields read it unchanged. A tag terminal is the Rust
+/// [`TagIndex`]; top-level TAG fields still use the C tag index, so reading tag terminals is
+/// the first production use of [`TagIndex`]'s reader.
 pub enum Terminal {
     /// A numeric range tree over the elements' last attribute, as for a NUMERIC field.
     Numeric(NumericRangeTree),
@@ -66,12 +68,15 @@ impl Terminal {
         }
     }
 
-    /// The structures' own overhead, as each field type reports it in `FT.INFO`: for a numeric
-    /// terminal the whole tree ([`NumericRangeTree::mem_usage`]), for a tag terminal the value
-    /// trie only ([`TagIndex::mem_usage`]), its postings being counted separately.
+    /// The terminal's overhead, excluding its postings, as `FT.INFO` reports overhead for a
+    /// top-level field of the same type: the tree struct for a numeric terminal, the value trie
+    /// for a tag terminal. Postings are counted separately, through [`IndexDelta::size_delta`];
+    /// summing both never counts a byte twice.
+    ///
+    /// [`IndexDelta::size_delta`]: crate::IndexDelta::size_delta
     pub const fn mem_usage(&self) -> usize {
         match self {
-            Self::Numeric(tree) => tree.mem_usage(),
+            Self::Numeric(_) => size_of::<NumericRangeTree>(),
             Self::Tag(tags) => tags.mem_usage(),
         }
     }

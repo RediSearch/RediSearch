@@ -25,6 +25,7 @@ thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
 # `unittest` runs the tree's own delta and invariant checks on every add.
 numeric_range_tree = { workspace = true, features = ["unittest"] }
 tag_index = { workspace = true, features = ["test-utils"] }

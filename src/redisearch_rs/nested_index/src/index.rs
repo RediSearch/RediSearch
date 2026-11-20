@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{CompoundIndex, Key, Level, SchemaError};
+use compound_index::{CompoundIndex, InsertError, Key, Level, SchemaError};
 use rqe_core::DocId;
 
 use crate::{IndexError, Terminal, TerminalKind, TerminalValue};
@@ -39,7 +39,7 @@ pub struct IndexDelta {
     /// is the tree's own count, as for a NUMERIC field: a split re-adds entries to the new
     /// ranges, and a rebalance that drops a retained inner range removes its entries, so one add
     /// can raise or lower it. For a tag terminal it is one per distinct value per document, as for
-    /// a TAG field.
+    /// a TAG field: a document counts once per distinct (path, value) pair.
     pub records: i64,
     /// The change, in bytes, of the postings' memory, including the initial range of each new
     /// numeric terminal.
@@ -114,8 +114,24 @@ impl NestedIndex {
                 return Err(IndexError::NotANumber { element: position });
             }
         }
+        // Checked one by one first, so a path error names its element.
+        for (position, element) in elements.iter().enumerate() {
+            self.routing
+                .terminal(element.path)
+                .map_err(|error| IndexError::Path {
+                    element: position,
+                    error,
+                })?;
+        }
         let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
-        self.routing.check_paths(&paths)?;
+        self.routing
+            .check_paths(&paths)
+            .map_err(|error| match error {
+                InsertError::CardinalityExceeded { level, max } => {
+                    IndexError::CardinalityExceeded { level, max }
+                }
+                InsertError::Path(_) => unreachable!("every path was routed above"),
+            })?;
 
         let kind = self.terminal_kind;
         let mut delta = IndexDelta::default();

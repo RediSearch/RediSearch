@@ -21,7 +21,11 @@ mod error;
 mod index;
 mod terminal;
 
-pub use compound_index::CompoundIndex;
+// The routing types a caller needs to build paths, levels and queries for a `NestedIndex`.
+pub use compound_index::{
+    BucketLevel, BucketRange, CompoundIndex, Constraint, Key, Level, MAX_BUCKETS, MAX_LEVELS,
+    PathError, TagLevel, WalkLimits,
+};
 pub use error::IndexError;
 pub use index::{Element, IndexDelta, IndexParams, NestedIndex};
 pub use terminal::{FloatCompression, Terminal, TerminalKind, TerminalValue};
