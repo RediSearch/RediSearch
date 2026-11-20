@@ -57,6 +57,7 @@ pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
 pub mod resume_outcome;
+pub mod score_bound;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -329,6 +330,72 @@ pub trait RQEIterator<'index> {
     /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
     /// - Everything else: `1.0` — neutral, no influence.
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
+
+    /**************** score bounds ****************/
+
+    /// Whether [`current_max_score`](Self::current_max_score) can ever be finite for this
+    /// iterator.
+    ///
+    /// Fixed when the iterator is built, so callers check it once and take the plain
+    /// [`read`](Self::read) path when it is `false`. A leaf reports bounds only for the scorers
+    /// it knows how to bound; a composite only when every child does, since a single unbounded
+    /// child makes the composed bound infinite.
+    fn reports_score_bounds(&self) -> bool {
+        // TODO(MOD-21193): disk leaves report bounds from their scoring context.
+        false
+    }
+
+    /// Upper bound on the final score of the document the iterator is positioned on, under the
+    /// query's scorer.
+    ///
+    /// Computed only from data the iterator already holds: it must not cost I/O, and must never be
+    /// less than the score the scorer would compute. [`f64::INFINITY`] means "unknown" and is
+    /// always correct.
+    ///
+    /// [`read_with_threshold`](Self::read_with_threshold) drops a document whose value cannot reach
+    /// the threshold, so how tight it is decides how many candidates are dropped before their
+    /// document is read. It covers this one document, where
+    /// [`current_block_bound`](Self::current_block_bound) covers a whole block: any value from the
+    /// exact score up is valid, and the block maximum is the loosest useful one. The block maximum
+    /// drops nothing beyond what skipping blocks already does; a per-document bound, or the exact
+    /// score when the iterator can compute it, also drops weak documents inside blocks that are
+    /// kept. It only decides drops: a kept candidate is still read and scored as usual, even when
+    /// the value is exact.
+    ///
+    /// Only meaningful while the iterator is positioned on a result.
+    fn current_max_score(&self) -> f64 {
+        f64::INFINITY
+    }
+
+    /// Bound on the scores of every document the iterator can yield from its current position up
+    /// to the end of the storage block that holds it, or `None` when it has no block to report.
+    ///
+    /// Computed, like [`current_max_score`](Self::current_max_score), without I/O, and only
+    /// meaningful while the iterator is positioned on a result: an implementation must return
+    /// `None` rather than a guess when it is not positioned.
+    fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
+        None
+    }
+
+    /// [`read`](Self::read), except that the iterator may move past documents whose
+    /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` without
+    /// yielding them. It never moves past a document that could reach `min_competitive_score`,
+    /// and never yields one whose [`current_max_score`](Self::current_max_score) cannot
+    /// ([`score_bound::can_drop`]), so the caller takes every result as competitive.
+    ///
+    /// The default, a plain [`read`](Self::read), is only correct for an iterator that does not
+    /// [report bounds](Self::reports_score_bounds), which is never given a threshold; one that
+    /// does must override this.
+    ///
+    /// The caller passes the threshold its own score is measured against, so a composite must not
+    /// hand it to its children, whose scores are only part of its own.
+    /// [`skip_to`](Self::skip_to) has no thresholded form.
+    fn read_with_threshold(
+        &mut self,
+        _min_competitive_score: score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.read()
+    }
 }
 
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
@@ -384,6 +451,25 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         (**self).intersection_sort_weight(prioritize_union_children)
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        (**self).reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        (**self).current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
+        (**self).current_block_bound()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read_with_threshold(min_competitive_score)
     }
 }
 
