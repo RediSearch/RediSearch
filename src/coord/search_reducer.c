@@ -687,7 +687,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
 typedef struct {
   ResultProcessor base;
   searchReducerCtx *ctx;
-  int count;
+  uint32_t count;
   uint32_t shard;
   size_t row;
   MRReply *current;
@@ -725,7 +725,7 @@ static int compareSearchRows(const void *a, const void *b, const void *context) 
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
   RPSearchReply *source = (RPSearchReply *)base;
   searchReducerCtx *ctx = source->ctx;
-  while (source->shard < (uint32_t)source->count) {
+  while (source->shard < source->count) {
     {
       if (!source->current) {
         if (ctx->searchCtx->profileArgs &&
@@ -820,7 +820,8 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   source->base =
       (ResultProcessor){.Next = searchReplyNext, .Free = searchReplyFree, .type = RP_SEARCH_REPLY};
   source->ctx = ctx;
-  source->count = count;
+  RS_LOG_ASSERT(count >= 0, "Shard reply count must be nonnegative");
+  source->count = (uint32_t)count;
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
   QITR_PushRP(&ctx->qctx, RPSorter_NewByComparator(ctx->searchCtx->requestedResultsCount,
