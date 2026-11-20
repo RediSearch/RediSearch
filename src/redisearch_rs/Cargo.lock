@@ -1551,6 +1551,7 @@ dependencies = [
  "compound_index",
  "nested_index",
  "numeric_range_tree",
+ "proptest",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",

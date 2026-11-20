@@ -9,9 +9,9 @@
 
 use std::num::NonZeroUsize;
 
-use compound_index::{Key, Level, TagLevel};
 use nested_index::{
-    Element, FloatCompression, IndexParams, NestedIndex, TerminalKind, TerminalValue,
+    Element, FloatCompression, IndexParams, Key, Level, NestedIndex, TagLevel, TerminalKind,
+    TerminalValue,
 };
 use tag_index::Tag;
 
