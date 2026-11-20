@@ -107,15 +107,19 @@ struct StashedPanic {
 /// panic at the `extern "C"` boundary), and the second `set` is dropped.
 static PANIC_STASH: OnceLock<StashedPanic> = OnceLock::new();
 
-/// Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
+/// Initialize RediSearch's panic hook, replacing std's default hook.
 ///
 /// Panic messages will be logged through `tracing` at the `ERROR` level, and
 /// stashed in [`PANIC_STASH`] for [`AddToInfo_RustBacktrace`] to include in
 /// the crash report.
+///
+/// The default hook is not chained: it writes the panic, and for the nested
+/// FFI panic a forced full backtrace, to stderr. A redis-server's stderr may
+/// be a pipe nobody drains (RLTest's is), and a blocking write there stalls
+/// the crash before `abort()`, so the crash report is never produced.
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPanicHook_Init() {
-    let previous_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
+    std::panic::set_hook(Box::new(|panic_info| {
         let payload = panic_info.payload_as_str().unwrap_or("None");
         let location = panic_info
             .location()
@@ -138,9 +142,6 @@ pub extern "C" fn RustPanicHook_Init() {
                 backtrace: info_cstring(std::backtrace::Backtrace::force_capture().to_string()),
             });
         }
-
-        // Invoke the previous panic hook, if any.
-        previous_hook(panic_info);
     }));
 }
 
