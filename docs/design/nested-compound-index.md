@@ -99,7 +99,7 @@ The keyed-attribute `(k, v)` case is one routing level and a terminal:
 | Every level but the last must be TAG, or NUMERIC with `BUCKETS` (see "Optional limits" below) | A TAG level is an equality map with stable children. A NUMERIC level with dynamic ranges would need range nodes that own subtrees and re-bucket them on split. Fixed buckets never split, so they behave like an equality level |
 | The last level is NUMERIC (range tree) or TAG (posting list per value) | These are the two terminal kinds |
 | Every sub-field must appear in `INDEX` in v1 | The planner can then serve any group from the index alone (§5). Sub-fields outside the index need general element matching, out of scope |
-| Supported sub-field options: TAG `CASESENSITIVE`. NUMERIC has none. `SEPARATOR`, `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | A separator splits one string into several tags, which gives an element several values on one level: the cross product of §3, "Limits and costs". The other options keep ingest and GC simple |
+| Supported sub-field options: TAG `CASESENSITIVE`, plus the limits below (`MAXCARD` on TAG; `BUCKETS`, `RANGE` on NUMERIC). `SEPARATOR`, `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | A separator splits one string into several tags, which gives an element several values on one level: the cross product of §3, "Limits and costs". The other options keep ingest and GC simple |
 | A NESTED field counts as **one** field toward `SPEC_MAX_FIELDS` (1,024) | Many attributes per entity is the reason the feature exists |
 | Not supported `ON HASH` | Hashes have no arrays |
 
@@ -164,7 +164,7 @@ query time) still apply. Declared limits only make them reachable earlier and pr
   0x80 is its last free bit: the next field type after this one has to widen it.
   ```c
   struct {
-    arrayof(NestedSubField) subFields;   // name, relative path (compiled), type, tag flags, separator, limits
+    arrayof(NestedSubField) subFields;   // name, relative path (compiled), type, tag flags, limits
     uint8_t levels[MAX_LEVELS + 1];      // sub-field index per level, in INDEX order, terminal last
     uint8_t numLevels;
     struct CompoundIndex *index;         // Rust-owned, opaque to C
@@ -197,6 +197,8 @@ The index has two layers:
   - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
     bounds, cardinality) before creating anything, so a rejected insert leaves the index
     unchanged;
+  - `check_paths(paths)`, which runs the same checks on all of one document's paths together,
+    so ingest can index a document whole or not at all (§3, "Ingest path");
   - `collect_terminals(constraints, limits)`, the planner's walk (§5), which fails instead of
     truncating past either of its `WalkLimits`: terminals returned and nodes entered;
   - `retain_terminals(keep)`, which drops terminals and the nodes left without children, for GC.
@@ -226,8 +228,12 @@ the terminal type changes.
    that are missing any level's attribute. They aren't indexed, so they never match a group,
    which gives SQL's NULL behaviour. Reject the document (index error, like today's type
    mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K).
-3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, for
-   each row, call `terminal_or_insert_with` on the routing values, then insert into the terminal:
+3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, first
+   call `check_paths` on all the document's rows together, and fail the document if it errors.
+   Checking each row alone is not enough: two new values under one parent can each fit a
+   `MAXCARD` limit alone and break it together, which would leave the document half indexed.
+   Then, for each row, call `terminal_or_insert_with` on the routing values, which cannot fail
+   after a successful check, and insert into the terminal:
    - NUMERIC terminal: `NumericRangeTree::add(doc_id, value, is_multivalued = true, …)`.
    - TAG terminal: append `doc_id` to that value's posting list.
    - Rows are inserted in element order. A doc's rows can hit the same terminal several times
@@ -283,7 +289,7 @@ FieldSpec (existing header: name, path, types, options, sortIdx)
 if types & NESTED:
   u64  nested_format          = 1
   u64  num_sub_fields
-  repeat: string name, string rel_path, u64 type, u64 tag_flags, buffer[1] tag_sep,
+  repeat: string name, string rel_path, u64 type, u64 tag_flags,
           u64 limit_flags                     (bit 0 MAXCARD, bit 1 BUCKETS, bit 2 RANGE)
           if MAXCARD: u64 max_card
           if BUCKETS: u64 n; repeat n: f64 boundary
