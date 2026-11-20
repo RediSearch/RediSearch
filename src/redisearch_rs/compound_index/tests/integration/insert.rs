@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{Constraint, InsertError, Key, PathError};
+use compound_index::{Constraint, InsertError, Key, PathError, WalkLimits};
 
 use crate::util::{Index, bucket_level, orders, post, tag, tag_level, tag_level_max, union};
 
@@ -64,6 +64,11 @@ fn invalid_paths_are_rejected() {
             &[tag("red"), Key::Numeric(10.0)],
             PathError::OutsideBuckets { level: 1 },
         ),
+        (
+            "infinite value",
+            &[tag("red"), Key::Numeric(f64::INFINITY)],
+            PathError::OutsideBuckets { level: 1 },
+        ),
     ];
     for (name, path, expected) in cases {
         assert_eq!(
@@ -104,7 +109,7 @@ fn a_rejected_insert_leaves_the_index_unchanged() {
     );
     assert_eq!(index.num_terminals(), 1);
     let all = index
-        .collect_terminals(&[Constraint::Any, Constraint::Any], usize::MAX)
+        .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
         .unwrap();
     assert_eq!(union(&all), vec![1]);
 }

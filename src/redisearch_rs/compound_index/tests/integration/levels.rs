@@ -63,9 +63,17 @@ fn values_outside_the_buckets_have_no_bucket() {
         ("on the last boundary", 20.0),
         ("above the last boundary", 25.0),
         ("NaN", f64::NAN),
+        ("+infinity", f64::INFINITY),
+        ("-infinity", f64::NEG_INFINITY),
     ] {
         assert_eq!(level.bucket_of(value), None, "{name}");
     }
+}
+
+#[test]
+fn negative_zero_falls_in_the_bucket_starting_at_zero() {
+    let level = BucketLevel::new(vec![0.0, 10.0]).unwrap();
+    assert_eq!(level.bucket_of(-0.0), Some(0));
 }
 
 /// Strictly increasing finite boundaries, between 2 and 6 of them.

@@ -9,6 +9,7 @@
 
 use std::ops::{Bound, Range};
 
+use lending_iterator::LendingIterator;
 use trie_rs::TrieMap;
 
 use crate::{
@@ -21,6 +22,25 @@ use crate::{
 /// Together with the terminal attribute, an index covers at most one more attribute than this.
 /// The bound keeps the recursion of a walk shallow and the fan-out of a query predictable.
 pub const MAX_LEVELS: usize = 3;
+
+/// Bounds on the work of one [`CompoundIndex::collect_terminals`] walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalkLimits {
+    /// The most terminals the walk may return.
+    pub max_terminals: usize,
+    /// The most nodes the walk may enter, terminals included. A level a query leaves open is
+    /// entered through every child, even when few terminals match below it, so this bounds the
+    /// work of a walk that returns little.
+    pub max_nodes: usize,
+}
+
+impl WalkLimits {
+    /// No bound on either count.
+    pub const UNLIMITED: Self = Self {
+        max_terminals: usize::MAX,
+        max_nodes: usize::MAX,
+    };
+}
 
 /// The routing levels of a compound index, with a terminal of type `T` at the end of each path.
 ///
@@ -206,18 +226,22 @@ impl<T> CompoundIndex<T> {
     /// The terminals whose path satisfies every constraint, one constraint per level.
     ///
     /// Terminals come out in a deterministic order: tag children by byte order of their value,
-    /// buckets in increasing order. Each terminal is returned at most once. The walk fails with
-    /// [`CollectError::TooManyTerminals`] as soon as it would return more than `max_terminals`;
-    /// it never returns a partial result.
+    /// buckets in increasing order. Each terminal is returned at most once. The walk fails as soon
+    /// as it would exceed one of `limits`, with [`CollectError::TooManyTerminals`] or
+    /// [`CollectError::TooManyNodes`]; it never returns a partial result.
     pub fn collect_terminals<'s>(
         &'s self,
         constraints: &[Constraint<'_>],
-        max_terminals: usize,
+        limits: WalkLimits,
     ) -> Result<Vec<&'s T>, CollectError> {
         let plan = self.plan(constraints)?;
-        let mut out = Vec::new();
-        collect(&self.root, &plan, max_terminals, &mut out)?;
-        Ok(out)
+        let mut walk = Walk {
+            limits,
+            nodes: 0,
+            out: Vec::new(),
+        };
+        walk.visit(&self.root, &plan)?;
+        Ok(walk.out)
     }
 
     /// Removes the terminals for which `keep` returns `false`, then every node left without
@@ -225,13 +249,17 @@ impl<T> CompoundIndex<T> {
     ///
     /// `keep` receives each terminal mutably, so a garbage collector can compact it and drop it
     /// in the same pass when nothing is left in it.
+    ///
+    /// If `keep` panics, the terminals it rejected so far are removed and
+    /// [`CompoundIndex::num_terminals`] counts the rest exactly. Nodes the interrupted pass left
+    /// without children are dropped by the next pass.
     pub fn retain_terminals(&mut self, mut keep: impl FnMut(&mut T) -> bool) -> usize {
+        let before = self.num_terminals;
         let Node::Inner(children) = &mut self.root else {
             unreachable!("{INVARIANT}");
         };
-        let removed = retain_children(children, &mut keep);
-        self.num_terminals -= removed;
-        removed
+        retain_children(children, &mut keep, &mut self.num_terminals);
+        before - self.num_terminals
     }
 
     fn route<'k>(&self, path: &[Key<'k>]) -> Result<Vec<Step<'k>>, PathError> {
@@ -352,10 +380,10 @@ fn bucket_span(buckets: &BucketLevel, range: BucketRange) -> Option<Range<usize>
     // An empty range holds no value, so no bucket is even partly inside it.
     let is_empty = match (range.start, range.end) {
         (Bound::Included(start), Bound::Included(end)) => start > end,
-        (
-            Bound::Included(start) | Bound::Excluded(start),
-            Bound::Included(end) | Bound::Excluded(end),
-        ) => start >= end,
+        (Bound::Included(start), Bound::Excluded(end))
+        | (Bound::Excluded(start), Bound::Included(end)) => start >= end,
+        // No float lies strictly between two adjacent floats.
+        (Bound::Excluded(start), Bound::Excluded(end)) => start.next_up() >= end,
         (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
     };
     if is_empty {
@@ -386,9 +414,12 @@ enum Overlap {
     Partial,
 }
 
-/// Classifies the bucket `[lo, hi)` against `range`, whose ends are not NaN.
+/// Classifies the bucket `[lo, hi)` against `range`, whose ends are not NaN and which holds at
+/// least one value.
 fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
-    // Values just below `hi` belong to the bucket, so `hi` itself bounds them from above.
+    // The largest value of the bucket is the float just below `hi`. Comparing it, rather than
+    // `hi`, keeps the classification exact for ends one float away from a boundary.
+    let top = hi.next_down();
     let all_above_start = match range.start {
         Bound::Unbounded => true,
         Bound::Included(start) => lo >= start,
@@ -396,11 +427,13 @@ fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
     };
     let all_below_end = match range.end {
         Bound::Unbounded => true,
-        Bound::Included(end) | Bound::Excluded(end) => hi <= end,
+        Bound::Included(end) => top <= end,
+        Bound::Excluded(end) => top < end,
     };
     let all_before_start = match range.start {
         Bound::Unbounded => false,
-        Bound::Included(start) | Bound::Excluded(start) => hi <= start,
+        Bound::Included(start) => top < start,
+        Bound::Excluded(start) => top <= start,
     };
     let all_after_end = match range.end {
         Bound::Unbounded => false,
@@ -416,109 +449,131 @@ fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
     }
 }
 
-fn collect<'s, T>(
-    node: &'s Node<T>,
-    plan: &[LevelPlan<'_>],
-    max_terminals: usize,
-    out: &mut Vec<&'s T>,
-) -> Result<(), CollectError> {
-    let children = match node {
-        Node::Terminal(terminal) => {
-            if out.len() == max_terminals {
-                return Err(CollectError::TooManyTerminals { max: max_terminals });
-            }
-            out.push(terminal);
-            return Ok(());
-        }
-        Node::Inner(children) => children,
-    };
-    let (level_plan, rest) = plan.split_first().expect(INVARIANT);
-    let mut visit = |child: &'s Node<T>| collect(child, rest, max_terminals, out);
-    match (children, level_plan) {
-        (Children::Tag(map), LevelPlan::Any) => {
-            for child in map.values() {
-                visit(child)?;
-            }
-        }
-        (Children::Tag(map), LevelPlan::TagIn(values)) => {
-            for child in values.iter().filter_map(|value| map.find(value)) {
-                visit(child)?;
-            }
-        }
-        (Children::Tag(map), LevelPlan::TagNotIn(values)) => {
-            for (value, child) in map.iter() {
-                if values.binary_search(&value.as_slice()).is_err() {
-                    visit(child)?;
-                }
-            }
-        }
-        (Children::Tag(map), LevelPlan::TagPrefix(prefix)) => {
-            for child in map.prefixed_values(prefix) {
-                visit(child)?;
-            }
-        }
-        (Children::Buckets(slots), LevelPlan::Any) => {
-            for child in slots.iter().flatten() {
-                visit(child)?;
-            }
-        }
-        (Children::Buckets(slots), LevelPlan::Buckets(span)) => {
-            for child in slots[span.clone()].iter().flatten() {
-                visit(child)?;
-            }
-        }
-        _ => unreachable!("constraints were checked against their levels"),
-    }
-    Ok(())
+/// The state of one [`CompoundIndex::collect_terminals`] walk.
+struct Walk<'s, T> {
+    limits: WalkLimits,
+    /// Nodes entered so far, terminals included, the root excluded.
+    nodes: usize,
+    out: Vec<&'s T>,
 }
 
-fn retain_children<T>(children: &mut Children<T>, keep: &mut impl FnMut(&mut T) -> bool) -> usize {
-    let mut removed = 0;
+impl<'s, T> Walk<'s, T> {
+    fn enter(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
+        if self.nodes == self.limits.max_nodes {
+            return Err(CollectError::TooManyNodes {
+                max: self.limits.max_nodes,
+            });
+        }
+        self.nodes += 1;
+        self.visit(node, plan)
+    }
+
+    fn visit(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
+        let children = match node {
+            Node::Terminal(terminal) => {
+                if self.out.len() == self.limits.max_terminals {
+                    return Err(CollectError::TooManyTerminals {
+                        max: self.limits.max_terminals,
+                    });
+                }
+                self.out.push(terminal);
+                return Ok(());
+            }
+            Node::Inner(children) => children,
+        };
+        let (level_plan, rest) = plan.split_first().expect(INVARIANT);
+        match (children, level_plan) {
+            (Children::Tag(map), LevelPlan::Any) => {
+                for child in map.values() {
+                    self.enter(child, rest)?;
+                }
+            }
+            (Children::Tag(map), LevelPlan::TagIn(values)) => {
+                for child in values.iter().filter_map(|value| map.find(value)) {
+                    self.enter(child, rest)?;
+                }
+            }
+            (Children::Tag(map), LevelPlan::TagNotIn(values)) => {
+                // Borrows each key instead of copying it, as `TrieMap::iter` would.
+                let mut entries = map.lending_iter();
+                while let Some((value, child)) = entries.next() {
+                    if values.binary_search(&value).is_err() {
+                        self.enter(child, rest)?;
+                    }
+                }
+            }
+            (Children::Tag(map), LevelPlan::TagPrefix(prefix)) => {
+                for child in map.prefixed_values(prefix) {
+                    self.enter(child, rest)?;
+                }
+            }
+            (Children::Buckets(slots), LevelPlan::Any) => {
+                for child in slots.iter().flatten() {
+                    self.enter(child, rest)?;
+                }
+            }
+            (Children::Buckets(slots), LevelPlan::Buckets(span)) => {
+                for child in slots[span.clone()].iter().flatten() {
+                    self.enter(child, rest)?;
+                }
+            }
+            _ => unreachable!("constraints were checked against their levels"),
+        }
+        Ok(())
+    }
+}
+
+/// Removes the rejected terminals below `children`, decrementing `num_terminals` for each as
+/// it goes, so the count stays exact if `keep` panics.
+fn retain_children<T>(
+    children: &mut Children<T>,
+    keep: &mut impl FnMut(&mut T) -> bool,
+    num_terminals: &mut usize,
+) {
     match children {
         Children::Tag(map) => {
             // The trie has no mutable iterator, so walk its keys and look each one up.
             let keys: Vec<Vec<u8>> = map.iter().map(|(key, _)| key).collect();
             for key in keys {
                 let child = map.find_mut(&key).expect("the key was just listed");
-                let (fate, removed_below) = retain_node(child, keep);
-                removed += removed_below;
-                if let Fate::Drop = fate {
+                if let Fate::Drop = retain_node(child, keep, num_terminals) {
                     map.remove(&key);
                 }
             }
         }
         Children::Buckets(slots) => {
             for slot in slots.iter_mut() {
-                if let Some(child) = slot {
-                    let (fate, removed_below) = retain_node(child, keep);
-                    removed += removed_below;
-                    if let Fate::Drop = fate {
-                        *slot = None;
-                    }
+                if let Some(child) = slot
+                    && let Fate::Drop = retain_node(child, keep, num_terminals)
+                {
+                    *slot = None;
                 }
             }
         }
     }
-    removed
 }
 
-fn retain_node<T>(node: &mut Node<T>, keep: &mut impl FnMut(&mut T) -> bool) -> (Fate, usize) {
+fn retain_node<T>(
+    node: &mut Node<T>,
+    keep: &mut impl FnMut(&mut T) -> bool,
+    num_terminals: &mut usize,
+) -> Fate {
     match node {
         Node::Terminal(terminal) => {
             if keep(terminal) {
-                (Fate::Keep, 0)
+                Fate::Keep
             } else {
-                (Fate::Drop, 1)
+                *num_terminals -= 1;
+                Fate::Drop
             }
         }
         Node::Inner(children) => {
-            let removed = retain_children(children, keep);
-            let fate = if children.is_empty() {
+            retain_children(children, keep, num_terminals);
+            if children.is_empty() {
                 Fate::Drop
             } else {
                 Fate::Keep
-            };
-            (fate, removed)
+            }
         }
     }
 }

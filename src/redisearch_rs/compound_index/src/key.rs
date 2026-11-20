@@ -13,7 +13,7 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Key<'a> {
     /// The value of a [`TagLevel`](crate::TagLevel), already normalised by the caller (case
-    /// folding, separator splitting).
+    /// folding). One element has exactly one value per level.
     Tag(&'a [u8]),
     /// The value of a [`BucketLevel`](crate::BucketLevel). The level decides which bucket it
     /// falls in.

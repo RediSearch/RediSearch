@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+lending-iterator.workspace = true
 thiserror.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true

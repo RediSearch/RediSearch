@@ -9,7 +9,7 @@
 
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
-use compound_index::{BucketRange, CollectError, Constraint, Key};
+use compound_index::{BucketRange, CollectError, Constraint, Key, WalkLimits};
 
 use crate::util::{Index, bucket_level, orders, post, tag, tag_in, tag_level, union};
 
@@ -61,7 +61,9 @@ fn every_query_shape_returns_the_docs_with_one_matching_element() {
         ),
     ];
     for (name, constraints, expected) in cases {
-        let terminals = index.collect_terminals(constraints, usize::MAX).unwrap();
+        let terminals = index
+            .collect_terminals(constraints, WalkLimits::UNLIMITED)
+            .unwrap();
         assert_eq!(union(&terminals), *expected, "{name}");
     }
 }
@@ -71,7 +73,7 @@ fn constraints_never_pair_values_from_different_elements() {
     let index = orders();
     // Doc 1 has a blue item and an M item, but no blue M item.
     let terminals = index
-        .collect_terminals(&[tag_in(&["blue"]), tag_in(&["M"])], usize::MAX)
+        .collect_terminals(&[tag_in(&["blue"]), tag_in(&["M"])], WalkLimits::UNLIMITED)
         .unwrap();
     assert_eq!(union(&terminals), vec![4]);
 }
@@ -80,7 +82,10 @@ fn constraints_never_pair_values_from_different_elements() {
 fn repeated_values_in_a_set_visit_a_terminal_once() {
     let index = orders();
     let terminals = index
-        .collect_terminals(&[tag_in(&["red", "red"]), tag_in(&["M"])], usize::MAX)
+        .collect_terminals(
+            &[tag_in(&["red", "red"]), tag_in(&["M"])],
+            WalkLimits::UNLIMITED,
+        )
         .unwrap();
     assert_eq!(terminals.len(), 1);
 }
@@ -89,7 +94,7 @@ fn repeated_values_in_a_set_visit_a_terminal_once() {
 fn terminals_come_out_in_byte_order_of_their_path() {
     let index = orders();
     let terminals = index
-        .collect_terminals(&[Constraint::Any, Constraint::Any], usize::MAX)
+        .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
         .unwrap();
     // (blue, L), (blue, M), (red, L), (red, M).
     assert_eq!(
@@ -98,15 +103,89 @@ fn terminals_come_out_in_byte_order_of_their_path() {
     );
 }
 
+const fn terminals_at_most(max_terminals: usize) -> WalkLimits {
+    WalkLimits {
+        max_terminals,
+        max_nodes: usize::MAX,
+    }
+}
+
+const fn nodes_at_most(max_nodes: usize) -> WalkLimits {
+    WalkLimits {
+        max_terminals: usize::MAX,
+        max_nodes,
+    }
+}
+
 #[test]
 fn a_walk_past_the_terminal_limit_fails_instead_of_truncating() {
     let index = orders();
     let all = [Constraint::Any, Constraint::Any];
     assert_eq!(
-        index.collect_terminals(&all, 3).err(),
+        index.collect_terminals(&all, terminals_at_most(3)).err(),
         Some(CollectError::TooManyTerminals { max: 3 })
     );
-    assert_eq!(index.collect_terminals(&all, 4).unwrap().len(), 4);
+    assert_eq!(
+        index
+            .collect_terminals(&all, terminals_at_most(4))
+            .unwrap()
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn a_zero_terminal_limit_only_accepts_walks_that_reach_nothing() {
+    let index = orders();
+    assert_eq!(
+        index
+            .collect_terminals(&[tag_in(&["green"]), Constraint::Any], terminals_at_most(0))
+            .unwrap(),
+        Vec::<&Vec<u32>>::new()
+    );
+    assert_eq!(
+        index
+            .collect_terminals(&[tag_in(&["red"]), Constraint::Any], terminals_at_most(0))
+            .err(),
+        Some(CollectError::TooManyTerminals { max: 0 })
+    );
+}
+
+#[test]
+fn the_node_limit_bounds_a_walk_that_returns_nothing() {
+    let index = orders();
+    // Both colors are entered, then neither has a size "XL": no terminal, two nodes.
+    let open_then_missing = [Constraint::Any, tag_in(&["XL"])];
+    assert_eq!(
+        index
+            .collect_terminals(&open_then_missing, nodes_at_most(1))
+            .err(),
+        Some(CollectError::TooManyNodes { max: 1 })
+    );
+    assert!(
+        index
+            .collect_terminals(&open_then_missing, nodes_at_most(2))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn the_node_limit_counts_terminals() {
+    let index = orders();
+    // (red) then (red, M): two nodes.
+    let red_m = [tag_in(&["red"]), tag_in(&["M"])];
+    assert_eq!(
+        index.collect_terminals(&red_m, nodes_at_most(1)).err(),
+        Some(CollectError::TooManyNodes { max: 1 })
+    );
+    assert_eq!(
+        index
+            .collect_terminals(&red_m, nodes_at_most(2))
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -134,7 +213,9 @@ fn invalid_queries_are_rejected() {
     ];
     for (name, constraints, expected) in cases {
         assert_eq!(
-            index.collect_terminals(constraints, usize::MAX).err(),
+            index
+                .collect_terminals(constraints, WalkLimits::UNLIMITED)
+                .err(),
             Some(expected.clone()),
             "{name}"
         );
@@ -198,10 +279,33 @@ fn numeric_ranges_select_the_buckets_wholly_inside_them() {
         ),
         ("inverted", range(Included(2024.0), Included(2022.0)), &[]),
         ("unbounded", range(Unbounded, Unbounded), &[0, 1, 2]),
+        (
+            "[-inf +inf] as inclusive infinities",
+            range(Included(f64::NEG_INFINITY), Included(f64::INFINITY)),
+            &[0, 1, 2],
+        ),
+        (
+            "upper end one float below a boundary",
+            range(Included(2022.0), Included(2024f64.next_down())),
+            &[1],
+        ),
+        (
+            "exclusive start one float below a boundary",
+            range(Excluded(2022f64.next_down()), Excluded(2024.0)),
+            &[1],
+        ),
+        (
+            "empty between adjacent floats",
+            range(Excluded(2023.0), Excluded(2023f64.next_up())),
+            &[],
+        ),
     ];
     for (name, constraint, expected) in cases {
         let terminals = index
-            .collect_terminals(&[constraint.clone(), Constraint::Any], usize::MAX)
+            .collect_terminals(
+                &[constraint.clone(), Constraint::Any],
+                WalkLimits::UNLIMITED,
+            )
             .unwrap();
         assert_eq!(union(&terminals), *expected, "{name}");
     }
@@ -227,6 +331,10 @@ fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
             "end inside a bucket",
             range(Included(2022.0), Excluded(2025.0)),
         ),
+        (
+            "upper end one float above a boundary",
+            range(Included(2022.0), Included(2024f64.next_up())),
+        ),
         ("NaN start", range(Included(f64::NAN), Unbounded)),
         ("NaN end", range(Unbounded, Excluded(f64::NAN))),
         (
@@ -237,7 +345,10 @@ fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
     for (name, constraint) in cases {
         assert_eq!(
             index
-                .collect_terminals(&[constraint.clone(), Constraint::Any], usize::MAX)
+                .collect_terminals(
+                    &[constraint.clone(), Constraint::Any],
+                    WalkLimits::UNLIMITED
+                )
                 .err(),
             Some(CollectError::UnalignedBucketRange { level: 0 }),
             "{name}"

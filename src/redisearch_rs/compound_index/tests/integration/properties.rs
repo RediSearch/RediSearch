@@ -15,7 +15,7 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use compound_index::{BucketRange, CollectError, CompoundIndex, Constraint, Key};
+use compound_index::{BucketRange, CollectError, CompoundIndex, Constraint, Key, WalkLimits};
 use proptest::prelude::*;
 
 use crate::util::{bucket_level, tag_level};
@@ -151,7 +151,7 @@ proptest! {
     ) {
         let index = index_of(&elements);
         let constraints = [color.clone(), size.clone(), year.clone()];
-        let result = index.collect_terminals(&constraints, usize::MAX);
+        let result = index.collect_terminals(&constraints, WalkLimits::UNLIMITED);
 
         if let Constraint::BucketRange(range) = &year
             && cuts_a_bucket(range)
@@ -189,7 +189,7 @@ proptest! {
         });
 
         let all = [Constraint::Any, Constraint::Any, Constraint::Any];
-        let terminals = index.collect_terminals(&all, usize::MAX).unwrap();
+        let terminals = index.collect_terminals(&all, WalkLimits::UNLIMITED).unwrap();
         let found: BTreeSet<usize> = terminals.iter().flat_map(|t| t.iter().copied()).collect();
         let survivors: BTreeSet<usize> =
             (0..elements.len()).filter(|id| !deleted.contains(id)).collect();
