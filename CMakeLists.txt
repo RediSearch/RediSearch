@@ -132,6 +132,7 @@ option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
+option(FUZZ_COV "Instrument edges for the stateful fuzzer (fuzz/)" OFF)
 set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 # Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Disable for pre-Armv8.1-a
@@ -203,6 +204,12 @@ if(SAN)
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     endif()
+endif()
+
+message(STATUS "FUZZ_COV: ${FUZZ_COV}")
+if(FUZZ_COV)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize-coverage=trace-pc-guard")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-coverage=trace-pc-guard")
 endif()
 
 # Coverage settings
@@ -428,6 +435,9 @@ set_target_properties(redisearch
     C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
+if(FUZZ_COV)
+    target_sources(redisearch PRIVATE ${root}/fuzz/procfuzz/shim/coverage.c)
+endif()
 
 # Link the final library - redisearch_c brings in all C dependencies transitively
 target_link_libraries(redisearch

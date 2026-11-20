@@ -1,0 +1,207 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "_FT.CONFIG",
+          "SET",
+          "_PRINT_PROFILE_CLOCK",
+          "false"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.create",
+          "idx",
+          "SCHEMA",
+          "t",
+          "text"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "hset",
+          "1",
+          "t",
+          "hello"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "hset",
+          "2",
+          "t",
+          "world"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "*",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "redis",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello|world",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello world",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "-hello",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "~hello",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hel*",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "%%hel%%",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello",
+          "inkeys",
+          "1",
+          "1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello(hello(hello(hello(hello))))",
+          "nocontent"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.profile",
+          "idx",
+          "search",
+          "query",
+          "hello(hello(hello(hello(hello(hello)))))",
+          "nocontent"
+        ]
+      }
+    }
+  ]
+}

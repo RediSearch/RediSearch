@@ -115,6 +115,9 @@ cargo nextest run -p <crate_name>
 
 Coverage runs in CI when selected by the pull request matrix. Contributors usually do not need to upload coverage locally.
 
+To fuzz the module, see [`fuzz/README.md`](fuzz/README.md): building with
+`FUZZ_COV`, running a campaign, and replaying a finding.
+
 ## CI for Fork Pull Requests
 
 Fork pull requests run on the regular `pull_request` event. They do not use Redis-owned sccache credentials or cache storage. Codecov upload is non-blocking for fork pull requests, but build, test, sanitizer, and coverage job failures still matter and may need to be fixed before merge.

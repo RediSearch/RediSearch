@@ -1,0 +1,132 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.create",
+          "idx",
+          "ON",
+          "HASH",
+          "schema",
+          "txt",
+          "text"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "gen1",
+          "1.0",
+          "fields",
+          "txt",
+          "And Abraham begat Isaac.\r\nAnd Isaac begat Jacob; and Jacob begat Judah and his brethren. In the beginning God created the heaven and the earth. And Isaac was forty years old when he took Rebekah to wife. And the boys grew: and Esau was a cunning hunter; and Jacob was a plain man, dwelling in tents."
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "abraham isaac jacob",
+          "SUMMARIZE",
+          "FIELDS",
+          "1",
+          "txt",
+          "LEN",
+          "20",
+          "HIGHLIGHT",
+          "FIELDS",
+          "1",
+          "txt",
+          "TAGS",
+          "<b>",
+          "</b>"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "abraham isaac jacob",
+          "HIGHLIGHT",
+          "fields",
+          "1",
+          "txt",
+          "TAGS",
+          "<i>",
+          "</i>"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "abraham isaac jacob",
+          "SUMMARIZE",
+          "FIELDS",
+          "1",
+          "txt",
+          "FRAGS",
+          "10000"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "isaac",
+          "SUMMARIZE",
+          "FIELDS",
+          "1",
+          "txt",
+          "SEPARATOR",
+          "\r\n",
+          "FRAGS",
+          "4",
+          "LEN",
+          "3"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "-blah",
+          "SUMMARIZE",
+          "LEN",
+          "3"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.SEARCH",
+          "idx",
+          "-blah",
+          "HIGHLIGHT"
+        ]
+      }
+    }
+  ]
+}

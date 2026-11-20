@@ -1,0 +1,209 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "create",
+        "index": "i0",
+        "on": "json",
+        "prefix": "j0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "text"
+          },
+          {
+            "name": "f1",
+            "type": "numeric",
+            "sortable": true
+          },
+          {
+            "name": "f2",
+            "type": "tag"
+          },
+          {
+            "name": "f3",
+            "type": "vector",
+            "algorithm": "flat",
+            "dim": 2,
+            "metric": "l2"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "populate",
+        "on": "json",
+        "prefix": "j0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "text"
+          },
+          {
+            "name": "f1",
+            "type": "numeric"
+          },
+          {
+            "name": "f2",
+            "type": "tag"
+          },
+          {
+            "name": "f3",
+            "type": "vector",
+            "algorithm": "flat",
+            "dim": 2,
+            "metric": "l2"
+          }
+        ],
+        "n": 200,
+        "seed": 4
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "JSON.NUMINCRBY",
+          "j0:1",
+          "$.f1",
+          "5"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "JSON.DEL",
+          "j0:2",
+          "$.f0"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "JSON.SET",
+          "j0:3",
+          "$.f2",
+          "\"red\""
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": {
+          "and": [
+            {
+              "in_field": {
+                "field": "f0",
+                "term": "hello"
+              }
+            },
+            {
+              "range": {
+                "field": "f1",
+                "min": {
+                  "inclusive": 0
+                },
+                "max": "unbounded"
+              }
+            }
+          ]
+        },
+        "options": {
+          "no_content": true
+        }
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": {
+          "knn": {
+            "filter": {
+              "tag": {
+                "field": "f2",
+                "values": [
+                  "red"
+                ]
+              }
+            },
+            "field": "f3",
+            "k": 3,
+            "vector": {
+              "hex": "0000803f0000803f"
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.AGGREGATE",
+          "i0",
+          "*",
+          "GROUPBY",
+          "1",
+          "@f2",
+          "REDUCE",
+          "COUNT",
+          "0",
+          "AS",
+          "count"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "DEL",
+          "j0:4",
+          "j0:5",
+          "j0:6"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "_FT.DEBUG",
+          "GC_FORCEINVOKE",
+          "i0"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": "all",
+        "options": {
+          "limit": [
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

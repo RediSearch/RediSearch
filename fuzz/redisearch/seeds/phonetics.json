@@ -1,0 +1,96 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.create",
+          "idx",
+          "ON",
+          "HASH",
+          "schema",
+          "text",
+          "TEXT",
+          "PHONETIC",
+          "dm:en",
+          "SORTABLE",
+          "text1",
+          "TEXT",
+          "SORTABLE"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.add",
+          "idx",
+          "doc1",
+          "1.0",
+          "fields",
+          "text",
+          "morfix",
+          "text1",
+          "phonetic"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.aggregate",
+          "idx",
+          "morphix",
+          "LOAD",
+          "2",
+          "@text",
+          "@text1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.aggregate",
+          "idx",
+          "@text:morphix",
+          "LOAD",
+          "2",
+          "@text",
+          "@text1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.aggregate",
+          "idx",
+          "phonetic",
+          "LOAD",
+          "2",
+          "@text",
+          "@text1"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "ft.aggregate",
+          "idx",
+          "@text1:morphix",
+          "LOAD",
+          "2",
+          "@text",
+          "@text1"
+        ]
+      }
+    }
+  ]
+}

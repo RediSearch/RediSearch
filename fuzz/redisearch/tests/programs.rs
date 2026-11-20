@@ -1,0 +1,253 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Needs the binaries from `fuzz/setup.sh`; run with
+//! `cargo test -- --ignored`.
+
+use std::collections::BTreeSet;
+use std::io;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
+
+use procfuzz::campaign::Campaign;
+use procfuzz::commands::{fuzz, load, reduce};
+use procfuzz::draw::Draw;
+use procfuzz::findings::Findings;
+use procfuzz::model::{Made, generate};
+use procfuzz::system::{Run, System, run};
+use procfuzz_redis::resp::Value;
+use redisearch_fuzz::op::{Action, Op};
+use redisearch_fuzz::server::{Server, built};
+use redisearch_fuzz::{Program, RediSearch};
+
+const GENERATED: usize = 50;
+const PROGRAM_OPS: usize = 30;
+const CAMPAIGN_SECS: u64 = 60;
+
+fn program(path: &str) -> Program {
+    load(&Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap()
+}
+
+fn redisearch() -> Server {
+    let server = Server::default();
+    server.check().unwrap();
+    server
+}
+
+/// The module with the bugs from `planted/planted.patch`.
+fn planted() -> Server {
+    Server {
+        module: built("planted/redisearch.so"),
+        ..redisearch()
+    }
+}
+
+fn execute(env: &Server, program: &Program) -> Run<Value> {
+    run(&RediSearch, &env.service(), program).unwrap()
+}
+
+fn findings(run: &Run<Value>) -> Vec<String> {
+    run.notes.findings.iter().map(ToString::to_string).collect()
+}
+
+fn kinds(run: &Run<Value>) -> Vec<&'static str> {
+    run.notes
+        .findings
+        .iter()
+        .map(|finding| finding.kind)
+        .collect()
+}
+
+fn is_error(reply: &Option<Value>) -> bool {
+    matches!(reply, Some(Value::Error(_)))
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn every_seed_succeeds_and_reaches_edges_no_other_seed_does() {
+    let seeds: Vec<(String, BTreeSet<u64>)> =
+        std::fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds"))
+            .unwrap()
+            .map(|entry| {
+                let name = format!("seeds/{}", entry.unwrap().file_name().to_string_lossy());
+                let run = execute(&redisearch(), &program(&name));
+                assert_eq!(findings(&run), Vec::<String>::new(), "{name}");
+                for step in &run.steps {
+                    assert!(
+                        step.done.is_some() && !is_error(&step.reply),
+                        "{name}: {step:?}"
+                    );
+                }
+                let edges = run
+                    .notes
+                    .features
+                    .iter()
+                    .filter(|feature| feature.space == "edge")
+                    .map(|feature| feature.id)
+                    .collect();
+                (name, edges)
+            })
+            .collect();
+    for (name, edges) in &seeds {
+        let others: BTreeSet<u64> = seeds
+            .iter()
+            .filter(|(other, _)| other != name)
+            .flat_map(|(_, edges)| edges.iter().copied())
+            .collect();
+        assert!(!edges.is_subset(&others), "{name} adds no edges");
+    }
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_command_that_never_returns_is_a_hang() {
+    let run = execute(&redisearch(), &program("tests/programs/hang.json"));
+    assert_eq!(kinds(&run), ["hang"]);
+    assert_eq!(run.steps[0].done, None);
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_reply_the_program_held_back_is_released_and_the_program_carries_on() {
+    let run = execute(&redisearch(), &program("tests/programs/stall.json"));
+    assert_eq!(findings(&run), Vec::<String>::new());
+    let [.., query, ping] = run.steps.as_slice() else {
+        panic!("{:?}", run.steps);
+    };
+    assert!(
+        query.done.is_some() && query.done < ping.done,
+        "{:?}",
+        run.steps
+    );
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_settle_that_cannot_complete_times_out_without_a_finding() {
+    let run = execute(
+        &redisearch(),
+        &program("tests/programs/barrier-blocked-scan.json"),
+    );
+    assert_eq!(findings(&run), Vec::<String>::new());
+    assert_eq!(run.steps.last().unwrap().done, None);
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn most_replies_to_generated_programs_are_not_errors() {
+    let env = redisearch();
+    let mut draw = Draw::new(0);
+    let (mut replies, mut errors) = (0, 0);
+    for _ in 0..GENERATED {
+        let program = generate(&RediSearch, &mut draw, PROGRAM_OPS);
+        let run = execute(&env, &program);
+        for step in run.steps.iter().filter(|step| step.reply.is_some()) {
+            replies += 1;
+            errors += usize::from(is_error(&step.reply));
+        }
+    }
+    assert!(
+        errors * 5 <= replies,
+        "{errors} of {replies} replies are errors"
+    );
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_crash_inside_a_generated_program_reduces_to_the_crashing_command() {
+    let env = redisearch();
+    let segfault = Made {
+        op: Op::new(Action::command(&["DEBUG", "SEGFAULT"])),
+        from: Vec::new(),
+    };
+    let mut program = generate(&RediSearch, &mut Draw::new(0), PROGRAM_OPS);
+    program.ops.insert(program.ops.len() / 2, segfault.clone());
+    let finding = findings(&execute(&env, &program)).remove(0);
+    assert!(finding.starts_with("crash:"), "{finding}");
+    let reduced = reduce(&RediSearch, &env.service(), &program, &finding);
+    assert_eq!(reduced.ops, [segfault]);
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn planted_bugs_give_a_real_sanitizer_report_and_a_real_assertion() {
+    for (path, kind) in [
+        ("planted/overflow.json", "asan"),
+        ("planted/assert.json", "assert"),
+    ] {
+        assert_eq!(
+            kinds(&execute(&planted(), &program(path))),
+            [kind],
+            "{path}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_short_campaign_from_the_seeds_finds_a_planted_bug() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = planted();
+    let findings = Findings::new(&dir.path().join("findings"), &env.setup()).unwrap();
+    let campaign = Campaign {
+        seeds: &[Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds")],
+        corpus: &dir.path().join("corpus"),
+        duration: Some(Duration::from_secs(CAMPAIGN_SECS)),
+    };
+    fuzz(&RediSearch, &env.service(), &findings, &campaign, 1).unwrap();
+    let found: Vec<String> = std::fs::read_dir(dir.path().join("findings"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        found
+            .iter()
+            .any(|f| f.contains("QueryNode_CheckIsValid") || f.contains("module.c")),
+        "{found:?}"
+    );
+}
+
+#[test]
+#[ignore = "needs fuzz/setup.sh"]
+fn a_failing_worker_stops_the_campaign_without_waiting_for_the_others() {
+    let (done, result) = mpsc::channel();
+    // Not scoped, so that a campaign that never stops fails the test rather
+    // than hanging it.
+    std::thread::spawn(move || done.send(campaign_with_a_failing_worker()));
+    let result = result
+        .recv_timeout(Duration::from_secs(CAMPAIGN_SECS))
+        .expect("the campaign stops");
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("runs in a row failed"), "{error}");
+}
+
+fn campaign_with_a_failing_worker() -> io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let env = redisearch();
+    let findings = Findings::new(&dir.path().join("findings"), &env.setup())?;
+    let campaign = Campaign {
+        seeds: &[],
+        corpus: &dir.path().join("corpus"),
+        duration: None,
+    };
+    let service = env.service();
+    let failing_worker_runs = AtomicUsize::new(0);
+    let start = || {
+        // Its first run succeeds, so the worker gets past loading the corpus.
+        if std::thread::current().name() == Some("worker 0")
+            && failing_worker_runs.fetch_add(1, Ordering::Relaxed) > 0
+        {
+            return Err(io::Error::other("the system did not start"));
+        }
+        service.start()
+    };
+    fuzz(&RediSearch, &start, &findings, &campaign, 2)
+}

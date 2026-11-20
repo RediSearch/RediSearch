@@ -1,0 +1,39 @@
+diff --git a/src/module.c b/src/module.c
+index 65954af53b..7bdd81dca7 100644
+--- a/src/module.c
++++ b/src/module.c
+@@ -755,6 +755,13 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+ 
+   RS_ASSERT(!(dropMode == IndexDrop_DeleteDocs && SearchDisk_IsEnabledForValidation()));
+ 
++  // Planted by fuzz/redisearch/planted/planted.patch: dropping, with its documents, an index that
++  // has a TAG field and at least two documents fails an assertion.
++  for (int i = 0; i < sp->numFields; i++) {
++    RS_ASSERT(!(dropMode == IndexDrop_DeleteDocs && FIELD_IS(sp->fields + i, INDEXFLD_T_TAG) &&
++                sp->stats.scoring.numDocuments >= 2));
++  }
++
+   CurrentThread_SetIndexSpec(global_ref);
+ 
+   // Save the index name for logging (before the index is freed)
+diff --git a/src/query.c b/src/query.c
+index 90cbb45efa..bbcf539228 100644
+--- a/src/query.c
++++ b/src/query.c
+@@ -875,6 +875,16 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
+       }
+       break;
+     case QN_NUMERIC: {
++        // Planted by fuzz/redisearch/planted/planted.patch: a range query on a sortable numeric
++        // field reads past a buffer once the index has three documents. Validation,
++        // and so this, runs only for an index with a TEXT or TAG field.
++        if (FieldSpec_IsSortable(spec->fields + n->nn.nf->fieldIndex) &&
++            spec->stats.scoring.numDocuments >= 3) {
++          char *planted = rm_malloc(1);
++          volatile char past = planted[1];
++          (void)past;
++          rm_free(planted);
++        }
+         if (n->nn.nf->min > n->nn.nf->max) {
+           const FieldSpec *numFs = spec->fields + n->nn.nf->fieldIndex;
+           QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
