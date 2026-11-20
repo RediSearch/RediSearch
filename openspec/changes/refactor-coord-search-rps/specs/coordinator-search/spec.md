@@ -1,9 +1,5 @@
 # Coordinator search compatibility requirements
 
-These are the final refactor acceptance requirements, not new promises about
-historical timeout result completeness. The behavior ledger owns unresolved
-classifications and evidence.
-
 ## ADDED Requirements
 
 ### Requirement: Preserve completed search behavior
@@ -42,24 +38,14 @@ Every request SHALL complete and release its owned resources exactly once.
 - **THEN** main and BG SHALL NOT mutate the same pipeline state concurrently
 - **AND** timeout notification alone SHALL NOT authorize freeing borrowed state.
 
-### Requirement: Account for observable differences
-
-Every intentional observable difference SHALL have a ledger entry with its
-trigger, before/after behavior, classification and supporting evidence.
-
-#### Scenario: Uncertain compatibility
-
-- **WHEN** a difference lacks sufficient contract or runtime evidence
-- **THEN** it SHALL remain unclassified
-- **AND** it SHALL NOT be accepted as soft solely because documentation is absent.
-
 ## Approved corrections
 
 Nearest-K selection SHALL use vector distance independently of a numeric final
 SORTBY field. Distance DESC SHALL order the global nearest-K set rather than
 selecting the farthest shard candidates. The distance ASC and count-only shortcuts
 remain. Standard typed field comparison replaces encoded-prefix comparison;
-document-key ties and absent-value placement remain explicit compatibility rules.
+mixed-type ordering follows standard result processor semantics. Document-key
+ties and missing-last placement remain explicit compatibility rules.
 
 ### Requirement: Serialize borrowed rows from source-owned replies
 
