@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::{Bound, Range};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::{Bound, Range},
+};
 
 use lending_iterator::LendingIterator;
 use trie_rs::TrieMap;
@@ -68,7 +71,7 @@ enum Children<T> {
 }
 
 /// The child a key selects on one level, once checked against that level.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Step<'k> {
     Tag(&'k [u8]),
     Bucket(usize),
@@ -93,7 +96,34 @@ enum Fate {
 
 const INVARIANT: &str = "a node's kind matches its depth, checked when the path was routed";
 
+impl<T> Node<T> {
+    /// The children of an inner node. Only called on nodes above the terminal depth.
+    fn children(&self) -> &Children<T> {
+        match self {
+            Self::Inner(children) => children,
+            Self::Terminal(_) => unreachable!("{INVARIANT}"),
+        }
+    }
+}
+
 impl<T> Children<T> {
+    /// The child `step` selects, if it exists. `step` was routed against this node's level.
+    fn child(&self, step: &Step<'_>) -> Option<&Node<T>> {
+        match (self, step) {
+            (Self::Tag(map), Step::Tag(value)) => map.find(value).map(|child| &**child),
+            (Self::Buckets(slots), Step::Bucket(bucket)) => slots[*bucket].as_deref(),
+            _ => unreachable!("{INVARIANT}"),
+        }
+    }
+
+    /// The number of children.
+    fn len(&self) -> usize {
+        match self {
+            Self::Tag(map) => map.n_unique_keys(),
+            Self::Buckets(slots) => slots.iter().filter(|slot| slot.is_some()).count(),
+        }
+    }
+
     fn for_level(level: &Level) -> Self {
         match level {
             Level::Tag(_) => Self::Tag(TrieMap::new()),
@@ -151,16 +181,8 @@ impl<T> CompoundIndex<T> {
         let steps = self.route(path)?;
         let mut node = &self.root;
         for step in &steps {
-            let Node::Inner(children) = node else {
-                unreachable!("{INVARIANT}");
-            };
-            let child = match (children, step) {
-                (Children::Tag(map), Step::Tag(value)) => map.find(value),
-                (Children::Buckets(slots), Step::Bucket(bucket)) => slots[*bucket].as_ref(),
-                _ => unreachable!("{INVARIANT}"),
-            };
-            match child {
-                Some(child) => node = &**child,
+            match node.children().child(step) {
+                Some(child) => node = child,
                 None => return Ok(None),
             }
         }
@@ -221,6 +243,43 @@ impl<T> CompoundIndex<T> {
             Node::Terminal(terminal) => Ok(terminal),
             Node::Inner(_) => unreachable!("{INVARIANT}"),
         }
+    }
+
+    /// Checks that every path of `paths` can be inserted together, without inserting anything.
+    ///
+    /// Each path passing [`CompoundIndex::terminal_or_insert_with`]'s checks on its own is not
+    /// enough for a batch: two new values under the same parent may each fit a cardinality limit
+    /// alone and break it together. This counts the new children every parent would receive from
+    /// the whole batch, including parents the batch itself creates. When it returns `Ok`, inserting
+    /// every path, in any order, succeeds. A caller indexing all the elements of one document calls
+    /// it first, so a document is indexed whole or not at all.
+    ///
+    /// A path error is reported for the first invalid path; cardinality is checked once every path
+    /// has been routed.
+    pub fn check_paths<'k>(&self, paths: &[&[Key<'k>]]) -> Result<(), InsertError> {
+        // The parent's path → its existing children and the new ones the batch adds.
+        let mut new_children: BTreeMap<Vec<Step<'k>>, (usize, BTreeSet<Step<'k>>)> =
+            BTreeMap::new();
+        for path in paths {
+            let steps = self.route(path)?;
+            // `None` once the walk has left the existing nodes: everything below is new.
+            let mut node = Some(&self.root);
+            for (depth, step) in steps.iter().enumerate() {
+                let children = node.map(Node::children);
+                node = children.and_then(|children| children.child(step));
+                if node.is_none() {
+                    new_children
+                        .entry(steps[..depth].to_vec())
+                        .or_insert_with(|| (children.map_or(0, Children::len), BTreeSet::new()))
+                        .1
+                        .insert(*step);
+                }
+            }
+        }
+        for (parent, (existing, added)) in &new_children {
+            self.check_room(parent.len(), *existing, added.len())?;
+        }
+        Ok(())
     }
 
     /// The terminals whose path satisfies every constraint, one constraint per level.
@@ -292,36 +351,35 @@ impl<T> CompoundIndex<T> {
     fn check_new_path(&self, steps: &[Step<'_>]) -> Result<bool, InsertError> {
         let mut node = &self.root;
         for (level_index, step) in steps.iter().enumerate() {
-            let Node::Inner(children) = node else {
-                unreachable!("{INVARIANT}");
-            };
-            let child = match (children, step) {
-                (Children::Tag(map), Step::Tag(value)) => match map.find(value) {
-                    Some(child) => child,
-                    None => {
-                        let Level::Tag(tag) = &self.levels[level_index] else {
-                            unreachable!("{INVARIANT}");
-                        };
-                        if let Some(max) = tag.max_cardinality()
-                            && map.n_unique_keys() >= max.get()
-                        {
-                            return Err(InsertError::CardinalityExceeded {
-                                level: level_index,
-                                max: max.get(),
-                            });
-                        }
-                        return Ok(true);
-                    }
-                },
-                (Children::Buckets(slots), Step::Bucket(bucket)) => match &slots[*bucket] {
-                    Some(child) => child,
-                    None => return Ok(true),
-                },
-                _ => unreachable!("{INVARIANT}"),
-            };
-            node = &**child;
+            let children = node.children();
+            match children.child(step) {
+                Some(child) => node = child,
+                None => {
+                    self.check_room(level_index, children.len(), 1)?;
+                    return Ok(true);
+                }
+            }
         }
         Ok(false)
+    }
+
+    /// Fails if a node on `level_index` holding `existing` children cannot take `added` more.
+    fn check_room(
+        &self,
+        level_index: usize,
+        existing: usize,
+        added: usize,
+    ) -> Result<(), InsertError> {
+        if let Level::Tag(tag) = &self.levels[level_index]
+            && let Some(max) = tag.max_cardinality()
+            && existing + added > max.get()
+        {
+            return Err(InsertError::CardinalityExceeded {
+                level: level_index,
+                max: max.get(),
+            });
+        }
+        Ok(())
     }
 
     fn plan<'c>(&self, constraints: &[Constraint<'c>]) -> Result<Vec<LevelPlan<'c>>, CollectError> {

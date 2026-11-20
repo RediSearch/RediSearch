@@ -92,3 +92,30 @@ fn a_panicking_keep_leaves_the_terminal_count_exact() {
         .unwrap();
     assert_eq!(all.len(), 2);
 }
+
+#[test]
+fn a_panicking_keep_leaves_the_terminal_count_exact_on_bucket_levels() {
+    let mut index = Index::new(vec![bucket_level(&[0.0, 10.0, 20.0]), tag_level()]).unwrap();
+    post(&mut index, &[Key::Numeric(5.0), tag("x")], 1);
+    post(&mut index, &[Key::Numeric(15.0), tag("x")], 2);
+    let mut seen = 0;
+    let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        index.retain_terminals(|_| {
+            seen += 1;
+            assert!(seen < 2, "keep failed");
+            false
+        });
+    }));
+    assert!(attempt.is_err());
+
+    // The first bucket's terminal was rejected before the panic; the second survives.
+    assert_eq!(index.num_terminals(), 1);
+    assert_eq!(
+        index.terminal(&[Key::Numeric(5.0), tag("x")]).unwrap(),
+        None
+    );
+    assert_eq!(
+        index.terminal(&[Key::Numeric(15.0), tag("x")]).unwrap(),
+        Some(&vec![2])
+    );
+}

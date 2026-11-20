@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod check_paths;
 mod collect;
 mod insert;
 mod levels;

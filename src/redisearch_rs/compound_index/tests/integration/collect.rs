@@ -171,6 +171,53 @@ fn the_node_limit_bounds_a_walk_that_returns_nothing() {
 }
 
 #[test]
+fn the_node_limit_applies_to_every_constraint_kind() {
+    let index = orders();
+    // Each case enters exactly `nodes` nodes, terminals included.
+    let cases: &[(&str, [Constraint<'_>; 2], usize)] = &[
+        // blue, then (blue, L) and (blue, M).
+        (
+            "negation",
+            [Constraint::TagNotIn(vec![b"red"]), Constraint::Any],
+            3,
+        ),
+        // red, then (red, L) and (red, M).
+        ("prefix", [Constraint::TagPrefix(b"re"), Constraint::Any], 3),
+    ];
+    for (name, constraints, nodes) in cases {
+        assert_eq!(
+            index
+                .collect_terminals(constraints, nodes_at_most(nodes - 1))
+                .err(),
+            Some(CollectError::TooManyNodes { max: nodes - 1 }),
+            "{name}"
+        );
+        assert!(
+            index
+                .collect_terminals(constraints, nodes_at_most(*nodes))
+                .is_ok(),
+            "{name}"
+        );
+    }
+
+    // Three bucket children, one terminal under each.
+    let all_years = [Constraint::Any, Constraint::Any];
+    assert_eq!(
+        years()
+            .collect_terminals(&all_years, nodes_at_most(5))
+            .err(),
+        Some(CollectError::TooManyNodes { max: 5 })
+    );
+    assert_eq!(
+        years()
+            .collect_terminals(&all_years, nodes_at_most(6))
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
 fn the_node_limit_counts_terminals() {
     let index = orders();
     // (red) then (red, M): two nodes.

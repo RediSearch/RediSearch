@@ -127,3 +127,61 @@ fn a_panicking_init_leaves_the_index_unchanged() {
     post(&mut index, &[tag("blue"), tag("M")], 1);
     assert_eq!(index.num_terminals(), 1);
 }
+
+#[test]
+fn lookups_reject_invalid_paths() {
+    let index = Index::new(vec![tag_level(), bucket_level(&[0.0, 10.0])]).unwrap();
+    let cases: &[(&str, &[Key<'_>], PathError)] = &[
+        (
+            "too long",
+            &[tag("red"), Key::Numeric(1.0), tag("x")],
+            PathError::WrongLength {
+                expected: 2,
+                got: 3,
+            },
+        ),
+        (
+            "tag key on a bucket level",
+            &[tag("red"), tag("1")],
+            PathError::KeyMismatch { level: 1 },
+        ),
+        (
+            "value outside the buckets",
+            &[tag("red"), Key::Numeric(-1.0)],
+            PathError::OutsideBuckets { level: 1 },
+        ),
+    ];
+    for (name, path, expected) in cases {
+        assert_eq!(index.terminal(path), Err(expected.clone()), "{name}");
+    }
+}
+
+#[test]
+fn an_empty_tag_value_is_an_ordinary_value() {
+    let mut index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    post(&mut index, &[tag(""), tag("M")], 1);
+    post(&mut index, &[tag("red"), tag("M")], 2);
+
+    assert_eq!(
+        index.terminal(&[tag(""), tag("M")]).unwrap(),
+        Some(&vec![1])
+    );
+    let empty_only = index
+        .collect_terminals(
+            &[Constraint::TagIn(vec![b""]), Constraint::Any],
+            WalkLimits::UNLIMITED,
+        )
+        .unwrap();
+    assert_eq!(union(&empty_only), vec![1]);
+    // Every value starts with the empty prefix, the empty value included.
+    let every_value = index
+        .collect_terminals(
+            &[Constraint::TagPrefix(b""), Constraint::Any],
+            WalkLimits::UNLIMITED,
+        )
+        .unwrap();
+    assert_eq!(union(&every_value), vec![1, 2]);
+
+    assert_eq!(index.retain_terminals(|docs| docs != &vec![1]), 1);
+    assert_eq!(index.terminal(&[tag(""), tag("M")]).unwrap(), None);
+}
