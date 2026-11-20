@@ -126,17 +126,26 @@ $.items[*] AS items NESTED 4
 
 #### Queries on a bucketed middle level
 
-A range on a bucketed middle level selects every bucket that overlaps it. For buckets fully
-inside the range that's exact. For a bucket that is only **partly** inside (a range of
-`[2021, 2025)` against `[2020, 2022)` and `[2024, 2026)`), the entries below it include elements
-outside the range, and the terminal stores only the last level's value. There are two ways to
-handle this:
+A range on a bucketed middle level is an ordinary numeric range: each end is inclusive
+(`[lo`), exclusive (`(lo`) or unbounded (`-inf`, `+inf`), as in `@year:[(2022 +inf]`. Each bucket
+is half-open, `[bᵢ, bᵢ₊₁)`, and relates to the range in one of three ways:
 
-1. **Aligned ranges only (v1)**: a range on a bucketed middle level must start and end on bucket
-   boundaries, otherwise the query fails with an error listing the boundaries. This is simple and
-   exact.
-2. **Carry the bucketed value (later)**: terminal entries store the middle level's raw value as
-   an extra payload, and edge buckets are filtered on it. This costs one extra value per entry.
+| Bucket vs range | Example, buckets `[2022, 2024)` and `[2024, 2026)` | Result |
+|---|---|---|
+| Wholly inside | `[2022 (2024]` contains every value of `[2022, 2024)` | Selected |
+| Wholly outside | `[2022 (2024]` contains no value of `[2024, 2026)` | Skipped |
+| Partly inside | `[2022 2024]` contains 2024, the first value of `[2024, 2026)`; `(2022 (2024]` misses 2022, the first value of `[2022, 2024)` | The query fails |
+
+A partly covered bucket fails the query because its entries include elements outside the range,
+and the terminal stores only the last level's value, so they can't be filtered out. That makes
+`@year:[2022 2024]` fail where `@year:[2022 (2024]` succeeds: the error has to name the bucket
+boundaries so the user can see the half-open form. A range with a NaN end fails too, and an
+empty range (such as `(2023 2023]`) selects no bucket. The routing layer implements this rule as
+`BucketRange`, with `std::ops::Bound` ends.
+
+A later version can lift the restriction: terminal entries would store the middle level's raw
+value as an extra payload, and partly covered buckets would be filtered on it. That costs one
+extra value per entry.
 
 A bucketed **terminal** has no such problem. Its leaves hold `(docId, value)`, so edge leaves are
 filtered by value as in any numeric range query today.
@@ -325,7 +334,7 @@ routing level, plus a constraint on the terminal:
 | `-@color:{red}` | `TagNotIn([red])` |
 | `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, same limit as `MAXPREFIXEXPANSIONS`) |
 | no clause on the level | `Any` |
-| `@year:[lo hi]` on a `BUCKETS` middle level | `BucketRange { start, end }`, aligned on bucket boundaries in v1 (§2, "Optional limits") |
+| `@year:[lo hi]`, `[(lo hi]`, … on a `BUCKETS` middle level | `BucketRange { start, end }` with each end `Included`, `Excluded` or `Unbounded`. It selects the buckets wholly inside the range and fails if one is only partly inside (§2, "Optional limits") |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
 | `@price` absent | terminal range `[-inf, +inf]` |
 
@@ -417,8 +426,8 @@ Two options, both deferred until measurements show a need:
 - Sub-fields outside the index, TEXT, GEO, GEOSHAPE and VECTOR sub-fields, and arrays inside
   arrays (general element matching, with element positions in postings or hidden
   sub-documents).
-- NUMERIC on a non-terminal level without `BUCKETS`, and unaligned ranges on a bucketed middle
-  level.
+- NUMERIC on a non-terminal level without `BUCKETS`, and ranges that cover part of a bucket on a
+  bucketed middle level.
 - Using the matched element's value in the pipeline. A natural follow-up: a NUMERIC terminal's
   reader already decodes the value, so the group iterator could expose it as `@items.price` in
   the result for SORTBY/APPLY. With several matching elements the rule (min, max or first) has to
