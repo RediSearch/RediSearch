@@ -1,0 +1,6 @@
+[mcp_servers.outerlayer]
+command = "npx"
+args = ["-y", "@outerlayer/cli", "mcp", "serve"]
+
+[mcp_servers.outerlayer-docs]
+url = "https://docs.outerlayer.ai/mcp"

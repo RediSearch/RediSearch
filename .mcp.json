@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "outerlayer": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@outerlayer/cli",
+        "mcp",
+        "serve"
+      ]
+    },
+    "outerlayer-docs": {
+      "type": "http",
+      "url": "https://docs.outerlayer.ai/mcp"
+    }
+  }
+}

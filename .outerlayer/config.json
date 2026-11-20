@@ -1,0 +1,7 @@
+{
+  "targets": [
+    "claude-code"
+  ],
+  "layout": 2,
+  "agent": "codex"
+}
