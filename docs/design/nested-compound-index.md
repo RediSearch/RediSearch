@@ -99,7 +99,7 @@ The keyed-attribute `(k, v)` case is one routing level and a terminal:
 | Every level but the last must be TAG, or NUMERIC with `BUCKETS` (see "Optional limits" below) | A TAG level is an equality map with stable children. A NUMERIC level with dynamic ranges would need range nodes that own subtrees and re-bucket them on split. Fixed buckets never split, so they behave like an equality level |
 | The last level is NUMERIC (range tree) or TAG (posting list per value) | These are the two terminal kinds |
 | Every sub-field must appear in `INDEX` in v1 | The planner can then serve any group from the index alone (§5). Sub-fields outside the index need general element matching, out of scope |
-| Supported sub-field options: TAG `SEPARATOR`, `CASESENSITIVE`. NUMERIC has none. `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | Keeps ingest and GC simple |
+| Supported sub-field options: TAG `CASESENSITIVE`. NUMERIC has none. `SEPARATOR`, `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | A separator splits one string into several tags, which gives an element several values on one level: the cross product of §3, "Limits and costs". The other options keep ingest and GC simple |
 | A NESTED field counts as **one** field toward `SPEC_MAX_FIELDS` (1,024) | Many attributes per entity is the reason the feature exists |
 | Not supported `ON HASH` | Hashes have no arrays |
 
@@ -159,8 +159,9 @@ query time) still apply. Declared limits only make them reachable earlier and pr
 
 ### Code
 
-- `src/field_spec.h`: add `INDEXFLD_T_NESTED = 0x80` (the next free bit), extend `INDEXTYPE_TO_POS` and
-  `INDEXFLD_NUM_TYPES`, and add a `nestedOpts` member:
+- `src/field_spec.h`: add `INDEXFLD_T_NESTED = 0x80`, extend `INDEXTYPE_TO_POS` and
+  `INDEXFLD_NUM_TYPES`, and add a `nestedOpts` member. `FieldSpec.types` is an 8-bit bitfield, so
+  0x80 is its last free bit: the next field type after this one has to widen it.
   ```c
   struct {
     arrayof(NestedSubField) subFields;   // name, relative path (compiled), type, tag flags, separator, limits
@@ -196,8 +197,8 @@ The index has two layers:
   - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
     bounds, cardinality) before creating anything, so a rejected insert leaves the index
     unchanged;
-  - `collect_terminals(constraints, max_terminals)`, the planner's walk (§5), which fails instead
-    of truncating past `max_terminals`;
+  - `collect_terminals(constraints, limits)`, the planner's walk (§5), which fails instead of
+    truncating past either of its `WalkLimits`: terminals returned and nodes entered;
   - `retain_terminals(keep)`, which drops terminals and the nodes left without children, for GC.
 - **The terminals** (second PR), reusing existing structures unchanged:
   ```rust
@@ -221,7 +222,7 @@ the terminal type changes.
    `japi->getWithPath(element, subPath)`. That produces a row of `(value₁ … valueₙ)` per
    element. Store the rows in the `DocumentField` (a new `FLD_VAR_T_NESTED_ROWS` variant).
 2. **Preprocess** (`document.c`, `preprocessorMap[IXFLDPOS_NESTED]`): validate the types and
-   normalise TAG values (case folding unless `CASESENSITIVE`, separator split). Drop elements
+   normalise TAG values (case folding unless `CASESENSITIVE`; no separator split, see §2). Drop elements
    that are missing any level's attribute. They aren't indexed, so they never match a group,
    which gives SQL's NULL behaviour. Reject the document (index error, like today's type
    mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K).
@@ -252,9 +253,10 @@ This is the invariant every posting list in the codebase already relies on.
 
 ### Limits and costs
 
-- **Cross product**: if v1 ever allows a multi-valued attribute (`"color": ["red","white"]`), one
-  element would post under every combination. v1 rejects it at `FT.CREATE` (single-valued
-  sub-paths) and at ingest (a sub-path yielding more than one value is an index error).
+- **Cross product**: if v1 ever allows a multi-valued attribute (`"color": ["red","white"]`, or
+  `"red,white"` with a `SEPARATOR`), one element would post under every combination. v1 rejects it
+  at `FT.CREATE` (single-valued sub-paths, no `SEPARATOR`) and at ingest (a sub-path yielding more
+  than one value is an index error).
 - **Memory**: a terminal costs about one range tree root, or one TrieMap entry plus one inverted
   index. Many sparse prefixes mean many small terminals, a fixed cost per distinct path at every
   level. Report `nested_terminals`, `nested_entries` and `nested_bytes` in `FT.INFO`, and add a
@@ -332,7 +334,7 @@ routing level, plus a constraint on the terminal:
 |---|---|
 | `@color:{red}`, `@color:{red\|blue}` | `TagIn([red, blue])` |
 | `-@color:{red}` | `TagNotIn([red])` |
-| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, same limit as `MAXPREFIXEXPANSIONS`) |
+| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, bounded by the walk limits of step 3; unlike `MAXPREFIXEXPANSIONS` it fails instead of truncating) |
 | no clause on the level | `Any` |
 | `@year:[lo hi]`, `[(lo hi]`, … on a `BUCKETS` middle level | `BucketRange { start, end }` with each end `Included`, `Excluded` or `Unbounded`. It selects the buckets wholly inside the range and fails if one is only partly inside (§2, "Optional limits") |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
@@ -400,9 +402,15 @@ Using the running example's `INDEX 3 color size price`:
 - **Estimate**: the group's `num_estimated` is the sum of the visited terminals' `unique_docs`.
   The outer INTERSECT uses this to order its children, so a selective group drives the
   intersection.
-- **Expansion cap**: `collect_terminals` takes `NESTED_MAX_TERMINALS_PER_QUERY` (proposed 10K) as
-  its limit, and fails the query instead of truncating. Silent truncation, as prefix expansion
-  does today, would return wrong results.
+- **Expansion caps**: `collect_terminals` takes two `WalkLimits`, and fails the query instead of
+  truncating past either. Silent truncation, as prefix expansion does today, would return wrong
+  results.
+  - `NESTED_MAX_TERMINALS_PER_QUERY` (proposed 10K) bounds the terminals returned, so the number
+    of iterators the UNION opens.
+  - `NESTED_MAX_NODES_PER_QUERY` (proposed 100K) bounds the nodes entered. A level the query
+    leaves open is entered through every child even when nothing matches below it:
+    `@items:( @size:{XL} )` with no `MAXCARD` on `color` enters every color to find no XL. Only this
+    second limit bounds that work.
 - **Profile**: `FT.PROFILE` shows a `NESTED` iterator with `terminals_visited`, `levels_fixed` and
   the per-terminal children. That makes a badly ordered `INDEX` visible.
 
@@ -464,6 +472,17 @@ Each PR builds on the one before it.
    for update/delete churn followed by GC, checking that terminal and memory counts drop.
 8. **Benchmarks**: shard-sized data (about 55K docs × 280 elements), comparing the full prefix, a
    skipped level and range-only against one NUMERIC field per combination.
+
+### Follow-ups tracked from review
+
+Raised while reviewing the first PR and deliberately left to the PR that owns the code:
+
+| Follow-up | Owner |
+|---|---|
+| GC copies every key of a tag node on each pass, because `TrieMap` has no mutable iterator. Add a `retain` or mutable lending iterator to `trie_rs::TrieMap` | Terminals (2) or GC (7) |
+| An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
+| A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Parser and AST (5) |
+| The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Planner and eval (6) |
 
 ## 8. Open questions
 
