@@ -40,6 +40,35 @@ pub struct Config {
     /// Minimum number of children for a union iterator to use a heap-based
     /// implementation instead of a flat linear scan.
     pub min_union_iter_heap: usize,
+    /// The bounds one `@field:( … )` group on a NESTED field is evaluated under.
+    pub nested_limits: NestedLimits,
+}
+
+/// The bounds one `@field:( … )` group on a NESTED field is evaluated under. Past any of them the
+/// query fails rather than return partial results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NestedLimits {
+    /// The most alternatives the group's inner expression may expand to once its ORs are
+    /// distributed.
+    pub max_branches: usize,
+    /// The most terminals the group may read, across all its alternatives.
+    pub max_terminals: usize,
+    /// The most routing nodes each alternative's walk may enter.
+    pub max_nodes: usize,
+    /// The most iterators the group may open: one per numeric range of a numeric terminal, one
+    /// per tag value of a tag terminal.
+    pub max_readers: usize,
+}
+
+impl Default for NestedLimits {
+    fn default() -> Self {
+        Self {
+            max_branches: 16,
+            max_terminals: 10_000,
+            max_nodes: 100_000,
+            max_readers: 100_000,
+        }
+    }
 }
 
 impl Default for Config {
@@ -61,6 +90,7 @@ impl Default for Config {
             min_term_prefix,
             max_prefix_expansions,
             min_union_iter_heap,
+            nested_limits: NestedLimits::default(),
         }
     }
 }

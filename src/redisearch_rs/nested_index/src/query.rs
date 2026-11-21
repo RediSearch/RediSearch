@@ -126,7 +126,7 @@ pub fn plan<'a>(
     let num_levels = levels.len() + 1;
     let conjunctions = dnf(expr, false, max_branches)?;
     let mut branches = Vec::with_capacity(conjunctions.len());
-    'conjunctions: for conjunction in conjunctions {
+    for mut conjunction in conjunctions {
         let mut filters: Vec<LevelFilter<'a>> = (0..num_levels)
             .map(|level| {
                 let numeric = if level < levels.len() {
@@ -141,14 +141,26 @@ pub fn plan<'a>(
                 }
             })
             .collect();
-        for literal in conjunction {
+        // Value lists first, then prefixes, then negations: a negation under a prefix can only
+        // be planned once a value list has turned the prefix into a set, so taking literals in
+        // this order makes the outcome, plan or error, independent of how the query orders them.
+        conjunction.sort_by_key(|literal| match literal.clause.predicate {
+            _ if literal.negated => 2,
+            Predicate::TagPrefix(_) => 1,
+            Predicate::TagIn(_) | Predicate::Range { .. } => 0,
+        });
+        // Every literal is checked, even past one that empties the branch, so an unsupported
+        // literal is an error wherever it stands.
+        let mut possible = true;
+        for literal in &conjunction {
             let level = literal.clause.level;
             let filter = filters
                 .get_mut(level)
                 .ok_or(PlanError::NoSuchLevel { level })?;
-            if !filter.and(&literal)? {
-                continue 'conjunctions;
-            }
+            possible &= filter.and(literal)?;
+        }
+        if !possible {
+            continue;
         }
         let terminal = match filters.pop().expect("at least one level") {
             LevelFilter::Tag(tag) => TerminalFilter::Tag(tag.into_constraint()),

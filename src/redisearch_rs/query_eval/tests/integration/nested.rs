@@ -19,7 +19,7 @@ use nested_index::{
 };
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
-use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{Config, EvalResult, NestedLimits, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::RQEIterator;
@@ -52,7 +52,7 @@ const MATERIAL: SubField = SubField {
 
 /// One element: its routing keys, then its terminal value.
 enum Value {
-    Tag(&'static str),
+    Tag(String),
     Number(f64),
 }
 
@@ -69,6 +69,10 @@ struct NestedFixture {
 
 impl NestedFixture {
     /// `sub_fields` in `INDEX` order: every one but the last routes on a tag level.
+    #[expect(
+        clippy::multiple_unsafe_ops_per_block,
+        reason = "one SAFETY argument covers building the C field by hand"
+    )]
     fn new(sub_fields: &[SubField], docs: &[(DocId, Vec<Vec<Value>>)]) -> Self {
         let _guard = GlobalGuard::default();
         let mut context = TestContext::tag(std::iter::empty());
@@ -163,11 +167,16 @@ impl NestedFixture {
 
     /// The doc ids `group` matches, or `None` when evaluation yields no iterator.
     fn eval(&mut self, group: &mut Query) -> Option<Vec<DocId>> {
+        self.eval_with(group, Config::default())
+    }
+
+    /// As [`eval`](Self::eval), under `config`.
+    fn eval_with(&mut self, group: &mut Query, config: Config) -> Option<Vec<DocId>> {
         // SAFETY: the root and every node under it are live and owned by `group`, which is
         // borrowed exclusively for the call; tag tokens are allocated as the parser allocates
         // them (`MockQueryNode::with_redis_token`).
         let node = unsafe { QueryNodeMut::new(group.root()) };
-        let evaluated = eval_node(&mut self.ctx, node, Config::default())?;
+        let evaluated = eval_node(&mut self.ctx, node, config)?;
         let mut it: ContractChecker<EvalResult<'_>> = ContractChecker::new(evaluated.into_boxed());
         assert_current_contract(&mut it);
         it.rewind();
@@ -180,8 +189,13 @@ impl NestedFixture {
 
     /// The error evaluating `group` set, after asserting it yields no iterator.
     fn error(&mut self, group: &mut Query) -> (QueryErrorCode, String) {
+        self.error_with(group, Config::default())
+    }
+
+    /// As [`error`](Self::error), under `config`.
+    fn error_with(&mut self, group: &mut Query, config: Config) -> (QueryErrorCode, String) {
         assert!(
-            self.eval(group).is_none(),
+            self.eval_with(group, config).is_none(),
             "an erroneous group yields no iterator"
         );
         let status = self.ctx.status();
@@ -195,18 +209,26 @@ impl NestedFixture {
     }
 }
 
-fn tags(values: &[&'static str]) -> Vec<Value> {
-    values.iter().map(|v| Value::Tag(v)).collect()
+fn tags(values: &[&str]) -> Vec<Value> {
+    values.iter().map(|v| Value::Tag(v.to_string())).collect()
 }
 
-fn priced(color: &'static str, size: &'static str, price: f64) -> Vec<Value> {
-    vec![Value::Tag(color), Value::Tag(size), Value::Number(price)]
+fn priced(color: &str, size: &str, price: f64) -> Vec<Value> {
+    vec![
+        Value::Tag(color.to_string()),
+        Value::Tag(size.to_string()),
+        Value::Number(price),
+    ]
 }
 
 /// A query tree of mock nodes, kept alive together since parents point at children.
 #[derive(Default)]
 struct Query {
     nodes: Vec<MockQueryNode>,
+    #[expect(
+        clippy::vec_box,
+        reason = "the nodes point at the filters, which must not move as the vector grows"
+    )]
     filters: Vec<Box<NumericFilter>>,
 }
 
@@ -252,11 +274,22 @@ impl Query {
 
     /// `@<sub>:[min max]`, both ends included.
     fn range(&mut self, field: FieldIndex, sub: u8, min: f64, max: f64) -> *mut ffi::RSQueryNode {
+        self.range_with(field, sub, (min, true), (max, true))
+    }
+
+    /// `@<sub>:[min max]`, each end given with whether it is included.
+    fn range_with(
+        &mut self,
+        field: FieldIndex,
+        sub: u8,
+        (min, min_inclusive): (f64, bool),
+        (max, max_inclusive): (f64, bool),
+    ) -> *mut ffi::RSQueryNode {
         let mut filter = Box::new(NumericFilter {
             min,
             max,
-            min_inclusive: true,
-            max_inclusive: true,
+            min_inclusive,
+            max_inclusive,
             field_index: field,
             ..Default::default()
         });
@@ -414,35 +447,69 @@ fn unsupported_clauses_are_errors() {
     assert_eq!(code, QueryErrorCode::Syntax);
 }
 
-#[test]
-fn too_many_terminals_fail_with_the_group_limit() {
-    let colors: Vec<String> = (0..=query_eval::nested_limits::MAX_TERMINALS)
-        .map(|n| format!("c{n}"))
-        .collect();
-    let colors: Vec<&'static str> = colors
-        .into_iter()
-        .map(|c| &*Box::leak(c.into_boxed_str()))
-        .collect();
-    let docs: Vec<_> = colors
-        .iter()
-        .enumerate()
-        .map(|(n, color)| (n as DocId + 1, vec![priced(color, "m", 1.0)]))
-        .collect();
-    let mut fixture = NestedFixture::priced(&docs);
-    let field = fixture.field_index;
-    let mut q = Query::default();
-    let m = q.tag_values(field, 1, &["m"]);
-    q.group(field, m);
-    let (code, message) = fixture.error(&mut q);
-    assert_eq!(code, QueryErrorCode::Limit);
-    let expected = format!(
-        "more than {} terminals",
-        query_eval::nested_limits::MAX_TERMINALS
-    );
-    assert!(message.contains(&expected), "{message}");
+/// A [`Config`] with `limits` lowered, so a small index reaches them.
+fn limited(limits: impl FnOnce(&mut NestedLimits)) -> Config {
+    let mut config = Config::default();
+    limits(&mut config.nested_limits);
+    config
 }
 
 #[test]
+fn each_group_limit_fails_the_query_and_names_itself() {
+    // Three terminals under size M: red, blue and green; each opens one numeric range.
+    let docs = vec![
+        (1, vec![priced("red", "m", 1.0)]),
+        (2, vec![priced("blue", "m", 2.0)]),
+        (3, vec![priced("green", "m", 3.0)]),
+    ];
+    let mut fixture = NestedFixture::priced(&docs);
+    let field = fixture.field_index;
+    let group = |q: &mut Query| {
+        let m = q.tag_values(field, 1, &["m"]);
+        q.group(field, m);
+    };
+    let cases: [(Config, &str); 3] = [
+        (limited(|l| l.max_terminals = 2), "more than 2 terminals"),
+        (limited(|l| l.max_nodes = 2), "more than 2 index nodes"),
+        (limited(|l| l.max_readers = 2), "more than 2 posting lists"),
+    ];
+    for (config, expected) in cases {
+        let mut q = Query::default();
+        group(&mut q);
+        let (code, message) = fixture.error_with(&mut q, config);
+        assert_eq!(code, QueryErrorCode::Limit, "{expected}");
+        assert!(message.contains(expected), "{message}");
+        fixture.ctx.status().clear();
+    }
+    // At the limits, the group is answered.
+    let mut q = Query::default();
+    group(&mut q);
+    let config = limited(|l| {
+        l.max_terminals = 3;
+        l.max_readers = 3;
+    });
+    assert_eq!(fixture.eval_with(&mut q, config), Some(vec![1, 2, 3]));
+}
+
+#[test]
+fn too_many_alternatives_fail_the_query() {
+    let mut fixture = NestedFixture::priced(&paired());
+    let field = fixture.field_index;
+    let mut q = Query::default();
+    let red = q.tag_values(field, 0, &["red"]);
+    let m = q.tag_values(field, 1, &["m"]);
+    let or = q.combine(QueryNodeType::Union, &[red, m]);
+    q.group(field, or);
+    let (code, message) = fixture.error_with(&mut q, limited(|l| l.max_branches = 1));
+    assert_eq!(code, QueryErrorCode::Syntax);
+    assert!(message.contains("more than 1 alternatives"), "{message}");
+}
+
+#[test]
+#[expect(
+    clippy::multiple_unsafe_ops_per_block,
+    reason = "one SAFETY argument covers taking the index out of the field"
+)]
 fn a_field_without_an_index_matches_nothing() {
     let mut fixture = NestedFixture::priced(&paired());
     let field = fixture.field_index;
@@ -460,4 +527,27 @@ fn a_field_without_an_index_matches_nothing() {
     let red = q.tag_values(field, 0, &["red"]);
     q.group(field, red);
     assert_eq!(fixture.eval(&mut q), None);
+}
+
+#[test]
+fn an_excluded_infinite_end_leaves_out_infinite_values() {
+    let docs = vec![
+        (1, vec![priced("red", "m", f64::INFINITY)]),
+        (2, vec![priced("red", "m", 5.0)]),
+        (3, vec![priced("red", "m", f64::NEG_INFINITY)]),
+    ];
+    let mut fixture = NestedFixture::priced(&docs);
+    let field = fixture.field_index;
+    let cases = [
+        ((0.0, true), (f64::INFINITY, false), vec![2]),
+        ((0.0, true), (f64::INFINITY, true), vec![1, 2]),
+        ((f64::NEG_INFINITY, false), (10.0, true), vec![2]),
+        ((f64::NEG_INFINITY, true), (10.0, true), vec![2, 3]),
+    ];
+    for (start, end, expected) in cases {
+        let mut q = Query::default();
+        let price = q.range_with(field, 2, start, end);
+        q.group(field, price);
+        assert_eq!(fixture.eval(&mut q), Some(expected), "{start:?} {end:?}");
+    }
 }

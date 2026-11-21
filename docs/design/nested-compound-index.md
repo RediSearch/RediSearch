@@ -621,30 +621,34 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      group.
    - Planning (`nested_index::query`). The inner expression becomes an `Expr` over per-level
      `Clause`s; NOTs are pushed down (a negated range becomes the two ranges outside it) and ANDs
-     distributed over ORs, capped at `MAX_BRANCHES` (16). Clauses on one level are merged, with
-     value sets kept sorted so a merge is linear in their sizes:
+     distributed over ORs, capped at `max_branches` (16). Clauses on one level are merged, value
+     lists first, then prefixes, then negations, so the plan or the error does not depend on
+     how the query orders them, with value sets kept sorted so a merge is linear in their sizes:
      tag sets intersect, negations add up, ranges intersect, prefixes narrow; a branch that can
      match nothing is dropped. A negated prefix, or a prefix and a negation on one level, has no
      constraint and is rejected. A property test checks that an element matches the expression
      exactly when it matches one of the planned branches.
    - Eval (`query_eval/src/nodes/nested.rs`). Each branch walks the routing levels with
-     `collect_terminals`, sharing `MAX_TERMINALS` (10K) and `MAX_NODES` (100K) across branches. A
+     `collect_terminals`, sharing `max_terminals` (10K) across branches, each entering at most
+     `max_nodes` (100K). The limits are `query_eval::NestedLimits` in the evaluator's `Config`. A
      numeric terminal opens `NumericIteratorVariant::from_tree` with a filter the `QN_NESTED` node
      owns, so it lives as long as the AST; a tag terminal opens `TagIndex::open_reader` per value,
-     listing the terminal's values for `Any`, `TagNotIn` and prefixes. At most `MAX_READERS` (100K)
+     listing the terminal's values for `Any`, `TagNotIn` and prefixes. At most `max_readers` (100K)
      iterators per group. The group is their UNION, which `FT.PROFILE` shows as a `UNION` of
      query type `NESTED`; its estimate is the union's.
    - Terminals own their tree or tag index through the pointer `Box::into_raw` returned, and hand
      it out (`Terminal::numeric_ptr`, `Terminal::tag_ptr`), as the numeric `RangeSource` and the
-     tag `TrieLookup` require. Iterators revalidate as on top-level fields: a numeric terminal's
-     revision, a tag terminal's lookup. Terminals are only freed with the field until GC (5).
+     tag `TrieLookup` require. Iterators revalidate as on top-level fields: a tag reader
+     re-finds its value, and a numeric reader aborts when its tree changes shape, ending a
+     cursor's results early exactly as on a top-level NUMERIC field. Terminals are only freed
+     with the field until GC (5).
    - Tests: flow tests, standalone and in cluster, for every shape in the §5 table, tag and
      bucket levels, case folding, PARAMS, composition with top-level fields, KNN, a cursor read
      across writes, updates and deletes, `FT.EXPLAIN`, `FT.PROFILE` and errors, plus 150 random
      groups against a brute-force evaluator on 60 random documents; Rust tests of the planner
      (with a property test) and of the evaluator.
-   - Deferred: the benchmarks; making the limits configurable; `terminals_visited` and
-     `levels_fixed` in `FT.PROFILE`.
+   - Deferred: the benchmarks; exposing the limits as module configuration; `terminals_visited`
+     and `levels_fixed` in `FT.PROFILE`.
 5. **GC**: the compound scanner, fork-GC deltas keyed by path, and removing each emptied
    terminal by its path. Tests for update and delete churn followed by GC, checking that terminal
    and memory counts drop.

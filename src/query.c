@@ -327,6 +327,7 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   // The legacy (v1) grammar creates a placeholder node with `field == NULL` and
   // fills in `tag.fieldIndex` once it resolves the field itself.
   ret->tag.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
+  ret->tag.subField = NESTED_NO_SUB_FIELD;
   return ret;
 }
 
@@ -362,12 +363,12 @@ static bool groupNamesAField(const char *p, const char *end) {
   while (p < end) {
     char c = *p++;
     if (c == '\\') {
-      p++;
+      if (p < end) p++;
     } else if (c == '"' || c == '\'') {
       while (p < end && *p != c) {
-        p += *p == '\\' ? 2 : 1;
+        p += (*p == '\\' && p + 1 < end) ? 2 : 1;
       }
-      p++;
+      if (p < end) p++;
     } else if (c == '(') {
       depth++;
     } else if (c == ')') {
@@ -427,6 +428,7 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   ret->nn.nf = p->nf;
   ret->params = p->params;
   ret->nn.nf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
+  ret->nn.subField = NESTED_NO_SUB_FIELD;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -613,6 +615,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
+    n->nn.subField = NESTED_NO_SUB_FIELD;
     SetFilterNode(ast, n);
   }
   if (options->geo) {
@@ -969,7 +972,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         opts->flags |= QueryNode_IsTag;
         RS_ASSERT(n->tag.fieldIndex < spec->numFields);
         const FieldSpec *fs = spec->fields + n->tag.fieldIndex;
-        if (FieldSpec_IndexesEmpty(fs)) {
+        // Inside a group the field is NESTED, whose sub-fields index empty values as any other.
+        if (FieldSpec_IndexesEmpty(fs) || FIELD_IS(fs, INDEXFLD_T_NESTED)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {

@@ -154,6 +154,15 @@ impl MockQueryNode {
             let node = alloc_zeroed(Layout::new::<ffi::RSQueryNode>()).cast::<ffi::RSQueryNode>();
             assert!(!node.is_null());
             (*node).type_ = type_;
+            // Outside a NESTED group, as `NewTagNode` and `NewNumericNode` build them.
+            let union_ptr = &raw mut (*node).__bindgen_anon_1;
+            match type_ {
+                QueryNodeType::Tag => (*union_ptr.cast::<ffi::QueryTagNode>()).subField = u8::MAX,
+                QueryNodeType::Numeric => {
+                    (*union_ptr.cast::<ffi::QueryNumericNode>()).subField = u8::MAX;
+                }
+                _ => {}
+            }
 
             Self {
                 node,

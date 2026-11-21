@@ -17,7 +17,7 @@ use ffi::{
     ResultProcessor,
 };
 use query_eval::{
-    Config, DocIdCoverage, QueryEvalContext, QueryIteratorTree, QueryNodeMut,
+    Config, DocIdCoverage, NestedLimits, QueryEvalContext, QueryIteratorTree, QueryNodeMut,
     scorers::BuiltInScorer,
 };
 use rqe_iterators::{IteratorsConfig, c2rust::CRQEIterator};
@@ -49,6 +49,7 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
         min_term_prefix: iterators.min_term_prefix,
         max_prefix_expansions: iterators.max_prefix_expansions as usize,
         min_union_iter_heap: iterators.min_union_iter_heap as usize,
+        nested_limits: NestedLimits::default(),
     }
 }
 

@@ -164,17 +164,22 @@ impl Drop for Terminal {
 
 impl fmt::Debug for Terminal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (self.numeric(), self.tag()) {
-            (Some(tree), _) => f
-                .debug_struct("Numeric")
-                .field("entries", &tree.num_entries())
-                .field("ranges", &tree.num_ranges())
-                .finish(),
-            (_, Some(tags)) => f
-                .debug_struct("Tag")
-                .field("values", &tags.n_tags())
-                .finish(),
-            (None, None) => unreachable!("a terminal is numeric or tag"),
+        match self.0 {
+            Postings::Numeric(tree) => {
+                // SAFETY: as in `Terminal::numeric`.
+                let tree = unsafe { tree.as_ref() };
+                f.debug_struct("Numeric")
+                    .field("entries", &tree.num_entries())
+                    .field("ranges", &tree.num_ranges())
+                    .finish()
+            }
+            Postings::Tag(tags) => {
+                // SAFETY: as in `Terminal::tag`.
+                let tags = unsafe { tags.as_ref() };
+                f.debug_struct("Tag")
+                    .field("values", &tags.n_tags())
+                    .finish()
+            }
         }
     }
 }

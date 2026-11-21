@@ -41,12 +41,16 @@ typedef struct {
   int dummy;
 } QueryNullNode;
 
+/* The `subField` of a tag or numeric node outside a NESTED group. */
+#define NESTED_NO_SUB_FIELD UINT8_MAX
+
 typedef struct {
   t_fieldIndex fieldIndex;      // stable index of the tag field into IndexSpec.fields; re-derive
                                  // the FieldSpec* from this at evaluation time - a pointer captured
                                  // at parse time may already be freed by then
   uint8_t subField;  // under a QN_NESTED node, where `fieldIndex` names the NESTED
-                     // field: the sub-field read, as a position in its definition
+                     // field: the sub-field read, as a position in its definition;
+                     // NESTED_NO_SUB_FIELD elsewhere
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a

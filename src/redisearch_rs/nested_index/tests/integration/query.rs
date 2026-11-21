@@ -265,6 +265,45 @@ fn invalid_groups_are_rejected() {
 }
 
 #[test]
+fn the_order_of_clauses_does_not_change_the_plan() {
+    // A value list turns the prefix and the negation into a set, in whichever order they come.
+    let orders = [
+        vec![
+            prefix(COLOR, "r"),
+            not(tags(COLOR, &["red"])),
+            tags(COLOR, &["red", "rose"]),
+        ],
+        vec![
+            tags(COLOR, &["red", "rose"]),
+            not(tags(COLOR, &["red"])),
+            prefix(COLOR, "r"),
+        ],
+        vec![
+            not(tags(COLOR, &["red"])),
+            prefix(COLOR, "r"),
+            tags(COLOR, &["red", "rose"]),
+        ],
+    ];
+    for order in orders {
+        assert_eq!(
+            plan_priced(&Expr::And(order))[0].routing[0],
+            tag_in(&["rose"])
+        );
+    }
+    // A contradiction does not hide a negated prefix, before or after it.
+    let contradiction = || [tags(COLOR, &["red"]), tags(COLOR, &["blue"])];
+    for expr in [
+        Expr::And([contradiction().to_vec(), vec![not(prefix(COLOR, "re"))]].concat()),
+        Expr::And([vec![not(prefix(COLOR, "re"))], contradiction().to_vec()].concat()),
+    ] {
+        assert_eq!(
+            plan(&priced(None), &expr, 16),
+            Err(PlanError::NegatedPrefix)
+        );
+    }
+}
+
+#[test]
 fn too_many_alternatives_are_rejected() {
     let three = || {
         Expr::Or(vec![

@@ -78,8 +78,8 @@ pub enum QueryNode<'a> {
         /// The numeric filter describing the range bounds and target field.
         nf: &'a NumericFilter,
         /// Under a [`Nested`](Self::Nested) node, where the filter's field is the NESTED
-        /// field: the sub-field read, as a position in its definition. Meaningless elsewhere.
-        sub_field: u8,
+        /// field: the sub-field read, as a position in its definition. [`None`] elsewhere.
+        sub_field: Option<u8>,
     },
     /// Logical negation — excludes documents matched by its single child.
     Not,
@@ -122,7 +122,7 @@ pub enum QueryNode<'a> {
         /// which may already be freed by then.
         field_index: rqe_core::FieldIndex,
         /// Under a [`Nested`](Self::Nested) node, as for [`Numeric`](Self::Numeric).
-        sub_field: u8,
+        sub_field: Option<u8>,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -176,6 +176,12 @@ pub enum QueryNode<'a> {
         /// [`Missing`](Self::Missing).
         field_index: rqe_core::FieldIndex,
     },
+}
+
+/// The sub-field a tag or numeric node reads, from its C `subField`, which is `NESTED_NO_SUB_FIELD`
+/// (`UINT8_MAX`) outside a NESTED group.
+const fn sub_field(raw: u8) -> Option<u8> {
+    if raw == u8::MAX { None } else { Some(raw) }
 }
 
 /// Safe read-only wrapper around a [`ffi::RSQueryNode`] pointer.
@@ -311,7 +317,7 @@ impl QueryNodeRef {
                 QueryNode::Numeric {
                     // SAFETY: `nn.nf` points to a valid `NumericFilter` with matching `#[repr(C)]` layout.
                     nf: unsafe { &*nn.nf.cast::<NumericFilter>() },
-                    sub_field: nn.subField,
+                    sub_field: sub_field(nn.subField),
                 }
             }
             QueryNodeType::Not => QueryNode::Not,
@@ -373,7 +379,7 @@ impl QueryNodeRef {
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
                 QueryNode::Tag {
                     field_index: tag.fieldIndex,
-                    sub_field: tag.subField,
+                    sub_field: sub_field(tag.subField),
                 }
             }
             QueryNodeType::Fuzzy => {

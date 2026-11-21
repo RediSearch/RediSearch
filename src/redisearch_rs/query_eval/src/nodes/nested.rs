@@ -21,7 +21,7 @@ use std::ptr::{self, NonNull};
 use ::query::{QueryNode, WildcardMode};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
-use nested_index::query::{Branch, Clause, Expr, Predicate, TerminalFilter, plan};
+use nested_index::query::{Branch, Clause, Expr, PlanError, Predicate, TerminalFilter, plan};
 use nested_index::{CollectError, Constraint, NestedIndex, Terminal, WalkLimits};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -29,20 +29,49 @@ use rqe_core::FieldIndex;
 use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, union_opaque::build_union};
 use tag_index::{InMemoryMode, IterMode, Tag, TagIndex, TrieLookup};
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut};
+use crate::{Config, Evaluated, NestedLimits, QueryEvalContext, QueryNodeMut};
 
-/// The most alternatives a group's inner expression may expand to once its ORs are distributed.
-pub const MAX_BRANCHES: usize = 16;
+/// Why a group could not be evaluated.
+#[derive(Debug, thiserror::Error)]
+enum GroupError {
+    /// A clause the group does not answer, which the parser only lets through without a spec.
+    #[error(
+        "only TAG and NUMERIC conditions on the group's sub-fields, with AND, OR and NOT, are \
+         supported inside a NESTED group"
+    )]
+    Unsupported,
+    /// The inner expression could not be planned.
+    #[error("NESTED group: {0}")]
+    Plan(#[from] PlanError),
+    /// The alternatives together reach more terminals than [`NestedLimits::max_terminals`].
+    #[error("NESTED group: the query reaches more than {max} terminals")]
+    TooManyTerminals {
+        /// The group's limit.
+        max: usize,
+    },
+    /// An alternative's walk failed: too many nodes, or a range cutting a bucket.
+    #[error("NESTED group: {0}")]
+    Walk(CollectError),
+    /// The group opens more iterators than [`NestedLimits::max_readers`].
+    #[error("NESTED group: the query opens more than {max} posting lists")]
+    TooManyReaders {
+        /// The group's limit.
+        max: usize,
+    },
+}
 
-/// The most terminals one group may read, across all its alternatives.
-pub const MAX_TERMINALS: usize = 10_000;
-
-/// The most routing nodes one group may enter, across all its alternatives.
-pub const MAX_NODES: usize = 100_000;
-
-/// The most iterators one group may open: one per numeric range of a numeric terminal, one per
-/// tag value of a tag terminal.
-pub const MAX_READERS: usize = 100_000;
+impl GroupError {
+    const fn code(&self) -> QueryErrorCode {
+        match self {
+            Self::Unsupported
+            | Self::Plan(_)
+            | Self::Walk(CollectError::UnalignedBucketRange { .. }) => QueryErrorCode::Syntax,
+            Self::TooManyTerminals { .. } | Self::TooManyReaders { .. } | Self::Walk(_) => {
+                QueryErrorCode::Limit
+            }
+        }
+    }
+}
 
 /// `QN_NESTED` — the UNION of the iterators of every terminal the group's alternatives reach.
 pub(crate) fn eval<'index>(
@@ -81,75 +110,71 @@ pub(crate) fn eval<'index>(
     // alive and excludes writers during evaluation.
     let index = unsafe { index.as_ref() };
 
-    debug_assert_eq!(node.num_children(), 1, "a group has one inner expression");
-    let inner = match translate(node.child_mut(0), def) {
-        Ok(inner) => inner,
-        Err(message) => {
-            ctx.status().set_error(QueryErrorCode::Syntax, &message);
-            return None;
+    let sctx = NonNull::new(ctx.sctx_ptr().cast_mut()).expect("a query has a search context");
+    match open(index, def, &mut node, sctx, field_index, config) {
+        Ok(readers) if readers.is_empty() => None,
+        Ok(readers) => {
+            let weight = node.opts().weight;
+            let iter = build_union(
+                readers,
+                true,
+                config.min_union_iter_heap,
+                QueryNodeType::Nested,
+                weight,
+            );
+            Some(Evaluated::RustCompound(iter))
         }
-    };
-    let expr = inner.borrowed();
-    let branches = match plan(index, &expr, MAX_BRANCHES) {
-        Ok(branches) => branches,
         Err(err) => {
-            ctx.status()
-                .set_error(QueryErrorCode::Syntax, &format!("NESTED group: {err}"));
-            return None;
+            ctx.status().set_error(err.code(), &err.to_string());
+            None
         }
-    };
+    }
+}
+
+/// The iterators of every terminal the group `node` reaches.
+fn open(
+    index: &NestedIndex,
+    def: &ffi::NestedDef,
+    node: &mut QueryNodeMut<'_>,
+    sctx: NonNull<ffi::RedisSearchCtx>,
+    field_index: FieldIndex,
+    config: Config,
+) -> Result<Vec<CRQEIterator>, GroupError> {
+    let limits = config.nested_limits;
+    debug_assert_eq!(node.num_children(), 1, "a group has one inner expression");
+    let inner = translate(node.child_mut(0), def)?;
+    let branches = plan(index, &inner.borrowed(), limits.max_branches)?;
 
     let node_ptr = node.as_non_null();
-    let sctx = NonNull::new(ctx.sctx_ptr().cast_mut()).expect("a query has a search context");
     let mut readers = Readers {
         out: Vec::new(),
         sctx,
         field_index,
+        limits,
     };
     // The terminal budget is shared by all alternatives; each may enter up to the node budget.
-    let mut terminals_left = MAX_TERMINALS;
+    let mut terminals_left = limits.max_terminals;
     for branch in &branches {
-        let limits = WalkLimits {
+        let walk = WalkLimits {
             max_terminals: terminals_left,
-            max_nodes: MAX_NODES,
+            max_nodes: limits.max_nodes,
         };
-        let terminals = match index.routing().collect_terminals(&branch.routing, limits) {
-            Ok(terminals) => terminals,
-            Err(err) => {
-                let (code, message) = match err {
-                    // Named by the group's own limit, not what this alternative had left of it.
-                    CollectError::TooManyTerminals { .. } => (
-                        QueryErrorCode::Limit,
-                        format!("the query reaches more than {MAX_TERMINALS} terminals"),
-                    ),
-                    CollectError::TooManyNodes { .. } => (QueryErrorCode::Limit, err.to_string()),
-                    _ => (QueryErrorCode::Syntax, err.to_string()),
-                };
-                ctx.status()
-                    .set_error(code, &format!("NESTED group: {message}"));
-                return None;
-            }
-        };
+        let terminals = index
+            .routing()
+            .collect_terminals(&branch.routing, walk)
+            .map_err(|err| match err {
+                // Named by the group's own limit, not what this alternative had left of it.
+                CollectError::TooManyTerminals { .. } => GroupError::TooManyTerminals {
+                    max: limits.max_terminals,
+                },
+                err => GroupError::Walk(err),
+            })?;
         terminals_left -= terminals.len();
         // SAFETY: `node_ptr` is the live QN_NESTED node under evaluation, part of the AST that
         // outlives every iterator of the query.
-        if let Err(message) = unsafe { readers.open_branch(branch, &terminals, node_ptr) } {
-            ctx.status().set_error(QueryErrorCode::Limit, &message);
-            return None;
-        }
+        unsafe { readers.open_branch(branch, &terminals, node_ptr) }?;
     }
-    if readers.out.is_empty() {
-        return None;
-    }
-    let weight = node.opts().weight;
-    let iter = build_union(
-        readers.out,
-        true,
-        config.min_union_iter_heap,
-        QueryNodeType::Nested,
-        weight,
-    );
-    Some(Evaluated::RustCompound(iter))
+    Ok(readers.out)
 }
 
 /// The iterators a group opens, one per numeric range or tag value of each terminal reached.
@@ -157,6 +182,7 @@ struct Readers {
     out: Vec<CRQEIterator>,
     sctx: NonNull<ffi::RedisSearchCtx>,
     field_index: FieldIndex,
+    limits: NestedLimits,
 }
 
 impl Readers {
@@ -171,7 +197,7 @@ impl Readers {
         branch: &Branch<'_>,
         terminals: &[&Terminal],
         node: NonNull<ffi::RSQueryNode>,
-    ) -> Result<(), String> {
+    ) -> Result<(), GroupError> {
         match &branch.terminal {
             TerminalFilter::Numeric { start, end } => {
                 // SAFETY: guaranteed by 1.
@@ -245,7 +271,7 @@ impl Readers {
         tags: &TagIndex<InMemoryMode>,
         tags_ptr: NonNull<TagIndex<InMemoryMode>>,
         tag: Tag<'_>,
-    ) -> Result<(), String> {
+    ) -> Result<(), GroupError> {
         // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index
         // (`Terminal::tag_ptr`). 2. It stays valid as long as the field, which outlives the
         // query's iterators. 3. The index is mutated only under the spec write lock, which the
@@ -261,11 +287,11 @@ impl Readers {
         }
     }
 
-    fn push(&mut self, iterator: CRQEIterator) -> Result<(), String> {
-        if self.out.len() == MAX_READERS {
-            return Err(format!(
-                "NESTED group: the query opens more than {MAX_READERS} posting lists"
-            ));
+    fn push(&mut self, iterator: CRQEIterator) -> Result<(), GroupError> {
+        if self.out.len() == self.limits.max_readers {
+            return Err(GroupError::TooManyReaders {
+                max: self.limits.max_readers,
+            });
         }
         self.out.push(iterator);
         Ok(())
@@ -324,6 +350,10 @@ impl Readers {
 }
 
 /// A group's inner expression, with its tag values copied out of the query nodes.
+///
+/// The values cannot be borrowed instead: a payload read from a [`QueryNodeMut`] borrows that
+/// node's view, which lives only while its parent is reborrowed for it, so no borrow outlives the
+/// walk on to the next sibling.
 enum Owned {
     Tags {
         level: usize,
@@ -367,18 +397,35 @@ impl Owned {
 }
 
 /// The level of `INDEX` that sub-field `sub_field` is.
-fn level_of(def: &ffi::NestedDef, sub_field: u8) -> usize {
+fn level_of(def: &ffi::NestedDef, sub_field: u8) -> Result<usize, GroupError> {
     def.levels[..usize::from(def.numLevels)]
         .iter()
         .position(|&level| level == sub_field)
-        .expect("INDEX lists every sub-field")
+        .ok_or(GroupError::Unsupported)
 }
 
-const UNSUPPORTED: &str = "only TAG and NUMERIC conditions on the group's sub-fields, with AND, OR and NOT, are supported inside a NESTED group";
+/// The lower end of a numeric filter: unbounded only for an included `-inf`, which every value
+/// is above. An excluded `-inf` still leaves out an element whose value is `-inf`.
+fn start_of(nf: &NumericFilter) -> Bound<f64> {
+    match (nf.min == f64::NEG_INFINITY, nf.min_inclusive) {
+        (true, true) => Bound::Unbounded,
+        (_, true) => Bound::Included(nf.min),
+        (_, false) => Bound::Excluded(nf.min),
+    }
+}
+
+/// The upper end of a numeric filter, as in [`start_of`].
+fn end_of(nf: &NumericFilter) -> Bound<f64> {
+    match (nf.max == f64::INFINITY, nf.max_inclusive) {
+        (true, true) => Bound::Unbounded,
+        (_, true) => Bound::Included(nf.max),
+        (_, false) => Bound::Excluded(nf.max),
+    }
+}
 
 /// Translates the inner expression of a group, normalising its tag values as the sub-fields
 /// store them.
-fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, String> {
+fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, GroupError> {
     enum Kind {
         And,
         Or,
@@ -393,26 +440,17 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
         QueryNode::Not => Kind::Not,
         // A clause that is only stopwords.
         QueryNode::Null => Kind::Nothing,
-        QueryNode::Tag { sub_field, .. } => Kind::Tag(sub_field),
-        QueryNode::Numeric { nf, sub_field } => {
-            if !nf.is_numeric_filter() {
-                return Err(UNSUPPORTED.to_owned());
-            }
-            let start = match (nf.min == f64::NEG_INFINITY, nf.min_inclusive) {
-                (true, _) => Bound::Unbounded,
-                (false, true) => Bound::Included(nf.min),
-                (false, false) => Bound::Excluded(nf.min),
-            };
-            let end = match (nf.max == f64::INFINITY, nf.max_inclusive) {
-                (true, _) => Bound::Unbounded,
-                (false, true) => Bound::Included(nf.max),
-                (false, false) => Bound::Excluded(nf.max),
-            };
-            Kind::Range(sub_field, start, end)
-        }
-        _ => return Err(UNSUPPORTED.to_owned()),
+        QueryNode::Tag {
+            sub_field: Some(sub_field),
+            ..
+        } => Kind::Tag(sub_field),
+        QueryNode::Numeric {
+            nf,
+            sub_field: Some(sub_field),
+        } if nf.is_numeric_filter() => Kind::Range(sub_field, start_of(nf), end_of(nf)),
+        _ => return Err(GroupError::Unsupported),
     };
-    let children = |node: &mut QueryNodeMut<'_>| -> Result<Vec<Owned>, String> {
+    let children = |node: &mut QueryNodeMut<'_>| -> Result<Vec<Owned>, GroupError> {
         (0..node.num_children())
             .map(|i| translate(node.child_mut(i), def))
             .collect()
@@ -427,12 +465,12 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
         )),
         Kind::Nothing => Owned::Or(Vec::new()),
         Kind::Range(sub_field, start, end) => Owned::Range {
-            level: level_of(def, sub_field),
+            level: level_of(def, sub_field)?,
             start,
             end,
         },
         Kind::Tag(sub_field) => {
-            let level = level_of(def, sub_field);
+            let level = level_of(def, sub_field)?;
             let case_sensitive = def.subFields[usize::from(sub_field)].caseSensitive;
             let mut values = Vec::new();
             let mut alternatives = Vec::new();
@@ -456,8 +494,8 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
                             let mut term = child.child_mut(j);
                             // SAFETY: as for a token child, invariant (5) of
                             // `QueryNodeMut::new` covers a tag phrase's terms.
-                            let mut tok = unsafe { term.token_node_mut() }
-                                .ok_or_else(|| UNSUPPORTED.to_owned())?;
+                            let mut tok =
+                                unsafe { term.token_node_mut() }.ok_or(GroupError::Unsupported)?;
                             // SAFETY: as above.
                             unsafe { tok.normalize_tag(case_sensitive) };
                             if j != 0 {
@@ -473,7 +511,7 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
                             _ => unreachable!("the node type is Prefix"),
                         };
                         if !matches!(mode, WildcardMode::Prefix) {
-                            return Err(UNSUPPORTED.to_owned());
+                            return Err(GroupError::Unsupported);
                         }
                         let mut tok = child
                             .token_mut()
@@ -485,7 +523,7 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
                             prefix: token_bytes(&tok.as_ref())?,
                         });
                     }
-                    _ => return Err(UNSUPPORTED.to_owned()),
+                    _ => return Err(GroupError::Unsupported),
                 }
             }
             if !values.is_empty() {
@@ -502,8 +540,8 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
 
 fn token_bytes<const NUL_TERMINATED: bool>(
     tok: &rs_token::RSTokenRef<'_, NUL_TERMINATED>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, GroupError> {
     tok.as_bytes()
         .map(<[u8]>::to_vec)
-        .ok_or_else(|| UNSUPPORTED.to_owned())
+        .ok_or(GroupError::Unsupported)
 }

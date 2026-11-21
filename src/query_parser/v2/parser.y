@@ -185,14 +185,16 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   "This condition is not supported on a sub-field of a NESTED group: only TAG values and " \
   "prefixes, and NUMERIC ranges, are"
 
-/* Report that the field `f` names does not have the `expected` type. Inside a NESTED group, a
- * sub-field of that very type means the clause itself is what a group does not support. */
+/* Report that the field `f` names does not have the `expected` type. Inside a NESTED group, only
+ * a TAG clause on a NUMERIC sub-field, or the reverse, is a type mismatch: any other clause is
+ * one a group does not support, whatever the sub-field's type. */
 static void reportWrongFieldType(QueryParseCtx *ctx, FieldName *f, const char *expected,
                                  const char *msg) {
+  bool groupType = !strcmp(expected, SPEC_TAG_STR) || !strcmp(expected, SPEC_NUMERIC_STR);
   const char *subType = !f->sub                         ? NULL
                         : f->sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR
                                                          : SPEC_NUMERIC_STR;
-  if (subType && !strcmp(subType, expected)) {
+  if (subType && (!groupType || !strcmp(subType, expected))) {
     reportSyntaxError(ctx->status, &f->tok, NESTED_UNSUPPORTED_CLAUSE);
   } else {
     reportSyntaxError(ctx->status, &f->tok, msg);
@@ -201,6 +203,27 @@ static void reportWrongFieldType(QueryParseCtx *ctx, FieldName *f, const char *e
 
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
   reportWrongFieldType(ctx, &(F), type_literal, "Expected a " type_literal " field")
+
+/* Whether `n`, the inner expression of a NESTED group, is built only of what a group answers:
+ * AND, OR and NOT over TAG and NUMERIC clauses on its sub-fields. */
+static bool nestedGroupIsSupported(const struct RSQueryNode *n) {
+  switch (n->type) {
+    case QN_TAG:
+    case QN_NUMERIC:
+      return true;
+    case QN_PHRASE:
+      if (n->pn.exact) return false;
+      // fallthrough
+    case QN_UNION:
+    case QN_NOT:
+      for (size_t i = 0; i < QueryNode_NumChildren(n); i++) {
+        if (!nestedGroupIsSupported(n->children[i])) return false;
+      }
+      return true;
+    default:
+      return false;
+  }
+}
 
 /* Whether the field `F` names has type `T`. Inside a NESTED group `F` names a sub-field, and the
  * sub-field's type is checked. */
@@ -739,7 +762,14 @@ nested_open(A) ::= NESTED_MODIFIER(B) COLON LP . {
 expr(A) ::= nested_open(B) expr(C) RP . {
   ctx->inNestedGroup = false;
   ctx->nestedField = NULL;
-  A = C ? NewNestedNode(B.fs, C) : NULL;
+  if (C && ctx->sctx && ctx->sctx->spec && !nestedGroupIsSupported(C)) {
+    // Text terms, prefixes, phrases and other clauses that are not on a sub-field.
+    reportSyntaxError(ctx->status, &B.tok, NESTED_UNSUPPORTED_CLAUSE);
+    QueryNode_Free(C);
+    A = NULL;
+  } else {
+    A = C ? NewNestedNode(B.fs, C) : NULL;
+  }
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
