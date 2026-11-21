@@ -389,7 +389,8 @@ fn in_branch(branch: &Branch<'_>, element: &Element) -> bool {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: if cfg!(miri) { 8 } else { 512 },
+        // Each case is slow under Miri, which runs a handful of them.
+        cases: if cfg!(miri) { 2 } else { 512 },
         failure_persistence: None,
         ..ProptestConfig::default()
     })]
