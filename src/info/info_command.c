@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "nested_index_ffi.h"
 #include <math.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -210,6 +211,45 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       REPLY_KVINT("dim", fs->sparseVecOpts.dim);
       REPLY_KVSTR("distance_metric",
                   fs->sparseVecOpts.metric == SparseMetric_Cosine ? "COSINE" : "IP");
+    }
+
+    if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+      REPLY_KVARRAY("sub_fields");
+      for (uint8_t s = 0; s < fs->nestedOpts.numSubFields; s++) {
+        const NestedSubField *sub = &fs->nestedOpts.subFields[s];
+        RedisModule_Reply_Map(reply);
+        REPLY_KVSTR_SAFE("identifier", sub->path);
+        REPLY_KVSTR_SAFE("attribute", sub->name);
+        REPLY_KVSTR("type", sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR : SPEC_NUMERIC_STR);
+        if (sub->caseSensitive) {
+          REPLY_KVSTR("case_sensitive", "true");
+        }
+        if (sub->maxCardinality) {
+          REPLY_KVINT("max_cardinality", sub->maxCardinality);
+        }
+        if (sub->numBuckets) {
+          REPLY_KVARRAY("buckets");
+          for (size_t b = 0; b < sub->numBuckets; b++) {
+            RedisModule_Reply_Double(reply, sub->buckets[b]);
+          }
+          REPLY_ARRAY_END;
+        }
+        if (sub->hasRange) {
+          REPLY_KVNUM("range_min", sub->rangeMin);
+          REPLY_KVNUM("range_max", sub->rangeMax);
+        }
+        REPLY_MAP_END;
+      }
+      REPLY_ARRAY_END;
+      REPLY_KVARRAY("index");
+      for (uint8_t l = 0; l < fs->nestedOpts.numLevels; l++) {
+        RedisModule_Reply_SimpleString(reply,
+                                       fs->nestedOpts.subFields[fs->nestedOpts.levels[l]].name);
+      }
+      REPLY_ARRAY_END;
+      REPLY_KVINT("terminals", fs->nestedOpts.nestedIndex
+                                   ? NestedIndex_NumTerminals(fs->nestedOpts.nestedIndex)
+                                   : 0);
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {

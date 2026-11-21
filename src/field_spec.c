@@ -18,6 +18,7 @@
 #include "tag_index.h"
 #include "numeric_range_tree_ffi.h"
 #include "sparse_vector_index_ffi.h"
+#include "nested_index_ffi.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
@@ -83,6 +84,67 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     SparseVectorIndex_Free(fs->sparseVecOpts.sparseVecIndex);
     fs->sparseVecOpts.sparseVecIndex = NULL;
   }
+  if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+    NestedIndex_Free(fs->nestedOpts.nestedIndex);
+    fs->nestedOpts.nestedIndex = NULL;
+    for (uint8_t i = 0; i < fs->nestedOpts.numSubFields; i++) {
+      NestedSubField *sub = &fs->nestedOpts.subFields[i];
+      if (sub->compiledPath) {
+        japi->pathFree(sub->compiledPath);
+      }
+      rm_free(sub->name);
+      rm_free(sub->path);
+      rm_free(sub->buckets);
+      memset(sub, 0, sizeof(*sub));
+    }
+    fs->nestedOpts.numSubFields = 0;
+    fs->nestedOpts.numLevels = 0;
+  }
+}
+
+bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NESTED));
+  RS_ASSERT(fs->nestedOpts.numLevels >= 1);
+  // Every level but the last routes; the last is the terminal.
+  uint8_t numRouting = fs->nestedOpts.numLevels - 1;
+  NestedLevelDef defs[NESTED_MAX_SUBFIELDS] = {0};
+  for (uint8_t i = 0; i < numRouting; i++) {
+    const NestedSubField *sub = &fs->nestedOpts.subFields[fs->nestedOpts.levels[i]];
+    if (sub->type == INDEXFLD_T_TAG) {
+      defs[i].kind = NestedLevelKind_Tag;
+      defs[i].max_cardinality = sub->maxCardinality;
+    } else {
+      defs[i].kind = NestedLevelKind_Buckets;
+      defs[i].boundaries = sub->buckets;
+      defs[i].num_boundaries = sub->numBuckets;
+    }
+  }
+  const NestedSubField *terminal =
+      &fs->nestedOpts.subFields[fs->nestedOpts.levels[fs->nestedOpts.numLevels - 1]];
+  NestedTerminalKind kind =
+      terminal->type == INDEXFLD_T_TAG ? NestedTerminalKind_Tag : NestedTerminalKind_Numeric;
+  struct NestedIndex *index =
+      NestedIndex_New(defs, numRouting, kind, RSGlobalConfig.numericCompress, err, errLen);
+  if (!index) {
+    return false;
+  }
+  NestedIndex_Free(fs->nestedOpts.nestedIndex);
+  fs->nestedOpts.nestedIndex = index;
+  return true;
+}
+
+bool FieldSpec_CompileNestedPaths(FieldSpec *fs) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NESTED));
+  for (uint8_t i = 0; i < fs->nestedOpts.numSubFields; i++) {
+    NestedSubField *sub = &fs->nestedOpts.subFields[i];
+    if (!sub->compiledPath) {
+      sub->compiledPath = japi->pathParseNoErrorMsg(sub->path);
+      if (!sub->compiledPath) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 struct SparseVectorIndex *FieldSpec_OpenSparseVectorIndex(FieldSpec *fs, bool create_if_missing) {
@@ -108,6 +170,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_VECTOR:        return SPEC_VECTOR_STR;
   case IXFLDPOS_GEOMETRY:      return SPEC_GEOMETRY_STR;
   case IXFLDPOS_SPARSE_VECTOR: return SPEC_SPARSE_VECTOR_STR;
+  case IXFLDPOS_NESTED:
+    return SPEC_NESTED_STR;
 
   default:
     RS_ABORT_ALWAYS("oops");
