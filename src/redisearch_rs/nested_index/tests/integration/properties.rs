@@ -44,14 +44,18 @@ fn total_entries(index: &NestedIndex) -> usize {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: if cfg!(miri) { 8 } else { 128 },
+        // Each case is slow under Miri, which runs a handful of small ones.
+        cases: if cfg!(miri) { 2 } else { 128 },
         failure_persistence: None,
         ..ProptestConfig::default()
     })]
 
     #[test]
     fn every_document_is_indexed_whole_or_not_at_all(
-        docs in prop::collection::vec(prop::collection::vec(element(), 0..5), 0..12),
+        docs in prop::collection::vec(
+            prop::collection::vec(element(), 0..5),
+            0..if cfg!(miri) { 4 } else { 12 },
+        ),
     ) {
         // Two sizes per color, so some documents break the limit.
         let mut index = priced(Some(2));
