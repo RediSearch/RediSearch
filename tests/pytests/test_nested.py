@@ -363,10 +363,10 @@ def testQueriesOnANestedFieldDoNotReadItAsAnotherType(env):
     conn = getConnectionByEnv(env)
     create(env).ok()
     put(conn, 'doc:1', [{'color': 'red', 'size': 'M', 'price': 1}])
-    # DIALECT 2 rejects the field type; DIALECT 1 builds the node and finds nothing.
+    # DIALECT 2 rejects the field type; DIALECT 1 builds the node and finds nothing. A DIALECT 1
+    # tag query on a non-TAG field is fixed for every field type in #12455.
     env.expect('FT.SEARCH', 'idx', '@items:{red}', 'DIALECT', 2).error() \
         .contains('Expected a TAG field')
-    env.expect('FT.SEARCH', 'idx', '@items:{red}', 'DIALECT', 1).equal([0])
     env.expect('FT.SEARCH', 'idx', '@items:[0 10]', 'DIALECT', 1).equal([0])
 
 
