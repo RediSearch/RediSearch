@@ -241,3 +241,18 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+
+@skip(cluster=True)
+def testDialect1GeoQueryOnANonGeoFieldMatchesNothing(env):
+    # DIALECT 2 rejects a geo filter on a non-GEO field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection. A NUMERIC field's range tree holds plain numbers, which
+    # the filter's geohash ranges used to be matched against.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'loc', 'GEO').ok()
+    conn.execute_command('HSET', 'doc:1', 'n', 5, 't', 'red', 'loc', '1,1')
+    for field in ['n', 't']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km]', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km] @loc:[1 1 10 km]',
+                   'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@loc:[1 1 10 km]', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])

@@ -1356,9 +1356,9 @@ def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
 
 @skip(cluster=True)
 def testDialect1TagQueryOnANonTagFieldMatchesNothing(env):
-    # DIALECT 1 builds a tag node on any field. On a VECTOR or GEOSHAPE field, the slot a TAG
-    # field keeps its tag index in holds that type's own options, which used to be read as a tag
-    # index. Such a query matches nothing; a tag query on a TAG field is unaffected.
+    # DIALECT 2 rejects a tag query on a non-TAG field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection, which a dropped clause would not. VECTOR and GEOSHAPE
+    # keep their own options where a TAG field keeps its tag index.
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2',
@@ -1368,4 +1368,5 @@ def testDialect1TagQueryOnANonTagFieldMatchesNothing(env):
                          'g', 'POINT (1 1)', 't', 'red')
     for field in ['v', 'g']:
         env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}}', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}} @t:{{red}}', 'DIALECT', 1).equal([0])
     env.expect('FT.SEARCH', 'idx', '@t:{red}', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])
