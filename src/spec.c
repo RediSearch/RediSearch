@@ -1259,9 +1259,9 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
     return false;
   }
   const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
-  static const char *const starts[] = {SPEC_AS_STR,      SPEC_TEXT_STR,         SPEC_TAG_STR,
-                                       SPEC_NUMERIC_STR, SPEC_GEO_STR,          SPEC_GEOMETRY_STR,
-                                       SPEC_VECTOR_STR,  SPEC_SPARSE_VECTOR_STR};
+  static const char *const starts[] = {SPEC_AS_STR,      SPEC_TEXT_STR,          SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR, SPEC_GEO_STR,           SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR,  SPEC_SPARSE_VECTOR_STR, SPEC_NESTED_STR};
   for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
     if (!strcasecmp(next, starts[i])) {
       return true;
@@ -1505,6 +1505,150 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
 
 /* Parse a field definition from argv, at *offset. We advance offset as we progress.
  *  Returns 1 on successful parse, 0 otherwise */
+#define NESTED_ERR(...)                                                                         \
+  do {                                                                                          \
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad NESTED definition", \
+                                  ": " __VA_ARGS__);                                            \
+    return 0;                                                                                   \
+  } while (0)
+
+/* Parse one sub-field: `<path> AS <name> TAG|NUMERIC [options]`. Its options end at the first
+ * argument that is not one of them, the next sub-field's path or `INDEX`. */
+static int parseNestedSubField(ArgsCursor *ac, NestedSubField *sub, QueryError *status) {
+  const char *path, *name;
+  if (AC_GetString(ac, &path, NULL, 0) != AC_OK || !AC_AdvanceIfMatch(ac, SPEC_AS_STR) ||
+      AC_GetString(ac, &name, NULL, 0) != AC_OK) {
+    NESTED_ERR("expected `<path> AS <name>` for each sub-field");
+  }
+  sub->path = rm_strdup(path);
+  sub->name = rm_strdup(name);
+  if (path[0] != '$') {
+    NESTED_ERR("sub-field `%s` must have a path relative to the element, starting with `$`", name);
+  }
+  if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {
+    sub->type = INDEXFLD_T_TAG;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {
+    sub->type = INDEXFLD_T_NUMERIC;
+  } else {
+    NESTED_ERR("sub-field `%s` must be TAG or NUMERIC", name);
+  }
+  while (!AC_IsAtEnd(ac)) {
+    if (sub->type == INDEXFLD_T_TAG && AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
+      sub->caseSensitive = true;
+    } else if (sub->type == INDEXFLD_T_TAG && AC_AdvanceIfMatch(ac, SPEC_NESTED_MAXCARD_STR)) {
+      if (AC_GetSize(ac, &sub->maxCardinality, AC_F_GE1) != AC_OK) {
+        NESTED_ERR("MAXCARD of `%s` must be a positive integer", name);
+      }
+    } else if (sub->type == INDEXFLD_T_NUMERIC && AC_AdvanceIfMatch(ac, SPEC_NESTED_BUCKETS_STR)) {
+      size_t n;
+      if (AC_GetSize(ac, &n, AC_F_GE1) != AC_OK || n < 2 || AC_NumRemaining(ac) < n) {
+        NESTED_ERR("BUCKETS of `%s` needs a count of at least 2, then that many boundaries", name);
+      }
+      sub->buckets = rm_malloc(n * sizeof(*sub->buckets));
+      sub->numBuckets = n;
+      for (size_t i = 0; i < n; i++) {
+        if (AC_GetDouble(ac, &sub->buckets[i], 0) != AC_OK) {
+          NESTED_ERR("BUCKETS of `%s` has a boundary that is not a number", name);
+        }
+      }
+    } else if (sub->type == INDEXFLD_T_NUMERIC && AC_AdvanceIfMatch(ac, SPEC_NESTED_RANGE_STR)) {
+      if (AC_GetDouble(ac, &sub->rangeMin, 0) != AC_OK ||
+          AC_GetDouble(ac, &sub->rangeMax, 0) != AC_OK || !(sub->rangeMin <= sub->rangeMax)) {
+        NESTED_ERR("RANGE of `%s` needs two numbers, the first not greater than the second", name);
+      }
+      sub->hasRange = true;
+    } else {
+      break;
+    }
+  }
+  return 1;
+}
+
+/* Parse `NESTED <n> <sub-field>... INDEX <n> <name>...`, check it, and build the field's index. */
+static int parseNestedField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  // Set first, so a failed parse frees what was parsed through FieldSpec_Cleanup.
+  fs->types |= INDEXFLD_T_NESTED;
+  if (!isSpecJson(sp)) {
+    NESTED_ERR("NESTED fields are supported only on JSON indexes");
+  }
+  if (!validateJsonFieldPath(sp, fs, status)) {
+    return 0;
+  }
+  size_t numSubFields;
+  if (AC_GetSize(ac, &numSubFields, AC_F_GE1) != AC_OK || numSubFields > NESTED_MAX_SUBFIELDS) {
+    NESTED_ERR("expected the number of sub-fields, between 1 and %d", NESTED_MAX_SUBFIELDS);
+  }
+  for (size_t i = 0; i < numSubFields; i++) {
+    NestedSubField *sub = &fs->nestedOpts.subFields[i];
+    fs->nestedOpts.numSubFields = i + 1;
+    if (!parseNestedSubField(ac, sub, status)) {
+      return 0;
+    }
+    for (size_t j = 0; j < i; j++) {
+      if (!strcmp(fs->nestedOpts.subFields[j].name, sub->name)) {
+        NESTED_ERR("duplicate sub-field `%s`", sub->name);
+      }
+    }
+  }
+
+  size_t numLevels;
+  if (!AC_AdvanceIfMatch(ac, SPEC_NESTED_INDEX_STR) ||
+      AC_GetSize(ac, &numLevels, AC_F_GE1) != AC_OK) {
+    NESTED_ERR("expected `INDEX <n> <sub-field>...` after the sub-fields");
+  }
+  if (numLevels != numSubFields) {
+    NESTED_ERR("INDEX must list every sub-field exactly once");
+  }
+  bool used[NESTED_MAX_SUBFIELDS] = {0};
+  for (size_t i = 0; i < numLevels; i++) {
+    const char *name;
+    if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
+      NESTED_ERR("expected %zu sub-field names after INDEX", numLevels);
+    }
+    size_t found = numSubFields;
+    for (size_t j = 0; j < numSubFields; j++) {
+      if (!strcmp(fs->nestedOpts.subFields[j].name, name)) found = j;
+    }
+    if (found == numSubFields || used[found]) {
+      NESTED_ERR("INDEX must list every sub-field exactly once, got `%s`", name);
+    }
+    used[found] = true;
+    fs->nestedOpts.levels[i] = found;
+    fs->nestedOpts.numLevels = i + 1;
+  }
+
+  for (size_t i = 0; i < numLevels; i++) {
+    const NestedSubField *sub = &fs->nestedOpts.subFields[fs->nestedOpts.levels[i]];
+    bool last = i + 1 == numLevels;
+    if (last && sub->buckets) {
+      NESTED_ERR("BUCKETS on the last INDEX sub-field `%s` is not supported yet", sub->name);
+    }
+    if (last && sub->maxCardinality) {
+      NESTED_ERR("MAXCARD applies to routing sub-fields, not the last INDEX sub-field `%s`",
+                 sub->name);
+    }
+    if (!last && sub->type == INDEXFLD_T_NUMERIC && !sub->buckets) {
+      NESTED_ERR("NUMERIC sub-field `%s` must declare BUCKETS unless it is last in INDEX",
+                 sub->name);
+    }
+    if (!last && sub->hasRange) {
+      NESTED_ERR("RANGE applies to the last INDEX sub-field, not `%s`", sub->name);
+    }
+  }
+  if (numLevels < 2) {
+    NESTED_ERR("INDEX needs at least one routing sub-field before the last one");
+  }
+  if (!FieldSpec_CompileNestedPaths(fs)) {
+    NESTED_ERR("a sub-field path is not a valid JSONPath");
+  }
+  char err[256];
+  if (!FieldSpec_BuildNestedIndex(fs, err, sizeof(err))) {
+    NESTED_ERR("%s", err);
+  }
+  return 1;
+}
+#undef NESTED_ERR
+
 static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Field", " `%s` does not have a type", HiddenString_GetUnsafe(fs->fieldName, NULL));
@@ -1532,6 +1676,16 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       goto error;
     if (!parseSparseVectorField(sp, fs, ac, status)) goto error;
     // Like dense vectors, sparse vectors take no SORTABLE or NOINDEX options.
+    return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_NESTED_STR)) {  // nested field
+    // FT.CREATE and FT.ALTER both parse fields here; RDB load does not.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, NESTED_UNSTABLE_ERR);
+      goto error;
+    }
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_NESTED_STR, fs, status)) goto error;
+    if (!parseNestedField(sp, fs, ac, status)) goto error;
+    // Sub-fields carry their own options; the field takes no SORTABLE or NOINDEX.
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
@@ -2885,6 +3039,110 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
     RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.dim);
     RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.metric);
   }
+  // Only the definition: the routing levels and terminals are rebuilt from the keyspace on load.
+  if (FIELD_IS(f, INDEXFLD_T_NESTED)) {
+    RedisModule_SaveUnsigned(rdb, NESTED_RDB_FORMAT);
+    RedisModule_SaveUnsigned(rdb, f->nestedOpts.numSubFields);
+    for (uint8_t i = 0; i < f->nestedOpts.numSubFields; i++) {
+      const NestedSubField *sub = &f->nestedOpts.subFields[i];
+      RedisModule_SaveStringBuffer(rdb, sub->name, strlen(sub->name) + 1);
+      RedisModule_SaveStringBuffer(rdb, sub->path, strlen(sub->path) + 1);
+      RedisModule_SaveUnsigned(rdb, sub->type);
+      RedisModule_SaveUnsigned(rdb, sub->caseSensitive);
+      RedisModule_SaveUnsigned(rdb, sub->maxCardinality);
+      RedisModule_SaveUnsigned(rdb, sub->numBuckets);
+      for (size_t b = 0; b < sub->numBuckets; b++) {
+        RedisModule_SaveDouble(rdb, sub->buckets[b]);
+      }
+      RedisModule_SaveUnsigned(rdb, sub->hasRange);
+      RedisModule_SaveDouble(rdb, sub->rangeMin);
+      RedisModule_SaveDouble(rdb, sub->rangeMax);
+    }
+    RedisModule_SaveUnsigned(rdb, f->nestedOpts.numLevels);
+    for (uint8_t i = 0; i < f->nestedOpts.numLevels; i++) {
+      RedisModule_SaveUnsigned(rdb, f->nestedOpts.levels[i]);
+    }
+  }
+}
+
+/* Load one string written with its NUL terminator, as an `rm_malloc`ed copy, or NULL on error. */
+static char *loadNestedString(RedisModuleIO *rdb) {
+  size_t len = 0;
+  char *buf = RedisModule_LoadStringBuffer(rdb, &len);
+  if (RedisModule_IsIOError(rdb) || !buf) {
+    return NULL;
+  }
+  char *copy = (len > 0 && buf[len - 1] == '\0') ? rm_strdup(buf) : NULL;
+  RedisModule_Free(buf);
+  return copy;
+}
+
+/* Load the definition `FieldSpec_RdbSave` writes for a NESTED field, check it, and rebuild its
+ * index. Its sub-field paths are compiled later, with the field's own path. */
+static int loadNestedField(RedisModuleIO *rdb, FieldSpec *f) {
+  uint64_t format = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+  uint64_t numSubFields = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+  if (format != NESTED_RDB_FORMAT || numSubFields == 0 || numSubFields > NESTED_MAX_SUBFIELDS) {
+    RedisModule_LogIOError(rdb, "warning", "Invalid NESTED field: format %llu, %llu sub-fields",
+                           (unsigned long long)format, (unsigned long long)numSubFields);
+    return REDISMODULE_ERR;
+  }
+  for (uint64_t i = 0; i < numSubFields; i++) {
+    NestedSubField *sub = &f->nestedOpts.subFields[i];
+    f->nestedOpts.numSubFields = i + 1;
+    sub->name = loadNestedString(rdb);
+    sub->path = loadNestedString(rdb);
+    if (!sub->name || !sub->path) return REDISMODULE_ERR;
+    uint64_t type = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    if (type != INDEXFLD_T_TAG && type != INDEXFLD_T_NUMERIC) {
+      RedisModule_LogIOError(rdb, "warning", "Invalid NESTED sub-field type %llu",
+                             (unsigned long long)type);
+      return REDISMODULE_ERR;
+    }
+    sub->type = (FieldType)type;
+    sub->caseSensitive = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR) != 0;
+    sub->maxCardinality = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    uint64_t numBuckets = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    if (numBuckets > NESTED_RDB_MAX_BOUNDARIES) {
+      RedisModule_LogIOError(rdb, "warning", "Invalid NESTED bucket count %llu",
+                             (unsigned long long)numBuckets);
+      return REDISMODULE_ERR;
+    }
+    if (numBuckets) {
+      sub->buckets = rm_malloc(numBuckets * sizeof(*sub->buckets));
+      sub->numBuckets = numBuckets;
+      for (uint64_t b = 0; b < numBuckets; b++) {
+        sub->buckets[b] = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
+      }
+    }
+    sub->hasRange = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR) != 0;
+    sub->rangeMin = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
+    sub->rangeMax = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
+  }
+  uint64_t numLevels = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+  if (numLevels < 2 || numLevels != numSubFields) {
+    RedisModule_LogIOError(rdb, "warning", "Invalid NESTED level count %llu",
+                           (unsigned long long)numLevels);
+    return REDISMODULE_ERR;
+  }
+  bool used[NESTED_MAX_SUBFIELDS] = {0};
+  for (uint64_t i = 0; i < numLevels; i++) {
+    uint64_t level = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
+    if (level >= numSubFields || used[level]) {
+      RedisModule_LogIOError(rdb, "warning", "Invalid NESTED level %llu",
+                             (unsigned long long)level);
+      return REDISMODULE_ERR;
+    }
+    used[level] = true;
+    f->nestedOpts.levels[i] = level;
+    f->nestedOpts.numLevels = i + 1;
+  }
+  char err[256];
+  if (!FieldSpec_BuildNestedIndex(f, err, sizeof(err))) {
+    RedisModule_LogIOError(rdb, "warning", "Invalid NESTED field: %s", err);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -3102,6 +3360,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     f->sparseVecOpts.dim = dim;
     f->sparseVecOpts.metric = (SparseMetric)metric;
     f->sparseVecOpts.sparseVecIndex = NULL;
+  }
+
+  if (FIELD_IS(f, INDEXFLD_T_NESTED)) {
+    if (encver < INDEX_NESTED_VERSION) {
+      RedisModule_LogIOError(rdb, "warning", "NESTED field in encoding version %d", encver);
+      goto fail;
+    }
+    if (loadNestedField(rdb, f) != REDISMODULE_OK) goto fail;
   }
 
   return REDISMODULE_OK;
@@ -3542,6 +3808,11 @@ static void compileLoadedJsonPaths(IndexSpec *sp) {
   for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = &sp->fields[i];
     fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+    // A sub-field path that no longer parses leaves that sub-field uncompiled, and documents with
+    // the field fail to index, as a field whose own path does not parse does.
+    if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+      FieldSpec_CompileNestedPaths(fs);
+    }
   }
 }
 
@@ -4044,6 +4315,27 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isD
   if (FIELD_IS(field, INDEXFLD_T_SPARSE_VECTOR)) {
     Sha1_UpdateU64(hash, field->sparseVecOpts.dim);
     Sha1_UpdateU64(hash, field->sparseVecOpts.metric);
+  }
+  // The sub-fields and their order decide where every element is indexed.
+  if (FIELD_IS(field, INDEXFLD_T_NESTED)) {
+    Sha1_UpdateU64(hash, field->nestedOpts.numSubFields);
+    for (uint8_t i = 0; i < field->nestedOpts.numSubFields; i++) {
+      const NestedSubField *sub = &field->nestedOpts.subFields[i];
+      Sha1_UpdateU64(hash, strlen(sub->name));
+      Sha1_UpdateBuffer(hash, sub->name, strlen(sub->name));
+      Sha1_UpdateU64(hash, strlen(sub->path));
+      Sha1_UpdateBuffer(hash, sub->path, strlen(sub->path));
+      Sha1_UpdateU64(hash, sub->type);
+      Sha1_UpdateU64(hash, sub->caseSensitive);
+      Sha1_UpdateU64(hash, sub->maxCardinality);
+      Sha1_UpdateU64(hash, sub->numBuckets);
+      Sha1_UpdateBuffer(hash, (const char *)sub->buckets, sub->numBuckets * sizeof(*sub->buckets));
+      Sha1_UpdateU64(hash, sub->hasRange);
+      Sha1_UpdateBuffer(hash, (const char *)&sub->rangeMin, sizeof(sub->rangeMin));
+      Sha1_UpdateBuffer(hash, (const char *)&sub->rangeMax, sizeof(sub->rangeMax));
+    }
+    Sha1_UpdateU64(hash, field->nestedOpts.numLevels);
+    Sha1_UpdateBuffer(hash, (const char *)field->nestedOpts.levels, field->nestedOpts.numLevels);
   }
 }
 

@@ -47,6 +47,9 @@ typedef struct FieldIndexerData {
 
     // A sparse vector field's value, checked and normalized; owned
     struct PreparedSparseVector *sparseVec;
+
+    // A NESTED field's elements, taken from the document field; owned
+    struct NestedRows *nestedRows;
   };
 
 } FieldIndexerData;

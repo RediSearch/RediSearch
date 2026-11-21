@@ -49,6 +49,7 @@ pub enum FieldSpecType {
     Vector = 16,
     Geometry = 32,
     SparseVector = 64,
+    Nested = 128,
 }
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 
