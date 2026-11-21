@@ -16,20 +16,20 @@ use numeric_range_tree::NumericRangeTree;
 use crate::util::{PARAMS, elements, item, materials, priced, tag, tag_value};
 
 fn numeric_terminal<'a>(index: &'a NestedIndex, color: &str, size: &str) -> &'a NumericRangeTree {
-    match index.routing().get(&[tag(color), tag(size)]) {
-        Some(Terminal::Numeric(tree)) => tree,
-        other => panic!("expected a numeric terminal at ({color}, {size}), got {other:?}"),
-    }
+    let terminal = index.routing().get(&[tag(color), tag(size)]);
+    terminal.and_then(Terminal::numeric).unwrap_or_else(|| {
+        panic!("expected a numeric terminal at ({color}, {size}), got {terminal:?}")
+    })
 }
 
 fn tag_terminal<'a>(
     index: &'a NestedIndex,
     color: &str,
 ) -> &'a tag_index::TagIndex<tag_index::InMemoryMode> {
-    match index.routing().get(&[tag(color)]) {
-        Some(Terminal::Tag(tags)) => tags,
-        other => panic!("expected a tag terminal at ({color}), got {other:?}"),
-    }
+    let terminal = index.routing().get(&[tag(color)]);
+    terminal
+        .and_then(Terminal::tag)
+        .unwrap_or_else(|| panic!("expected a tag terminal at ({color}), got {terminal:?}"))
 }
 
 /// The deltas of a run of documents, summed.

@@ -19,6 +19,7 @@
 
 mod error;
 mod index;
+pub mod query;
 mod terminal;
 
 // The routing types a caller needs to build paths, levels and queries for a `NestedIndex`.

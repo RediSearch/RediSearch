@@ -10,6 +10,7 @@
 use compound_index::{CardinalityExceeded, CompoundIndex, SchemaError, TagLevel};
 use rqe_core::DocId;
 
+use crate::terminal::PostingsMut;
 use crate::{IndexError, Terminal, TerminalKind, TerminalValue};
 
 /// One element of a document, as the index stores it.
@@ -149,8 +150,8 @@ impl NestedIndex {
             if created {
                 delta.new_terminals += 1;
             }
-            match (terminal, element.value) {
-                (Terminal::Numeric(tree), TerminalValue::Numeric(value)) => {
+            match (terminal.postings_mut(), element.value) {
+                (PostingsMut::Numeric(tree), TerminalValue::Numeric(value)) => {
                     if created {
                         // A new tree starts with one empty range, which a NUMERIC field counts
                         // when it creates its tree.
@@ -165,7 +166,7 @@ impl NestedIndex {
                     delta.size_delta += added.size_delta;
                     delta.block_delta += i64::from(added.block_count_delta);
                 }
-                (Terminal::Tag(tags), TerminalValue::Tag(tag)) => {
+                (PostingsMut::Tag(tags), TerminalValue::Tag(tag)) => {
                     let written = tags.index(&[tag], doc_id, false);
                     tags.commit(&[tag]);
                     delta.records += i64::from(written.num_records);
