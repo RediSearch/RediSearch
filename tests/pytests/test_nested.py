@@ -40,29 +40,57 @@ def errors(env):
     return to_dict(index_info(env)['Index Errors'])
 
 
+def set_unstable_features(env, on):
+    """Set the flag, and return a function that puts back the value it had."""
+    before = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')[1]
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features',
+                              'yes' if on else 'no')
+    return lambda: run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                             'search-enable-unstable-features', before)
+
+# The obfuscated name of an index named `idx`, as `_FT.DEBUG INFO` takes it.
+OBFUSCATED_IDX = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
+
+
 @skip(no_json=True, cluster=True)
 def testRequiresUnstableFeatures(env):
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
-    create(env).error().contains(GATE_ERROR)
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', *ITEMS).error().contains(GATE_ERROR)
+    restore = set_unstable_features(env, False)
+    try:
+        create(env).error().contains(GATE_ERROR)
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT').ok()
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', *ITEMS).error().contains(GATE_ERROR)
+    finally:
+        restore()
 
 
 @skip(cluster=True)
 def testAFieldNamedNestedKeepsItsMeaningWithTheFlagOff(env):
     # `NOSTEM` stays an option of `title`, and `nested` is a TEXT field, as before NESTED existed.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'nested', 'TEXT').ok()
-    # A NOSTEM attribute ends in a bare flag, so read the name by position, not with to_dict.
-    names = [a[a.index('attribute') + 1] for a in index_info(env)['attributes']]
-    env.assertEqual(names, ['title', 'nested'])
+    restore = set_unstable_features(env, False)
+    try:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'nested', 'TEXT').ok()
+        # A NOSTEM attribute ends in a bare flag, so read the name by position, not with to_dict.
+        names = [a[a.index('attribute') + 1] for a in index_info(env)['attributes']]
+        env.assertEqual(names, ['title', 'nested'])
+    finally:
+        restore()
+
+
+@skip(no_json=True, cluster=True)
+def testNestedEndsTheOptionsOfThePreviousFieldWithTheFlagOn(env):
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TEXT', 'NOSTEM',
+               '$.items[*]', 'NESTED', 2, '$.c', 'AS', 'c', 'TAG', '$.p', 'AS', 'p', 'NUMERIC',
+               'INDEX', 2, 'c', 'p').ok()
+    types = [a[a.index('type') + 1] for a in index_info(env)['attributes']]
+    env.assertEqual(types, ['TEXT', 'NESTED'])
 
 
 @skip(no_json=True, cluster=True)
 def testInfoShowsTheDefinition(env):
     enable_unstable_features(env)
     create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
-           '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE', 'MAXCARD', 8,
+           '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE',
            '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
            '$.price', 'AS', 'price', 'NUMERIC', 'RANGE', 0, 1000,
            'INDEX', 3, 'color', 'year', 'price').ok()
@@ -73,8 +101,8 @@ def testInfoShowsTheDefinition(env):
     env.assertEqual(attribute['index'], ['color', 'year', 'price'])
     env.assertEqual(attribute['terminals'], 0)
     color, year, price = [to_dict(s) for s in attribute['sub_fields']]
-    env.assertEqual((color['identifier'], color['type'], color['case_sensitive'],
-                     color['max_cardinality']), ('$.color', 'TAG', 'true', 8))
+    env.assertEqual((color['identifier'], color['type'], color['case_sensitive']),
+                    ('$.color', 'TAG', 'true'))
     env.assertEqual([float(b) for b in year['buckets']], [2020.0, 2022.0, 2024.0])
     env.assertEqual((float(price['range_min']), float(price['range_max'])), (0.0, 1000.0))
 
@@ -133,10 +161,9 @@ def testInvalidDefinitionsAreRejected(env):
         ('BUCKETS on the last level',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG'), *sub('$.p', 'p', 'NUMERIC', 'BUCKETS', 2, 0, 1),
           'INDEX', 2, 'c', 'p'], 'not supported yet'),
-        ('MAXCARD on the last level',
-         ['NESTED', 2, *sub('$.p', 'p', 'NUMERIC', 'BUCKETS', 2, 0, 1),
-          *sub('$.c', 'c', 'TAG', 'MAXCARD', 2), 'INDEX', 2, 'p', 'c'],
-         'MAXCARD applies to routing'),
+        ('MAXCARD, until garbage collection frees stale values',
+         ['NESTED', 2, *sub('$.c', 'c', 'TAG', 'MAXCARD', 2), *sub('$.p', 'p', 'NUMERIC'),
+          'INDEX', 2, 'c', 'p'], 'MAXCARD (on `c`) is not supported yet'),
         ('RANGE on a routing level',
          ['NESTED', 2, *sub('$.p', 'p', 'NUMERIC', 'BUCKETS', 2, 0, 1, 'RANGE', 0, 1),
           *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'p', 'c'], 'RANGE applies to the last'),
@@ -284,30 +311,19 @@ def testASubFieldWithSeveralValuesRejectsTheDocument(env):
 def testAValueOutsideTheRoutingBucketsRejectsTheDocument(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
-    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
-           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
-           '$.price', 'AS', 'price', 'NUMERIC',
-           'INDEX', 2, 'year', 'price').ok()
-    put(conn, 'doc:1', [{'year': 2021, 'price': 1}, {'year': 2030, 'price': 2}])
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               '$.t', 'AS', 't', 'TEXT',
+               '$.items[*]', 'AS', 'items', 'NESTED', 2,
+               '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
+               '$.price', 'AS', 'price', 'NUMERIC',
+               'INDEX', 2, 'year', 'price').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(
+        {'t': 'hello', 'items': [{'year': 2021, 'price': 1}, {'year': 2030, 'price': 2}]}))
     env.assertContains('outside the level', errors(env)['last indexing error'])
     env.assertEqual(nested_attribute(env)['terminals'], 0)
-
-
-@skip(no_json=True, cluster=True)
-def testMaxCardinalityCountsEarlierDocuments(env):
-    enable_unstable_features(env)
-    conn = getConnectionByEnv(env)
-    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
-           '$.color', 'AS', 'color', 'TAG', 'MAXCARD', 1,
-           '$.price', 'AS', 'price', 'NUMERIC',
-           'INDEX', 2, 'color', 'price').ok()
-    put(conn, 'doc:1', [{'color': 'red', 'price': 1}])
-    put(conn, 'doc:2', [{'color': 'blue', 'price': 1}])
-    put(conn, 'doc:3', [{'color': 'red', 'price': 2}])
-    env.assertEqual(nested_attribute(env)['terminals'], 1)
-    env.assertEqual(int(errors(env)['indexing failures']), 1)
-    env.assertContains('more than 1 distinct values', errors(env)['last indexing error'])
-    env.assertEqual(errors(env)['last indexing error key'], 'doc:2')
+    # Rejected whole: its TEXT field is not indexed either.
+    env.assertEqual(int(index_info(env)['num_docs']), 0)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
 
 
 # `terminals` is a per-shard count, so the comparison below holds on one shard only.
@@ -316,7 +332,7 @@ def testReloadKeepsTheDefinitionAndReindexes(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
-           '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE', 'MAXCARD', 8,
+           '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE',
            '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
            '$.price', 'AS', 'price', 'NUMERIC', 'RANGE', 0, 1000,
            'INDEX', 3, 'color', 'year', 'price').ok()
@@ -352,3 +368,104 @@ def testQueriesOnANestedFieldDoNotReadItAsAnotherType(env):
         .contains('Expected a TAG field')
     env.expect('FT.SEARCH', 'idx', '@items:{red}', 'DIALECT', 1).equal([0])
     env.expect('FT.SEARCH', 'idx', '@items:[0 10]', 'DIALECT', 1).equal([0])
+
+
+@skip(no_json=True, cluster=True)
+def testObfuscatedInfoHidesSubFieldNames(env):
+    enable_unstable_features(env)
+    create(env).ok()
+    info = to_dict(env.cmd(debug_cmd(), 'INFO', OBFUSCATED_IDX)[0])
+    nested = [to_dict(a) for a in info['attributes'] if to_dict(a)['type'] == 'NESTED'][0]
+    sub_fields = [to_dict(s) for s in nested['sub_fields']]
+    # Named by the field's position and the sub-field's, never like a top-level `Field@<n>`.
+    env.assertEqual([s['attribute'] for s in sub_fields], ['Field@0.0', 'Field@0.1', 'Field@0.2'])
+    env.assertEqual([s['identifier'] for s in sub_fields],
+                    ['FieldPath@0.0', 'FieldPath@0.1', 'FieldPath@0.2'])
+    env.assertEqual(nested['index'], ['Field@0.0', 'Field@0.1', 'Field@0.2'])
+
+
+@skip(no_json=True, cluster=True)
+def testSubFieldNamesAreEscapedInInfo(env):
+    enable_unstable_features(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.c', 'AS', 'a\r\nb', 'TAG', '$.p', 'AS', 'p', 'NUMERIC',
+           'INDEX', 2, 'a\r\nb', 'p').ok()
+    # The reply still parses, and the name does not inject a line of its own.
+    names = [to_dict(s)['attribute'] for s in nested_attribute(env)['sub_fields']]
+    env.assertEqual(len(names), 2)
+    env.assertNotContains('\r\n', names[0])
+
+
+def schema_fingerprint(env, idx='idx'):
+    con = env.getConnection()
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    return dict(con.execute_command('_FT._LIST', 'WITHCLUSTERSTATE')[3])[idx]
+
+
+@skip(no_json=True, cluster=True)
+def testSchemaFingerprintCoversTheNestedDefinition(env):
+    enable_unstable_features(env)
+    variants = [
+        ITEMS,
+        # Another INDEX order.
+        ITEMS[:-3] + ['size', 'color', 'price'],
+        # Another sub-field path.
+        ITEMS[:5] + ['$.colour'] + ITEMS[6:],
+        # An option on a sub-field.
+        ITEMS[:17] + ['RANGE', 0, 10] + ITEMS[17:],
+    ]
+    fingerprints = set()
+    for variant in variants:
+        create(env, *variant).ok()
+        fingerprints.add(schema_fingerprint(env))
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    env.assertEqual(len(fingerprints), len(variants))
+
+
+@skip(no_json=True, cluster=True)
+def testLoadRejectsAnInvalidDefinition(env):
+    enable_unstable_features(env)
+    # `_FT._RESTOREIFNX SCHEMA` runs the RDB loader on a payload, for internal clients only.
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    # Two-letter names keep every string short and its bytes easy to find in the dump.
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.qa', 'AS', 'qa', 'TAG', '$.qb', 'AS', 'qb', 'NUMERIC', 'INDEX', 2, 'qa', 'qb').ok()
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    def restore(payload):
+        return env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, payload)
+
+    # Module values are written as an opcode, 2 for an unsigned and 4 for a double, then the
+    # value. After `qb`'s path: its type, CASESENSITIVE, MAXCARD, bucket count and RANGE flag, two
+    # RANGE doubles, then the level count and the levels.
+    UINT = b'\x02'
+    qb_path = dump.index(b'$.qb\x00')
+    levels = qb_path + len(b'$.qb\x00') + 5 * 2 + 2 * 9
+    env.assertEqual(dump[levels:levels + 6], UINT + b'\x02' + UINT + b'\x00' + UINT + b'\x01')
+
+    def replace(old, new, at=None):
+        at = dump.index(old) if at is None else at
+        env.assertEqual(len(old), len(new))
+        return dump[:at] + new + dump[at + len(old):]
+
+    corruptions = [
+        ('a NUL inside a path', replace(b'$.qa\x00', b'$\x00qa\x00')),
+        ('a duplicate name', replace(b'\x03qb\x00', b'\x03qa\x00')),
+        ('a sub-field type other than TAG or NUMERIC',
+         replace(b'$.qb\x00' + UINT + b'\x02', b'$.qb\x00' + UINT + b'\x04')),
+        ('MAXCARD', replace(b'$.qa\x00' + UINT + b'\x08' + UINT + b'\x00' + UINT + b'\x00',
+                            b'$.qa\x00' + UINT + b'\x08' + UINT + b'\x00' + UINT + b'\x05')),
+        ('a level listed twice', replace(UINT + b'\x01', UINT + b'\x00', at=levels + 4)),
+    ]
+    for name, payload in corruptions:
+        restore(payload).error().contains('Failed to deserialize schema')
+        env.assertEqual(env.cmd('FT._LIST'), [], message=name)
+    # Every proper prefix fails too, wherever the cut falls in the definition.
+    for cut in range(len(dump)):
+        restore(dump[:cut]).error().contains('Failed to deserialize schema')
+    env.assertEqual(env.cmd('FT._LIST'), [])
+
+    # The untouched dump restores the definition.
+    restore(dump).ok()
+    env.assertEqual(nested_attribute(env)['index'], ['qa', 'qb'])

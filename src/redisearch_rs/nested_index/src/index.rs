@@ -84,11 +84,50 @@ impl NestedIndex {
         self.num_records
     }
 
+    /// Checks every element of a document without writing anything: each element's value must
+    /// have the terminal's type and not be NaN, and all the document's paths must route and fit
+    /// the cardinality limits together.
+    ///
+    /// [`NestedIndex::index_document`] runs the same checks, so a document this accepts is
+    /// written whole, as long as nothing is indexed in between. Without a cardinality limit the
+    /// checks read the levels only, never the indexed paths, so the outcome holds whatever is
+    /// indexed in between. A caller that must reject a document before writing its other fields
+    /// calls this first.
+    pub fn check_document(&self, elements: &[Element<'_>]) -> Result<(), IndexError> {
+        for (position, element) in elements.iter().enumerate() {
+            if !self.terminal_kind.accepts(&element.value) {
+                return Err(IndexError::ValueMismatch { element: position });
+            }
+            if let TerminalValue::Numeric(value) = element.value
+                && value.is_nan()
+            {
+                return Err(IndexError::NotANumber { element: position });
+            }
+        }
+        // Checked one by one first, so a path error names its element.
+        for (position, element) in elements.iter().enumerate() {
+            self.routing
+                .check_path(element.path)
+                .map_err(|error| IndexError::Path {
+                    element: position,
+                    error,
+                })?;
+        }
+        let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
+        self.routing
+            .check_paths(&paths)
+            .map_err(|error| match error {
+                InsertError::CardinalityExceeded { level, max } => {
+                    IndexError::CardinalityExceeded { level, max }
+                }
+                InsertError::Path(_) => unreachable!("every path was routed above"),
+            })
+    }
+
     /// Indexes every element of the document `doc_id`.
     ///
     /// Everything is checked first: `doc_id` must be greater than every doc id indexed before, as
-    /// for any posting list; each element's value must have the terminal's type and not be NaN;
-    /// and all the document's paths must route and fit the cardinality limits together. Only then
+    /// for any posting list, and the elements must pass [`NestedIndex::check_document`]. Only then
     /// is anything written, so an error leaves the index unchanged.
     ///
     /// Several elements of one document may share a path; their values all land in the same
@@ -106,34 +145,7 @@ impl NestedIndex {
                 last: self.last_doc_id,
             });
         }
-        for (position, element) in elements.iter().enumerate() {
-            if !self.terminal_kind.accepts(&element.value) {
-                return Err(IndexError::ValueMismatch { element: position });
-            }
-            if let TerminalValue::Numeric(value) = element.value
-                && value.is_nan()
-            {
-                return Err(IndexError::NotANumber { element: position });
-            }
-        }
-        // Checked one by one first, so a path error names its element.
-        for (position, element) in elements.iter().enumerate() {
-            self.routing
-                .terminal(element.path)
-                .map_err(|error| IndexError::Path {
-                    element: position,
-                    error,
-                })?;
-        }
-        let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
-        self.routing
-            .check_paths(&paths)
-            .map_err(|error| match error {
-                InsertError::CardinalityExceeded { level, max } => {
-                    IndexError::CardinalityExceeded { level, max }
-                }
-                InsertError::Path(_) => unreachable!("every path was routed above"),
-            })?;
+        self.check_document(elements)?;
 
         let kind = self.terminal_kind;
         let mut delta = IndexDelta::default();

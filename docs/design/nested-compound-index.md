@@ -314,11 +314,14 @@ Internal types, private to the crate, that carry the "check first" rule:
    normalise TAG values (case folding unless `CASESENSITIVE`; no separator split, see §2). Drop elements
    that are missing any level's attribute. They aren't indexed, so they never match a group,
    which gives SQL's NULL behaviour. Reject the document (index error, like today's type
-   mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K).
-3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, first
-   call `check_paths` on all the document's rows together, and fail the document if it errors.
-   Checking each row alone is not enough: two new values under one parent can each fit a
-   `MAXCARD` limit alone and break it together, which would leave the document half indexed.
+   mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K). Then check every row of the
+   document (`NestedIndex::check_document`: value types, NaN, routing, and `check_paths` on all
+   rows together), and fail the document if it errors. A preprocessor failure drops the whole
+   document; an indexer failure would come after its other fields are written. Checking each row
+   alone is not enough: two new values under one parent can each fit a `MAXCARD` limit alone and
+   break it together, which would leave the document half indexed.
+3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, run
+   the same check again (it cannot fail while no level has `MAXCARD`, see §7 (3)).
    Then, for each row, call `terminal_or_insert_with` on the routing values, which cannot fail
    after a successful check, and insert into the terminal:
    - NUMERIC terminal: `NumericRangeTree::add(doc_id, value, is_multivalued = true, …)`.
@@ -574,9 +577,16 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    - JSON values follow a top-level JSON field: a `null` element is skipped, a boolean TAG value
      is the tag `"true"` or `"false"`, and a NUL byte in any TAG value rejects the document.
    - Ingest: `json.c` reads each element's sub-fields into `NestedRows` before the spec lock,
-     folding TAG case as a JSON TAG field does; `NestedIndex_IndexDocument` checks the whole
-     document and writes it under the lock, and its deltas feed `invertedSize`, `numRecords` and
-     the block count.
+     folding TAG case as a JSON TAG field does. The NESTED preprocessor checks the whole
+     document with `NestedIndex_CheckDocument`, so a rejected document has none of its fields
+     indexed: by the time the indexer runs, the fields before it are already written. Without
+     `MAXCARD` the check reads only the field's levels, never the tree, so it needs no lock and
+     nothing indexed in between changes its outcome. `NestedIndex_IndexDocument` repeats it and
+     writes under the lock; its deltas feed `invertedSize`, `numRecords` and the block count.
+   - `MAXCARD` is rejected ("not supported yet") until GC (5): without GC a limit would keep
+     counting the values of deleted and replaced documents and reject later updates. Bringing it
+     back also brings back a stateful check, which the preprocessor can no longer run without the
+     lock (see the follow-ups below).
    - A DIALECT 1 tag query on a field that is not TAG now matches nothing instead of reading the
      field's options as a tag index (which a NESTED or SPARSEVECTOR field would otherwise reach).
    - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, a reload,
@@ -618,6 +628,7 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | `BUCKETS` on the last sub-field (a terminal tree pre-split at the boundaries) is rejected at `FT.CREATE` until the terminal supports it | After Read side (4) |
 | Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and bucket slots and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
 | `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
+| Re-enable `MAXCARD` once GC frees stale values. Its check counts existing children, so it depends on the tree: either run it in the preprocessor under the spec read lock and accept that a concurrent write can still fail the indexer, or keep it in the indexer and roll back the document's other fields | GC (5) |
 
 ## 8. Open questions
 

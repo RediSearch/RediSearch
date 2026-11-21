@@ -1564,8 +1564,10 @@ static bool NestedDef_Validate(const NestedDef *def, char *err, size_t errLen) {
     if (last && sub->numBuckets) {
       REJECT("BUCKETS on the last INDEX sub-field `%s` is not supported yet", sub->name);
     }
-    if (last && sub->maxCardinality) {
-      REJECT("MAXCARD applies to routing sub-fields, not the last INDEX sub-field `%s`", sub->name);
+    // Until garbage collection frees the values deleted or replaced documents held, a limit would
+    // keep counting them and reject later updates.
+    if (sub->maxCardinality) {
+      REJECT("MAXCARD (on `%s`) is not supported yet", sub->name);
     }
     if (!last && sub->type == INDEXFLD_T_NUMERIC && !sub->numBuckets) {
       REJECT("NUMERIC sub-field `%s` must declare BUCKETS unless it is last in INDEX", sub->name);
@@ -3148,7 +3150,10 @@ static int loadNestedField(RedisModuleIO *rdb, FieldSpec *f) {
     f->nestedOpts.def->numSubFields = i + 1;
     sub->name = loadNestedString(rdb);
     sub->path = loadNestedString(rdb);
-    if (!sub->name || !sub->path) return REDISMODULE_ERR;
+    if (!sub->name || !sub->path) {
+      RedisModule_LogIOError(rdb, "warning", "Invalid NESTED sub-field name or path");
+      return REDISMODULE_ERR;
+    }
     uint64_t type = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
     if (type != INDEXFLD_T_TAG && type != INDEXFLD_T_NUMERIC) {
       RedisModule_LogIOError(rdb, "warning", "Invalid NESTED sub-field type %llu",

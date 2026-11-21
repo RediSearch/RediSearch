@@ -228,7 +228,7 @@ pub unsafe extern "C" fn NestedRows_Free(rows: *mut NestedRows) {
 ///
 /// # Safety
 ///
-/// 1. `rows` is a valid pointer returned by [`NestedRows_New`].
+/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
 /// 2. `value` is [valid] for reads of `len` bytes, or `len` is zero.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -265,16 +265,19 @@ pub unsafe extern "C" fn NestedRows_PushNumericKey(rows: *mut NestedRows, value:
 ///
 /// # Safety
 ///
-/// As [`NestedRows_PushTagKey`].
+/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+/// 2. `value` is [valid] for reads of `len` bytes, or `len` is zero.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_FinishTag(
     rows: *mut NestedRows,
     value: *const c_char,
     len: usize,
 ) {
-    // SAFETY: guaranteed by 1 of [`NestedRows_PushTagKey`].
+    // SAFETY: guaranteed by 1.
     let rows = unsafe { &mut *rows };
-    // SAFETY: guaranteed by 2 of [`NestedRows_PushTagKey`].
+    // SAFETY: guaranteed by 2.
     let bytes = unsafe { bytes(value, len) };
     rows.elements
         .push((rows.pending, Owned::Tag(bytes.to_vec())));
@@ -285,7 +288,9 @@ pub unsafe extern "C" fn NestedRows_FinishTag(
 ///
 /// # Safety
 ///
-/// As [`NestedRows_PushNumericKey`].
+/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_FinishNumeric(rows: *mut NestedRows, value: f64) {
     // SAFETY: guaranteed by 1.
@@ -298,7 +303,9 @@ pub unsafe extern "C" fn NestedRows_FinishNumeric(rows: *mut NestedRows, value: 
 ///
 /// # Safety
 ///
-/// As [`NestedRows_PushNumericKey`].
+/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_DiscardElement(rows: *mut NestedRows) {
     // SAFETY: guaranteed by 1.
@@ -308,6 +315,75 @@ pub unsafe extern "C" fn NestedRows_DiscardElement(rows: *mut NestedRows) {
     rows.pending = 0;
 }
 
+/// Calls `f` with the elements of `rows`, borrowed from it. Fails, naming the element, when a tag
+/// value contains a NUL byte.
+fn with_elements<R>(rows: &NestedRows, f: impl FnOnce(&[Element<'_>]) -> R) -> Result<R, String> {
+    debug_assert_eq!(rows.pending, 0, "every element is finished before use");
+    let keys: Vec<Key<'_>> = rows
+        .keys
+        .iter()
+        .map(|key| match key {
+            Owned::Tag(bytes) => Key::Tag(bytes),
+            Owned::Numeric(value) => Key::Numeric(*value),
+        })
+        .collect();
+    let mut elements = Vec::with_capacity(rows.elements.len());
+    let mut start = 0;
+    for (position, (num_keys, value)) in rows.elements.iter().enumerate() {
+        let value = match value {
+            Owned::Numeric(value) => TerminalValue::Numeric(*value),
+            Owned::Tag(bytes) => match Tag::new(bytes) {
+                Some(tag) => TerminalValue::Tag(tag),
+                None => return Err(format!("element {position}: tag value contains a NUL byte")),
+            },
+        };
+        elements.push(Element {
+            path: &keys[start..start + num_keys],
+            value,
+        });
+        start += num_keys;
+    }
+    Ok(f(&elements))
+}
+
+/// Check every element of `rows` against `index` without writing anything, as
+/// [`NestedIndex_IndexDocument`] will.
+///
+/// Returns `true` when the document would be indexed. Otherwise returns `false` after writing a
+/// NUL-terminated reason into `err`.
+///
+/// # Safety
+///
+/// 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], not written concurrently.
+/// 2. `rows` is a [valid] pointer returned by [`NestedRows_New`], with no unfinished element.
+/// 3. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NestedIndex_CheckDocument(
+    index: *const NestedIndex,
+    rows: *const NestedRows,
+    err: *mut c_char,
+    err_len: usize,
+) -> bool {
+    // SAFETY: guaranteed by 1.
+    let index = unsafe { &*index };
+    // SAFETY: guaranteed by 2.
+    let rows = unsafe { &*rows };
+    let checked = with_elements(rows, |elements| {
+        index.check_document(elements).map_err(|e| e.to_string())
+    })
+    .and_then(|result| result);
+    match checked {
+        Ok(()) => true,
+        Err(message) => {
+            // SAFETY: guaranteed by 3.
+            unsafe { write_error(err, err_len, &message) };
+            false
+        }
+    }
+}
+
 /// Index every element of `rows` for the document `doc_id`.
 ///
 /// On success, writes what changed into `outcome` and returns `true`. On failure the index is
@@ -315,9 +391,9 @@ pub unsafe extern "C" fn NestedRows_DiscardElement(rows: *mut NestedRows) {
 ///
 /// # Safety
 ///
-/// 1. `index` is a valid pointer returned by [`NestedIndex_New`], held exclusively (under the
+/// 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], held exclusively (under the
 ///    spec write lock).
-/// 2. `rows` is a valid pointer returned by [`NestedRows_New`], with no unfinished element.
+/// 2. `rows` is a [valid] pointer returned by [`NestedRows_New`], with no unfinished element.
 /// 3. `outcome` is [valid] for writes.
 /// 4. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
 ///
@@ -336,44 +412,13 @@ pub unsafe extern "C" fn NestedIndex_IndexDocument(
     let index = unsafe { &mut *index };
     // SAFETY: guaranteed by 2.
     let rows = unsafe { &*rows };
-    debug_assert_eq!(rows.pending, 0, "every element is finished before indexing");
-
-    let keys: Vec<Key<'_>> = rows
-        .keys
-        .iter()
-        .map(|key| match key {
-            Owned::Tag(bytes) => Key::Tag(bytes),
-            Owned::Numeric(value) => Key::Numeric(*value),
-        })
-        .collect();
-    let mut elements = Vec::with_capacity(rows.elements.len());
-    let mut start = 0;
-    for (position, (num_keys, value)) in rows.elements.iter().enumerate() {
-        let value = match value {
-            Owned::Numeric(value) => TerminalValue::Numeric(*value),
-            Owned::Tag(bytes) => match Tag::new(bytes) {
-                Some(tag) => TerminalValue::Tag(tag),
-                None => {
-                    // SAFETY: guaranteed by 4.
-                    unsafe {
-                        write_error(
-                            err,
-                            err_len,
-                            &format!("element {position}: tag value contains a NUL byte"),
-                        )
-                    };
-                    return false;
-                }
-            },
-        };
-        elements.push(Element {
-            path: &keys[start..start + num_keys],
-            value,
-        });
-        start += num_keys;
-    }
-
-    match index.index_document(doc_id, &elements, IndexParams { max_depth_range }) {
+    let indexed = with_elements(rows, |elements| {
+        index
+            .index_document(doc_id, elements, IndexParams { max_depth_range })
+            .map_err(|e| e.to_string())
+    })
+    .and_then(|result| result);
+    match indexed {
         Ok(delta) => {
             // SAFETY: guaranteed by 3.
             unsafe {
@@ -386,9 +431,9 @@ pub unsafe extern "C" fn NestedIndex_IndexDocument(
             };
             true
         }
-        Err(e) => {
+        Err(message) => {
             // SAFETY: guaranteed by 4.
-            unsafe { write_error(err, err_len, &e.to_string()) };
+            unsafe { write_error(err, err_len, &message) };
             false
         }
     }
