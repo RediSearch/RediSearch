@@ -1564,6 +1564,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nested_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "nested_index",
+ "tag_index",
+ "workspace_hack",
+]
+
+[[package]]
 name = "never-say-never"
 version = "6.6.666"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2315,6 +2326,7 @@ dependencies = [
  "language_ffi",
  "metrics_ffi",
  "module_init_ffi",
+ "nested_index_ffi",
  "numeric_range_tree_ffi",
  "over_aligned_alloc",
  "query_error_ffi",
