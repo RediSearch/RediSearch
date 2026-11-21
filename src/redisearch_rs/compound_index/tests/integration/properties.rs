@@ -134,17 +134,20 @@ const fn path_of(e: &Element) -> [Key<'static>; 3] {
     ]
 }
 
+/// The most elements one case indexes. Miri runs a handful of small cases, as each is slow there.
+const MAX_ELEMENTS: usize = if cfg!(miri) { 10 } else { 40 };
+
 proptest! {
     // No failure file: Miri's isolation forbids the file system access it needs.
     #![proptest_config(ProptestConfig {
-        cases: if cfg!(miri) { 8 } else { 256 },
+        cases: if cfg!(miri) { 2 } else { 256 },
         failure_persistence: None,
         ..ProptestConfig::default()
     })]
 
     #[test]
     fn collect_returns_exactly_the_elements_matching_every_constraint(
-        elements in prop::collection::vec(element(), 0..40),
+        elements in prop::collection::vec(element(), 0..MAX_ELEMENTS),
         color in tag_constraint(&COLORS),
         size in tag_constraint(&SIZES),
         year in year_constraint(),
@@ -179,8 +182,8 @@ proptest! {
 
     #[test]
     fn retain_keeps_exactly_the_surviving_elements_and_counts_their_paths(
-        elements in prop::collection::vec(element(), 0..40),
-        deleted in prop::collection::btree_set(0usize..40, 0..40),
+        elements in prop::collection::vec(element(), 0..MAX_ELEMENTS),
+        deleted in prop::collection::btree_set(0..MAX_ELEMENTS, 0..MAX_ELEMENTS),
     ) {
         let mut index = index_of(&elements);
         index.retain_terminals(|ids| {
