@@ -367,9 +367,12 @@ In RAM mode the RDB stores only the **spec** (`IndexSpec_RdbSave` → `FieldSpec
 rescan (`IndexSpec_ScanAndReindex`, [indexes.c](../../src/indexes.c)). The compound index follows
 the same rule: only its definition is saved, and the tree is rebuilt by the rescan.
 
-Bump `INDEX_CURRENT_VERSION` to a new `INDEX_NESTED_VERSION` (32, the next free version), and only read the block below
-when `encver >= INDEX_NESTED_VERSION`. The field's `types` already round-trips as an unsigned, so
-loaders before 32 never see `INDEXFLD_T_NESTED`.
+The block shares encoding version 31 (`INDEX_NESTED_VERSION`) with SPARSEVECTOR: no release has
+shipped 31 yet, so NESTED needs no version of its own. Only a NESTED field writes the block, so
+indexes without one are unaffected. The block starts with its own format number, so its layout can
+change later without another index-wide bump. Load applies the same validation as `FT.CREATE`,
+rejects a NESTED type bit combined with any other type or with `Dynamic` (they share the union),
+and rejects strings with an embedded NUL.
 
 ```
 FieldSpec (existing header: name, path, types, options, sortIdx)
@@ -564,7 +567,12 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      and indexing an existing one are not.
    - `FT.CREATE` / `FT.ALTER` parsing and validation (`NESTED`, `INDEX`, `CASESENSITIVE`,
      `MAXCARD`, `BUCKETS`, `RANGE`), `FT.INFO` attributes, and the spec fingerprint.
-   - The spec RDB block with `INDEX_NESTED_VERSION` (32).
+   - The spec RDB block, sharing encoding version 31 with SPARSEVECTOR.
+   - The definition lives behind a pointer (`NestedDef`), so `FieldSpec` does not grow for other
+     field types. With the flag off, `NESTED` (and `SPARSEVECTOR`) do not end the previous
+     field's options, so a field named `nested` keeps its meaning.
+   - JSON values follow a top-level JSON field: a `null` element is skipped, a boolean TAG value
+     is the tag `"true"` or `"false"`, and a NUL byte in any TAG value rejects the document.
    - Ingest: `json.c` reads each element's sub-fields into `NestedRows` before the spec lock,
      folding TAG case as a JSON TAG field does; `NestedIndex_IndexDocument` checks the whole
      document and writes it under the lock, and its deltas feed `invertedSize`, `numRecords` and
@@ -608,7 +616,7 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Write side (3) |
 | Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
 | `BUCKETS` on the last sub-field (a terminal tree pre-split at the boundaries) is rejected at `FT.CREATE` until the terminal supports it | After Read side (4) |
-| The routing layer's own memory (tries, bucket slot arrays) is not reported in `FT.INFO`; only terminal overhead (`NestedIndex_Overhead`) and postings are | Read side (4), with `FT.PROFILE` and memory reporting |
+| Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and bucket slots and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
 | `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
 
 ## 8. Open questions
