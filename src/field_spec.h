@@ -97,6 +97,16 @@ typedef struct NestedSubField {
   double rangeMax;
 } NestedSubField;
 
+/* A NESTED field's definition: its sub-fields and their `INDEX` order. */
+typedef struct NestedDef {
+  // The sub-fields, in declaration order.
+  NestedSubField subFields[NESTED_MAX_SUBFIELDS];
+  uint8_t numSubFields;
+  // `INDEX` order: an index into `subFields` per level, the terminal last.
+  uint8_t levels[NESTED_MAX_SUBFIELDS];
+  uint8_t numLevels;
+} NestedDef;
+
 RS_ENUM_BITWISE_HELPER(FieldType)
 
 
@@ -179,12 +189,9 @@ typedef struct FieldSpec {
       struct SparseVectorIndex *sparseVecIndex;
     } sparseVecOpts;
     struct {
-      // The sub-fields, in declaration order.
-      NestedSubField subFields[NESTED_MAX_SUBFIELDS];
-      uint8_t numSubFields;
-      // `INDEX` order: an index into `subFields` per level, the terminal last.
-      uint8_t levels[NESTED_MAX_SUBFIELDS];
-      uint8_t numLevels;
+      // The definition, on the heap so the union stays as small as for other types. Set as soon
+      // as the field is known to be NESTED, before anything else is parsed or loaded.
+      struct NestedDef *def;
       // The routing levels and terminals. Opaque Rust object, built with the field.
       struct NestedIndex *nestedIndex;
     } nestedOpts;
@@ -224,6 +231,10 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+
+/* Mark `fs` as a NESTED field and give it an empty definition. Call it before parsing or loading
+ * the definition, so a failure part-way is freed correctly by FieldSpec_Cleanup. */
+void FieldSpec_InitNested(FieldSpec *fs);
 
 /* Build a NESTED field's index from its sub-fields and levels, replacing any existing one.
  * Returns false, with a NUL-terminated reason in `err`, when the levels are rejected. */

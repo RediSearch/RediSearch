@@ -1237,11 +1237,23 @@ static NestedValueStatus JSON_ReadNestedValue(RedisJSON element, const NestedSub
   } else if (n == 0 || type == JSONType_Null) {
     rv = NestedValue_Missing;
   } else if (sub->type == INDEXFLD_T_TAG) {
-    const char *str;
-    size_t len;
-    if (type != JSONType_String || japi->getString(value, &str, &len) != REDISMODULE_OK) {
+    const char *str = NULL;
+    size_t len = 0;
+    int boolean;
+    // A boolean is a tag "true" or "false", as for a top-level JSON TAG field.
+    if (type == JSONType_Bool && japi->getBoolean(value, &boolean) == REDISMODULE_OK) {
+      str = boolean ? "true" : "false";
+      len = strlen(str);
+    } else if (type != JSONType_String || japi->getString(value, &str, &len) != REDISMODULE_OK) {
+      str = NULL;
+    }
+    if (!str) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD, "NESTED TAG sub-field",
-                                    " `%s` must hold a string", sub->name);
+                                    " `%s` must hold a string or a boolean", sub->name);
+      rv = NestedValue_Error;
+    } else if (memchr(str, '\0', len)) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "NESTED TAG sub-field",
+                                    " `%s` must not contain a NUL byte", sub->name);
       rv = NestedValue_Error;
     } else {
       char *tag = JSON_NormalizeNestedTag(str, &len, sub->caseSensitive);
@@ -1282,14 +1294,18 @@ static NestedValueStatus JSON_ReadNestedValue(RedisJSON element, const NestedSub
 /* Read one element: its sub-fields in INDEX order, the terminal last. */
 static int JSON_ReadNestedElement(RedisJSON element, const FieldSpec *fs, struct NestedRows *rows,
                                   QueryError *status) {
+  // A null element is skipped, as a top-level JSON field ignores a null value.
+  if (japi->getType(element) == JSONType_Null) {
+    return REDISMODULE_OK;
+  }
   if (japi->getType(element) != JSONType_Object) {
     QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
                         "NESTED field elements must be objects");
     return REDISMODULE_ERR;
   }
-  for (uint8_t i = 0; i < fs->nestedOpts.numLevels; i++) {
-    const NestedSubField *sub = &fs->nestedOpts.subFields[fs->nestedOpts.levels[i]];
-    bool terminal = i + 1 == fs->nestedOpts.numLevels;
+  for (uint8_t i = 0; i < fs->nestedOpts.def->numLevels; i++) {
+    const NestedSubField *sub = &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[i]];
+    bool terminal = i + 1 == fs->nestedOpts.def->numLevels;
     switch (JSON_ReadNestedValue(element, sub, terminal, rows, status)) {
       case NestedValue_Ok:
         break;
@@ -1307,7 +1323,7 @@ static int JSON_ReadNestedElement(RedisJSON element, const FieldSpec *fs, struct
  * element object, or an array of them. Elements missing a sub-field are skipped. */
 static int JSON_StoreNestedInDocField(JSONResultsIterator jsonIter, FieldSpec *fs,
                                       struct DocumentField *df, QueryError *status) {
-  struct NestedRows *rows = NestedRows_New(fs->nestedOpts.numLevels);
+  struct NestedRows *rows = NestedRows_New(fs->nestedOpts.def->numLevels);
   int rv = REDISMODULE_OK;
   RedisJSON result;
   RedisJSONPtr item = japi->allocJson();

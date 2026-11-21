@@ -102,7 +102,7 @@ extern "C" {
  *
  * # Safety
  *
- * `index` is null, or was returned by [`NestedIndex_New`] and not freed yet.
+ * 1. `index` is null, or was returned by [`NestedIndex_New`] and not freed yet.
  */
 void NestedIndex_Free(struct NestedIndex *index);
 
@@ -144,32 +144,15 @@ bool NestedIndex_IndexDocument(struct NestedIndex *index, t_docId doc_id, const 
 struct NestedIndex *NestedIndex_New(const struct NestedLevelDef *levels, size_t num_levels, enum NestedTerminalKind terminal, bool compress_floats, char *err, size_t err_len);
 
 /**
- * The records written and not yet collected.
- *
- * # Safety
- *
- * As [`NestedIndex_NumTerminals`].
- */
-size_t NestedIndex_NumRecords(const struct NestedIndex *index);
-
-/**
  * The number of terminals, one per distinct path indexed.
  *
  * # Safety
  *
- * `index` is a valid pointer returned by [`NestedIndex_New`], not written concurrently.
+ * 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], not written concurrently.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t NestedIndex_NumTerminals(const struct NestedIndex *index);
-
-/**
- * The terminals' overhead in bytes, excluding postings, which the spec already counts in
- * `invertedSize`. Walks every terminal.
- *
- * # Safety
- *
- * As [`NestedIndex_NumTerminals`].
- */
-size_t NestedIndex_Overhead(const struct NestedIndex *index);
 
 /**
  * Drop the keys pushed since the last finished element, for an element the loader skips.
@@ -203,22 +186,13 @@ void NestedRows_FinishTag(struct NestedRows *rows, const char *value, size_t len
  *
  * # Safety
  *
- * `rows` is null, or was returned by [`NestedRows_New`] and not freed yet.
+ * 1. `rows` is null, or was returned by [`NestedRows_New`] and not freed yet.
  */
 void NestedRows_Free(struct NestedRows *rows);
 
 /**
- * The number of finished elements.
- *
- * # Safety
- *
- * `rows` is a valid pointer returned by [`NestedRows_New`].
- */
-size_t NestedRows_Len(const struct NestedRows *rows);
-
-/**
- * An empty set of elements for a field with `num_levels` routing levels. Free it with
- * [`NestedRows_Free`].
+ * An empty set of elements for a field whose `INDEX` lists `num_levels` sub-fields, the terminal
+ * included; it only sizes the first allocation. Free it with [`NestedRows_Free`].
  */
 struct NestedRows *NestedRows_New(size_t num_levels);
 
@@ -227,7 +201,9 @@ struct NestedRows *NestedRows_New(size_t num_levels);
  *
  * # Safety
  *
- * `rows` is a valid pointer returned by [`NestedRows_New`].
+ * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NestedRows_PushNumericKey(struct NestedRows *rows, double value);
 

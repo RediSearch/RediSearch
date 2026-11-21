@@ -132,6 +132,18 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
+/* A NESTED sub-field's name or path for FT.INFO: obfuscated by its position when asked, and
+ * escaped for a simple string either way, as top-level names are. Free with `rm_free`. */
+static char *NestedSubField_Format(const char *value, uint8_t position,
+                                   void (*obfuscator)(t_uniqueId, char *), bool obfuscate) {
+  char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
+  if (obfuscate) {
+    obfuscator(position, obfuscated);
+    value = obfuscated;
+  }
+  return isUnsafeForSimpleString(value) ? escapeSimpleString(value) : rm_strdup(value);
+}
+
 void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes) {
   const bool has_map = RedisModule_IsRESP3(reply);
 
@@ -215,11 +227,15 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
       REPLY_KVARRAY("sub_fields");
-      for (uint8_t s = 0; s < fs->nestedOpts.numSubFields; s++) {
-        const NestedSubField *sub = &fs->nestedOpts.subFields[s];
+      for (uint8_t s = 0; s < fs->nestedOpts.def->numSubFields; s++) {
+        const NestedSubField *sub = &fs->nestedOpts.def->subFields[s];
         RedisModule_Reply_Map(reply);
-        REPLY_KVSTR_SAFE("identifier", sub->path);
-        REPLY_KVSTR_SAFE("attribute", sub->name);
+        char *path = NestedSubField_Format(sub->path, s, Obfuscate_FieldPath, obfuscate);
+        char *subName = NestedSubField_Format(sub->name, s, Obfuscate_Field, obfuscate);
+        REPLY_KVSTR("identifier", path);
+        REPLY_KVSTR("attribute", subName);
+        rm_free(path);
+        rm_free(subName);
         REPLY_KVSTR("type", sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR : SPEC_NUMERIC_STR);
         if (sub->caseSensitive) {
           REPLY_KVSTR("case_sensitive", "true");
@@ -242,9 +258,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       }
       REPLY_ARRAY_END;
       REPLY_KVARRAY("index");
-      for (uint8_t l = 0; l < fs->nestedOpts.numLevels; l++) {
-        RedisModule_Reply_SimpleString(reply,
-                                       fs->nestedOpts.subFields[fs->nestedOpts.levels[l]].name);
+      for (uint8_t l = 0; l < fs->nestedOpts.def->numLevels; l++) {
+        uint8_t level = fs->nestedOpts.def->levels[l];
+        char *levelName = NestedSubField_Format(fs->nestedOpts.def->subFields[level].name, level,
+                                                Obfuscate_Field, obfuscate);
+        RedisModule_Reply_SimpleString(reply, levelName);
+        rm_free(levelName);
       }
       REPLY_ARRAY_END;
       REPLY_KVINT("terminals", fs->nestedOpts.nestedIndex
