@@ -82,25 +82,20 @@ impl NestedIndex {
         self.num_records
     }
 
-    /// Indexes every element of the document `doc_id`.
+    /// Checks every element of a document without writing anything: each element's value must
+    /// have the terminal's type and not be NaN, and all the document's paths must fit the
+    /// cardinality limits together.
     ///
-    /// `doc_id` must be greater than every doc id indexed before, as for any posting list; the
-    /// doc table guarantees it. Everything else is checked first: each element's value must have
-    /// the terminal's type and not be NaN, and all the document's paths must fit the cardinality
-    /// limits together. Only then is anything written, so an error leaves the index unchanged.
-    ///
-    /// Several elements of one document may share a path; their values all land in the same
-    /// terminal.
+    /// [`NestedIndex::index_document`] runs the same checks, so a document this accepts is
+    /// written whole, as long as nothing is indexed in between. Without a cardinality limit the
+    /// checks read the levels only, never the indexed paths, so the outcome holds whatever is
+    /// indexed in between. A caller that must reject a document before writing its other fields
+    /// calls this first.
     ///
     /// # Panics
     ///
     /// If an element's path does not have one value per routing level.
-    pub fn index_document(
-        &mut self,
-        doc_id: DocId,
-        elements: &[Element<'_>],
-        params: IndexParams,
-    ) -> Result<IndexDelta, IndexError> {
+    pub fn check_document(&self, elements: &[Element<'_>]) -> Result<(), IndexError> {
         for (position, element) in elements.iter().enumerate() {
             if !self.terminal_kind.accepts(&element.value) {
                 return Err(IndexError::ValueMismatch { element: position });
@@ -114,9 +109,31 @@ impl NestedIndex {
         let paths: Vec<&[&[u8]]> = elements.iter().map(|element| element.path).collect();
         self.routing
             .check_paths(&paths)
-            .map_err(
-                |CardinalityExceeded { level, max }| IndexError::CardinalityExceeded { level, max },
-            )?;
+            .map_err(|CardinalityExceeded { level, max }| {
+                IndexError::CardinalityExceeded { level, max }
+            })
+    }
+
+    /// Indexes every element of the document `doc_id`.
+    ///
+    /// `doc_id` must be greater than every doc id indexed before, as for any posting list; the
+    /// doc table guarantees it. Everything else is checked first: the elements must pass
+    /// [`NestedIndex::check_document`]. Only then is anything written, so an error leaves the
+    /// index unchanged.
+    ///
+    /// Several elements of one document may share a path; their values all land in the same
+    /// terminal.
+    ///
+    /// # Panics
+    ///
+    /// If an element's path does not have one value per routing level.
+    pub fn index_document(
+        &mut self,
+        doc_id: DocId,
+        elements: &[Element<'_>],
+        params: IndexParams,
+    ) -> Result<IndexDelta, IndexError> {
+        self.check_document(elements)?;
 
         let kind = self.terminal_kind;
         let mut delta = IndexDelta::default();

@@ -132,13 +132,15 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
-/* A NESTED sub-field's name or path for FT.INFO: obfuscated by its position when asked, and
- * escaped for a simple string either way, as top-level names are. Free with `rm_free`. */
-static char *NestedSubField_Format(const char *value, uint8_t position,
-                                   void (*obfuscator)(t_uniqueId, char *), bool obfuscate) {
-  char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
+/* A NESTED sub-field's name or path for FT.INFO, escaped for a simple string as top-level names
+ * are. Obfuscated when asked as `<prefix>@<field>.<position>`, so it never reads as a top-level
+ * field's `<prefix>@<field>`. Free with `rm_free`. */
+static char *NestedSubField_Format(const char *value, const FieldSpec *fs, uint8_t position,
+                                   const char *prefix, bool obfuscate) {
+  char obfuscated[64];
   if (obfuscate) {
-    obfuscator(position, obfuscated);
+    snprintf(obfuscated, sizeof(obfuscated), "%s@%u.%u", prefix, (unsigned)fs->index,
+             (unsigned)position);
     value = obfuscated;
   }
   return isUnsafeForSimpleString(value) ? escapeSimpleString(value) : rm_strdup(value);
@@ -230,8 +232,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       for (uint8_t s = 0; s < fs->nestedOpts.def->numSubFields; s++) {
         const NestedSubField *sub = &fs->nestedOpts.def->subFields[s];
         RedisModule_Reply_Map(reply);
-        char *path = NestedSubField_Format(sub->path, s, Obfuscate_FieldPath, obfuscate);
-        char *subName = NestedSubField_Format(sub->name, s, Obfuscate_Field, obfuscate);
+        char *path = NestedSubField_Format(sub->path, fs, s, "FieldPath", obfuscate);
+        char *subName = NestedSubField_Format(sub->name, fs, s, "Field", obfuscate);
         REPLY_KVSTR("identifier", path);
         REPLY_KVSTR("attribute", subName);
         rm_free(path);
@@ -260,8 +262,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       REPLY_KVARRAY("index");
       for (uint8_t l = 0; l < fs->nestedOpts.def->numLevels; l++) {
         uint8_t level = fs->nestedOpts.def->levels[l];
-        char *levelName = NestedSubField_Format(fs->nestedOpts.def->subFields[level].name, level,
-                                                Obfuscate_Field, obfuscate);
+        char *levelName = NestedSubField_Format(fs->nestedOpts.def->subFields[level].name, fs,
+                                                level, "Field", obfuscate);
         RedisModule_Reply_SimpleString(reply, levelName);
         rm_free(levelName);
       }

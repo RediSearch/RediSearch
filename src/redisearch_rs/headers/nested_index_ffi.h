@@ -98,6 +98,23 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Check every element of `rows` against `index` without writing anything, as
+ * [`NestedIndex_IndexDocument`] will.
+ *
+ * Returns `true` when the document would be indexed. Otherwise returns `false` after writing a
+ * NUL-terminated reason into `err`.
+ *
+ * # Safety
+ *
+ * 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], not written concurrently.
+ * 2. `rows` is a [valid] pointer returned by [`NestedRows_New`], with no unfinished element.
+ * 3. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool NestedIndex_CheckDocument(const struct NestedIndex *index, const struct NestedRows *rows, char *err, size_t err_len);
+
+/**
  * Free an index built by [`NestedIndex_New`]. A null `index` is a no-op.
  *
  * # Safety
@@ -114,9 +131,9 @@ void NestedIndex_Free(struct NestedIndex *index);
  *
  * # Safety
  *
- * 1. `index` is a valid pointer returned by [`NestedIndex_New`], held exclusively (under the
+ * 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], held exclusively (under the
  *    spec write lock).
- * 2. `rows` is a valid pointer returned by [`NestedRows_New`], with no unfinished element.
+ * 2. `rows` is a [valid] pointer returned by [`NestedRows_New`], with no unfinished element.
  * 3. `outcome` is [valid] for writes.
  * 4. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
  *
@@ -159,7 +176,9 @@ size_t NestedIndex_NumTerminals(const struct NestedIndex *index);
  *
  * # Safety
  *
- * As [`NestedRows_PushNumericKey`].
+ * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NestedRows_DiscardElement(struct NestedRows *rows);
 
@@ -168,7 +187,9 @@ void NestedRows_DiscardElement(struct NestedRows *rows);
  *
  * # Safety
  *
- * As [`NestedRows_PushNumericKey`].
+ * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NestedRows_FinishNumeric(struct NestedRows *rows, double value);
 
@@ -177,7 +198,10 @@ void NestedRows_FinishNumeric(struct NestedRows *rows, double value);
  *
  * # Safety
  *
- * As [`NestedRows_PushTagKey`].
+ * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+ * 2. `value` is [valid] for reads of `len` bytes, or `len` is zero.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void NestedRows_FinishTag(struct NestedRows *rows, const char *value, size_t len);
 
@@ -212,7 +236,7 @@ void NestedRows_PushNumericKey(struct NestedRows *rows, double value);
  *
  * # Safety
  *
- * 1. `rows` is a valid pointer returned by [`NestedRows_New`].
+ * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
  * 2. `value` is [valid] for reads of `len` bytes, or `len` is zero.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

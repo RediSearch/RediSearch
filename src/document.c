@@ -808,6 +808,17 @@ FIELD_PREPROCESSOR(nestedPreprocessor) {
   fdata->nestedRows = field->nestedRows;
   field->nestedRows = NULL;
   field->unionType = FLD_VAR_T_NULL;
+  // Checked here rather than when writing: a preprocessor failure drops the whole document, while
+  // by write time its other fields are already indexed. This runs without the spec lock, which
+  // holds because, with MAXCARD rejected, the check reads only the field's levels, never what is
+  // indexed: nothing indexed in between changes its outcome.
+  char err[256];
+  if (!NestedIndex_CheckDocument(aCtx->spec->fields[fs->index].nestedOpts.nestedIndex,
+                                 fdata->nestedRows, err, sizeof(err))) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Could not index NESTED field",
+                                  ": %s", err);
+    return -1;
+  }
   return 0;
 }
 

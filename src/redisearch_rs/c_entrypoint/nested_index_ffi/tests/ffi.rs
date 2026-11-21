@@ -12,10 +12,10 @@
 use std::ffi::{CStr, c_char};
 
 use nested_index_ffi::{
-    NestedIndex_Free, NestedIndex_IndexDocument, NestedIndex_New, NestedIndex_NumTerminals,
-    NestedIndexOutcome, NestedLevelDef, NestedLevelKind, NestedRows_DiscardElement,
-    NestedRows_FinishNumeric, NestedRows_FinishTag, NestedRows_Free, NestedRows_New,
-    NestedRows_PushNumericKey, NestedRows_PushTagKey, NestedTerminalKind,
+    NestedIndex_CheckDocument, NestedIndex_Free, NestedIndex_IndexDocument, NestedIndex_New,
+    NestedIndex_NumTerminals, NestedIndexOutcome, NestedLevelDef, NestedLevelKind,
+    NestedRows_DiscardElement, NestedRows_FinishNumeric, NestedRows_FinishTag, NestedRows_Free,
+    NestedRows_New, NestedRows_PushNumericKey, NestedRows_PushTagKey, NestedTerminalKind,
 };
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -27,15 +27,22 @@ const TAG_LEVEL: NestedLevelDef = NestedLevelDef {
     num_boundaries: 0,
 };
 
-/// A `color` tag level over a numeric terminal.
-fn new_index() -> *mut nested_index::NestedIndex {
+/// A `color` tag level over a `terminal`.
+fn new_index(terminal: NestedTerminalKind) -> *mut nested_index::NestedIndex {
+    new_index_with(&[TAG_LEVEL], terminal)
+}
+
+fn new_index_with(
+    levels: &[NestedLevelDef],
+    terminal: NestedTerminalKind,
+) -> *mut nested_index::NestedIndex {
     let mut err = [0 as c_char; 64];
     // SAFETY: the level array and error buffer are valid for their lengths.
     let index = unsafe {
         NestedIndex_New(
-            &TAG_LEVEL,
-            1,
-            NestedTerminalKind::Numeric,
+            levels.as_ptr(),
+            levels.len(),
+            terminal,
             false,
             err.as_mut_ptr(),
             err.len(),
@@ -43,6 +50,14 @@ fn new_index() -> *mut nested_index::NestedIndex {
     };
     assert!(!index.is_null());
     index
+}
+
+/// The NUL-terminated text in `err`.
+fn error_text(err: &[c_char]) -> String {
+    // SAFETY: the error buffer was written NUL-terminated, or left zeroed.
+    unsafe { CStr::from_ptr(err.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn push_tag(rows: *mut nested_index_ffi::NestedRows, value: &str) {
@@ -74,16 +89,24 @@ fn index_document(
     if ok {
         Ok(outcome)
     } else {
-        // SAFETY: the error buffer was written NUL-terminated, or left zeroed.
-        Err(unsafe { CStr::from_ptr(err.as_ptr()) }
-            .to_string_lossy()
-            .into_owned())
+        Err(error_text(&err))
     }
+}
+
+/// Check `rows` against `index`, returning the error text on rejection.
+fn check_document(
+    index: *const nested_index::NestedIndex,
+    rows: *const nested_index_ffi::NestedRows,
+) -> Result<(), String> {
+    let mut err = [0 as c_char; 128];
+    // SAFETY: every pointer is live and valid for its length.
+    let ok = unsafe { NestedIndex_CheckDocument(index, rows, err.as_mut_ptr(), err.len()) };
+    if ok { Ok(()) } else { Err(error_text(&err)) }
 }
 
 #[test]
 fn rows_index_each_finished_element_and_skip_discarded_ones() {
-    let index = new_index();
+    let index = new_index(NestedTerminalKind::Numeric);
     let rows = NestedRows_New(2);
     push_tag(rows, "red");
     // SAFETY: `rows` is live.
@@ -110,7 +133,7 @@ fn rows_index_each_finished_element_and_skip_discarded_ones() {
 
 #[test]
 fn a_rejected_document_reports_why_and_changes_nothing() {
-    let index = new_index();
+    let index = new_index(NestedTerminalKind::Numeric);
     let rows = NestedRows_New(2);
     push_tag(rows, "red");
     // SAFETY: `rows` is live.
@@ -129,7 +152,7 @@ fn a_rejected_document_reports_why_and_changes_nothing() {
 
 #[test]
 fn errors_are_truncated_to_the_buffer() {
-    let index = new_index();
+    let index = new_index(NestedTerminalKind::Numeric);
     let rows = NestedRows_New(2);
     // SAFETY: `rows` is live.
     unsafe { NestedRows_PushNumericKey(rows, 1.0) };
@@ -148,7 +171,7 @@ fn errors_are_truncated_to_the_buffer() {
 
 #[test]
 fn a_tag_value_with_a_nul_byte_is_rejected() {
-    let index = NestedIndex_New_tag();
+    let index = new_index(NestedTerminalKind::Tag);
     let rows = NestedRows_New(2);
     push_tag(rows, "red");
     let value = "st\0eel";
@@ -162,25 +185,6 @@ fn a_tag_value_with_a_nul_byte_is_rejected() {
         NestedRows_Free(rows);
         NestedIndex_Free(index);
     }
-}
-
-/// A `color` tag level over a tag terminal.
-#[expect(non_snake_case, reason = "named after the entry point it wraps")]
-fn NestedIndex_New_tag() -> *mut nested_index::NestedIndex {
-    let mut err = [0 as c_char; 64];
-    // SAFETY: the level array and error buffer are valid for their lengths.
-    let index = unsafe {
-        NestedIndex_New(
-            &TAG_LEVEL,
-            1,
-            NestedTerminalKind::Tag,
-            false,
-            err.as_mut_ptr(),
-            err.len(),
-        )
-    };
-    assert!(!index.is_null());
-    index
 }
 
 #[test]
@@ -213,8 +217,123 @@ fn invalid_levels_are_rejected_with_a_reason() {
             )
         };
         assert!(index.is_null(), "{name}");
-        // SAFETY: the error buffer was written NUL-terminated.
-        let message = unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy();
+        let message = error_text(&err);
         assert!(message.contains(expected), "{name}: {message}");
+    }
+}
+
+#[test]
+fn a_zero_length_error_buffer_is_left_untouched() {
+    let index = new_index(NestedTerminalKind::Numeric);
+    let rows = NestedRows_New(2);
+    push_tag(rows, "red");
+    // SAFETY: `rows` is live.
+    unsafe { NestedRows_FinishNumeric(rows, f64::NAN) };
+
+    // `index_document` hands a one-byte zeroed buffer but says its length is zero.
+    let err = index_document(index, 1, rows, 0).unwrap_err();
+    assert_eq!(err, "");
+    // SAFETY: both were created above and are freed once.
+    unsafe {
+        NestedRows_Free(rows);
+        NestedIndex_Free(index);
+    }
+}
+
+#[test]
+fn a_buckets_level_routes_numeric_keys() {
+    let boundaries = [0.0, 10.0, 20.0];
+    let index = new_index_with(
+        &[NestedLevelDef {
+            kind: NestedLevelKind::Buckets,
+            max_cardinality: 0,
+            boundaries: boundaries.as_ptr(),
+            num_boundaries: boundaries.len(),
+        }],
+        NestedTerminalKind::Numeric,
+    );
+    let rows = NestedRows_New(2);
+    for (key, value) in [(1.0, 1.0), (5.0, 2.0), (15.0, 3.0)] {
+        // SAFETY: `rows` is live.
+        unsafe {
+            NestedRows_PushNumericKey(rows, key);
+            NestedRows_FinishNumeric(rows, value);
+        }
+    }
+
+    let outcome = index_document(index, 1, rows, 64).unwrap();
+    // 1 and 5 share the first bucket.
+    assert_eq!(outcome.new_terminals, 2);
+    assert_eq!(outcome.records, 3);
+    // SAFETY: both were created above and are freed once.
+    unsafe {
+        NestedRows_Free(rows);
+        NestedIndex_Free(index);
+    }
+}
+
+#[test]
+fn a_tag_terminal_counts_its_records() {
+    let index = new_index(NestedTerminalKind::Tag);
+    let rows = NestedRows_New(2);
+    for (key, value) in [("red", "steel"), ("red", "wood"), ("blue", "steel")] {
+        push_tag(rows, key);
+        // SAFETY: `rows` is live, and `value` is valid for its length.
+        unsafe { NestedRows_FinishTag(rows, value.as_ptr().cast(), value.len()) };
+    }
+
+    let outcome = index_document(index, 1, rows, 64).unwrap();
+    assert_eq!(outcome.new_terminals, 2);
+    assert_eq!(outcome.records, 3);
+    assert!(outcome.size_delta > 0);
+    // SAFETY: both were created above and are freed once.
+    unsafe {
+        NestedRows_Free(rows);
+        NestedIndex_Free(index);
+    }
+}
+
+#[test]
+fn doc_ids_must_increase() {
+    let index = new_index(NestedTerminalKind::Numeric);
+    let rows = NestedRows_New(2);
+    push_tag(rows, "red");
+    // SAFETY: `rows` is live.
+    unsafe { NestedRows_FinishNumeric(rows, 1.0) };
+
+    index_document(index, 2, rows, 64).unwrap();
+    let err = index_document(index, 2, rows, 128).unwrap_err();
+    assert!(err.contains("doc id"), "{err}");
+    // SAFETY: both were created above and are freed once.
+    unsafe {
+        NestedRows_Free(rows);
+        NestedIndex_Free(index);
+    }
+}
+
+#[test]
+fn check_document_agrees_with_index_document_and_writes_nothing() {
+    let index = new_index(NestedTerminalKind::Numeric);
+    let good = NestedRows_New(2);
+    push_tag(good, "red");
+    // SAFETY: `good` is live.
+    unsafe { NestedRows_FinishNumeric(good, 1.0) };
+    let bad = NestedRows_New(2);
+    // SAFETY: `bad` is live.
+    unsafe {
+        NestedRows_PushNumericKey(bad, 1.0);
+        NestedRows_FinishNumeric(bad, 1.0);
+    }
+
+    check_document(index, good).unwrap();
+    let err = check_document(index, bad).unwrap_err();
+    assert_eq!(err, index_document(index, 1, bad, 128).unwrap_err());
+    // SAFETY: `index` is live.
+    assert_eq!(unsafe { NestedIndex_NumTerminals(index) }, 0);
+    // SAFETY: all were created above and are freed once.
+    unsafe {
+        NestedRows_Free(good);
+        NestedRows_Free(bad);
+        NestedIndex_Free(index);
     }
 }
