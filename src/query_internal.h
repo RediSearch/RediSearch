@@ -46,8 +46,10 @@ extern "C" {
   char **unescapedNames;
 
   // The NESTED field of the `@field:( … )` group being parsed, whose sub-fields the field names
-  // inside it resolve to, or NULL outside a group.
+  // inside it resolve to; NULL outside a group, and without a spec.
   const FieldSpec *nestedField;
+  // Whether a `@field:( … )` group is being parsed, with or without a spec.
+  bool inNestedGroup;
 
   #ifdef PARSER_DEBUG
   FILE *trace_log;
@@ -58,10 +60,15 @@ extern "C" {
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
 
 /* Whether `@name`, the field name at `[name, name + len)` (still escaped) followed by the query
- * text `[after, end)`, opens a group on a NESTED field: the field is NESTED and the text goes on
- * with `:(`, spaces allowed around the colon. False without a spec. */
+ * text `[after, end)`, opens a group on a NESTED field: `ENABLE_UNSTABLE_FEATURES` is on, the
+ * text goes on with `:(` (spaces allowed around the colon), and the field is NESTED. Without a
+ * spec, the group names a field instead, which only a NESTED group can. */
 bool QueryParseCtx_OpensNestedGroup(const QueryParseCtx *q, const char *name, size_t len,
                                     const char *after, const char *end);
+
+/* Drop the backslashes escaping punctuation or spaces in the field name `[s, s + sz)`, in place.
+ * Returns the new length. */
+size_t QueryParse_UnescapeFieldName(char *s, size_t sz);
 
 // Release what the parse allocated for its own use; the resulting AST does not depend on it.
 void QueryParseCtx_Cleanup(QueryParseCtx *q);

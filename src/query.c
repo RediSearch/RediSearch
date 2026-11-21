@@ -330,14 +330,22 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   return ret;
 }
 
-/* Drop the backslashes escaping punctuation or spaces in `[s, s + sz)`, in place, as the parser
- * does for field names. Returns the new length. */
-static size_t unescapeFieldNameInPlace(char *s, size_t sz) {
+/* The name of the field a leaf reads: `items.color` for the sub-field of a NESTED field. */
+static sds appendFieldName(sds s, const FieldSpec *fs, uint8_t subField) {
+  s = sdscat(s, HiddenString_GetUnsafe(fs->fieldName, NULL));
+  if (FIELD_IS(fs, INDEXFLD_T_NESTED) && subField < fs->nestedOpts.def->numSubFields) {
+    s = sdscatprintf(s, ".%s", fs->nestedOpts.def->subFields[subField].name);
+  }
+  return s;
+}
+
+size_t QueryParse_UnescapeFieldName(char *s, size_t sz) {
   char *dst = s;
   const char *src = s;
   const char *end = s + sz;
   while (src < end) {
-    if (*src == '\\' && src + 1 < end && (ispunct(src[1]) || isspace(src[1]))) {
+    if (*src == '\\' && src + 1 < end &&
+        (ispunct((unsigned char)src[1]) || isspace((unsigned char)src[1]))) {
       ++src;
       continue;
     }
@@ -346,29 +354,57 @@ static size_t unescapeFieldNameInPlace(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
+/* Whether the group whose text starts at `p`, just after its `(`, names a field before its `)`,
+ * outside quotes and escapes. A text group never does, so a group that does can only be a NESTED
+ * one. */
+static bool groupNamesAField(const char *p, const char *end) {
+  int depth = 1;
+  while (p < end) {
+    char c = *p++;
+    if (c == '\\') {
+      p++;
+    } else if (c == '"' || c == '\'') {
+      while (p < end && *p != c) {
+        p += *p == '\\' ? 2 : 1;
+      }
+      p++;
+    } else if (c == '(') {
+      depth++;
+    } else if (c == ')') {
+      if (--depth == 0) return false;
+    } else if (c == '@') {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool QueryParseCtx_OpensNestedGroup(const QueryParseCtx *q, const char *name, size_t len,
                                     const char *after, const char *end) {
-  if (!q->sctx || !q->sctx->spec) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
     return false;
+  }
+  // `:(`, as the lexer would read it: spaces between the tokens are skipped. Checked first, as it
+  // rules out most field names without a lookup.
+  const char *p = after;
+  while (p < end && isspace((unsigned char)*p)) p++;
+  if (p == end || *p++ != ':') return false;
+  while (p < end && isspace((unsigned char)*p)) p++;
+  if (p == end || *p++ != '(') return false;
+  if (!q->sctx || !q->sctx->spec) {
+    // The coordinator parses some queries without a spec, so it cannot look the field up.
+    return groupNamesAField(p, end);
   }
   const FieldSpec *fs;
   if (memchr(name, '\\', len)) {
     char *unescaped = rm_strndup(name, len);
-    size_t unescapedLen = unescapeFieldNameInPlace(unescaped, len);
+    size_t unescapedLen = QueryParse_UnescapeFieldName(unescaped, len);
     fs = IndexSpec_GetFieldWithLength(q->sctx->spec, unescaped, unescapedLen);
     rm_free(unescaped);
   } else {
     fs = IndexSpec_GetFieldWithLength(q->sctx->spec, name, len);
   }
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_NESTED)) {
-    return false;
-  }
-  // `:(`, as the lexer would read it: spaces between the tokens are skipped.
-  const char *p = after;
-  while (p < end && isspace((unsigned char)*p)) p++;
-  if (p == end || *p++ != ':') return false;
-  while (p < end && isspace((unsigned char)*p)) p++;
-  return p < end && *p == '(';
+  return fs && FIELD_IS(fs, INDEXFLD_T_NESTED);
 }
 
 QueryNode *NewNestedNode(const FieldSpec *fs, QueryNode *inner) {
@@ -957,8 +993,11 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
           const FieldSpec *numFs = spec->fields + n->nn.nf->fieldIndex;
-          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
-                                 HiddenString_GetUnsafe(numFs->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
+          sds name = appendFieldName(sdsempty(), numFs, n->nn.subField);
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX,
+                                        "Invalid numeric range (min > max)", ": @%s:[%f %f]", name,
+                                        n->nn.nf->min, n->nn.nf->max);
+          sdsfree(name);
           res = REDISMODULE_ERR;
         }
       }
@@ -1087,15 +1126,6 @@ static sds doPad(sds s, int len) {
 }
 
 static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
-
-/* The name of the field a leaf reads: `items.color` for the sub-field of a NESTED field. */
-static sds appendFieldName(sds s, const FieldSpec *fs, uint8_t subField) {
-  s = sdscat(s, HiddenString_GetUnsafe(fs->fieldName, NULL));
-  if (FIELD_IS(fs, INDEXFLD_T_NESTED) && subField < fs->nestedOpts.def->numSubFields) {
-    s = sdscatprintf(s, ".%s", fs->nestedOpts.def->subFields[subField].name);
-  }
-  return s;
-}
 
 static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode *qs, int depth);
 

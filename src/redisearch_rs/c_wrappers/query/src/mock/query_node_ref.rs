@@ -125,6 +125,18 @@ impl Drop for MockQueryNode {
                     rm_free(tok.str_.cast::<std::ffi::c_void>());
                 }
             }
+            // A group's evaluation hands the node the numeric filters it builds, which the node
+            // frees, as `QueryNode_Free` does.
+            if (*self.node).type_ == QueryNodeType::Nested {
+                let nested =
+                    &*(&raw const (*self.node).__bindgen_anon_1).cast::<ffi::QueryNestedNode>();
+                if !nested.filters.is_null() {
+                    for i in 0..ffi::array_len_func(nested.filters.cast()) {
+                        ffi::NumericFilter_Free(*nested.filters.add(i as usize));
+                    }
+                    ffi::array_free(nested.filters.cast());
+                }
+            }
             let children = (*self.node).children;
             if !children.is_null() {
                 ffi::array_free(children.cast());
@@ -428,6 +440,35 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryMissingNode>()).fieldIndex = field_index;
+        }
+    }
+
+    /// Set the nested-node union variant's `fieldIndex`, mirroring `NewNestedNode`
+    /// (`query.c`).
+    pub fn set_nested_field_index(&mut self, field_index: rqe_core::FieldIndex) {
+        self.debug_assert_type(QueryNodeType::Nested);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Nested, per the assertion above, so the `nested` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryNestedNode>()).fieldIndex = field_index;
+        }
+    }
+
+    /// Set the sub-field a tag or numeric node reads under a nested node, as the
+    /// parser does inside a `@field:( … )` group.
+    pub fn set_sub_field(&mut self, sub_field: u8) {
+        // SAFETY: `self.node` is valid and exclusively owned; the match picks the
+        // union variant active for the node's type.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            match (*self.node).type_ {
+                QueryNodeType::Tag => (*union_ptr.cast::<ffi::QueryTagNode>()).subField = sub_field,
+                QueryNodeType::Numeric => {
+                    (*union_ptr.cast::<ffi::QueryNumericNode>()).subField = sub_field;
+                }
+                other => panic!("a {other} node reads no sub-field"),
+            }
         }
     }
 

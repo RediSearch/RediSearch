@@ -74,6 +74,9 @@ pub enum TerminalFilter<'a> {
 }
 
 /// One conjunction of a group, ready to walk.
+///
+/// Every tag set in it, in a [`Constraint::TagIn`] or [`Constraint::TagNotIn`], is sorted and
+/// holds each value once, so a caller can binary-search it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Branch<'a> {
     /// One constraint per routing level, for
@@ -258,19 +261,33 @@ enum LevelFilter<'a> {
     Range(Bound<f64>, Bound<f64>),
 }
 
+/// The tag values a conjunction allows on one level. Value sets are kept sorted and deduplicated,
+/// so combining two takes time linear in their sizes, never their product.
 enum TagFilter<'a> {
     Any,
-    In(Vec<&'a [u8]>),
-    NotIn(Vec<&'a [u8]>),
+    Among(Vec<&'a [u8]>),
+    Excluding(Vec<&'a [u8]>),
     Prefix(&'a [u8]),
+}
+
+/// `values` as a sorted set.
+fn sorted_set<'a>(values: &[&'a [u8]]) -> Vec<&'a [u8]> {
+    let mut set = values.to_vec();
+    set.sort_unstable();
+    set.dedup();
+    set
+}
+
+fn contains(set: &[&[u8]], value: &[u8]) -> bool {
+    set.binary_search(&value).is_ok()
 }
 
 impl<'a> TagFilter<'a> {
     fn into_constraint(self) -> Constraint<'a> {
         match self {
             Self::Any => Constraint::Any,
-            Self::In(values) => Constraint::TagIn(values),
-            Self::NotIn(values) => Constraint::TagNotIn(values),
+            Self::Among(values) => Constraint::TagIn(values),
+            Self::Excluding(values) => Constraint::TagNotIn(values),
             Self::Prefix(prefix) => Constraint::TagPrefix(prefix),
         }
     }
@@ -301,41 +318,32 @@ impl<'a> LevelFilter<'a> {
 
 impl<'a> TagFilter<'a> {
     fn and_in(&mut self, values: &[&'a [u8]], negated: bool) -> Result<bool, PlanError> {
+        let values = sorted_set(values);
         let next = match (std::mem::replace(self, Self::Any), negated) {
-            (Self::Any, false) => Self::In(values.to_vec()),
-            (Self::Any, true) => Self::NotIn(values.to_vec()),
-            (Self::In(held), false) => {
-                Self::In(held.into_iter().filter(|v| values.contains(v)).collect())
+            (Self::Any, false) => Self::Among(values),
+            (Self::Any, true) => Self::Excluding(values),
+            (Self::Among(mut held), false) => {
+                held.retain(|v| contains(&values, v));
+                Self::Among(held)
             }
-            (Self::In(held), true) => {
-                Self::In(held.into_iter().filter(|v| !values.contains(v)).collect())
+            (Self::Among(mut held), true) => {
+                held.retain(|v| !contains(&values, v));
+                Self::Among(held)
             }
-            (Self::NotIn(held), false) => Self::In(
+            (Self::Excluding(held), false) => {
+                Self::Among(values.into_iter().filter(|v| !contains(&held, v)).collect())
+            }
+            (Self::Excluding(held), true) => Self::Excluding(sorted_set(&[held, values].concat())),
+            (Self::Prefix(prefix), false) => Self::Among(
                 values
-                    .iter()
-                    .copied()
-                    .filter(|v| !held.contains(v))
-                    .collect(),
-            ),
-            (Self::NotIn(mut held), true) => {
-                for value in values {
-                    if !held.contains(value) {
-                        held.push(value);
-                    }
-                }
-                Self::NotIn(held)
-            }
-            (Self::Prefix(prefix), false) => Self::In(
-                values
-                    .iter()
-                    .copied()
+                    .into_iter()
                     .filter(|v| v.starts_with(prefix))
                     .collect(),
             ),
             // NOT in a set, under a prefix: no constraint expresses it.
             (Self::Prefix(_), true) => return Err(PlanError::NegatedPrefix),
         };
-        let possible = !matches!(&next, Self::In(values) if values.is_empty());
+        let possible = !matches!(&next, Self::Among(values) if values.is_empty());
         *self = next;
         Ok(possible)
     }
@@ -343,15 +351,16 @@ impl<'a> TagFilter<'a> {
     fn and_prefix(&mut self, prefix: &'a [u8]) -> Result<bool, PlanError> {
         let next = match std::mem::replace(self, Self::Any) {
             Self::Any => Self::Prefix(prefix),
-            Self::In(held) => {
-                Self::In(held.into_iter().filter(|v| v.starts_with(prefix)).collect())
+            Self::Among(mut held) => {
+                held.retain(|v| v.starts_with(prefix));
+                Self::Among(held)
             }
-            Self::NotIn(_) => return Err(PlanError::NegatedPrefix),
+            Self::Excluding(_) => return Err(PlanError::NegatedPrefix),
             Self::Prefix(held) if held.starts_with(prefix) => Self::Prefix(held),
             Self::Prefix(held) if prefix.starts_with(held) => Self::Prefix(prefix),
-            Self::Prefix(_) => Self::In(Vec::new()),
+            Self::Prefix(_) => Self::Among(Vec::new()),
         };
-        let possible = !matches!(&next, Self::In(values) if values.is_empty());
+        let possible = !matches!(&next, Self::Among(values) if values.is_empty());
         *self = next;
         Ok(possible)
     }

@@ -35,30 +35,11 @@
 #include "config.h"
 #include "util/arr/arr.h"
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-static size_t unescapen(char *s, size_t sz) {
-
-  char *dst = s;
-  char *src = dst;
-  char *end = s + sz;
-  while (src < end) {
-      // unescape
-      if (*src == '\\' && src + 1 < end &&
-         (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst++ = *src++;
-  }
-
-  return (size_t)(dst - s);
-}
-
 // Unescape a field name into a parse-owned copy: the query text belongs to the caller.
 static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
   if (memchr(tok->s, '\\', tok->len)) {
     char *unescaped = rm_strndup(tok->s, tok->len);
-    tok->len = unescapen(unescaped, tok->len);
+    tok->len = QueryParse_UnescapeFieldName(unescaped, tok->len);
     tok->s = unescaped;
     array_ensure_append_1(ctx->unescapedNames, unescaped);
   }
@@ -157,8 +138,26 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define NESTED_UNSUPPORTED_CLAUSE \
+  "This condition is not supported on a sub-field of a NESTED group: only TAG values and " \
+  "prefixes, and NUMERIC ranges, are"
+
+/* Report that the field `f` names does not have the `expected` type. Inside a NESTED group, a
+ * sub-field of that very type means the clause itself is what a group does not support. */
+static void reportWrongFieldType(QueryParseCtx *ctx, FieldName *f, const char *expected,
+                                 const char *msg) {
+  const char *subType = !f->sub                         ? NULL
+                        : f->sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR
+                                                         : SPEC_NUMERIC_STR;
+  if (subType && !strcmp(subType, expected)) {
+    reportSyntaxError(ctx->status, &f->tok, NESTED_UNSUPPORTED_CLAUSE);
+  } else {
+    reportSyntaxError(ctx->status, &f->tok, msg);
+  }
+}
+
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
-  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+  reportWrongFieldType(ctx, &(F), type_literal, "Expected a " type_literal " field")
 
 /* Whether the field `F` names has type `T`. Inside a NESTED group `F` names a sub-field, and the
  * sub-field's type is checked. */
@@ -1992,7 +1991,12 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* text_expr ::= param_term */
 {
-  if (yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len)) {
+  // `sctx` may be NULL for a parse with no index at all.
+  if (ctx->inNestedGroup && ctx->sctx && ctx->sctx->spec) {
+    // Rejected here rather than at evaluation, where a stopword would already be gone.
+    reportSyntaxError(ctx->status, &yymsp[0].minor.yy0, NESTED_UNSUPPORTED_CLAUSE);
+    yylhsminor.yy83 = NULL;
+  } else if (yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len)) {
     yylhsminor.yy83 = NULL;
   } else {
     yylhsminor.yy83 = NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0);
@@ -2102,10 +2106,14 @@ static YYACTIONTYPE yy_reduce(
   unescapeFieldName(ctx, &yymsp[-2].minor.yy0);
   yylhsminor.yy36.tok = yymsp[-2].minor.yy0;
   yylhsminor.yy36.sub = NULL;
-  yylhsminor.yy36.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-  if (ctx->nestedField) {
+  // Without a spec (a coordinator-side parse) the field stays unresolved, as other clauses' do.
+  yylhsminor.yy36.fs = ctx->sctx && ctx->sctx->spec
+             ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len)
+             : NULL;
+  if (ctx->inNestedGroup) {
     reportSyntaxError(ctx->status, &yylhsminor.yy36.tok, "NESTED groups cannot be nested");
   } else {
+    ctx->inNestedGroup = true;
     ctx->nestedField = yylhsminor.yy36.fs;
   }
 }
@@ -2113,6 +2121,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 46: /* expr ::= nested_open expr RP */
 {
+  ctx->inNestedGroup = false;
   ctx->nestedField = NULL;
   yylhsminor.yy83 = yymsp[-1].minor.yy83 ? NewNestedNode(yymsp[-2].minor.yy36.fs, yymsp[-1].minor.yy83) : NULL;
 }
@@ -2175,7 +2184,10 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 49: /* expr ::= ISMISSING LP modifier RP */
 {
-  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(yymsp[-1].minor.yy36.fs)) {
+  if (ctx->sctx->spec && yymsp[-1].minor.yy36.sub) {
+    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy36.tok, NESTED_UNSUPPORTED_CLAUSE);
+    yymsp[-3].minor.yy83 = NULL;
+  } else if (ctx->sctx->spec && !FieldSpec_IndexesMissing(yymsp[-1].minor.yy36.fs)) {
     reportSyntaxError(ctx->status, &yymsp[-1].minor.yy36.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     yymsp[-3].minor.yy83 = NULL;
   } else {

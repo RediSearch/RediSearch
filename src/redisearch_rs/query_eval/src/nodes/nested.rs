@@ -22,12 +22,12 @@ use ::query::{QueryNode, WildcardMode};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use nested_index::query::{Branch, Clause, Expr, Predicate, TerminalFilter, plan};
-use nested_index::{Constraint, NestedIndex, Terminal, WalkLimits};
+use nested_index::{CollectError, Constraint, NestedIndex, Terminal, WalkLimits};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_core::FieldIndex;
 use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, union_opaque::build_union};
-use tag_index::{IterMode, Tag, TrieLookup};
+use tag_index::{InMemoryMode, IterMode, Tag, TagIndex, TrieLookup};
 
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut};
 
@@ -58,11 +58,12 @@ pub(crate) fn eval<'index>(
     );
     // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
     // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
-    let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+    let field_ptr = NonNull::new(unsafe { spec.fields.add(field_index as usize) })
+        .expect("a spec with fields has a field array");
     // SAFETY: `field_ptr` points into the live spec's field array, which the
     // query's spec read lock keeps alive and unmodified throughout evaluation.
     // Going through the raw pointer detaches the borrow from `ctx`.
-    let field = unsafe { &*field_ptr };
+    let field = unsafe { field_ptr.as_ref() };
     // The parser only builds a group on a NESTED field.
     assert!(
         field.types() & ffi::FieldType_INDEXFLD_T_NESTED != 0,
@@ -70,16 +71,17 @@ pub(crate) fn eval<'index>(
     );
     // SAFETY: the field is NESTED, so `nestedOpts` is the active union member.
     let opts = unsafe { &field.__bindgen_anon_1.nestedOpts };
-    // SAFETY: a NESTED field always has its definition, built with the field.
-    let def = unsafe { &*opts.def };
+    let def = NonNull::new(opts.def).expect("a NESTED field has its definition");
+    // SAFETY: the definition is built with the field and freed with it, so it lives as long as
+    // the spec the query holds.
+    let def = unsafe { def.as_ref() };
     // A field whose index could not be built matches nothing.
     let index = NonNull::new(opts.nestedIndex.cast::<NestedIndex>())?;
     // SAFETY: the index belongs to the field; the query's spec read lock keeps it
     // alive and excludes writers during evaluation.
     let index = unsafe { index.as_ref() };
 
-    let num_children = node.num_children();
-    debug_assert_eq!(num_children, 1, "a group has one inner expression");
+    debug_assert_eq!(node.num_children(), 1, "a group has one inner expression");
     let inner = match translate(node.child_mut(0), def) {
         Ok(inner) => inner,
         Err(message) => {
@@ -104,23 +106,34 @@ pub(crate) fn eval<'index>(
         sctx,
         field_index,
     };
-    let mut limits = WalkLimits {
-        max_terminals: MAX_TERMINALS,
-        max_nodes: MAX_NODES,
-    };
+    // The terminal budget is shared by all alternatives; each may enter up to the node budget.
+    let mut terminals_left = MAX_TERMINALS;
     for branch in &branches {
+        let limits = WalkLimits {
+            max_terminals: terminals_left,
+            max_nodes: MAX_NODES,
+        };
         let terminals = match index.routing().collect_terminals(&branch.routing, limits) {
             Ok(terminals) => terminals,
             Err(err) => {
+                let (code, message) = match err {
+                    // Named by the group's own limit, not what this alternative had left of it.
+                    CollectError::TooManyTerminals { .. } => (
+                        QueryErrorCode::Limit,
+                        format!("the query reaches more than {MAX_TERMINALS} terminals"),
+                    ),
+                    CollectError::TooManyNodes { .. } => (QueryErrorCode::Limit, err.to_string()),
+                    _ => (QueryErrorCode::Syntax, err.to_string()),
+                };
                 ctx.status()
-                    .set_error(QueryErrorCode::Limit, &format!("NESTED group: {err}"));
+                    .set_error(code, &format!("NESTED group: {message}"));
                 return None;
             }
         };
-        // Later alternatives share what is left of the budget. Nodes are not counted by the walk's
-        // result, so each alternative may enter up to the whole node budget.
-        limits.max_terminals -= terminals.len();
-        if let Err(message) = readers.open_branch(branch, &terminals, node_ptr) {
+        terminals_left -= terminals.len();
+        // SAFETY: `node_ptr` is the live QN_NESTED node under evaluation, part of the AST that
+        // outlives every iterator of the query.
+        if let Err(message) = unsafe { readers.open_branch(branch, &terminals, node_ptr) } {
             ctx.status().set_error(QueryErrorCode::Limit, &message);
             return None;
         }
@@ -147,7 +160,13 @@ struct Readers {
 }
 
 impl Readers {
-    fn open_branch(
+    /// Opens the iterators of `branch` on each of its `terminals`.
+    ///
+    /// # Safety
+    ///
+    /// 1. `node` is the live `QN_NESTED` node under evaluation, part of an AST that outlives
+    ///    every iterator opened here.
+    unsafe fn open_branch(
         &mut self,
         branch: &Branch<'_>,
         terminals: &[&Terminal],
@@ -155,7 +174,8 @@ impl Readers {
     ) -> Result<(), String> {
         match &branch.terminal {
             TerminalFilter::Numeric { start, end } => {
-                let filter = self.numeric_filter(*start, *end, node);
+                // SAFETY: guaranteed by 1.
+                let filter = unsafe { self.numeric_filter(*start, *end, node) };
                 for terminal in terminals {
                     let tree = terminal
                         .numeric_ptr()
@@ -163,9 +183,9 @@ impl Readers {
                     let field_ctx = self.field_ctx();
                     // SAFETY: 1. the search context and its spec outlive the query's
                     // iterators. 2. `field_ctx` names the field by index. 3. `tree` is the
-                    // owner's pointer to the terminal's tree, which lives as long as the field;
-                    // writers take the spec write lock, released only while iterators are
-                    // parked and revalidated on re-acquire.
+                    // owner's pointer to the terminal's tree (`Terminal::numeric_ptr`), live as
+                    // long as the field; writers take the spec write lock, which the query
+                    // releases only while its iterators are parked, revalidating them after.
                     let variants = unsafe {
                         NumericIteratorVariant::from_tree(tree, self.sctx, filter, &field_ctx)
                     };
@@ -176,61 +196,69 @@ impl Readers {
             }
             TerminalFilter::Tag(constraint) => {
                 for terminal in terminals {
+                    let tags = terminal.tag().expect("the index's terminals are all tag");
                     let tags_ptr = terminal
                         .tag_ptr()
                         .expect("the index's terminals are all tag");
-                    let tags = terminal.tag().expect("the index's terminals are all tag");
-                    let values: Vec<Vec<u8>> = match constraint {
-                        Constraint::TagIn(values) => values.iter().map(|v| v.to_vec()).collect(),
+                    match constraint {
+                        Constraint::TagIn(values) => {
+                            // A value with a NUL byte is never indexed.
+                            for tag in values.iter().filter_map(|value| Tag::new(value)) {
+                                self.open_tag(tags, tags_ptr, tag)?;
+                            }
+                        }
                         Constraint::Any | Constraint::TagNotIn(_) => {
-                            let mut all = Vec::new();
+                            let excluded: &[&[u8]] = match constraint {
+                                Constraint::TagNotIn(excluded) => excluded,
+                                _ => &[],
+                            };
+                            debug_assert!(excluded.is_sorted(), "a planned set is sorted");
                             let mut it = tags.value_iter();
                             while let Some((tag, _)) = it.advance() {
-                                all.push(tag.as_bytes().to_vec());
+                                if excluded.binary_search(&tag.as_bytes()).is_err() {
+                                    self.open_tag(tags, tags_ptr, tag)?;
+                                }
                             }
-                            if let Constraint::TagNotIn(excluded) = constraint {
-                                all.retain(|v| !excluded.contains(&v.as_slice()));
-                            }
-                            all
                         }
                         Constraint::TagPrefix(prefix) => {
                             let Some(prefix) = Tag::new(prefix) else {
                                 continue;
                             };
-                            let mut all = Vec::new();
                             let mut it = tags.value_iter_filtered(prefix, IterMode::Prefix);
                             while let Some((tag, _)) = it.advance() {
-                                all.push(tag.as_bytes().to_vec());
+                                self.open_tag(tags, tags_ptr, tag)?;
                             }
-                            all
                         }
                         Constraint::BucketRange(_) => {
                             unreachable!("a tag terminal's filter is a tag constraint")
-                        }
-                    };
-                    for value in &values {
-                        // A value with a NUL byte was never indexed.
-                        let Some(tag) = Tag::new(value) else {
-                            continue;
-                        };
-                        // SAFETY: `tags_ptr` is the owner's pointer to the terminal's index, valid
-                        // as long as the field, and mutated only under the spec write lock, which
-                        // the query releases only while its iterators are parked.
-                        let lookup = unsafe { TrieLookup::new(tags_ptr) };
-                        // SAFETY: 1. the terminal outlives the query's iterators, as above.
-                        // 2. The search context and its spec outlive them too. 3. `lookup`
-                        // resolves `tags`, the index behind `tags_ptr`.
-                        let reader = unsafe {
-                            tags.open_reader(self.sctx, tag, 1.0, self.field_index, lookup)
-                        };
-                        if let Some(reader) = reader {
-                            self.push(CRQEIterator::from_rust_leaf(reader))?;
                         }
                     }
                 }
             }
         }
         Ok(())
+    }
+
+    /// Opens the reader of one value of a tag terminal, if any document holds it.
+    fn open_tag(
+        &mut self,
+        tags: &TagIndex<InMemoryMode>,
+        tags_ptr: NonNull<TagIndex<InMemoryMode>>,
+        tag: Tag<'_>,
+    ) -> Result<(), String> {
+        // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index
+        // (`Terminal::tag_ptr`). 2. It stays valid as long as the field, which outlives the
+        // query's iterators. 3. The index is mutated only under the spec write lock, which the
+        // query releases only while its iterators are parked, revalidating them after.
+        let lookup = unsafe { TrieLookup::new(tags_ptr) };
+        // SAFETY: 1. `tags` outlives the iterator, as for `tags_ptr` above, and is mutated only
+        // under the revalidation protocol. 2. The search context and its spec outlive the
+        // query's iterators. 3. `lookup` resolves `tags`, the index behind `tags_ptr`.
+        let reader = unsafe { tags.open_reader(self.sctx, tag, 1.0, self.field_index, lookup) };
+        match reader {
+            Some(reader) => self.push(CRQEIterator::from_rust_leaf(reader)),
+            None => Ok(()),
+        }
     }
 
     fn push(&mut self, iterator: CRQEIterator) -> Result<(), String> {
@@ -250,14 +278,19 @@ impl Readers {
         }
     }
 
-    /// A filter for a numeric terminal's range, owned by the group's node so it lives as long as
-    /// the iterators that read it.
-    fn numeric_filter(
+    /// A filter for a numeric terminal's range, handed to the group's node, which frees it with
+    /// the AST.
+    ///
+    /// # Safety
+    ///
+    /// 1. `node` is the live `QN_NESTED` node under evaluation.
+    /// 2. The returned filter is not used once the AST holding `node` is freed.
+    unsafe fn numeric_filter<'ast>(
         &self,
         start: Bound<f64>,
         end: Bound<f64>,
         node: NonNull<ffi::RSQueryNode>,
-    ) -> &'static NumericFilter {
+    ) -> &'ast NumericFilter {
         let (min, min_inclusive) = match start {
             Bound::Included(v) => (v, true),
             Bound::Excluded(v) => (v, false),
@@ -280,13 +313,13 @@ impl Readers {
                 ptr::null(),
             )
         };
-        // SAFETY: `node` is the live QN_NESTED node under evaluation; it takes ownership of the
-        // filter and frees it with the AST.
-        unsafe { ffi::QueryNestedNode_AddFilter(node.as_ptr(), filter) };
+        let filter = NonNull::new(filter).expect("the module allocator does not return null");
+        // SAFETY: guaranteed by 1; the node takes ownership of the filter.
+        unsafe { ffi::QueryNestedNode_AddFilter(node.as_ptr(), filter.as_ptr()) };
         // SAFETY: `ffi::NumericFilter` and `NumericFilter` share their `#[repr(C)]` layout (the
-        // former is generated from the latter). The filter is freed with the AST, which outlives
-        // every iterator of the query, and is never written again.
-        unsafe { &*filter.cast::<NumericFilter>() }
+        // former is generated from the latter). The filter lives as long as the AST, which 2.
+        // bounds the reference by, and is never written again.
+        unsafe { filter.cast::<NumericFilter>().as_ref() }
     }
 }
 

@@ -32,6 +32,12 @@ use rqe_iterators::{
 // the scorer/expander name modules in `query_types`; both are re-exported here
 // so `query_eval` (and its FFI crate) can refer to them through a single module.
 pub use query::{QueryEvalContext, QueryNode, QueryNodeMut, QueryNodeRef};
+
+/// The limits one `@field:( … )` group on a NESTED field is evaluated under; past any of them
+/// the query fails rather than return partial results.
+pub mod nested_limits {
+    pub use crate::nodes::nested::{MAX_BRANCHES, MAX_NODES, MAX_READERS, MAX_TERMINALS};
+}
 pub use query_types::{expanders, scorers};
 
 use scorers::{BuiltInScorer, RequestedScorer};

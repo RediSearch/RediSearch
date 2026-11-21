@@ -72,12 +72,12 @@ impl Terminal {
         Self(match kind {
             TerminalKind::Numeric(compression) => {
                 let tree = NumericRangeTree::new(matches!(compression, FloatCompression::On));
-                Postings::Numeric(NonNull::from(Box::leak(Box::new(tree))))
+                Postings::Numeric(owned(tree))
             }
             // No suffix trie: NESTED sub-fields reject WITHSUFFIXTRIE.
             TerminalKind::Tag => {
                 let tags = TagIndex::<InMemoryMode>::new(false);
-                Postings::Tag(NonNull::from(Box::leak(Box::new(tags))))
+                Postings::Tag(owned(tags))
             }
         })
     }
@@ -145,10 +145,15 @@ impl Terminal {
     }
 }
 
+/// `value` on the heap, owned through the pointer [`Box::into_raw`] returns.
+fn owned<T>(value: T) -> NonNull<T> {
+    NonNull::new(Box::into_raw(Box::new(value))).expect("a box pointer is never null")
+}
+
 impl Drop for Terminal {
     fn drop(&mut self) {
         match self.0 {
-            // SAFETY: the pointer came from `Box::leak` in `Terminal::new` and is freed once,
+            // SAFETY: the pointer came from `Box::into_raw` in `Terminal::new` and is freed once,
             // here.
             Postings::Numeric(tree) => drop(unsafe { Box::from_raw(tree.as_ptr()) }),
             // SAFETY: as above.

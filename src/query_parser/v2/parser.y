@@ -78,30 +78,11 @@
 #include "config.h"
 #include "util/arr/arr.h"
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-static size_t unescapen(char *s, size_t sz) {
-
-  char *dst = s;
-  char *src = dst;
-  char *end = s + sz;
-  while (src < end) {
-      // unescape
-      if (*src == '\\' && src + 1 < end &&
-         (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst++ = *src++;
-  }
-
-  return (size_t)(dst - s);
-}
-
 // Unescape a field name into a parse-owned copy: the query text belongs to the caller.
 static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
   if (memchr(tok->s, '\\', tok->len)) {
     char *unescaped = rm_strndup(tok->s, tok->len);
-    tok->len = unescapen(unescaped, tok->len);
+    tok->len = QueryParse_UnescapeFieldName(unescaped, tok->len);
     tok->s = unescaped;
     array_ensure_append_1(ctx->unescapedNames, unescaped);
   }
@@ -200,8 +181,26 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define NESTED_UNSUPPORTED_CLAUSE \
+  "This condition is not supported on a sub-field of a NESTED group: only TAG values and " \
+  "prefixes, and NUMERIC ranges, are"
+
+/* Report that the field `f` names does not have the `expected` type. Inside a NESTED group, a
+ * sub-field of that very type means the clause itself is what a group does not support. */
+static void reportWrongFieldType(QueryParseCtx *ctx, FieldName *f, const char *expected,
+                                 const char *msg) {
+  const char *subType = !f->sub                         ? NULL
+                        : f->sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR
+                                                         : SPEC_NUMERIC_STR;
+  if (subType && !strcmp(subType, expected)) {
+    reportSyntaxError(ctx->status, &f->tok, NESTED_UNSUPPORTED_CLAUSE);
+  } else {
+    reportSyntaxError(ctx->status, &f->tok, msg);
+  }
+}
+
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
-  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+  reportWrongFieldType(ctx, &(F), type_literal, "Expected a " type_literal " field")
 
 /* Whether the field `F` names has type `T`. Inside a NESTED group `F` names a sub-field, and the
  * sub-field's type is checked. */
@@ -581,7 +580,12 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
+  // `sctx` may be NULL for a parse with no index at all.
+  if (ctx->inNestedGroup && ctx->sctx && ctx->sctx->spec) {
+    // Rejected here rather than at evaluation, where a stopword would already be gone.
+    reportSyntaxError(ctx->status, &B, NESTED_UNSUPPORTED_CLAUSE);
+    A = NULL;
+  } else if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
     A = NULL;
   } else {
     A = NewTokenNode_WithParams(ctx, &B);
@@ -713,22 +717,27 @@ modifier(A) ::= MODIFIER(B) . {
 // NESTED groups: `@items:( @color:{red} @price:[0 10] )`
 /////////////////////////////////////////////////////////////////
 
-// The lexer emits NESTED_MODIFIER only for a NESTED field followed by `:(`, so it never happens
-// without a spec. Reducing this rule, before the first inner field name is reduced, opens the
-// sub-field scope.
+// The lexer emits NESTED_MODIFIER for a NESTED field followed by `:(` (see
+// QueryParseCtx_OpensNestedGroup). Reducing this rule, before the first inner field name is
+// reduced, opens the sub-field scope.
 nested_open(A) ::= NESTED_MODIFIER(B) COLON LP . {
   unescapeFieldName(ctx, &B);
   A.tok = B;
   A.sub = NULL;
-  A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-  if (ctx->nestedField) {
+  // Without a spec (a coordinator-side parse) the field stays unresolved, as other clauses' do.
+  A.fs = ctx->sctx && ctx->sctx->spec
+             ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len)
+             : NULL;
+  if (ctx->inNestedGroup) {
     reportSyntaxError(ctx->status, &A.tok, "NESTED groups cannot be nested");
   } else {
+    ctx->inNestedGroup = true;
     ctx->nestedField = A.fs;
   }
 }
 
 expr(A) ::= nested_open(B) expr(C) RP . {
+  ctx->inNestedGroup = false;
   ctx->nestedField = NULL;
   A = C ? NewNestedNode(B.fs, C) : NULL;
 }
@@ -786,7 +795,10 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
-  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
+  if (ctx->sctx->spec && B.sub) {
+    reportSyntaxError(ctx->status, &B.tok, NESTED_UNSUPPORTED_CLAUSE);
+    A = NULL;
+  } else if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
     reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {

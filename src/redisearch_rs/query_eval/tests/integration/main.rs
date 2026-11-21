@@ -17,6 +17,7 @@ mod geometry;
 mod ids;
 mod iterator_tree;
 mod missing;
+mod nested;
 mod not;
 mod null;
 mod numeric;

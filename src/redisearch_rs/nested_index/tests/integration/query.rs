@@ -29,7 +29,7 @@ fn tags<'a>(level: usize, values: &[&'a str]) -> Expr<'a> {
     })
 }
 
-fn prefix(level: usize, prefix: &str) -> Expr<'_> {
+const fn prefix(level: usize, prefix: &str) -> Expr<'_> {
     Expr::Clause(Clause {
         level,
         predicate: Predicate::TagPrefix(prefix.as_bytes()),
@@ -119,7 +119,7 @@ fn negations_on_one_level_add_up() {
     ]);
     assert_eq!(
         plan_priced(&expr)[0].routing[0],
-        Constraint::TagNotIn(vec![b"red", b"blue"])
+        Constraint::TagNotIn(vec![b"blue", b"red"])
     );
 }
 
@@ -333,7 +333,7 @@ fn expr() -> impl Strategy<Value = Expr<'static>> {
     })
 }
 
-fn level_value(element: &Element, level: usize) -> &'static str {
+const fn level_value(element: &Element, level: usize) -> &'static str {
     if level == COLOR {
         element.color
     } else {
