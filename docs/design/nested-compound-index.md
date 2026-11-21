@@ -587,8 +587,6 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      counting the values of deleted and replaced documents and reject later updates. Bringing it
      back also brings back a stateful check, which the preprocessor can no longer run without the
      lock (see the follow-ups below).
-   - A DIALECT 1 tag query on a field that is not TAG now matches nothing instead of reading the
-     field's options as a tag index (which a NESTED or SPARSEVECTOR field would otherwise reach).
    - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, a reload,
      `FT.ALTER`, and query safety.
    - Deferred: `BUCKETS` on the last sub-field is rejected until a pre-split terminal tree
