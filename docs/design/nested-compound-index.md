@@ -558,15 +558,23 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    Rust tests linked against the C bundle. Opening iterators on terminals needs the search
    context and a revalidation design, so it moves to the read side (4).
 3. **Write side: schema and ingest**:
-   - `INDEXFLD_T_NESTED`, `nestedOpts`, and the FFI crate `c_entrypoint/compound_index_ffi`.
-   - `FT.CREATE` parsing and validation (`NESTED`, `INDEX`, `MAXCARD`, `BUCKETS`, `RANGE`), and
-     `FT.INFO`.
-   - The spec RDB block with `INDEX_NESTED_VERSION`.
-   - Ingest: element rows in `document_basic.c`, the preprocessor, `check_paths` on the whole
-     document, then bulk add and apply. Error cases: missing attribute, multi-valued sub-path,
-     limits.
-   - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, and a
-     `DEBUG RELOAD` round-trip.
+   - `INDEXFLD_T_NESTED` (`0x80`, the last bit of `FieldSpec.types`), `nestedOpts` with the
+     sub-field definitions kept in C, and the FFI crate `c_entrypoint/nested_index_ffi`.
+   - Behind `ENABLE_UNSTABLE_FEATURES`, as SPARSEVECTOR is: creating a field is gated; loading
+     and indexing an existing one are not.
+   - `FT.CREATE` / `FT.ALTER` parsing and validation (`NESTED`, `INDEX`, `CASESENSITIVE`,
+     `MAXCARD`, `BUCKETS`, `RANGE`), `FT.INFO` attributes, and the spec fingerprint.
+   - The spec RDB block with `INDEX_NESTED_VERSION` (32).
+   - Ingest: `json.c` reads each element's sub-fields into `NestedRows` before the spec lock,
+     folding TAG case as a JSON TAG field does; `NestedIndex_IndexDocument` checks the whole
+     document and writes it under the lock, and its deltas feed `invertedSize`, `numRecords` and
+     the block count.
+   - A DIALECT 1 tag query on a field that is not TAG now matches nothing instead of reading the
+     field's options as a tag index (which a NESTED or SPARSEVECTOR field would otherwise reach).
+   - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, a reload,
+     `FT.ALTER`, and query safety.
+   - Deferred: `BUCKETS` on the last sub-field is rejected until a pre-split terminal tree
+     exists; NESTED fields are not counted in `INFO MODULES` field statistics yet.
 4. **Read side: parser, planner and eval**:
    - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
      a non-NESTED field must keep today's text meaning.
@@ -599,6 +607,9 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Read side (4) |
 | `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Write side (3) |
 | Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
+| `BUCKETS` on the last sub-field (a terminal tree pre-split at the boundaries) is rejected at `FT.CREATE` until the terminal supports it | After Read side (4) |
+| The routing layer's own memory (tries, bucket slot arrays) is not reported in `FT.INFO`; only terminal overhead (`NestedIndex_Overhead`) and postings are | Read side (4), with `FT.PROFILE` and memory reporting |
+| `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
 
 ## 8. Open questions
 
