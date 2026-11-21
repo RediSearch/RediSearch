@@ -179,7 +179,7 @@ fn as_enum_numeric() {
     let mut mock = MockQueryNode::new(QueryNodeType::Numeric);
     mock.set_numeric_filter(&raw mut nf);
     let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::Numeric { nf } = node.as_enum() else {
+    let QueryNode::Numeric { nf, .. } = node.as_enum() else {
         panic!("expected Numeric");
     };
     assert_eq!(nf.min, 1.0);
@@ -278,6 +278,7 @@ fn as_enum_all_payload_variants() {
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Missing,
+        QueryNodeType::Nested,
     ] {
         let mock = MockQueryNode::new(ty);
         let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
@@ -292,6 +293,7 @@ fn as_enum_all_payload_variants() {
                 | QueryNode::Vector { .. }
                 | QueryNode::WildcardQuery { .. }
                 | QueryNode::Missing { .. }
+                | QueryNode::Nested { .. }
         );
         assert!(matches, "unexpected variant for {ty}");
     }

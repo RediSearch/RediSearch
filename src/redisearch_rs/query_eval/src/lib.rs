@@ -44,7 +44,7 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix,
+    fuzzy, geo, geometry, ids, missing, nested, not, null, numeric, optional, phrase, prefix,
     sparse_vector, tag, token, union, vector, wildcard, wildcard_query,
 };
 
@@ -335,7 +335,7 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Not => Some(not::eval(ctx, node, config)),
         QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config, offsets),
         QueryNode::Union => Some(union::eval(ctx, node, config, offsets)),
-        QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
+        QueryNode::Numeric { nf, .. } => numeric::eval(ctx, nf, config),
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config, offsets),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
@@ -344,7 +344,8 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Fuzzy { tok, max_dist } => {
             fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
         }
-        QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        QueryNode::Tag { field_index, .. } => tag::eval(ctx, node, field_index, config),
+        QueryNode::Nested { field_index } => nested::eval(ctx, node, field_index, config),
         QueryNode::SparseVector { field_index, blob } => {
             // The blob borrows the request's PARAMS, not the node, so it is
             // detached from the node borrow before the node is passed on.

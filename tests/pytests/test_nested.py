@@ -461,3 +461,271 @@ def testLoadRejectsAnInvalidDefinition(env):
     # The untouched dump restores the definition.
     restore(dump).ok()
     env.assertEqual(nested_attribute(env)['index'], ['qa', 'qb'])
+
+
+# Queries: `@items:( … )` matches a document when one of its elements matches the whole group.
+
+def ids(env, query, *args):
+    res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', 0, 10000, 'DIALECT', 2, *args)
+    return sorted(res[1:])
+
+
+# Two documents with the same values, paired differently across their elements.
+PAIRED = {
+    'doc:1': [{'color': 'red', 'size': 'M', 'price': 10}, {'color': 'blue', 'size': 'L', 'price': 50}],
+    'doc:2': [{'color': 'red', 'size': 'L', 'price': 50}, {'color': 'blue', 'size': 'M', 'price': 10}],
+}
+
+
+@skip(no_json=True, cluster=True)
+def testAGroupMatchesValuesOfOneElement(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    for key, items in PAIRED.items():
+        put(conn, key, items)
+    # Both documents hold a red element and an M element; only doc:1 holds a red M one.
+    env.assertEqual(ids(env, '@items:( @color:{red} @size:{M} )'), ['doc:1'])
+    env.assertEqual(ids(env, '@items:( @color:{red} @price:[0 20] )'), ['doc:1'])
+    env.assertEqual(ids(env, '@items:( @color:{blue} @size:{M} @price:[(5 10] )'), ['doc:2'])
+    env.assertEqual(ids(env, '@items:( @color:{green} )'), [])
+
+
+@skip(no_json=True, cluster=True)
+def testEveryShapeOfAGroup(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    for key, items in PAIRED.items():
+        put(conn, key, items)
+    put(conn, 'doc:3', [{'color': 'green', 'size': 'S', 'price': 5}])
+    cases = [
+        # A level skipped: every size under red.
+        ('@items:( @color:{red} @price:[40 60] )', ['doc:2']),
+        # The first level skipped: every color.
+        ('@items:( @size:{M} @price:[0 10] )', ['doc:1', 'doc:2']),
+        # Only the terminal: every path.
+        ('@items:( @price:[0 6] )', ['doc:3']),
+        ('@items:( @price:[-inf +inf] )', ['doc:1', 'doc:2', 'doc:3']),
+        # Several values on one level.
+        ('@items:( @color:{red|green} @size:{S} )', ['doc:3']),
+        # A prefix.
+        ('@items:( @color:{gr*} )', ['doc:3']),
+        # A negation inside the group is on the element: an element that is not red.
+        ('@items:( -@color:{red} @size:{M} )', ['doc:2']),
+        ('@items:( -@price:[0 20] @color:{red} )', ['doc:2']),
+        # An OR across sub-fields: one element red, or one element S.
+        ('@items:( @color:{red} @size:{M} | @size:{S} )', ['doc:1', 'doc:3']),
+        # A negation outside the group is on the document: no element is a red M.
+        ('-@items:( @color:{red} @size:{M} )', ['doc:2', 'doc:3']),
+        # Clauses on one level intersect.
+        ('@items:( @color:{red|blue} @color:{blue} @size:{L} )', ['doc:1']),
+        ('@items:( @price:[0 50] @price:[(10 +inf] )', ['doc:1', 'doc:2']),
+        # Two groups on the same field: each is matched by its own element.
+        ('@items:( @color:{red} @size:{M} ) @items:( @color:{blue} @size:{L} )', ['doc:1']),
+    ]
+    for query, expected in cases:
+        env.assertEqual(ids(env, query), expected, message=query)
+
+
+@skip(no_json=True, cluster=True)
+def testAGroupComposesWithTopLevelFields(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               '$.t', 'AS', 't', 'TEXT', *ITEMS).ok()
+    for n, (key, items) in enumerate(PAIRED.items()):
+        conn.execute_command('JSON.SET', key, '$', json.dumps({'t': f'word{n}', 'items': items}))
+    env.assertEqual(ids(env, '@t:word0 @items:( @color:{red} )'), ['doc:1'])
+    env.assertEqual(ids(env, '@t:word1 | @items:( @color:{red} @size:{M} )'), ['doc:1', 'doc:2'])
+    env.assertEqual(ids(env, '@items:( @size:{$s} @price:[$lo $hi] )', 'PARAMS', 6,
+                        's', 'L', 'lo', 40, 'hi', 60), ['doc:1', 'doc:2'])
+
+
+@skip(no_json=True, cluster=True)
+def testTagValuesInAGroupAreCaseFoldedLikeTheSubField(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
+           '$.color', 'AS', 'color', 'TAG', '$.size', 'AS', 'size', 'TAG', 'CASESENSITIVE',
+           '$.price', 'AS', 'price', 'NUMERIC', 'INDEX', 3, 'color', 'size', 'price').ok()
+    put(conn, 'doc:1', [{'color': 'Red', 'size': 'Xl', 'price': 1}])
+    env.assertEqual(ids(env, '@items:( @color:{RED} @size:{Xl} )'), ['doc:1'])
+    env.assertEqual(ids(env, '@items:( @size:{XL} )'), [])
+
+
+@skip(no_json=True, cluster=True)
+def testATagTerminal(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.color', 'AS', 'color', 'TAG', '$.material', 'AS', 'material', 'TAG',
+           'INDEX', 2, 'color', 'material').ok()
+    put(conn, 'doc:1', [{'color': 'red', 'material': 'steel'}, {'color': 'blue', 'material': 'wood'}])
+    put(conn, 'doc:2', [{'color': 'red', 'material': 'wood'}, {'color': 'red', 'material': 'stone'}])
+    cases = [
+        ('@items:( @color:{red} @material:{wood} )', ['doc:2']),
+        ('@items:( @material:{steel|stone} )', ['doc:1', 'doc:2']),
+        ('@items:( @color:{blue} )', ['doc:1']),
+        ('@items:( @color:{red} -@material:{steel} )', ['doc:2']),
+        ('@items:( @color:{red} @material:{st*} )', ['doc:1', 'doc:2']),
+        ('@items:( @color:{blue} @material:{st*} )', []),
+    ]
+    for query, expected in cases:
+        env.assertEqual(ids(env, query), expected, message=query)
+
+
+@skip(no_json=True, cluster=True)
+def testABucketLevel(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
+           '$.price', 'AS', 'price', 'NUMERIC', 'INDEX', 2, 'year', 'price').ok()
+    put(conn, 'doc:1', [{'year': 2020, 'price': 5}, {'year': 2023, 'price': 50}])
+    put(conn, 'doc:2', [{'year': 2021, 'price': 50}, {'year': 2023, 'price': 5}])
+    # Buckets are half-open: `[2022 (2024]` is exactly the second one.
+    env.assertEqual(ids(env, '@items:( @year:[2022 (2024] @price:[0 10] )'), ['doc:2'])
+    env.assertEqual(ids(env, '@items:( @year:[2020 (2022] @price:[0 10] )'), ['doc:1'])
+    env.assertEqual(ids(env, '@items:( @year:[-inf +inf] @price:[40 60] )'), ['doc:1', 'doc:2'])
+    # A range cutting a bucket cannot be answered from the buckets.
+    env.expect('FT.SEARCH', 'idx', '@items:( @year:[2021 2023] )', 'DIALECT', 2).error() \
+        .contains('must cover whole buckets')
+
+
+@skip(no_json=True, cluster=True)
+def testInvalidGroupsAreRejected(env):
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               '$.t', 'AS', 't', 'TEXT', *ITEMS).ok()
+    cases = [
+        ('@items:( @t:hello )', 'Unknown sub-field'),
+        ('@items:( @colour:{red} )', 'Unknown sub-field'),
+        ('@items:( @price:{red} )', 'Expected a TAG field'),
+        ('@items:( @color:[0 1] )', 'Expected a NUMERIC field'),
+        ('@items:( @color:hello )', 'Expected a TEXT field'),
+        ('@items:( hello )', 'supported inside a NESTED group'),
+        ('@items:( @color:{*ed} )', 'supported inside a NESTED group'),
+        ('@items:( -@color:{re*} )', 'prefix cannot be negated'),
+        ('@items:( @items:( @color:{red} ) )', 'cannot be nested'),
+        # Five ORs of two: 32 alternatives.
+        ('@items:( ' + ' '.join('(@color:{%s} | @size:{%s})' % (v, v) for v in 'abcde') + ' )',
+         'more than 16 alternatives'),
+    ]
+    for query, error in cases:
+        env.expect('FT.SEARCH', 'idx', query, 'DIALECT', 2).error().contains(error)
+    # A NESTED field outside a group keeps the type error of any non-TAG field.
+    env.expect('FT.SEARCH', 'idx', '@items:{red}', 'DIALECT', 2).error() \
+        .contains('Expected a TAG field')
+    # A text group on a TEXT field is unchanged.
+    env.expect('FT.SEARCH', 'idx', '@t:(hello world)', 'DIALECT', 2).equal([0])
+
+
+@skip(no_json=True, cluster=True)
+def testExplainShowsTheGroup(env):
+    enable_unstable_features(env)
+    create(env).ok()
+    explain = env.cmd('FT.EXPLAIN', 'idx', '@items:( @color:{red} @price:[1 2] )', 'DIALECT', 2)
+    env.assertContains('NESTED:@items {', explain)
+    env.assertContains('TAG:@items.color {', explain)
+    env.assertContains('@items.price', explain)
+
+
+@skip(no_json=True, cluster=True)
+def testProfileShowsTheGroup(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    for key, items in PAIRED.items():
+        put(conn, key, items)
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@items:( @size:{M} )', 'NOCONTENT',
+                  'DIALECT', 2)
+    env.assertContains('NESTED', str(res))
+
+
+@skip(no_json=True, cluster=True)
+def testAnUpdatedDocumentMatchesOnlyItsNewElements(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    put(conn, 'doc:1', [{'color': 'red', 'size': 'M', 'price': 1}])
+    put(conn, 'doc:1', [{'color': 'blue', 'size': 'M', 'price': 1}])
+    env.assertEqual(ids(env, '@items:( @color:{red} )'), [])
+    env.assertEqual(ids(env, '@items:( @color:{blue} )'), ['doc:1'])
+    conn.execute_command('DEL', 'doc:1')
+    env.assertEqual(ids(env, '@items:( @size:{M} )'), [])
+
+
+# The group against a brute-force evaluation of the same query, on random documents.
+
+COLORS = ['red', 'blue', 'green']
+SIZES = ['S', 'M', 'L']
+
+
+def random_clause(rng):
+    kind = rng.randrange(4)
+    if kind == 0:
+        values = rng.sample(COLORS, rng.randint(1, 2))
+        return '@color:{%s}' % '|'.join(values), lambda e: e['color'] in values
+    if kind == 1:
+        values = rng.sample(SIZES, rng.randint(1, 2))
+        return '@size:{%s}' % '|'.join(values), lambda e: e['size'] in values
+    if kind == 2:
+        lo, hi = sorted(rng.sample(range(0, 20), 2))
+        lo_ex, hi_ex = rng.random() < 0.5, rng.random() < 0.5
+        def in_range(e):
+            p = e['price']
+            return (p > lo if lo_ex else p >= lo) and (p < hi if hi_ex else p <= hi)
+        return '@price:[%s%d %s%d]' % ('(' if lo_ex else '', lo, '(' if hi_ex else '', hi), in_range
+    prefix = rng.choice(['r', 'b', 'g', 'bl'])
+    return '@color:{%s*}' % prefix, lambda e: e['color'].startswith(prefix)
+
+
+def random_group(rng, depth=0):
+    """An inner expression and the element predicate it stands for."""
+    roll = rng.random()
+    if depth >= 2 or roll < 0.4:
+        return random_clause(rng)
+    if roll < 0.7:
+        parts = [random_group(rng, depth + 1) for _ in range(rng.randint(2, 3))]
+        return ' '.join('(%s)' % q for q, _ in parts), \
+            lambda e, parts=parts: all(p(e) for _, p in parts)
+    if roll < 0.9:
+        parts = [random_group(rng, depth + 1) for _ in range(2)]
+        return ' | '.join('(%s)' % q for q, _ in parts), \
+            lambda e, parts=parts: any(p(e) for _, p in parts)
+    # A NOT never wraps a prefix: a negated prefix is rejected.
+    query, pred = random_clause(rng)
+    while '*' in query:
+        query, pred = random_clause(rng)
+    return '-%s' % query, lambda e, pred=pred: not pred(e)
+
+
+@skip(no_json=True, cluster=True)
+def testGroupsAgreeWithBruteForce(env):
+    import random
+    rng = random.Random(20261121)
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    docs = {}
+    for n in range(60):
+        items = [{'color': rng.choice(COLORS), 'size': rng.choice(SIZES),
+                  'price': rng.randrange(0, 20)} for _ in range(rng.randint(1, 4))]
+        docs['doc:%d' % n] = items
+        put(conn, 'doc:%d' % n, items)
+    checked = 0
+    while checked < 150:
+        inner, pred = random_group(rng)
+        query = '@items:( %s )' % inner
+        try:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', 0, 1000, 'DIALECT', 2)
+        except Exception as err:
+            # Distributing the ORs may go past the limit, or put a prefix and a negation on one
+            # level, which no walk expresses; nothing to compare then.
+            if 'alternatives' in str(err) or 'prefix cannot be negated' in str(err):
+                continue
+            raise
+        expected = sorted(k for k, items in docs.items() if any(pred(e) for e in items))
+        env.assertEqual(sorted(res[1:]), expected, message=query)
+        checked += 1

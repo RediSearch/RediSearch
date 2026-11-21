@@ -61,6 +61,10 @@ typedef struct {
 typedef struct {
   QueryToken tok;
   const FieldSpec *fs;
+  // Inside a `@field:( … )` group: the sub-field named, at position `subField` of `fs`'s NESTED
+  // definition. NULL outside a group.
+  const NestedSubField *sub;
+  uint8_t subField;
 } FieldName;
 
 #endif

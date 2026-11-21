@@ -45,6 +45,8 @@ typedef struct {
   t_fieldIndex fieldIndex;      // stable index of the tag field into IndexSpec.fields; re-derive
                                  // the FieldSpec* from this at evaluation time - a pointer captured
                                  // at parse time may already be freed by then
+  uint8_t subField;  // under a QN_NESTED node, where `fieldIndex` names the NESTED
+                     // field: the sub-field read, as a position in its definition
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -66,7 +68,18 @@ typedef struct {
 /* A node with a numeric filter */
 typedef struct {
   struct NumericFilter *nf;
+  uint8_t subField;  // under a QN_NESTED node, as in QueryTagNode
 } QueryNumericNode;
+
+/* A `@field:( … )` group on a NESTED field: its only child is the inner expression, whose
+ * QN_TAG and QN_NUMERIC leaves read the field's sub-fields. A document matches when one element
+ * matches the whole inner expression. */
+typedef struct {
+  t_fieldIndex fieldIndex;  // the NESTED field, as in QueryTagNode
+  // The numeric filters evaluation builds for the group's terminals, an `arr`. They belong to the
+  // node, and so live as long as the AST, which outlives the iterators reading them.
+  struct NumericFilter **filters;
+} QueryNestedNode;
 
 typedef struct {
   struct GeoFilter *gf;
@@ -160,6 +173,7 @@ typedef struct RSQueryNode {
     QueryVerbatimNode verb;
     QueryMissingNode miss;
     QuerySparseVectorNode svn;
+    QueryNestedNode nested;
   };
 
   /* The node type, for resolving the union access */
@@ -173,6 +187,9 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
+
+/* Hand `nf`, allocated with `NewNumericFilter`, to the QN_NESTED node `qn`, which frees it. */
+void QueryNestedNode_AddFilter(QueryNode *qn, struct NumericFilter *nf);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);

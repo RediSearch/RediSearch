@@ -66,7 +66,9 @@ pub enum QueryNodeType {
     Null = 17,
     Missing = 18,
     SparseVector = 19,
-    Max = 20,
+    /// A `@field:( … )` group on a NESTED field. Its subtree reads the field's sub-fields.
+    Nested = 20,
+    Max = 21,
 }
 
 impl QueryNodeType {
@@ -92,6 +94,7 @@ impl QueryNodeType {
             Self::Null => "NULL",
             Self::Missing => "MISSING",
             Self::SparseVector => "SPARSE_VECTOR",
+            Self::Nested => "NESTED",
             Self::Max => "MAX",
         }
     }
@@ -127,7 +130,8 @@ impl TryFrom<u32> for QueryNodeType {
             17 => Ok(Self::Null),
             18 => Ok(Self::Missing),
             19 => Ok(Self::SparseVector),
-            20 => Ok(Self::Max),
+            20 => Ok(Self::Nested),
+            21 => Ok(Self::Max),
             other => Err(other),
         }
     }

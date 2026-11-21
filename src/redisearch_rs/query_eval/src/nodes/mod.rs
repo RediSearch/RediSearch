@@ -19,6 +19,7 @@ pub(crate) mod geo;
 pub(crate) mod geometry;
 pub(crate) mod ids;
 pub(crate) mod missing;
+pub(crate) mod nested;
 pub(crate) mod not;
 pub(crate) mod null;
 pub(crate) mod numeric;

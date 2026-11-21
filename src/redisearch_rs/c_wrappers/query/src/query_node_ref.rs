@@ -77,6 +77,9 @@ pub enum QueryNode<'a> {
     Numeric {
         /// The numeric filter describing the range bounds and target field.
         nf: &'a NumericFilter,
+        /// Under a [`Nested`](Self::Nested) node, where the filter's field is the NESTED
+        /// field: the sub-field read, as a position in its definition. Meaningless elsewhere.
+        sub_field: u8,
     },
     /// Logical negation — excludes documents matched by its single child.
     Not,
@@ -118,6 +121,8 @@ pub enum QueryNode<'a> {
         /// evaluation time, rather than caching a pointer from parse time,
         /// which may already be freed by then.
         field_index: rqe_core::FieldIndex,
+        /// Under a [`Nested`](Self::Nested) node, as for [`Numeric`](Self::Numeric).
+        sub_field: u8,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -162,6 +167,14 @@ pub enum QueryNode<'a> {
         field_index: rqe_core::FieldIndex,
         /// The query vector in its binary encoding.
         blob: &'a [u8],
+    },
+    /// A `@field:( … )` group on a NESTED field. Its single child is the inner expression,
+    /// whose [`Tag`](Self::Tag) and [`Numeric`](Self::Numeric) leaves read the field's
+    /// sub-fields.
+    Nested {
+        /// Stable index of the NESTED field, into `IndexSpec.fields`, as for
+        /// [`Missing`](Self::Missing).
+        field_index: rqe_core::FieldIndex,
     },
 }
 
@@ -298,6 +311,7 @@ impl QueryNodeRef {
                 QueryNode::Numeric {
                     // SAFETY: `nn.nf` points to a valid `NumericFilter` with matching `#[repr(C)]` layout.
                     nf: unsafe { &*nn.nf.cast::<NumericFilter>() },
+                    sub_field: nn.subField,
                 }
             }
             QueryNodeType::Not => QueryNode::Not,
@@ -359,6 +373,7 @@ impl QueryNodeRef {
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
                 QueryNode::Tag {
                     field_index: tag.fieldIndex,
+                    sub_field: tag.subField,
                 }
             }
             QueryNodeType::Fuzzy => {
@@ -427,6 +442,13 @@ impl QueryNodeRef {
                 // SAFETY: per the paragraph above.
                 let end = unsafe { char_ptr_to_bound(lxrng.end, lxrng.includeEnd) };
                 QueryNode::LexRange { begin, end }
+            }
+            QueryNodeType::Nested => {
+                // SAFETY: `type_` is `Nested`, so the union holds a `QueryNestedNode`.
+                let nested = unsafe { &*union_ptr.cast::<ffi::QueryNestedNode>() };
+                QueryNode::Nested {
+                    field_index: nested.fieldIndex,
+                }
             }
             QueryNodeType::Max => {
                 unreachable!("Max is a sentinel, not a real node type")

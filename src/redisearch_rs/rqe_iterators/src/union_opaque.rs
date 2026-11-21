@@ -312,6 +312,7 @@ where
             QueryNodeType::Prefix => "PREFIX",
             QueryNodeType::Numeric => "NUMERIC",
             QueryNodeType::LexRange => "LEXRANGE",
+            QueryNodeType::Nested => "NESTED",
             QueryNodeType::WildcardQuery => "WILDCARD",
             _ => unreachable!("Invalid type for union"),
         };
