@@ -220,8 +220,10 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 32
-#define INDEX_NESTED_VERSION 32
+#define INDEX_CURRENT_VERSION 31
+// NESTED shares encoding 31 with sparse vectors: no release has shipped 31 yet, so it needs no
+// version of its own. Only a NESTED field writes its block, so other indexes are unaffected.
+#define INDEX_NESTED_VERSION 31
 // The layout of a NESTED field's RDB definition, saved first so it can change on its own.
 #define NESTED_RDB_FORMAT 1
 // A sanity bound on loaded bucket boundaries; the Rust level enforces its own, smaller limit.

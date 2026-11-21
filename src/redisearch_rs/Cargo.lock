@@ -1566,6 +1566,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "nested_index",
+ "redis_mock",
  "tag_index",
  "workspace_hack",
 ]

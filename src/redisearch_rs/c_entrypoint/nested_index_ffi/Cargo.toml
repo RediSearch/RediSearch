@@ -19,3 +19,7 @@ ffi.workspace = true
 nested_index.workspace = true
 tag_index.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+nested_index = { workspace = true, features = ["unittest"] }
+redis_mock.workspace = true

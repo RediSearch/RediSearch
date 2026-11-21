@@ -87,29 +87,37 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
     NestedIndex_Free(fs->nestedOpts.nestedIndex);
     fs->nestedOpts.nestedIndex = NULL;
-    for (uint8_t i = 0; i < fs->nestedOpts.numSubFields; i++) {
-      NestedSubField *sub = &fs->nestedOpts.subFields[i];
+    NestedDef *def = fs->nestedOpts.def;
+    for (uint8_t i = 0; def && i < def->numSubFields; i++) {
+      NestedSubField *sub = &def->subFields[i];
       if (sub->compiledPath) {
         japi->pathFree(sub->compiledPath);
       }
       rm_free(sub->name);
       rm_free(sub->path);
       rm_free(sub->buckets);
-      memset(sub, 0, sizeof(*sub));
     }
-    fs->nestedOpts.numSubFields = 0;
-    fs->nestedOpts.numLevels = 0;
+    rm_free(def);
+    fs->nestedOpts.def = NULL;
   }
+}
+
+void FieldSpec_InitNested(FieldSpec *fs) {
+  // Field creation writes TAG defaults into the shared union; overwrite them before anything
+  // can fail and reach FieldSpec_Cleanup.
+  fs->nestedOpts.def = rm_calloc(1, sizeof(*fs->nestedOpts.def));
+  fs->nestedOpts.nestedIndex = NULL;
+  fs->types |= INDEXFLD_T_NESTED;
 }
 
 bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen) {
   RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NESTED));
-  RS_ASSERT(fs->nestedOpts.numLevels >= 1);
+  RS_ASSERT(fs->nestedOpts.def->numLevels >= 1);
   // Every level but the last routes; the last is the terminal.
-  uint8_t numRouting = fs->nestedOpts.numLevels - 1;
+  uint8_t numRouting = fs->nestedOpts.def->numLevels - 1;
   NestedLevelDef defs[NESTED_MAX_SUBFIELDS] = {0};
   for (uint8_t i = 0; i < numRouting; i++) {
-    const NestedSubField *sub = &fs->nestedOpts.subFields[fs->nestedOpts.levels[i]];
+    const NestedSubField *sub = &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[i]];
     if (sub->type == INDEXFLD_T_TAG) {
       defs[i].kind = NestedLevelKind_Tag;
       defs[i].max_cardinality = sub->maxCardinality;
@@ -120,7 +128,7 @@ bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen) {
     }
   }
   const NestedSubField *terminal =
-      &fs->nestedOpts.subFields[fs->nestedOpts.levels[fs->nestedOpts.numLevels - 1]];
+      &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[fs->nestedOpts.def->numLevels - 1]];
   NestedTerminalKind kind =
       terminal->type == INDEXFLD_T_TAG ? NestedTerminalKind_Tag : NestedTerminalKind_Numeric;
   struct NestedIndex *index =
@@ -135,8 +143,8 @@ bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen) {
 
 bool FieldSpec_CompileNestedPaths(FieldSpec *fs) {
   RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NESTED));
-  for (uint8_t i = 0; i < fs->nestedOpts.numSubFields; i++) {
-    NestedSubField *sub = &fs->nestedOpts.subFields[i];
+  for (uint8_t i = 0; i < fs->nestedOpts.def->numSubFields; i++) {
+    NestedSubField *sub = &fs->nestedOpts.def->subFields[i];
     if (!sub->compiledPath) {
       sub->compiledPath = japi->pathParseNoErrorMsg(sub->path);
       if (!sub->compiledPath) {

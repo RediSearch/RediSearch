@@ -18,8 +18,8 @@ use std::{ffi::c_char, num::NonZeroUsize};
 
 use ffi::t_docId;
 use nested_index::{
-    BucketLevel, CompoundIndex, Constraint, Element, FloatCompression, IndexParams, Key, Level,
-    NestedIndex, TagLevel, Terminal, TerminalKind, TerminalValue, WalkLimits,
+    BucketLevel, Element, FloatCompression, IndexParams, Key, Level, NestedIndex, TagLevel,
+    TerminalKind, TerminalValue,
 };
 use tag_index::Tag;
 
@@ -75,14 +75,9 @@ pub struct NestedIndexOutcome {
     pub block_delta: i64,
 }
 
-/// One element's key on one level, owned until the document is indexed.
-enum OwnedKey {
-    Tag(Vec<u8>),
-    Numeric(f64),
-}
-
-/// One element's terminal value, owned until the document is indexed.
-enum OwnedValue {
+/// One element's key on a routing level, or its terminal value, owned until the document is
+/// indexed.
+enum Owned {
     Tag(Vec<u8>),
     Numeric(f64),
 }
@@ -92,9 +87,9 @@ enum OwnedValue {
 /// Each element is its keys, pushed in level order, then its terminal value, which ends it.
 pub struct NestedRows {
     /// Every element's keys, back to back.
-    keys: Vec<OwnedKey>,
+    keys: Vec<Owned>,
     /// One `(number of keys, value)` per finished element.
-    elements: Vec<(usize, OwnedValue)>,
+    elements: Vec<(usize, Owned)>,
     /// Keys pushed since the last finished element.
     pending: usize,
 }
@@ -103,14 +98,14 @@ pub struct NestedRows {
 ///
 /// # Safety
 ///
-/// `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
+/// 1. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn write_error(err: *mut c_char, err_len: usize, message: &str) {
     if err_len == 0 {
         return;
     }
-    // SAFETY: guaranteed by the caller.
+    // SAFETY: guaranteed by 1.
     let buf = unsafe { std::slice::from_raw_parts_mut(err.cast::<u8>(), err_len) };
     let n = message.len().min(err_len - 1);
     buf[..n].copy_from_slice(&message.as_bytes()[..n]);
@@ -196,17 +191,17 @@ pub unsafe extern "C" fn NestedIndex_New(
 ///
 /// # Safety
 ///
-/// `index` is null, or was returned by [`NestedIndex_New`] and not freed yet.
+/// 1. `index` is null, or was returned by [`NestedIndex_New`] and not freed yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedIndex_Free(index: *mut NestedIndex) {
     if !index.is_null() {
-        // SAFETY: guaranteed by the caller.
+        // SAFETY: guaranteed by 1.
         drop(unsafe { Box::from_raw(index) });
     }
 }
 
-/// An empty set of elements for a field with `num_levels` routing levels. Free it with
-/// [`NestedRows_Free`].
+/// An empty set of elements for a field whose `INDEX` lists `num_levels` sub-fields, the terminal
+/// included; it only sizes the first allocation. Free it with [`NestedRows_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NestedRows_New(num_levels: usize) -> *mut NestedRows {
     Box::into_raw(Box::new(NestedRows {
@@ -220,11 +215,11 @@ pub extern "C" fn NestedRows_New(num_levels: usize) -> *mut NestedRows {
 ///
 /// # Safety
 ///
-/// `rows` is null, or was returned by [`NestedRows_New`] and not freed yet.
+/// 1. `rows` is null, or was returned by [`NestedRows_New`] and not freed yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_Free(rows: *mut NestedRows) {
     if !rows.is_null() {
-        // SAFETY: guaranteed by the caller.
+        // SAFETY: guaranteed by 1.
         drop(unsafe { Box::from_raw(rows) });
     }
 }
@@ -247,7 +242,7 @@ pub unsafe extern "C" fn NestedRows_PushTagKey(
     let rows = unsafe { &mut *rows };
     // SAFETY: guaranteed by 2.
     let bytes = unsafe { bytes(value, len) };
-    rows.keys.push(OwnedKey::Tag(bytes.to_vec()));
+    rows.keys.push(Owned::Tag(bytes.to_vec()));
     rows.pending += 1;
 }
 
@@ -255,12 +250,14 @@ pub unsafe extern "C" fn NestedRows_PushTagKey(
 ///
 /// # Safety
 ///
-/// `rows` is a valid pointer returned by [`NestedRows_New`].
+/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_PushNumericKey(rows: *mut NestedRows, value: f64) {
-    // SAFETY: guaranteed by the caller.
+    // SAFETY: guaranteed by 1.
     let rows = unsafe { &mut *rows };
-    rows.keys.push(OwnedKey::Numeric(value));
+    rows.keys.push(Owned::Numeric(value));
     rows.pending += 1;
 }
 
@@ -280,7 +277,7 @@ pub unsafe extern "C" fn NestedRows_FinishTag(
     // SAFETY: guaranteed by 2 of [`NestedRows_PushTagKey`].
     let bytes = unsafe { bytes(value, len) };
     rows.elements
-        .push((rows.pending, OwnedValue::Tag(bytes.to_vec())));
+        .push((rows.pending, Owned::Tag(bytes.to_vec())));
     rows.pending = 0;
 }
 
@@ -291,10 +288,9 @@ pub unsafe extern "C" fn NestedRows_FinishTag(
 /// As [`NestedRows_PushNumericKey`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_FinishNumeric(rows: *mut NestedRows, value: f64) {
-    // SAFETY: guaranteed by the caller.
+    // SAFETY: guaranteed by 1.
     let rows = unsafe { &mut *rows };
-    rows.elements
-        .push((rows.pending, OwnedValue::Numeric(value)));
+    rows.elements.push((rows.pending, Owned::Numeric(value)));
     rows.pending = 0;
 }
 
@@ -305,22 +301,11 @@ pub unsafe extern "C" fn NestedRows_FinishNumeric(rows: *mut NestedRows, value: 
 /// As [`NestedRows_PushNumericKey`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedRows_DiscardElement(rows: *mut NestedRows) {
-    // SAFETY: guaranteed by the caller.
+    // SAFETY: guaranteed by 1.
     let rows = unsafe { &mut *rows };
     let keep = rows.keys.len() - rows.pending;
     rows.keys.truncate(keep);
     rows.pending = 0;
-}
-
-/// The number of finished elements.
-///
-/// # Safety
-///
-/// `rows` is a valid pointer returned by [`NestedRows_New`].
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn NestedRows_Len(rows: *const NestedRows) -> usize {
-    // SAFETY: guaranteed by the caller.
-    unsafe { &*rows }.elements.len()
 }
 
 /// Index every element of `rows` for the document `doc_id`.
@@ -357,16 +342,16 @@ pub unsafe extern "C" fn NestedIndex_IndexDocument(
         .keys
         .iter()
         .map(|key| match key {
-            OwnedKey::Tag(bytes) => Key::Tag(bytes),
-            OwnedKey::Numeric(value) => Key::Numeric(*value),
+            Owned::Tag(bytes) => Key::Tag(bytes),
+            Owned::Numeric(value) => Key::Numeric(*value),
         })
         .collect();
     let mut elements = Vec::with_capacity(rows.elements.len());
     let mut start = 0;
     for (position, (num_keys, value)) in rows.elements.iter().enumerate() {
         let value = match value {
-            OwnedValue::Numeric(value) => TerminalValue::Numeric(*value),
-            OwnedValue::Tag(bytes) => match Tag::new(bytes) {
+            Owned::Numeric(value) => TerminalValue::Numeric(*value),
+            Owned::Tag(bytes) => match Tag::new(bytes) {
                 Some(tag) => TerminalValue::Tag(tag),
                 None => {
                     // SAFETY: guaranteed by 4.
@@ -413,55 +398,27 @@ pub unsafe extern "C" fn NestedIndex_IndexDocument(
 ///
 /// # Safety
 ///
-/// `index` is a valid pointer returned by [`NestedIndex_New`], not written concurrently.
+/// 1. `index` is a [valid] pointer returned by [`NestedIndex_New`], not written concurrently.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn NestedIndex_NumTerminals(index: *const NestedIndex) -> usize {
-    // SAFETY: guaranteed by the caller.
+    // SAFETY: guaranteed by 1.
     unsafe { &*index }.routing().num_terminals()
-}
-
-/// The records written and not yet collected.
-///
-/// # Safety
-///
-/// As [`NestedIndex_NumTerminals`].
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn NestedIndex_NumRecords(index: *const NestedIndex) -> usize {
-    // SAFETY: guaranteed by the caller.
-    unsafe { &*index }.num_records()
-}
-
-/// The terminals' overhead in bytes, excluding postings, which the spec already counts in
-/// `invertedSize`. Walks every terminal.
-///
-/// # Safety
-///
-/// As [`NestedIndex_NumTerminals`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NestedIndex_Overhead(index: *const NestedIndex) -> usize {
-    // SAFETY: guaranteed by the caller.
-    let routing: &CompoundIndex<Terminal> = unsafe { &*index }.routing();
-    let any = vec![Constraint::Any; routing.levels().len()];
-    routing
-        .collect_terminals(&any, WalkLimits::UNLIMITED)
-        .expect("Any on every level is a valid, unbounded walk")
-        .iter()
-        .map(|terminal| terminal.mem_usage())
-        .sum()
 }
 
 /// The bytes at `ptr`, or an empty slice when `len` is zero.
 ///
 /// # Safety
 ///
-/// `ptr` is [valid] for reads of `len` bytes, or `len` is zero.
+/// 1. `ptr` is [valid] for reads of `len` bytes, or `len` is zero.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 const unsafe fn bytes<'a>(ptr: *const c_char, len: usize) -> &'a [u8] {
     if len == 0 {
         &[]
     } else {
-        // SAFETY: guaranteed by the caller.
+        // SAFETY: guaranteed by 1.
         unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) }
     }
 }
