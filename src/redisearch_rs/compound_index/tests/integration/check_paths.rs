@@ -68,6 +68,35 @@ fn an_invalid_path_in_the_batch_is_reported() {
     );
 }
 
+#[test]
+fn check_path_reports_the_routing_error_whatever_is_inserted() {
+    let mut index = Index::new(vec![tag_level(), bucket_level(&[0.0, 10.0])]).unwrap();
+    assert_eq!(index.check_path(&[tag("red"), Key::Numeric(5.0)]), Ok(()));
+    assert_eq!(
+        index.check_path(&[tag("red")]),
+        Err(PathError::WrongLength {
+            expected: 2,
+            got: 1
+        })
+    );
+    post(&mut index, &[tag("red"), Key::Numeric(5.0)], 1);
+    assert_eq!(
+        index.check_path(&[tag("red"), Key::Numeric(50.0)]),
+        Err(PathError::OutsideBuckets { level: 1 })
+    );
+}
+
+#[test]
+fn without_a_limit_any_batch_of_routable_paths_fits() {
+    let index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    let rows: Vec<[Key<'_>; 2]> = VALUES.iter().map(|v| [tag(v), tag(v)]).collect();
+    assert!(check(&index, &rows).is_ok());
+    assert_eq!(
+        check(&index, &[[tag("red"), Key::Numeric(1.0)]]),
+        Err(InsertError::Path(PathError::KeyMismatch { level: 1 }))
+    );
+}
+
 const VALUES: [&str; 3] = ["a", "b", "c"];
 
 fn row() -> impl Strategy<Value = (&'static str, &'static str)> {

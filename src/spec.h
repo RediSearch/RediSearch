@@ -62,6 +62,18 @@ struct IndexesScanner;
   "SPARSEVECTOR is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it " \
   "with `CONFIG SET search-enable-unstable-features yes`"
 
+#define SPEC_NESTED_STR "NESTED"
+#define SPEC_NESTED_INDEX_STR "INDEX"
+#define SPEC_NESTED_MAXCARD_STR "MAXCARD"
+#define SPEC_NESTED_BUCKETS_STR "BUCKETS"
+#define SPEC_NESTED_RANGE_STR "RANGE"
+
+// NESTED fields are behind ENABLE_UNSTABLE_FEATURES, gated like sparse vectors: creating one is
+// rejected while the flag is off, and an existing one keeps loading and indexing.
+#define NESTED_UNSTABLE_ERR                                                  \
+  "NESTED is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it " \
+  "with `CONFIG SET search-enable-unstable-features yes`"
+
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
 #define SPEC_NOFREQS_STR "NOFREQS"
@@ -209,6 +221,13 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
 #define INDEX_CURRENT_VERSION 31
+// NESTED shares encoding 31 with sparse vectors: no release has shipped 31 yet, so it needs no
+// version of its own. Only a NESTED field writes its block, so other indexes are unaffected.
+#define INDEX_NESTED_VERSION 31
+// The layout of a NESTED field's RDB definition, saved first so it can change on its own.
+#define NESTED_RDB_FORMAT 1
+// A sanity bound on loaded bucket boundaries; the Rust level enforces its own, smaller limit.
+#define NESTED_RDB_MAX_BOUNDARIES 4096
 #define INDEX_SPARSE_VECTOR_VERSION 31
 #define INDEX_SST_TAG_VALUES_VERSION 30
 #define INDEX_SST_SPEC_ID_VERSION 29

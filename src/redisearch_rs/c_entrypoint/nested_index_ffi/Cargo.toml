@@ -1,0 +1,25 @@
+[package]
+name = "nested_index_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# This crate has no Rust unit tests—it only contains bindings.
+test = false
+bench = false
+
+[dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
+nested_index.workspace = true
+tag_index.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+nested_index = { workspace = true, features = ["unittest"] }
+redis_mock.workspace = true

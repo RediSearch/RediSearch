@@ -194,6 +194,13 @@ impl<T> CompoundIndex<T> {
         }
     }
 
+    /// Checks that `path` routes through every level, without reading the tree.
+    ///
+    /// The result depends on the levels alone, so it holds whatever has been inserted.
+    pub fn check_path(&self, path: &[Key<'_>]) -> Result<(), PathError> {
+        self.route(path).map(drop)
+    }
+
     /// The terminal at the end of `path`, created with `init` if the path is new.
     ///
     /// Creating the path adds every missing node on the way. The path is checked in full
@@ -257,8 +264,19 @@ impl<T> CompoundIndex<T> {
     /// it first, so a document is indexed whole or not at all.
     ///
     /// A path error is reported for the first invalid path; cardinality is checked once every path
-    /// has been routed.
+    /// has been routed. Without any cardinality limit the tree is not read, as in
+    /// [`CompoundIndex::check_path`].
     pub fn check_paths<'k>(&self, paths: &[&[Key<'k>]]) -> Result<(), InsertError> {
+        let limited = self
+            .levels
+            .iter()
+            .any(|level| matches!(level, Level::Tag(tag) if tag.max_cardinality().is_some()));
+        if !limited {
+            for path in paths {
+                self.check_path(path)?;
+            }
+            return Ok(());
+        }
         // The parent's path → its existing children and the new ones the batch adds.
         let mut new_children: BTreeMap<Vec<Step<'k>>, (usize, BTreeSet<Step<'k>>)> =
             BTreeMap::new();

@@ -60,6 +60,8 @@ typedef enum {
   FLD_VAR_T_BLOB_ARRAY = 0x20,
   FLD_VAR_T_GEOMETRY = 0x40,
   FLD_VAR_T_NULL = 0x80,
+  // A NESTED field's elements, read into `nestedRows`.
+  FLD_VAR_T_NESTED = 0x100,
 } FieldVarType;
 
 typedef struct DocumentField {
@@ -85,6 +87,8 @@ typedef struct DocumentField {
       char **multiVal;
       size_t arrayLen; // for multiVal TODO: use arr.h
     };
+    // Owned; see NestedRows_New.
+    struct NestedRows *nestedRows;
   };
   RSValue *multisv; // sortable value for multi value (pre-calculated during ingestion)
   FieldVarType unionType;

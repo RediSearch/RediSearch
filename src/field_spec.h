@@ -21,6 +21,7 @@
 struct TagIndex;
 struct NumericRangeTree;
 struct SparseVectorIndex;
+struct NestedIndex;
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -40,9 +41,11 @@ typedef enum {
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
   INDEXFLD_T_SPARSE_VECTOR = 0x40,
+  // `FieldSpec.types` is an 8-bit bitfield: this is its last free bit.
+  INDEXFLD_T_NESTED = 0x80,
 } FieldType;
 
-#define INDEXFLD_NUM_TYPES 7
+#define INDEXFLD_NUM_TYPES 8
 
 // clang-format off
 // otherwise, it looks h o r r i b l e
@@ -53,7 +56,8 @@ typedef enum {
   (T == INDEXFLD_T_TAG            ? 3 :  \
   (T == INDEXFLD_T_VECTOR         ? 4 :  \
   (T == INDEXFLD_T_GEOMETRY       ? 5 :  \
-  (T == INDEXFLD_T_SPARSE_VECTOR  ? 6 : -1)))))))
+  (T == INDEXFLD_T_SPARSE_VECTOR  ? 6 :  \
+  (T == INDEXFLD_T_NESTED         ? 7 : -1))))))))
 
 #define INDEXTYPE_FROM_POS(P) (1<<(P))
 // clang-format on
@@ -65,6 +69,43 @@ typedef enum {
 #define IXFLDPOS_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)
 #define IXFLDPOS_GEOMETRY INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)
 #define IXFLDPOS_SPARSE_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_SPARSE_VECTOR)
+#define IXFLDPOS_NESTED INDEXTYPE_TO_POS(INDEXFLD_T_NESTED)
+
+// The most sub-fields a NESTED field declares: the routing levels (`MAX_LEVELS` of the
+// `compound_index` crate) plus the terminal.
+#define NESTED_MAX_SUBFIELDS 4
+
+/* One attribute of a NESTED field's elements, such as `$.color AS color TAG`. */
+typedef struct NestedSubField {
+  char *name;
+  // Relative to the element, e.g. `$.color`.
+  char *path;
+  // Compiled `path`; NULL until compiled, which needs RedisJSON.
+  JSONPath compiledPath;
+  // INDEXFLD_T_TAG or INDEXFLD_T_NUMERIC.
+  FieldType type;
+  // TAG: CASESENSITIVE.
+  bool caseSensitive;
+  // TAG: MAXCARD, 0 when unset.
+  size_t maxCardinality;
+  // NUMERIC: BUCKETS boundaries (an `rm_malloc`ed array), NULL when unset.
+  double *buckets;
+  size_t numBuckets;
+  // NUMERIC: RANGE, when `hasRange`.
+  bool hasRange;
+  double rangeMin;
+  double rangeMax;
+} NestedSubField;
+
+/* A NESTED field's definition: its sub-fields and their `INDEX` order. */
+typedef struct NestedDef {
+  // The sub-fields, in declaration order.
+  NestedSubField subFields[NESTED_MAX_SUBFIELDS];
+  uint8_t numSubFields;
+  // `INDEX` order: an index into `subFields` per level, the terminal last.
+  uint8_t levels[NESTED_MAX_SUBFIELDS];
+  uint8_t numLevels;
+} NestedDef;
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
@@ -147,6 +188,13 @@ typedef struct FieldSpec {
       // The field's posting lists, created on the first write. Opaque Rust object.
       struct SparseVectorIndex *sparseVecIndex;
     } sparseVecOpts;
+    struct {
+      // The definition, on the heap so the union stays as small as for other types. Set as soon
+      // as the field is known to be NESTED, before anything else is parsed or loaded.
+      struct NestedDef *def;
+      // The routing levels and terminals. Opaque Rust object, built with the field.
+      struct NestedIndex *nestedIndex;
+    } nestedOpts;
   };
 
   // TODO: Move into union above when we stop supporting multi-type fields
@@ -183,6 +231,18 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+
+/* Mark `fs` as a NESTED field and give it an empty definition. Call it before parsing or loading
+ * the definition, so a failure part-way is freed correctly by FieldSpec_Cleanup. */
+void FieldSpec_InitNested(FieldSpec *fs);
+
+/* Build a NESTED field's index from its sub-fields and levels, replacing any existing one.
+ * Returns false, with a NUL-terminated reason in `err`, when the levels are rejected. */
+bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen);
+
+/* Compile every sub-field path of a NESTED field that is not compiled yet. Needs RedisJSON.
+ * Returns false when a path does not parse. */
+bool FieldSpec_CompileNestedPaths(FieldSpec *fs);
 
 /* The sparse vector field's index, created first if `create_if_missing` and there is none.
  * Returns NULL only when the index does not exist and `create_if_missing` is false. */
