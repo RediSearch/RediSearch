@@ -40,7 +40,7 @@ def errors(env):
     return to_dict(index_info(env)['Index Errors'])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def testRequiresUnstableFeatures(env):
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     create(env).error().contains(GATE_ERROR)
@@ -48,7 +48,17 @@ def testRequiresUnstableFeatures(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', *ITEMS).error().contains(GATE_ERROR)
 
 
-@skip(no_json=True)
+@skip(cluster=True)
+def testAFieldNamedNestedKeepsItsMeaningWithTheFlagOff(env):
+    # `NOSTEM` stays an option of `title`, and `nested` is a TEXT field, as before NESTED existed.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'nested', 'TEXT').ok()
+    # A NOSTEM attribute ends in a bare flag, so read the name by position, not with to_dict.
+    names = [a[a.index('attribute') + 1] for a in index_info(env)['attributes']]
+    env.assertEqual(names, ['title', 'nested'])
+
+
+@skip(no_json=True, cluster=True)
 def testInfoShowsTheDefinition(env):
     enable_unstable_features(env)
     create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
@@ -69,7 +79,7 @@ def testInfoShowsTheDefinition(env):
     env.assertEqual((float(price['range_min']), float(price['range_max'])), (0.0, 1000.0))
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def testInvalidDefinitionsAreRejected(env):
     enable_unstable_features(env)
 
@@ -78,6 +88,20 @@ def testInvalidDefinitionsAreRejected(env):
 
     cases = [
         ('only JSON indexes', None, 'supported only on JSON indexes'),
+        # Both fail before the first sub-field has a name, which once freed a garbage pointer.
+        ('a first sub-field without AS',
+         ['NESTED', 2, '$.a'], 'expected `<path> AS <name>`'),
+        ('a sub-field count with nothing after it',
+         ['NESTED', 1], 'expected `<path> AS <name>`'),
+        ('an empty sub-field name',
+         ['NESTED', 2, *sub('$.c', '', 'TAG'), *sub('$.p', 'p', 'NUMERIC'),
+          'INDEX', 2, 'c', 'p'], 'both non-empty'),
+        ('BUCKETS given twice',
+         ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 2, 0, 1, 'BUCKETS', 2, 0, 1),
+          *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'y', 'c'], 'BUCKETS given twice'),
+        ('more buckets than allowed',
+         ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 1026, *range(1026)),
+          *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'y', 'c'], 'at most 1024 buckets'),
         ('a sub-field count of zero',
          ['NESTED', 0, 'INDEX', 0], 'number of sub-fields'),
         ('too many sub-fields',
@@ -99,7 +123,7 @@ def testInvalidDefinitionsAreRejected(env):
           'INDEX', 1, 'p'], 'every sub-field exactly once'),
         ('an INDEX naming an unknown sub-field',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG'), *sub('$.p', 'p', 'NUMERIC'),
-          'INDEX', 2, 'c', 'x'], 'every sub-field exactly once'),
+          'INDEX', 2, 'c', 'x'], 'unknown sub-field'),
         ('a single sub-field',
          ['NESTED', 1, *sub('$.p', 'p', 'NUMERIC'), 'INDEX', 1, 'p'],
          'at least one routing sub-field'),
@@ -118,7 +142,7 @@ def testInvalidDefinitionsAreRejected(env):
           *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'p', 'c'], 'RANGE applies to the last'),
         ('an inverted RANGE',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG'), *sub('$.p', 'p', 'NUMERIC', 'RANGE', 5, 1),
-          'INDEX', 2, 'c', 'p'], 'not greater than the second'),
+          'INDEX', 2, 'c', 'p'], 'the first not greater than the second'),
         ('decreasing bucket boundaries',
          ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 2, 5, 1), *sub('$.c', 'c', 'TAG'),
           'INDEX', 2, 'y', 'c'], 'not greater than the previous'),
@@ -167,6 +191,7 @@ def testElementsMissingAnAttributeAreSkipped(env):
     put(conn, 'doc:1', [{'color': 'red', 'size': 'M'},
                         {'color': 'red', 'price': 3},
                         {'color': None, 'size': 'M', 'price': 3},
+                        None,
                         {'color': 'red', 'size': 'M', 'price': 4}])
     env.assertEqual(nested_attribute(env)['terminals'], 1)
     env.assertEqual(int(index_info(env)['num_records']), 1)
@@ -189,6 +214,32 @@ def testTagValuesAreCaseFoldedUnlessCaseSensitive(env):
 
 
 @skip(no_json=True, cluster=True)
+def testBooleanTagValuesAreIndexedAsText(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.in_stock', 'AS', 'in_stock', 'TAG',
+           '$.price', 'AS', 'price', 'NUMERIC',
+           'INDEX', 2, 'in_stock', 'price').ok()
+    put(conn, 'doc:1', [{'in_stock': True, 'price': 1}, {'in_stock': False, 'price': 2},
+                        {'in_stock': 'true', 'price': 3}])
+    # true and "true" are one value: two terminals.
+    env.assertEqual(nested_attribute(env)['terminals'], 2)
+    env.assertEqual(int(errors(env)['indexing failures']), 0)
+
+
+@skip(no_json=True, cluster=True)
+def testIndexingAddsToTheInvertedSize(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env).ok()
+    before = float(index_info(env)['inverted_sz_mb'])
+    for n in range(200):
+        put(conn, f'doc:{n}', [{'color': 'red', 'size': 'M', 'price': n}])
+    env.assertGreater(float(index_info(env)['inverted_sz_mb']), before)
+
+
+@skip(no_json=True, cluster=True)
 def testInvalidValuesRejectTheWholeDocument(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
@@ -202,8 +253,10 @@ def testInvalidValuesRejectTheWholeDocument(env):
         ('a NUMERIC sub-field holding a string', [{'color': 'red', 'price': 'x'}],
          'must hold a number'),
         ('a value outside RANGE', [{'color': 'red', 'price': 500}], 'outside its RANGE'),
-        ('a sub-field with several values', [{'color': 'red', 'price': [1, 2]}],
+        ('a NUMERIC sub-field holding an array', [{'color': 'red', 'price': [1, 2]}],
          'must hold a number'),
+        ('a NUL byte in a routing tag', [{'color': 'r\u0000d', 'price': 1}],
+         'must not contain a NUL byte'),
     ]
     for n, (name, items, error) in enumerate(cases, start=1):
         # A valid element first: the whole document is rejected, not just the bad element.
@@ -212,6 +265,32 @@ def testInvalidValuesRejectTheWholeDocument(env):
         env.assertContains(error, errors(env)['last indexing error'], message=name)
     env.assertEqual(nested_attribute(env)['terminals'], 0)
     env.assertEqual(int(index_info(env)['num_docs']), 0)
+
+
+@skip(no_json=True, cluster=True)
+def testASubFieldWithSeveralValuesRejectsTheDocument(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.tags[*]', 'AS', 'tag', 'TAG',
+           '$.price', 'AS', 'price', 'NUMERIC',
+           'INDEX', 2, 'tag', 'price').ok()
+    put(conn, 'doc:1', [{'tags': ['a', 'b'], 'price': 1}])
+    env.assertContains('has several values in one element', errors(env)['last indexing error'])
+    env.assertEqual(nested_attribute(env)['terminals'], 0)
+
+
+@skip(no_json=True, cluster=True)
+def testAValueOutsideTheRoutingBucketsRejectsTheDocument(env):
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
+           '$.price', 'AS', 'price', 'NUMERIC',
+           'INDEX', 2, 'year', 'price').ok()
+    put(conn, 'doc:1', [{'year': 2021, 'price': 1}, {'year': 2030, 'price': 2}])
+    env.assertContains('outside the level', errors(env)['last indexing error'])
+    env.assertEqual(nested_attribute(env)['terminals'], 0)
 
 
 @skip(no_json=True, cluster=True)
@@ -231,7 +310,8 @@ def testMaxCardinalityCountsEarlierDocuments(env):
     env.assertEqual(errors(env)['last indexing error key'], 'doc:2')
 
 
-@skip(no_json=True)
+# `terminals` is a per-shard count, so the comparison below holds on one shard only.
+@skip(no_json=True, cluster=True)
 def testReloadKeepsTheDefinitionAndReindexes(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
