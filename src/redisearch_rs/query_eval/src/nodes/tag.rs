@@ -99,11 +99,13 @@ pub(crate) fn eval<'index>(
     // Going through the raw pointer detaches the borrow from `ctx`, which the
     // children's evaluation needs exclusively.
     let field = unsafe { &*field_ptr };
-    debug_assert!(
-        field.types() & ffi::FieldType_INDEXFLD_T_TAG != 0,
-        "a tag node must reference a tag field"
-    );
-    // SAFETY: the field is a tag field, so `tagOpts` is the active union member.
+    // DIALECT 1 builds a tag node on any field, so a tag query on a field of another type
+    // reaches here. Reading `tagOpts` then would reinterpret that type's options as a tag index.
+    // Such a query matches nothing.
+    if field.types() & ffi::FieldType_INDEXFLD_T_TAG == 0 {
+        return None;
+    }
+    // SAFETY: the field is a tag field, checked above, so `tagOpts` is the active union member.
     let index = NonNull::new(unsafe { field.__bindgen_anon_1.tagOpts.tagIndex })?;
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
