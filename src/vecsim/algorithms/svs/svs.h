@@ -753,12 +753,12 @@ public:
             auto sp = svs_details::joinSearchParams(impl->get_search_parameters(), queryParams,
                                                     is_two_level_lvq);
 
-            auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+            auto stopCtx = queryParams ? queryParams->stopCtx : nullptr;
+            auto cancel = [stopCtx]() { return VECSIM_STOP(stopCtx); };
 
             impl->search(result.view(), query, sp, cancel);
             if (cancel()) {
-                rep->code = VecSim_QueryReply_TimedOut;
+                rep->code = VecSim_QueryReply_Stopped;
                 return rep;
             }
 
@@ -791,8 +791,8 @@ public:
             return rep;
         }
         {
-            auto timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
-            auto cancel = [timeoutCtx]() { return VECSIM_TIMEOUT(timeoutCtx); };
+            auto stopCtx = queryParams ? queryParams->stopCtx : nullptr;
+            auto cancel = [stopCtx]() { return VECSIM_STOP(stopCtx); };
 
             // Prepare query blob for SVS
             auto processed_query_ptr = this->preprocessQuery(queryBlob);
@@ -812,7 +812,7 @@ public:
             auto svs_it = impl->make_batch_iterator(query);
             svs_it.next(batch_size, cancel);
             if (cancel()) {
-                rep->code = VecSim_QueryReply_TimedOut;
+                rep->code = VecSim_QueryReply_Stopped;
                 return rep;
             }
 
@@ -840,7 +840,7 @@ public:
                 if (keep_searching) {
                     svs_it.next(batch_size, cancel);
                     if (cancel()) {
-                        rep->code = VecSim_QueryReply_TimedOut;
+                        rep->code = VecSim_QueryReply_Stopped;
                         return rep;
                     }
                 }

@@ -228,7 +228,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
     IteratorStatus rc = it->Read(it);
     if (rc == ITERATOR_EOF) {
       break;
-    } else if (rc == ITERATOR_TIMEOUT) {
+    } else if (rc == ITERATOR_STOPPED) {
       return RS_RESULT_STOPPED;
     }
 
@@ -418,7 +418,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
       switch (rc) {
         case ITERATOR_EOF:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-        case ITERATOR_TIMEOUT:
+        case ITERATOR_STOPPED:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
         default:
           RS_ASSERT(rc == ITERATOR_OK);

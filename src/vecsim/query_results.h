@@ -22,7 +22,9 @@ typedef enum { BY_SCORE, BY_ID, BY_SCORE_THEN_ID } VecSimQueryReply_Order;
 
 typedef enum {
     VecSim_QueryReply_OK = VecSim_OK,
-    VecSim_QueryReply_TimedOut,
+    // The stop callback (see VecSim_SetStopCallbackFunction) ended the query early, on a timeout
+    // or memory pressure; the reply's results, if any, are incomplete and should be discarded.
+    VecSim_QueryReply_Stopped,
 } VecSimQueryReply_Code;
 
 ////////////////////////////////////// VecSimQueryResult API //////////////////////////////////////

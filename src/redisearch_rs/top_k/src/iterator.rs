@@ -697,6 +697,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // Poll before the lookup so an expired deadline skips the expensive
             // VecSim distance lookup.
             scope.0.check_timeout()?;
+            // Each retained entry holds a captured child record, so memory grows with the scan.
+            scope.0.check_memory()?;
             if let Some(score) = scope.0.lookup_score(doc_id)
                 && scope.0.accept_candidate(doc_id, score)?
             {
@@ -710,8 +712,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             }
         }
 
-        // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates earlier.
+        // Reached only on a clean scan exit (EOF or `Stop`); a stopped scan
+        // propagates earlier. Rerank and finalize copy the heap, so read memory
+        // once more before them.
+        scope.0.check_memory_now()?;
         if scope.0.should_rerank() && !self.heap.is_empty() {
             self.heap.rescore(|scored| scope.0.rerank(scored));
         }
