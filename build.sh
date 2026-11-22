@@ -456,6 +456,51 @@ find_module_path() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: select_macos_compilers
+# Set MACOS_C_COMPILER/MACOS_CXX_COMPILER to the LLVM that
+# .install/install_llvm.sh installs, falling back to clang/clang++ from PATH.
+#
+# PATH is not reliable here: when Redis bootstraps several modules into one
+# environment, modules bootstrapped after this one put an older Homebrew LLVM
+# ahead of ours on PATH, and that LLVM's libc++ lacks C++20 features SVS uses.
+#-----------------------------------------------------------------------------
+select_macos_compilers() {
+  local LLVM_VERSION LLVM_FULL_VERSION
+  source "$ROOT/.install/LLVM_VERSION.sh"
+
+  # Same locations, in the same order of preference, as install_llvm.sh.
+  local -a candidates=()
+  if command -v brew &>/dev/null; then
+    candidates+=("$(brew --prefix)/opt/llvm@${LLVM_VERSION}/bin")
+  fi
+  candidates+=("${LLVM_INSTALL_DIR:-$HOME/.local/llvm}/bin")
+
+  local dir
+  for dir in "${candidates[@]}"; do
+    if [[ -x "$dir/clang" && -x "$dir/clang++" && \
+          "$(clang_major_version "$dir/clang")" == "$LLVM_VERSION" ]]; then
+      MACOS_C_COMPILER="$dir/clang"
+      MACOS_CXX_COMPILER="$dir/clang++"
+      echo "Using LLVM $LLVM_VERSION from $dir"
+      return
+    fi
+  done
+
+  MACOS_C_COMPILER=clang
+  MACOS_CXX_COMPILER=clang++
+  local found
+  found=$(clang_major_version clang)
+  if [[ "$found" != "$LLVM_VERSION" ]]; then
+    echo "WARNING: LLVM $LLVM_VERSION not found (run 'make bootstrap'); using clang from PATH (LLVM ${found:-unknown})"
+  fi
+}
+
+# Prints the LLVM major version of the clang binary $1, or nothing.
+clang_major_version() {
+  { "$1" --version 2>/dev/null || true; } | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p'
+}
+
+#-----------------------------------------------------------------------------
 # Function: prepare_cmake_arguments
 # Prepare arguments to pass to CMake
 #-----------------------------------------------------------------------------
@@ -733,7 +778,8 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+    select_macos_compilers
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$MACOS_C_COMPILER -DCMAKE_CXX_COMPILER=$MACOS_CXX_COMPILER"
   fi
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
