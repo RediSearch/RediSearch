@@ -492,7 +492,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     ///
     /// Building opens one reader per matching bucket, so the implementation may poll `limits`
     /// (the query's request limits) while it builds. If it abandons the build on a stop, it
-    /// returns an iterator whose first read fails with [`RQEIteratorError::TimedOut`] whatever
+    /// returns an iterator whose first read fails with [`RQEIteratorError::Stopped`] whatever
     /// the stop's reason: the error does not carry it, the query's limits do.
     ///
     /// `limits` must stay valid for the call, and its kind and source must not change during
