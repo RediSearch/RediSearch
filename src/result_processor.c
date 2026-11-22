@@ -228,7 +228,7 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
     IteratorStatus rc = it->Read(it);
     if (rc == ITERATOR_EOF) {
       break;
-    } else if (rc == ITERATOR_TIMEOUT) {
+    } else if (rc == ITERATOR_STOPPED) {
       return RS_RESULT_STOPPED;
     }
 
@@ -384,8 +384,8 @@ typedef enum {
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
  *    during QAST_Iterate() which already runs under the read-lock.
- * 2. Disk iterators capture an implicit snapshot at creation time, ensuring
- *    consistency for disk reads without needing to hold the lock.
+ * 2. Disk iterators read through the storage layer's per-query view, which keeps
+ *    disk reads consistent without holding the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
 static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
@@ -463,7 +463,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
       switch (rc) {
         case ITERATOR_EOF:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-        case ITERATOR_TIMEOUT:
+        case ITERATOR_STOPPED:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
         default:
           RS_ASSERT(rc == ITERATOR_OK);
@@ -632,7 +632,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->firstRead = true;
 #endif
 
-  // Keep one per-query snapshot so the pool and queue sizes stay paired.
+  // Read both sizes once per query so the pool and queue sizes stay paired.
   const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
   const uint16_t asyncQueueFactor = (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
   RS_ASSERT(asyncQueueFactor >= 1);

@@ -36,6 +36,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultData_Virtual:
     case RSResultData_Numeric:
     case RSResultData_Metric:
+    case RSResultData_SparseScore:
     default:
       return 0;
   }

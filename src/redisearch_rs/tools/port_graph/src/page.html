@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Port Graph</title>
+<link rel="icon" href="data:,">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --text: #1d2125;
+  --muted: #5e6670;
+  --border: #d8dce1;
+  --edge: #8a929b;
+  --accent: #2f6fd0;
+  --c: #cfe3fa;
+  --rust: #fbc8bd;
+  --ffi: #e2d5f7;
+  --dep: #9dbfe8;
+  --mutual: #d0453a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181c;
+    --panel: #1d2126;
+    --text: #e4e7eb;
+    --muted: #9aa3ad;
+    --border: #343a42;
+    --edge: #6b737c;
+    --accent: #7aa7ec;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181c;
+  --panel: #1d2126;
+  --text: #e4e7eb;
+  --muted: #9aa3ad;
+  --border: #343a42;
+  --edge: #6b737c;
+  --accent: #7aa7ec;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  display: flex;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+aside {
+  width: 360px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+main { flex: 1; min-width: 0; position: relative; }
+#cy { position: absolute; inset: 0; }
+h1 { font-size: 18px; margin: 0; }
+h2[title], label[title] { cursor: help; }
+h2 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input[type=search], input[type=number] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+input[type=search] { width: 100%; }
+input[type=number] { width: 4em; }
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -1px; }
+.legend { color: var(--muted); font-size: 12px; }
+#details:empty { display: none; }
+#details h3 { margin: 0 0 4px; font-size: 16px; word-break: break-all; }
+.counts { color: var(--muted); margin-bottom: 8px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.link {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #1d2125;
+}
+.link:hover { border-color: var(--accent); }
+.link.c { background: var(--c); }
+.link.rust { background: var(--rust); }
+.link.ffi { background: var(--ffi); }
+.link.dep { background: var(--dep); }
+.link.hidden { opacity: .45; text-decoration: line-through; }
+#hidden-list:empty::after, #unused-list:empty::after { content: "none"; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { padding: 3px 4px; border-bottom: 1px solid var(--border); text-align: right; }
+th:first-child, td:first-child { text-align: left; word-break: break-all; }
+th { cursor: pointer; user-select: none; color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--bg); }
+tbody tr.focused { outline: 2px solid var(--accent); outline-offset: -2px; }
+aside > * { flex: none; }
+/* The candidates fill what the sidebar has left, but keep a usable height
+   when the details above are long, the sidebar then scrolling. */
+aside > #candidates-section { flex: 1 0 320px; display: flex; flex-direction: column; min-height: 320px; }
+.table-wrap { flex: 1; min-height: 0; overflow-y: auto; }
+#status { position: absolute; top: 12px; right: 16px; color: var(--muted); font-size: 12px; pointer-events: none; }
+@media (max-width: 720px) {
+  body { flex-direction: column; }
+  aside { width: auto; max-height: 50vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  main { min-height: 50vh; }
+}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Port graph</h1>
+  <div class="legend">
+    <span class="swatch" style="background: var(--c)"></span> C module
+    &nbsp; <span class="swatch" style="background: var(--rust)"></span> Rust crate
+    &nbsp; <span class="swatch" style="background: var(--ffi)"></span> Rust FFI crate
+    &nbsp; <span class="swatch" style="background: var(--dep)"></span> dependency (deps/)
+    &nbsp; thick border: uses no C module nor dependency. Arrows point to what a module uses
+    (hover one for the symbols);
+    <span style="color: var(--mutual)">dashed, both ends</span>: modules using each other;
+    dashed border: FFI crate no module uses.
+  </div>
+  <div>
+    <input id="search" type="search" list="names" placeholder="Focus a module…" autocomplete="off"
+      title="Type a module name and pick it from the list to show only it and its neighbours. C modules are named by their path under src/ without extension, Rust crates by their crate name.">
+    <datalist id="names"></datalist>
+  </div>
+  <div class="row">
+    <label title="How many hops away from the focused module to show, following edges both ways: 1 shows what it uses and what uses it, 2 adds their neighbours, and so on.">Depth <input id="depth" type="number" min="0" max="6" value="1"></label>
+    <label title="Around a focused module, only edges leading one hop further away are drawn. Check to also draw the edges between modules at the same distance, which shows how the neighbours depend on each other but clutters the view."><input id="all-edges" type="checkbox"> All edges</label>
+    <button id="reset" title="Leave the focused module and show every module that is not hidden.">Whole graph</button>
+  </div>
+  <div class="row">
+    <label title="Show C modules. The focused module stays visible either way."><input id="show-c" type="checkbox" checked> C</label>
+    <label title="Show the pure Rust crates, those that do not exist to bridge with C. Uncheck both Rust boxes to see only what remains in C."><input id="show-rust" type="checkbox" checked> Rust</label>
+    <label title="Show the FFI crates (c_entrypoint/ and c_wrappers/), which expose Rust to C or wrap C for Rust, and shrink back as the C side goes away."><input id="show-ffi" type="checkbox" checked> Rust FFI</label>
+    <label title="Show the vendored dependencies of deps/, one per directory, linked from the C modules including their headers. rmalloc.h and rmutil/rm_assert.h, which nearly every module includes, are left out."><input id="show-deps" type="checkbox" checked> Deps</label>
+  </div>
+  <div class="row">
+    <label title="Scale each module with its lines of code, its area growing in proportion. Scaling is bounded, so that the smallest modules stay readable and the largest do not cover the graph."><input id="size-by-lines" type="checkbox"> Size by lines</label>
+  </div>
+  <div id="details"></div>
+  <div>
+    <h2 title="Modules taken out of the view with &quot;Hide this module&quot;, to clear hubs that everything uses. Click one to show it again. Counts in the table still include them.">Hidden modules</h2>
+    <div id="hidden-list" class="links"></div>
+  </div>
+  <div>
+    <h2 title="FFI crates no module uses: bridges left over from a port, or whose other side is not wired yet. Only src/ is scanned, so a crate used by tests alone is listed too. Dashed in the graph. Click one to focus it.">Unused FFI crates</h2>
+    <div id="unused-list" class="links"></div>
+  </div>
+  <div id="candidates-section">
+    <h2 title="Every C module, by default those using the fewest other C modules, then dependencies, first and, among them, those used by the most Rust crates: porting one removes FFI from each of these crates. Click a column header to sort by it, a row to focus the module.">Port candidates</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th data-key="name" title="Sort by name.">C module</th>
+          <th data-key="lines" title="Lines of code of its source and header files, blank lines, comments and includes left out: the size of the port. Sort by this, smallest first.">Lines</th>
+          <th data-key="usesC" title="C modules it uses, which must be ported or bridged first. Sort by this (the default).">Uses C</th>
+          <th data-key="usesDeps" title="Dependencies of deps/ it uses, which must be bridged or replaced by a Rust crate. With Uses C at 0, it can be ported on its own. Sort by this.">Deps</th>
+          <th data-key="usedByRust" title="Rust crates using it through FFI, which porting it would simplify. Sort by this.">By Rust</th>
+          <th data-key="usedByC" title="C modules using it, which would need an FFI bridge once it is in Rust. Sort by this.">By C</th>
+        </tr></thead>
+        <tbody id="candidates"></tbody>
+      </table>
+    </div>
+  </div>
+</aside>
+<main>
+  <div id="cy"></div>
+  <div id="status" title="What the graph currently shows."></div>
+</main>
+<script>
+const DATA = __PORT_GRAPH_DATA__;
+
+const nodes = new Map(DATA.nodes.map(n => [n.id, { ...n, uses: [], users: [] }]));
+for (const [user, used] of DATA.edges) {
+  nodes.get(user).uses.push(used);
+  nodes.get(used).users.push(user);
+}
+const edgeSymbols = new Map(DATA.edges.map(([u, v, symbols]) => [`${u}\0${v}`, symbols]));
+const edgeSet = new Set(edgeSymbols.keys());
+/** What `user` uses from `used`, in words. */
+function usesText(user, used) {
+  const symbols = edgeSymbols.get(`${user}\0${used}`);
+  if (!symbols) return null;
+  const what = symbols.length ? symbols.join(", ") : "Cargo dependency";
+  return `${nodes.get(user).name} uses ${nodes.get(used).name}: ${what}`;
+}
+const byName = (a, b) => nodes.get(a).name.localeCompare(nodes.get(b).name);
+for (const n of nodes.values()) {
+  n.uses.sort(byName);
+  n.users.sort(byName);
+}
+
+const state = {
+  focus: null,
+  depth: 1,
+  drawAllEdges: false,
+  showC: true,
+  showRust: true,
+  showFfi: true,
+  showDeps: true,
+  sizeByLines: false,
+  hidden: new Set(),
+  sortKey: "usesC",
+};
+
+const $ = id => document.getElementById(id);
+
+/** Lines of code drawn at the normal size, and the scale bounds. */
+const REFERENCE_LINES = 1000;
+const MIN_SCALE = Math.sqrt(300 / REFERENCE_LINES);
+const MAX_SCALE = Math.sqrt(16000 / REFERENCE_LINES);
+/** How much to scale a node: its area follows the module's lines of code. */
+function nodeScale(ele) {
+  if (!state.sizeByLines) return 1;
+  const lines = nodes.get(ele.id())?.lines ?? 0;
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.sqrt(lines / REFERENCE_LINES)));
+}
+/** A module's size, in lines of code. */
+const size = n => `${n.lines.toLocaleString("en")} lines`;
+const LANG_NAMES = { c: "C", rust: "Rust", ffi: "Rust FFI", dep: "Dependency" };
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const label = id => {
+  const n = nodes.get(id);
+  return n ? `${LANG_NAMES[n.lang]} ${n.name}` : id;
+};
+
+cytoscape.use(cytoscapeDagre);
+const cy = cytoscape({
+  container: $("cy"),
+  minZoom: 0.05,
+  maxZoom: 4,
+  style: [
+    {
+      selector: "node",
+      style: {
+        shape: "round-rectangle",
+        label: "data(name)",
+        "font-size": ele => 11 * nodeScale(ele),
+        "font-family": "system-ui, sans-serif",
+        color: "#1d2125",
+        "text-valign": "center",
+        // Approximates the label width at this font size.
+        width: ele => (ele.data("name").length * 6.2 + 12) * nodeScale(ele),
+        height: ele => 22 * nodeScale(ele),
+        "border-width": 1,
+        "border-color": "#6b737c",
+      },
+    },
+    { selector: "node.c", style: { "background-color": css("--c") } },
+    { selector: "node.rust", style: { "background-color": css("--rust") } },
+    { selector: "node.ffi", style: { "background-color": css("--ffi") } },
+    { selector: "node.dep", style: { "background-color": css("--dep") } },
+    { selector: "node.unused", style: { "border-style": "dashed", "border-width": 2 } },
+    { selector: "node.leaf", style: { "border-width": 3, "border-color": "#1d2125" } },
+    {
+      selector: "node.focus",
+      style: {
+        "border-width": 4,
+        "border-style": "double",
+        "border-color": css("--accent"),
+        "font-size": ele => 14 * nodeScale(ele),
+        "font-weight": "bold",
+        // The label width estimate above, scaled to this font.
+        width: ele => (ele.data("name").length * 8.6 + 20) * nodeScale(ele),
+        height: ele => 28 * nodeScale(ele),
+      },
+    },
+    {
+      selector: "edge",
+      style: {
+        width: 1,
+        "line-color": css("--edge"),
+        "target-arrow-color": css("--edge"),
+        "target-arrow-shape": "triangle",
+        "arrow-scale": 0.8,
+        "curve-style": "bezier",
+        opacity: 0.7,
+      },
+    },
+    {
+      selector: "edge.mutual",
+      style: {
+        "line-style": "dashed",
+        "line-color": css("--mutual"),
+        "source-arrow-shape": "triangle",
+        "source-arrow-color": css("--mutual"),
+        "target-arrow-color": css("--mutual"),
+        width: 2,
+        opacity: 1,
+      },
+    },
+    // After every style setting an opacity, so that fading wins over them.
+    { selector: ".faded", style: { opacity: 0.12 } },
+    {
+      selector: "edge.highlight",
+      style: {
+        "line-color": css("--accent"),
+        "source-arrow-color": css("--accent"),
+        "target-arrow-color": css("--accent"),
+        width: 2,
+        opacity: 1,
+      },
+    },
+    // Modules using each other keep their colour when highlighted.
+    {
+      selector: "edge.mutual.highlight",
+      style: {
+        "line-color": css("--mutual"),
+        "source-arrow-color": css("--mutual"),
+        "target-arrow-color": css("--mutual"),
+        width: 3,
+      },
+    },
+  ],
+});
+
+function isShown(id) {
+  const n = nodes.get(id);
+  if (id === state.focus) return true;
+  if (state.hidden.has(id)) return false;
+  return { c: state.showC, rust: state.showRust, ffi: state.showFfi, dep: state.showDeps }[n.lang];
+}
+
+/** Distance of each shown node to the focused one, walking edges both ways. */
+function neighbourhood() {
+  const hops = new Map([[state.focus, 0]]);
+  let frontier = [state.focus];
+  for (let d = 1; d <= state.depth; d++) {
+    const next = [];
+    for (const id of frontier) {
+      const n = nodes.get(id);
+      for (const other of [...n.uses, ...n.users]) {
+        if (!hops.has(other) && isShown(other)) {
+          hops.set(other, d);
+          next.push(other);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return hops;
+}
+
+function render() {
+  let hops;
+  if (state.focus) {
+    hops = neighbourhood();
+  } else {
+    hops = new Map([...nodes.keys()].filter(isShown).map(id => [id, 0]));
+  }
+  // Around a focused module, edges between modules at the same distance bury
+  // the ones that matter.
+  const showEdge = (u, v) =>
+    hops.has(u) && hops.has(v) && (!state.focus || state.drawAllEdges || Math.abs(hops.get(u) - hops.get(v)) === 1);
+
+  const elements = [];
+  for (const id of hops.keys()) {
+    const n = nodes.get(id);
+    const classes = [n.lang];
+    if (n.lang === "c" && n.usesC === 0 && n.usesDeps === 0) classes.push("leaf");
+    if (n.unused) classes.push("unused");
+    if (id === state.focus) classes.push("focus");
+    elements.push({ group: "nodes", data: { id, name: n.name }, classes: classes.join(" ") });
+  }
+  for (const [u, v] of DATA.edges) {
+    if (!showEdge(u, v)) continue;
+    // Two edges between the same modules would be drawn on top of each
+    // other: draw one, with an arrow at each end.
+    if (edgeSet.has(`${v}\0${u}`)) {
+      if (u < v) {
+        const text = [usesText(u, v), usesText(v, u)].join("\n");
+        elements.push({ group: "edges", data: { source: u, target: v, text }, classes: "mutual" });
+      }
+    } else {
+      elements.push({ group: "edges", data: { source: u, target: v, text: usesText(u, v) } });
+    }
+  }
+
+  cy.batch(() => {
+    cy.elements().remove();
+    cy.add(elements);
+  });
+  const layout = state.focus
+    ? { name: "dagre", rankDir: "LR", nodeSep: 6, rankSep: 120, animate: false }
+    : {
+        name: "cose",
+        animate: false,
+        nodeRepulsion: () => 1000000,
+        nodeOverlap: 40,
+        idealEdgeLength: () => 150,
+        gravity: 0.2,
+        numIter: 2500,
+      };
+  cy.layout(layout).run();
+  cy.fit(undefined, 30);
+  // A module with many neighbours makes a column too tall to fit legibly:
+  // zoom back in on it and let the rest be panned to.
+  const minZoom = 0.7;
+  if (state.focus && cy.zoom() < minZoom) {
+    cy.zoom(minZoom);
+    cy.center(cy.getElementById(state.focus));
+  }
+
+  $("status").textContent = `${cy.nodes().length} modules, ${cy.edges().length} edges`;
+  renderDetails();
+  renderHidden();
+  renderUnused();
+  renderCandidates();
+  writeHash();
+}
+
+function link(id) {
+  const n = nodes.get(id);
+  const el = document.createElement("span");
+  el.className = `link ${n.lang}` + (state.hidden.has(id) ? " hidden" : "");
+  el.textContent = n.name;
+  el.title = `${label(id)}: click to focus it`;
+  if (state.focus) {
+    const ways = [usesText(state.focus, id), usesText(id, state.focus)].filter(Boolean);
+    if (ways.length === 2) el.textContent = `⇄ ${n.name}`;
+    // The symbols behind the edge: what porting one side means for the other.
+    const symbolCount = (user, used) => edgeSymbols.get(`${user}\0${used}`)?.length ?? 0;
+    const count = symbolCount(state.focus, id) + symbolCount(id, state.focus);
+    if (count) el.textContent += ` (${count})`;
+    if (ways.length) el.title = `${ways.join("\n")}\n\nClick to focus ${label(id)}.`;
+  }
+  el.onclick = () => focus(id);
+  return el;
+}
+
+function linkList(title, help, ids) {
+  const frag = document.createDocumentFragment();
+  const h = document.createElement("h2");
+  h.textContent = `${title} (${ids.length})`;
+  h.title = help;
+  const list = document.createElement("div");
+  list.className = "links";
+  ids.forEach(id => list.append(link(id)));
+  frag.append(h, list);
+  return frag;
+}
+
+function renderDetails() {
+  const box = $("details");
+  box.replaceChildren();
+  if (!state.focus) return;
+  const n = nodes.get(state.focus);
+  const h = document.createElement("h3");
+  h.textContent = label(state.focus);
+  const counts = document.createElement("div");
+  counts.className = "counts";
+  counts.title = "Lines of code (blank lines, comments, includes and Rust test code left out), then neighbours counted over the whole graph, whatever is hidden or out of the current depth.";
+  counts.textContent = `${size(n)} · ${n.lang === "c"
+    ? `uses ${n.usesC} C / ${n.usesDeps} deps / ${n.usesRust} Rust · used by ${n.usedByC} C / ${n.usedByRust} Rust`
+    : `uses ${n.uses.length} · used by ${n.users.length}`}`;
+  const hide = document.createElement("button");
+  hide.textContent = "Hide this module";
+  hide.title = "Remove this module from the view, e.g. a hub every other module uses. It is listed under Hidden modules, from where it can be shown again.";
+  hide.onclick = () => {
+    state.hidden.add(state.focus);
+    state.focus = null;
+    render();
+  };
+  box.append(h, counts, linkList("Uses", "Every module this one uses, hidden ones included (struck through), with the number of symbols it uses from each. Hover one to list them, click it to focus it.", n.uses),
+    linkList("Used by", "Every module using this one, hidden ones included (struck through), with the number of symbols each uses from it. Hover one to list them, click it to focus it.", n.users), hide);
+}
+
+function renderHidden() {
+  const list = $("hidden-list");
+  list.replaceChildren();
+  for (const id of [...state.hidden].sort(byName)) {
+    const el = link(id);
+    el.title = `${label(id)}: click to show it again`;
+    el.onclick = () => {
+      state.hidden.delete(id);
+      render();
+    };
+    list.append(el);
+  }
+}
+
+function renderUnused() {
+  const list = $("unused-list");
+  list.replaceChildren();
+  for (const n of [...nodes.values()].filter(n => n.unused).sort((a, b) => a.name.localeCompare(b.name))) {
+    list.append(link(n.id));
+  }
+}
+
+function renderCandidates() {
+  const key = state.sortKey;
+  const rows = [...nodes.values()].filter(n => n.lang === "c" && !state.hidden.has(n.id));
+  rows.sort((a, b) => {
+    if (key === "name") return a.name.localeCompare(b.name);
+    if (key === "lines") return a.lines - b.lines || a.name.localeCompare(b.name);
+    const readiness = (x, y) => x.usesC - y.usesC || x.usesDeps - y.usesDeps;
+    if (key === "usesC") return readiness(a, b) || b.usedByRust - a.usedByRust || a.name.localeCompare(b.name);
+    if (key === "usesDeps") return a.usesDeps - b.usesDeps || a.usesC - b.usesC || a.name.localeCompare(b.name);
+    return b[key] - a[key] || readiness(a, b) || a.name.localeCompare(b.name);
+  });
+  const body = $("candidates");
+  body.replaceChildren();
+  for (const n of rows) {
+    const tr = document.createElement("tr");
+    if (n.id === state.focus) tr.className = "focused";
+    for (const value of [n.name, n.lines.toLocaleString("en"), n.usesC, n.usesDeps, n.usedByRust, n.usedByC]) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.append(td);
+    }
+    tr.onclick = () => focus(n.id);
+    body.append(tr);
+  }
+}
+
+function focus(id) {
+  state.focus = id;
+  state.hidden.delete(id);
+  $("search").value = "";
+  render();
+}
+
+function writeHash() {
+  const params = new URLSearchParams();
+  // An empty fragment opens the view the page was generated with: the whole
+  // graph has to be written down when that view is a focused one.
+  if (!state.focus && DATA.focus) params.set("focus", "");
+  if (state.focus) params.set("focus", state.focus);
+  if (state.depth !== 1) params.set("depth", state.depth);
+  if (state.hidden.size) params.set("hide", [...state.hidden].join(","));
+  if (state.drawAllEdges) params.set("all", "1");
+  if (!state.showC) params.set("noc", "1");
+  if (!state.showRust) params.set("norust", "1");
+  if (!state.showFfi) params.set("noffi", "1");
+  if (!state.showDeps) params.set("nodeps", "1");
+  if (state.sizeByLines) params.set("size", "1");
+  history.replaceState(null, "", params.size ? `#${params}` : location.pathname);
+}
+
+function readHash() {
+  // A saved view stands on its own; the view the page was generated with
+  // only applies when there is none.
+  const saved = location.hash.length > 1;
+  const params = new URLSearchParams(saved ? location.hash.slice(1) : "");
+  const focusId = saved ? params.get("focus") : DATA.focus;
+  state.focus = nodes.has(focusId) ? focusId : null;
+  state.depth = Number(params.get("depth") ?? (saved ? 1 : DATA.depth));
+  state.hidden = new Set((params.get("hide") ?? "").split(",").filter(id => nodes.has(id)));
+  state.drawAllEdges = saved ? params.get("all") === "1" : DATA.drawAllEdges;
+  state.showC = params.get("noc") !== "1";
+  state.showRust = params.get("norust") !== "1";
+  state.showFfi = params.get("noffi") !== "1";
+  state.showDeps = params.get("nodeps") !== "1";
+  state.sizeByLines = params.get("size") === "1";
+  $("depth").value = state.depth;
+  $("all-edges").checked = state.drawAllEdges;
+  $("show-c").checked = state.showC;
+  $("show-rust").checked = state.showRust;
+  $("show-ffi").checked = state.showFfi;
+  $("show-deps").checked = state.showDeps;
+  $("size-by-lines").checked = state.sizeByLines;
+}
+
+// Hovering a node highlights its edges and says what it is.
+cy.on("mouseover", "node", e => {
+  const node = e.target;
+  const n = nodes.get(node.id());
+  const counts = `${size(n)}, ${n.lang === "c"
+    ? `uses ${n.usesC} C / ${n.usesDeps} deps / ${n.usesRust} Rust, used by ${n.usedByC} C / ${n.usedByRust} Rust`
+    : `uses ${n.uses.length}, used by ${n.users.length}`}`;
+  $("cy").title = `${label(node.id())}: ${counts}. Click to focus it.`;
+  cy.elements().not(node.closedNeighborhood()).addClass("faded");
+  node.connectedEdges().addClass("highlight");
+});
+cy.on("mouseout", "node", () => {
+  cy.elements().removeClass("faded highlight");
+  $("cy").title = "";
+});
+// Hovering an edge lists the symbols it stands for.
+cy.on("mouseover", "edge", e => {
+  e.target.addClass("highlight");
+  $("cy").title = e.target.data("text");
+});
+cy.on("mouseout", "edge", e => {
+  e.target.removeClass("highlight");
+  $("cy").title = "";
+});
+cy.on("tap", "node", e => focus(e.target.id()));
+
+const names = $("names");
+for (const id of [...nodes.keys()].sort(byName)) {
+  const opt = document.createElement("option");
+  opt.value = label(id);
+  names.append(opt);
+}
+const byLabel = new Map([...nodes.keys()].map(id => [label(id), id]));
+$("search").addEventListener("change", e => {
+  const value = e.target.value.trim();
+  const id = byLabel.get(value)
+    ?? [...nodes.values()].find(n => n.name === value || n.id === value)?.id;
+  if (id) focus(id);
+});
+// Picking a suggestion fires `input`, not `change`, which waits for Enter or
+// the box losing focus. Only a complete suggestion label focuses here, so that
+// typing does not jump to the first module whose name matches.
+$("search").addEventListener("input", e => {
+  const id = byLabel.get(e.target.value.trim());
+  if (id) focus(id);
+});
+// The hover help would otherwise stay over the box and its suggestions while
+// typing.
+const searchHelp = $("search").title;
+$("search").addEventListener("focus", e => { e.target.title = ""; });
+$("search").addEventListener("blur", e => { e.target.title = searchHelp; });
+$("depth").addEventListener("change", e => {
+  state.depth = Math.max(0, Math.min(6, Number(e.target.value) || 0));
+  render();
+});
+$("all-edges").addEventListener("change", e => { state.drawAllEdges = e.target.checked; render(); });
+$("show-c").addEventListener("change", e => { state.showC = e.target.checked; render(); });
+$("show-rust").addEventListener("change", e => { state.showRust = e.target.checked; render(); });
+$("show-ffi").addEventListener("change", e => { state.showFfi = e.target.checked; render(); });
+$("show-deps").addEventListener("change", e => { state.showDeps = e.target.checked; render(); });
+$("size-by-lines").addEventListener("change", e => { state.sizeByLines = e.target.checked; render(); });
+$("reset").addEventListener("click", () => { state.focus = null; render(); });
+for (const th of document.querySelectorAll("th[data-key]")) {
+  th.addEventListener("click", () => { state.sortKey = th.dataset.key; renderCandidates(); });
+}
+window.addEventListener("hashchange", () => { readHash(); render(); });
+
+readHash();
+render();
+</script>
+</body>
+</html>

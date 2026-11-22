@@ -610,7 +610,7 @@ mod disk_via_resume {
 
     /// A disk wildcard from the mock enterprise backend.
     ///
-    /// The mock ignores both the disk spec and the snapshot, so a null cell and
+    /// The mock ignores both the disk spec and the view, so a null cell and
     /// a dangling sentinel are enough — all the production path checks is that
     /// they are non-null. `disk_spec` is borrowed from the caller's frame
     /// rather than leaked so that it outlives the iterator, which is what the
@@ -620,15 +620,15 @@ mod disk_via_resume {
         disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     ) -> Box<rqe_iterators::wildcard::DiskWildcardIterator<'index>> {
         init_enterprise_iterators();
-        ctx.set_dummy_disk_snapshot();
+        ctx.set_dummy_disk_query_view();
 
-        let snapshot = std::ptr::NonNull::<ffi::RedisSearchDiskSnapshot>::dangling();
+        let view = std::ptr::NonNull::<ffi::RedisSearchDiskQueryView>::dangling();
         let status = None;
 
         // SAFETY: `SEARCH_ENTERPRISE_ITERATORS` is initialised just above;
-        // `disk_spec` and `snapshot` are non-null and never dereferenced by the
+        // `disk_spec` and `view` are non-null and never dereferenced by the
         // mock; `status` is absent, which the factory accepts.
-        let it = unsafe { new_wildcard_iterator_on_disk(disk_spec, 1.0, snapshot, status) };
+        let it = unsafe { new_wildcard_iterator_on_disk(disk_spec, 1.0, view, status) };
         let NewWildcardIterator::Disk(disk) = it else {
             panic!("the mock enterprise backend must produce the Disk variant");
         };
@@ -763,7 +763,7 @@ mod disk_via_resume {
         };
         match failure {
             MockRevalidateResult::TimedOut => {
-                assert!(matches!(err, RQEIteratorError::TimedOut))
+                assert!(matches!(err, RQEIteratorError::Stopped))
             }
             MockRevalidateResult::IoError => {
                 assert!(matches!(err, RQEIteratorError::IoError(_)))
@@ -979,7 +979,7 @@ mod new_wildcard_via_resume {
         let guard = ctx.spec_read();
         assert!(matches!(
             it.suspend().resume(&guard),
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         ));
     }
 }

@@ -519,6 +519,13 @@ enum RawResultData_Active_Tag
   RawResultData_Active_Numeric = 16,
   RawResultData_Active_Metric = 32,
   RawResultData_Active_HybridMetric = 64,
+  /**
+   * A sparse vector node's score: the document's dot product with the query.
+   *
+   * Numeric like [`Metric`](Self::Metric), but its own kind, so the sparse
+   * scorer can tell it apart from a dense vector distance in the same query.
+   */
+  RawResultData_Active_SparseScore = 128,
 };
 #ifndef __cplusplus
 typedef uint8_t RawResultData_Active_Tag;
@@ -549,6 +556,10 @@ typedef union RawResultData_Active {
   struct {
     RawResultData_Active_Tag hybridmetric_tag;
     union RawAggregateResult_Active hybridmetric;
+  };
+  struct {
+    RawResultData_Active_Tag sparsescore_tag;
+    double sparsescore;
   };
 } RawResultData_Active;
 #endif /* RAWRESULTDATA_ACTIVE_DEFINED */
@@ -626,6 +637,7 @@ typedef struct RawIndexResult_Active RSIndexResult;
 #define RSResultData_Numeric      RawResultData_Active_Numeric
 #define RSResultData_Metric       RawResultData_Active_Metric
 #define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+#define RSResultData_SparseScore  RawResultData_Active_SparseScore
 
 #define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
 #define RSAggregateResult_Owned    RawAggregateResult_Active_Owned

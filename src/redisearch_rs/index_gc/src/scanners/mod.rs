@@ -20,5 +20,6 @@
 pub mod existing_docs;
 pub mod missing_docs;
 pub mod numeric;
+pub mod sparse_vectors;
 pub mod tags;
 pub mod terms;

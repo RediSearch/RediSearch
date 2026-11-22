@@ -11,6 +11,9 @@ on:
         description: 'Architecture (x86_64, aarch64)'
         type: string
         required: true
+      packages:
+        type: string
+        description: 'Space-separated package ids this build must produce (generate-matrix.yml `packages`). Empty skips the check.'
       ref:
         type: string
         description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
@@ -192,6 +195,31 @@ jobs:
         env:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
+
+      - name: Verify packages match generate-matrix.yml
+        if: inputs.packages != ''
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          ARCH: ${{ inputs.architecture }}
+        run: |
+          cd bin/artifacts/snapshots
+          shopt -s nullglob
+          all=(redisearch-community.*.zip)
+          printf '%s\n' "${all[@]}"
+          failed=0
+          for id in $PACKAGES; do
+            files=("redisearch-community.$id-$ARCH."*.zip)
+            if (( ${#files[@]} != 1 )); then
+              echo "::error title=Unexpected package name::Expected one redisearch-community.$id-$ARCH.*.zip, found ${#files[@]}. Either packing skipped it, or sbin/get-platform names this platform differently and package_platforms in generate-matrix.yml needs updating."
+              failed=1
+            fi
+          done
+          expected=$(wc -w <<< "$PACKAGES")
+          if (( ${#all[@]} != expected )); then
+            echo "::error title=Unexpected packages::Expected $expected packages, found ${#all[@]}"
+            failed=1
+          fi
+          exit $failed
 
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
