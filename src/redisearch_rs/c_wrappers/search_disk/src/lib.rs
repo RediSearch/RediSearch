@@ -69,14 +69,11 @@ impl SearchDiskHandle {
     ///    [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
     ///    this disk spec that remains valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
-    /// 5. `limits`, when present, must be the query's request limits and remain valid for
-    ///    the call, with its kind and source fixed during it.
     pub unsafe fn new_numeric_iterator<'index>(
         self,
         filter: &NumericFilter,
         field_index: FieldIndex,
         view: NonNull<ffi::RedisSearchDiskQueryView>,
-        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
@@ -89,7 +86,7 @@ impl SearchDiskHandle {
         // lifetime and exclusive access of the returned reference.
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
 
-        api.new_numeric_on_disk(disk_spec, filter, field_index, view, limits)
+        api.new_numeric_on_disk(disk_spec, filter, field_index, view)
     }
 
     /// Build a geo-radius filter iterator backed by this on-disk index.
@@ -111,14 +108,11 @@ impl SearchDiskHandle {
     ///    [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
     ///    this disk spec that remains valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
-    /// 5. `limits`, when present, must be the query's request limits and remain valid for
-    ///    the call, with its kind and source fixed during it.
     pub unsafe fn new_geo_iterator<'index>(
         self,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         view: NonNull<ffi::RedisSearchDiskQueryView>,
-        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
@@ -131,7 +125,7 @@ impl SearchDiskHandle {
         // lifetime and exclusive access of the returned reference.
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
 
-        api.new_geo_on_disk(disk_spec, gf, field_index, view, limits)
+        api.new_geo_on_disk(disk_spec, gf, field_index, view)
     }
 
     /// Build an iterator over documents missing `field_index` at indexing time.
