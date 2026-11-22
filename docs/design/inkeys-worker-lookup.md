@@ -75,7 +75,8 @@ do not acquire the GIL.
 
 The table is derived state, rebuilt during indexing or load rather than serialized.
 Its allocated bucket/control capacity and object size contribute to
-`key_table_size_mb` and total index memory. Redis metadata remains a separate cost.
+`key_table_size_mb` and total index memory. These metrics also include Search-owned
+RAM DocIdMeta allocations. Redis key-object memory is accounted for by Redis.
 
 ## Memory model
 

@@ -3070,6 +3070,13 @@ def testDocIdMetaMemoryReclaimedAfterUnlink(env):
   for index in indexes:
     env.expect('FT.CREATE', index, 'PREFIX', 1, 'doc:', 'SCHEMA', 'n', 'NUMERIC').ok()
 
+  def aggregate_difference():
+    per_index_mb = [float(index_info(env, index)['total_index_memory_sz_mb'])
+                    for index in indexes]
+    per_index_bytes = sum(round(mb * 2**20) for mb in per_index_mb)
+    return conn.info('search')['search_used_memory_indexes'] - per_index_bytes
+
+  difference_before = aggregate_difference()
   # Keep the hash above Redis's thresholds for hash-table encoding and lazy free.
   fields = [field for i in range(600) for field in (f'field{i}', 'value')]
   conn.execute_command('HSET', 'doc:1', 'n', 1, *fields)
@@ -3082,3 +3089,4 @@ def testDocIdMetaMemoryReclaimedAfterUnlink(env):
                      'Redis should reclaim the key on its lazy-free thread')
   for index in indexes:
     env.assertEqual(float(index_info(env, index)['key_table_size_mb']), 0)
+  env.assertEqual(aggregate_difference(), difference_before)

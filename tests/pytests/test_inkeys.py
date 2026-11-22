@@ -68,8 +68,10 @@ def test_doc_key_map_lifecycle():
                'n', 'NUMERIC', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
 
+    unqueried_key_table_mb = float(index_info(env, 'idx')['key_table_size_mb'])
+    env.assertGreater(unqueried_key_table_mb, 0)
     for _ in env.reloadingIterator():
-        env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), unqueried_key_table_mb)
         env.expect('FT.SEARCH', 'idx', 'hello', 'INKEYS', 3, key, key, 'missing',
                    'NOCONTENT').equal([1, key])
         conn.execute_command('HSET', key, 't', 'hello', 'n', 2)
@@ -110,9 +112,10 @@ def test_doc_key_map_memory_and_inline():
     env = Env(moduleArgs='WORKERS 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.cmd('HSET', 'doc', 't', 'hello')
+    key_metadata_mb = float(index_info(env, 'idx')['key_table_size_mb'])
     env.expect('FT.SEARCH', 'idx', 'hello', 'INKEYS', 1, 'doc',
                'NOCONTENT').equal([1, 'doc'])
-    env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+    env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), key_metadata_mb)
     env.assertContains('IDS {1,}', env.cmd('FT.EXPLAIN', 'idx', 'hello',
                                          'INKEYS', 1, 'doc'))
     env.assertEqual(env.cmd('EVAL',
