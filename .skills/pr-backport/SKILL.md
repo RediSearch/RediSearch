@@ -139,8 +139,16 @@ gh pr create \
 
 ## Changes from original
 <describe any modifications needed for the backport, or 'Clean cherry-pick, no changes needed.'>
+
+#### Release Notes
+
+- [ ] This PR requires release notes
+- [ ] This PR does not require release notes
 "
 ```
+
+`check-release-notes` fails unless exactly one release-notes box is ticked. Tick the same box
+as the original PR, since a backport carries the original's user impact to its release line.
 
 ### 7. Multi-branch backports
 
