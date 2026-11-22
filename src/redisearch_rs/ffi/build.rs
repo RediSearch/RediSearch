@@ -587,7 +587,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query_memory.h",
-        fns: &["QueryMemory_Checkpoint"],
+        fns: &["QueryMemory_CheckpointExtern"],
         types: &[],
         vars: &[],
     },

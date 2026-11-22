@@ -46,7 +46,7 @@ pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
     let timeout = ctx.sctx().limits;
     // SAFETY: `timeout` is the request's own, which AREQ_ApplyContext sets on the search context
     // before evaluating.
-    unsafe { ffi::QueryMemory_Checkpoint(timeout) }
+    unsafe { ffi::QueryMemory_CheckpointExtern(timeout) }
 }
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
