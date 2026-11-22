@@ -210,12 +210,20 @@ def test_hybrid_build_checkpoint_fails_before_execution(env):
             for at_call in (1, 2):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
             env.assertEqual(hybrid_result_count(run_at_call(env, 3, *HYBRID)), full)
-    memory_pressure(env, 'AT_CALL', 1)
-    try:
-        env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
-        env.assertEqual(checkpoint_calls(env), 0)
-    finally:
-        memory_pressure(env, 'RESET')
+
+    # The vector subquery also reaches checkpoints while it runs, so RETURN is compared with FAIL,
+    # whose build reads at two more.
+    def calls_without_pressure():
+        memory_pressure(env, 'AT_CALL', 1_000_000)
+        try:
+            env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
+            return checkpoint_calls(env)
+        finally:
+            memory_pressure(env, 'RESET')
+
+    with oom_policy(env, 'fail'):
+        fail_calls = calls_without_pressure()
+    env.assertEqual(calls_without_pressure(), fail_calls - 2)
 
 
 @skip(cluster=False)
