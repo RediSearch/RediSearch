@@ -25,7 +25,8 @@ void RS_VecSimSetTimeoutCallback(int (*callback)(QueryRequestLimits *timeout));
 
 // The memory checkpoint of the Rust vector iterators. Returns nonzero when the query should stop
 // (see QueryMemory_CheckpointExact), which under memory pressure first requests the memory stop.
-// Reads memory on every call; callers own the cadence.
+// Reads memory on every call, outside the request's amortized cadence of QueryMemory_Checkpoint,
+// for sites reached once per range call or KNN batch.
 int RS_VecSimCheckMemory(QueryRequestLimits *timeout);
 
 // VecSim's stop callback (VecSim_SetStopCallbackFunction), called with the query's

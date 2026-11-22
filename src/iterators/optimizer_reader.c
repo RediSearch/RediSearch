@@ -178,7 +178,7 @@ IteratorStatus OPT_ReadYield(QueryIterator *self) {
 }
 
 IteratorStatus OPT_Read(QueryIterator *self) {
-  IteratorStatus rc1 = ITERATOR_OK, rc2 = ITERATOR_OK;
+  IteratorStatus rc1, rc2;
   OptimizerIterator *it = (OptimizerIterator *)self;
   QOptimizer *opt = it->optim;
 

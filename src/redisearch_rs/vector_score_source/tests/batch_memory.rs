@@ -180,11 +180,11 @@ fn the_adhoc_checkpoint_reads_memory_once_per_interval() {
     let mut source = index.source(uniform_blob(N as f32, DIM), N, K, N);
 
     // The stop comes with the amortized read, not with the first call. A scan that replaced
-    // `check_stop` with an unamortized read would stop on call 1.
-    assert!(source.check_stop().is_ok());
+    // `check_memory` with an unamortized read would stop on call 1.
+    assert!(source.check_memory().is_ok());
     assert!(!memory_stopped(&index));
     let interval = ffi::QUERY_MEMORY_RATIO_READ_INTERVAL as usize;
-    let stopped_at = (2..=2 * interval).find(|_| source.check_stop().is_err());
+    let stopped_at = (2..=2 * interval).find(|_| source.check_memory().is_err());
     assert_eq!(stopped_at, Some(interval));
     assert!(memory_stopped(&index));
 }

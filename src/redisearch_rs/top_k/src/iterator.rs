@@ -550,11 +550,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // collected is still served and the iterator reaches EOF rather than
             // re-collecting on every subsequent read. Only `rewind` starts a new
             // scan. The source is rewound to release scan-scoped resources; the
-            // yield path needs none of them. Rewind comes first: a memory stop
-            // lands here under pressure, and finalizing allocates a fresh heap
-            // while the source would still hold its index-sized scan state.
-            self.source.rewind();
+            // yield path needs none of them.
             self.finalize_collection();
+            self.source.rewind();
         }
         result
     }
@@ -698,7 +696,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // VecSim distance lookup.
             scope.0.check_timeout()?;
             // Each retained entry holds a captured child record, so memory grows with the scan.
-            scope.0.check_stop()?;
+            scope.0.check_memory()?;
             if let Some(score) = scope.0.lookup_score(doc_id)
                 && scope.0.accept_candidate(doc_id, score)?
             {
@@ -714,7 +712,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         // Reached only on a clean scan exit (EOF or `Stop`); a stopped scan
         // propagates earlier. Rerank and finalize copy the heap, so read memory
         // once more before them.
-        scope.0.check_stop_now()?;
+        scope.0.check_memory_now()?;
         if scope.0.should_rerank() && !self.heap.is_empty() {
             self.heap.rescore(|scored| scope.0.rerank(scored));
         }

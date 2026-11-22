@@ -1275,7 +1275,6 @@ VecSimQueryReply *TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator:
         this->index->flatIndexGuard.lock_shared();
         auto cur_flat_results = this->flat_iterator->getNextResults(n_res, BY_SCORE_THEN_ID);
         this->index->flatIndexGuard.unlock_shared();
-        // This is also the only time `getNextResults` on the BF iterator can fail.
         if (VecSim_OK != cur_flat_results->code) {
             return cur_flat_results;
         }

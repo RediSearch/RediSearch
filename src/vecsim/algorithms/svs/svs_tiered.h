@@ -387,7 +387,6 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
                     std::shared_lock flat_lock{index->flatIndexGuard};
                     return flat_iterator->getNextResults(n_res, BY_SCORE_THEN_ID);
                 }();
-                // This is also the only time `getNextResults` on the BF iterator can fail.
                 if (VecSim_OK != cur_flat_results->code) {
                     return cur_flat_results;
                 }
