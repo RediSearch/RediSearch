@@ -65,13 +65,11 @@ static void IndexResultAsyncRead_DiscardReadyResults(IndexResultAsyncReadState *
 
 // Wait for every in-flight async read to complete and discard its result.
 //
-// The disk-side pool does NOT cancel or wait for pending reads when freed (see
-// `IndexDiskAPI.createAsyncReadPool`): each in-flight read borrows the query
-// snapshot and dereferences it on I/O completion, so the snapshot must outlive
-// them. Releasing the pool (and, shortly after, the snapshot in SearchCtx_CleanUp)
-// while reads are still pending is a use-after-free. Draining to `pending == 0`
-// here upholds that contract; on the normal EOF path `pending` is already 0 so
-// this returns immediately.
+// The disk-side pool does NOT cancel or wait for pending reads when freed, and
+// `IndexDiskAPI.createAsyncReadPool` requires the query's read view to outlive every
+// in-flight read. Draining to `pending == 0` here, before the pool is freed and the
+// view is released in SearchCtx_CleanUp, upholds that contract; on the normal EOF
+// path `pending` is already 0 so this returns immediately.
 static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
   // Value is irrelevant: drained results are discarded regardless of expiration.
   const t_expirationTimePoint expiration = {0};
@@ -90,8 +88,8 @@ static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   if (!state) return;
 
-  // Drain in-flight reads before freeing the pool: they borrow the query
-  // snapshot and deref it on completion, and the pool does not wait on free.
+  // Drain in-flight reads before freeing the pool: the pool contract requires it
+  // (see `IndexDiskAPI.createAsyncReadPool`), and the pool does not wait on free.
   if (state->asyncPool) {
     IndexResultAsyncRead_Drain(state);
     SearchDisk_FreeAsyncReadPool(state->asyncPool);

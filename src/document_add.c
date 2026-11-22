@@ -64,7 +64,8 @@ part of the document,
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.
-   The supported languages are defined in RSLanguage in "src/language.h".
+   The supported languages are defined in `Language` in
+   "src/redisearch_rs/language/src/lib.rs".
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to

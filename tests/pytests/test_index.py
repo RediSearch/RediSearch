@@ -271,6 +271,33 @@ def test_restore_schema_rejects_truncated_payload(env: Env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:2'])
 
 @skip(cluster=True)
+def test_restore_schema_of_existing_aliased_index(env: Env):
+    """Slot migration can deliver a schema the shard already holds. Restoring an aliased index
+    that is already registered finds each alias taken, and must keep the registered index and its
+    aliases rather than crash."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.ALIASADD', 'a2', 'idx').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+
+    for _ in range(10):
+        env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+
+    env.assertEqual(env.cmd('FT._LIST'), ['idx'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
+    # A restored schema does not scan existing keys, so finding doc:1 shows the original index
+    # still answers through each name.
+    for name in ('idx', 'a1', 'a2'):
+        env.expect('FT.SEARCH', name, 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.ALIASDEL', 'a1').ok()
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.SEARCH', 'a1', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
+
+@skip(cluster=True)
 def test_forward_index_reuse_after_large_document(env: Env):
     """Documents indexed after one with enough unique terms to make the pooled forward index release
     its storage must still get exactly their own terms and positions."""

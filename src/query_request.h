@@ -153,7 +153,7 @@ typedef struct QueryRequestMemoryState {
   // Set when process memory crossed the out-of-memory threshold.
   RS_Atomic(bool) stopped;
 
-  // Calls of QueryMemory_Checkpoint since the last memory read, across all checkpoint sites.
+  // Calls of QueryMemory_Checkpoint since the last memory read.
   // Request-scoped like the stop: reset only by Init. Relaxed atomic, updated with a plain
   // load and store rather than a read-modify-write, so concurrent calls may lose increments.
   RS_Atomic(uint32_t) counter;

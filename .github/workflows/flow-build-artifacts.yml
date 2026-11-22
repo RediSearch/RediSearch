@@ -146,6 +146,7 @@ jobs:
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
+      packages: ${{ join(fromJson(needs.generate-matrix.outputs.packages)[matrix.platform], ' ') }}
       sha: ${{ needs.setup.outputs.sha }}
       redis-ref: ${{ needs.setup.outputs.redis-ref }}
       beta-version: ${{ needs.setup.outputs.beta-version }}

@@ -70,7 +70,7 @@ fn initial_read_timed_out() {
 
     assert!(matches!(
         profile.read(),
-        Err(rqe_iterators::RQEIteratorError::TimedOut),
+        Err(rqe_iterators::RQEIteratorError::Stopped),
     ));
 
     assert!(profile.inner().wall_time_ns() >= 1_000_000_000);
@@ -106,7 +106,7 @@ fn initial_skip_to_timedout() {
 
     assert!(matches!(
         profile.skip_to(1),
-        Err(rqe_iterators::RQEIteratorError::TimedOut),
+        Err(rqe_iterators::RQEIteratorError::Stopped),
     ));
 
     assert!(profile.inner().wall_time_ns() >= 1_000_000_000);

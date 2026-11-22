@@ -9,7 +9,7 @@
 
 use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
-    IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
+    IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_STOPPED, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     ValidateStatus_VALIDATE_TIMEOUT,
 };
@@ -249,7 +249,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
-        Err(RQEIteratorError::TimedOut) => IteratorStatus_ITERATOR_TIMEOUT,
+        Err(RQEIteratorError::Stopped) => IteratorStatus_ITERATOR_STOPPED,
         Err(RQEIteratorError::IoError(_)) => {
             unreachable!(
                 "None of the current iterators can fail due to an I/O error, since everything is read from memory"
@@ -281,7 +281,7 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_NOTFOUND
         }
-        Err(RQEIteratorError::TimedOut) => IteratorStatus_ITERATOR_TIMEOUT,
+        Err(RQEIteratorError::Stopped) => IteratorStatus_ITERATOR_STOPPED,
         Err(RQEIteratorError::IoError(_)) => {
             unreachable!(
                 "None of the current iterators can fail due to an I/O error, since everything is read from memory"
@@ -369,7 +369,7 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
         // are reported apart because they say different things about the result set: a timeout
         // makes it partial and has to reach the client, an I/O error kills this subtree in a query
         // that still has time left.
-        Err(RQEIteratorError::TimedOut) => ValidateStatus_VALIDATE_TIMEOUT,
+        Err(RQEIteratorError::Stopped) => ValidateStatus_VALIDATE_TIMEOUT,
         Err(RQEIteratorError::IoError(_)) => ValidateStatus_VALIDATE_ABORTED,
     }
 }

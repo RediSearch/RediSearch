@@ -16,6 +16,7 @@ namespace vecsim_types {
 // Two scalar-quantized coordinates per byte, followed by the same metadata as SQ8.
 struct sq4 : quantized_metadata {
     using value_type = uint8_t;
+    using metadata_type = float;
     static constexpr uint8_t max_code = 15;
     static constexpr unsigned bits_per_code = 4;
 

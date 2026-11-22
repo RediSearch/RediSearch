@@ -58,6 +58,20 @@ fn insert_without_gap() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
+fn insert_at_last_addressable_slot() {
+    let mut row: RLookupRow = RLookupRow::new();
+    let key = create_test_key(u16::MAX, 0, RLookupKeyFlags::empty());
+
+    row.write_key(&key, SharedValue::new_num(42.0));
+
+    assert_eq!(row.get(&key).and_then(|value| value.as_num()), Some(42.0));
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn insert_with_gap() {
     let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());

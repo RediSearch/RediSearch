@@ -15,7 +15,9 @@ pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidate
 pub(crate) use wildcard_helper::WildcardHelper;
 
 use index_result::RSIndexResult;
-use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, TypeErasedRQEIterator,
+};
 
 /// A mock iterator that produces results with a specific [`FieldMask`](inverted_index::FieldMask).
 ///
@@ -136,6 +138,17 @@ pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<D
         docs.push(r.doc_id);
     }
     docs
+}
+
+/// Create `n` type-erased [`Mock`] children, the `i`-th (1-based) holding the
+/// single document `i`.
+pub(crate) fn erased_single_doc_children(n: DocId) -> Vec<TypeErasedRQEIterator<'static>> {
+    (1..=n)
+        .map(|doc_id| {
+            let child: Mock<'_, 1> = Mock::new([doc_id]);
+            TypeErasedRQEIterator::new(Box::new(child))
+        })
+        .collect()
 }
 
 /// Create a single [`Mock`] child and return it as a boxed trait object
