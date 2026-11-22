@@ -59,18 +59,7 @@ if(TARGET fmt)
 	target_compile_options(fmt PRIVATE "-include" "cstdlib")
 endif()
 
-if(NOT DEFINED BOOST_DIR)
-    set(BOOST_DIR "${SEARCH_ROOT}/.install/boost")
-endif()
-if(NOT IS_DIRECTORY "${BOOST_DIR}")
-    include("${SEARCH_ROOT}/build/boost/boost.cmake")
-endif()
-if(NOT EXISTS "${BOOST_DIR}/boost/unordered/unordered_flat_set.hpp")
-    message(FATAL_ERROR "VecSim requires Boost >= 1.81 headers. Set BOOST_DIR to a compatible Boost directory.")
-endif()
-
 include_directories(${SEARCH_ROOT}/src)
-include_directories(SYSTEM "${BOOST_DIR}")
 
 # Define BUILD_TESTS macro if test helpers OR tests are requested.
 # This enables test helper methods (fitMemory, serialization, etc.) in class definitions.
@@ -149,7 +138,6 @@ add_library(VectorSimilarity ${VECSIM_LIBTYPE}
     ${HEADER_LIST}
 )
 
-target_include_directories(VectorSimilarity SYSTEM INTERFACE "${BOOST_DIR}")
 target_link_libraries(VectorSimilarity VectorSimilaritySpaces)
 
 if (TARGET svs::svs)

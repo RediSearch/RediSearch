@@ -9,10 +9,8 @@
 #pragma once
 
 #include "vecsim/memory/vecsim_base.h"
-#include <boost/unordered/unordered_flat_set.hpp>
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <vector>
 #include <algorithm>
 #include <set>
@@ -111,10 +109,6 @@ public:
           std::unordered_set<T, std::hash<T>, std::equal_to<T>, VecsimSTLAllocator<T>>(n_bucket,
                                                                                        alloc) {}
 };
-
-template <typename T>
-using unordered_flat_set =
-    boost::unordered_flat_set<T, boost::hash<T>, std::equal_to<T>, VecsimSTLAllocator<T>>;
 
 struct one_byte_mutex {
     one_byte_mutex() noexcept = default;

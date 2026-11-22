@@ -7,11 +7,7 @@ if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
 
-if(POLICY CMP0135)
-    cmake_policy(SET CMP0135 NEW)
-endif()
-
-if (IS_DIRECTORY "${BOOST_DIR}")
+if (IS_DIRECTORY ${BOOST_DIR})
     message(STATUS "BOOST_DIR points to a valid directory: ${BOOST_DIR}")
 else()
     message(STATUS "BOOST_DIR '${BOOST_DIR}' is not a valid boost directory path")
@@ -26,15 +22,10 @@ else()
             Boost
             URL https://github.com/boostorg/boost/releases/download/boost-1.88.0/boost-1.88.0-b2-nodocs.tar.gz
             USES_TERMINAL_DOWNLOAD TRUE
+            DOWNLOAD_NO_EXTRACT FALSE
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    if(COMMAND FetchContent_MakeAvailable)
-        FetchContent_MakeAvailable(Boost)
-    else()
-        FetchContent_GetProperties(Boost)
-        if(NOT boost_POPULATED)
-            FetchContent_Populate(Boost)
-        endif()
-    endif()
+    FetchContent_MakeAvailable(Boost)
 
     message(STATUS "boost fetched")
     message(STATUS "boost source dir: ${boost_SOURCE_DIR}")
