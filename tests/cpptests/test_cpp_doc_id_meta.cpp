@@ -28,12 +28,16 @@ class DocIdMetaTest : public ::testing::Test {
     return classId;
   }
 
+  virtual bool simulateFlex() const {
+    return true;
+  }
+
   void SetUp() override {
     // The DocIdMeta RDB save/load callbacks are a disk-mode feature and are only
     // registered when disk mode is (really or simulated) enabled. Simulate it so
     // DocIdMeta_Init registers rdb_save/rdb_load for these tests.
     prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
-    RSGlobalConfig.simulateInFlex = true;
+    RSGlobalConfig.simulateInFlex = simulateFlex();
 
     // Get context - MyEnvironment already initialized redismock
     ctx = RedisModule_GetThreadSafeContext(nullptr);
@@ -1033,5 +1037,55 @@ TEST_F(DocIdMetaTest, TestUnlinkSkipsDeletedEntries) {
 
   // Both entries should now be invalid
   verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocIdMissing(testKeyName, SPEC2_ID);
+}
+
+class DocIdMetaRamTest : public DocIdMetaTest {
+ protected:
+  bool simulateFlex() const override {
+    return false;
+  }
+};
+
+TEST_F(DocIdMetaRamTest, TestPromotionAndDemotionPreserveDocLengths) {
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, UINT64_MAX, 101), REDISMODULE_OK);
+  EXPECT_NE(getKeyMeta(testKeyName) & 1, 0);
+  verifyEntry(testKeyName, SPEC1_ID, UINT64_MAX, 101);
+
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 17, 202), REDISMODULE_OK);
+  EXPECT_EQ(getKeyMeta(testKeyName) & 1, 0);
+  verifyEntry(testKeyName, SPEC1_ID, UINT64_MAX, 101);
+  verifyEntry(testKeyName, SPEC2_ID, 17, 202);
+
+  ASSERT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_NE(getKeyMeta(testKeyName) & 1, 0);
+  verifyEntry(testKeyName, SPEC2_ID, 17, 202);
+
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 18, 303), REDISMODULE_OK);
+  verifyEntry(testKeyName, SPEC2_ID, 18, 303);
+  uint64_t docId = 0;
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &docId), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Clear(ctx, testKeyName), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &docId), REDISMODULE_ERR);
+}
+
+TEST_F(DocIdMetaRamTest, TestPruneFreesStaleSingleMembership) {
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 17, 101), REDISMODULE_OK);
+  EXPECT_NE(getKeyMeta(testKeyName) & 1, 0);
+
+  ASSERT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+}
+
+TEST_F(DocIdMetaRamTest, TestPruneCompactsSurvivingMembership) {
+  addTestSpec("idx_live", SPEC1_ID);
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 17, 101), REDISMODULE_OK);
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 18, 202), REDISMODULE_OK);
+  EXPECT_EQ(getKeyMeta(testKeyName) & 1, 0);
+
+  ASSERT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+  EXPECT_NE(getKeyMeta(testKeyName) & 1, 0);
+  verifyEntry(testKeyName, SPEC1_ID, 17, 101);
   verifyDocIdMissing(testKeyName, SPEC2_ID);
 }

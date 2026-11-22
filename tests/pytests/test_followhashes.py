@@ -1263,3 +1263,29 @@ def testDocIndexedInTwoIndexes():
     env.expect('FT.SEARCH idx1 foo').equal([0])
 
     env.expect('FT.DROPINDEX idx1 DD').ok()
+
+@skip(cluster=True)
+def testOverlappingDocIdMetaMemberships(env):
+    """Exercises adding and removing individual memberships on a surviving key."""
+    conn = env.getConnection()
+    env.expect('FT.CREATE', 'both', 'PREFIX', 1, 'both:', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'all', 'PREFIX', 2, 'both:', 'one:', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    conn.execute_command('HSET', 'both:1', 'n', 1)
+    for index in ('both', 'all'):
+        env.expect('FT.SEARCH', index, '@n:[1 1]', 'NOCONTENT').equal([1, 'both:1'])
+
+    conn.execute_command('RENAME', 'both:1', 'one:1')
+    env.expect('FT.SEARCH', 'both', '*', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'all', '@n:[1 1]', 'NOCONTENT').equal([1, 'one:1'])
+
+    conn.execute_command('RENAME', 'one:1', 'both:1')
+    for index in ('both', 'all'):
+        env.expect('FT.SEARCH', index, '@n:[1 1]', 'NOCONTENT').equal([1, 'both:1'])
+    env.expect('FT.DROPINDEX', 'both').ok()
+    conn.execute_command('HSET', 'both:1', 'n', 2)
+    env.expect('FT.SEARCH', 'all', '@n:[1 1]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'all', '@n:[2 2]', 'NOCONTENT').equal([1, 'both:1'])
+
+    conn.execute_command('DEL', 'both:1')
+    env.expect('FT.SEARCH', 'all', '*', 'NOCONTENT').equal([0])
