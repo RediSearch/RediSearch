@@ -45,7 +45,7 @@ void DocIdMeta_SetForgetDocIdMetadata(bool inProgress) {
 #define SPECID_TO_KEY(specId) ((void *)(uintptr_t)(specId))
 #define KEY_TO_SPECID(key) ((uint64_t)(uintptr_t)(key))
 
-// Value of the per-key dict: what one index knows about the key.
+// Document metadata for one index membership.
 typedef struct {
   uint64_t docId;   // DOCID_META_INVALID once the key has been unlinked
   uint32_t docLen;  // DOCID_META_DOCLEN_UNKNOWN for entries loaded from a version-1 payload
@@ -56,15 +56,15 @@ typedef struct {
   DocIdMetaEntry entry;
 } DocIdMetaSingle;
 
-// RAM metadata uses the low bit to distinguish a single membership from an
-// aligned dictionary pointer. Flex always uses a dictionary for persistence.
+// The uint64_t Redis metadata slot has three states.
+//   0                 no metadata
+//   aligned pointer   dict of specId -> entry
+//   pointer | 1       one RAM membership (specId, docId, docLen)
+// Allocations are aligned, so the low bit is available as a tag.
 #define DOCID_META_SINGLE_TAG UINT64_C(1)
 
-static bool docIdMetaIsSingle(uint64_t meta) {
-  return (meta & DOCID_META_SINGLE_TAG) != 0;
-}
-
-static DocIdMetaSingle *docIdMetaSingleValue(uint64_t meta) {
+static DocIdMetaSingle *docIdMetaAsSingle(uint64_t meta) {
+  if (!(meta & DOCID_META_SINGLE_TAG)) return NULL;
   return (DocIdMetaSingle *)(uintptr_t)(meta & ~DOCID_META_SINGLE_TAG);
 }
 
@@ -72,7 +72,7 @@ static uint64_t docIdMetaSingleCreate(uint64_t specId, DocIdMetaEntry entry) {
   DocIdMetaSingle *single = rm_malloc(sizeof(*single));
   *single = (DocIdMetaSingle){.specId = specId, .entry = entry};
   uint64_t meta = (uint64_t)(uintptr_t)single;
-  RS_ASSERT(!docIdMetaIsSingle(meta));
+  RS_ASSERT((meta & DOCID_META_SINGLE_TAG) == 0);
   return meta | DOCID_META_SINGLE_TAG;
 }
 
@@ -122,7 +122,6 @@ static inline bool isSpecValid(uint64_t specId) {
   return dictFetchValue(specIdDict_g, SPECID_TO_KEY(specId)) != NULL;
 }
 
-// Flex stores a dict pointer in the key metadata.
 // Version 1 persisted (specId, docId) pairs; version 2 appends the document length so that
 // replace and delete need no doc-table read. docIdMetaRDBLoad accepts both.
 #define DOCID_META_VERSION 2
@@ -131,9 +130,12 @@ static inline bool isSpecValid(uint64_t specId) {
 #define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
 static void docIdMetaRelease(uint64_t meta) {
-  if (docIdMetaIsSingle(meta)) {
-    rm_free(docIdMetaSingleValue(meta));
-  } else if (meta) {
+  if (!meta) return;
+
+  DocIdMetaSingle *single = docIdMetaAsSingle(meta);
+  if (single) {
+    rm_free(single);
+  } else {
     dictRelease((dict *)meta);
   }
 }
@@ -145,11 +147,14 @@ static void docIdMetaFree(const char *keyname, uint64_t meta) {
   docIdMetaRelease(meta);
 }
 
-// SetKeyMeta does not free the previous value. Release it only after a
-// successful swap, so the metadata on the key always points to live storage.
+// Free the old payload on a successful swap or the proposed payload on failure.
 static int docIdMetaReplace(RedisModuleKey *key, uint64_t oldMeta, uint64_t newMeta) {
   int rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, newMeta);
-  docIdMetaRelease(rc == REDISMODULE_OK ? oldMeta : newMeta);
+  if (rc == REDISMODULE_OK) {
+    docIdMetaRelease(oldMeta);
+  } else {
+    docIdMetaRelease(newMeta);
+  }
   return rc;
 }
 
@@ -186,8 +191,8 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
   // Resolve the key name only when a registered index needs it.
   const RedisModuleString *keyName = NULL;
-  if (docIdMetaIsSingle(*meta)) {
-    DocIdMetaSingle *single = docIdMetaSingleValue(*meta);
+  DocIdMetaSingle *single = docIdMetaAsSingle(*meta);
+  if (single) {
     docIdMetaUnlinkEntry(ctx, &keyName, single->specId, &single->entry);
     return;
   }
@@ -208,26 +213,27 @@ static bool docIdMetaEntryIsStale(dictEntry *de) {
   return entry->docId == DOCID_META_INVALID || !isSpecValid(KEY_TO_SPECID(dictGetKey(de)));
 }
 
-// Re-attach `meta` after changing the dict it points to. A server that persists key metadata
-// (e.g. to flash) only learns of changes through RedisModule_SetKeyMeta, so an in-place edit of a
-// key loaded clean from storage would otherwise be lost when the key is written back.
+// Tell Redis about an in-place edit so Flex can write the updated metadata back.
 static int docIdMetaMarkChanged(RedisModuleKey *key, uint64_t meta) {
   return RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, meta);
 }
 
-// Called after a dictionary membership was removed.
-static int docIdMetaAfterRemoval(RedisModuleKey *key, uint64_t meta) {
+// Clear an empty dictionary. In RAM, compact a dictionary with one entry left.
+static int docIdMetaAfterDictRemoval(RedisModuleKey *key, uint64_t meta) {
   dict *entries = (dict *)meta;
   size_t count = dictSize(entries);
   if (count == 0) return docIdMetaReplace(key, meta, 0);
-  if (docIdMetaCompactRam && count == 1) {
-    dictIterator iter = {.d = entries, .index = -1};
-    dictEntry *de = dictNext(&iter);
-    uint64_t single =
-        docIdMetaSingleCreate(KEY_TO_SPECID(dictGetKey(de)), *(DocIdMetaEntry *)dictGetVal(de));
-    // If compaction fails, the surviving membership is still in the dictionary.
-    if (docIdMetaReplace(key, meta, single) == REDISMODULE_OK) return REDISMODULE_OK;
-  }
+  if (!docIdMetaCompactRam || count > 1) return docIdMetaMarkChanged(key, meta);
+
+  // Start before the first bucket to find the only entry.
+  dictIterator iter = {.d = entries, .index = -1};
+  dictEntry *last = dictNext(&iter);
+  const DocIdMetaEntry *entry = dictGetVal(last);
+  uint64_t single = docIdMetaSingleCreate(KEY_TO_SPECID(dictGetKey(last)), *entry);
+
+  if (docIdMetaReplace(key, meta, single) == REDISMODULE_OK) return REDISMODULE_OK;
+
+  // If the swap fails, the dictionary still owns the surviving entry.
   return docIdMetaMarkChanged(key, meta);
 }
 
@@ -240,8 +246,8 @@ static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
     return REDISMODULE_OK;
   }
 
-  if (docIdMetaIsSingle(meta)) {
-    DocIdMetaSingle *single = docIdMetaSingleValue(meta);
+  DocIdMetaSingle *single = docIdMetaAsSingle(meta);
+  if (single) {
     if (single->entry.docId == DOCID_META_INVALID || !isSpecValid(single->specId)) {
       single->entry.docId = DOCID_META_INVALID;
       return docIdMetaReplace(key, meta, 0);
@@ -262,7 +268,7 @@ static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
   dictReleaseIterator(iter);
 
   if (removed || dictSize(specIdToEntry) == 0) {
-    return docIdMetaAfterRemoval(key, meta);
+    return docIdMetaAfterDictRemoval(key, meta);
   }
   return REDISMODULE_OK;
 }
@@ -408,11 +414,8 @@ bool DocIdMeta_Init(RedisModuleCtx *ctx) {
   docIdMetaDictType = dictTypeUint64;
   docIdMetaDictType.valDestructor = docIdMetaEntryFree;
 
-  // RDB save/load are disk-mode only: memory mode rebuilds the mapping by
-  // re-indexing on load, so persisting it would risk staleness. NULL is valid -
-  // rdb_save=NULL persists nothing, and REDISMODULE_META_ALLOW_IGNORE (flags
-  // below) makes a NULL rdb_load ignore DocIdMeta from a disk-mode RDB rather
-  // than fail the load. IsEnabledForValidation == IsEnabled() outside tests.
+  // RAM rebuilds DocIdMeta by reindexing on load. The ignore flag lets RAM
+  // skip Flex metadata in an RDB when there is no load callback.
   const bool onDisk = SearchDisk_IsEnabledForValidation();
   docIdMetaCompactRam = !onDisk;
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
@@ -445,16 +448,18 @@ bool DocIdMeta_Init(RedisModuleCtx *ctx) {
 int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId,
                              uint32_t docLen) {
   RS_ASSERT(docId != DOCID_META_INVALID);
+  const DocIdMetaEntry newEntry = {.docId = docId, .docLen = docLen};
   uint64_t meta = 0;
 
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
+    // The first membership starts out compact in RAM and in a dictionary in Flex.
     uint64_t newMeta;
     if (docIdMetaCompactRam) {
-      newMeta = docIdMetaSingleCreate(specId, (DocIdMetaEntry){docId, docLen});
+      newMeta = docIdMetaSingleCreate(specId, newEntry);
     } else {
-      dict *d = docIdMetaDictCreate();
-      docIdMetaDictPut(d, specId, docId, docLen);
-      newMeta = (uint64_t)d;
+      dict *entries = docIdMetaDictCreate();
+      docIdMetaDictPut(entries, specId, docId, docLen);
+      newMeta = (uint64_t)entries;
     }
     int rc = docIdMetaReplace(key, 0, newMeta);
     if (rc != REDISMODULE_OK) {
@@ -464,22 +469,22 @@ int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docI
     return rc;
   }
 
-  if (docIdMetaIsSingle(meta)) {
-    DocIdMetaSingle *single = docIdMetaSingleValue(meta);
-    if (single->specId == specId) {
-      int rc = docIdMetaMarkChanged(key, meta);
-      if (rc == REDISMODULE_OK) single->entry = (DocIdMetaEntry){docId, docLen};
-      return rc;
-    }
-
-    dict *entries = docIdMetaDictCreate();
-    docIdMetaDictPut(entries, single->specId, single->entry.docId, single->entry.docLen);
-    docIdMetaDictPut(entries, specId, docId, docLen);
-    return docIdMetaReplace(key, meta, (uint64_t)entries);
+  DocIdMetaSingle *single = docIdMetaAsSingle(meta);
+  if (!single) {
+    docIdMetaDictPut((dict *)meta, specId, docId, docLen);
+    return docIdMetaMarkChanged(key, meta);
+  }
+  if (single->specId == specId) {
+    int rc = docIdMetaMarkChanged(key, meta);
+    if (rc == REDISMODULE_OK) single->entry = newEntry;
+    return rc;
   }
 
-  docIdMetaDictPut((dict *)meta, specId, docId, docLen);
-  return docIdMetaMarkChanged(key, meta);
+  // Build the two-entry dictionary before replacing the compact record.
+  dict *entries = docIdMetaDictCreate();
+  docIdMetaDictPut(entries, single->specId, single->entry.docId, single->entry.docLen);
+  docIdMetaDictPut(entries, specId, docId, docLen);
+  return docIdMetaReplace(key, meta, (uint64_t)entries);
 }
 
 // The live entry for `specId` on an already-open key, or NULL when there is none.
@@ -488,17 +493,16 @@ static const DocIdMetaEntry *docIdMetaFindWithOpenKey(RedisModuleKey *key, uint6
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
     return NULL;
   }
-  if (docIdMetaIsSingle(meta)) {
-    const DocIdMetaSingle *single = docIdMetaSingleValue(meta);
-    return single->specId == specId && single->entry.docId != DOCID_META_INVALID ? &single->entry
-                                                                                 : NULL;
+  const DocIdMetaEntry *entry;
+  const DocIdMetaSingle *single = docIdMetaAsSingle(meta);
+  if (single) {
+    if (single->specId != specId) return NULL;
+    entry = &single->entry;
+  } else {
+    const dictEntry *de = dictFind((dict *)meta, SPECID_TO_KEY(specId));
+    if (!de) return NULL;
+    entry = dictGetVal(de);
   }
-
-  const dictEntry *de = dictFind((dict *)meta, SPECID_TO_KEY(specId));
-  if (!de) {
-    return NULL;
-  }
-  const DocIdMetaEntry *entry = dictGetVal(de);
   return entry->docId == DOCID_META_INVALID ? NULL : entry;
 }
 
@@ -529,15 +533,13 @@ int DocIdMeta_GetEntryWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t
 // delegates here.
 int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   uint64_t meta = 0;
-  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
+  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
     return REDISMODULE_ERR;
   }
-  if (meta == 0) {
-    return REDISMODULE_ERR;
-  }
-  if (docIdMetaIsSingle(meta)) {
-    DocIdMetaSingle *single = docIdMetaSingleValue(meta);
+  DocIdMetaSingle *single = docIdMetaAsSingle(meta);
+  if (single) {
     if (single->specId != specId) return REDISMODULE_ERR;
+    // Invalidate the entry even if Redis fails to clear the slot.
     single->entry.docId = DOCID_META_INVALID;
     return docIdMetaReplace(key, meta, 0);
   }
@@ -549,7 +551,7 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   if (rc != DICT_OK) {
     return rc;
   }
-  return docIdMetaAfterRemoval(key, meta);
+  return docIdMetaAfterDictRemoval(key, meta);
 }
 
 // Set the entry using key name and spec incarnation ID.
