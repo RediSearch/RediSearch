@@ -333,11 +333,14 @@ void VecSimIndex_AdhocBfCtx_GetExactDistances(VecSimAdhocBfCtx *ctx, const size_
 void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions);
 
 /**
- * @brief Allow 3rd party timeout callback to be used for limiting runtime of a query.
+ * @brief Allow a 3rd party callback to stop a running query early, on a timeout or memory
+ * pressure. VecSim calls it with the query's stopCtx at every search step (per vector in brute
+ * force scans, per candidate in graph searches), so the caller amortizes any costly work.
+ * A search it stops returns VecSim_QueryReply_Stopped.
  *
- * @param callback timeoutCallbackFunction function. should get void* and return int.
+ * @param callback stopCallbackFunction function. should get void* and return int.
  */
-void VecSim_SetTimeoutCallbackFunction(timeoutCallbackFunction callback);
+void VecSim_SetStopCallbackFunction(stopCallbackFunction callback);
 
 /**
  * @brief Allow 3rd party log callback to be used for logging.

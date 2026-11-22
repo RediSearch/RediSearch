@@ -45,6 +45,7 @@ typedef struct {
   size_t numVectorFieldsHNSWCompressed;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
+  size_t numSparseVectorFields;
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   size_t textTotalDocsIndexed;
   size_t tagTotalDocsIndexed;
@@ -53,6 +54,7 @@ typedef struct {
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
   size_t vectorTotalDocsRelabeled;
+  size_t sparseVectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
 // The pipeline stage a timeout occurred in, used to break down the timeout metric.

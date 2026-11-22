@@ -11,7 +11,7 @@
 //!
 //! The real disk iterators are enterprise-only, so a recording stand-in is registered
 //! as [`SEARCH_ENTERPRISE_ITERATORS`]. The disk spec is a real, owned slot the stand-in
-//! never reads through, since the build takes a reference to it. The snapshot is a dangling
+//! never reads through, since the build takes a reference to it. The query view is a dangling
 //! placeholder, only ever carried as a [`NonNull`].
 //!
 //! Disabled under Miri: `TestContext` calls into the C library, which Miri cannot execute.
@@ -49,7 +49,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         &self,
         _: &'index mut ffi::RedisSearchDiskIndexSpec,
         _: f64,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
         _: Option<&mut rqe_iterators::QueryError>,
     ) -> BuiltIterator<'index> {
         unimplemented!()
@@ -62,7 +62,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         _: inverted_index::FieldMask,
         _: f64,
         _: usize,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> BuiltIterator<'index> {
         unimplemented!()
     }
@@ -74,7 +74,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         _: inverted_index::FieldMask,
         _: f64,
         _: usize,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> BuiltIterator<'index> {
         unimplemented!()
     }
@@ -85,7 +85,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         _: &ffi::RSToken,
         _: FieldIndex,
         _: f64,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> BuiltIterator<'index> {
         unimplemented!()
     }
@@ -94,7 +94,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         &self,
         _: &'index mut ffi::RedisSearchDiskIndexSpec,
         _: FieldIndex,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> BuiltIterator<'index> {
         unimplemented!()
     }
@@ -104,7 +104,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         _: &'index mut ffi::RedisSearchDiskIndexSpec,
         _: &NumericFilter,
         _: FieldIndex,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
         limits: Limits,
     ) -> BuiltIterator<'index> {
         RECEIVED.set(Some(limits));
@@ -116,7 +116,7 @@ impl SearchEnterpriseIterators for RecordingEnterpriseIterators {
         _: &'index mut ffi::RedisSearchDiskIndexSpec,
         _: &'index mut ffi::GeoFilter,
         _: ffi::t_fieldIndex,
-        _: NonNull<ffi::RedisSearchDiskSnapshot>,
+        _: NonNull<ffi::RedisSearchDiskQueryView>,
         limits: Limits,
     ) -> BuiltIterator<'index> {
         RECEIVED.set(Some(limits));
@@ -134,8 +134,8 @@ enum Request {
 /// Turns the spec behind `context` into a disk-backed one, and installs the request
 /// limits when asked to. Returns the limits the request now carries.
 ///
-/// The disk spec and snapshot are reset on drop so that tearing the context down does
-/// not free a disk index and snapshot that do not exist.
+/// The disk spec and query view are reset on drop so that tearing the context down does
+/// not free a disk index and query view that do not exist.
 struct DiskBacked<'a> {
     context: &'a mut TestContext,
     /// Backs `diskSpec`, so the `&mut` the disk build takes of it is valid. Dropped
@@ -166,9 +166,9 @@ impl<'a> DiskBacked<'a> {
         // SAFETY: `context` exclusively owns its spec, and `disk_spec` outlives the
         // pointer to it (reset in `drop`).
         unsafe { (*context.spec).diskSpec = &mut *disk_spec };
-        // SAFETY: `context` exclusively owns its `sctx`. The snapshot is never
+        // SAFETY: `context` exclusively owns its `sctx`. The query view is never
         // dereferenced, only carried as a `NonNull` (see the module docs).
-        unsafe { context.sctx.as_mut().diskSnapshot = NonNull::dangling().as_ptr() };
+        unsafe { context.sctx.as_mut().diskQueryView = NonNull::dangling().as_ptr() };
         // SAFETY: `sctx` is valid and exclusively owned.
         let limits = NonNull::new(unsafe { context.sctx.as_ref().limits });
         (
@@ -186,7 +186,7 @@ impl Drop for DiskBacked<'_> {
         // SAFETY: `context` exclusively owns its spec.
         unsafe { (*self.context.spec).diskSpec = std::ptr::null_mut() };
         // SAFETY: `context` exclusively owns its `sctx`.
-        unsafe { self.context.sctx.as_mut().diskSnapshot = std::ptr::null_mut() };
+        unsafe { self.context.sctx.as_mut().diskQueryView = std::ptr::null_mut() };
     }
 }
 

@@ -195,32 +195,32 @@ impl MockContext {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
 
-    /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now
-    /// require a non-null snapshot can run against the mock context. The
-    /// snapshot value itself is opaque to the rqe-iterators layer; the mock
+    /// Set `sctx.diskQueryView` to `view` so disk-backed paths that
+    /// require a non-null view can run against the mock context. The
+    /// view value itself is opaque to the rqe-iterators layer; the mock
     /// enterprise iterators never dereference it.
     ///
     /// # Safety
-    /// `snapshot` must outlive every iterator created against this
+    /// `view` must outlive every iterator created against this
     /// `MockContext`.
-    pub const unsafe fn set_disk_snapshot(&self, snapshot: *mut ffi::RedisSearchDiskSnapshot) {
+    pub const unsafe fn set_disk_query_view(&self, view: *mut ffi::RedisSearchDiskQueryView) {
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
-        unsafe { (*self.sctx).diskSnapshot = snapshot };
+        unsafe { (*self.sctx).diskQueryView = view };
     }
 
-    /// Install a non-null sentinel `sctx.diskSnapshot` for tests that exercise
-    /// disk-backed paths, which now require a non-null snapshot.
+    /// Install a non-null sentinel `sctx.diskQueryView` for tests that exercise
+    /// disk-backed paths, which require a non-null view.
     ///
-    /// The snapshot is opaque to the rqe-iterators layer and the mock enterprise
+    /// The view is opaque to the rqe-iterators layer and the mock enterprise
     /// iterators never dereference it, so a dangling (well-aligned, non-null)
     /// pointer is sufficient and needs no backing storage — callers no longer
-    /// have to borrow an unrelated address to stand in for the snapshot.
-    pub fn set_dummy_disk_snapshot(&self) {
+    /// have to borrow an unrelated address to stand in for the view.
+    pub fn set_dummy_disk_query_view(&self) {
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
         // The sentinel is never dereferenced, only checked for non-null.
         unsafe {
-            (*self.sctx).diskSnapshot =
-                NonNull::<ffi::RedisSearchDiskSnapshot>::dangling().as_ptr();
+            (*self.sctx).diskQueryView =
+                NonNull::<ffi::RedisSearchDiskQueryView>::dangling().as_ptr();
         }
     }
 

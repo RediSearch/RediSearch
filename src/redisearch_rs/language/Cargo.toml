@@ -1,0 +1,20 @@
+[package]
+name = "language"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+strum.workspace = true
+workspace_hack.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"

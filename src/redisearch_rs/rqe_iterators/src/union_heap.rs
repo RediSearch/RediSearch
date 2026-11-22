@@ -813,32 +813,13 @@ where
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` correctly transitions its vtable. See
-        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
-        //
-        // Walked through the buffer pointer rather than `iter_mut`, as `resume`
-        // does: each transition retypes a slot from `I` to `I::Suspended`, so a
-        // typed `IterMut<I>` would still be describing the buffer as `I` after
-        // the first one. Nothing here re-reads a transitioned slot, so that
-        // iterator would not actually be misused — but the borrow claims
-        // something that stops being true half way through, and every other
-        // caller of the slot helper already hands it a raw pointer.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-            // for the rest of this function, so the children Vec is reachable
-            // and unaliased. The borrow is used only to reach the buffer pointer
-            // and length, and ends here.
-            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
-        };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let slot = NonNull::new(unsafe { base.add(i) }).expect("child slot is non-null");
-            // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it
-            // holding a valid `I::Suspended`.
-            unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
-        }
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. Each
+        // element is the child itself. 3. The cast below relabels every slot as
+        // `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, |child| child) };
         // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
         // rewritten as `Vec<I::Suspended>` contents), `result:
         // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and

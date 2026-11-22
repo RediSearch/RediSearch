@@ -537,7 +537,7 @@ fn read_propagates_child_timeout() {
     // At doc_id=6, NOT calls child.read() which goes past EOF and returns timeout
     let result = it.read();
     assert!(
-        matches!(result, Err(RQEIteratorError::TimedOut)),
+        matches!(result, Err(RQEIteratorError::Stopped)),
         "Expected timeout error to propagate from child during read, got {:?}",
         result
     );
@@ -557,7 +557,7 @@ fn skip_to_propagates_child_timeout() {
     // triggering the timeout error.
     let result = it.skip_to(7);
     assert!(
-        matches!(result, Err(RQEIteratorError::TimedOut)),
+        matches!(result, Err(RQEIteratorError::Stopped)),
         "Expected timeout error to propagate from child during skip_to, got {:?}",
         result
     );
@@ -639,7 +639,7 @@ fn read_timeout_via_timeout_ctx() {
 
     let result = it.read();
     assert!(
-        matches!(result, Err(RQEIteratorError::TimedOut)),
+        matches!(result, Err(RQEIteratorError::Stopped)),
         "expected timeout due to timeout context in Not iterator triggered: result = {result:?}",
     );
 }
@@ -675,7 +675,7 @@ fn skip_to_timeout_via_timeout_ctx() {
     assert!(!it.at_eof(), "did not yet expect to EOF");
 
     assert!(
-        matches!(it.skip_to(6_000), Err(RQEIteratorError::TimedOut)),
+        matches!(it.skip_to(6_000), Err(RQEIteratorError::Stopped)),
         "expected timeout due to timeout context in Not iterator triggered"
     );
 
@@ -751,7 +751,7 @@ fn skip_to_timing_out_leaves_the_position_alone() {
 
     let rc = it.skip_to(5);
     assert!(
-        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        matches!(rc, Err(RQEIteratorError::Stopped)),
         "expected a timeout, got {rc:?}",
     );
     assert_eq!(
@@ -781,7 +781,7 @@ fn skip_to_whose_scan_fails_leaves_the_position_alone() {
 
     let rc = it.skip_to(4);
     assert!(
-        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        matches!(rc, Err(RQEIteratorError::Stopped)),
         "expected the child's error to propagate, got {rc:?}",
     );
     assert_eq!(
@@ -1022,7 +1022,7 @@ mod via_resume {
         assert_eq!(doc.doc_id, 1);
 
         assert!(
-            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::Stopped)),
             "a child resume error must propagate out of Not::resume",
         );
     }
@@ -1051,7 +1051,7 @@ mod via_resume {
         assert_eq!(doc.doc_id, 1);
 
         assert!(
-            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::TimedOut)),
+            matches!(it.suspend().resume(&guard), Err(RQEIteratorError::Stopped)),
             "a child resume error must propagate out of Not::resume",
         );
     }

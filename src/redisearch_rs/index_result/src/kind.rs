@@ -33,6 +33,7 @@ pub enum RSResultKind {
     Numeric = 16,
     Metric = 32,
     HybridMetric = 64,
+    SparseScore = 128,
 }
 
 impl std::fmt::Display for RSResultKind {
@@ -45,6 +46,7 @@ impl std::fmt::Display for RSResultKind {
             RSResultKind::Numeric => "Numeric",
             RSResultKind::Metric => "Metric",
             RSResultKind::HybridMetric => "HybridMetric",
+            RSResultKind::SparseScore => "SparseScore",
         };
         write!(f, "{k}")
     }

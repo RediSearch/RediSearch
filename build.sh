@@ -446,6 +446,15 @@ capture_rust_module_coverage() {
   rm -f "${raw_profiles[@]}" "$BINROOT/$name.profdata"
 }
 
+find_module_path() {
+  local module_path="$BINDIR/redisearch.so"
+  if [[ ! -f "$module_path" ]]; then
+    module_path="$BINDIR/module-enterprise.so"
+  fi
+  [[ -f "$module_path" ]] || return 1
+  realpath "$module_path"
+}
+
 #-----------------------------------------------------------------------------
 # Function: prepare_cmake_arguments
 # Prepare arguments to pass to CMake
@@ -972,8 +981,13 @@ run_unit_tests() {
     export TEST="$TEST_FILTER"
   fi
 
+  local rust_module=""
   if [[ $COV == 1 ]]; then
     prepare_coverage_capture
+    if [[ "$OS_NAME" != "macos" ]] && rust_module=$(find_module_path); then
+      rm -f "$BINROOT/rust_module_unit-"*.profraw
+      local -x LLVM_PROFILE_FILE="$BINROOT/rust_module_unit-%8m.profraw"
+    fi
   fi
 
   # Set verbose mode if requested
@@ -1000,6 +1014,9 @@ run_unit_tests() {
 
   if [[ $COV == 1 ]]; then
     capture_coverage unit
+    if [[ -n "$rust_module" ]]; then
+      capture_rust_module_coverage rust_module_unit "$rust_module"
+    fi
   fi
 }
 
@@ -1269,19 +1286,13 @@ run_python_tests() {
 
   echo "Running Python behavioral tests..."
 
-  # Locate the built module
-  MODULE_PATH="$BINDIR/redisearch.so"
-  if [[ ! -f "$MODULE_PATH" && -f "$BINDIR/module-enterprise.so" ]]; then
-    MODULE_PATH="$BINDIR/module-enterprise.so"
-  fi
-
-  if [[ ! -f "$MODULE_PATH" ]]; then
+  if ! MODULE=$(find_module_path); then
     echo "Error: Cannot find RediSearch module binary in $BINDIR"
     exit 1
   fi
 
   # Set up environment variables required by runtests.sh
-  export MODULE="$(realpath "$MODULE_PATH")"
+  export MODULE
   export BINROOT
   export FULL_VARIANT
   export BINDIR
