@@ -13,6 +13,7 @@
 #include <stdbool.h>
 
 #include "spec.h"
+#include "doc_id_meta.h"
 #include "search_disk.h"
 #include "indexes.h"
 #include "field_spec_info.h"
@@ -63,7 +64,6 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.text_ram_metadata_bytes += IndexSpec_collect_text_overhead(sp);
     }
     size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, vec_info.memory, diskMetrics.memory);
-    size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 
     info.indexing_time += sp->stats.totalIndexTime;
@@ -93,7 +93,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
-    size_t total_index_mem = info.total_mem - prev_total_mem;
+    size_t total_index_mem = cur_mem + DocIdMeta_IndexMemoryUsage(sp->specId);
 
     // Update min_mem and max_mem with total memory including disk storage
     if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
@@ -109,6 +109,6 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
   // thread pool singleton).
   size_t shared_vector_mem = VecSim_GetSharedMemory();
   info.fields_stats.total_vector_idx_mem += shared_vector_mem;
-  info.total_mem += shared_vector_mem;
+  info.total_mem += shared_vector_mem + DocIdMeta_TotalMemoryUsage();
   return info;
 }

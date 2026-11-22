@@ -10,8 +10,8 @@
 #include "doc_id_meta.h"
 
 #include <stdbool.h>
-#include <assert.h>
 #include <stddef.h>
+#include <pthread.h>
 
 #include "spec.h"
 #include "indexes.h"
@@ -26,6 +26,8 @@
 #define DOCID_META_CLASS_NAME "D-ID"
 
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
+// Track RAM-mode metadata, which is pruned when an index is dropped.
+static bool docIdMetaTrackRamMemory;
 
 // When true, RDB save/load callbacks become no-ops.
 // Controlled via DocIdMeta_SetForgetDocIdMetadata, called from notifications.c
@@ -63,18 +65,23 @@ static dict *docIdMetaDictCreate(void) {
 }
 
 // Insert or overwrite the entry for `specId`.
-static void docIdMetaDictPut(dict *specIdToEntry, uint64_t specId, uint64_t docId,
-                             uint32_t docLen) {
+// Return the newly allocated dictionary entry, or NULL on overwrite.
+static dictEntry *docIdMetaDictPut(dict *specIdToEntry, uint64_t specId, uint64_t docId,
+                                   uint32_t docLen) {
   dictEntry *de = dictFind(specIdToEntry, SPECID_TO_KEY(specId));
   DocIdMetaEntry *entry;
+  dictEntry *added = NULL;
   if (de) {
     entry = dictGetVal(de);
   } else {
     entry = rm_malloc(sizeof(*entry));
-    dictAdd(specIdToEntry, SPECID_TO_KEY(specId), entry);
+    added = dictAddRaw(specIdToEntry, SPECID_TO_KEY(specId), NULL);
+    RS_ASSERT(added);
+    dictSetVal(specIdToEntry, added, entry);
   }
   entry->docId = docId;
   entry->docLen = docLen;
+  return added;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -104,12 +111,129 @@ static inline bool isSpecValid(uint64_t specId) {
   (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
 #define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
+// Redis may free a payload on its lazy-free thread, after an index was dropped.
+static pthread_mutex_t docIdMetaMemoryLock = PTHREAD_MUTEX_INITIALIZER;
+static dict *docIdMetaMemoryBySpec;
+static size_t docIdMetaMemoryTotal;
+
+static size_t docIdMetaAllocationSize(void *allocation, size_t requested) {
+  return RedisModule_MallocSize ? RedisModule_MallocSize(allocation) : requested;
+}
+
+static ptrdiff_t docIdMetaEntryBytes(dictEntry *entry) {
+  if (!docIdMetaTrackRamMemory) return 0;
+  return (ptrdiff_t)(docIdMetaAllocationSize(entry, sizeof(*entry)) +
+                     docIdMetaAllocationSize(dictGetVal(entry), sizeof(DocIdMetaEntry)));
+}
+
+// Caller holds docIdMetaMemoryLock. NULL denotes bytes without a live membership.
+static void docIdMetaAdjustMemory(void *specId, ptrdiff_t delta) {
+  if (!delta) return;
+  size_t total = __atomic_fetch_add(&docIdMetaMemoryTotal, (size_t)delta, __ATOMIC_RELAXED);
+  RS_LOG_ASSERT(delta >= 0 || total >= (size_t)-delta, "Unbalanced total DocIdMeta memory");
+  if (!specId) return;
+
+  if (!docIdMetaMemoryBySpec) {
+    docIdMetaMemoryBySpec = dictCreate(&dictTypeUint64, NULL);
+  }
+  dictEntry *entry = dictFind(docIdMetaMemoryBySpec, specId);
+  size_t previous = entry ? dictGetUnsignedIntegerVal(entry) : 0;
+  RS_LOG_ASSERT(delta >= 0 || previous >= (size_t)-delta, "Unbalanced DocIdMeta memory");
+  size_t bytes = previous + delta;
+  if (bytes) {
+    if (!entry) entry = dictAddRaw(docIdMetaMemoryBySpec, specId, NULL);
+    dictSetUnsignedIntegerVal(entry, bytes);
+  } else if (entry) {
+    dictDelete(docIdMetaMemoryBySpec, specId);
+    if (!dictSize(docIdMetaMemoryBySpec)) {
+      dictRelease(docIdMetaMemoryBySpec);
+      docIdMetaMemoryBySpec = NULL;
+    }
+  }
+}
+
+typedef struct {
+  void *owner;
+  size_t bytes;
+} DocIdMetaSharedMemory;
+
+static DocIdMetaSharedMemory docIdMetaDictMemory(dict *metadata) {
+  if (!docIdMetaTrackRamMemory) return (DocIdMetaSharedMemory){0};
+  DocIdMetaSharedMemory shared = {
+      .owner = metadata->privdata,
+      .bytes = docIdMetaAllocationSize(metadata, sizeof(*metadata)),
+  };
+  for (size_t i = 0; i < 2; ++i) {
+    dictht *table = &metadata->ht[i];
+    if (table->table) {
+      shared.bytes += docIdMetaAllocationSize(table->table, table->size * sizeof(*table->table));
+    }
+  }
+  return shared;
+}
+
+// Each index pays for its own entry. Assign the header and buckets to one
+// member so accounting stays constant-time when other memberships change.
+static void docIdMetaChooseOwner(dict *metadata) {
+  dictIterator iter = {.d = metadata, .index = -1};
+  dictEntry *entry = dictNext(&iter);
+  metadata->privdata = entry ? dictGetKey(entry) : NULL;
+}
+
+static void docIdMetaRecordChange(dict *metadata, DocIdMetaSharedMemory before, void *specId,
+                                  ptrdiff_t entryChange) {
+  DocIdMetaSharedMemory after = docIdMetaDictMemory(metadata);
+  if (!entryChange && before.owner == after.owner && before.bytes == after.bytes) return;
+
+  pthread_mutex_lock(&docIdMetaMemoryLock);
+  if (before.owner == after.owner) {
+    docIdMetaAdjustMemory(after.owner, (ptrdiff_t)after.bytes - (ptrdiff_t)before.bytes);
+  } else {
+    docIdMetaAdjustMemory(before.owner, -(ptrdiff_t)before.bytes);
+    docIdMetaAdjustMemory(after.owner, after.bytes);
+  }
+  docIdMetaAdjustMemory(specId, entryChange);
+  pthread_mutex_unlock(&docIdMetaMemoryLock);
+}
+
+static void docIdMetaTrackDict(dict *metadata, bool add) {
+  if (!docIdMetaTrackRamMemory) return;
+  if (add) docIdMetaChooseOwner(metadata);
+  DocIdMetaSharedMemory shared = docIdMetaDictMemory(metadata);
+  ptrdiff_t sharedBytes = (ptrdiff_t)shared.bytes;
+
+  pthread_mutex_lock(&docIdMetaMemoryLock);
+  docIdMetaAdjustMemory(shared.owner, add ? sharedBytes : -sharedBytes);
+  dictIterator iter = {.d = metadata, .index = -1};
+  dictEntry *entry;
+  while ((entry = dictNext(&iter))) {
+    ptrdiff_t bytes = docIdMetaEntryBytes(entry);
+    docIdMetaAdjustMemory(dictGetKey(entry), add ? bytes : -bytes);
+  }
+  pthread_mutex_unlock(&docIdMetaMemoryLock);
+}
+
+size_t DocIdMeta_IndexMemoryUsage(uint64_t specId) {
+  if (!docIdMetaTrackRamMemory) return 0;
+  pthread_mutex_lock(&docIdMetaMemoryLock);
+  dictEntry *entry =
+      docIdMetaMemoryBySpec ? dictFind(docIdMetaMemoryBySpec, SPECID_TO_KEY(specId)) : NULL;
+  size_t bytes = entry ? dictGetUnsignedIntegerVal(entry) : 0;
+  pthread_mutex_unlock(&docIdMetaMemoryLock);
+  return bytes;
+}
+
+size_t DocIdMeta_TotalMemoryUsage(void) {
+  return __atomic_load_n(&docIdMetaMemoryTotal, __ATOMIC_RELAXED);
+}
+
 /* Free callback. May run on a Redis BIO thread without the GIL (background slot trim), so it frees
  * only the key's own dict; Indexes_DeleteSlots removes those docs from the indexes. */
 static void docIdMetaFree(const char *keyname, uint64_t meta) {
   REDISMODULE_NOT_USED(keyname);
   if (meta == 0) return;
   dict *d = (dict *)meta;
+  docIdMetaTrackDict(d, false);
   dictRelease(d);
 }
 
@@ -182,7 +306,7 @@ static int docIdMetaResetIfEmpty(RedisModuleKey *key) {
   if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  dictRelease(specIdToEntry);
+  docIdMetaFree(NULL, meta);
   return REDISMODULE_OK;
 }
 
@@ -203,16 +327,28 @@ static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
   }
 
   dict *specIdToEntry = (dict *)meta;
+  DocIdMetaSharedMemory before = docIdMetaDictMemory(specIdToEntry);
   bool removed = false;
+  bool ownerRemoved = false;
   dictIterator *iter = dictGetSafeIterator(specIdToEntry);
   dictEntry *de;
   while ((de = dictNext(iter))) {
     if (docIdMetaEntryIsStale(de)) {
-      dictDelete(specIdToEntry, dictGetKey(de));
+      void *specId = dictGetKey(de);
+      ptrdiff_t bytes = docIdMetaEntryBytes(de);
+      dictDelete(specIdToEntry, specId);
+      if (bytes) {
+        ownerRemoved |= specId == before.owner;
+        pthread_mutex_lock(&docIdMetaMemoryLock);
+        docIdMetaAdjustMemory(specId, -bytes);
+        pthread_mutex_unlock(&docIdMetaMemoryLock);
+      }
       removed = true;
     }
   }
   dictReleaseIterator(iter);
+  if (ownerRemoved) docIdMetaChooseOwner(specIdToEntry);
+  docIdMetaRecordChange(specIdToEntry, before, NULL, 0);
 
   if (removed && dictSize(specIdToEntry) != 0) {
     return docIdMetaMarkChanged(key, meta);
@@ -367,6 +503,7 @@ bool DocIdMeta_Init(RedisModuleCtx *ctx) {
   // below) makes a NULL rdb_load ignore DocIdMeta from a disk-mode RDB rather
   // than fail the load. IsEnabledForValidation == IsEnabled() outside tests.
   const bool onDisk = SearchDisk_IsEnabledForValidation();
+  docIdMetaTrackRamMemory = !onDisk;
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
       .version = REDISMODULE_KEY_META_VERSION,
       .reset_value = 0,
@@ -400,9 +537,8 @@ int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docI
   uint64_t meta = 0;
 
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
-    // Create new dict for this key's metadata
     dict *d = docIdMetaDictCreate();
-
+    docIdMetaDictPut(d, specId, docId, docLen);
     int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)d);
     if (result != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "warning",
@@ -410,11 +546,18 @@ int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docI
       dictRelease(d);
       return result;
     }
-    docIdMetaDictPut(d, specId, docId, docLen);
+    docIdMetaTrackDict(d, true);
     return REDISMODULE_OK;
   }
 
-  docIdMetaDictPut((dict *)meta, specId, docId, docLen);
+  dict *entries = (dict *)meta;
+  DocIdMetaSharedMemory before = docIdMetaDictMemory(entries);
+  dictEntry *added = docIdMetaDictPut(entries, specId, docId, docLen);
+  if (added && docIdMetaTrackRamMemory && !before.owner) {
+    entries->privdata = SPECID_TO_KEY(specId);
+  }
+  docIdMetaRecordChange(entries, before, SPECID_TO_KEY(specId),
+                        added ? docIdMetaEntryBytes(added) : 0);
   return docIdMetaMarkChanged(key, meta);
 }
 
@@ -424,7 +567,16 @@ static const DocIdMetaEntry *docIdMetaFindWithOpenKey(RedisModuleKey *key, uint6
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
     return NULL;
   }
-  const dictEntry *de = dictFind((dict *)meta, SPECID_TO_KEY(specId));
+  dict *entries = (dict *)meta;
+  const dictEntry *de;
+  if (docIdMetaTrackRamMemory && dictIsRehashing(entries)) {
+    // A lookup can finish rehashing and free the old bucket array.
+    DocIdMetaSharedMemory before = docIdMetaDictMemory(entries);
+    de = dictFind(entries, SPECID_TO_KEY(specId));
+    docIdMetaRecordChange(entries, before, NULL, 0);
+  } else {
+    de = dictFind(entries, SPECID_TO_KEY(specId));
+  }
   if (!de) {
     return NULL;
   }
@@ -466,12 +618,14 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
     return REDISMODULE_ERR;
   }
   dict *specIdToEntry = (dict *)meta;
-  static_assert(DICT_OK == REDISMODULE_OK);
-  static_assert(DICT_ERR == REDISMODULE_ERR);
-  int rc = dictDelete(specIdToEntry, SPECID_TO_KEY(specId));
-  if (rc != DICT_OK) {
-    return rc;
-  }
+  void *specKey = SPECID_TO_KEY(specId);
+  DocIdMetaSharedMemory before = docIdMetaDictMemory(specIdToEntry);
+  dictEntry *removed = dictUnlink(specIdToEntry, specKey);
+  if (removed && specKey == before.owner) docIdMetaChooseOwner(specIdToEntry);
+  docIdMetaRecordChange(specIdToEntry, before, specKey,
+                        removed ? -docIdMetaEntryBytes(removed) : 0);
+  if (!removed) return REDISMODULE_ERR;
+  dictFreeUnlinkedEntry(specIdToEntry, removed);
   if (dictSize(specIdToEntry) != 0) {
     return docIdMetaMarkChanged(key, meta);
   }
@@ -538,7 +692,7 @@ int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
     rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0);
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "DocIdMeta: failed to clear metadata");
     if (rc == REDISMODULE_OK) {
-      dictRelease((dict *)meta);
+      docIdMetaFree(NULL, meta);
     }
   }
   RedisModule_CloseKey(key);

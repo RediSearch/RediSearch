@@ -344,27 +344,21 @@ def test_MOD1266(env):
 
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
-  env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
-  empty_memory = float(index_info(env, 'idx1')['key_table_size_mb'])
-  env.assertEqual(empty_memory, 0)
-  for key in ('doc1', 'doc2', 'd3'):
-    conn.execute_command('HSET', key, 't', 'hello world')
-  populated_memory = float(index_info(env, 'idx1')['key_table_size_mb'])
-  env.assertEqual(populated_memory, 0)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
-  # An index that never uses INKEYS keeps its map unallocated through deletion.
-  for key in ('doc1', 'doc2', 'd3'):
-    conn.execute_command('DEL', key)
-    assertInfoField(env, 'idx1', 'key_table_size_mb', populated_memory, delta=0)
+  def key_table_memory():
+    return float(index_info(env, 'idx')['key_table_size_mb'])
 
-  env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
-  for i in range(1000):
-    conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
-  grown_memory = float(index_info(env, 'idx2')['key_table_size_mb'])
-  env.assertEqual(grown_memory, 0)
+  env.assertEqual(key_table_memory(), 0)
+  conn.execute_command('HSET', 'doc0', 't', 'hello world')
+  first_key = key_table_memory()
+  env.assertGreater(first_key, 0)
+  for i in range(1, 1000):
+    conn.execute_command('HSET', f'doc{i}', 't', 'hello world')
+  env.assertGreater(key_table_memory(), first_key)
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', grown_memory, delta=0)
+  env.assertEqual(key_table_memory(), 0)
 
 def testUNF(env):
   conn = getConnectionByEnv(env)

@@ -3023,3 +3023,62 @@ def testInfoSectionSelection(env):
                     ['# search_version', '# search_memory'])
   finally:
     conn.set_response_callback('INFO', callback)
+
+@skip(cluster=True)
+def testSharedDocIdMetaMemory(env):
+  """Charges shared DocIdMeta once and includes it in both memory totals."""
+  conn = env.getConnection()
+  indexes = ('left', 'right')
+  for index in indexes:
+    env.expect('FT.CREATE', index, 'PREFIX', 1, 'doc:', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+  def totals():
+    stats = [index_info(env, index) for index in indexes]
+    key_bytes = [round(float(item['key_table_size_mb']) * 2**20) for item in stats]
+    index_bytes = sum(round(float(item['total_index_memory_sz_mb']) * 2**20) for item in stats)
+    search_bytes = conn.info('search')['search_used_memory_indexes']
+    return key_bytes, index_bytes, search_bytes
+
+  keys_before, indexes_before, search_before = totals()
+  env.assertEqual(keys_before, [0, 0])
+
+  conn.execute_command('HSET', 'doc:1', 'n', 1)
+  keys_after, indexes_after, search_after = totals()
+  env.assertGreater(min(keys_after), 0)
+  env.assertEqual(indexes_after - indexes_before, search_after - search_before)
+
+  owner = keys_after.index(max(keys_after))
+  survivor = 1 - owner
+  env.expect('FT.DROPINDEX', indexes[owner]).ok()
+
+  def remaining_charge():
+    info = index_info(env, indexes[survivor])
+    remaining = round(float(info['key_table_size_mb']) * 2**20)
+    changed = remaining != keys_after[survivor]
+    return changed and 0 < remaining < sum(keys_after), remaining
+
+  wait_for_condition(remaining_charge, 'the surviving index should own the key metadata')
+  conn.execute_command('DEL', 'doc:1')
+  env.assertEqual(float(index_info(env, indexes[survivor])['key_table_size_mb']), 0)
+
+
+@skip(cluster=True)
+def testDocIdMetaMemoryReclaimedAfterUnlink(env):
+  """Account for a resized membership dictionary through a background free."""
+  conn = env.getConnection()
+  indexes = [f'idx{i}' for i in range(12)]
+  for index in indexes:
+    env.expect('FT.CREATE', index, 'PREFIX', 1, 'doc:', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+  # Keep the hash above Redis's thresholds for hash-table encoding and lazy free.
+  fields = [field for i in range(600) for field in (f'field{i}', 'value')]
+  conn.execute_command('HSET', 'doc:1', 'n', 1, *fields)
+  for index in indexes:
+    env.assertGreater(float(index_info(env, index)['key_table_size_mb']), 0)
+
+  freed_before = conn.info('memory')['lazyfreed_objects']
+  env.assertEqual(conn.execute_command('UNLINK', 'doc:1'), 1)
+  wait_for_condition(lambda: (conn.info('memory')['lazyfreed_objects'] > freed_before, None),
+                     'Redis should reclaim the key on its lazy-free thread')
+  for index in indexes:
+    env.assertEqual(float(index_info(env, index)['key_table_size_mb']), 0)

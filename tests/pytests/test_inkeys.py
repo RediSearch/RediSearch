@@ -69,7 +69,7 @@ def test_doc_key_map_lifecycle():
     waitForIndex(env, 'idx')
 
     for _ in env.reloadingIterator():
-        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+        env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
         env.expect('FT.SEARCH', 'idx', 'hello', 'INKEYS', 3, key, key, 'missing',
                    'NOCONTENT').equal([1, key])
         conn.execute_command('HSET', key, 't', 'hello', 'n', 2)
@@ -183,7 +183,8 @@ def test_lazy_key_map_activation():
         for i in range(2050):
             env.cmd('HSET', f'doc:{i}', 't', 'hello')
         env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([2050])
-        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+        key_metadata_mb = float(index_info(env, 'idx')['key_table_size_mb'])
+        env.assertGreater(key_metadata_mb, 0)
         for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
         aggregate = ('FT.AGGREGATE', 'idx', '*', 'INKEYS', 4,
@@ -216,7 +217,7 @@ def test_lazy_key_map_activation():
             env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'new',
                        'NOCONTENT').equal([1, 'new'])
             env.expect(*aggregate).equal(aggregate_result)
-            env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+            env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), key_metadata_mb)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBuildComplete')
         finally:
             env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')

@@ -9,6 +9,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "redismodule.h"
 
@@ -29,6 +30,11 @@ extern "C" {
  * missing (Redis older than 8.6.0) or the class could not be created
  */
 bool DocIdMeta_Init(RedisModuleCtx *ctx);
+
+// RAM-mode allocation totals. A shared payload's header and buckets are charged
+// to one of its indexes; the process total includes pending lazy frees.
+size_t DocIdMeta_IndexMemoryUsage(uint64_t specId);
+size_t DocIdMeta_TotalMemoryUsage(void);
 
 /*
  * Set the docId and document length for the given key and index spec.

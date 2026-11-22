@@ -382,5 +382,15 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_DeleteWithOpenKey,
             DocIdMeta_Clear,
         }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn DocIdMeta_IndexMemoryUsage(_spec_id: u64) -> usize {
+            0
+        }
+
+        #[unsafe(no_mangle)]
+        pub extern "C" fn DocIdMeta_TotalMemoryUsage() -> usize {
+            0
+        }
     };
 }
