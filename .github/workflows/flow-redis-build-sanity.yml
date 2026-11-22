@@ -38,7 +38,7 @@ on:
       platform:
         type: string
         description: 'Platform filter. Use "all" for all supported platforms, comma-separated values to add explicit platforms, or "!platform" to exclude.'
-        default: all,ubuntu:latest,almalinux:8,almalinux:9,almalinux:10,amazonlinux:2023
+        default: all,ubuntu:latest,almalinux:8,almalinux:9,almalinux:10,amazonlinux:2023,!macos-15,!macos-26
       architecture:
         type: choice
         options:

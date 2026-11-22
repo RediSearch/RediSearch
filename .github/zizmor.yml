@@ -17,6 +17,7 @@ rules:
       - event-periodic-master-validation.yml
       - event-periodic-msmarco-e2e-benchmarks.yml
       - event-pull_request.yml
+      - event-pull_request-redis-build-sanity.yml
       - event-push-to-integ.yml
       - event-weekly.yml
       - flow-build-artifacts.yml
