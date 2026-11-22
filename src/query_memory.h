@@ -78,6 +78,9 @@ static inline bool QueryMemory_Checkpoint(QueryRequestLimits *limits) {
   return QueryMemory_ReadAndReset(limits, false);
 }
 
+/** QueryMemory_Checkpoint as a linked symbol, for callers that cannot inline it (Rust). */
+bool QueryMemory_CheckpointExtern(QueryRequestLimits *limits);
+
 /**
  * The non-amortized checkpoint: reads memory on every call and touches no
  * counter, like QueryRequestLimits_IsTimedOutExact. Reports an already

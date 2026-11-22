@@ -104,6 +104,10 @@ bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits) {
   return QueryMemory_ReadAndReset(limits, forcedPressure);
 }
 
+bool QueryMemory_CheckpointExtern(QueryRequestLimits *limits) {
+  return QueryMemory_Checkpoint(limits);
+}
+
 bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, bool forcedPressure) {
   atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
   return memoryStops(limits, forcedPressure);
