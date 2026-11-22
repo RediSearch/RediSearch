@@ -459,6 +459,8 @@ find_module_path() {
 # Function: select_macos_compilers
 # Set MACOS_C_COMPILER/MACOS_CXX_COMPILER to the LLVM that
 # .install/install_llvm.sh installs, falling back to clang/clang++ from PATH.
+# When it finds that LLVM, it also exports LIBCLANG_PATH so bindgen loads the
+# same LLVM's libclang.
 #
 # PATH is not reliable here: when Redis bootstraps several modules into one
 # environment, modules bootstrapped after this one put an older Homebrew LLVM
@@ -469,11 +471,12 @@ select_macos_compilers() {
   source "$ROOT/.install/LLVM_VERSION.sh"
 
   # Same locations, in the same order of preference, as install_llvm.sh.
+  local tarball_bin="${LLVM_INSTALL_DIR:-$HOME/.local/llvm}/bin"
   local -a candidates=()
   if command -v brew &>/dev/null; then
     candidates+=("$(brew --prefix)/opt/llvm@${LLVM_VERSION}/bin")
   fi
-  candidates+=("${LLVM_INSTALL_DIR:-$HOME/.local/llvm}/bin")
+  candidates+=("$tarball_bin")
 
   local dir
   for dir in "${candidates[@]}"; do
@@ -481,6 +484,12 @@ select_macos_compilers() {
           "$(clang_major_version "$dir/clang")" == "$LLVM_VERSION" ]]; then
       MACOS_C_COMPILER="$dir/clang"
       MACOS_CXX_COMPILER="$dir/clang++"
+      export LIBCLANG_PATH="${dir%/bin}/lib"
+      # Unlike Homebrew's, upstream clang has no default SDK. install_llvm.sh
+      # persists SDKROOT only in GitHub Actions and bash/zsh login profiles.
+      if [[ "$dir" == "$tarball_bin" && -z "${SDKROOT:-}" ]]; then
+        export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+      fi
       echo "Using LLVM $LLVM_VERSION from $dir"
       return
     fi
