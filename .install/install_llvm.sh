@@ -128,6 +128,25 @@ llvm_major() {
         -e 's/^LLD[[:space:]]+([0-9]+).*/\1/p'
 }
 
+# The official LLVM tarballs are built on Ubuntu 22.04 and need GLIBCXX_3.4.30
+# from libstdc++. EL9 (GCC 11) stops at 3.4.29, so a tarball clang cannot even
+# start there: "version `GLIBCXX_3.4.30' not found (required by clang-21)".
+TARBALL_MIN_GLIBCXX="3.4.30"
+tarball_runtime_ok() {
+    local lib
+    lib=$(ls /usr/lib64/libstdc++.so.6 /usr/lib/*-linux-gnu/libstdc++.so.6 2>/dev/null | head -1)
+    [[ -n "$lib" ]] || return 0  # nothing to check against; let the tarball try
+    grep -aq "GLIBCXX_${TARBALL_MIN_GLIBCXX}" "$lib"
+}
+
+# Keep whatever clang the distro ships, for bindgen's libclang only: LTO needs
+# clang-${LLVM_VER} and stays off (task-get-config sets enable_lto accordingly).
+accept_native_libclang() {
+    command -v clang &>/dev/null || return 1
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
+}
+
 accept_native_llvm() {
     local clang_cmd="$1"
     local lld_cmd="$2"
@@ -139,9 +158,41 @@ accept_native_llvm() {
     actual=$(llvm_major "$clang_cmd")
     [[ "$actual" == "$LLVM_VER" ]] || return 1
 
-    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
-    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-    export LIBCLANG_PATH=/usr/lib64
+    # RHEL-family puts shared libs in /usr/lib64, except for side-by-side LLVM
+    # packages (EPEL's clang21) that use their own libdir; expose it for
+    # bindgen/clang-sys.
+    local libdir=/usr/lib64 cfg_libdir=""
+    if command -v "llvm-config-${LLVM_VER}" &>/dev/null; then
+        cfg_libdir=$("llvm-config-${LLVM_VER}" --libdir 2>/dev/null || true)
+        if [[ -n "$cfg_libdir" ]] && compgen -G "${cfg_libdir}/libclang*.so*" >/dev/null; then
+            libdir="$cfg_libdir"
+        fi
+    fi
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=${libdir}" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH="$libdir"
+}
+
+# On EL8 LLVM ${LLVM_VER} and the newer default are versions of the same
+# packages, so any later `dnf update` or `dnf install clang` (other modules'
+# bootstrap scripts do both) silently moves them to the newer LLVM and breaks
+# LTO. Lock the installed LLVM packages at their current versions.
+lock_llvm_packages() {
+    $MODE dnf install -y python3-dnf-plugin-versionlock >/dev/null 2>&1 || return 1
+    local pkgs
+    pkgs=$(rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' 'clang*' 'llvm*' 'lld*' 'libomp*' 'compiler-rt*' 2>/dev/null)
+    [[ -n "$pkgs" ]] || return 1
+    # shellcheck disable=SC2086
+    $MODE dnf versionlock add $pkgs >/dev/null 2>&1
+}
+
+# EPEL carries LLVM ${LLVM_VER} side by side with the distro's newer default
+# (EL9 only ships the newer one), under versioned package names.
+install_epel_llvm() {
+    $MODE dnf install -y epel-release dnf-plugins-core >/dev/null 2>&1 || return 1
+    $MODE dnf config-manager --set-enabled crb >/dev/null 2>&1 \
+        || $MODE dnf config-manager --set-enabled powertools >/dev/null 2>&1 || true
+    $MODE dnf install -y --nobest "clang${LLVM_VER}" "clang${LLVM_VER}-devel" \
+        "lld${LLVM_VER}" "llvm${LLVM_VER}" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -274,12 +325,34 @@ install_llvm() {
                 "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null \
                 && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
             echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
+        # EL8 keeps LLVM ${LLVM_VER} in AppStream as version ${LLVM_VER}.x of the
+        # unversioned packages, not as clang-${LLVM_VER}.
+        elif $MODE dnf install -y --nobest --skip-broken \
+                "clang-${LLVM_VER}.*" "lld-${LLVM_VER}.*" "clang-devel-${LLVM_VER}.*" "llvm-${LLVM_VER}.*" 2>/dev/null \
+                && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            lock_llvm_packages \
+                && echo ">>> Locked LLVM ${LLVM_VER}.x packages against later dnf updates" \
+                || echo ">>> WARNING: could not lock LLVM ${LLVM_VER}.x packages; a later dnf update may replace them" >&2
+            echo ">>> Installed clang ${LLVM_VER}.x from native dnf repos (versioned package spec)"
+        elif install_epel_llvm && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang ${LLVM_VER} from EPEL"
         elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
                 && accept_native_llvm clang lld; then
             echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
         elif $MODE yum install -y clang lld clang-devel 2>/dev/null \
                 && accept_native_llvm clang lld; then
             echo ">>> Installed clang from native yum repos"
+        elif ! tarball_runtime_ok; then
+            # The dnf attempts above already installed the distro clang; a second
+            # install is a no-op and makes the dependency explicit.
+            $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null || true
+            if accept_native_libclang; then
+                echo ">>> libstdc++ lacks GLIBCXX_${TARBALL_MIN_GLIBCXX}; the LLVM ${LLVM_VER} tarball cannot run here."
+                echo ">>> Keeping the distro's clang $(llvm_major clang) for bindgen; LTO is unavailable on this platform."
+            else
+                echo "ERROR: no usable clang: the distro has no LLVM ${LLVM_VER} and the official tarball needs GLIBCXX_${TARBALL_MIN_GLIBCXX}" >&2
+                return 1
+            fi
         else
             echo ">>> Native packages unavailable or wrong LLVM major — falling back to official tarball"
             install_from_tarball
@@ -382,7 +455,29 @@ _llvm_ok_for() {
     _libclang_ok "$cfg"
 }
 
-_llvm_ok() { _llvm_ok_for "$LLVM_VER"; }
+# dnf-based distro whose libstdc++ cannot run the official tarball (EL9): the
+# installer keeps the distro clang for bindgen and leaves LTO off, so the
+# dependency check must accept that toolchain too, or `make bootstrap list`
+# reports a missing LLVM right after a successful bootstrap.
+_native_fallback_platform() {
+    [[ "$OS_TYPE" == Linux && -f /etc/os-release ]] || return 1
+    local id
+    id=$(. /etc/os-release && echo "${ID:-}")
+    case "$id" in rhel|rocky|almalinux|centos|fedora|amzn) ;; *) return 1 ;; esac
+    ! tarball_runtime_ok
+}
+
+_native_fallback_ok() {
+    command -v clang >/dev/null 2>&1 || return 1
+    command -v lld >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1 || return 1
+    # Either directory may hold libclang; `ls` over both fails if one has no match.
+    compgen -G "/usr/lib64/libclang.so*" >/dev/null || compgen -G "/usr/lib/libclang.so*" >/dev/null
+}
+
+_llvm_ok() {
+    _llvm_ok_for "$LLVM_VER" && return 0
+    _native_fallback_platform && _native_fallback_ok
+}
 
 _alpine_installed_llvm_major() {
     local tool actual dir
