@@ -129,9 +129,28 @@ accept_native_llvm() {
     command -v "$clang_cmd" &>/dev/null || return 1
     command -v "$lld_cmd" &>/dev/null || return 1
     [[ "$(llvm_major "$clang_cmd")" == "$LLVM_VER" ]] || return 1
-    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
-    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-    export LIBCLANG_PATH=/usr/lib64
+    # RHEL-family puts shared libs in /usr/lib64, except for side-by-side LLVM
+    # packages (EPEL's clang21) that use their own libdir; expose it for
+    # bindgen/clang-sys.
+    local libdir=/usr/lib64 cfg_libdir=""
+    if command -v "llvm-config-${LLVM_VER}" &>/dev/null; then
+        cfg_libdir=$("llvm-config-${LLVM_VER}" --libdir 2>/dev/null || true)
+        if [[ -n "$cfg_libdir" ]] && compgen -G "${cfg_libdir}/libclang*.so*" >/dev/null; then
+            libdir="$cfg_libdir"
+        fi
+    fi
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=${libdir}" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH="$libdir"
+}
+
+# EPEL carries LLVM ${LLVM_VER} side by side with the distro's newer default
+# (EL9 only ships the newer one), under versioned package names.
+install_epel_llvm() {
+    $MODE dnf install -y epel-release dnf-plugins-core >/dev/null 2>&1 || return 1
+    $MODE dnf config-manager --set-enabled crb >/dev/null 2>&1 \
+        || $MODE dnf config-manager --set-enabled powertools >/dev/null 2>&1 || true
+    $MODE dnf install -y --nobest "clang${LLVM_VER}" "clang${LLVM_VER}-devel" \
+        "lld${LLVM_VER}" "llvm${LLVM_VER}" 2>/dev/null
 }
 
 # On EL8 LLVM ${LLVM_VER} and the newer default are versions of the same
@@ -259,7 +278,7 @@ install_llvm() {
         fi
         ;;
 
-    # ----- EL8 (Rocky, Alma, RHEL): LLVM from AppStream --------------------
+    # ----- EL8 / EL9 (Rocky, Alma, RHEL): LLVM from AppStream / EPEL ----------
     # EL8's glibc (2.28) is too old for the official tarball, but AppStream
     # carries LLVM ${LLVM_VER} as version ${LLVM_VER}.x of the unversioned packages
     # (the newest default is a later version of the same packages).
@@ -276,6 +295,15 @@ install_llvm() {
                 echo "ERROR: LLVM ${LLVM_VER} is not available from the EL8 AppStream; LTO needs it." >&2
                 return 1
             fi
+        elif [[ "${distro_version%%.*}" == "9" ]]; then
+            # The official tarball's clang needs GLIBCXX_3.4.30, which EL9's
+            # libstdc++ (GCC 11) does not provide, so take LLVM from EPEL.
+            if install_epel_llvm && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+                echo ">>> Installed clang ${LLVM_VER} from EPEL"
+            else
+                echo ">>> EPEL clang ${LLVM_VER} unavailable — installing from official tarball"
+                install_from_tarball
+            fi
         else
             echo ">>> ${distro} ${distro_version} — installing from official tarball"
             install_from_tarball
@@ -283,7 +311,7 @@ install_llvm() {
         ;;
 
     # ----- Everything else: official tarball ----------------------------------
-    # CentOS/RHEL/Alma 9+, Fedora, Amazon Linux, Mariner, Azure Linux
+    # EL10+, Fedora, Amazon Linux, Mariner, Azure Linux
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball
