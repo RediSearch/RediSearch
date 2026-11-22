@@ -114,6 +114,39 @@ export_path_gha() {
     export LIBCLANG_PATH="${INSTALL_DIR}/lib"
 }
 
+# Major version printed by `clang --version` / `ld.lld --version`.
+llvm_major() {
+    { "$1" --version 2>/dev/null || true; } | head -1 | sed -En \
+        -e 's/.*[Vv]ersion[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/.*[[:space:]]LLD[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/^LLD[[:space:]]+([0-9]+).*/\1/p'
+}
+
+# Accept a distro-packaged clang/lld only if it is the pinned LLVM major, which
+# cross-language LTO with rustc requires.
+accept_native_llvm() {
+    local clang_cmd="$1" lld_cmd="$2"
+    command -v "$clang_cmd" &>/dev/null || return 1
+    command -v "$lld_cmd" &>/dev/null || return 1
+    [[ "$(llvm_major "$clang_cmd")" == "$LLVM_VER" ]] || return 1
+    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
+}
+
+# On EL8 LLVM ${LLVM_VER} and the newer default are versions of the same
+# packages, so any later `dnf update` or `dnf install clang` (other modules'
+# bootstrap scripts do both) silently moves them to the newer LLVM and breaks
+# LTO. Lock the installed LLVM packages at their current versions.
+lock_llvm_packages() {
+    $MODE dnf install -y python3-dnf-plugin-versionlock >/dev/null 2>&1 || return 1
+    local pkgs
+    pkgs=$(rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' 'clang*' 'llvm*' 'lld*' 'libomp*' 'compiler-rt*' 2>/dev/null)
+    [[ -n "$pkgs" ]] || return 1
+    # shellcheck disable=SC2086
+    $MODE dnf versionlock add $pkgs >/dev/null 2>&1
+}
+
 # ---------------------------------------------------------------------------
 # Source the macOS profile updater if present.
 # ---------------------------------------------------------------------------
@@ -226,8 +259,31 @@ install_llvm() {
         fi
         ;;
 
+    # ----- EL8 (Rocky, Alma, RHEL): LLVM from AppStream --------------------
+    # EL8's glibc (2.28) is too old for the official tarball, but AppStream
+    # carries LLVM ${LLVM_VER} as version ${LLVM_VER}.x of the unversioned packages
+    # (the newest default is a later version of the same packages).
+    rocky|almalinux|rhel|centos)
+        if [[ "${distro_version%%.*}" == "8" ]]; then
+            if $MODE dnf install -y --nobest --skip-broken \
+                    "clang-${LLVM_VER}.*" "lld-${LLVM_VER}.*" "clang-devel-${LLVM_VER}.*" "llvm-${LLVM_VER}.*" 2>/dev/null \
+                    && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+                lock_llvm_packages \
+                    && echo ">>> Locked LLVM ${LLVM_VER}.x packages against later dnf updates" \
+                    || echo ">>> WARNING: could not lock LLVM ${LLVM_VER}.x packages; a later dnf update may replace them" >&2
+                echo ">>> Installed clang ${LLVM_VER}.x from the EL8 AppStream"
+            else
+                echo "ERROR: LLVM ${LLVM_VER} is not available from the EL8 AppStream; LTO needs it." >&2
+                return 1
+            fi
+        else
+            echo ">>> ${distro} ${distro_version} — installing from official tarball"
+            install_from_tarball
+        fi
+        ;;
+
     # ----- Everything else: official tarball ----------------------------------
-    # Rocky, CentOS, RHEL, AlmaLinux, Fedora, Amazon Linux, Mariner, Azure Linux
+    # CentOS/RHEL/Alma 9+, Fedora, Amazon Linux, Mariner, Azure Linux
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball
