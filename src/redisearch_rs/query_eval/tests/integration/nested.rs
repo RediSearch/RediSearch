@@ -394,6 +394,59 @@ fn a_tag_terminal_reads_listed_excluded_and_prefixed_values() {
 }
 
 #[test]
+fn a_prefix_on_the_terminal_follows_the_prefix_settings() {
+    let docs = vec![
+        (1, vec![tags(&["red", "steel"])]),
+        (2, vec![tags(&["red", "stone"])]),
+        (3, vec![tags(&["blue", "straw"])]),
+    ];
+    let mut fixture = NestedFixture::new(&[COLOR, MATERIAL], &docs);
+    let field = fixture.field_index;
+    let group = |q: &mut Query, prefix: &str| {
+        let affix = q.affix(prefix, true, false);
+        let materials = q.tag(field, 1, &[affix]);
+        q.group(field, materials);
+    };
+    let config = |min_term_prefix, max_prefix_expansions| Config {
+        min_term_prefix,
+        max_prefix_expansions,
+        ..Config::default()
+    };
+
+    // Shorter than the minimum: nothing, without an error.
+    let mut q = Query::default();
+    group(&mut q, "s");
+    assert_eq!(fixture.eval_with(&mut q, config(2, 100)), None);
+    assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
+
+    // The cap counts the values one prefix opens across every terminal it reaches: red's two,
+    // then blue's one.
+    let mut q = Query::default();
+    group(&mut q, "st");
+    assert_eq!(fixture.eval_with(&mut q, config(2, 3)), Some(vec![1, 2, 3]));
+    assert!(
+        !fixture
+            .ctx
+            .status()
+            .warnings()
+            .reached_max_prefix_expansions()
+    );
+    let mut q = Query::default();
+    group(&mut q, "st");
+    let capped = fixture
+        .eval_with(&mut q, config(2, 2))
+        .expect("the values within the cap are read");
+    assert_eq!(capped.len(), 2, "{capped:?}");
+    assert!(
+        fixture
+            .ctx
+            .status()
+            .warnings()
+            .reached_max_prefix_expansions()
+    );
+}
+
+#[test]
 fn a_multi_word_tag_value_is_one_value() {
     let docs = vec![
         (1, vec![priced("dark red", "m", 1.0)]),
@@ -501,7 +554,7 @@ fn too_many_alternatives_fail_the_query() {
     let or = q.combine(QueryNodeType::Union, &[red, m]);
     q.group(field, or);
     let (code, message) = fixture.error_with(&mut q, limited(|l| l.max_branches = 1));
-    assert_eq!(code, QueryErrorCode::Syntax);
+    assert_eq!(code, QueryErrorCode::Limit);
     assert!(message.contains("more than 1 alternatives"), "{message}");
 }
 
@@ -517,7 +570,12 @@ fn a_field_without_an_index_matches_nothing() {
     // index is freed here, so the spec's teardown, which frees a null index as a no-op, does
     // not free it again.
     unsafe {
-        let spec = &*fixture.ctx.sctx().spec;
+        let spec = fixture
+            .ctx
+            .sctx()
+            .spec
+            .as_ref()
+            .expect("the fixture has a spec");
         let fs = &mut *spec.fields.add(field as usize);
         let index = fs.__bindgen_anon_1.nestedOpts.nestedIndex;
         drop(Box::from_raw(index.cast::<NestedIndex>()));

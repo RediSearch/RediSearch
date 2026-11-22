@@ -63,6 +63,7 @@ enum GroupError {
 impl GroupError {
     const fn code(&self) -> QueryErrorCode {
         match self {
+            Self::Plan(PlanError::TooManyBranches { .. }) => QueryErrorCode::Limit,
             Self::Unsupported
             | Self::Plan(_)
             | Self::Walk(CollectError::UnalignedBucketRange { .. }) => QueryErrorCode::Syntax,
@@ -112,11 +113,18 @@ pub(crate) fn eval<'index>(
 
     let sctx = NonNull::new(ctx.sctx_ptr().cast_mut()).expect("a query has a search context");
     match open(index, def, &mut node, sctx, field_index, config) {
-        Ok(readers) if readers.is_empty() => None,
         Ok(readers) => {
+            if readers.reached_max_prefix_expansions {
+                ctx.status()
+                    .warnings_mut()
+                    .set_reached_max_prefix_expansions();
+            }
+            if readers.out.is_empty() {
+                return None;
+            }
             let weight = node.opts().weight;
             let iter = build_union(
-                readers,
+                readers.out,
                 true,
                 config.min_union_iter_heap,
                 QueryNodeType::Nested,
@@ -139,10 +147,10 @@ fn open(
     sctx: NonNull<ffi::RedisSearchCtx>,
     field_index: FieldIndex,
     config: Config,
-) -> Result<Vec<CRQEIterator>, GroupError> {
+) -> Result<Readers, GroupError> {
     let limits = config.nested_limits;
     debug_assert_eq!(node.num_children(), 1, "a group has one inner expression");
-    let inner = translate(node.child_mut(0), def)?;
+    let inner = translate(node.child_mut(0), def, config.min_term_prefix as usize)?;
     let branches = plan(index, &inner.borrowed(), limits.max_branches)?;
 
     let node_ptr = node.as_non_null();
@@ -151,6 +159,8 @@ fn open(
         sctx,
         field_index,
         limits,
+        max_prefix_expansions: config.max_prefix_expansions,
+        reached_max_prefix_expansions: false,
     };
     // The terminal budget is shared by all alternatives; each may enter up to the node budget.
     let mut terminals_left = limits.max_terminals;
@@ -174,7 +184,7 @@ fn open(
         // outlives every iterator of the query.
         unsafe { readers.open_branch(branch, &terminals, node_ptr) }?;
     }
-    Ok(readers.out)
+    Ok(readers)
 }
 
 /// The iterators a group opens, one per numeric range or tag value of each terminal reached.
@@ -183,6 +193,11 @@ struct Readers {
     sctx: NonNull<ffi::RedisSearchCtx>,
     field_index: FieldIndex,
     limits: NestedLimits,
+    /// The readers one prefix opens in a branch, across all its terminals, as
+    /// [`Config::max_prefix_expansions`] caps a top-level tag prefix.
+    max_prefix_expansions: usize,
+    /// Set once a prefix stopped at [`Readers::max_prefix_expansions`].
+    reached_max_prefix_expansions: bool,
 }
 
 impl Readers {
@@ -221,6 +236,7 @@ impl Readers {
                 }
             }
             TerminalFilter::Tag(constraint) => {
+                let mut expansions_left = self.max_prefix_expansions;
                 for terminal in terminals {
                     let tags = terminal.tag().expect("the index's terminals are all tag");
                     let tags_ptr = terminal
@@ -230,7 +246,8 @@ impl Readers {
                         Constraint::TagIn(values) => {
                             // A value with a NUL byte is never indexed.
                             for tag in values.iter().filter_map(|value| Tag::new(value)) {
-                                self.open_tag(tags, tags_ptr, tag)?;
+                                // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
+                                unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                             }
                         }
                         Constraint::Any | Constraint::TagNotIn(_) => {
@@ -242,7 +259,8 @@ impl Readers {
                             let mut it = tags.value_iter();
                             while let Some((tag, _)) = it.advance() {
                                 if excluded.binary_search(&tag.as_bytes()).is_err() {
-                                    self.open_tag(tags, tags_ptr, tag)?;
+                                    // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
+                                    unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                                 }
                             }
                         }
@@ -252,7 +270,13 @@ impl Readers {
                             };
                             let mut it = tags.value_iter_filtered(prefix, IterMode::Prefix);
                             while let Some((tag, _)) = it.advance() {
-                                self.open_tag(tags, tags_ptr, tag)?;
+                                if expansions_left == 0 {
+                                    self.reached_max_prefix_expansions = true;
+                                    break;
+                                }
+                                expansions_left -= 1;
+                                // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
+                                unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                             }
                         }
                         Constraint::BucketRange(_) => {
@@ -266,16 +290,21 @@ impl Readers {
     }
 
     /// Opens the reader of one value of a tag terminal, if any document holds it.
-    fn open_tag(
+    ///
+    /// # Safety
+    ///
+    /// 1. `tags_ptr` is the owner's pointer to `tags`, from [`Terminal::tag_ptr`] of the
+    ///    terminal `tags` was borrowed from.
+    unsafe fn open_tag(
         &mut self,
         tags: &TagIndex<InMemoryMode>,
         tags_ptr: NonNull<TagIndex<InMemoryMode>>,
         tag: Tag<'_>,
     ) -> Result<(), GroupError> {
-        // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index
-        // (`Terminal::tag_ptr`). 2. It stays valid as long as the field, which outlives the
-        // query's iterators. 3. The index is mutated only under the spec write lock, which the
-        // query releases only while its iterators are parked, revalidating them after.
+        // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index, by 1. 2. It
+        // stays valid as long as the field, which outlives the query's iterators. 3. The index
+        // is mutated only under the spec write lock, which the query releases only while its
+        // iterators are parked, revalidating them after.
         let lookup = unsafe { TrieLookup::new(tags_ptr) };
         // SAFETY: 1. `tags` outlives the iterator, as for `tags_ptr` above, and is mutated only
         // under the revalidation protocol. 2. The search context and its spec outlive the
@@ -425,7 +454,13 @@ fn end_of(nf: &NumericFilter) -> Bound<f64> {
 
 /// Translates the inner expression of a group, normalising its tag values as the sub-fields
 /// store them.
-fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, GroupError> {
+///
+/// A prefix shorter than `min_term_prefix` matches nothing, as a top-level tag prefix does.
+fn translate(
+    mut node: QueryNodeMut<'_>,
+    def: &ffi::NestedDef,
+    min_term_prefix: usize,
+) -> Result<Owned, GroupError> {
     enum Kind {
         And,
         Or,
@@ -452,7 +487,7 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
     };
     let children = |node: &mut QueryNodeMut<'_>| -> Result<Vec<Owned>, GroupError> {
         (0..node.num_children())
-            .map(|i| translate(node.child_mut(i), def))
+            .map(|i| translate(node.child_mut(i), def, min_term_prefix))
             .collect()
     };
     Ok(match kind {
@@ -518,10 +553,13 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
                             .expect("a tag prefix child must carry a token");
                         // SAFETY: invariant (5) of `QueryNodeMut::new`, as for a token child.
                         unsafe { tok.normalize_tag(case_sensitive) };
-                        alternatives.push(Owned::Prefix {
-                            level,
-                            prefix: token_bytes(&tok.as_ref())?,
-                        });
+                        let tok = tok.as_ref();
+                        if tok.len() >= min_term_prefix {
+                            alternatives.push(Owned::Prefix {
+                                level,
+                                prefix: token_bytes(&tok)?,
+                            });
+                        }
                     }
                     _ => return Err(GroupError::Unsupported),
                 }
@@ -529,6 +567,7 @@ fn translate(mut node: QueryNodeMut<'_>, def: &ffi::NestedDef) -> Result<Owned, 
             if !values.is_empty() {
                 alternatives.push(Owned::Tags { level, values });
             }
+            // With every prefix too short and no value, the empty OR: nothing.
             if alternatives.len() == 1 {
                 alternatives.pop().expect("one alternative")
             } else {

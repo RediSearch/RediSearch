@@ -251,6 +251,15 @@ fn dnf<'a>(expr: &Expr<'a>, negate: bool, max: usize) -> Result<Vec<Vec<Literal<
                 if out.len().saturating_mul(child.len()) > max {
                     return Err(PlanError::TooManyBranches { max });
                 }
+                // A one-branch child, the usual case of a plain clause, extends each conjunction
+                // in place. Copying them instead would make a long AND quadratic; only a child
+                // with several branches copies, and the limit allows few of those.
+                if let [single] = child.as_slice() {
+                    for conjunction in &mut out {
+                        conjunction.extend(single.iter().cloned());
+                    }
+                    continue;
+                }
                 out = out
                     .iter()
                     .flat_map(|left| {

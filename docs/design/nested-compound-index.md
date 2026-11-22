@@ -440,8 +440,8 @@ routing level, plus a constraint on the terminal:
 | Inner clause | Constraint |
 |---|---|
 | `@color:{red}`, `@color:{red\|blue}` | `TagIn([red, blue])` |
-| `-@color:{red}` | `TagNotIn([red])` |
-| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, bounded as in step 3; unlike `MAXPREFIXEXPANSIONS` it fails instead of truncating) |
+| `-@color:{red}` | `TagNotIn([red])`: an element holding a color other than red. An element with no `color` was never indexed (§3, "Ingest path"), so it matches neither `@color:{red}` nor its negation, as `NOT` does on a SQL `NULL` |
+| `@color:{re*}` | `TagPrefix("re")`. A prefix shorter than `MINPREFIX` matches nothing, as on a TAG field. On a routing level it is a TrieMap prefix walk, bounded by the walk limits of step 3, which fail instead of truncating. On a tag terminal each matching value opens a reader; at most `MAXPREFIXEXPANSIONS` of them per prefix and branch, across the terminals reached, with the same warning as a TAG field |
 | no clause on the level | `Any` |
 | `@year:[lo hi]`, `[(lo hi]`, … on a `BUCKETS` middle level | `BucketRange { start, end }` with each end `Included`, `Excluded` or `Unbounded`. It selects the buckets wholly inside the range and fails if one is only partly inside (§2, "Optional limits") |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
@@ -449,9 +449,10 @@ routing level, plus a constraint on the terminal:
 
 An `|` across sub-fields inside the group (`@color:{red} | @size:{M}`) becomes **disjunctive
 normal form**: each branch is its own conjunction, planned separately, and the branches are UNIONed.
-Cap the number of branches with an internal constant (16, not configurable) and fail the query
-with a clear error past it. A clause on something that isn't a sub-field of the group is a parse
-error.
+Cap the number of branches (`NESTED_MAX_DNF_BRANCHES`, proposed 16) and fail the query with a
+limit error past it. A clause with a single branch extends every conjunction in place, so planning
+a long AND is linear in its clauses; only a clause with several branches copies the conjunctions,
+and the cap allows few of those. A clause on something that isn't a sub-field of the group is a parse error.
 
 ### Step 2: walk the tree to collect terminals
 

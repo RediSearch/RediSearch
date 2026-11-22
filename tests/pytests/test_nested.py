@@ -717,7 +717,8 @@ def random_clause(rng):
             p = e['price']
             return (p > lo if lo_ex else p >= lo) and (p < hi if hi_ex else p <= hi)
         return '@price:[%s%d %s%d]' % ('(' if lo_ex else '', lo, '(' if hi_ex else '', hi), in_range
-    prefix = rng.choice(['r', 'b', 'g', 'bl'])
+    # At least `MINPREFIX` (2) long: a shorter prefix matches nothing.
+    prefix = rng.choice(['re', 'bl', 'gr', 'blu'])
     return '@color:{%s*}' % prefix, lambda e: e['color'].startswith(prefix)
 
 
@@ -805,6 +806,8 @@ def testAGroupInAKnnQuery(env):
     res = env.cmd('FT.SEARCH', 'idx', '(@items:( @color:{red} ))=>[KNN 10 @v $b]', 'PARAMS', 2,
                   'b', blob, 'NOCONTENT', 'DIALECT', 2)
     env.assertEqual(sorted(res[1:]), ['doc:0', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '(@items:( @items:( @color:{red} ) ))=>[KNN 10 @v $b]',
+               'PARAMS', 2, 'b', blob, 'DIALECT', 2).error().contains('cannot be nested')
     env.assertEqual(ids(env, '@items:( @color:{knn} )'), ['doc:1'])
     res = env.cmd('FT.AGGREGATE', 'idx', '@items:( @color:{knn} )', 'LOAD', 1, '@__key',
                   'DIALECT', 2)
@@ -871,7 +874,8 @@ def testUnsupportedClausesInAGroupSayWhy(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
                '$.t', 'AS', 't', 'TEXT', *ITEMS).ok()
     for query in ['@items:( @color:>{m} )', '@items:( ismissing(@color) )',
-                  '@items:( @color:{red} the )']:
+                  '@items:( @color:{red} the )', '@items:( @price:[1 2 3 km] )',
+                  '@items:( @price:[VECTOR_RANGE 1 $b] )']:
         env.expect('FT.SEARCH', 'idx', query, 'DIALECT', 2).error() \
             .contains('not supported on a sub-field of a NESTED group')
     env.expect('FT.SEARCH', 'idx', '@items:( @price:[5 1] )', 'DIALECT', 2).error() \
@@ -889,6 +893,42 @@ def testAnEmptyTagValueMatchesWhateverTheSchema(env):
         put(conn, 'doc:2', [{'color': 'red', 'size': 'M', 'price': 1}])
         env.assertEqual(ids(env, '@items:( @color:{""} )'), ['doc:1'], message=schema[0])
         env.expect('FT.DROPINDEX', 'idx', 'DD').ok()
+
+
+@skip(no_json=True, cluster=True)
+@unstable_features
+def testAGroupLeavesOtherTagsCheckedForEmptyValues(env):
+    """The empty values a group accepts do not exempt a top-level TAG field without INDEXEMPTY."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               '$.t', 'AS', 't', 'TAG', *ITEMS).ok()
+    for query in ['@items:( @color:{""} ) @t:{""}', '@items:( @color:{red} ) @t:{""}',
+                  '@t:{""} @items:( @color:{red} )']:
+        env.expect('FT.SEARCH', 'idx', query, 'DIALECT', 2).error().contains('INDEXEMPTY')
+
+
+@skip(no_json=True, cluster=True)
+@unstable_features
+def testAPrefixInAGroupFollowsThePrefixSettings(env):
+    """MINPREFIX and MAXPREFIXEXPANSIONS bound a prefix on a tag terminal as on a TAG field."""
+    conn = getConnectionByEnv(env)
+    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
+           '$.color', 'AS', 'color', 'TAG', '$.material', 'AS', 'material', 'TAG',
+           'INDEX', 2, 'color', 'material').ok()
+    for n, material in enumerate(['steel', 'stone', 'straw']):
+        put(conn, 'doc:%d' % n, [{'color': 'red', 'material': material}])
+    query = '@items:( @material:{st*} )'
+    env.assertEqual(ids(env, query), ['doc:0', 'doc:1', 'doc:2'])
+    min_prefix = env.cmd(config_cmd(), 'GET', 'MINPREFIX')[0][1]
+    max_expansions = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+    try:
+        env.expect(config_cmd(), 'SET', 'MINPREFIX', 3).ok()
+        env.assertEqual(ids(env, query), [])
+        env.expect(config_cmd(), 'SET', 'MINPREFIX', 2).ok()
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 2).ok()
+        env.assertEqual(len(ids(env, query)), 2)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MINPREFIX', min_prefix).ok()
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', max_expansions).ok()
 
 
 @skip(no_json=True, cluster=True)
@@ -916,6 +956,8 @@ def testAKnnQueryKeepsTextGroups(env):
             {'t': text, 'v': [float(n), 0.0], 'items': [{'color': 'red', 'size': 'M', 'price': n}]}))
     blob = struct.pack('<2f', 0.0, 0.0)
     for query, expected in [('(@t:(hello world))=>[KNN 10 @v $b]', ['doc:0']),
-                            ('(@t:("jo@ex"))=>[KNN 10 @v $b]', ['doc:1'])]:
+                            ('(@t:("jo@ex"))=>[KNN 10 @v $b]', ['doc:1']),
+                            ('(@t:(mail | jo\\@ex))=>[KNN 10 @v $b]', ['doc:1']),
+                            ('(@t:((hello) world))=>[KNN 10 @v $b]', ['doc:0'])]:
         res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'b', blob, 'NOCONTENT', 'DIALECT', 2)
         env.assertEqual(sorted(res[1:]), expected, message=query)

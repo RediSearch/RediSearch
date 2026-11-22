@@ -972,8 +972,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         opts->flags |= QueryNode_IsTag;
         RS_ASSERT(n->tag.fieldIndex < spec->numFields);
         const FieldSpec *fs = spec->fields + n->tag.fieldIndex;
-        // Inside a group the field is NESTED, whose sub-fields index empty values as any other.
-        if (FieldSpec_IndexesEmpty(fs) || FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+        if (FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
@@ -981,6 +980,18 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
           if (validateDiskTagMultiTermQuery(child->type, status) != REDISMODULE_OK) {
             return REDISMODULE_ERR;
           }
+        }
+        if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+          // Inside a group the field is NESTED, whose sub-fields index empty values as any
+          // other. The exemption covers this tag's values only, so a tag later in the query is
+          // still checked.
+          const uint32_t saved = opts->flags;
+          opts->flags |= QueryNode_IndexesEmpty;
+          for (size_t ii = 0; ii < QueryNode_NumChildren(n) && res == REDISMODULE_OK; ++ii) {
+            res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
+          }
+          opts->flags = (opts->flags & ~QueryNode_IndexesEmpty) | (saved & QueryNode_IndexesEmpty);
+          withChildren = false;
         }
       }
       break;

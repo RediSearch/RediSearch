@@ -321,6 +321,39 @@ fn too_many_alternatives_are_rejected() {
     );
 }
 
+#[test]
+fn a_long_and_plans_into_its_alternatives() {
+    // Long enough that copying the growing conjunction at every clause, rather than extending
+    // it, would take seconds.
+    let clauses = if cfg!(miri) { 50 } else { 20_000 };
+    let mut children = vec![Expr::Or(vec![tags(COLOR, &["a"]), tags(COLOR, &["b"])])];
+    children.extend((0..clauses).map(|lo| range(PRICE, Included(f64::from(lo)), Unbounded)));
+    let branches = plan_priced(&Expr::And(children));
+    let last = f64::from(clauses - 1);
+    assert_eq!(
+        branches
+            .iter()
+            .map(|b| (&b.routing[COLOR], &b.terminal))
+            .collect::<Vec<_>>(),
+        [
+            (
+                &tag_in(&["a"]),
+                &TerminalFilter::Numeric {
+                    start: Included(last),
+                    end: Unbounded
+                }
+            ),
+            (
+                &tag_in(&["b"]),
+                &TerminalFilter::Numeric {
+                    start: Included(last),
+                    end: Unbounded
+                }
+            ),
+        ]
+    );
+}
+
 // Property: an element matches the group exactly when it matches one of its branches.
 
 const VALUES: [&str; 4] = ["a", "ab", "b", "c"];
