@@ -512,12 +512,9 @@ QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
   return disk->index.newMissingIterator(index, fieldIndex, sctx->diskQueryView, status);
 }
 
-bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                             SearchDiskWriteBatchHandle *batch, t_docId docId, double value,
-                             t_fieldIndex fieldIndex, FieldType fieldType) {
-  RS_ASSERT(disk && index && batch);
-  RS_ASSERT(fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_GEO);
-  return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex, fieldType);
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index && batch);
+    return disk->index.indexNumeric(ctx, index, batch, docId, value, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, size_t numDocs, double idf, double bm25_idf, bool needsOffsets, QueryError *status) {

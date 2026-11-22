@@ -295,13 +295,10 @@ QueryIterator *SearchDisk_NewMissingIterator(RedisSearchDiskIndexSpec *index,
  * @param batch Open write batch the numeric write is staged into
  * @param docId Document ID to index
  * @param value Numeric value to associate with the document
- * @param fieldIndex Field index for the numeric or GEO field
- * @param fieldType `INDEXFLD_T_NUMERIC` or `INDEXFLD_T_GEO`; see `IndexDiskAPI.indexNumeric`
+ * @param fieldIndex Field index for the numeric field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                             SearchDiskWriteBatchHandle *batch, t_docId docId, double value,
-                             t_fieldIndex fieldIndex, FieldType fieldType);
+bool SearchDisk_IndexNumeric(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, t_docId docId, double value, t_fieldIndex fieldIndex);
 
 /**
  * @brief Open a new write batch bound to the given disk index.
