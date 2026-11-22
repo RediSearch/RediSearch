@@ -18,6 +18,8 @@ use nested_index_ffi::{
     NestedRows_New, NestedRows_PushNumericKey, NestedRows_PushTagKey, NestedTerminalKind,
 };
 
+extern crate redisearch_rs;
+
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 const TAG_LEVEL: NestedLevelDef = NestedLevelDef {

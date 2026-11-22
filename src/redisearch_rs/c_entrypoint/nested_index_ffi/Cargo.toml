@@ -23,3 +23,5 @@ workspace_hack.workspace = true
 [dev-dependencies]
 nested_index = { workspace = true, features = ["unittest"] }
 redis_mock.workspace = true
+# Defines the Rust half of the C symbols the bundle the tests link calls into.
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
