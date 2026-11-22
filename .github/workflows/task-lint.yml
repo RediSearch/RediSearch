@@ -107,7 +107,8 @@ jobs:
       - name: Hakari
         run: cargo install cargo-hakari --locked
       - name: Cargo deny
-        run: cargo install cargo-deny --locked
+        # cargo-deny 0.22.0 needs a newer rustc than the toolchain pinned for this repo.
+        run: cargo install cargo-deny --locked --version 0.21.0
       - name: Lint
         id: lint
         continue-on-error: true
