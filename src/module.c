@@ -2031,6 +2031,11 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   void *p = NULL;
   TrieMapIterator *it = NULL;
 
+  if (SearchDisk_IsEnabled() && err) {
+    RedisModule_ReplyWithError(ctx, MRReply_String(err, NULL));
+    goto cleanup;
+  }
+
   // if there are no values - either reply with an empty set or an error
   if (TrieMap_NUniqueKeys(dict) == 0) {
 

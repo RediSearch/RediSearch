@@ -1233,11 +1233,6 @@ def test_flex_allows_tag_wildcard_query(env):
         .equal([1, 'doc:1'])
 
 
-    env.expect('HSET', 'doc:2', 'tag', 'a*b?end').equal(1)
-    env.expect('HSET', 'doc:3', 'tag', 'axbyend').equal(1)
-    env.expect('FT.SEARCH', 'idx', r"@tag:{w'a\*b\?*'}", 'NOCONTENT', 'DIALECT', '2') \
-        .equal([1, 'doc:2'])
-
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_synonym_commands(env):

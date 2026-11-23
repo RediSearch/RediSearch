@@ -127,7 +127,9 @@ pub(crate) fn eval<'index>(
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let stop = expansion_stop_check(ctx);
     let children = (0..num_children)
+        .take_while(|_| !stop())
         .map(|i| {
             let child = node.child_mut(i);
             let child = eval_child(
@@ -488,8 +490,8 @@ fn eval_wildcard<'index>(
     let mut tok = child
         .token_mut()
         .expect("a tag wildcard child must carry a token");
-    let has_suffix = index.has_suffix();
-    if has_suffix {
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    if !is_disk {
         // SAFETY: the AST owns this token in the module allocator.
         unsafe { tok.normalize_tag(case_sensitive) };
         tok.remove_wildcard_escapes();
@@ -499,14 +501,14 @@ fn eval_wildcard<'index>(
         .as_c_str()
         .expect("a tag wildcard token must carry a string")
         .to_bytes();
+    if !is_disk && below_min_term_prefix(pattern, min_term_prefix) {
+        return None;
+    }
     let children = if pattern.is_empty() {
         open_reader_child(ctx, index, c"".to_bytes(), field.index)
             .into_iter()
             .collect()
-    } else if has_suffix {
-        if below_min_term_prefix(pattern, min_term_prefix) {
-            return None;
-        }
+    } else if index.has_suffix() {
         let (timeout, skip_timeout_checks) = suffix_lookup_timeout(ctx);
         // SAFETY: the index is live for evaluation and `pattern` is readable
         // for the call. The callee also reads the byte at `pattern[len]` while
@@ -550,7 +552,7 @@ fn eval_wildcard<'index>(
                 max_prefix_expansions,
             )
         }
-    } else {
+    } else if is_disk {
         let pattern = if case_sensitive {
             Cow::Borrowed(pattern)
         } else {
@@ -569,6 +571,11 @@ fn eval_wildcard<'index>(
             return None;
         }
         let values = PatternLendingIter::Wildcard(index.values().wildcard_iter(pattern).into());
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
+    } else {
+        let values = index
+            .values()
+            .pattern_lending_iter(pattern, PatternMode::Wildcard);
         collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     };
 
