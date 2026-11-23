@@ -70,9 +70,9 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
 - `FT.ALTER ... GC` is rejected on TEMPORARY indexes, which have no GC, and on Flex
   nodes, as every `FT.ALTER` is there today, until task 6. It is accepted and stored on
   nodes started with `search-no-gc`, where it has no effect.
-- The index encoding version changes to 30. Overrides are saved as a list of tagged
+- The index encoding version changes to 32. Overrides are saved as a list of tagged
   entries, so later GC settings need no further version bump. Use the command only once
-  every node is upgraded: an older binary can't load a version-30 RDB, and an older
+  every node is upgraded: an older binary can't load a version-32 RDB, and an older
   shard drops the overrides of an index it receives by slot migration (see `design.md`,
   Edge cases).
 - The error for an unknown `FT.ALTER` action names both `SCHEMA` and `GC`.

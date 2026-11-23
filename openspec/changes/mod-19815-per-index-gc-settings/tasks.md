@@ -65,11 +65,11 @@ needs 2 and 3, and its Flex path needs 6.
       claims `GC_SCHED_RUN_PENDING` and before `add_work`, that copies the effective
       threshold into `IndexGC` and leaves the copy as it is when the index is gone;
       `IndexGC_RunCycle` checks only the copy
-- [ ] 2.4 Bump `INDEX_CURRENT_VERSION` to 30; save the override block as a count plus
+- [ ] 2.4 Bump `INDEX_CURRENT_VERSION` to 32; save the override block as a count plus
       `(setting id, string-buffer value)` pairs; on load skip unknown ids of any value
       size with one notice per load, and fail on a truncated block or a known id whose
       value has the wrong size, is out of range or is given twice
-- [x] 2.5 Confirm what an old binary does with a version-30 RDB: it fails to load it;
+- [x] 2.5 Confirm what an old binary does with a version-32 RDB: it fails to load it;
       an older shard that receives an index by slot migration drops its overrides
       (both seen on the bench VM)
 - [ ] 2.6 C++ unit tests: the threshold check with a per-index threshold under both
@@ -79,9 +79,9 @@ needs 2 and 3, and its Flex path needs 6.
       `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the
       context; the interval helper returning the global value for an unlinked index;
       RDB round trip with no override, one, and both, plus threshold 0; overrides on a
-      spec without a GC context; version-29 load; a block with an unknown setting id;
-      each load failure in 2.4; the unset state on every construction path (create, RDB
-      load, legacy load, deserialize)
+      spec without a GC context; loads of versions 29, 30 and 31; a block with an
+      unknown setting id; each load failure in 2.4; the unset state on every
+      construction path (create, RDB load, legacy load, deserialize)
 - [ ] 2.7 Flow test (`ENABLE_ASSERT`): park a run at `SYNC_POINT_GC_TASK_START`, change
       the threshold, and check that the parked run uses the old value and the next
       queued run uses the new one

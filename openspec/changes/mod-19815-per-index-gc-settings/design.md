@@ -117,10 +117,11 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 
 ## Persistence (T2)
 
-- `INDEX_CURRENT_VERSION` goes from 29 to 30 (`INDEX_GC_SETTINGS_VERSION`). The override
-  block is appended at the end of the spec record in `IndexSpec_RdbSave`, after the
-  conditional disk block, and is written for every index. The load side reads it at the
-  same position, after its own disk-block condition.
+- `INDEX_CURRENT_VERSION` goes from 31 to 32 (`INDEX_GC_SETTINGS_VERSION`); master
+  took 30 (`INDEX_SST_TAG_VALUES_VERSION`) and 31 (`INDEX_SPARSE_VECTOR_VERSION`). The
+  override block is appended at the end of the spec record in `IndexSpec_RdbSave`,
+  after the conditional disk block, and is written for every index. The load side
+  reads it at the same position, after its own disk-block condition.
 - The block is a count followed by one `(setting id, value)` pair per override that is
   set. The id is an unsigned number; the value is a string buffer. Numeric settings
   hold an 8-byte little-endian unsigned number, written byte by byte so the encoding
@@ -137,9 +138,9 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 - The load fails as corrupt when the block is truncated, or a known id has a value that
   is not 8 bytes, has a value out of range (`RUN_INTERVAL` 0 or above
   `GC_MAX_INTERVAL_SEC`, `CLEAN_THRESHOLD` above 2^63−1), or appears twice.
-- Encodings below 30 load with every override unset.
+- Encodings below 32 load with every override unset.
 - Specs are module aux data, and Redis does not reject an aux encoding version above the
-  module's own. An older binary fails to load a version-30 RDB; T2 confirmed this on the
+  module's own. An older binary fails to load a version-32 RDB; T2 confirmed this on the
   bench VM, and it goes into the release notes.
 - Slot migration needs nothing new. Overrides reach every shard through the
   coordinator's fan-out, and `_FT._RESTOREIFNX` keeps the target's own copy of an index
@@ -347,7 +348,7 @@ override of it, under both policies, is simpler and keeps the two policies consi
   the override; under `panic` the replica stops. In a partly upgraded cluster the
   coordinator returns an error, and upgraded shards keep the change. An older shard
   that receives an index by slot migration drops its overrides silently, and an older
-  binary can't load a version-30 RDB (see Persistence). Until the upgrade completes,
+  binary can't load a version-32 RDB (see Persistence). Until the upgrade completes,
   only GC timing differs between shards; queries are unaffected. Re-running after the
   upgrade makes all shards agree. Known gap: the coordinator's FT.INFO shows the first
   shard's values, so a mismatch shows only in each shard's own FT.INFO. Upgrade order
@@ -428,10 +429,10 @@ The spec delta describes the recommended answer to each.
   queue-time copy (including a dropped index with an armed timer,
   `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the
   context); the interval helper returning the global value for an unlinked index; RDB
-  round trip at version 30 and load of version 29; a block with an unknown setting id
-  of any value size loading with that setting skipped and one notice; and each load
-  failure: a truncated block, a known id with a value of the wrong size, out of range
-  (`RUN_INTERVAL` 0 or above `GC_MAX_INTERVAL_SEC`), or given twice.
+  round trip at version 32 and loads of versions 29, 30 and 31; a block with an unknown
+  setting id of any value size loading with that setting skipped and one notice; and
+  each load failure: a truncated block, a known id with a value of the wrong size, out
+  of range (`RUN_INTERVAL` 0 or above `GC_MAX_INTERVAL_SEC`), or given twice.
 - C++ unit tests for T5: the ratio rule under both policies, inheritance of each
   policy's ratio, `CLEAN_RATIO_PPM 0` leaving the threshold alone, an empty index,
   `CLEAN_THRESHOLD 0` with a ratio, values near the overflow limit, the queue-time copy

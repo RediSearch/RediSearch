@@ -304,7 +304,7 @@ the RDB.
 - **THEN** the new `idx` SHALL have no overrides
 
 #### Scenario: Older RDB
-- **WHEN** a node loads an RDB written with index encoding version 29 or lower
+- **WHEN** a node loads an RDB written with index encoding version 31 or lower
 - **THEN** every index SHALL load with no overrides
 
 #### Scenario: Setting from a newer version
