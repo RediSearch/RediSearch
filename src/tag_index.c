@@ -46,6 +46,7 @@ TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldInde
   idx->uniqueId = tagUniqueId++;
   idx->suffix = withSuffix ? NewTrieMap() : NULL;
   idx->diskSpec = diskSpec;
+  idx->valuesAreCounts = diskSpec != NULL;
   idx->fieldIndex = fieldIndex;
   return idx;
 }
@@ -340,6 +341,12 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, b
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
   if (!spec->tagOpts.tagIndex) {
     spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index, withSuffix);
+  } else if (diskSpec) {
+    TagIndex *idx = spec->tagOpts.tagIndex;
+    RS_ASSERT(idx->valuesAreCounts);
+    RS_ASSERT(!idx->diskSpec || idx->diskSpec == diskSpec);
+    idx->diskSpec = diskSpec;
+    idx->fieldIndex = spec->index;
   }
   return spec->tagOpts.tagIndex;
 }
@@ -366,7 +373,7 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx) {
 
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
   return TrieMap_Delete(idx->values, tagVal, tagValLen,
-                        idx->diskSpec ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free);
+                        idx->valuesAreCounts ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free);
 }
 
 bool TagIndex_DecrementValueCount(TagIndex *idx, const char *tag, size_t len, size_t count) {
@@ -424,8 +431,37 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator_Free(it);
 }
 
+void TagIndex_RdbSave(RedisModuleIO *rdb, const TagIndex *idx) {
+  if (!idx) {
+    RedisModule_SaveUnsigned(rdb, 0);
+    return;
+  }
+  RS_ASSERT(idx->valuesAreCounts);
+  TrieMap_RdbSave(rdb, idx->values);
+}
+
+TagIndex *TagIndex_RdbLoad(RedisModuleIO *rdb, t_fieldIndex fieldIndex, bool withSuffix) {
+  TrieMap *values = TrieMap_RdbLoad(rdb);
+  if (!values) return NULL;
+  TagIndex *idx = NewTagIndex(NULL, fieldIndex, withSuffix);
+  TrieMap_Free(idx->values, tagIndex_FreeCount);
+  idx->values = values;
+  idx->valuesAreCounts = true;
+  if (idx->suffix) {
+    TrieMapIterator *iter = TrieMap_Iterate(values);
+    char *tag;
+    tm_len_t len;
+    void *count;
+    while (TrieMapIterator_Next(iter, &tag, &len, &count)) {
+      if (len) addSuffixTrieMap(idx->suffix, tag, len);
+    }
+    TrieMapIterator_Free(iter);
+  }
+  return idx;
+}
+
 void TagIndex_Free(TagIndex *idx) {
-  freeCB valueFree = idx->diskSpec ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free;
+  freeCB valueFree = idx->valuesAreCounts ? tagIndex_FreeCount : (freeCB)InvertedIndex_Free;
   TrieMap_Free(idx->values, valueFree);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);

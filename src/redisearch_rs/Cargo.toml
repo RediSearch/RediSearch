@@ -51,6 +51,7 @@ members = [
     "tools/ffi_geiger",
     "tools/safety_report",
     "tools/migration_stats",
+    "tools/port_graph",
     "tracing_assert",
     "tracing_redismodule",
     "trie_bencher",
@@ -249,6 +250,10 @@ toml = "0.9"
 tracing = "0.1.44"
 tracing_log_error = "0.1"
 tracing-core = "0.1"
+tree-sitter = "0.27"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-rust = "0.24"
 tracing-subscriber = { version = "0.3.22", default-features = false, features = [
     "std",
     "fmt",

@@ -11,6 +11,8 @@
 //! numeric field, reading the field's value-ordered ranges directly from a
 //! [`NumericRangeTree`].
 
+use std::ffi::CStr;
+
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 
@@ -39,18 +41,11 @@ use crate::score_batch::NumericScoreBatch;
 pub trait DocValidity {
     /// Returns `true` if `doc_id` still resolves to a valid result document.
     fn is_valid(&self, doc_id: DocId) -> bool;
-
-    /// Fast-path gate: `false` lets the source skip filtering entirely.
-    fn may_filter(&self) -> bool;
 }
 
 impl<F: Fn(DocId) -> bool> DocValidity for F {
     fn is_valid(&self, doc_id: DocId) -> bool {
         self(doc_id)
-    }
-
-    fn may_filter(&self) -> bool {
-        true
     }
 }
 
@@ -64,10 +59,34 @@ impl DocValidity for AllValid {
     fn is_valid(&self, _doc_id: DocId) -> bool {
         true
     }
+}
 
-    #[inline(always)]
-    fn may_filter(&self) -> bool {
-        false
+/// Which numeric-optimizer strategy the query plan runs, reported as the
+/// `Optimizer mode` entry of an `FT.PROFILE` reply.
+///
+/// The strategy is fixed by the plan before the source exists, so the source only
+/// reports it and never acts on it. Crosses the FFI boundary because no runtime
+/// state recovers it: a filtered range whose window never widens is
+/// [`PartialRange`](Self::PartialRange) despite having a child.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cheadergen::config(prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NumericOptimizerMode {
+    /// One bounded slice of the value-ordered stream is expected to satisfy the
+    /// limit, so no window expansion is anticipated.
+    PartialRange,
+    /// The filter's selectivity is only estimated, so the window may have to
+    /// expand before the limit is met.
+    Hybrid,
+}
+
+impl NumericOptimizerMode {
+    /// The string this mode is reported under in a profile reply.
+    pub fn profile_name(self) -> &'static CStr {
+        match self {
+            Self::PartialRange => c"Query partial range",
+            Self::Hybrid => c"Hybrid",
+        }
     }
 }
 
@@ -76,10 +95,12 @@ impl DocValidity for AllValid {
 /// Larger batches amortize the per-batch child rewind in the surrounding
 /// [`TopKIterator`]'s `intersect_batch_with_child`; smaller batches tighten the
 /// early-`Stop` granularity, since a batch boundary is also a score-bracket
-/// boundary. Callers (chiefly tests) override it to force multi-batch behavior.
+/// boundary. Tests override it via
+/// [`with_range_batch_size`](NumericScoreSource::with_range_batch_size) to force
+/// multi-batch behavior.
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
-pub(crate) const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
+pub const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
 
 /// Maximum number of expand-and-retry iterations before the next retry reads
 /// every remaining document.
@@ -93,7 +114,8 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 /// `SORTBY <numeric field>`.
 ///
 /// A document's score is its value in the numeric field. The source asks the
-/// [`NumericRangeTree`] for the field's ranges in score order (per `ascending`),
+/// [`NumericRangeTree`] for the field's ranges in score order (per the filter's
+/// `ascending`),
 /// restricted to a [`RangeWindow`], and hands them to the surrounding
 /// [`TopKIterator`] as doc-id-ordered batches. Because batches arrive
 /// best-score-first, a full heap (`heap_count >= k`) means no later batch can
@@ -158,8 +180,6 @@ struct NumericScan<'index> {
     /// Window document estimate captured at construction, kept stable after the
     /// window is drained or expanded.
     num_estimated: usize,
-    /// Whether the filtered expand-and-retry path is active.
-    retry_enabled: bool,
     /// Total documents in the index, the selectivity denominator that sizes
     /// each retry window's estimated limit.
     num_docs: usize,
@@ -168,41 +188,19 @@ struct NumericScan<'index> {
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
-    /// Number of value-ordered range batches opened so far, surfaced as
-    /// the `Batches number` profile metric. Reset on rewind.
-    num_batches: usize,
+    /// Strategy reported as the profile's `Optimizer mode`.
+    optimizer_mode: NumericOptimizerMode,
 }
 
 impl<'index> NumericScoreSource<'index> {
-    /// Build a source for the unfiltered case (no filter child), with no retry.
-    /// `filter` is the numeric range over the sort field that picks which ranges
-    /// to read; its `offset`/`limit` window is ignored here and sized from `k`
-    /// instead, by [`narrow_window_to_top_k`](Self::narrow_window_to_top_k).
-    pub fn unfiltered(
-        tree: impl Into<NumericTreeRef<'index>>,
-        filter: NumericFilter,
-        ascending: bool,
-    ) -> Self {
-        Self::with_range_batch_size(tree, filter, ascending, DEFAULT_RANGE_BATCH_SIZE)
-    }
-
-    /// Like [`unfiltered`](Self::unfiltered) but with an explicit per-batch range
-    /// count, so tests can force multi-batch behavior on small inputs.
-    pub fn with_range_batch_size(
-        tree: impl Into<NumericTreeRef<'index>>,
-        mut filter: NumericFilter,
-        ascending: bool,
-        range_batch_size: usize,
-    ) -> Self {
-        filter.ascending = ascending;
-        Self::build(
-            tree,
-            filter,
-            RangeWindow::UNBOUNDED,
-            range_batch_size,
-            0,
-            false,
-        )
+    /// Build a source for the unfiltered case (no filter child), reading every
+    /// range `filter` selects in its sort order.
+    ///
+    /// An unbounded window has nothing to expand into, so this source never
+    /// retries; [`narrow_window_to_top_k`](Self::narrow_window_to_top_k) bounds it
+    /// to `k` and arms the retry.
+    pub fn unfiltered(tree: impl Into<NumericTreeRef<'index>>, filter: NumericFilter) -> Self {
+        Self::filtered(tree, filter, RangeWindow::UNBOUNDED, 0)
     }
 
     /// Build a filtered source with the expand-and-retry path enabled.
@@ -212,23 +210,9 @@ impl<'index> NumericScoreSource<'index> {
     /// observed hit rate sizes the retry windows.
     pub fn filtered(
         tree: impl Into<NumericTreeRef<'index>>,
-        mut filter: NumericFilter,
-        window: RangeWindow,
-        ascending: bool,
-        range_batch_size: usize,
-        num_docs: usize,
-    ) -> Self {
-        filter.ascending = ascending;
-        Self::build(tree, filter, window, range_batch_size, num_docs, true)
-    }
-
-    fn build(
-        tree: impl Into<NumericTreeRef<'index>>,
         filter: NumericFilter,
         window: RangeWindow,
-        range_batch_size: usize,
         num_docs: usize,
-        retry_enabled: bool,
     ) -> Self {
         let mut ranges = NumericRangeIterator::new(tree, &filter, window);
         let num_estimated = ranges.total_docs_estimate();
@@ -236,13 +220,12 @@ impl<'index> NumericScoreSource<'index> {
             scan: NumericScan {
                 ranges,
                 initial_window: window,
-                range_batch_size: range_batch_size.max(1),
+                range_batch_size: DEFAULT_RANGE_BATCH_SIZE,
                 num_estimated,
-                retry_enabled,
                 num_docs,
                 heap_old_size: 0,
                 num_iterations: 0,
-                num_batches: 0,
+                optimizer_mode: NumericOptimizerMode::PartialRange,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -303,6 +286,19 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         }
     }
 
+    /// Set the strategy the profile reports.
+    pub fn with_optimizer_mode(mut self, mode: NumericOptimizerMode) -> Self {
+        self.scan.optimizer_mode = mode;
+        self
+    }
+
+    /// Read `n` value-ordered ranges per batch instead of
+    /// [`DEFAULT_RANGE_BATCH_SIZE`]. A zero `n` reads one.
+    pub fn with_range_batch_size(mut self, n: usize) -> Self {
+        self.scan.range_batch_size = n.max(1);
+        self
+    }
+
     /// Sort direction the source reads in, for the heap comparator.
     pub fn ascending(&self) -> bool {
         self.scan.ranges.ascending()
@@ -324,14 +320,12 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             limit: k,
         };
         scan.num_docs = scan.num_estimated;
-        scan.retry_enabled = true;
         scan.ranges.refind(scan.initial_window);
     }
 
-    /// Number of value-ordered range batches opened so far, for the
-    /// `Batches number` profile metric.
-    pub fn num_batches(&self) -> usize {
-        self.scan.num_batches
+    /// Strategy reported as the profile's `Optimizer mode`.
+    pub fn optimizer_mode(&self) -> NumericOptimizerMode {
+        self.scan.optimizer_mode
     }
 }
 
@@ -348,12 +342,12 @@ impl NumericScan<'_> {
     ///
     /// Returns `true` if a new (disjoint) window was resolved, so the caller can
     /// return [`BatchStrategy::ExpandWindow`]; `false` if no expansion is
-    /// possible (already unbounded, out of retries, or retry disabled), leaving
-    /// the window untouched.
+    /// possible (already unbounded or out of retries), leaving the window
+    /// untouched.
     ///
     /// [`BatchStrategy::ExpandWindow`]: top_k::BatchStrategy::ExpandWindow
     fn expand_window(&mut self, heap_count: usize, k: usize) -> bool {
-        if !self.retry_enabled || self.num_iterations >= MAX_ITERATIONS {
+        if self.num_iterations >= MAX_ITERATIONS {
             return false;
         }
         // A `limit == 0` window is unbounded and has already read every remaining
@@ -398,11 +392,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     type Batch = NumericScoreBatch<'index>;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        let Some(batch) = self.scan.ranges.next_n(self.scan.range_batch_size) else {
-            return Ok(None);
-        };
-        self.scan.num_batches += 1;
-        Ok(Some(batch))
+        Ok(self.scan.ranges.next_n(self.scan.range_batch_size))
     }
 
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -413,14 +403,17 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.timeout.check_timeout()?;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
-        // range tree only sheds at GC time. Each gate keeps the common
-        // no-filtering case free of its per-record check.
-        Ok(self.scan.ranges.first_emission(doc_id)
-            && (!self.validity.may_filter() || self.validity.is_valid(doc_id))
+        // range tree only sheds at GC time.
+        Ok(!self.scan.ranges.is_retained(doc_id)
+            && self.validity.is_valid(doc_id)
             && !(self.expiration.has_expiration()
                 && self
                     .expiration
                     .is_expired(&self.build_result(doc_id, score))))
+    }
+
+    fn admitted(&mut self, doc_id: DocId, evicted: Option<DocId>) {
+        self.scan.ranges.record_admission(doc_id, evicted);
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -447,9 +440,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // outer rewind that restarts the whole query.
         let scan = &mut self.scan;
         scan.num_iterations = 0;
-        scan.num_batches = 0;
         scan.heap_old_size = 0;
-        scan.ranges.forget_emitted();
+        scan.ranges.forget_retained();
         scan.ranges.refind(scan.initial_window);
     }
 
@@ -537,14 +529,9 @@ mod tests {
             offset: 0,
             limit: 100,
         };
-        let mut source = NumericScoreSource::filtered(
-            &tree,
-            NumericFilter::default(),
-            window,
-            true,
-            usize::MAX,
-            num_docs,
-        );
+        let mut source =
+            NumericScoreSource::filtered(&tree, NumericFilter::default(), window, num_docs)
+                .with_range_batch_size(usize::MAX);
         while source.next_batch().unwrap().is_some() {}
         assert_eq!(
             source.batch_strategy(collected, k),

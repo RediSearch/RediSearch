@@ -14,6 +14,7 @@
 #include "query.h"
 #include "vecsim/vec_sim.h"
 #include "field.h"
+#include "numeric_score_source.h"
 #include "query_types.h"
 #include "rqe_core.h"
 #include "rqe_iterators.h"
@@ -250,6 +251,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ * 8. `idx` must be the inverted index that `tag_idx` stores for `term`'s tag.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
@@ -393,8 +395,9 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  * owning child iterator for a filtered query, whose selectivity sizes the
  * initial value-window and drives the expand-and-retry path.
  *
- * `filter` is read once to copy the numeric range parameters; it is not
- * retained after this call.
+ * `filter` is read once to copy the numeric range parameters, including the
+ * sort direction; it is not retained after this call. `mode` is the
+ * [`NumericOptimizerMode`] the query plan chose.
  *
  * Documents the doc table no longer shows (deleted, or hidden by a pending slot
  * deletion) are dropped before they can take a top-k slot.
@@ -418,7 +421,7 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new iterator over a list of sorted document IDs.
