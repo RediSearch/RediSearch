@@ -1423,6 +1423,37 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+// FT.DEBUG GC_TIMER_INFO <index>
+// The index's live GC timer as [type, run_interval|retry, interval_ms, <armed interval>,
+// remaining_ms, <time to the run>], or [type, none] when no timer is live, so tests can check
+// a restart without sleeping through the jitter.
+DEBUG_COMMAND(GCTimerInfo) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  IndexSpec *sp = debugSpecWithGC(ctx, argv);
+  if (!sp) {
+    return REDISMODULE_OK;
+  }
+  GCTimerPlan plan;
+  long long remainingMs = 0;
+  if (!GCContext_GetTimerInfo(sp->gc, &plan, &remainingMs)) {
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithSimpleString(ctx, "type");
+    return RedisModule_ReplyWithSimpleString(ctx, "none");
+  }
+  RedisModule_ReplyWithArray(ctx, 6);
+  RedisModule_ReplyWithSimpleString(ctx, "type");
+  RedisModule_ReplyWithSimpleString(ctx, plan.kind == GC_TIMER_RETRY ? "retry" : "run_interval");
+  RedisModule_ReplyWithSimpleString(ctx, "interval_ms");
+  RedisModule_ReplyWithLongLong(ctx, plan.intervalMs);
+  RedisModule_ReplyWithSimpleString(ctx, "remaining_ms");
+  return RedisModule_ReplyWithLongLong(ctx, remainingMs);
+}
+
 // Block the client until the GC pool is idle: no job queued and none running on any GC thread.
 // Callers stop the schedules they wait on first, or the pool may never go idle.
 DEBUG_COMMAND(GCWaitForAllJobs) {
@@ -4216,6 +4247,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FORCE_PLAIN_HASH_NOTIFICATIONS", forcePlainHashNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
+                               {"GC_TIMER_INFO", GCTimerInfo},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},

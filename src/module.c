@@ -93,6 +93,7 @@
 #include "extension.h"
 #include "field_spec.h"
 #include "gc/gc.h"
+#include "util/strconv.h"
 #include "hiredis/alloc.h"
 #include "indexes_scanner.h"
 #include "info/index_error.h"
@@ -966,6 +967,47 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+// AC_AdvanceIfMatch with the argument's length checked: strcasecmp stops at a NUL byte, which
+// would let "GC\0junk" through as GC.
+static bool advanceIfKeyword(ArgsCursor *ac, const char *keyword) {
+  const char *arg;
+  size_t len;
+  if (AC_GetString(ac, &arg, &len, AC_F_NOADVANCE) != AC_OK || !STR_EQCASE(arg, len, keyword)) {
+    return false;
+  }
+  AC_Advance(ac);
+  return true;
+}
+
+// FT.ALTER <index> GC SET <settings>, with `ac` past GC. Replicated as _FT._ALTERIFNX like
+// SCHEMA ADD; applying it again, or DEFAULT again, leaves the same overrides, so it needs no
+// IFNX probe.
+static int alterIndexGCSettings(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                ArgsCursor *ac, IndexSpec *sp) {
+  if (!advanceIfKeyword(ac, "SET")) {
+    return RedisModule_ReplyWithError(ctx, "GC must be followed by SET");
+  }
+  if (sp->flags & Index_Temporary) {
+    return RedisModule_ReplyWithError(ctx, "GC settings are not supported on TEMPORARY indexes");
+  }
+  QueryError status = QueryError_Default();
+  bool setsRunInterval = false;
+  if (IndexGCSettings_ParseSet(ac, &sp->gcSettings, &setsRunInterval, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  // A node started with search-no-gc has no GC context; it keeps the override for when the
+  // index reaches a node that collects.
+  if (setsRunInterval) {
+    GCContext_OnIntervalChanged(sp->gc);
+  }
+
+  RedisModule_Log(ctx, "notice", "Successfully altered GC settings of index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+  RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_ALTER_IF_NX_CMD), "v", argv + 1,
+                        (size_t)argc - 1);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                      bool ifnx) {
   ArgsCursor ac = {0};
@@ -996,8 +1038,16 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     initialScan = false;
   }
 
+  // Before the IFNX probe below, which reads the next word as a field name.
+  if (advanceIfKeyword(&ac, "GC")) {
+    if (!initialScan) {
+      return RedisModule_ReplyWithError(ctx, SPEC_SKIPINITIALSCAN_STR " does not apply to GC");
+    }
+    return alterIndexGCSettings(ctx, argv, argc, &ac, sp);
+  }
+
   if (!AC_AdvanceIfMatch(&ac, "SCHEMA")) {
-    return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA");
+    return RedisModule_ReplyWithError(ctx, "ALTER must be followed by SCHEMA or GC");
   }
 
   if (!AC_AdvanceIfMatch(&ac, "ADD")) {

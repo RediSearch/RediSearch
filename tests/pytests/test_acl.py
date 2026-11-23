@@ -246,6 +246,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
         ['FT.ALIASLIST', no_perm_index],
         ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
+        ['FT.ALTER', no_perm_index, 'GC', 'SET', 'RUN_INTERVAL', '100'],
         ['FT.EXPLAIN', no_perm_index, '*'],
         ['FT.EXPLAINCLI', no_perm_index, '*'],
         ['FT.INFO', no_perm_index],

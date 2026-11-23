@@ -14,10 +14,13 @@
 #include <stddef.h>
 
 #include "redismodule.h"
+#include "rmutil/args.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct QueryError;
 
 // A per-index override of a global GC setting. An unset override inherits the global value as
 // it is when read, so a later CONFIG SET reaches the index. 0 is a valid value for some
@@ -49,6 +52,17 @@ void IndexGCSettings_Init(IndexGCSettings *settings);
 // a timer arms, so no accepted value is silently capped; a clean threshold takes the range of the
 // global threshold configs. False for an id this binary does not know.
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value);
+
+// The value word that clears an override, so the setting inherits the global value again.
+#define INDEX_GC_SETTING_DEFAULT_STR "DEFAULT"
+
+// Parses the settings that follow `GC SET`, `<name> <value|DEFAULT>` pairs to the end of `ac`,
+// and applies them to `settings`. All or nothing: on an error `settings` is left as it was. It
+// takes at least one setting, each at most once, in any order, and leaves the settings it is
+// not given as they are. `*setsRunInterval` tells whether RUN_INTERVAL was given, with a value
+// or DEFAULT, since only that setting affects a waiting timer.
+int IndexGCSettings_ParseSet(ArgsCursor *ac, IndexGCSettings *settings, bool *setsRunInterval,
+                             struct QueryError *status);
 
 // The global value an unset override inherits: the search-thread-gc-* config under the THREAD
 // policy, the search-fork-gc-* one otherwise. Under THREAD, search-gc-clean-ratio-ppm applies on

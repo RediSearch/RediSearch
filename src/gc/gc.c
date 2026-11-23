@@ -374,6 +374,24 @@ void GCContext_OnIntervalChanged(GCContext* gc) {
   GCContext_ArmTimer(gc);
 }
 
+bool GCContext_GetTimerInfo(const GCContext* gc, GCTimerPlan* plan, long long* remainingMs) {
+  if (!gc->timerID) {
+    return false;
+  }
+  *plan = gc->armedPlan;
+  if (gc->stepDeadlineMs) {
+    const uint64_t now = GC_NowMs();
+    *remainingMs = gc->stepDeadlineMs > now ? (long long)(gc->stepDeadlineMs - now) : 0;
+    return true;
+  }
+  uint64_t remaining = 0;
+  if (RedisModule_GetTimerInfo(RSDummyContext, gc->timerID, &remaining, NULL) != REDISMODULE_OK) {
+    return false;
+  }
+  *remainingMs = (long long)remaining;
+  return true;
+}
+
 void GCContext_PauseScheduling(GCContext* gc) {
   if (!gc) {
     return;

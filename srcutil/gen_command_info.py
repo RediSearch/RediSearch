@@ -60,6 +60,9 @@ COMMANDS_WITH_MINIMUM_ARITY = {
 COMMAND_ARITY_OVERRIDES = {
     # FT.CONFIG SET accepts SET <name> for deprecated flag-style configs.
     'FT.CONFIG SET': -3,
+    # The GC SET branch is shorter with its settings optional, but the handler needs one, and the
+    # Redis Software proxy hard-codes -6 for FT.ALTER.
+    'FT.ALTER': -6,
 }
 
 def get_function_signature(name):
