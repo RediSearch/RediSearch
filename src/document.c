@@ -829,7 +829,13 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   const char *str = NULL;
   fdata->isMulti = 0;
-  if (str_count == 1) {
+  if (str_count == 0) {
+    RS_ASSERT(field->unionType == FLD_VAR_T_ARRAY);
+    // JSON nulls are dropped before this point, so the array holds no points:
+    // index nothing for the field, as NUMERIC does for an empty array.
+    fdata->isMulti = 1;
+    fdata->arrNumeric = NULL;
+  } else if (str_count == 1) {
     str = DocumentField_GetValueCStr(field, &len);
     if (parseGeo((const uint8_t *)str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
