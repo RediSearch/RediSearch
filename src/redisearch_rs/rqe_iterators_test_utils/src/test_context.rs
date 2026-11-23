@@ -30,6 +30,16 @@ use rqe_core::{DocId, FieldMask};
 /// Global counter for generating unique index names across tests.
 static INDEX_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// How the doc ids of the inverted index built by [`TestContext::tag_with_encoding`]
+/// are encoded.
+#[derive(Clone, Copy, Debug)]
+pub enum DocIdEncoding {
+    /// Variable-length deltas ([`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly)).
+    Varint,
+    /// Fixed-width ids ([`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)).
+    Raw,
+}
+
 /// Mutex to serialize TestContext creation and cleanup.
 ///
 /// The C code's global state is not thread-safe. When tests run in parallel with `cargo test`,
@@ -807,6 +817,14 @@ impl TestContext {
     where
         I: Iterator<Item = u64>,
     {
+        Self::tag_with_encoding(doc_ids, DocIdEncoding::Varint)
+    }
+
+    /// Like [`TestContext::tag`], with the tag's inverted index using `encoding`.
+    pub fn tag_with_encoding<I>(doc_ids: I, encoding: DocIdEncoding) -> Self
+    where
+        I: Iterator<Item = u64>,
+    {
         // Serialize TestContext creation to avoid concurrent access to C global state
         let _lock = CONTEXT_MUTEX.lock().unwrap();
 
@@ -833,9 +851,18 @@ impl TestContext {
         let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
 
         // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
-        // (CREATE_INDEX = 1 creates a new DocIdsOnly inverted index in the TrieMap)
+        // (CREATE_INDEX = 1 creates a new doc-ids-only inverted index in the TrieMap).
+        // It takes the encoding from the global config, so that is set for this one
+        // call only; holding `CONTEXT_MUTEX` keeps other contexts from observing it.
         let tag_key = CString::new("test_tag").unwrap();
         let mut sz: usize = 0;
+        // SAFETY: `CONTEXT_MUTEX` serialises access to the C globals.
+        let default_raw_encoding = unsafe { ffi::RSGlobalConfig.invertedIndexRawDocidEncoding };
+        // SAFETY: as above.
+        unsafe {
+            ffi::RSGlobalConfig.invertedIndexRawDocidEncoding =
+                matches!(encoding, DocIdEncoding::Raw);
+        }
         let ii_ptr = unsafe {
             ffi::TagIndex_OpenIndex(
                 tag_index_raw,
@@ -845,8 +872,22 @@ impl TestContext {
                 &mut sz,
             )
         };
+        // SAFETY: as above.
+        unsafe { ffi::RSGlobalConfig.invertedIndexRawDocidEncoding = default_raw_encoding };
         assert!(!ii_ptr.is_null(), "TagIndex_OpenIndex returned null");
         let ii = ptr::NonNull::new(ii_ptr.cast()).expect("InvertedIndex should not be null");
+        // SAFETY: `TagIndex_OpenIndex` delegates to `NewInvertedIndex_Ex`, so the
+        // pointer is a valid opaque `InvertedIndex` owned by the tag index.
+        let created = unsafe { ii_ptr.cast::<InvertedIndex>().as_ref() }
+            .expect("InvertedIndex should not be null");
+        assert!(
+            matches!(
+                (encoding, created),
+                (DocIdEncoding::Varint, InvertedIndex::DocIdsOnly(_))
+                    | (DocIdEncoding::Raw, InvertedIndex::RawDocIdsOnly(_))
+            ),
+            "the tag index was not created with the {encoding:?} encoding"
+        );
 
         // Populate with virtual records for each document ID.
         // TagIndex_OpenIndex internally calls NewInvertedIndex_Ex, so the

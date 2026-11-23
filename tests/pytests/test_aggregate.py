@@ -1899,7 +1899,6 @@ def testAggregateWithoutCountSortByThenGroupByFirstValueOrdering(env):
     env.assertEqual(res, [1, ['brand', 'acme', 'first', 'alpha', 'cnt', '1']])
 
 
-@skip(cluster=True)
 def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
     """FIRST_VALUE ... BY keeps the row with the best non-null sort key, however the rows are
     ordered: a row without the sort property must not win over one that has it."""

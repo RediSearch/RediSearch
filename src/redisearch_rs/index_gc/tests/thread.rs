@@ -298,10 +298,10 @@ impl GcStatsSink for Recorder {
 
 /// Read locks a cycle takes on a spec with only terms: one to read the deleted
 /// set, `term_chunks` to walk the terms, and one each to list numeric trees,
-/// walk the (absent) tag values, list missing fields and scan the (absent)
-/// existing-docs index.
+/// walk the (absent) tag values, walk the (absent) sparse vector dimensions,
+/// list missing fields and scan the (absent) existing-docs index.
 const fn terms_only_read_locks(term_chunks: u64) -> u64 {
-    1 + term_chunks + 4
+    1 + term_chunks + 5
 }
 
 /// Write locks a cycle takes: `apply_chunks` to apply deltas, and one to prune
@@ -313,9 +313,10 @@ const fn write_locks(apply_chunks: u64) -> u64 {
 /// Read locks a cycle takes on a spec with one numeric field and nothing else:
 /// one to read the deleted set, one to walk the (absent) terms, one to list the
 /// tree's nodes, `node_chunks` to snapshot them, one to check the tree for
-/// leaves split since, then one each for tags, missing fields and existing docs.
+/// leaves split since, then one each for tags, sparse vectors, missing fields
+/// and existing docs.
 const fn numeric_only_read_locks(node_chunks: u64) -> u64 {
-    1 + 1 + 1 + node_chunks + 1 + 3
+    1 + 1 + 1 + node_chunks + 1 + 4
 }
 
 #[test]

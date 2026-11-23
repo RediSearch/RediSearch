@@ -24,7 +24,7 @@ typedef enum IteratorStatus {
   ITERATOR_OK,
   ITERATOR_NOTFOUND,
   ITERATOR_EOF,
-  ITERATOR_TIMEOUT,
+  ITERATOR_STOPPED, // Ended early on a timeout or a requested stop; the request's limits say which.
 } IteratorStatus;
 
 typedef enum ValidateStatus {
@@ -95,7 +95,7 @@ typedef struct QueryIterator {
    *  On ITERATOR_EOF it must instead set `atEOF` and clear `current` to NULL, leaving
    *  `lastDocId` on the last result it yielded: there is nothing to point at, and an
    *  iterator that owns its result frees it on the way past the end.
-   *  On ITERATOR_TIMEOUT both `current` and `lastDocId` are untouched — the iterator has
+   *  On ITERATOR_STOPPED both `current` and `lastDocId` are untouched — the iterator has
    *  not moved, and a later call may still find a result where it stands.
    *  @returns ITERATOR_OK on normal operation, or any other `IteratorStatus` except `ITERATOR_NOTFOUND`
    */
@@ -112,7 +112,7 @@ typedef struct QueryIterator {
    *  Otherwise the relevant IteratorStatus is returned, under the same post-conditions as
    *  `Read`: ITERATOR_EOF sets `atEOF` and clears `current` to NULL while leaving
    *  `lastDocId` where the last yield left it — never on `docId`, which the iterator has no
-   *  result to back — and ITERATOR_TIMEOUT touches neither.
+   *  result to back — and ITERATOR_STOPPED touches neither.
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
 

@@ -23,25 +23,31 @@ use crate::heap::ScoredResult;
 /// [`TopKIterator`]'s intersection engine.  Doc IDs within a batch must be
 /// **strictly increasing**.
 ///
-/// # Obligation: independent of the index
+/// A batch that returns `Err` is spent: it may have consumed entries it did not
+/// yield, so it must be dropped rather than read again.
 ///
-/// A batch must own everything it yields and hold no reference or pointer into
-/// the index, neither for [`next`](Self::next) nor for its own `Drop`. On the
+/// # Obligation: independent of the index on the Unfiltered path
+///
+/// A batch from [`all_results_unfiltered_batch`](ScoreSource::all_results_unfiltered_batch)
+/// must own everything it yields and hold no reference or pointer into the
+/// index, neither for [`next`](Self::next) nor for its own `Drop`. On the
 /// [`Unfiltered`](crate::TopKMode::Unfiltered) path the [`TopKIterator`] keeps
 /// its in-progress batch across a suspend/resume cycle, while the index lock is
-/// released, and nothing at either boundary inspects or rebuilds it.
+/// released, and nothing at either boundary inspects or rebuilds it. A batch
+/// from [`next_batch`](ScoreSource::next_batch) is consumed within a single
+/// collection, so it may read the index.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 pub trait ScoreBatch {
     /// Advance to the next `(doc_id, score)` pair.
     ///
-    /// Returns `None` when the batch is exhausted.
-    fn next(&mut self) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` when the batch is exhausted.
+    fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 
     /// Skip forward to the first pair whose `doc_id >= target`.
     ///
-    /// Returns `None` if no such pair exists in this batch.
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` if no such pair exists in this batch.
+    fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 }
 
 /// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
@@ -105,7 +111,7 @@ pub trait ScoreSource {
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
-    /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
+    /// - `Err(RQEIteratorError::Stopped)`: the query ended early on a timeout or memory pressure.
     ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
@@ -128,6 +134,19 @@ pub trait ScoreSource {
     ///
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
+
+    /// Whether a candidate may take a heap slot.
+    ///
+    /// Called before every heap insertion, after the candidate matched the
+    /// child if there is one, so a rejected candidate never displaces a valid
+    /// one from the bounded heap. Errors propagate to the caller. The default
+    /// admits everything.
+    fn accept_candidate(&mut self, _doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
+        Ok(true)
+    }
+
+    /// Called when an accepted candidate takes a heap slot, evicting `evicted`.
+    fn admitted(&mut self, _doc_id: DocId, _evicted: Option<DocId>) {}
 
     /// Whether `result` is no longer valid and must not be surfaced
     /// (e.g. its field has expired).
@@ -295,9 +314,29 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
-    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// Poll the query deadline, returning [`RQEIteratorError::Stopped`] once
     /// it has been reached.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
+
+    /// Amortized memory checkpoint, polled once per document of the adhoc-BF
+    /// scan next to [`check_timeout`](Self::check_timeout).
+    ///
+    /// Kept apart from the timeout poll so the cheap deadline check keeps its
+    /// own cadence while the costlier memory read is amortized by the
+    /// request's checkpoint. Returns [`RQEIteratorError::Stopped`] when memory
+    /// is under pressure; the request's memory stop, which is sticky, tells it
+    /// from a timeout. The default never stops.
+    fn check_memory(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    /// Unamortized [`check_memory`](Self::check_memory), called once when the
+    /// adhoc-BF scan ends, because rerank and finalization copy the heap and
+    /// a scan shorter than the amortization interval would otherwise never
+    /// read memory. The default never stops.
+    fn check_memory_now(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///

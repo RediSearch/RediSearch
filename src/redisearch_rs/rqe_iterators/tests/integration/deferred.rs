@@ -35,7 +35,7 @@ fn producer(
     Box::new(move || {
         calls.set(calls.get() + 1);
         if timed_out {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         let (ids, metrics) = payload.take().expect("producer should only be run once");
         Ok(ProducedResults {
@@ -187,7 +187,7 @@ fn timeout_propagates_on_first_read() {
         10,
         index_result::RSIndexResult::build_virt().build(),
     ));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
     // The producer was consumed even on timeout, so a subsequent read yields EOF (no re-run).
     assert!(matches!(it.read(), Ok(None)));
     assert_eq!(calls.get(), 1);
@@ -326,7 +326,7 @@ fn producer_timeout_reports_eof_only_once_a_read_has_found_nothing() {
         index_result::RSIndexResult::build_virt().build(),
     ));
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
     assert_eq!(calls.get(), 1);
     assert!(
         !it.at_eof(),

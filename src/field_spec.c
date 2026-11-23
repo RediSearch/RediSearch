@@ -17,6 +17,7 @@
 #include "geometry/geometry_api.h"
 #include "tag_index.h"
 #include "numeric_range_tree_ffi.h"
+#include "sparse_vector_index_ffi.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
@@ -78,6 +79,19 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       fs->tree = NULL;
     }
   }
+  if (FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR)) {
+    SparseVectorIndex_Free(fs->sparseVecOpts.sparseVecIndex);
+    fs->sparseVecOpts.sparseVecIndex = NULL;
+  }
+}
+
+struct SparseVectorIndex *FieldSpec_OpenSparseVectorIndex(FieldSpec *fs, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR));
+  if (!fs->sparseVecOpts.sparseVecIndex && create_if_missing) {
+    fs->sparseVecOpts.sparseVecIndex =
+        SparseVectorIndex_New(fs->sparseVecOpts.dim, fs->sparseVecOpts.metric);
+  }
+  return fs->sparseVecOpts.sparseVecIndex;
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -87,12 +101,13 @@ void FieldSpec_SetSortable(FieldSpec* fs) {
 
 const char *FieldSpec_GetTypeNames(int idx) {
   switch (idx) {
-  case IXFLDPOS_FULLTEXT: return SPEC_TEXT_STR;
-  case IXFLDPOS_TAG:      return SPEC_TAG_STR;
-  case IXFLDPOS_NUMERIC:  return SPEC_NUMERIC_STR;
-  case IXFLDPOS_GEO:      return SPEC_GEO_STR;
-  case IXFLDPOS_VECTOR:   return SPEC_VECTOR_STR;
-  case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
+  case IXFLDPOS_FULLTEXT:      return SPEC_TEXT_STR;
+  case IXFLDPOS_TAG:           return SPEC_TAG_STR;
+  case IXFLDPOS_NUMERIC:       return SPEC_NUMERIC_STR;
+  case IXFLDPOS_GEO:           return SPEC_GEO_STR;
+  case IXFLDPOS_VECTOR:        return SPEC_VECTOR_STR;
+  case IXFLDPOS_GEOMETRY:      return SPEC_GEOMETRY_STR;
+  case IXFLDPOS_SPARSE_VECTOR: return SPEC_SPARSE_VECTOR_STR;
 
   default:
     RS_ABORT_ALWAYS("oops");

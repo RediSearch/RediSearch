@@ -142,6 +142,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
     case QN_FUZZY:           // TEXT
     case QN_PREFIX:          // TEXT
     case QN_WILDCARD_QUERY:  // TEXT
+    case QN_SPARSE_VECTOR:   // ranked by its dot product
       *reqScore = true;
       break;
 

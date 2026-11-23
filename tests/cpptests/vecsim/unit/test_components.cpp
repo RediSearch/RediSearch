@@ -439,8 +439,10 @@ void MultiPPContainerEmpty() {
         ASSERT_EQ(storage_blob, (const int *)original_blob);
         CompareVectors(original_blob, (const int *)storage_blob, dim);
 
-        // query blob *values* should not be changed
-        CompareVectors(original_blob, (const int *)query_blob, dim);
+        // Arbitrary byte alignment does not guarantee alignment for int loads.
+        int query_values[dim];
+        memcpy(query_values, query_blob, sizeof(query_values));
+        CompareVectors(original_blob, query_values, dim);
 
         // If alignment is set the query blob address should be aligned to the specified alignment.
         if constexpr (alignment) {

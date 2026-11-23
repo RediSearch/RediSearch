@@ -81,6 +81,7 @@ fn has_offsets(result: &RSIndexResult) -> bool {
         RawResultData::Virtual
         | RawResultData::Numeric(_)
         | RawResultData::Metric(_)
+        | RawResultData::SparseScore(_)
         | RawResultData::HybridMetric(_) => false,
     }
 }
@@ -100,6 +101,7 @@ fn iterate_offsets<'a>(result: &'a RSIndexResult) -> OffsetIter<'a> {
         RawResultData::Virtual
         | RawResultData::Numeric(_)
         | RawResultData::Metric(_)
+        | RawResultData::SparseScore(_)
         | RawResultData::HybridMetric(_) => OffsetIter::Empty,
         RawResultData::Intersection(agg) | RawResultData::Union(agg) => {
             let n = agg.len();

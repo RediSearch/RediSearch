@@ -32,6 +32,7 @@
 #include "util/logging.h"
 #include "asm_state_machine.h"
 #include "vecsim/vec_sim_common.h"
+#include "iterators/vector_top_k.h"
 #include "aggregate/functions/function.h"
 #include "gc/gc.h"
 #include "hiredis/sds.h"
@@ -147,7 +148,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   // and may allocate VecSim internal structures (shared SVS thread pool).
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
-  VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
+  VecSim_SetStopCallbackFunction(RS_VecSimShouldStop);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.
@@ -185,7 +186,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
 
   RS_ASSERT(RSGlobalConfig.defaultScorer);
   ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, RSGlobalConfig.defaultScorer);
-  if (scoreCtx == NULL) {
+  if (scoreCtx == NULL || Extensions_IsAutomaticScorer(RSGlobalConfig.defaultScorer)) {
     DO_LOG("warning", "The scorer '%s' specified in the configuration for the default scorer is not a valid scorer", RSGlobalConfig.defaultScorer);
     return REDISMODULE_ERR;
   }

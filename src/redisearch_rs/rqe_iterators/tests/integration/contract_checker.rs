@@ -235,7 +235,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         if self.past_end() {
             if self.fault == Fault::YieldsAfterExhaustion {
@@ -259,11 +259,11 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         if self.fault == Fault::ClaimsProbedIdOnTimeout {
             self.result.doc_id = doc_id;
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         while let Some(&id) = self.ids.get(self.offset) {
             self.offset += 1;
@@ -290,7 +290,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(match self.fault {
             Fault::AbortsOnRevalidate => RQEValidateStatus::Aborted,
@@ -426,11 +426,11 @@ fn errors_are_handed_back_untouched() {
 
     // A failed operation is not a contract violation: the checker forwards the
     // error and leaves its record of the position alone.
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-    assert!(matches!(it.skip_to(5), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
+    assert!(matches!(it.skip_to(5), Err(RQEIteratorError::Stopped)));
     assert!(matches!(
         it.revalidate(&*mock_ctx.spec_read()),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 

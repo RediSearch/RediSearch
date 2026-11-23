@@ -65,15 +65,15 @@ impl SearchDiskHandle {
     /// 1. The wrapped disk index spec must remain valid for `'index`.
     /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized (always the case
     ///    when the spec is backed by a disk index).
-    /// 3. `snapshot` must be a
-    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+    /// 3. `view` must be a
+    ///    [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
     ///    this disk spec that remains valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
     pub unsafe fn new_numeric_iterator<'index>(
         self,
         filter: &NumericFilter,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
@@ -86,7 +86,7 @@ impl SearchDiskHandle {
         // lifetime and exclusive access of the returned reference.
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
 
-        api.new_numeric_on_disk(disk_spec, filter, field_index, snapshot)
+        api.new_numeric_on_disk(disk_spec, filter, field_index, view)
     }
 
     /// Build a geo-radius filter iterator backed by this on-disk index.
@@ -104,15 +104,15 @@ impl SearchDiskHandle {
     /// 1. The wrapped disk index spec must remain valid for `'index`.
     /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized (always the case
     ///    when the spec is backed by a disk index).
-    /// 3. `snapshot` must be a
-    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+    /// 3. `view` must be a
+    ///    [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
     ///    this disk spec that remains valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
     pub unsafe fn new_geo_iterator<'index>(
         self,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
@@ -125,7 +125,7 @@ impl SearchDiskHandle {
         // lifetime and exclusive access of the returned reference.
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
 
-        api.new_geo_on_disk(disk_spec, gf, field_index, snapshot)
+        api.new_geo_on_disk(disk_spec, gf, field_index, view)
     }
 
     /// Build an iterator over documents missing `field_index` at indexing time.
@@ -134,12 +134,12 @@ impl SearchDiskHandle {
     ///
     /// 1. The wrapped disk spec must remain valid for `'index`.
     /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized.
-    /// 3. `snapshot` must belong to this disk spec and remain valid for `'index`.
+    /// 3. `view` must belong to this disk spec and remain valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
     pub unsafe fn new_missing_iterator<'index>(
         self,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         let api = SEARCH_ENTERPRISE_ITERATORS
             .get()
@@ -148,7 +148,7 @@ impl SearchDiskHandle {
         // SAFETY: `new` establishes pointer validity; preconditions (1)/(4)
         // uphold the lifetime and exclusive access of this reference.
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
-        api.new_missing_on_disk(disk_spec, field_index, snapshot)
+        api.new_missing_on_disk(disk_spec, field_index, view)
     }
 
     /// Build a term iterator backed by this on-disk index.
@@ -160,15 +160,17 @@ impl SearchDiskHandle {
     /// scorers that don't need term positions).
     ///
     /// `query_term` carries its own scoring metadata (`idf`/`bm25_idf`), which
-    /// the caller is expected to populate before the call.
+    /// the caller is expected to populate before the call. `num_docs` is the
+    /// document count those were derived from; the iterator reports it as its
+    /// estimate.
     ///
     /// # Safety
     ///
     /// 1. The wrapped disk index spec must remain valid for `'index`.
     /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized (always the case
     ///    when the spec is backed by a disk index).
-    /// 3. `snapshot` must be a
-    ///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+    /// 3. `view` must be a
+    ///    [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
     ///    this disk spec that remains valid for `'index`.
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
     pub unsafe fn new_term_iterator<'index>(
@@ -176,8 +178,9 @@ impl SearchDiskHandle {
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
+        num_docs: usize,
         needs_offsets: bool,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
         // SAFETY: precondition (2) — a disk-backed spec always has the
         // enterprise iterators registered.
@@ -191,10 +194,12 @@ impl SearchDiskHandle {
         let disk_spec = unsafe { &mut *self.0.as_ptr() };
 
         if needs_offsets {
-            api.new_term_on_disk_with_offsets(disk_spec, query_term, field_mask, weight, snapshot)
+            api.new_term_on_disk_with_offsets(
+                disk_spec, query_term, field_mask, weight, num_docs, view,
+            )
         } else {
             api.new_term_on_disk_without_offsets(
-                disk_spec, query_term, field_mask, weight, snapshot,
+                disk_spec, query_term, field_mask, weight, num_docs, view,
             )
         }
     }

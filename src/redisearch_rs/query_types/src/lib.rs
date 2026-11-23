@@ -65,7 +65,8 @@ pub enum QueryNodeType {
     WildcardQuery = 16,
     Null = 17,
     Missing = 18,
-    Max = 19,
+    SparseVector = 19,
+    Max = 20,
 }
 
 impl QueryNodeType {
@@ -90,6 +91,7 @@ impl QueryNodeType {
             Self::WildcardQuery => "WILDCARD_QUERY",
             Self::Null => "NULL",
             Self::Missing => "MISSING",
+            Self::SparseVector => "SPARSE_VECTOR",
             Self::Max => "MAX",
         }
     }
@@ -124,7 +126,8 @@ impl TryFrom<u32> for QueryNodeType {
             16 => Ok(Self::WildcardQuery),
             17 => Ok(Self::Null),
             18 => Ok(Self::Missing),
-            19 => Ok(Self::Max),
+            19 => Ok(Self::SparseVector),
+            20 => Ok(Self::Max),
             other => Err(other),
         }
     }

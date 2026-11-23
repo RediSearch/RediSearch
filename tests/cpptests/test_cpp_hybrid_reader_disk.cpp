@@ -309,7 +309,7 @@ TEST_F(HybridReaderDiskTest, ExactDistancesIgnoredWithoutRerank) {
 }
 
 // Timeout: when the timeout callback fires, the adhoc scan aborts and Read returns
-// ITERATOR_TIMEOUT.
+// ITERATOR_STOPPED.
 TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}};
     auto [index, it, child] = makeNormalIterator(sq8, {1, 2}, 2);
@@ -320,7 +320,7 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     auto *saved = vecsimTimeoutCallback;
     vecsimTimeoutCallback = [](QueryRequestLimits *) -> int { return 1; };
 
-    EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
+    EXPECT_EQ(it->Read(it), ITERATOR_STOPPED);
 
     vecsimTimeoutCallback = saved;
 }
