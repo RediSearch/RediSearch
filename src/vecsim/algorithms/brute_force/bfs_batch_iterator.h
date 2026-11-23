@@ -29,8 +29,8 @@ private:
         auto vectors_it = this->index->getVectorsIterator();
         while (auto *vector = vectors_it->next()) {
             // Compute the scores for every vector and extend the scores array.
-            if (VECSIM_TIMEOUT(this->getTimeoutCtx())) {
-                return VecSim_QueryReply_TimedOut;
+            if (VECSIM_STOP(this->getStopCtx())) {
+                return VecSim_QueryReply_Stopped;
             }
             auto score = this->index->calcDistance(vector, this->getQueryBlob());
             this->scores.emplace_back(score, this->index->getVectorLabel(curr_id));

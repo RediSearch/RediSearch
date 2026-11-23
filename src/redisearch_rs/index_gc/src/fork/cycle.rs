@@ -23,6 +23,7 @@ use crate::scanners::{
     existing_docs::{collect_existing_docs, handle_existing_docs},
     missing_docs::{collect_missing_docs, handle_missing_docs},
     numeric::{collect_numeric, handle_numeric},
+    sparse_vectors::{collect_sparse_vectors, handle_sparse_vectors},
     tags::{collect_tags, handle_tags},
     terms::{collect_terms, handle_terms},
 };
@@ -53,6 +54,7 @@ pub fn collect_scanners(
         collect_terms(&mut writer, spec, docs).unwrap_or_exit();
         collect_numeric(&mut writer, spec, docs).unwrap_or_exit();
         collect_tags(&mut writer, spec, docs).unwrap_or_exit();
+        collect_sparse_vectors(&mut writer, spec, docs).unwrap_or_exit();
         collect_missing_docs(&mut writer, spec, docs).unwrap_or_exit();
         collect_existing_docs(&mut writer, spec, docs).unwrap_or_exit();
     }
@@ -91,6 +93,7 @@ pub fn handle_scanners(fgc: &mut ForkPipe) -> Result<HandleOutcome, (&'static st
     handle_individual_scanner(fgc, "terms", handle_terms)?;
     handle_individual_scanner(fgc, "numeric", handle_numeric)?;
     handle_individual_scanner(fgc, "tags", handle_tags)?;
+    handle_individual_scanner(fgc, "sparse vectors", handle_sparse_vectors)?;
     handle_individual_scanner(fgc, "missing docs", handle_missing_docs)?;
     handle_individual_scanner(fgc, "existing docs", handle_existing_docs)?;
 

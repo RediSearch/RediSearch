@@ -62,7 +62,8 @@ pub enum IteratorType {
     MetricLazySortedByScore = 22,
     /// Used only in tests.
     Mock = 23,
-    Max = 24,
+    SparseVector = 24,
+    Max = 25,
 }
 
 impl IteratorType {
@@ -88,6 +89,9 @@ impl IteratorType {
             | Self::Profile
             | Self::GeoShape
             | Self::Mock => true,
+
+            // Wraps a union of posting-list iterators, so it has children.
+            Self::SparseVector => false,
 
             Self::Hybrid
             | Self::Union
@@ -129,6 +133,7 @@ impl IteratorType {
             Self::Optimus => "OPTIMUS",
             Self::GeoShape => "GEO_SHAPE",
             Self::Mock => "MOCK",
+            Self::SparseVector => "SPARSE_VECTOR",
             Self::Max => "MAX",
         }
     }
@@ -169,7 +174,8 @@ impl TryFrom<u32> for IteratorType {
             21 => Ok(Self::MetricLazySortedById),
             22 => Ok(Self::MetricLazySortedByScore),
             23 => Ok(Self::Mock),
-            24 => Ok(Self::Max),
+            24 => Ok(Self::SparseVector),
+            25 => Ok(Self::Max),
             other => Err(other),
         }
     }

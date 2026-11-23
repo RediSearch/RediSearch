@@ -107,7 +107,7 @@ fn range_query_panics_on_a_negative_radius() {
     let query = unsafe { QueryVector::new(index_ref, uniform_blob(50.0, 4)) };
     // SAFETY: all-zero is a valid `VecSimQueryParams`.
     let mut params: VecSimQueryParams = unsafe { std::mem::zeroed() };
-    params.timeoutCtx = index.timeout_ptr().cast();
-    // SAFETY: `timeoutCtx` is the fixture's timeout, valid for this call.
+    params.stopCtx = index.timeout_ptr().cast();
+    // SAFETY: `stopCtx` is the fixture's timeout, valid for this call.
     let _ = unsafe { index_ref.range_query(&query, -1.0, &mut params, ReplyOrder::ById) };
 }

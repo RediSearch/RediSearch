@@ -538,7 +538,7 @@ VecSimTieredIndex<DataType, DistType>::topKQueryImp(const void *queryBlob, size_
         auto flat_results = this->frontendIndex->topKQuery(queryBlob, k, queryParams);
         flat_lock.unlock();
 
-        // If the query failed (currently only on timeout), return the error code.
+        // If the query failed (currently only on a stop), return the error code.
         if (flat_results->code != VecSim_QueryReply_OK) {
             assert(flat_results->results.empty());
             return flat_results;
@@ -553,7 +553,7 @@ VecSimTieredIndex<DataType, DistType>::topKQueryImp(const void *queryBlob, size_
             main_results = this->backendIndex->topKQuery(processed_query, k, queryParams);
         }
 
-        // If the query failed (currently only on timeout), return the error code.
+        // If the query failed (currently only on a stop), return the error code.
         if (main_results->code != VecSim_QueryReply_OK) {
             // Free the flat results.
             VecSimQueryReply_Free(flat_results);
@@ -611,7 +611,7 @@ VecSimTieredIndex<DataType, DistType>::rangeQueryImp(const void *queryBlob, doub
         auto flat_results = this->frontendIndex->rangeQuery(queryBlob, radius, queryParams);
         this->flatIndexGuard.unlock_shared();
 
-        // If the query failed (currently only on timeout), return the error code and the partial
+        // If the query failed (currently only on a stop), return the error code and the partial
         // results.
         if (flat_results->code != VecSim_QueryReply_OK) {
             return flat_results;
@@ -629,7 +629,7 @@ VecSimTieredIndex<DataType, DistType>::rangeQueryImp(const void *queryBlob, doub
 
         // Merge the results and return, avoiding duplicates.
         // At this point, the return code of the FLAT index is OK, and the return code of the MAIN
-        // index is either OK or TIMEOUT. Make sure to return the return code of the MAIN index.
+        // index is either OK or Stopped. Make sure to return the return code of the MAIN index.
         if (BY_SCORE == order) {
             sort_results_by_score_then_id(main_results);
             sort_results_by_score_then_id(flat_results);

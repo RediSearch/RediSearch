@@ -148,7 +148,7 @@ pub trait RQESuspendedIterator<'query> {
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
-    /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
+    /// [`Stopped`](RQEIteratorError::Stopped)) — distinct from `Aborted`. On
     /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'index>(
         self: Box<Self>,
@@ -327,6 +327,43 @@ where
     unsafe { std::ptr::write(slot.cast::<I::Suspended>().as_ptr(), suspended) };
     // Slot reinitialised — disarm the abort guard.
     std::mem::forget(bomb);
+}
+
+/// Suspend every child of a composite's children buffer in place, through
+/// [`suspend_child_slot_in_place`] on each.
+///
+/// The buffer is walked through its raw pointer rather than `iter_mut`, since
+/// each transition retypes a slot from `I` to `I::Suspended`.
+///
+/// `slot_of` locates the child within an element. It is called once per
+/// element, before that element's child is suspended.
+///
+/// # Safety
+///
+/// 1. `children` must point to a valid, exclusively-owned `Vec<E>`.
+/// 2. `slot_of` must return a pointer to the `I` held by the element it is given.
+/// 3. From this call on, the caller must interpret every child slot as
+///    `I::Suspended`, as [`suspend_child_slot_in_place`] requires of a single slot.
+pub(crate) unsafe fn suspend_children_in_place<'index, E, I>(
+    mut children: NonNull<Vec<E>>,
+    slot_of: impl Fn(NonNull<E>) -> NonNull<I>,
+) where
+    I: RQEIteratorBoxed<'index> + 'index,
+{
+    let (base, len) = {
+        // SAFETY: 1. The borrow only reaches the buffer pointer and length, and
+        // ends here.
+        let children = unsafe { children.as_mut() };
+        let base = NonNull::new(children.as_mut_ptr()).expect("Vec buffers are non-null");
+        (base, children.len())
+    };
+    for i in 0..len {
+        // SAFETY: `i < len`, so the offset stays within the buffer.
+        let elem = unsafe { base.add(i) };
+        // SAFETY: by 1 and 2 the slot holds a valid, exclusively-owned `I`; its
+        // reinterpretation as `I::Suspended` is delegated to the caller by 3.
+        unsafe { suspend_child_slot_in_place(slot_of(elem)) };
+    }
 }
 
 /// Outcome of [`resume_child_slot_in_place`], mirroring the recoverable
