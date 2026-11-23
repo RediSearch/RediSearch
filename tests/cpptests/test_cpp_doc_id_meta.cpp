@@ -274,6 +274,24 @@ TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   EXPECT_EQ(retrievedDocId, docId);
 }
 
+// After a slot migration the source keeps its index entries for the moved slots until it
+// trims them, and keeps answering coordinators that still route those slots to it. Redis
+// hides the keys from lookups that don't pass ACCESS_TRIMMED; DocIdMeta_Get must still
+// read them, or the query drops every moved document.
+TEST_F(DocIdMetaTest, TestGetReadsKeyAwaitingTrim) {
+  const uint64_t docId = 4242;
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, DOC_LEN), REDISMODULE_OK);
+
+  RMCK::setKeyTrimmed(ctx, "testkey", true);
+  // A lookup without the flag no longer sees the key.
+  EXPECT_EQ(RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ), nullptr);
+
+  uint64_t retrievedDocId = 0;
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrievedDocId), REDISMODULE_OK);
+  EXPECT_EQ(retrievedDocId, docId);
+  RMCK::setKeyTrimmed(ctx, "testkey", false);
+}
+
 TEST_F(DocIdMetaTest, TestGetNonExistentDocId) {
   // Test getting a docId that doesn't exist
   uint64_t docId;
