@@ -309,6 +309,13 @@ public:
         return new (this->allocator)
             TieredHNSW_BatchIterator(queryBlob, this, queryParams, this->allocator);
     }
+    VecSimIndexInterface *adHocDistanceIndex() override {
+        // The shared locks keep the front buffer empty for the duration of this scan.
+        if (this->frontendIndex->indexSize() == 0) {
+            return this->backendIndex;
+        }
+        return this;
+    }
     inline void setLastSearchMode(VecSearchMode mode) override {
         this->backendIndex->setLastSearchMode(mode);
     }

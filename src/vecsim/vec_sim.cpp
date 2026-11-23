@@ -541,6 +541,12 @@ extern "C" void VecSimTieredIndex_ReleaseSharedLocks(VecSimIndex *index) {
     index->releaseSharedLocks();
 }
 
+extern "C" VecSimIndex *VecSimIndex_AdhocDistanceIndex_Unsafe(VecSimIndex *index) {
+    return VecSim_GetHNSWHybridPolicy() == VecSimHNSWHybridPolicy_Latency
+               ? index->adHocDistanceIndex()
+               : index;
+}
+
 extern "C" void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions) {
     VecSimAllocator::setMemoryFunctions(memoryfunctions);
 }
@@ -548,6 +554,16 @@ extern "C" void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions)
 extern "C" bool VecSimIndex_PreferAdHocSearch(VecSimIndex *index, size_t subsetSize, size_t k,
                                               bool initial_check) {
     return index->preferAdHocSearch(subsetSize, k, initial_check);
+}
+
+extern "C" bool VecSimIndex_PrepareHybridSearch(VecSimIndex *index, size_t subsetSize, size_t k,
+                                                const VecSimQueryParams *queryParams,
+                                                bool *allowEarlyAdhoc) {
+    *allowEarlyAdhoc = false;
+    if (VecSim_GetHNSWHybridPolicy() != VecSimHNSWHybridPolicy_Latency) {
+        return index->preferAdHocSearch(subsetSize, k, true);
+    }
+    return index->prepareHybridSearch(subsetSize, k, *queryParams, *allowEarlyAdhoc);
 }
 
 // Ad-hoc Brute Force Context API - delegates to virtual methods on the index/context

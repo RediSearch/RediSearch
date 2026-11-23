@@ -79,9 +79,10 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// whose scores are already exact. Immutable after construction.
     should_rerank: bool,
 
-    /// Fixed batch size; `0` means compute dynamically per batch. Immutable
-    /// after construction.
+    /// Fixed batch size from the query, with `0` selecting dynamic sizes.
     fixed_batch_size: usize,
+    /// Allow strong evidence against a near-full estimate to trigger an exact scan.
+    allow_early_adhoc: bool,
     /// Seed for [`child_num_estimated`](Self::child_num_estimated); restored
     /// on rewind. Immutable after construction.
     initial_child_num_estimated: usize,
@@ -196,6 +197,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             should_rerank,
             batch_iter: None,
             fixed_batch_size,
+            allow_early_adhoc: false,
             num_iterations: 0,
             max_batch_size: 0,
             max_batch_iteration: 0,
@@ -223,6 +225,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// filter-subset size and k.
     pub fn prefer_adhoc(&self, subset_size: usize, k: usize, initial_check: bool) -> bool {
         self.index.prefer_adhoc(subset_size, k, initial_check)
+    }
+
+    /// Select the initial AUTO mode and retain any query-local tuning.
+    pub(crate) fn prepare_hybrid(&mut self, subset_size: usize, k: usize) -> bool {
+        let (adhoc, allow_early_adhoc) =
+            self.index
+                .prepare_hybrid(subset_size, k, &self.query_params);
+        self.allow_early_adhoc = allow_early_adhoc;
+        adhoc
     }
 
     /// The hybrid search policy the user pinned explicitly via the
@@ -553,6 +564,17 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return BatchStrategy::Continue;
         }
 
+        if self.allow_early_adhoc
+            && shows_filter_overestimate(
+                self.initial_child_num_estimated,
+                self.child_num_estimated,
+                heap_count,
+                k,
+            )
+        {
+            return BatchStrategy::SwitchToAdhoc;
+        }
+
         let prefer_adhoc = self.index.prefer_adhoc(self.child_num_estimated, k, false);
         if prefer_adhoc {
             BatchStrategy::SwitchToAdhoc
@@ -591,6 +613,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
              un-ended",
         );
     }
+}
+
+/// Require both a large reduction in estimated matches and a nearly empty heap.
+/// Queries that continue in batches keep the legacy graph traversal.
+fn shows_filter_overestimate(initial: usize, refined: usize, matches: usize, k: usize) -> bool {
+    refined <= initial / 8 && matches <= k / 16
 }
 
 /// Smoothed update of the child-results estimate, averaging the previous
@@ -842,6 +870,15 @@ mod tests {
             (7, 0),
             "a constant size is its own maximum, recorded at the first iteration"
         );
+    }
+
+    #[test]
+    fn early_adhoc_requires_low_estimate_and_low_heap_occupancy() {
+        assert!(super::shows_filter_overestimate(1_024, 128, 0, 7));
+        assert!(!super::shows_filter_overestimate(1_024, 129, 0, 7));
+        assert!(!super::shows_filter_overestimate(1_024, 128, 1, 7));
+        assert!(super::shows_filter_overestimate(1_024, 128, 32, 512));
+        assert!(!super::shows_filter_overestimate(1_024, 128, 33, 512));
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must

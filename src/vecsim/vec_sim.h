@@ -276,9 +276,14 @@ void VecSimTieredIndex_GC(VecSimIndex *index);
 bool VecSimIndex_PreferAdHocSearch(VecSimIndex *index, size_t subsetSize, size_t k,
                                    bool initial_check);
 
+// Select the initial AUTO mode and report whether batch feedback may switch sooner.
+bool VecSimIndex_PrepareHybridSearch(VecSimIndex *index, size_t subsetSize, size_t k,
+                                     const VecSimQueryParams *queryParams, bool *allowEarlyAdhoc);
+
 typedef enum {
     VecSimHNSWHybridPolicy_Legacy,
     VecSimHNSWHybridPolicy_Trained,
+    VecSimHNSWHybridPolicy_Latency,
 } VecSimHNSWHybridPolicy;
 
 // Select the initial policy for in-memory HNSW hybrid queries.
@@ -293,6 +298,10 @@ VecSimHNSWHybridPolicy VecSim_GetHNSWHybridPolicy(void);
 void VecSimTieredIndex_AcquireSharedLocks(VecSimIndex *index);
 
 void VecSimTieredIndex_ReleaseSharedLocks(VecSimIndex *index);
+
+// Resolve the exact distance lookup target once per scan. The caller must keep
+// the owning index and its shared locks alive while using the returned pointer.
+VecSimIndex *VecSimIndex_AdhocDistanceIndex_Unsafe(VecSimIndex *index);
 
 /**
  * @brief Ad-hoc Brute Force Context - opaque handle.

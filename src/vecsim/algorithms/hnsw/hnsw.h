@@ -10,6 +10,7 @@
 
 #include "graph_data.h"
 #include "hnsw_policy_candidate.h"
+#include "hnsw_policy_latency.h"
 #include "visited_nodes_handler.h"
 #include "vecsim/memory/vecsim_malloc.h"
 #include "vecsim/utils/vecsim_stl.h"
@@ -95,6 +96,8 @@ class HNSWIndex : public VecSimIndexAbstract<DataType, DistType>,
 #endif
 {
 private:
+    bool legacyPreferAdHocSearch(size_t subsetSize, size_t k, bool initialCheck) const;
+
     template <VecSimMetric Metric>
     void setSQ8Mean(std::span<const float> mean) noexcept {
         applySQ8Mean<DataType, Metric>(*this->getPreprocessorsContainer(),
@@ -302,6 +305,8 @@ public:
     VecSimIndexBasicInfo basicInfo() const override;
     VecSimDebugInfoIterator *debugInfoIterator() const override;
     bool preferAdHocSearch(size_t subsetSize, size_t k, bool initial_check) const override;
+    bool prepareHybridSearch(size_t subsetSize, size_t k, const VecSimQueryParams &queryParams,
+                             bool &allowEarlyAdhoc) const override;
     const char *getDataByInternalId(idType internal_id) const;
     ElementGraphData *getGraphDataByInternalId(idType internal_id) const;
     ElementLevelData &getElementLevelData(idType internal_id, size_t level) const;
@@ -2555,6 +2560,12 @@ bool HNSWIndex<DataType, DistType>::preferAdHocSearch(size_t subsetSize, size_t 
         return preferAdHoc;
     }
 
+    return legacyPreferAdHocSearch(subsetSize, k, initial_check);
+}
+
+template <typename DataType, typename DistType>
+bool HNSWIndex<DataType, DistType>::legacyPreferAdHocSearch(size_t subsetSize, size_t k,
+                                                            bool initial_check) const {
     // This heuristic is based on sklearn decision tree classifier (with 20 leaves nodes) -
     // see scripts/HNSW_batches_clf.py
     size_t index_size = this->indexSize();
@@ -2686,6 +2697,26 @@ bool HNSWIndex<DataType, DistType>::preferAdHocSearch(size_t subsetSize, size_t 
     this->lastMode =
         res ? (initial_check ? HYBRID_ADHOC_BF : HYBRID_BATCHES_TO_ADHOC_BF) : HYBRID_BATCHES;
     return res;
+}
+
+template <typename DataType, typename DistType>
+bool HNSWIndex<DataType, DistType>::prepareHybridSearch(size_t subsetSize, size_t k,
+                                                        const VecSimQueryParams &queryParams,
+                                                        bool &allowEarlyAdhoc) const {
+    const bool legacyAdhoc = legacyPreferAdHocSearch(subsetSize, k, true);
+    if (legacyAdhoc || queryParams.batchSize != 0 || queryParams.hnswRuntimeParams.efRuntime != 0 ||
+        this->isMultiValue() || this->isQuantized || this->metric != VecSimMetric_Cosine) {
+        return legacyAdhoc;
+    }
+
+    const auto plan = latencyHybridPlan(
+        {k, this->indexSize(), this->dim, this->getM(), subsetSize, this->indexLabelCount()});
+    if (plan.adhoc) {
+        this->lastMode = HYBRID_ADHOC_BF;
+        return true;
+    }
+    allowEarlyAdhoc = plan.allowEarlyAdhoc;
+    return false;
 }
 
 /********************************************** Debug commands ******************************/

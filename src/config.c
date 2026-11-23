@@ -1081,9 +1081,11 @@ static int get_on_timeout(const char *name, void *privdata){
   return *((RSTimeoutPolicy *)privdata);
 }
 
-static const char *hnsw_hybrid_policy_vals[] = {"legacy", "trained"};
+static const char *hnsw_hybrid_policy_vals[] = {"legacy", "trained", "latency"};
 static const int hnsw_hybrid_policy_enums[] = {
-    VecSimHNSWHybridPolicy_Legacy, VecSimHNSWHybridPolicy_Trained,
+    VecSimHNSWHybridPolicy_Legacy,
+    VecSimHNSWHybridPolicy_Trained,
+    VecSimHNSWHybridPolicy_Latency,
 };
 
 static int get_hnsw_hybrid_policy(const char *name, void *privdata) {
@@ -2673,14 +2675,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   // Enum parameters
-  RM_TRY(
-    RedisModule_RegisterEnumConfig(
+  RM_TRY(RedisModule_RegisterEnumConfig(
       ctx, "search-_hnsw-hybrid-policy", VecSimHNSWHybridPolicy_Legacy,
-      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_UNPREFIXED,
-      hnsw_hybrid_policy_vals, hnsw_hybrid_policy_enums, 2,
-      get_hnsw_hybrid_policy, set_hnsw_hybrid_policy, NULL, NULL
-    )
-  )
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_UNPREFIXED, hnsw_hybrid_policy_vals,
+      hnsw_hybrid_policy_enums, 3, get_hnsw_hybrid_policy, set_hnsw_hybrid_policy, NULL, NULL))
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(

@@ -500,6 +500,14 @@ public:
                    : this->frontendIndex->preferAdHocSearch(subsetSize, k, initial_check);
     }
 
+    bool prepareHybridSearch(size_t subsetSize, size_t k, const VecSimQueryParams &queryParams,
+                             bool &allowEarlyAdhoc) const override {
+        if (this->frontendIndex->indexSize() != 0 || this->backendIndex->indexSize() == 0) {
+            return preferAdHocSearch(subsetSize, k, true);
+        }
+        return this->backendIndex->prepareHybridSearch(subsetSize, k, queryParams, allowEarlyAdhoc);
+    }
+
     // Return the current state of the global write mode (async/in-place).
     static VecSimWriteMode getWriteMode() { return VecSimIndexInterface::asyncWriteMode; }
 

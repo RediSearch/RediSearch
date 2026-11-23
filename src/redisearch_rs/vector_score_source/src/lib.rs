@@ -99,7 +99,7 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
 /// When the user pinned a policy via the `HYBRID_POLICY` query attribute
 /// (reflected in [`VectorScoreSource::requested_search_mode`]), that policy is
 /// honored. Otherwise the initial mode (Batches vs AdhocBF) is chosen via
-/// [`VecSimIndex_PreferAdHocSearch`] using the child's estimated result count,
+/// [`VecSimIndex_PrepareHybridSearch`] using the child's estimated result count,
 /// and the source may switch modes mid-execution via
 /// [`BatchStrategy::SwitchToAdhoc`].
 ///
@@ -113,10 +113,10 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
 /// of its deep-copied scoring subtree.
 ///
 /// [`VectorScoreSource::requested_search_mode`]: source::VectorScoreSource::requested_search_mode
-/// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
+/// [`VecSimIndex_PrepareHybridSearch`]: ffi::VecSimIndex_PrepareHybridSearch
 /// [`BatchStrategy::SwitchToAdhoc`]: top_k::BatchStrategy::SwitchToAdhoc
 pub fn new_vector_top_k_filtered<'index, E, C>(
-    source: VectorScoreSource<'index, E>,
+    mut source: VectorScoreSource<'index, E>,
     child: C,
     k: NonZeroUsize,
     can_trim_deep_results: bool,
@@ -137,7 +137,7 @@ where
         TopKMode::ForcedBatches
     } else {
         let child_est = child.num_estimated().min(source.index_size());
-        if source.prefer_adhoc(child_est, k.get(), true) {
+        if source.prepare_hybrid(child_est, k.get()) {
             TopKMode::AdhocBF
         } else {
             TopKMode::Batches
