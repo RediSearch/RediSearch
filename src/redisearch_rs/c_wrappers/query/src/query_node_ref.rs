@@ -154,6 +154,15 @@ pub enum QueryNode<'a> {
         /// which may already be freed by then.
         field_index: rqe_core::FieldIndex,
     },
+    /// A `@field:[SPARSE $q]` sparse vector query.
+    SparseVector {
+        /// Stable index of the sparse vector field, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this at evaluation time, as for
+        /// [`Missing`](Self::Missing).
+        field_index: rqe_core::FieldIndex,
+        /// The query vector in its binary encoding.
+        blob: &'a [u8],
+    },
 }
 
 /// Safe read-only wrapper around a [`ffi::RSQueryNode`] pointer.
@@ -388,6 +397,22 @@ impl QueryNodeRef {
                 let miss = unsafe { &*union_ptr.cast::<ffi::QueryMissingNode>() };
                 QueryNode::Missing {
                     field_index: miss.fieldIndex,
+                }
+            }
+            QueryNodeType::SparseVector => {
+                // SAFETY: `type_` is `SparseVector`, so the union holds a `QuerySparseVectorNode`.
+                let svn = unsafe { &*union_ptr.cast::<ffi::QuerySparseVectorNode>() };
+                QueryNode::SparseVector {
+                    field_index: svn.fieldIndex,
+                    blob: if svn.blob.is_null() {
+                        &[]
+                    } else {
+                        // SAFETY: a non-null `blob` is the resolved query
+                        // parameter, `blobLen` bytes long and borrowed from the
+                        // request's PARAMS, which outlive the AST and so this
+                        // node's borrow.
+                        unsafe { std::slice::from_raw_parts(svn.blob.cast::<u8>(), svn.blobLen) }
+                    },
                 }
             }
             QueryNodeType::LexRange => {

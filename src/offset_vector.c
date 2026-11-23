@@ -167,6 +167,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     case RSResultData_Virtual:
     case RSResultData_Numeric:
     case RSResultData_Metric:
+    case RSResultData_SparseScore:
       return _emptyIterator();
 
     case RSResultData_Intersection:

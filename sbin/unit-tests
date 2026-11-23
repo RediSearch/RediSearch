@@ -270,7 +270,7 @@ run_cpp_tests() {
         fi
     else
         # Run single C++ test if requested
-        LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
+        LOG_FILE="${LOGS_DIR}/rstest_${TEST//[^[:alnum:]_.-]/_}.log"
         if [[ $GDB == 1 ]]; then
             run_with_gdb "rstest --gtest_filter=$TEST" "$CPP_TESTS_DIR/rstest" "--gtest_filter=$TEST"
             test_result=$?
@@ -453,7 +453,7 @@ run_cpp_coord_tests() {
         fi
     else
         # Run single C++ coordinator test if requested
-        LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
+        LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST//[^[:alnum:]_.-]/_}.log"
         if [[ $GDB == 1 ]]; then
             run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
             test_result=$?

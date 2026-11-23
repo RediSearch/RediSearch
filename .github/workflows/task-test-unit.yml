@@ -371,6 +371,7 @@ jobs:
           python3 .github/scripts/coverage_summary.py \
             --lcov "VecSim unit" bin/vecsim.info \
             --lcov "C unit" bin/unit.info \
+            --lcov "Rust module from C/C++ unit tests" bin/rust_module_unit.info \
             --cobertura "Rust unit" bin/rust_cov.xml
 
       - name: Import Codecov GPG public key
@@ -380,7 +381,7 @@ jobs:
         if: inputs.coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.xml,bin/vecsim.info
+          files: bin/unit.info,bin/rust_cov.xml,bin/vecsim.info,bin/rust_module_unit.info
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

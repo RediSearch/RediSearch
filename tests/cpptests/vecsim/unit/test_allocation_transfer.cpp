@@ -8,11 +8,12 @@
  */
 #include "gtest/gtest.h"
 #include "vecsim/memory/vecsim_malloc.h"
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 
 TEST(AllocationTransferTest, PreservesAllocationAndBalancesAccounting) {
-    for (unsigned char alignment : {0, 16, 64}) {
+    for (unsigned char alignment : {0, 1, 2, 4, 5, 8, 16, 64, 255}) {
         for (size_t size : {0, 1, 127}) {
             SCOPED_TRACE(::testing::Message()
                          << "alignment=" << int(alignment) << " size=" << size);
@@ -97,4 +98,30 @@ TEST(AllocationTransferTest, DoesNotAllocateOrFree) {
     EXPECT_EQ(frees, frees_before);
     destination->free_allocation(ptr);
     EXPECT_EQ(frees, frees_before + 1);
+}
+
+TEST(AllocationTransferTest, ReallocateAlignedPreservesPayloadAndBalancesAccounting) {
+    for (unsigned char alignment : {0, 1, 2, 4, 5, 8, 16, 64, 255}) {
+        for (size_t new_size : {7, 4096}) {
+            SCOPED_TRACE(::testing::Message()
+                         << "alignment=" << int(alignment) << " new_size=" << new_size);
+            auto allocator = VecSimAllocator::newVecsimAllocator();
+            const auto baseline = allocator->getAllocationSize();
+            constexpr size_t size = 37;
+            auto *ptr = static_cast<unsigned char *>(allocator->allocate_aligned(size, alignment));
+            ASSERT_NE(ptr, nullptr);
+            for (size_t i = 0; i < size; ++i) {
+                ptr[i] = static_cast<unsigned char>(i);
+            }
+            auto *resized = static_cast<unsigned char *>(allocator->reallocate(ptr, new_size));
+            ASSERT_NE(resized, nullptr);
+            for (size_t i = 0; i < std::min(size, new_size); ++i) {
+                EXPECT_EQ(resized[i], static_cast<unsigned char>(i));
+            }
+            EXPECT_EQ(allocator->getAllocationSize(),
+                      baseline + new_size + VecSimAllocator::getAllocationOverheadSize());
+            allocator->free_allocation(resized);
+            EXPECT_EQ(allocator->getAllocationSize(), baseline);
+        }
+    }
 }

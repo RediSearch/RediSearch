@@ -876,7 +876,7 @@ mod via_resume {
         assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
 
         match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
-            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
             Ok(_) => panic!("the failing child's error must reach the caller"),
         }
     }
@@ -904,7 +904,7 @@ mod via_resume {
         assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
 
         match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
-            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
             Ok(_) => panic!("the failing child's error must reach the caller"),
         }
     }
@@ -1288,7 +1288,7 @@ mod via_resume {
             .set_revalidate_result(MockRevalidateResult::Abort);
         let union = stranded(child0, Mock::new([10, 50, 200]));
         match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
-            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
             Ok(_) => panic!("the lagger's failed seek must reach the caller"),
         }
 
@@ -1298,7 +1298,7 @@ mod via_resume {
             .set_revalidate_result(MockRevalidateResult::Abort);
         let mut union = stranded(child0, Mock::new([10, 50, 200]));
         match union.revalidate(&guard) {
-            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
             Ok(_) => panic!("the lagger's failed seek must reach the caller"),
         }
     }

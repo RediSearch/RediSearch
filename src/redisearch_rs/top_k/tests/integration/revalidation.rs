@@ -332,7 +332,7 @@ impl<'index> RQEIterator<'index> for SteerableChild<'index> {
                 current: self.current(),
             }),
             ChildOutcome::Aborted => Ok(RQEValidateStatus::Aborted),
-            ChildOutcome::Failed => Err(RQEIteratorError::TimedOut),
+            ChildOutcome::Failed => Err(RQEIteratorError::Stopped),
         }
     }
 
@@ -390,7 +390,7 @@ impl<'query> RQESuspendedIterator<'query> for SteerableChild<'query> {
     {
         let outcome = self.outcome;
         if outcome == ChildOutcome::Failed {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         if outcome == ChildOutcome::Aborted {
             // Consumed and dropped, as an aborted resume must be.
@@ -613,7 +613,7 @@ fn resume_propagates_a_child_error() {
 
     assert!(matches!(
         it.suspend().resume(&guard),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 
@@ -633,11 +633,11 @@ fn child_timeout_precedes_nonresumable_source_abort() {
     // Before collection, this source would abort at either lock-release boundary.
     assert!(matches!(
         make_iterator().revalidate(&guard),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
     assert!(matches!(
         make_iterator().suspend().resume(&guard),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 
