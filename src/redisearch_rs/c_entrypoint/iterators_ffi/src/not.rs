@@ -12,7 +12,8 @@ use std::ptr::NonNull;
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator,
+    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    boxed::{finish_resume_in_place, resume_child_slot_in_place, suspend_child_slot_in_place},
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     not::Not,
@@ -21,8 +22,10 @@ use rqe_iterators::{
     utils::AnyTimeoutContext,
 };
 
-type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
-type NotOptimizedFfi<'index> =
+/// The [`Not`] iterator over a C child built by [`NewNotIterator()`].
+pub type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
+/// The [`NotOptimized`] iterator over a C child built by [`NewNotIterator()`].
+pub type NotOptimizedFfi<'index> =
     NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator, AnyTimeoutContext>;
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
@@ -30,12 +33,17 @@ type NotOptimizedFfi<'index> =
 /// The `NotOptimized` variant is intentionally large because it inlines a
 /// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
+///
+/// `#[repr(C, u8)]`: see [`NotIteratorEnumSuspended`].
+#[repr(C, u8)]
 #[expect(
     clippy::large_enum_variant,
     reason = "both variants are query-lifetime; boxing would add a needless allocation"
 )]
-enum NotIteratorEnum<'index> {
+pub enum NotIteratorEnum<'index> {
+    /// Scans every id up to the maximum, skipping the child's.
     Not(NotFfi<'index>),
+    /// Scans the existing documents, skipping the child's.
     NotOptimized(NotOptimizedFfi<'index>),
 }
 
@@ -164,6 +172,104 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
     // changes and deadline writes during probes.
     unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
 }
+
+/// Suspended counterpart of [`NotIteratorEnum`].
+///
+/// Both are `#[repr(C, u8)]` so suspend and resume relabel the box in place,
+/// keeping the address of the result a parent's aggregate result points into.
+#[repr(C, u8)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "matches the layout of the active variant; boxing would needlessly allocate"
+)]
+pub enum NotIteratorEnumSuspended<'query> {
+    /// Suspended form of [`NotIteratorEnum::Not`].
+    Not(<NotFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    /// Suspended form of [`NotIteratorEnum::NotOptimized`].
+    NotOptimized(<NotOptimizedFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+}
+
+// The relabels below need each arm to resume to its own payload type, and the
+// two enums to share a layout.
+const _: () = {
+    use rqe_iterators::boxed::{assert_layout_compatible, assert_resumes_to_itself};
+    assert_resumes_to_itself::<NotFfi<'static>>();
+    assert_resumes_to_itself::<NotOptimizedFfi<'static>>();
+    assert_layout_compatible::<NotIteratorEnum<'static>, NotIteratorEnumSuspended<'static>>();
+};
+
+impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
+    type Suspended = NotIteratorEnumSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        match unsafe { raw.as_mut() } {
+            Self::Not(it) => {
+                // SAFETY: `it` is the exclusively-owned payload, relabelled below.
+                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
+            }
+            Self::NotOptimized(it) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
+            }
+        }
+        // SAFETY: with the payload suspended and the tag unchanged, the
+        // allocation is a valid `NotIteratorEnumSuspended` (proof above).
+        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for NotIteratorEnumSuspended<'query> {
+    type Resumed<'a>
+        = NotIteratorEnum<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        let outcome = match unsafe { raw.as_mut() } {
+            Self::Not(s) => {
+                // SAFETY: `s` is the valid, exclusively-owned payload. On a
+                // recoverable outcome the slot holds its resumed form; otherwise it
+                // is left uninitialised and `finish_resume_in_place` frees the box
+                // without dropping it.
+                unsafe { resume_child_slot_in_place(NonNull::from(s), guard) }
+            }
+            Self::NotOptimized(s) => {
+                // SAFETY: as above.
+                unsafe { resume_child_slot_in_place(NonNull::from(s), guard) }
+            }
+        };
+
+        // SAFETY: 1. `raw` came from `Box::into_raw`; the borrow has ended.
+        // 2. `outcome` is the payload's; the tag needs no drop.
+        // 3. Each arm resumes to its own payload type (proof above).
+        unsafe { finish_resume_in_place::<_, NotIteratorEnum<'a>>(raw.as_ptr(), outcome) }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.last_doc_id(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            NotIteratorEnumSuspended::Not(s) => s.num_estimated(),
+            NotIteratorEnumSuspended::NotOptimized(s) => s.num_estimated(),
+        }
+    }
+}
+
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
 ///
