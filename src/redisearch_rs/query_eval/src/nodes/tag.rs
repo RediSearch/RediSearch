@@ -498,9 +498,8 @@ fn eval_wildcard<'index>(
     }
     let tok_ref = tok.as_ref();
     let pattern = tok_ref
-        .as_c_str()
-        .expect("a tag wildcard token must carry a string")
-        .to_bytes();
+        .as_bytes()
+        .expect("a tag wildcard token must carry a string");
     if !is_disk && below_min_term_prefix(pattern, min_term_prefix) {
         return None;
     }
