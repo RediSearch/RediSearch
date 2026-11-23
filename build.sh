@@ -457,18 +457,28 @@ find_module_path() {
 
 #-----------------------------------------------------------------------------
 # Function: select_macos_compilers
-# Set MACOS_C_COMPILER/MACOS_CXX_COMPILER to the LLVM that
-# .install/install_llvm.sh installs, falling back to clang/clang++ from PATH.
-# When it finds that LLVM, it also exports LIBCLANG_PATH so bindgen loads the
-# same LLVM's libclang.
+# Set MACOS_C_COMPILER/MACOS_CXX_COMPILER to clang/clang++ from PATH when that
+# is Apple clang or LLVM_VERSION. Otherwise use the LLVM that
+# .install/install_llvm.sh installs, and export LIBCLANG_PATH so bindgen loads
+# the same LLVM's libclang; fall back to PATH if that LLVM is not installed.
 #
-# PATH is not reliable here: when Redis bootstraps several modules into one
+# PATH can hold the wrong LLVM: when Redis bootstraps several modules into one
 # environment, modules bootstrapped after this one put an older Homebrew LLVM
-# ahead of ours on PATH, and that LLVM's libc++ lacks C++20 features SVS uses.
+# ahead of ours, and that LLVM's libc++ lacks C++20 features SVS uses. Apple
+# clang is kept because Homebrew's packages of Redis build with it.
 #-----------------------------------------------------------------------------
 select_macos_compilers() {
   local LLVM_VERSION LLVM_FULL_VERSION
   source "$ROOT/.install/LLVM_VERSION.sh"
+
+  MACOS_C_COMPILER=clang
+  MACOS_CXX_COMPILER=clang++
+  local path_banner
+  path_banner=$({ clang --version 2>/dev/null || true; } | head -n1)
+  if [[ "$path_banner" == "Apple clang"* || \
+        "$(clang_major_version clang)" == "$LLVM_VERSION" ]]; then
+    return
+  fi
 
   # Same locations, in the same order of preference, as install_llvm.sh.
   local tarball_bin="${LLVM_INSTALL_DIR:-$HOME/.local/llvm}/bin"
@@ -490,18 +500,12 @@ select_macos_compilers() {
       if [[ "$dir" == "$tarball_bin" && -z "${SDKROOT:-}" ]]; then
         export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
       fi
-      echo "Using LLVM $LLVM_VERSION from $dir"
+      echo "Using LLVM $LLVM_VERSION from $dir instead of PATH's ${path_banner:-clang}"
       return
     fi
   done
 
-  MACOS_C_COMPILER=clang
-  MACOS_CXX_COMPILER=clang++
-  local found
-  found=$(clang_major_version clang)
-  if [[ "$found" != "$LLVM_VERSION" ]]; then
-    echo "WARNING: LLVM $LLVM_VERSION not found (run 'make bootstrap'); using clang from PATH (LLVM ${found:-unknown})"
-  fi
+  echo "WARNING: LLVM $LLVM_VERSION not found (run 'make bootstrap'); using PATH's ${path_banner:-clang}"
 }
 
 # Prints the LLVM major version of the clang binary $1, or nothing.
