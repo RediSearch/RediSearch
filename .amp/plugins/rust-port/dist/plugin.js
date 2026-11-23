@@ -16982,7 +16982,7 @@ function ampHost(amp, name) {
         async startThread({ parent, labels, role }) {
             const agent = role
                 ? amp.createAgent({
-                    extends: 'high',
+                    model: 'anthropic/claude-opus-5-5',
                     instructions: role,
                     tools: { include: ['Read', 'Grep', 'glob'], exclude: ['tool_search', 'code_exec'] },
                 })
