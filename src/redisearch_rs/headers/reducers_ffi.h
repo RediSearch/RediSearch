@@ -13,6 +13,8 @@
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a list of [`RLookupKey`]s addressable by string name.
+ * It holds at most one key per row slot; once every slot is taken, creating a
+ * key yields `None`.
  *
  * # Sealing
  *

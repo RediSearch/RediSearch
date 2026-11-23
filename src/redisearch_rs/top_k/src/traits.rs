@@ -145,6 +145,9 @@ pub trait ScoreSource {
         Ok(true)
     }
 
+    /// Called when an accepted candidate takes a heap slot, evicting `evicted`.
+    fn admitted(&mut self, _doc_id: DocId, _evicted: Option<DocId>) {}
+
     /// Whether `result` is no longer valid and must not be surfaced
     /// (e.g. its field has expired).
     ///

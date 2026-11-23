@@ -1249,16 +1249,17 @@ DEBUG_COMMAND(DiskFlush) {
   return REDISMODULE_OK;
 }
 
-// FT.DEBUG DISK_LIVE_SNAPSHOTS
-// Number of disk snapshots currently alive, so tests can assert they are released.
-DEBUG_COMMAND(DiskLiveSnapshots) {
+// FT.DEBUG DISK_LIVE_QUERY_VIEWS
+// Number of per-query disk read views (RedisSearchDiskQueryView handles) currently alive, so
+// tests can assert they are released.
+DEBUG_COMMAND(DiskLiveQueryViews) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveSnapshotCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveQueryViewCount());
 }
 
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
@@ -4225,7 +4226,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
-                               {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
+                               {"DISK_LIVE_QUERY_VIEWS", DiskLiveQueryViews},
+                               {"DISK_LIVE_SNAPSHOTS", DiskLiveQueryViews}, // Former name, kept for existing diagnostic scripts.
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},

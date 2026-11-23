@@ -21,20 +21,19 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use numeric_score_source::{
-    AllValid, DocValidity, NumericScoreSource, NumericTopKIterator, new_numeric_top_k,
-    new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+    AllValid, DocValidity, NumericOptimizerMode, NumericScoreSource, NumericTopKIterator,
+    new_numeric_top_k, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
     range_iterator::{NumericRangeIterator, NumericTreeRef},
 };
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
-use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
     Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
     RQESuspendedIterator, ResumeOutcome, Wildcard,
     c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
-    utils::{NoTimeoutChecker, TimeoutContext},
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContext},
 };
 use rqe_iterators_test_utils::MockContext;
 use top_k::{ScoreBatch, ScoreSource};
@@ -46,10 +45,6 @@ struct DeletedDocs(HashSet<DocId>);
 impl DocValidity for DeletedDocs {
     fn is_valid(&self, doc_id: DocId) -> bool {
         !self.0.contains(&doc_id)
-    }
-
-    fn may_filter(&self) -> bool {
-        !self.0.is_empty()
     }
 }
 
@@ -102,7 +97,7 @@ const SPLIT_LEAF_DOCS: usize = 8;
 /// deliver can only be made up by expanding into the other one.
 fn split_tree() -> NumericRangeTree {
     let tree = build_tree(2 * SPLIT_LEAF_DOCS as u64, false, 0);
-    let leaves = tree.find_windowed(&full_range(), RangeWindow::UNBOUNDED);
+    let leaves = tree.find_windowed(&full_range(true), RangeWindow::UNBOUNDED);
     assert_eq!(leaves.len(), 2, "fixture must split into two leaves");
     assert!(
         leaves
@@ -113,14 +108,15 @@ fn split_tree() -> NumericRangeTree {
     tree
 }
 
-/// Whole-field filter: matches every value, ascending.
+/// Whole-field filter: matches every value, in the given sort order.
 ///
 /// `NumericFilter::default()` bounds the window at `0.0..f64::MAX`, which drops
 /// negatives and `+inf`; the `±inf` bounds here match the true whole-field span.
-fn full_range() -> NumericFilter {
+fn full_range(ascending: bool) -> NumericFilter {
     NumericFilter {
         min: f64::NEG_INFINITY,
         max: f64::INFINITY,
+        ascending,
         ..NumericFilter::default()
     }
 }
@@ -139,7 +135,7 @@ fn drain<S: ScoreSource>(source: &mut S) -> Option<Vec<(DocId, f64)>> {
 /// `(doc_id, score)` pairs.
 fn run_unfiltered(pairs: &[(u64, f64)], k: usize, ascending: bool) -> Vec<(DocId, f64)> {
     let tree = tree_from(pairs);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), ascending);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(ascending));
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
     let mut got = Vec::new();
     while let Some(result) = it.read().unwrap() {
@@ -175,12 +171,11 @@ fn run_filtered(
     let tree = tree_from(pairs);
     let source = NumericScoreSource::filtered(
         &tree,
-        full_range(),
+        full_range(ascending),
         RangeWindow::UNBOUNDED,
-        ascending,
-        range_batch_size,
         pairs.len(),
-    );
+    )
+    .with_range_batch_size(range_batch_size);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child_ids),
@@ -207,7 +202,8 @@ fn batch_exhausts_after_the_maximum_doc_id() {
         if multivalued {
             tree.add(DocId::MAX, 3.0, false, true, 0);
         }
-        let mut ranges = NumericRangeIterator::new(&tree, &full_range(), RangeWindow::UNBOUNDED);
+        let mut ranges =
+            NumericRangeIterator::new(&tree, &full_range(true), RangeWindow::UNBOUNDED);
         let mut batch = ranges.next_n(8).expect("nonempty tree");
         let last = if seek {
             batch.skip_to(DocId::MAX).unwrap()
@@ -224,19 +220,23 @@ fn batch_exhausts_after_the_maximum_doc_id() {
 
 #[test]
 fn single_valued_ranges_do_not_track_emitted_doc_ids() {
-    for (name, multivalued, accepts_repeat) in
-        [("single-valued", false, true), ("multivalued", true, false)]
+    for (name, multivalued, tracked) in
+        [("single-valued", false, false), ("multivalued", true, true)]
     {
         let mut tree = NumericRangeTree::new(false);
         tree.add(1, 1.0, false, multivalued, 0);
         if multivalued {
             tree.add(1, 2.0, false, true, 0);
         }
-        let mut ranges = NumericRangeIterator::new(&tree, &full_range(), RangeWindow::UNBOUNDED);
+        let mut ranges =
+            NumericRangeIterator::new(&tree, &full_range(true), RangeWindow::UNBOUNDED);
         let mut batch = ranges.next_n(8).expect("nonempty tree");
         let (doc_id, _) = batch.next().unwrap().expect("one document");
-        assert!(ranges.first_emission(doc_id), "{name}");
-        assert_eq!(ranges.first_emission(doc_id), accepts_repeat, "{name}");
+        assert!(!ranges.is_retained(doc_id), "{name}");
+        ranges.record_admission(doc_id, None);
+        assert_eq!(ranges.is_retained(doc_id), tracked, "{name}");
+        ranges.record_admission(2, Some(doc_id));
+        assert!(!ranges.is_retained(doc_id), "{name}: evicted");
     }
 }
 
@@ -276,7 +276,7 @@ fn unfiltered_fewer_than_k_yields_all() {
 #[test]
 fn empty_source_yields_no_batch() {
     let tree = tree_from(&[]);
-    let mut source = NumericScoreSource::unfiltered(&tree, full_range(), false);
+    let mut source = NumericScoreSource::unfiltered(&tree, full_range(false));
     assert!(source.next_batch().unwrap().is_none());
 }
 
@@ -305,7 +305,7 @@ fn filtered_top_k_over_interleaved_ranges_matches_brute_force() {
     let pairs: Vec<(u64, f64)> = (1..=40)
         .map(|id| (id, (id % 2 * 100 + id) as f64))
         .collect();
-    assert!(tree_from(&pairs).find(&full_range()).len() >= 2);
+    assert!(tree_from(&pairs).find(&full_range(true)).len() >= 2);
     let child_ids: Vec<DocId> = (1..=50).filter(|id| id % 3 == 0).collect();
     for ascending in [true, false] {
         let matching = pairs
@@ -328,7 +328,7 @@ fn filtered_top_k_on_a_multivalue_field_matches_brute_force() {
         tree.add(id, id as f64, false, true, 0);
         tree.add(id, 200.0 - id as f64, false, true, 0);
     }
-    assert!(tree.find(&full_range()).len() >= 2);
+    assert!(tree.find(&full_range(true)).len() >= 2);
     let child_ids: Vec<DocId> = (1..=70).filter(|id| id % 3 == 0).collect();
     for range_batch_size in [1, 8] {
         for ascending in [true, false] {
@@ -343,12 +343,11 @@ fn filtered_top_k_on_a_multivalue_field_matches_brute_force() {
             let expected = top_k_by_score(matching.collect(), 5, ascending);
             let source = NumericScoreSource::filtered(
                 &tree,
-                full_range(),
+                full_range(ascending),
                 RangeWindow::UNBOUNDED,
-                ascending,
-                range_batch_size,
                 60,
-            );
+            )
+            .with_range_batch_size(range_batch_size);
             let k = NonZeroUsize::new(5).unwrap();
             let mut it =
                 new_numeric_top_k_filtered(source, IdList::<true>::new(child_ids.clone()), k);
@@ -365,7 +364,8 @@ fn next_batch_yields_ranges_best_score_first_descending() {
 
     // One range per batch, descending: each batch's scores must all be >= the
     // next batch's, and be doc-id-sorted within the batch.
-    let mut source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut source =
+        NumericScoreSource::unfiltered(&tree, full_range(false)).with_range_batch_size(1);
     let b1 = drain(&mut source).expect("first batch");
     let b2 = drain(&mut source).expect("second batch");
 
@@ -393,7 +393,8 @@ fn filtered_retry_expands_window_to_reach_low_scored_match() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(false), window, 20).with_range_batch_size(1);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![1u64]),
@@ -435,7 +436,8 @@ fn filtered_retry_reaches_match_past_multivalue_inflated_ranges() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, num_docs);
+    let source = NumericScoreSource::filtered(&tree, full_range(false), window, num_docs)
+        .with_range_batch_size(1);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![match_id]),
@@ -452,7 +454,8 @@ fn filtered_retry_reaches_match_past_multivalue_inflated_ranges() {
 #[test]
 fn rewind_restarts_iteration() {
     let tree = build_tree(20, false, 0);
-    let mut source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut source =
+        NumericScoreSource::unfiltered(&tree, full_range(false)).with_range_batch_size(1);
 
     let drain_all = |source: &mut NumericScoreSource| {
         let mut all = Vec::new();
@@ -483,7 +486,8 @@ fn filtered_retry_keeps_high_match_across_windows() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(false), window, 20).with_range_batch_size(1);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![1u64, 20u64]),
@@ -508,7 +512,8 @@ fn filtered_rewind_after_expansion_repeats_results() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(false), window, 20).with_range_batch_size(1);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child),
@@ -537,7 +542,7 @@ fn unfiltered_excludes_deleted_docs() {
     // survives until GC. Top-k must skip it and return the next-best live docs.
     let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
     let deleted = DeletedDocs::from_iter([1]);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false).with_validity(deleted);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false)).with_validity(deleted);
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
 
     let mut got = Vec::new();
@@ -554,9 +559,9 @@ fn filtered_excludes_deleted_docs() {
     let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)]);
     let deleted = DeletedDocs::from_iter([4]);
     let child_ids = vec![2u64, 4u64];
-    let source =
-        NumericScoreSource::filtered(&tree, full_range(), RangeWindow::UNBOUNDED, false, 1, 5)
-            .with_validity(deleted);
+    let source = NumericScoreSource::filtered(&tree, full_range(false), RangeWindow::UNBOUNDED, 5)
+        .with_range_batch_size(1)
+        .with_validity(deleted);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child_ids),
@@ -578,8 +583,7 @@ fn unfiltered_excludes_field_expired_docs() {
     // predicate gives.
     let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
     let expired = ExpiredDocs::from_iter([1]);
-    let source =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_expiration(expired);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false)).with_expiration(expired);
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
 
     let mut got = Vec::new();
@@ -595,7 +599,7 @@ fn validity_and_expiration_compose() {
     // deleted and doc 3 is field-expired, so both drop and the heap fills from
     // the remaining live docs.
     let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
         .with_validity(DeletedDocs::from_iter([1]))
         .with_expiration(ExpiredDocs::from_iter([3]));
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
@@ -613,7 +617,7 @@ fn unfiltered_window_sized_for_k_needs_no_expansion() {
     // fills the heap on its own. An undersized window would surface here as an
     // expansion.
     let tree = split_tree();
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false));
 
     let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
 
@@ -639,7 +643,7 @@ fn unfiltered_retry_expands_window_past_deleted_docs() {
     // the best-scored leaf leaves the heap one short of k. Only an expansion
     // into the next leaf can supply the missing result.
     let tree = split_tree();
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
         .with_validity(DeletedDocs::from_iter([16]));
 
     let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
@@ -665,7 +669,7 @@ fn unfiltered_retry_expands_window_past_field_expired_docs() {
     // Field-level TTL drops records after the window was sized — the same
     // shortfall a deletion causes — so the expansion has to cover it too.
     let tree = split_tree();
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
         .with_expiration(ExpiredDocs::from_iter([16, 15]));
 
     let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
@@ -699,7 +703,7 @@ fn unfiltered_retry_keeps_multivalue_doc_on_its_best_value() {
 
     // The extra value lifts the leaf's count by one; deleting the top-valued doc
     // then makes the window fall short and expand.
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
         .with_validity(DeletedDocs::from_iter([16]));
 
     let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS + 1);
@@ -728,7 +732,7 @@ fn unfiltered_retry_yields_fewer_than_k_once_the_tree_is_exhausted() {
     // survivors rather than spinning on empty expansions.
     let tree = split_tree();
     let deleted = DeletedDocs::from_iter([9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4]);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false).with_validity(deleted);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false)).with_validity(deleted);
 
     let (got, expansions) = drain_with_expansions(source, SPLIT_LEAF_DOCS);
 
@@ -770,7 +774,7 @@ fn iterator_read_propagates_timeout() {
     // there rather than being swallowed.
     let tree = build_tree(20, false, 0);
     let source =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(expired_clock());
+        NumericScoreSource::unfiltered(&tree, full_range(false)).with_timeout(expired_clock());
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -782,7 +786,7 @@ fn every_candidate_polls_the_deadline() {
     let pairs = [(1u64, 4.0), (2, 3.0), (3, 2.0), (4, 1.0)];
     let tree = tree_from(&pairs);
     let counter = CountingTimeout::default();
-    let mut source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+    let mut source = NumericScoreSource::unfiltered(&tree, full_range(false))
         .with_validity(DeletedDocs::from_iter([1, 2, 3]))
         .with_timeout(counter.clone());
 
@@ -795,7 +799,7 @@ fn timeout_mid_batch_serves_the_records_already_read() {
     let pairs: Vec<(u64, f64)> = (1..=10).map(|id| (id, id as f64)).collect();
     let tree = tree_from(&pairs);
     let source =
-        NumericScoreSource::unfiltered(&tree, full_range(), true).with_timeout(TimeoutOnce::new(5));
+        NumericScoreSource::unfiltered(&tree, full_range(true)).with_timeout(TimeoutOnce::new(5));
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(10).unwrap());
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -810,15 +814,10 @@ fn timeout_mid_batch_serves_the_records_already_read() {
 fn filtered_timeout_mid_batch_serves_only_already_intersected_matches() {
     let pairs: Vec<(DocId, f64)> = (1..=10).map(|id| (id, id as f64)).collect();
     let tree = tree_from(&pairs);
-    let source = NumericScoreSource::filtered(
-        &tree,
-        full_range(),
-        RangeWindow::UNBOUNDED,
-        true,
-        8,
-        pairs.len(),
-    )
-    .with_timeout(TimeoutOnce::new(1));
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(true), RangeWindow::UNBOUNDED, pairs.len())
+            .with_range_batch_size(8)
+            .with_timeout(TimeoutOnce::new(1));
     // Sparse matches force seeking within the batch before the timeout.
     let child = IdList::<true>::new(vec![2, 6, 9]);
     let mut it = new_numeric_top_k_filtered(source, child, NonZeroUsize::new(3).unwrap());
@@ -835,7 +834,7 @@ fn amortized_check_does_not_probe_below_granularity() {
     let tree = build_tree(20, false, 0);
     let never_probes = DeadlineTimeoutChecker::new(Duration::from_nanos(1), 1_000_000);
     let mut source =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(never_probes);
+        NumericScoreSource::unfiltered(&tree, full_range(false)).with_timeout(never_probes);
 
     assert!(drain(&mut source).is_some());
 }
@@ -846,7 +845,7 @@ fn no_timeout_default_never_times_out() {
     // result set, matching the behavior of every other test's default source.
     let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
     let source =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(NoTimeoutChecker);
+        NumericScoreSource::unfiltered(&tree, full_range(false)).with_timeout(NoTimeoutChecker);
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
 
     let mut got = Vec::new();
@@ -929,10 +928,10 @@ where
 {
     new_numeric_top_k(
         tree,
-        full_range(),
-        false,
+        full_range(false),
         k,
         num_docs,
+        NumericOptimizerMode::PartialRange,
         validity,
         expiration,
         timeout,
@@ -1009,10 +1008,10 @@ fn factory_rejects_k_too_large_for_the_heap() {
         let had_child = child.is_some();
         let built = new_numeric_top_k(
             &tree,
-            full_range(),
-            false,
+            full_range(false),
             usize::MAX,
             3,
+            NumericOptimizerMode::PartialRange,
             AllValid,
             NoOpChecker,
             NoTimeoutChecker,
@@ -1039,6 +1038,43 @@ fn factory_passes_the_query_deadline_to_both_constructions() {
 }
 
 #[test]
+fn factory_filtered_expands_window_to_reach_matches() {
+    // A real (non-wildcard) child routes through the filtered reduction, lowered
+    // to the C ABI as production passes it. Multi-leaf tree, doc_id == value == i,
+    // DESC: the child's selectivity sizes an initial window that stops inside the
+    // highest-valued leaf, while every match sits below it — so the source must
+    // expand before the heap can fill, and the drained results are the child's
+    // two best matches rather than the window's.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+    let child = CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![1u64, 2, 3, 4]));
+
+    let mut it = new_numeric_top_k(
+        &tree,
+        full_range(false),
+        2,
+        20,
+        NumericOptimizerMode::Hybrid,
+        AllValid,
+        NoOpChecker,
+        NoTimeoutChecker,
+        Some(child),
+    )
+    .expect("k fits the heap")
+    .expect("an id-list child is not reduced away");
+    assert!(
+        it.child().is_some(),
+        "expected filtered reduction for an id-list child"
+    );
+
+    assert_eq!(drain_top_k(&mut it), vec![(4, 4.0), (3, 3.0)]);
+    assert!(
+        it.metrics().strategy_switches >= 1,
+        "the estimate-sized initial window could not hold k matches"
+    );
+}
+
+#[test]
 fn rewind_after_timeout_reproduces_full_results() {
     // k == doc count forces the whole index to be read (the heap never fills, so
     // no early `Stop`), guaranteeing the one-shot timeout fires mid-collection.
@@ -1046,13 +1082,15 @@ fn rewind_after_timeout_reproduces_full_results() {
     let k = NonZeroUsize::new(20).unwrap();
 
     let reference = {
-        let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+        let source =
+            NumericScoreSource::unfiltered(&tree, full_range(false)).with_range_batch_size(1);
         drain_top_k(&mut new_numeric_top_k_unfiltered(source, k))
     };
 
     // Time out partway through the first collection; earlier batches have already
     // landed in the heap when the deadline fires.
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
+        .with_range_batch_size(1)
         .with_timeout(TimeoutOnce::new(8));
     let mut it = new_numeric_top_k_unfiltered(source, k);
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -1071,7 +1109,8 @@ fn rewind_after_persistent_timeout_times_out_again() {
     // no panic) and time out again, since the deadline is absolute and rewind
     // does not extend it.
     let tree = build_tree(20, false, 0);
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
+        .with_range_batch_size(1)
         .with_timeout(expired_clock());
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(5).unwrap());
 
@@ -1089,6 +1128,19 @@ fn map_get<'a>(reply: &'a ReplyValue, key: &str) -> Option<&'a ReplyValue> {
         ReplyValue::SimpleString(s) | ReplyValue::StringBuffer(s) if s == key => Some(v),
         _ => None,
     })
+}
+
+fn map_keys(reply: &ReplyValue) -> Vec<String> {
+    let ReplyValue::Map(entries) = reply else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .map(|(k, _)| match k {
+            ReplyValue::SimpleString(s) | ReplyValue::StringBuffer(s) => s.clone(),
+            other => panic!("non-string profile key: {other:?}"),
+        })
+        .collect()
 }
 
 /// Render an iterator's [`ProfilePrint`] entry through the normal FT.PROFILE
@@ -1113,7 +1165,7 @@ fn metrics_count_batches_without_switches() {
     // heap from filling, so no early `Stop` truncates the batch count.
     let tree = build_tree(20, false, 0);
     assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false)).with_range_batch_size(1);
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
     drain_top_k(&mut it);
 
@@ -1126,11 +1178,6 @@ fn metrics_count_batches_without_switches() {
         metrics.strategy_switches, 0,
         "the unfiltered path never expands windows"
     );
-    assert_eq!(
-        it.source().num_batches(),
-        metrics.num_batches,
-        "source and iterator batch counts agree"
-    );
 }
 
 #[test]
@@ -1142,7 +1189,8 @@ fn metrics_count_window_expansions() {
         offset: 0,
         limit: 1,
     };
-    let source = NumericScoreSource::filtered(&tree, full_range(), window, false, 1, 20);
+    let source =
+        NumericScoreSource::filtered(&tree, full_range(false), window, 20).with_range_batch_size(1);
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(vec![1u64]),
@@ -1161,7 +1209,7 @@ fn metrics_count_window_expansions() {
 #[test]
 fn metrics_reset_on_rewind() {
     let tree = build_tree(20, false, 0);
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false)).with_range_batch_size(1);
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
     drain_top_k(&mut it);
     assert!(it.metrics().num_batches > 0);
@@ -1171,81 +1219,76 @@ fn metrics_reset_on_rewind() {
     // restarts from zero.
     assert_eq!(it.metrics().num_batches, 0);
     assert_eq!(it.metrics().strategy_switches, 0);
-    assert_eq!(it.source().num_batches(), 0);
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
-fn profile_reports_optimizer_type_and_counters() {
-    let tree = build_tree(20, false, 0);
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
-    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
-    drain_top_k(&mut it);
-    let metrics = *it.metrics();
+fn profile_reply_is_the_optimizer_contract() {
+    // The key set and its order are part of the `FT.PROFILE` reply that clients
+    // consume, so runtime counters must not leak into the entry. The read counter
+    // is contributed by the profile wrapper, absent from this bare context.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
+    let k = NonZeroUsize::new(100).unwrap();
+    for (mode, expected_mode, with_child) in [
+        (
+            NumericOptimizerMode::PartialRange,
+            "Query partial range",
+            false,
+        ),
+        (NumericOptimizerMode::Hybrid, "Hybrid", false),
+        (NumericOptimizerMode::Hybrid, "Hybrid", true),
+    ] {
+        let source =
+            NumericScoreSource::unfiltered(&tree, full_range(false)).with_optimizer_mode(mode);
+        let reply = if with_child {
+            let mut it =
+                new_numeric_top_k_filtered(source, IdList::<true>::new(vec![1u64, 2, 3]), k);
+            drain_top_k(&mut it);
+            render_profile(&it)
+        } else {
+            let mut it = new_numeric_top_k_unfiltered(source, k);
+            drain_top_k(&mut it);
+            render_profile(&it)
+        };
 
-    let reply = render_profile(&it);
-
-    assert_eq!(
-        map_get(&reply, "Type"),
-        Some(&ReplyValue::SimpleString("OPTIMIZER".into()))
-    );
-    assert_eq!(
-        map_get(&reply, "Batches number"),
-        Some(&ReplyValue::LongLong(metrics.num_batches as i64))
-    );
-    assert_eq!(
-        map_get(&reply, "Window expansions"),
-        Some(&ReplyValue::LongLong(metrics.strategy_switches as i64))
-    );
-    // The Rust source has no `QOptimizer` type, so it emits no `Optimizer mode`
-    // (unlike the C optimizer reader), and no child subtree without a child.
-    assert_eq!(map_get(&reply, "Optimizer mode"), None);
-    assert_eq!(map_get(&reply, "Child iterator"), None);
+        let mut keys = vec!["Type", "Optimizer mode"];
+        if with_child {
+            keys.push("Child iterator");
+        }
+        assert_eq!(map_keys(&reply), keys, "{mode:?}");
+        assert_eq!(
+            map_get(&reply, "Type"),
+            Some(&ReplyValue::SimpleString("OPTIMIZER".into()))
+        );
+        assert_eq!(
+            map_get(&reply, "Optimizer mode"),
+            Some(&ReplyValue::SimpleString(expected_mode.into())),
+            "{mode:?}"
+        );
+        if with_child {
+            assert!(
+                matches!(map_get(&reply, "Child iterator"), Some(ReplyValue::Map(_))),
+                "child iterator profile is a nested map"
+            );
+        }
+    }
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
-fn profile_reports_batches_read_before_a_timeout() {
-    // The abort path resets the source so the query can be retried; the profile of
-    // the timed-out run must still report the batches that were read, since that is
-    // where the count is most diagnostic.
+fn metrics_retain_batches_read_before_a_timeout() {
+    // The abort path resets the source so the query can be retried; the metrics
+    // must still account for the batches that were read, since a source-local
+    // counter cannot answer for the whole evaluation.
     let tree = build_tree(20, false, 0);
     // The probe budget must outlast the first batch's materialization yet fall
     // short of the whole scan, so the abort lands with batches already counted.
-    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+    let source = NumericScoreSource::unfiltered(&tree, full_range(false))
+        .with_range_batch_size(1)
         .with_timeout(TimeoutOnce::new(20));
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(20).unwrap());
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 
-    let metrics = *it.metrics();
-    assert!(metrics.num_batches > 0, "timeout fired mid-collection");
-    // The source-local counter is what the profile used to read.
-    assert_eq!(it.source().num_batches(), 0, "abort path reset the source");
-
-    let reply = render_profile(&it);
-    assert_eq!(
-        map_get(&reply, "Batches number"),
-        Some(&ReplyValue::LongLong(metrics.num_batches as i64))
-    );
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (RedisModule reply API)")]
-fn profile_renders_child_subtree() {
-    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
-
-    let child = IdList::<true>::new(vec![1u64, 2, 3]);
-    let mut it = new_numeric_top_k_filtered(source, child, NonZeroUsize::new(100).unwrap());
-    drain_top_k(&mut it);
-
-    let reply = render_profile(&it);
-
-    let child_reply = map_get(&reply, "Child iterator").expect("child subtree rendered");
-    assert!(
-        matches!(child_reply, ReplyValue::Map(_)),
-        "child iterator profile is a nested map"
-    );
+    assert!(it.metrics().num_batches > 0, "timeout fired mid-collection");
 }
 
 fn mutable_top_k(owner: &UnsafeCell<NumericRangeTree>, k: usize) -> Box<NumericTopKIterator<'_>> {
@@ -1253,7 +1296,7 @@ fn mutable_top_k(owner: &UnsafeCell<NumericRangeTree>, k: usize) -> Box<NumericT
     // SAFETY: (1) the returned iterator borrows `owner`; (2) the pointer comes
     // from its cell; (3) tests mutate only while idle and revalidate before reuse.
     let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
+    let source = NumericScoreSource::unfiltered(tree_ref, full_range(true));
     Box::new(new_numeric_top_k_unfiltered(
         source,
         NonZeroUsize::new(k).unwrap(),
@@ -1302,7 +1345,7 @@ fn revalidate_picks_up_docs_that_turned_multivalued_while_suspended() {
 fn resume_before_collection_and_rewind_keep_numeric_results() {
     let mock_ctx = MockContext::new(0, 0);
     let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0)]);
-    let source = NumericScoreSource::unfiltered(&tree, full_range(), true);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(true));
     let it = Box::new(new_numeric_top_k_unfiltered(
         source,
         NonZeroUsize::new(3).unwrap(),

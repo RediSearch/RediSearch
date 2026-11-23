@@ -39,12 +39,12 @@ struct RangeCursor<'index> {
 impl<'index> NumericScoreBatch<'index> {
     /// Open a reader on each of `ranges`, keeping only records `filter` admits.
     pub(crate) fn new(
-        ranges: &[&'index NumericRange],
+        ranges: impl IntoIterator<Item = &'index NumericRange>,
         filter: NumericFilter,
         multivalued: bool,
     ) -> Self {
         let cursors = ranges
-            .iter()
+            .into_iter()
             .map(|range| RangeCursor {
                 reader: FilterNumericReader::new(filter, range.reader()),
                 record: RSIndexResult::build_numeric(0.0).build(),

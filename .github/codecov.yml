@@ -26,3 +26,5 @@ coverage:
         # Not specifying paths so we get annotations on the PR
         # advanced
         removed_code_behavior: adjust_base # [removals_only, adjust_base, fully_covered_patch, off/False] https://docs.codecov.com/docs/commit-status#removed_code_behavior
+ignore:
+  - "src/redisearch_rs/tools"

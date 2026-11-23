@@ -910,13 +910,13 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
 ///    that remains valid for `'index`.
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
-/// 3. `snapshot` must be a [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle
+/// 3. `view` must be a [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle
 ///    for `disk_spec` and must remain valid for `'index`.
 /// 4. `status`, when present, must point to a valid [`QueryError`](ffi::QueryError).
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
-    snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    view: NonNull<ffi::RedisSearchDiskQueryView>,
     status: Option<NonNull<ffi::QueryError>>,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
@@ -935,7 +935,7 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     // On failure the enterprise implementation populates `status` with the
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.
-    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, snapshot, status) {
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight, view, status) {
         Ok(it) => NewWildcardIterator::Disk(it),
         Err(err) => {
             tracing::warn!(
@@ -977,8 +977,8 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
 ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for `'index`.
 /// 8. When `query.sctx.spec.diskSpec` is non-null, [`SEARCH_ENTERPRISE_ITERATORS`] must be
 ///    initialized.
-/// 9. When `query.sctx.spec.diskSpec` is non-null, `query.sctx.diskSnapshot` must be a
-///    non-null [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for
+/// 9. When `query.sctx.spec.diskSpec` is non-null, `query.sctx.diskQueryView` must be a
+///    non-null [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) handle for
 ///    `query.sctx.spec.diskSpec` and must remain valid for `'index`.
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
@@ -997,13 +997,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
         let disk_spec = unsafe { &mut *spec.diskSpec };
-        let snapshot = NonNull::new(sctx_ref.diskSnapshot)
-            .expect("query.sctx.diskSnapshot is null for a disk-backed wildcard query");
+        let view = NonNull::new(sctx_ref.diskQueryView)
+            .expect("query.sctx.diskQueryView is null for a disk-backed wildcard query");
         // SAFETY: Caller guarantees all preconditions of
         // `new_wildcard_iterator_on_disk` hold (7, 8, 9); `query.status` is the
         // valid `QueryError` of the evaluating query.
         return unsafe {
-            new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, NonNull::new(query.status))
+            new_wildcard_iterator_on_disk(disk_spec, weight, view, NonNull::new(query.status))
         };
     }
 
