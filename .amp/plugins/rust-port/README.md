@@ -32,7 +32,13 @@ source change, then run **plugins: reload**. `npm run check` (format, type-check
 before every commit.
 
 GitHub calls use `GH_TOKEN`/`GITHUB_TOKEN`, else the token git's credential helper has for
-`github.com`, which in an orb is Amp's. It needs to push, open PRs, reply and resolve threads.
+`github.com`, which in an orb is Amp's. If credentials are missing or lack repository access,
+the plugin falls back to the local `gh` login. It checks repository access before publishing;
+it never retries a write with different credentials. Git pushes still use git's configured
+authentication. The API credentials need to open PRs, reply and resolve threads.
+
+Amp GitHub subscriptions are optional when the App cannot access the repository and local
+`gh` works; see the [host policy](amp/policy.md#waiting-for-ci-and-comments) for the manual-resume fallback.
 
 ## How a job runs
 
