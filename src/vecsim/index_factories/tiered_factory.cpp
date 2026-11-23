@@ -23,6 +23,7 @@
 
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
+using vecsim::quantization::isTurboQuant;
 
 namespace TieredFactory {
 
@@ -40,7 +41,8 @@ static inline BFParams NewBFParams(const TieredIndexParams *params) {
 }
 
 static inline bool RequiresQuantizationTraining(const TieredIndexParams *params) {
-    return params->primaryIndexParams->algoParams.hnswParams.quantType == VecSimQuant_SQ8 &&
+    const auto type = params->primaryIndexParams->algoParams.hnswParams.quantType;
+    return (type == VecSimQuant_SQ8 || isTurboQuant(type)) &&
            params->specificParams.tieredHnswParams.QuantNormalizationSetSize > 0;
 }
 
@@ -53,6 +55,8 @@ static inline bool IsQuantizationSupported(const TieredIndexParams *params) {
 
     if constexpr (!QuantInput<DataType> || !std::is_same_v<DistType, float>) {
         return false;
+    } else if constexpr (std::is_same_v<DataType, float>) {
+        return hnsw_params.quantType == VecSimQuant_SQ8 || isTurboQuant(hnsw_params.quantType);
     } else {
         return hnsw_params.quantType == VecSimQuant_SQ8;
     }
