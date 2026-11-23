@@ -683,8 +683,8 @@ bool SearchDisk_IsEnabledForValidation();
  * @brief Check if a disk JSON index supports multi-value fields of the given type:
  * dynamic JSONPaths and JSON arrays at a single path.
  *
- * VECTOR must stay false here: an array at a single path is a vector's blob,
- * and multi-value vectors need their own disk support.
+ * For VECTOR, an array at a single path is one vector; a dynamic path supplies
+ * multiple vectors.
  *
  * @param types The field's type
  * @return true if multi-value is supported for the type, false otherwise

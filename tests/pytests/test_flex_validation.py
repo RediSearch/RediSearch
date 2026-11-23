@@ -6,6 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import json
 import threading
 
 
@@ -190,12 +191,46 @@ def test_disk_json_rejects_multi_value_jsonpath(env):
         .error().contains('Disk JSON index supports only single-value JSONPath fields')
     env.expect('FT.INFO', 'idx').error().contains('Index not found')
 
-    # The vector parser rejects a dynamic path before the JSONPath check runs.
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.vec[*]', 'AS', 'vec', 'VECTOR', 'HNSW', '14',
-               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
-               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10', 'RERANK', 'TRUE') \
-        .error().contains('Disk index does not support multi-value vectors')
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_json_accepts_multi_value_vectors(env):
+    """Test that disk validation accepts multi-value VECTOR fields and scores each document by
+    its closest vector, but still rejects nested arrays at a single-value path"""
+    query_vec = [9, 9]
+    docs = {1: [[1, 1], [2, 2]], 2: [[8, 8], [9, 9]]}
+
+    def closest_l2(vecs):
+        return min(sum((q - v) ** 2 for q, v in zip(query_vec, vec)) for vec in vecs)
+
+    def vector_field(data_type):
+        params = ['TYPE', data_type, 'DIM', len(query_vec), 'DISTANCE_METRIC', 'L2',
+                  'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        return ['VECTOR', 'HNSW', len(params), *params]
+
+    # The vector parser still rejects malformed paths before the disk JSONPath check runs.
+    env.expect('FT.CREATE', 'idx_bad', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.vecs[', 'AS', 'vec', *vector_field('FLOAT32')).error().contains('Invalid JSONPath')
+    env.expect('FT.INFO', 'idx_bad').error().contains('Index not found')
+
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        idx = f'idx_{data_type}'
+        prefix = f'{data_type}:'
+        env.expect('FT.CREATE', idx, 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', prefix,
+                   'SCHEMA', '$.vecs[*]', 'AS', 'vec', *vector_field(data_type)).ok()
+        for key, vecs in docs.items():
+            env.expect('JSON.SET', f'{prefix}{key}', '$', json.dumps({'vecs': vecs})).ok()
+        env.assertEqual(int(index_errors(env, idx)['indexing failures']), 0)
+        query = create_np_array_typed(query_vec, data_type).tobytes()
+        env.expect('FT.SEARCH', idx, '*=>[KNN 3 @vec $blob AS dist]',
+                   'PARAMS', '2', 'blob', query, 'SORTBY', 'dist', 'RETURN', '1', 'dist',
+                   'DIALECT', '2').equal([2, f'{prefix}2', ['dist', str(closest_l2(docs[2]))],
+                                        f'{prefix}1', ['dist', str(closest_l2(docs[1]))]])
+
+    env.expect('FT.CREATE', 'idx_single', 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', 'single:',
+               'SCHEMA', '$.vec', 'AS', 'vec', *vector_field('FLOAT32')).ok()
+    env.expect('JSON.SET', 'single:1', '$', json.dumps({'vec': docs[1]})).ok()
+    env.assertEqual(int(index_errors(env, 'idx_single')['indexing failures']), 1)
 
 
 @skip(cluster=True)
