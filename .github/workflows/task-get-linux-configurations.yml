@@ -8,6 +8,7 @@ env:
                     'ubuntu:focal',
                     'rockylinux:8',
                     'rockylinux:9',
+                    'rockylinux/rockylinux:10',
                     'debian:bullseye',
                     'amazonlinux:2',
                     'amazonlinux:2023',
@@ -17,6 +18,7 @@ env:
                     'ubuntu:jammy',
                     'ubuntu:focal',
                     'rockylinux:9',
+                    'rockylinux/rockylinux:10',
                     'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
 
@@ -68,6 +70,7 @@ jobs:
           naming = {
             'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
             'azurelinux:3': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+            'rockylinux:10': 'rockylinux/rockylinux:10',
           }
 
           # Normalize the platform name
@@ -166,7 +169,7 @@ jobs:
                 'pre-deps': pre_deps})
 
           # rockylinux needs git pre-checkout dependencies
-          for rocky_version in ['rockylinux:8', 'rockylinux:9']:
+          for rocky_version in ['rockylinux:8', 'rockylinux:9', 'rockylinux/rockylinux:10']:
             if rocky_version in x86_platforms:
               x86_include.append({
                 'OS': rocky_version,
