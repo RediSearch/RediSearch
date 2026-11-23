@@ -107,14 +107,14 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
-int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
-  // One snapshot per sctx lifetime. Every caller funnels through this at
+int SearchCtx_OpenDiskQueryView(RedisSearchCtx *sctx, QueryError *status) {
+  // One read view per sctx lifetime. Every caller funnels through this at
   // iterator-construction time; reaching it twice on the same sctx would mean
-  // a second caller is silently reusing the first one's point-in-time view,
-  // which is a programming bug rather than something to paper over.
-  RS_ASSERT(sctx && !sctx->diskSnapshot);
+  // a second caller is silently reusing the first one's view, which is a
+  // programming bug rather than something to paper over.
+  RS_ASSERT(sctx && !sctx->diskQueryView);
   IndexSpec *sp = sctx->spec;
-  // Snapshots only exist in Flex/disk deployments. Gate on SearchDisk_IsEnabled()
+  // Read views only exist in Flex/disk deployments. Gate on SearchDisk_IsEnabled()
   // to match how the rest of the module guards disk-only paths; a non-disk index
   // in a disk deployment simply has no diskSpec and reads live under the spec lock.
   if (!SearchDisk_IsEnabled() || !sp || !sp->diskSpec) {
@@ -122,10 +122,12 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   }
   // Disk is enabled and this index is disk-backed, so the backend must be up.
   RS_ASSERT(SearchDisk_IsInitialized());
-  sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
-  if (!sctx->diskSnapshot) {
+  // The view is only meaningful against the index state the caller is holding stable.
+  RS_ASSERT(IndexSpec_IsReadLocked(sp));
+  sctx->diskQueryView = SearchDisk_CreateQueryView(sp->diskSpec);
+  if (!sctx->diskQueryView) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
-                                     "Failed to create disk snapshot for index '%s'",
+                                     "Failed to open the disk query view for index '%s'",
                                      IndexSpec_FormatName(sp, false));
     return REDISMODULE_ERR;
   }
@@ -141,13 +143,13 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
-  // Release the per-query disk snapshot (no-op when NULL). Must happen after every
+  // Release the per-query disk read view (no-op when NULL). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
   // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
-  // fully depleted, so a parked cursor does not pin the snapshot.
-  if (sctx->diskSnapshot) {
-    SearchDisk_FreeSnapshot(sctx->diskSnapshot);
-    sctx->diskSnapshot = NULL;
+  // fully depleted, so a parked cursor does not keep the view's resources alive.
+  if (sctx->diskQueryView) {
+    SearchDisk_FreeQueryView(sctx->diskQueryView);
+    sctx->diskQueryView = NULL;
   }
 }
 

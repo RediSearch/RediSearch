@@ -1259,9 +1259,9 @@ static bool startsFieldDefinition(const ArgsCursor *ac) {
     return false;
   }
   const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
-  static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
-                                       SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
-                                       SPEC_VECTOR_STR};
+  static const char *const starts[] = {SPEC_AS_STR,      SPEC_TEXT_STR,         SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR, SPEC_GEO_STR,          SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR,  SPEC_SPARSE_VECTOR_STR};
   for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
     if (!strcasecmp(next, starts[i])) {
       return true;
@@ -1402,6 +1402,92 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 }
 
+// The largest DIM: dimension IDs are u32, so 2^32 of them.
+#define SPARSE_VECTOR_MAX_DIM (1ULL << 32)
+
+/* Parse `SPARSEVECTOR <nargs> DIM <n> DISTANCE_METRIC <IP|COSINE> [TYPE FLOAT32]`.
+ * Returns 1 on success, 0 on error. */
+static int parseSparseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac,
+                                  QueryError *status) {
+  fs->types |= INDEXFLD_T_SPARSE_VECTOR;
+  sp->flags |= Index_HasSparseVec;
+  fs->sparseVecOpts.dim = 0;
+  fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
+  fs->sparseVecOpts.sparseVecIndex = NULL;
+
+  if (isSpecJson(sp) && !validateJsonFieldPath(sp, fs, status)) {
+    return 0;
+  }
+
+  ArgsCursor attrs = {0};
+  int rc = AC_GetVarArgs(ac, &attrs);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments",
+                                  " for sparse vector attributes: %s", AC_Strerror(rc));
+    return 0;
+  }
+  if (attrs.argc % 2) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Bad number of arguments for sparse vector attributes: expected "
+                        "attribute-value pairs");
+    return 0;
+  }
+
+  bool hasDim = false, hasMetric = false;
+  while (!AC_IsAtEnd(&attrs)) {
+    if (AC_AdvanceIfMatch(&attrs, VECSIM_DIM)) {
+      unsigned long long dim;
+      if (AC_GetUnsignedLongLong(&attrs, &dim, 0) != AC_OK || dim == 0 ||
+          dim > SPARSE_VECTOR_MAX_DIM) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DIM: expected an integer between 1 "
+                            "and 4294967296");
+        return 0;
+      }
+      fs->sparseVecOpts.dim = dim;
+      hasDim = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_DISTANCE_METRIC)) {
+      if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_IP)) {
+        fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
+      } else if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_COSINE)) {
+        fs->sparseVecOpts.metric = SparseMetric_Cosine;
+      } else {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DISTANCE_METRIC: expected IP or "
+                            "COSINE");
+        return 0;
+      }
+      hasMetric = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_TYPE)) {
+      if (!AC_AdvanceIfMatch(&attrs, VECSIM_TYPE_FLOAT32)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector TYPE: expected FLOAT32");
+        return 0;
+      }
+    } else {
+      const char *attr = AC_StringArg(&attrs, attrs.offset, NULL);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "Bad arguments for sparse vector", ": unknown attribute `%s`",
+                                    attr);
+      return 0;
+    }
+  }
+
+  if (!hasDim) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DIM");
+    return 0;
+  }
+  if (!hasMetric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DISTANCE_METRIC");
+    return 0;
+  }
+  return 1;
+}
+
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
@@ -1435,6 +1521,17 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   } else if (AC_AdvanceIfMatch(ac, SPEC_VECTOR_STR)) {  // vector field
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
+    return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_SPARSE_VECTOR_STR)) {  // sparse vector field
+    // FT.CREATE and FT.ALTER both parse fields here; RDB load does not.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPARSE_VECTOR_UNSTABLE_ERR);
+      goto error;
+    }
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_SPARSE_VECTOR_STR, fs, status))
+      goto error;
+    if (!parseSparseVectorField(sp, fs, ac, status)) goto error;
+    // Like dense vectors, sparse vectors take no SORTABLE or NOINDEX options.
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
@@ -2573,7 +2670,6 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
-  sp->tagDictionariesAvailable = true;
   sp->resume_bg_indexing = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
@@ -2784,6 +2880,11 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (saveTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
     TagIndex_RdbSave(rdb, TagIndex_Open(f));
   }
+  // Only the attributes: the posting lists are rebuilt from the keyspace on load.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.dim);
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.metric);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2979,6 +3080,28 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   if (loadTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
     f->tagOpts.tagIndex = TagIndex_RdbLoad(rdb, f->index, FieldSpec_HasSuffixTrie(f));
     if (!f->tagOpts.tagIndex) goto fail;
+  }
+
+  // Load sparse vector attributes.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    // No build writes the type bit at an older encoding, so this fires only on a corrupt or
+    // foreign file. Rejecting it here beats reading attributes that were never written.
+    if (encver < INDEX_SPARSE_VECTOR_VERSION) {
+      RedisModule_LogIOError(rdb, "warning", "Sparse vector field in encoding version %d", encver);
+      goto fail;
+    }
+    uint64_t dim = LoadUnsigned_IOError(rdb, goto fail);
+    uint64_t metric = LoadUnsigned_IOError(rdb, goto fail);
+    if (dim == 0 || dim > (1ULL << 32) ||
+        (metric != SparseMetric_InnerProduct && metric != SparseMetric_Cosine)) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "Invalid sparse vector attributes: dim %llu, metric %llu",
+                             (unsigned long long)dim, (unsigned long long)metric);
+      goto fail;
+    }
+    f->sparseVecOpts.dim = dim;
+    f->sparseVecOpts.metric = (SparseMetric)metric;
+    f->sparseVecOpts.sparseVecIndex = NULL;
   }
 
   return REDISMODULE_OK;
@@ -3333,7 +3456,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // In a forked child the memory is a snapshot and no lock is needed.
   const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   const bool saveDiskSpec = sp->diskSpec && storeDiskRdbData;
-  const bool saveTagDictionaries = saveDiskSpec && sp->tagDictionariesAvailable;
   const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
   const bool needLock = saveDiskSpec && inMainProcess;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -3346,12 +3468,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
-  if (saveDiskSpec) {
-    // One availability flag governs all TAG dictionary payloads in the field records.
-    RedisModule_SaveUnsigned(rdb, saveTagDictionaries);
-  }
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveTagDictionaries, needLock);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveDiskSpec, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3474,20 +3592,17 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexSpec_MakeKeyless(sp);
   RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
   loadDiskSpec = isSpecOnDisk(sp) && useSst;
-  if (loadDiskSpec) {
-    uint64_t available = 0;
-    if (encver >= INDEX_SST_TAG_VALUES_VERSION) {
-      available = LoadUnsigned_IOError(rdb, goto cleanup);
-      if (available > 1) goto cleanup;
-    }
-    sp->tagDictionariesAvailable = available != 0;
-  }
-  loadTagDictionaries = loadDiskSpec && sp->tagDictionariesAvailable;
+  loadTagDictionaries = loadDiskSpec && encver >= INDEX_SST_TAG_VALUES_VERSION;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst, loadTagDictionaries) !=
         REDISMODULE_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
+      goto cleanup;
+    }
+    if (loadDiskSpec && FIELD_IS(fs, INDEXFLD_T_TAG) && !loadTagDictionaries) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "SST RDB is missing the TAG dictionary for a disk index");
       goto cleanup;
     }
     if (fs->ftId != RS_INVALID_FIELD_ID) {
@@ -3685,7 +3800,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->tagDictionariesAvailable = true;
   // IndexSpec_Free clears it, so it must be valid before the first failed read below.
   sp->stats.indexError = IndexError_Init();
 
@@ -3925,6 +4039,11 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isD
   }
   if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
     Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
+  }
+  // Both decide how a query vector is validated and scored, so shards must agree on them.
+  if (FIELD_IS(field, INDEXFLD_T_SPARSE_VECTOR)) {
+    Sha1_UpdateU64(hash, field->sparseVecOpts.dim);
+    Sha1_UpdateU64(hash, field->sparseVecOpts.metric);
   }
 }
 
@@ -4179,15 +4298,32 @@ void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
 // (`actxDocIdMetaGet` / `actxDocIdMetaSet`) so both paths treat the same key
 // consistently.
 static int lookupDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
-                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId) {
-  return openKey ? DocIdMeta_GetWithOpenKey(openKey, specId, docId)
-                 : DocIdMeta_Get(ctx, key, specId, docId);
+                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId,
+                           uint32_t *docLen) {
+  return openKey ? DocIdMeta_GetEntryWithOpenKey(openKey, specId, docId, docLen)
+                 : DocIdMeta_GetEntry(ctx, key, specId, docId, docLen);
 }
 
 static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                          RedisModuleKey *openKey, uint64_t specId) {
   return openKey ? DocIdMeta_DeleteWithOpenKey(openKey, specId)
                  : DocIdMeta_Delete(ctx, key, specId);
+}
+
+// Disk-mode delete. `docLen` is the DocIdMeta length, filled from the row when the metadata
+// recorded none; false when nothing was deleted, so nothing is accounted for.
+static bool deleteDiskDocument(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                               uint32_t *docLen) {
+  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+  RS_LOG_ASSERT(key, "the disk delete needs the key to tell a trimmed document from a live one");
+  if (*docLen == DOCID_META_DOCLEN_UNKNOWN &&
+      !SearchDisk_GetDocumentLength(spec->diskSpec, docId, docLen)) {
+    // Stale mapping: the row is gone and was accounted for when it went.
+    return false;
+  }
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, keyStr, keyLen);
 }
 
 // Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
@@ -4216,18 +4352,18 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
-  // Look up docId from the key metadata.
+  // Look up the docId and length from the key metadata.
   uint64_t docId = 0;
-  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+  uint32_t docLen = DOCID_META_DOCLEN_UNKNOWN;
+  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId, &docLen) != REDISMODULE_OK ||
+      docId == 0) {
     // Nothing to delete
     return;
   }
 
-  uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Failed to delete
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed, or failed to delete
       return;
     }
   } else {
@@ -4263,13 +4399,11 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
-  uint32_t docLen = 0;
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                                    uint32_t docLen) {
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Document not found on disk
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed by a slot trim or an earlier delete, or a storage error
       return false;
     }
   } else {
@@ -4288,10 +4422,11 @@ bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
 
 // The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
 // (both modes).
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+void IndexSpec_DeleteDocById(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                             uint32_t docLen) {
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
-  if (IndexSpec_DeleteDocById_Unsafe(spec, docId) && spec->gc) {
+  if (IndexSpec_DeleteDocById_Unsafe(spec, key, docId, docLen) && spec->gc) {
     GCContext_OnDelete(spec->gc);
   }
   IndexSpec_DecrActiveWrites(spec);
