@@ -211,6 +211,8 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
  *     1. The entire memory range of this cstr must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The nul terminator must be within `isize::MAX` from `name`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 

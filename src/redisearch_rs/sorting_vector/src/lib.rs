@@ -178,7 +178,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         sz
     }
 
-    /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
+    /// Returns `Ok(())` if the index is in bounds, [`IndexOutOfBounds`] otherwise.
     fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
         if idx < self.values.len() {
             Ok(())
