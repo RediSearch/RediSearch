@@ -126,3 +126,20 @@ pub fn lower_runes(bytes: &[u8]) -> Result<Vec<u16>, RuneStrTooLong> {
 pub fn fold_runes(bytes: &[u8]) -> Result<Vec<u16>, RuneStrTooLong> {
     collect_capped(nu_codepoints(bytes).map(|codepoint| to_rune(fold(codepoint))))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A multi-MB term is rejected without being decoded in full.
+    #[test]
+    fn collect_capped_stops_pulling_past_the_limit() {
+        let mut pulled = 0;
+        let runes = std::iter::repeat_with(|| {
+            pulled += 1;
+            u16::from(b'a')
+        });
+        assert_eq!(collect_capped(runes), Err(RuneStrTooLong));
+        assert_eq!(pulled, MAX_RUNE_STR_LEN + 1);
+    }
+}

@@ -12,14 +12,14 @@ Behavioral tests for how the spellcheck dictionary (FT.DICTADD / FT.DICTDEL /
 FT.DICTDUMP) handles the full spectrum of byte inputs.
 
 Pipeline under test (src/dictionary.c -> src/trie/trie.c -> string_utils::runes in Rust):
-  DICTADD:  bytes --strToRunesN/nu_utf8_read--> uint16 runes --> rune trie
+  DICTADD:  bytes --strToRunes/decode_runes--> uint16 runes --> rune trie
   DICTDEL:  bytes --same decode as DICTADD--> runes --> trie removal
-  DICTDUMP: runes --runesToStr/nu_utf8_write--> UTF-8 bytes
+  DICTDUMP: runes --runesToStr/runes_to_bytes_into--> UTF-8 bytes
 
 Current (lenient) semantics demonstrated here:
-  * The UTF-8 decoder (libnu nu_utf8_read) performs NO validation. Invalid
-    sequences are decoded blindly from the lead byte's bit pattern; nothing
-    is ever rejected.
+  * The UTF-8 decoder (string_utils::libnu::nu_codepoints) performs NO
+    validation. Invalid sequences are decoded blindly from the lead byte's
+    bit pattern; nothing is ever rejected.
   * Runes are uint16: codepoints above U+FFFF (astral plane) are silently
     truncated to their low 16 bits, so distinct emoji can collide.
   * Decoding stops at the first NUL codepoint: embedded NULs truncate terms.
@@ -68,7 +68,7 @@ def testValidCaseSensitive(env):
 
 # ==================== ASTRAL PLANE (valid UTF-8) ====================
 # Valid input, mangled anyway: runes are uint16, codepoints > U+FFFF are
-# truncated to their low 16 bits (strToRunesN's `(rune)cp` cast).
+# truncated to their low 16 bits (`to_rune` in string_utils::runes).
 
 def testAstralCodepointTruncated(env):
     # U+1F600 (grinning face) is stored as U+F600: DICTDUMP returns a
