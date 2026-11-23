@@ -14686,16 +14686,39 @@ function trimComment(body, max = 1500) {
         .trim();
     return text.length > max ? `${text.slice(0, max)}… (full text at the link)` : text;
 }
-/** Amp configures git's credential helper in Orbs, so this needs nothing beyond git itself. */
-async function githubToken(cwd) {
+/** Selects credentials with repository access before any write can be attempted. */
+async function githubClient(cwd, owner, repo) {
     const env = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
-    if (env)
-        return env;
-    const fill = await git(cwd, ['credential', 'fill'], 'protocol=https\nhost=github.com\n\n');
-    const password = fill.match(/^password=(.*)$/m)?.[1];
-    if (!password)
-        throw new Error('git has no credentials for github.com');
-    return password;
+    const fill = env
+        ? ''
+        : await git(cwd, ['credential', 'fill'], 'protocol=https\nhost=github.com\n\n').catch(() => '');
+    const token = env || fill.match(/^password=(.*)$/m)?.[1];
+    let denied;
+    if (token) {
+        const client = new Octokit({ auth: token });
+        try {
+            await client.rest.repos.get({ owner, repo });
+            return client;
+        }
+        catch (error) {
+            if (![401, 403, 404].includes(error.status ?? 0))
+                throw error;
+            denied = error;
+        }
+    }
+    const auth = await execa('gh', ['auth', 'token', '--hostname', 'github.com'], {
+        cwd,
+        // Environment tokens override gh's stored login, which may have broader repository access.
+        env: { GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_PROMPT_DISABLED: '1' },
+    })
+        .then(({ stdout }) => stdout.trim())
+        .catch(() => '');
+    if (!auth)
+        throw (denied ??
+            new Error('No GitHub credentials available; run gh auth login or connect the GitHub App.'));
+    const client = new Octokit({ auth });
+    await client.rest.repos.get({ owner, repo });
+    return client;
 }
 /**
  * The review comments and the CI verdict of a stage PR, from the {@link FEEDBACK} query; nothing
@@ -14771,7 +14794,7 @@ function github(o) {
     const [owner, repo] = repository.split('/');
     // Made on first use, so inspecting a plan needs no credentials.
     let client;
-    const api = () => (client ??= githubToken(root).then((auth) => new Octokit({ auth })));
+    const api = () => (client ??= githubClient(root, owner, repo));
     const sh = (args) => git(root, args);
     return {
         async checkRemote({ remote, branches }) {
@@ -16144,7 +16167,7 @@ function engine(o) {
         const prs = stages.flatMap((s) => job.prs[s]?.url ?? []);
         const briefing = `${prefix} You take over a ${profile.name} job at stage \`${next}\` from ${host.threadUrl(from)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. ${follow} and read the skills they name. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
 
-First subscribe to the CI and comments of ${prs.join(' and ')}.
+First try subscribing to the CI and comments of ${prs.join(' and ')}. If subscriptions are unavailable, follow the host policy's fallback.
 
 ## Stage \`${next}\`
 
