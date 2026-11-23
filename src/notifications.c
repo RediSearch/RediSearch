@@ -566,14 +566,16 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
       ASM_StateMachine_StartImport(slots);
+      ASM_StateMachine_StartImportOverStaleWindow(slots);
       workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
-      DiskASM_ImportRebuild_OnImportEnded(
-          subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED);
-      ASM_StateMachine_FailImport(slots);
+      if (!DiskASM_ImportRebuild_OnImportEnded(
+              subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED)) {
+        ASM_StateMachine_FailImport(slots);
+      }
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
@@ -679,6 +681,7 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
       ASM_StateMachine_StartTrim(slots);
       Indexes_DeleteSlots(slots);
       ASM_StateMachine_CompleteTrim(slots);
+      ASM_StateMachine_TrimmedInBackground(slots);
       break;
   }
 }

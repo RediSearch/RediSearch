@@ -34,7 +34,10 @@ extern "C" {
  *   tail is indexed by its notifications, and its deletes find the sweep's own docIds. A sweep
  *   that ends any other way fails the attempt, which keeps the gate and is never re-swept: a
  *   second sweep would clear DocIdMeta the first one wrote.
+ * - A failed rebuild aborts the attempt (RedisModule_ClusterAbortSlotMigration).
  * - IMPORT_COMPLETED / IMPORT_FAILED: ends the attempt, stopping its sweep.
+ * - After IMPORT_FAILED, the slots stay in the import window until Flex trims them with
+ *   TRIM_BACKGROUND, whose handler deletes their documents.
  *
  * Every function runs on the main thread or under the GIL.
  */
@@ -44,7 +47,8 @@ extern "C" {
 void DiskASM_ImportRebuild_OnBaseReady(RedisModuleCtx *ctx,
                                        const RedisModuleClusterSlotMigrationInfo *info);
 void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx);
-void DiskASM_ImportRebuild_OnImportEnded(bool completed);
+// Returns whether the slots stay in the import window until their trim.
+bool DiskASM_ImportRebuild_OnImportEnded(bool completed);
 
 #ifdef ENABLE_ASSERT
 // Whether `key`'s slot is being rebuilt. Flex promises that no write and no delete reaches such a

@@ -31,7 +31,8 @@ typedef enum {
   DISK_ASM_IMPORT_SCANNING,
   // The slots are rebuilt and the gate released.
   DISK_ASM_IMPORT_REBUILT,
-  // The rebuild cannot complete; the gate is kept so the import cannot finish.
+  // The rebuild cannot complete: the attempt is aborted, and the gate is kept so it cannot
+  // complete meanwhile.
   DISK_ASM_IMPORT_REBUILD_FAILED,
   // The attempt ended (IMPORT_COMPLETED / IMPORT_FAILED).
   DISK_ASM_IMPORT_COMPLETED,
@@ -59,6 +60,7 @@ static const char *phaseName(DiskASMImportPhase phase) {
 typedef struct {
   char taskId[128];
   bool gateHeld;
+  bool abortRequested;
   size_t keysScanned;
   size_t keysIndexed;
   // A static string, or NULL.
@@ -111,14 +113,28 @@ static void importFree(DiskASMImport *imp) {
   rm_free(imp);
 }
 
+// Flex ends the attempt with IMPORT_FAILED and does not retry it.
+static void abortAttempt(DiskASMImport *imp, const char *error) {
+  if (RedisModule_ClusterAbortSlotMigration(RSDummyContext, imp->taskId, error) == REDISMODULE_OK) {
+    imp->stats.abortRequested = true;
+    return;
+  }
+  // EALREADY: an abort is already scheduled. ENOENT: the attempt is gone, and its IMPORT_FAILED
+  // ends this import.
+  if (errno == EALREADY || errno == ENOENT) {
+    return;
+  }
+  RedisModule_Log(RSDummyContext, "warning", "ASM import %s: aborting the import failed: %s",
+                  imp->taskId, strerror(errno));
+}
+
 static void fail(DiskASMImport *imp, const char *error) {
   imp->phase = DISK_ASM_IMPORT_REBUILD_FAILED;
   imp->stats.lastError = error;
-  // TODO(MOD-20202): abort the attempt with RedisModule_ClusterAbortSlotMigration; until then it
-  // stays blocked on the gate.
   RedisModule_Log(RSDummyContext, "warning",
-                  "ASM import %s: search cannot rebuild the imported slots: %s", imp->taskId,
-                  error);
+                  "ASM import %s: search cannot rebuild the imported slots, aborting it: %s",
+                  imp->taskId, error);
+  abortAttempt(imp, error);
 }
 
 // Clears `activeImport` and frees it, or leaves it to its running sweep.
@@ -294,16 +310,21 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   ReindexPool_AddImportTask(importScanTask, imp);
 }
 
-void DiskASM_ImportRebuild_OnImportEnded(bool completed) {
+bool DiskASM_ImportRebuild_OnImportEnded(bool completed) {
   // Only an SST import creates a DiskASMImport: a logical import, or one that failed before its
   // base was ready, ends with none.
-  if (!activeImport) return;
+  if (!activeImport) return false;
   if (completed) {
     // The gate is held until the rebuild completed, and Flex completes no import before.
     RS_LOG_ASSERT(activeImport->phase == DISK_ASM_IMPORT_REBUILT,
                   "ASM import: completed before search rebuilt its slots");
+  } else {
+    // The keys carry the source's docIds, or the sweep's, until Flex trims them, so an unlink
+    // must not delete a document by them. Also covers an attempt that failed before its overlay.
+    ASM_StateMachine_AwaitFailedImportTrim(activeImport->slots);
   }
   detach(completed ? DISK_ASM_IMPORT_COMPLETED : DISK_ASM_IMPORT_FAILED);
+  return !completed;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -340,6 +361,8 @@ void DiskASM_ImportRebuild_AddInfo(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_task_id", stats ? stats->taskId : "");
   RedisModule_InfoAddFieldCString(ctx, "disk_asm_import_phase", phase);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_gate_held", stats ? stats->gateHeld : 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_abort_requested",
+                                    stats ? stats->abortRequested : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_scanned",
                                     stats ? stats->keysScanned : 0);
   RedisModule_InfoAddFieldULongLong(ctx, "disk_asm_import_keys_indexed",
