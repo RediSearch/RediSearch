@@ -18,6 +18,7 @@
 #if HAVE_SVS
 #include "vecsim/algorithms/svs/svs_utils.h"
 #endif
+#include <atomic>
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -38,6 +39,16 @@ extern "C" void VecSim_SetLogCallbackFunction(logCallbackFunction callback) {
 }
 
 extern "C" void VecSim_SetWriteMode(VecSimWriteMode mode) { VecSimIndex::setWriteMode(mode); }
+
+static std::atomic<VecSimHNSWHybridPolicy> hnswHybridPolicy{VecSimHNSWHybridPolicy_Legacy};
+
+extern "C" void VecSim_SetHNSWHybridPolicy(VecSimHNSWHybridPolicy policy) {
+    hnswHybridPolicy.store(policy, std::memory_order_relaxed);
+}
+
+extern "C" VecSimHNSWHybridPolicy VecSim_GetHNSWHybridPolicy(void) {
+    return hnswHybridPolicy.load(std::memory_order_relaxed);
+}
 
 extern "C" void VecSim_UpdateThreadPoolSize(size_t new_size) {
     if (new_size == 0) {

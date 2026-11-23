@@ -276,6 +276,15 @@ void VecSimTieredIndex_GC(VecSimIndex *index);
 bool VecSimIndex_PreferAdHocSearch(VecSimIndex *index, size_t subsetSize, size_t k,
                                    bool initial_check);
 
+typedef enum {
+    VecSimHNSWHybridPolicy_Legacy,
+    VecSimHNSWHybridPolicy_Trained,
+} VecSimHNSWHybridPolicy;
+
+// Select the initial policy for in-memory HNSW hybrid queries.
+void VecSim_SetHNSWHybridPolicy(VecSimHNSWHybridPolicy policy);
+VecSimHNSWHybridPolicy VecSim_GetHNSWHybridPolicy(void);
+
 /**
  * @brief Acquire/Release the required locks of the tiered index externally before executing an
  * an unsafe *READ* operation (as the locks are acquired for shared ownership).

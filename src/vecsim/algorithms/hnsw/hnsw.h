@@ -9,6 +9,7 @@
 #pragma once
 
 #include "graph_data.h"
+#include "hnsw_policy_candidate.h"
 #include "visited_nodes_handler.h"
 #include "vecsim/memory/vecsim_malloc.h"
 #include "vecsim/utils/vecsim_stl.h"
@@ -18,6 +19,7 @@
 #include "vecsim/containers/data_blocks_container.h"
 #include "vecsim/containers/vecsim_results_container.h"
 #include "vecsim/query_result_definitions.h"
+#include "vecsim/vec_sim.h"
 #include "vecsim/vec_sim_common.h"
 #include "vecsim/vec_sim_index.h"
 #include "vecsim/spaces/computer/preprocessors.h"
@@ -2544,6 +2546,15 @@ VecSimDebugInfoIterator *HNSWIndex<DataType, DistType>::debugInfoIterator() cons
 template <typename DataType, typename DistType>
 bool HNSWIndex<DataType, DistType>::preferAdHocSearch(size_t subsetSize, size_t k,
                                                       bool initial_check) const {
+    // The candidate was trained on initial planner estimates. Keep the legacy
+    // decision for mid-query estimates refined from batch feedback.
+    if (initial_check && VecSim_GetHNSWHybridPolicy() == VecSimHNSWHybridPolicy_Trained) {
+        bool preferAdHoc = preferAdHocSearchCandidate(
+            {k, this->indexSize(), this->dim, this->getM(), subsetSize, this->indexLabelCount()});
+        this->lastMode = preferAdHoc ? HYBRID_ADHOC_BF : HYBRID_BATCHES;
+        return preferAdHoc;
+    }
+
     // This heuristic is based on sklearn decision tree classifier (with 20 leaves nodes) -
     // see scripts/HNSW_batches_clf.py
     size_t index_size = this->indexSize();
