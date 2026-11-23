@@ -10,8 +10,8 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    AliveToken, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed,
+    RQEIteratorError, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
@@ -64,7 +64,7 @@ pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>
 
 /// The range a [`Numeric`] iterator reads, located as a node of the tree that
 /// owns it, so revalidation can resolve it again.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RangeSource {
     /// The tree owning the range. A raw pointer rather than a reference, so
     /// that it stays usable across the writes [`RangeSource::new`] allows.
@@ -72,6 +72,8 @@ pub struct RangeSource {
     /// The node holding the range. It resolves to the same range only while the
     /// tree's [revision](NumericRangeTree::revision_id) is unchanged.
     node: NodeIndex,
+    /// Set when the tree's owner may free the tree itself; see [`RangeSource::with_owner`].
+    owner: Option<AliveToken>,
 }
 
 impl RangeSource {
@@ -92,7 +94,23 @@ impl RangeSource {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(tree: NonNull<NumericRangeTree>, node: NodeIndex) -> Self {
-        Self { tree, node }
+        Self {
+            tree,
+            node,
+            owner: None,
+        }
+    }
+
+    /// The same source, for a tree whose owner may free it: revalidation checks `owner`
+    /// before reading the tree, and aborts once it is revoked.
+    ///
+    /// This lifts 1. of [`RangeSource::new`] once `owner` is revoked; until then the tree must
+    /// stay valid.
+    pub fn with_owner(self, owner: AliveToken) -> Self {
+        Self {
+            owner: Some(owner),
+            ..self
+        }
     }
 }
 
@@ -100,6 +118,9 @@ impl RangeSource {
 struct RangeTreeInfo {
     /// Where the reader's range lives.
     source: RangeSource,
+    /// The tree's unique ID at the time the iterator was created, so a tree swapped in behind
+    /// the same pointer is never mistaken for the one read.
+    unique_id: u32,
     /// The revision ID at the time the iterator was created.
     /// Used to detect if the tree has been modified.
     revision_id: u32,
@@ -148,12 +169,21 @@ impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
         let Some(ref info) = self.range_tree_info else {
             return RangeLookup::Untracked;
         };
+        // The tree may be freed once its owner revoked the token, so that is checked first.
+        if info
+            .source
+            .owner
+            .as_ref()
+            .is_some_and(|owner| !owner.is_alive())
+        {
+            return RangeLookup::Gone;
+        }
 
         // SAFETY: 1. and 2. of `RangeSource::new` keep the tree valid for the
         // iterator's lifetime and its pointer valid across writes; by 3. nothing
         // writes to it or borrows it mutably while the iterator revalidates.
         let tree = unsafe { info.source.tree.as_ref() };
-        if tree.revision_id() != info.revision_id {
+        if tree.revision_id() != info.revision_id || u32::from(tree.unique_id()) != info.unique_id {
             return RangeLookup::Gone;
         }
 
@@ -206,10 +236,11 @@ where
 
         let range_tree_info = range_source.map(|source| {
             // SAFETY: 1. and 3. of `RangeSource::new`.
-            let revision_id = unsafe { source.tree.as_ref() }.revision_id();
+            let tree = unsafe { source.tree.as_ref() };
             RangeTreeInfo {
+                unique_id: u32::from(tree.unique_id()),
+                revision_id: tree.revision_id(),
                 source,
-                revision_id,
             }
         });
 
@@ -590,6 +621,28 @@ impl<'index> NumericIteratorVariant<'index> {
         filter: &'index NumericFilter,
         field_ctx: &field::FieldFilterContext,
     ) -> Vec<Self> {
+        // SAFETY: forwarded from this function's contract.
+        unsafe { Self::from_tree_with_owner(tree, None, sctx, filter, field_ctx) }
+    }
+
+    /// [`NumericIteratorVariant::from_tree`] for a tree its owner may free, each source
+    /// built [`with_owner`](RangeSource::with_owner) a clone of `owner` when it is set.
+    ///
+    /// # Safety
+    ///
+    /// 1. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
+    /// 2. `field_ctx.field` must be a field index (tag == `FieldMaskOrIndex::Index`), not a
+    ///    field mask.
+    /// 3. `tree` must satisfy the requirements of [`RangeSource::new`] for `'index`, except
+    ///    that with `owner` set it need only stay valid until `owner` is
+    ///    [revoked](AliveToken::revoke), which its owner does before freeing it.
+    pub unsafe fn from_tree_with_owner(
+        tree: NonNull<NumericRangeTree>,
+        owner: Option<AliveToken>,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        filter: &'index NumericFilter,
+        field_ctx: &field::FieldFilterContext,
+    ) -> Vec<Self> {
         let field_index = match field_ctx.field {
             field::FieldMaskOrIndex::Index(index) => index,
             field::FieldMaskOrIndex::Mask(_) => {
@@ -642,6 +695,10 @@ impl<'index> NumericIteratorVariant<'index> {
 
                 // SAFETY: by 3.
                 let source = unsafe { RangeSource::new(tree, node) };
+                let source = match &owner {
+                    Some(owner) => source.with_owner(owner.clone()),
+                    None => source,
+                };
                 // SAFETY: 1. `reader` reads the range `node` holds.
                 unsafe {
                     Self::new(

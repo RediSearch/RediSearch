@@ -269,6 +269,46 @@ impl TagSuffixIndex {
         }
     }
 
+    /// Unregister `term` and its suffixes, as when its value leaves the index: each entry
+    /// drops the term from its members, and an entry left without members and without a term
+    /// of its own is removed. Does nothing for a term never added.
+    pub fn remove(&mut self, term: &[u8]) {
+        let Some(ptr) = self
+            .entries
+            .find(term)
+            .and_then(|data| data.full_term.as_ref())
+            .map(OwnedTerm::borrowed)
+        else {
+            return;
+        };
+        // The proper suffixes first: their members borrow the term, which the full key owns.
+        for start in 1..term.len() {
+            self.remove_tracked(&term[start..], |data| data.members.retain(|m| *m != ptr));
+        }
+        self.remove_tracked(term, |data| {
+            data.members.retain(|m| *m != ptr);
+            data.full_term = None;
+        });
+    }
+
+    /// Apply `f` to the entry keyed by `key`, which only removes from it, folding its shrinking
+    /// into [`nested_mem_usage`](Self::nested_mem_usage), and remove the entry once it holds
+    /// nothing.
+    fn remove_tracked(&mut self, key: &[u8], f: impl FnOnce(&mut SuffixData)) {
+        let Some(data) = self.entries.find_mut(key) else {
+            return;
+        };
+        let before = data.nested_mem_usage();
+        f(data);
+        let empty = data.members.is_empty() && data.full_term.is_none();
+        let after = if empty { 0 } else { data.nested_mem_usage() };
+        debug_assert!(after <= before, "removing never grows an entry");
+        self.nested_mem_usage -= before - after;
+        if empty {
+            self.entries.remove(key);
+        }
+    }
+
     /// Iterate over all `(suffix, data)` entries, in lexicographical order of
     /// the suffix.
     pub fn lending_iter(&self) -> LendingIter<'_, SuffixData, VisitAll> {
@@ -584,5 +624,25 @@ mod tests {
         );
         assert_counter_is_exact(&short_idx);
         assert_counter_is_exact(&long_idx);
+    }
+
+    #[test]
+    fn removing_a_term_keeps_the_suffixes_other_terms_share() {
+        let mut idx = TagSuffixIndex::new();
+        add(&mut idx, b"blue");
+        let alone = idx.mem_usage();
+        add(&mut idx, b"glue");
+        idx.remove(b"blue");
+        assert!(idx.find(b"blue").is_none());
+        assert!(idx.find(b"b").is_none());
+        let shared = idx.find(b"lue").expect("glue still ends with it");
+        assert_eq!(read_members(shared), [b"glue".to_vec()]);
+        assert_eq!(read_members(idx.find(b"glue").unwrap()), [b"glue".to_vec()]);
+        // Removing a term never added changes nothing.
+        idx.remove(b"red");
+        idx.remove(b"glue");
+        assert_eq!(idx.entries.n_unique_keys(), 0);
+        assert_eq!(idx.mem_usage(), TagSuffixIndex::new().mem_usage());
+        assert!(alone > idx.mem_usage());
     }
 }

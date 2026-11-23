@@ -32,6 +32,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod alive_token;
 pub mod boxed;
 pub mod c2rust;
 mod composite;
@@ -66,6 +67,7 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use alive_token::AliveToken;
 pub use boxed::{
     RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
     TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,

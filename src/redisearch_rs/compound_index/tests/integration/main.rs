@@ -11,5 +11,6 @@ mod check_paths;
 mod collect;
 mod insert;
 mod levels;
+mod paths;
 mod properties;
 mod util;

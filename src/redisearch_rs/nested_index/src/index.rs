@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::collections::BTreeSet;
+
 use compound_index::{CardinalityExceeded, CompoundIndex, SchemaError, TagLevel};
 use rqe_core::DocId;
 
@@ -56,6 +58,21 @@ pub struct NestedIndex {
     routing: CompoundIndex<Terminal>,
     terminal_kind: TerminalKind,
     num_records: usize,
+    /// The terminals a collector reached and has not finished; see
+    /// [`NestedIndex::finish_collection`].
+    collected: BTreeSet<Vec<PathStep>>,
+}
+
+/// What [`NestedIndex::finish_collection`] freed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PrunedTerminals {
+    /// The terminals dropped.
+    pub terminals: usize,
+    /// The bytes their emptied postings still held, counted as [`IndexDelta::size_delta`]
+    /// counted them when they were written.
+    pub bytes: usize,
+    /// The blocks their emptied postings still held.
+    pub blocks: usize,
 }
 
 impl NestedIndex {
@@ -65,7 +82,93 @@ impl NestedIndex {
             routing: CompoundIndex::new(levels)?,
             terminal_kind,
             num_records: 0,
+            collected: BTreeSet::new(),
         })
+    }
+
+    /// Lets a garbage collector remove postings from the terminal at `path`, as
+    /// [`CompoundIndex::for_each_terminal`] reported it: `collect` returns its result and the
+    /// records it removed, which leave [`NestedIndex::num_records`]. The terminal is kept even
+    /// if emptied, so a collector working through it in several passes still finds it;
+    /// [`NestedIndex::finish_collection`] drops it. `None` when no terminal is at `path`.
+    pub fn collect_terminal<R>(
+        &mut self,
+        path: &[PathStep],
+        collect: impl FnOnce(&mut Terminal) -> (R, usize),
+    ) -> Option<R> {
+        let terminal = self.routing.terminal_at_mut(path)?;
+        let (result, records_removed) = collect(terminal);
+        self.forget_records(records_removed);
+        self.collected.insert(path.to_vec());
+        Some(result)
+    }
+
+    /// Whether terminals collected through [`NestedIndex::collect_terminal`] wait for
+    /// [`NestedIndex::finish_collection`].
+    pub fn has_collected(&self) -> bool {
+        !self.collected.is_empty()
+    }
+
+    /// Ends the collection of up to `max` of the terminals [`NestedIndex::collect_terminal`]
+    /// reached: `finish` sees each, for instance to compact it, then the ones left without
+    /// records are dropped, with the routing nodes left without terminals. Each dropped terminal
+    /// revokes its [`Terminal::alive`] token, so iterators reading it stop. Bounding the work
+    /// lets a collector spread it over several lock holds, calling this again while
+    /// [`NestedIndex::has_collected`].
+    ///
+    /// The terminals reached stay listed until finished, so a collection interrupted before its
+    /// finish is finished by the next one.
+    pub fn finish_collection(
+        &mut self,
+        max: usize,
+        mut finish: impl FnMut(&mut Terminal),
+    ) -> PrunedTerminals {
+        let mut pruned = PrunedTerminals::default();
+        for _ in 0..max {
+            let Some(path) = self.collected.first().cloned() else {
+                break;
+            };
+            let removed = self.routing.remove_terminal_if(&path, |terminal| {
+                finish(terminal);
+                if !terminal.is_empty() {
+                    return false;
+                }
+                pruned.bytes += terminal.postings_size();
+                pruned.blocks += terminal.num_blocks();
+                true
+            });
+            pruned.terminals += usize::from(removed);
+            // Only now, so a `finish` that panics leaves the terminal listed for the next call.
+            self.collected.remove(&path);
+        }
+        pruned
+    }
+
+    /// The terminal at `path`, for a test to write to behind the index's back, as a writer
+    /// racing a collector would.
+    #[cfg(feature = "unittest")]
+    pub fn terminal_at_mut(&mut self, path: &[PathStep]) -> Option<&mut Terminal> {
+        self.routing.terminal_at_mut(path)
+    }
+
+    /// Takes `records` off [`NestedIndex::num_records`], once a garbage collector removed them.
+    ///
+    /// A collector removes only records that were written, so taking off more is an accounting
+    /// bug. It fails a debug build; a release build, where it runs inside the server, logs it and
+    /// stops at zero rather than crash over a statistic.
+    fn forget_records(&mut self, records: usize) {
+        debug_assert!(
+            records <= self.num_records,
+            "a collector removes only records that were written"
+        );
+        self.num_records = self.num_records.checked_sub(records).unwrap_or_else(|| {
+            tracing::warn!(
+                removed = records,
+                counted = self.num_records,
+                "a NESTED field's GC removed more records than it counted"
+            );
+            0
+        });
     }
 
     /// The routing levels and their terminals, for lookups and query walks.

@@ -20,7 +20,7 @@ use inverted_index::NumericFilter;
 use query::mock::MockQueryNode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
-use rqe_iterators::{IteratorType, IteratorsConfig, RQEIterator};
+use rqe_iterators::{IteratorType, IteratorsConfig, RQEIterator, RQEValidateStatus};
 use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
@@ -140,4 +140,32 @@ fn eval_numeric_out_of_range_yields_no_results() {
         fixture.eval().is_none(),
         "a fully out-of-range numeric filter must not build an iterator"
     );
+}
+
+#[test]
+fn a_tree_replaced_behind_the_fields_pointer_aborts_its_iterators() {
+    let mut fixture = NumericFixture::new(1.0, 3.0);
+    let tree_ptr = fixture._context.numeric_range_tree();
+    // The iterator borrows the whole fixture; the spec guard is taken through this pointer.
+    let context: *const TestContext = &raw const fixture._context;
+    let mut it = fixture.eval().expect("the range matches");
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
+    // SAFETY: the context lives as long as the fixture, and is only read through here.
+    let guard = unsafe { &*context }.spec_read();
+    assert!(matches!(it.revalidate(&guard), Ok(RQEValidateStatus::Ok)));
+
+    // The same documents in a tree of its own: same shape and revision, another identity.
+    let mut replacement = numeric_range_tree::NumericRangeTree::new(true);
+    for doc_id in 1u64..=3 {
+        replacement.add(doc_id, doc_id as f64, false, false, 0);
+    }
+    // SAFETY: the iterator holds raw pointers only and is between calls; the field owns the
+    // tree, which this overwrites in place.
+    unsafe { *tree_ptr.as_ptr() = replacement };
+    // SAFETY: as above.
+    let guard = unsafe { &*context }.spec_read();
+    assert!(matches!(
+        it.revalidate(&guard),
+        Ok(RQEValidateStatus::Aborted)
+    ));
 }

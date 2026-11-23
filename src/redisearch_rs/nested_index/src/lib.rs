@@ -27,7 +27,9 @@ pub use compound_index::{
     CollectError, CompoundIndex, Constraint, MAX_LEVELS, SchemaError, TagLevel, TagSet,
 };
 pub use error::IndexError;
-pub use index::{Element, IndexDelta, IndexParams, NestedIndex};
+pub use index::{Element, IndexDelta, IndexParams, NestedIndex, PrunedTerminals};
 // The value type of a tag terminal.
 pub use tag_index::Tag;
-pub use terminal::{FloatCompression, Terminal, TerminalKind, TerminalValue};
+pub use terminal::{
+    FloatCompression, PostingsMut, PostingsRef, Terminal, TerminalKind, TerminalValue,
+};

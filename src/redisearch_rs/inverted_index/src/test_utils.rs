@@ -123,6 +123,20 @@ pub fn relocate_block_buffer<E: crate::Encoder + crate::DecodedBy>(
     base
 }
 
+/// Replace a block's encoded bytes with `bytes`, as a corrupt index would hold, so decoding
+/// it can fail.
+///
+/// # Panics
+///
+/// If `block_idx` is out of range.
+pub fn overwrite_block_buffer<E: crate::Encoder + crate::DecodedBy>(
+    index: &mut crate::InvertedIndex<E>,
+    block_idx: usize,
+    bytes: &[u8],
+) {
+    index.blocks[block_idx].buffer = bytes.to_vec();
+}
+
 /// Give a block's buffer enough spare capacity for `extra` more bytes, so that appends of up to
 /// that size grow it in place instead of reallocating.
 ///

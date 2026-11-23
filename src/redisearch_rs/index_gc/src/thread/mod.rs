@@ -43,12 +43,13 @@
 //! index is only removed by this GC, and a replacement cannot hold an ID that
 //! was deleted before the cycle began.
 
-use std::{ops::RangeInclusive, time::Instant};
+use std::{ops::RangeInclusive, sync::Arc, time::Instant};
 
 use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
 use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
+use nested_index::PathStep;
 use numeric_range_tree::NodeIndex;
 
 use crate::liveness::GoneIds;
@@ -59,6 +60,12 @@ use crate::{
     },
     scanners::missing_docs::{
         apply_missing_docs_with, missing_field_indexes, snapshot_missing_field,
+    },
+    scanners::nested::{
+        NestedTerminalDelta, NestedTerminalSnapshot, TerminalCursor, TreeListing,
+        apply_nested_terminal_with, finish_nested_field, nested_field_has_collected,
+        nested_field_indexes, nested_fields_with_collected, nested_ranges_added_since,
+        next_nested_terminal, snapshot_nested_chunk,
     },
     scanners::numeric::{
         NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with, compact_tree,
@@ -495,6 +502,138 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         Ok(())
     }
 
+    /// Every terminal of every NESTED field. Under read holds, the posting lists that may hold
+    /// a deleted document are copied, numeric ranges whole and tag values' dirty blocks only, as
+    /// the top-level scanners copy theirs; a hold's budget of [`KEYS_PER_HOLD`] counts the
+    /// posting lists visited, and a terminal with more lists than that is walked across several
+    /// holds. The copies are scanned without the lock, and the deltas applied in batches with
+    /// the cycle's liveness source, so a last block that grew in between is rescanned. Each
+    /// field's collection is then finished under one write hold: its numeric terminals are
+    /// compacted, and the terminals left without records dropped.
+    ///
+    /// A numeric terminal's tree that changed shape since its walk started copied entries,
+    /// deleted ones included, into nodes the walk never saw: the IDs those nodes span are
+    /// retained, as for a NUMERIC field. So are the IDs of a posting list whose copy would not
+    /// decode, and of a terminal whose last block was denied.
+    fn nested(&mut self, clean_numeric_empty_nodes: bool) -> Result<(), GcError> {
+        // A field's terminals are found one at a time, under the hold that walks them.
+        let fields = self.read(nested_field_indexes)?;
+        let live = self.deleted;
+        let mut buffers = Buffers::new();
+        for &field_index in &fields {
+            // The ID ranges a scan or an apply left uncollected, retained after the run.
+            let uncollected = std::cell::RefCell::new(Vec::new());
+            // The terminal being walked, and the last one walked to the end.
+            let mut current: Option<Vec<PathStep>> = None;
+            let mut after: Option<Vec<PathStep>> = None;
+            let mut cursor = TerminalCursor::default();
+            // The numeric terminals walked to the end, with what their trees held when their
+            // walks started.
+            let mut walked: Vec<(Vec<PathStep>, Arc<TreeListing>)> = Vec::new();
+            let snapshot_chunk =
+                |guard: &IndexSpecReadGuard<'_>,
+                 should_stop: StopCheck<'_>,
+                 found: &mut Vec<NestedTerminalSnapshot>| {
+                    loop {
+                        if current.is_none() {
+                            current = next_nested_terminal(guard, field_index, after.as_deref());
+                        }
+                        let Some(path) = &current else {
+                            return false;
+                        };
+                        let (snapshot, stopped) = snapshot_nested_chunk(
+                            guard,
+                            field_index,
+                            path,
+                            &mut cursor,
+                            &live,
+                            &mut *should_stop,
+                        );
+                        found.extend(snapshot);
+                        if cursor.is_done() {
+                            if let Some(listing) = cursor.numeric_listing() {
+                                walked.push((path.clone(), listing));
+                            }
+                            after = current.take();
+                            cursor = TerminalCursor::default();
+                        }
+                        if stopped {
+                            // Whether another hold has work: the terminal is not done, or another
+                            // follows it.
+                            return current.is_some()
+                                || next_nested_terminal(guard, field_index, after.as_deref())
+                                    .is_some();
+                        }
+                    }
+                };
+            let scan_snapshot = |snapshot: NestedTerminalSnapshot| {
+                let scanned = snapshot.scan(live);
+                uncollected.borrow_mut().extend(scanned.failed);
+                Ok(scanned.delta.map(|delta| (delta, None)))
+            };
+            let apply_delta = |delta: NestedTerminalDelta, guard: &mut IndexSpecWriteGuard<'_>| {
+                let applied = apply_nested_terminal_with(guard, field_index, delta, Some(&live))?;
+                uncollected.borrow_mut().extend(applied.uncollected);
+                Ok(applied.stats)
+            };
+            let had_work = self.run(
+                "nested",
+                &mut buffers,
+                snapshot_chunk,
+                scan_snapshot,
+                apply_delta,
+            )?;
+            // A leaf split since its terminal's walk started copied entries, deleted ones
+            // included, into nodes the walk never saw, whether or not any delta landed: their
+            // IDs stay in the set, as for a NUMERIC field. Checked before the finish, whose
+            // compaction may move nodes into listed slots.
+            for chunk in walked.chunks(KEYS_PER_HOLD) {
+                let added = self.read(|guard| {
+                    chunk
+                        .iter()
+                        .flat_map(|(path, listing)| {
+                            nested_ranges_added_since(guard, field_index, path, listing)
+                        })
+                        .collect::<Vec<_>>()
+                })?;
+                uncollected.borrow_mut().extend(added);
+            }
+            for range in uncollected.into_inner() {
+                self.deleted.insert_gone_in(range, &mut self.retained);
+            }
+            // A cycle interrupted before its finish left terminals for this one.
+            if had_work || self.read(|guard| nested_field_has_collected(guard, field_index))? {
+                self.finish_nested(field_index, clean_numeric_empty_nodes)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Finish the collection of the NESTED field at `field_index`, under as many write holds of
+    /// [`TERMINALS_PER_FINISH`](crate::scanners::nested::TERMINALS_PER_FINISH) terminals as it
+    /// needs.
+    fn finish_nested(&mut self, field_index: FieldIndex, compact: bool) -> Result<(), GcError> {
+        loop {
+            let mut more = false;
+            self.write(|guard, stats| {
+                match finish_nested_field(guard, field_index, compact) {
+                    Ok((finished, left)) => {
+                        stats.record(finished);
+                        more = left;
+                    }
+                    Err(GcError::TargetGone(reason)) => {
+                        tracing::debug!(reason, "thread GC skipped finishing a nested field");
+                    }
+                    Err(error) => return Err(error),
+                }
+                Ok(())
+            })?;
+            if !more {
+                return Ok(());
+            }
+        }
+    }
+
     fn missing_docs(&mut self) -> Result<(), GcError> {
         // One entry per INDEXMISSING field, so the list is short.
         let keys: Vec<FieldIndex> = self.read(missing_field_indexes)?;
@@ -563,9 +702,12 @@ pub fn run_cycle(
     clean_numeric_empty_nodes: bool,
 ) -> Result<CycleReport, (&'static str, GcError)> {
     let mut report = CycleReport::default();
-    let dead = report
+    let (dead, unfinished) = report
         .read(spec, |guard| {
-            guard.deleted_docs().map(DeletedDocs::snapshot)
+            (
+                guard.deleted_docs().map(DeletedDocs::snapshot),
+                nested_fields_with_collected(guard),
+            )
         })
         .map_err(|e| ("deleted docs", e))?;
 
@@ -575,8 +717,24 @@ pub fn run_cycle(
         None => {
             return Err(("deleted docs", GcError::DeletionsUntracked));
         }
-        // Nothing to collect, and nothing to tell the doc table.
-        Some(dead) if dead.is_empty() => return Ok(report),
+        // Nothing to collect, and nothing to tell the doc table; only a collection a failed
+        // cycle left unfinished.
+        Some(dead) if dead.is_empty() => {
+            let gone = GoneIds::from_set(dead);
+            let mut driver = Driver {
+                spec,
+                sink,
+                report,
+                deleted: &gone,
+                retained: RoaringTreemap::new(),
+            };
+            for field_index in unfinished {
+                driver
+                    .finish_nested(field_index, clean_numeric_empty_nodes)
+                    .map_err(|e| ("nested", e))?;
+            }
+            return Ok(driver.report);
+        }
         Some(dead) => dead,
     };
     let gone = GoneIds::from_set(dead);
@@ -595,6 +753,9 @@ pub fn run_cycle(
         .map_err(|e| ("numeric", e))?;
     driver.tags().map_err(|e| ("tags", e))?;
     driver.sparse_vectors().map_err(|e| ("sparse vectors", e))?;
+    driver
+        .nested(clean_numeric_empty_nodes)
+        .map_err(|e| ("nested", e))?;
     driver.missing_docs().map_err(|e| ("missing docs", e))?;
     driver.existing_docs().map_err(|e| ("existing docs", e))?;
 

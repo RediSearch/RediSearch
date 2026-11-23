@@ -96,10 +96,10 @@ The keyed-attribute `(k, v)` case is one routing level and a terminal:
 | The NESTED path must end in `[*]` (or another multi-result path) | The group indexes elements |
 | Sub-paths are relative to the element (`$.color`) and must be single-valued per element in v1 | A multi-valued attribute would post the element under every combination (see §3, "cross product") |
 | `INDEX` lists each sub-field at most once: at most `MAX_LEVELS` routing levels (3, a constant of the `compound_index` crate) plus the terminal | Bounds recursion and planner fan-out |
-| Every level but the last must be TAG. A NUMERIC sub-field must be last | A TAG level is an equality map with stable children. A NUMERIC level would need range nodes that own subtrees and redistribute them on a split, and nothing below it stores its value to split or filter on (see "Numeric attributes" below) |
+| Every level but the last must be TAG, or NUMERIC with `BUCKETS` (see "Optional limits" below) | A TAG level is an equality map with stable children. A NUMERIC level with dynamic ranges would need range nodes that own subtrees and re-bucket them on split. Fixed buckets never split, so they behave like an equality level |
 | The last level is NUMERIC (range tree) or TAG (posting list per value) | These are the two terminal kinds |
 | Every sub-field must appear in `INDEX` in v1 | The planner can then serve any group from the index alone (§5). Sub-fields outside the index need general element matching, out of scope |
-| Supported sub-field options: TAG `CASESENSITIVE`, plus the limits below (`MAXCARD` on TAG, `RANGE` on NUMERIC). `SEPARATOR`, `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | A separator splits one string into several tags, which gives an element several values on one level: the cross product of §3, "Limits and costs". The other options keep ingest and GC simple |
+| Supported sub-field options: TAG `CASESENSITIVE`, plus the limits below (`MAXCARD` on TAG; `BUCKETS`, `RANGE` on NUMERIC). `SEPARATOR`, `SORTABLE`, `NOINDEX`, `INDEXMISSING`, `INDEXEMPTY`, `WITHSUFFIXTRIE` are rejected in v1 | A separator splits one string into several tags, which gives an element several values on one level: the cross product of §3, "Limits and costs". The other options keep ingest and GC simple |
 | A NESTED field counts as **one** field toward `SPEC_MAX_FIELDS` (1,024) | Many attributes per entity is the reason the feature exists |
 | Not supported `ON HASH` | Hashes have no arrays |
 
@@ -110,51 +110,88 @@ each level. Declaring bounds up front makes both predictable and catches bad dat
 Each option is per sub-field and optional.
 
 ```
-$.items[*] AS items NESTED 3
+$.items[*] AS items NESTED 4
     $.color AS color TAG     MAXCARD 64
     $.size  AS size  TAG     MAXCARD 8
+    $.year  AS year  NUMERIC BUCKETS 4 2020 2022 2024 2026
     $.price AS price NUMERIC RANGE 0 100000
-  INDEX 3 color size price
+  INDEX 4 color size year price
 ```
 
 | Option | Applies to | Meaning | At ingest | Effect on the index and the planner |
 |---|---|---|---|---|
 | `MAXCARD <n>` | TAG level | At most `n` distinct values on this level, counted per parent node | A value that would be the `n+1`-th child is an index error for the doc (the doc isn't indexed and the error shows in `FT.INFO`, like a type mismatch) | Caps children per node, so tree size ≤ ∏ `MAXCARD` × terminal size. An `Any` walk on this level opens at most `n` children, so the product of the `MAXCARD`s bounds the terminals any query can reach |
+| `BUCKETS <n> b₁ … bₙ` | NUMERIC level, any position | Fixed boundaries giving the intervals `[b₁,b₂) … [bₙ₋₁,bₙ)`, at most `MAX_BUCKETS` (1,024) of them, checked at `FT.CREATE` in either position. No dynamic splits | A value outside `[b₁, bₙ)` is an index error | **As a middle level**: an equality level whose children are the buckets (cardinality n−1). **As the terminal**: a range tree pre-split at the boundaries that never splits again, so leaf count and memory per terminal are fixed |
 | `RANGE <lo> <hi>` | NUMERIC terminal | Valid values are `[lo, hi]` | A value outside is an index error | Validation only. The range tree still splits dynamically, but within known bounds, which the first splits can use |
+
+#### Queries on a bucketed middle level
+
+A range on a bucketed middle level is an ordinary numeric range: each end is inclusive
+(`[lo`), exclusive (`(lo`) or unbounded (`-inf`, `+inf`), as in `@year:[(2022 +inf]`. Each bucket
+is half-open, `[bᵢ, bᵢ₊₁)`, and relates to the range in one of three ways:
+
+| Bucket vs range | Example, buckets `[2022, 2024)` and `[2024, 2026)` | Result |
+|---|---|---|
+| Wholly inside | `[2022 (2024]` contains every value of `[2022, 2024)` | Selected |
+| Wholly outside | `[2022 (2024]` contains no value of `[2024, 2026)` | Skipped |
+| Partly inside | `[2022 2024]` contains 2024, the first value of `[2024, 2026)`; `(2022 (2024]` misses 2022, the first value of `[2022, 2024)` | The query fails |
+
+A partly covered bucket fails the query because its entries include elements outside the range,
+and the terminal stores only the last level's value, so they can't be filtered out. That makes
+`@year:[2022 2024]` fail where `@year:[2022 (2024]` succeeds: the error has to name the bucket
+boundaries so the user can see the half-open form. A range with a NaN end fails too, and an
+empty range (such as `(2023 2023]`) selects no bucket. The routing layer implements this rule as
+`BucketRange`, with `std::ops::Bound` ends.
+
+A later version can lift the restriction: terminal entries would store the middle level's raw
+value as an extra payload, and partly covered buckets would be filtered on it. That costs one
+extra value per entry.
+
+A bucketed **terminal** has no such problem. Its leaves hold `(docId, value)`, so edge leaves are
+filtered by value as in any numeric range query today.
 
 #### Defaults
 
-Both options are absent by default, which means no cardinality cap and no value bounds. A NESTED
-field then has no ingest limit beyond what a TAG or multi-value NUMERIC field has today: any
-number of elements per document and any number of distinct paths, made visible through
+All three options are absent by default, which means no cardinality cap and dynamic ranges. A
+NESTED field then has no ingest limit beyond what a TAG or multi-value NUMERIC field has today:
+any number of elements per document and any number of distinct paths, made visible through
 `FT.INFO` (§3, "Limits and costs"). These options are the only user-facing limits of the
-feature. Everything else is an internal constant (`MAX_LEVELS`) or a query-time bound (§5,
-step 3), none of them configurable.
+feature. Everything else is an internal constant (`MAX_LEVELS`, `MAX_BUCKETS`) or a query-time
+bound (§5, step 3), none of them configurable.
 
-#### Numeric attributes: only the terminal
+#### Limitation: only the terminal numeric adapts to the data
 
 The full `NumericRangeTree`, with ranges that split as data arrives and exact filtering of
 partial leaves, exists only at the **terminal**. Its leaves are posting lists of
-`(docId, value)`, and each entry carries the value the tree splits and filters on. A routing
-level has no such value below it: its children own whole subtrees, and nothing under them stores
-the routing level's value, so a numeric routing level could neither redistribute elements on a
-split nor filter a range that cuts one of its children.
+`(docId, value)`, and each entry carries the value the tree splits and filters on.
 
-So a group routes on tags and puts its one numeric attribute last, as in `color, size, price`
-or the keyed `(k, v)` case. To also narrow by a second number, such as a year, store a label
-for the range it falls in (`"year_band": "2022-2023"`) and route on it as a TAG:
-`@year_band:{2022-2023 | 2024-2025}`. The application picks the bands, and a query names whole
-bands, which is all a fixed-boundary numeric level could offer.
+A NUMERIC attribute on a **middle** level can only be a `BUCKETS` level. Its leaves own subtrees,
+and nothing below them stores the middle level's value, so the tree could neither redistribute
+elements on a split nor filter a range that cuts a leaf. Hence the fixed buckets, and the rule
+that a range must cover whole buckets.
 
-Ways to support a second numeric attribute later:
+In practice:
 
-1. **An adaptive numeric routing level**: a range tree whose leaves own subtrees. Every terminal
-   entry also stores the routing level's value (8 more bytes per element per numeric routing
-   level). A split rebuilds the two halves of the subtree from those values, and a range that
-   cuts a leaf is filtered on them. This needs a reader that filters on two values.
+- **One numeric attribute per group**, such as the keyed `(k, v)` case or `color, size, price`:
+  declare it last. It gets the adaptive tree and needs no `BUCKETS`.
+- **Two numeric attributes**, such as `year` and `price`: only the last one adapts. The other is a
+  bucketed middle level, with user-chosen boundaries.
+
+Each node of a bucket level holds a slot for every declared bucket, used or not (8 bytes each),
+and a walk over the level reads every slot in its range. `MAX_BUCKETS` bounds both per node.
+
+Ways to lift the limitation later, all after the terminals PR:
+
+1. **An adaptive numeric middle level**: a range tree whose leaves own subtrees. Every terminal
+   entry also stores the middle level's value (8 more bytes per element per numeric middle level).
+   A split rebuilds the two halves of the subtree from those values, and a range that cuts a leaf
+   is filtered on them instead of rejected. This needs a reader that filters on two values.
 2. **A filter attribute**: store the value in terminal entries without routing on it,
    `INDEX 3 color size price FILTER year`. Ranges on it are exact and need no splits, but a query
    narrowing only by `year` still reads every terminal.
+3. **Sparse bucket storage**: keep only the buckets in use per node, sorted, so memory and walk
+   cost follow the data instead of the declared bucket count. This would let `MAX_BUCKETS` be
+   raised a lot.
 
 ### Code
 
@@ -191,10 +228,12 @@ The index has two layers:
   ([lib.rs](../../src/redisearch_rs/compound_index/src/lib.rs)), added by the first PR.
   `CompoundIndex<T>` holds the routing levels and owns one terminal of type `T` per distinct
   path. It knows nothing about what a terminal stores. It provides:
-  - the routing levels, each a `TagLevel`: a TrieMap per node, with an optional per-node
-    `max_cardinality`;
-  - `get_or_insert_with(path, init)`, which checks the cardinality limits before creating
-    anything, so a rejected insert leaves the index unchanged, and returns `&mut T`. This is the first half of **route, then post**: the index
+  - the routing levels: `Level::Tag` (a TrieMap per node, optional per-node `max_cardinality`) and
+    `Level::Buckets` (fixed half-open buckets, one slot per bucket on every node, at most
+    `MAX_BUCKETS` of them);
+  - `get_or_insert_with(path, init)`, which validates the whole path (key types, bucket
+    bounds, cardinality) before creating anything, so a rejected insert leaves the index
+    unchanged, and returns `&mut T`. This is the first half of **route, then post**: the index
     routes an element to its terminal and the caller posts the doc id there, so the routing
     layer never handles doc ids;
   - `check_paths(paths)`, which runs the same checks on all of one document's paths together,
@@ -224,9 +263,9 @@ the terminal type changes.
 ### Main types of the routing layer
 
 The crate is built around one rule: **check everything first, then touch the tree**. Writes check
-the cardinality limits for a whole path, or a whole document's paths, before inserting anything.
-Every tag value is valid on every level, so a query has nothing to reject up front, and the only
-errors of a walk are its terminal bound and the query timeout.
+a whole path, or a whole document's paths, before inserting anything. Queries check every
+constraint before visiting any node. A bad path or query is rejected up front, and the only
+errors left during a walk are its terminal bound and the query timeout.
 
 Public types, used by the later PRs:
 
@@ -234,30 +273,44 @@ Public types, used by the later PRs:
   type `T` at the end of each distinct path. It is generic over `T` so the routing logic does not
   depend on how postings are stored: a range tree or tag postings in RAM (second PR), postings on
   disk for Flex (§4).
-- **`TagLevel`**: one routing level, fixed at creation in `INDEX` order. Each node keeps its
-  children keyed by exact value in a `TrieMap`, the structure the TAG index uses. The optional
-  `max_cardinality` (`MAXCARD`) caps the children of each node, which bounds both memory and the
-  fan-out of a walk.
-- **A path** is one tag value (`&[u8]`) per level. Ingest builds it from an element's attributes,
-  already normalised (case folding). A path of another length is a caller's bug and panics: C
-  builds one value per level, and the FFI checks the rows it receives.
-- **`Constraint`**: what a query asks of one level: `Any`, `TagIn`, `TagNotIn` or `TagPrefix`. The
-  planner (fourth PR) turns `@items:( … )` into one `Constraint` per level (§5, step 1). The
-  terminal attribute's own condition, such as a price range, is not a `Constraint`: the terminal
-  applies it.
-- **`TagSet`**: the values of `TagIn` and `TagNotIn`, sorted and without repeats by
-  construction, so the walk looks each value up once and binary-searches a negation.
+- **`Level`**: one routing level, `Tag(TagLevel)` or `Buckets(BucketLevel)`, fixed at creation in
+  `INDEX` order. Each node stores its children according to its level's kind.
+  - **`TagLevel`**: children keyed by exact value in a `TrieMap`, the structure the TAG index
+    uses. Its optional `max_cardinality` (`MAXCARD`) caps the children of each node, which bounds
+    both memory and the fan-out of a walk.
+  - **`BucketLevel`**: fixed half-open buckets `[bᵢ, bᵢ₊₁)` with one slot per bucket on every
+    node, so a numeric value routes by array index. At most `MAX_BUCKETS` buckets, because every
+    node pays for every slot (§2, "Limitation").
+- **`Key`**: one element's value on one level, `Tag(bytes)` or `Numeric(f64)`. A path is one `Key`
+  per level. Ingest builds it from an element's attributes, already normalised (case folding).
+- **`Constraint`**: what a query asks of one level: `Any`, `TagIn`, `TagNotIn`, `TagPrefix`, or
+  `BucketRange`. The planner (fourth PR) turns `@items:( … )` into one `Constraint` per level
+  (§5, step 1). The terminal attribute's own condition, such as a price range, is not a
+  `Constraint`: the terminal applies it.
+- **`BucketRange`**: a numeric range on a bucket level with `Bound` ends (inclusive, exclusive or
+  unbounded), like a query's `[lo hi]`. It selects the buckets wholly inside it and is rejected if
+  one is only partly inside, since nothing below a bucket level can filter the elements outside
+  the range.
 - **The walk's bounds**: `max_terminals` bounds how many terminals it returns, so the number of
   iterators the UNION opens. A `TimeoutChecker` (the `timeout` crate's trait, which query
   iterators already use) is checked on every child the walk considers, entered or not, so the
-  query timeout bounds the work of a query that leaves a level open and matches little. Past
-  either one, the walk fails rather than returning a truncated, wrong result.
+  query timeout bounds the work of a query that leaves a level open and matches little. Past either one, the walk fails
+  rather than returning a truncated, wrong result.
 - **`num_terminals`**: a running count of terminals, so `FT.INFO` reads it without a walk. It
   changes in exactly two places: +1 when an insert creates a path, −1 when GC (fifth PR) removes
   one.
-- **Errors**: `SchemaError` (levels), `CardinalityExceeded` (from an insert or `check_paths`,
-  naming the level and its limit, so the C side can build a user-facing message) and
-  `CollectError` (the terminal bound and the timeout).
+- **Errors**: `SchemaError` (levels), `BucketsError` (boundaries), `PathError` (a path that does not
+  route), `InsertError` (adds the cardinality limit), `CollectError` (adds the terminal bound and
+  the timeout). Each names the level at fault, so the C side can build a user-facing message.
+
+Internal types, private to the crate, that carry the "check first" rule:
+
+- **`Step`**: a `Key` after it is checked against its level. `route()` produces one per level, a
+  tag value or a bucket index, or a `PathError`. Every later walk over the path (lookup, insert,
+  cardinality check) uses `Step`s and never re-checks them.
+- **`LevelPlan`**: a `Constraint` after it is checked and prepared for its level. Sets are sorted
+  and deduplicated, and a `BucketRange` becomes a range of slot indexes. The walk reads
+  `LevelPlan`s, so this preparation runs once per query instead of once per node.
 
 ### Ingest path
 
@@ -295,12 +348,53 @@ This is the invariant every posting list in the codebase already relies on.
 
 - An update is a delete followed by an add, as today. Old entries become garbage under the old doc
   id.
-- GC: add a scanner `index_gc/src/scanners/compound.rs`. It walks the tree depth-first and, at each
-  terminal, reuses the numeric and inverted-index GC routines. The fork-GC delta message carries
-  the **path** (`value₁ … valueₙ₋₁`) plus the existing per-terminal delta, so the parent finds the
-  same terminal. After the deltas are applied, each emptied terminal is removed by its path, with
-  the TrieMap entries left without children, so a value that no element uses any more doesn't
-  leak a subtree.
+- GC: the scanner `index_gc/src/scanners/nested.rs` visits every terminal of every NESTED field
+  and reuses the NUMERIC routines (per node of the terminal's tree) and the TAG ones (per value
+  of its tag index, `TagIndex::scan_gc` and `apply_gc`). A delta names its terminal by its
+  **path** (`PathStep`s: a tag value or a bucket position per routing level), so the applying
+  side finds the same terminal; the tree's or the value's unique id is checked as for a top-level
+  field, so a delta never lands on a replacement.
+  - Fork GC: the child sends, per field, a header and one delta per terminal with garbage; the
+    parent applies each terminal's delta in write holds of at most 64 nodes or values.
+  - Thread GC: under read holds, the posting lists that may hold a deleted document are copied,
+    numeric ranges whole and tag values' dirty blocks only, as the top-level scanners copy
+    theirs, and scanned without the lock. A hold's budget of `KEYS_PER_HOLD` counts the posting
+    lists visited, and a terminal with more lists than that is walked across several holds,
+    from the lists it held when its walk started. Deltas are applied in batches with the
+    cycle's liveness source, so a last block that grew in between is rescanned. Each cycle takes
+    one more read hold than before, to list the NESTED fields, even on a spec without one.
+    Terminals are found one at a time, by seeking past the last one walked
+    (`CompoundIndex::for_each_terminal_after`), and a tag terminal's walk resumes after the
+    last value it visited, so no hold lists a whole field or terminal up front. A numeric
+    terminal's walk does list its tree's nodes on its first hold, which the reshape check
+    compares against; a tree has far fewer nodes than entries.
+  - A numeric terminal's tree that changed shape since its walk started (its `revision_id`
+    moved) may hold copies of gone entries in nodes the walk never saw, whether or not any
+    delta of the walk landed. Once a field's deltas are applied, the thread cycle checks every
+    numeric terminal it walked, under read holds of `KEYS_PER_HOLD` terminals, and keeps the
+    deleted ids the new nodes span for its next cycle, as for a NUMERIC field; the fork parent
+    needs no care, as its next cycle finds them through the doc table. A posting list
+    whose copy fails to decode keeps the ids it spans, as for the other scanners.
+  - Every terminal changed goes through `NestedIndex::collect_terminal`, which counts the
+    records it loses and lists it. `NestedIndex::finish_collection`, run after a field's deltas
+    under write holds of up to 64 terminals each, compacts the listed numeric terminals and
+    drops the ones left without records (no range holds an entry, inner ranges included), with
+    the routing nodes left without terminals, so a value no element uses any more doesn't leak
+    a subtree. Only the terminals the collection reached are visited, and they stay listed until
+    finished, so a cycle that fails before its finish leaves them to the next one, which
+    finishes them even if nothing was deleted since.
+  - `TagIndex::apply_gc` removes an emptied value from the suffix trie too, as the C tag index's
+    GC does, though NESTED terminals have no suffix trie.
+- Freeing a terminal is safe for a query parked across a lock release because every iterator
+  on a terminal holds a clone of that terminal's `AliveToken`, through `RangeSource::with_owner`
+  or `TrieLookup::with_owner`. The terminal revokes it before freeing its postings. On
+  revalidation the token is checked before the terminal is touched, and a revoked one aborts
+  the iterator, as a numeric tree's own reshape already does. Only the iterators of the dropped
+  terminals abort: a parked cursor reads on from the terminals that remain, and loses only the
+  results of terminals that no longer hold any. A numeric iterator also checks its tree's unique
+  id, so a tree swapped in behind the same pointer aborts it too. As on a NUMERIC field, GC
+  compacting a numeric terminal's tree reshapes it, which aborts the cursor's iterators on that
+  terminal, losing its remaining live results.
 
 ### Limits and costs
 
@@ -338,8 +432,9 @@ if types & NESTED:
   u64  nested_format          = 1
   u64  num_sub_fields
   repeat: string name, string rel_path, u64 type, u64 tag_flags,
-          u64 limit_flags                     (bit 0 MAXCARD, bit 1 RANGE)
+          u64 limit_flags                     (bit 0 MAXCARD, bit 1 BUCKETS, bit 2 RANGE)
           if MAXCARD: u64 max_card
+          if BUCKETS: u64 n; repeat n: f64 boundary
           if RANGE:   f64 lo, f64 hi
   u64  num_levels
   repeat: u64 sub_field_index
@@ -389,6 +484,7 @@ routing level, plus a constraint on the terminal:
 | `-@color:{red}` | `TagNotIn([red])`: an element holding a color other than red. An element with no `color` was never indexed (§3, "Ingest path"), so it matches neither `@color:{red}` nor its negation, as `NOT` does on a SQL `NULL` |
 | `@color:{re*}` | `TagPrefix("re")`. A prefix shorter than `MINPREFIX` matches nothing, as on a TAG field. On a routing level it is a TrieMap prefix walk, bounded by the walk limits of step 3, which fail instead of truncating. On a tag terminal each matching value opens a reader; at most `MAXPREFIXEXPANSIONS` of them per prefix and branch, across the terminals reached, with the same warning as a TAG field |
 | no clause on the level | `Any` |
+| `@year:[lo hi]`, `[(lo hi]`, … on a `BUCKETS` middle level | `BucketRange { start, end }` with each end `Included`, `Excluded` or `Unbounded`. It selects the buckets wholly inside the range and fails if one is only partly inside (§2, "Optional limits") |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
 | `@price` absent | terminal range `[-inf, +inf]` |
 
@@ -407,6 +503,7 @@ and the cap allows few of those. A clause on something that isn't a sub-field of
 TagIn(set)       → for v in set: if let Some(c) = node.children.find(v) { walk(c) }
 TagPrefix(p)     → for (_, c) in node.children.prefixed_iter(p): walk(c)
 TagNotIn(set)    → for (v, c) in node.children.iter(): if v ∉ set { walk(c) }
+BucketRange(r)   → for c in the slots of the buckets inside r: walk(c)
 Any              → for every child c: walk(c)
 at the terminal depth: return the terminal
 ```
@@ -488,8 +585,8 @@ Two options, both deferred until measurements show a need:
 - Sub-fields outside the index, TEXT, GEO, GEOSHAPE and VECTOR sub-fields, and arrays inside
   arrays (general element matching, with element positions in postings or hidden
   sub-documents).
-- NUMERIC on a routing level, and so a second numeric attribute in a group (§2, "Numeric
-  attributes: only the terminal").
+- NUMERIC on a non-terminal level without `BUCKETS`, and ranges that cover part of a bucket on a
+  bucketed middle level.
 - Using the matched element's value in the pipeline. A natural follow-up: a NUMERIC terminal's
   reader already decodes the value, so the group iterator could expose it as `@items.price` in
   the result for SORTBY/APPLY. With several matching elements the rule (min, max or first) has to
@@ -506,8 +603,8 @@ Each PR builds on the one before it. PRs 1 and 2 are Rust only. PR 3 is the writ
 the read side, each testable end to end on its own. PR 5 reclaims memory: queries already skip
 deleted doc ids, so it is not needed for correctness, but it must land before the feature ships.
 
-1. **Design and routing layer**: this document and the `compound_index` crate: tag levels
-   with their limits, path insert that checks before mutating, `check_paths` for a whole
+1. **Design and routing layer**: this document and the `compound_index` crate: tag and bucket
+   levels with their limits, path insert that checks before mutating, `check_paths` for a whole
    document, and the constraint walk with its terminal bound and timeout check. Pure Rust,
    tested under `miri`, with property tests against brute-force filters.
 2. **Terminals**: the `nested_index` crate. `Terminal` is a `NumericRangeTree`, the tree
@@ -524,7 +621,7 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    - Behind `ENABLE_UNSTABLE_FEATURES`, as SPARSEVECTOR is: creating a field is gated; loading
      and indexing an existing one are not.
    - `FT.CREATE` / `FT.ALTER` parsing and validation (`NESTED`, `INDEX`, `CASESENSITIVE`,
-     `MAXCARD`, `RANGE`), `FT.INFO` attributes, and the spec fingerprint.
+     `MAXCARD`, `BUCKETS`, `RANGE`), `FT.INFO` attributes, and the spec fingerprint.
    - The spec RDB block, sharing encoding version 31 with SPARSEVECTOR.
    - The definition lives behind a pointer (`NestedDef`), so `FieldSpec` does not grow for other
      field types. With the flag off, `NESTED` (and `SPARSEVECTOR`) do not end the previous
@@ -544,7 +641,8 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      lock (see the follow-ups below).
    - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, a reload,
      `FT.ALTER`, and query safety.
-   - Deferred: NESTED fields are not counted in `INFO MODULES` field statistics yet.
+   - Deferred: `BUCKETS` on the last sub-field is rejected until a pre-split terminal tree
+     exists; NESTED fields are not counted in `INFO MODULES` field statistics yet.
 4. **Read side: parser, planner and eval**:
    - Parsing (DIALECT 2 and up, with `ENABLE_UNSTABLE_FEATURES` on). The lexer emits
      `NESTED_MODIFIER` for `@name` only when the text goes on with `:(` and `name` is a NESTED
@@ -591,16 +689,22 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      re-finds its value, and a numeric reader aborts when its tree changes shape, ending a
      cursor's results early exactly as on a top-level NUMERIC field. Terminals are only freed
      with the field until GC (5).
-   - Tests: flow tests, standalone and in cluster, for every shape in the §5 table, tag
-     terminals, case folding, PARAMS, composition with top-level fields, KNN, a cursor read
+   - Tests: flow tests, standalone and in cluster, for every shape in the §5 table, tag and
+     bucket levels, case folding, PARAMS, composition with top-level fields, KNN, a cursor read
      across writes, updates and deletes, `FT.EXPLAIN`, `FT.PROFILE` and errors, plus 150 random
      groups against a brute-force evaluator on 60 random documents; Rust tests of the planner
      (with a property test) and of the evaluator.
    - Deferred: the benchmarks; exposing the limits as module configuration; `terminals_visited`
      and `levels_fixed` in `FT.PROFILE`.
-5. **GC**: the compound scanner, fork-GC deltas keyed by path, and removing each emptied
-   terminal by its path. Tests for update and delete churn followed by GC, checking that terminal
-   and memory counts drop.
+5. **GC**: the NESTED scanner under both GC policies, deltas keyed by path, pruning the
+   terminals a collection reached with `NestedIndex::finish_collection` (through
+   `CompoundIndex::remove_terminal_if`), and the per-terminal token that aborts parked
+   iterators of a dropped terminal.
+   Tests: flow tests under the fork and thread policies comparing a collected index with one built
+   fresh over the surviving documents (terminals and records), and a cursor parked across a GC
+   that drops some or all of its terminals; Rust tests of the tag index GC, pruning, the path
+   API, the wire messages, stale deltas and a reshape between scan and apply, and, under Miri,
+   that an iterator never reads a terminal freed after its token is revoked.
 
 ### Follow-ups tracked from review
 
@@ -611,9 +715,12 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Write side (3), where ingest cost is measured |
 | Float compression is fixed when a `NestedIndex` is created, from `TerminalKind`. A top-level NUMERIC field reads the global setting when its tree is first created. Decide whether NESTED follows the field rule (read the setting per new terminal) or the index rule (fix it at `FT.CREATE`) | Write side (3) |
 | Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Covered by the read side's tag-terminal flow tests; unit tests of a suspended tag terminal reader still to add | GC (5), with revalidation |
-| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Until GC (5) nothing frees a terminal before its field. GC must make revalidation detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | GC (5) |
-| Whether to support a second numeric attribute (§2, "Numeric attributes: only the terminal"): an adaptive numeric routing level or a filter attribute | After Terminals (2), driven by workloads with two numeric attributes |
-| Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
+| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Until GC (5) nothing frees a terminal before its field. Done in GC (5): each terminal's iterators hold its `AliveToken`, which the terminal revokes before it is freed, checked before an iterator touches its terminal again | GC (5) |
+| The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`); it names the level today | Next read-side PR |
+| `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Write side (3) |
+| Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
+| `BUCKETS` on the last sub-field (a terminal tree pre-split at the boundaries) is rejected at `FT.CREATE` until the terminal supports it | After Read side (4) |
+| Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and bucket slots and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
 | `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
 | Re-enable `MAXCARD` once GC frees stale values. Its check counts existing children, so it depends on the tree: either run it in the preprocessor under the spec read lock and accept that a concurrent write can still fail the indexer, or keep it in the indexer and roll back the document's other fields | GC (5) |
 
@@ -625,7 +732,7 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
   warning with partial results, as prefix queries do today.
 - Should v1 already allow sub-fields that aren't index levels, served by a slower
   "filter on load" path, or keep the strict rule?
-- When a value breaks `MAXCARD` or `RANGE`: reject the whole document (proposed), or
+- When a value breaks `MAXCARD`, `BUCKETS` or `RANGE`: reject the whole document (proposed), or
   index the document without the offending element?
 - Should `MAXCARD` count distinct values per parent node (as the routing layer does, which bounds
   fan-out exactly) or across the whole level (easier to explain, but a looser bound)?
