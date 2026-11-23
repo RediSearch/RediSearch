@@ -170,14 +170,17 @@ jobs:
                   }
               },
               "rockylinux:10": {
+                # The image sets no PATH, so the runner builds the container PATH from $GITHUB_PATH
+                # alone once anything appends to it (the uv installer does), and later steps lose bash.
+                # Install uv into a directory already on PATH and keep it off $GITHUB_PATH.
                   "x86_64": {
                       'container': 'rockylinux/rockylinux:10',
-                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'setup_script': 'dnf update -y && dnf install -y git && { echo UV_INSTALL_DIR=/usr/local/bin; echo UV_NO_MODIFY_PATH=1; } >> $GITHUB_ENV',
                       'name': 'Rocky Linux 10 x86_64'
                   },
                   "aarch64": {
                       'container': 'rockylinux/rockylinux:10',
-                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'setup_script': 'dnf update -y && dnf install -y git && { echo UV_INSTALL_DIR=/usr/local/bin; echo UV_NO_MODIFY_PATH=1; } >> $GITHUB_ENV',
                       'name': 'Rocky Linux 10 ARM64'
                   }
               },
