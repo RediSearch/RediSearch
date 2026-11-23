@@ -483,8 +483,9 @@ select_macos_compilers() {
   # Same locations, in the same order of preference, as install_llvm.sh.
   local tarball_bin="${LLVM_INSTALL_DIR:-$HOME/.local/llvm}/bin"
   local -a candidates=()
-  if command -v brew &>/dev/null; then
-    candidates+=("$(brew --prefix)/opt/llvm@${LLVM_VERSION}/bin")
+  local brew_prefix
+  if command -v brew &>/dev/null && brew_prefix=$(brew --prefix 2>/dev/null); then
+    candidates+=("$brew_prefix/opt/llvm@${LLVM_VERSION}/bin")
   fi
   candidates+=("$tarball_bin")
 
