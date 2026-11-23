@@ -2476,6 +2476,44 @@ fn eval_tag_lex_range_walk_stops_when_the_blocked_client_is_cancelled() {
 }
 
 #[test]
+fn eval_tag_wildcard_scan_stops_before_a_late_match_when_cancelled() {
+    let mut values = generated(TIMEOUT_VALUES, 100);
+    values.push((b"zz-late".to_vec(), vec![1]));
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::WildcardQuery(b"*late")],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("wildcard expansion yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
+fn eval_tag_does_not_evaluate_short_alternatives_when_cancelled() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![
+            Child::Prefix {
+                pattern: b"ap",
+                prefix: true,
+                suffix: false,
+            },
+            Child::Prefix {
+                pattern: b"ba",
+                prefix: true,
+                suffix: false,
+            },
+        ],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("a TAG expression yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
 fn eval_tag_expansion_without_a_deadline_is_complete() {
     let mut fixture = TagFixture::new(TagOptions {
         values: generated(TIMEOUT_VALUES, 100),
