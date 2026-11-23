@@ -581,7 +581,10 @@ const HEADERS: &[HeaderAllowlist] = &[
     // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
     HeaderAllowlist {
         path: "src/query_request.h",
-        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        fns: &[
+            "QueryRequestLimits_IsBlockedClientTimedOut",
+            "QueryRequestLimits_ShouldStopExact",
+        ],
         types: &[],
         vars: &[],
     },

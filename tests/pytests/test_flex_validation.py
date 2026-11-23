@@ -1189,14 +1189,13 @@ def test_flex_blocks_deprecated_get_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tagvals_command(env):
-    """Test that FT.TAGVALS is blocked in Redis Flex"""
+def test_flex_allows_tagvals_command(env):
+    """Test that FT.TAGVALS is allowed in Flex validation mode"""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
                'SCHEMA', 'tag_field', 'TAG').ok()
     env.expect('HSET', 'doc:1', 'tag_field', 'value1').equal(1)
 
-    env.expect('FT.TAGVALS', 'idx', 'tag_field') \
-        .error().contains('FT.TAGVALS is not supported in Redis Flex')
+    env.expect('FT.TAGVALS', 'idx', 'tag_field').equal(['value1'])
 
 
 @skip(cluster=True)
@@ -1216,23 +1215,28 @@ def _create_flex_tag(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tag_prefix_query(env):
-    """Test that prefix queries on TAG fields are blocked in Flex mode"""
+def test_flex_allows_tag_prefix_query(env):
+    """Test that TAG prefix queries are allowed in Flex validation mode"""
     _create_flex_tag(env)
 
     env.expect('FT.SEARCH', 'idx', '@tag:{hel*}', 'NOCONTENT') \
-        .error().contains('TAG prefix/suffix/infix queries are not supported on Flex indexes')
+        .equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tag_wildcard_query(env):
-    """Test that wildcard pattern queries on TAG fields are blocked in Flex mode"""
+def test_flex_allows_tag_wildcard_query(env):
+    """Test that TAG wildcard queries are allowed in Flex validation mode"""
     _create_flex_tag(env)
 
     env.expect('FT.SEARCH', 'idx', "@tag:{w'hel*o'}", 'NOCONTENT', 'DIALECT', '2') \
-        .error().contains('TAG wildcard queries are not supported on Flex indexes')
+        .equal([1, 'doc:1'])
 
+
+    env.expect('HSET', 'doc:2', 'tag', 'a*b?end').equal(1)
+    env.expect('HSET', 'doc:3', 'tag', 'axbyend').equal(1)
+    env.expect('FT.SEARCH', 'idx', r"@tag:{w'a\*b\?*'}", 'NOCONTENT', 'DIALECT', '2') \
+        .equal([1, 'doc:2'])
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)

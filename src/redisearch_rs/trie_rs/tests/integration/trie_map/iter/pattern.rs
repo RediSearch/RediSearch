@@ -219,3 +219,22 @@ mod property_based {
         }
     }
 }
+
+#[test]
+fn suffix_scan_can_stop_before_yielding_its_first_match() {
+    let mut trie = TrieMap::new();
+    for i in 0..1000 {
+        trie.insert(format!("key{i:04}").as_bytes(), ());
+    }
+    trie.insert(b"zz-last-match", ());
+    let mut iter = trie.pattern_lending_iter(b"-match", PatternMode::Suffix);
+    assert_eq!(
+        iter.next().map(|(key, _)| key.to_vec()),
+        Some(b"zz-last-match".to_vec())
+    );
+
+    let stop = || true;
+    let mut iter = trie.pattern_lending_iter(b"-match", PatternMode::Suffix);
+    iter.set_stop_check(&stop);
+    assert!(iter.next().is_none());
+}

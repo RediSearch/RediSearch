@@ -593,7 +593,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len = 0;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
-  TagIndex *idx = NULL;
+  const bool onDisk = sctx->spec->diskSpec != NULL;
+  TagIndex *idx;
 
   if (!fs) {
     ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "No such field");
@@ -604,13 +605,19 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
+  if (onDisk) {
+    IndexSpec_LockRead(sctx->spec);
+  }
+
   idx = TagIndex_Open(fs);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
-    goto cleanup;
+  } else {
+    TagIndex_SerializeValues(idx, ctx);
   }
-
-  TagIndex_SerializeValues(idx, ctx);
+  if (onDisk) {
+    IndexSpec_Unlock(sctx->spec);
+  }
 
 cleanup:
   CurrentThread_ClearIndexSpec();
@@ -1897,7 +1904,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,                            "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   DiskDisabledCmd(SpellCheckCommand),        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
@@ -2010,7 +2017,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
         const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
-        if (s && sl) {
+        if (s) {
           TrieMap_Add(dict, s, sl, NULL, NULL);
         }
       }
@@ -3887,7 +3894,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   SearchCommand deprecatedCommands[] = {
     DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", SetDontCacheInfo, SET_COMMAND_INFO, "read",           true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(DiskDisabledCmd(TagValsCommandHandler)), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
+    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(TagValsCommandHandler),                  "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
   };
   if (CreateSearchCommands(ctx, deprecatedCommands, sizeof(deprecatedCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
