@@ -18,8 +18,6 @@ extern crate redisearch_rs;
 // Provides the Redis allocator (and stubs) the C trie code relies on.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use std::ffi::c_char;
-
 use c_trie::LoweredPattern;
 
 /// Convert an ASCII/UTF-8 string to the trie's rune (`u16`) key.
