@@ -450,12 +450,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/toksep.h",
-        fns: &["toksep", "istoksep"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/redisearch_rs/headers/triemap_ffi.h",
         fns: &[
             "TrieMap_Iterate",

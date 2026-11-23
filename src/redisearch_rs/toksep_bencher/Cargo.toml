@@ -9,12 +9,8 @@ publish.workspace = true
 name = "scanning"
 harness = false
 
-[build-dependencies]
-build_utils.workspace = true
-
 [dependencies]
 criterion.workspace = true
-ffi.workspace = true
 toksep.workspace = true
 workspace_hack.workspace = true
 

@@ -23,23 +23,6 @@ fn scanning(c: &mut Criterion) {
     ] {
         input.push(0);
         let mut group = c.benchmark_group(format!("scanning/{name}"));
-        group.bench_function("c", |b| {
-            b.iter(|| {
-                let mut cursor = black_box(input.as_ptr())
-                    .cast_mut()
-                    .cast::<std::ffi::c_char>();
-                let mut total = 0;
-                while !cursor.is_null() {
-                    let mut len = 0;
-                    // SAFETY: cursor starts in a NUL-terminated input and toksep
-                    // advances it within that input or sets it to null. The output
-                    // slots are initialized, disjoint, and writable; input is read-only.
-                    unsafe { ffi::toksep(&mut cursor, &mut len) };
-                    total += len;
-                }
-                black_box(total)
-            })
-        });
         group.bench_function("rust", |b| {
             b.iter(|| {
                 let mut rest = black_box(input.as_slice());
@@ -59,19 +42,6 @@ fn scanning(c: &mut Criterion) {
     }
     let bytes: Vec<_> = (0..=255u8).collect();
     let mut group = c.benchmark_group("classification");
-    group.bench_function("c", |b| {
-        b.iter(|| {
-            black_box(
-                bytes
-                    .iter()
-                    .map(|&byte| {
-                        // SAFETY: istoksep accepts every int value and accesses no caller memory.
-                        unsafe { ffi::istoksep(i32::from(black_box(byte))) }
-                    })
-                    .sum::<i32>(),
-            )
-        })
-    });
     group.bench_function("rust", |b| {
         b.iter(|| {
             black_box(
