@@ -13,6 +13,8 @@
 #include "tokenize.h"
 
 #include <set>
+#include <string>
+#include <vector>
 
 class TokenizerTest : public ::testing::Test {};
 
@@ -150,4 +152,46 @@ TEST_F(TokenizerTest, testEscapedSeparator) {
   }
   free(txt);
   tk->Free(tk);
+}
+
+TEST_F(TokenizerTest, testRawTokenSpans) {
+  struct Expected {
+    std::string normalized;
+    size_t offset;
+    size_t rawLen;
+  };
+  struct Case {
+    const char *name;
+    std::string input;
+    std::vector<Expected> expected;
+  };
+  for (const auto &test : {
+           Case{"empty", "", {{"", 0, 0}}},
+           Case{"separator only", ",, \t", {}},
+           Case{"repeated separators", ", one,,two,", {{"one", 2, 3}, {"two", 7, 3}}},
+           Case{"escape parity",
+                R"(a\,b a\\,b a\\\,b)",
+                {{"a,b", 0, 4}, {R"(a\)", 5, 3}, {"b", 9, 1}, {R"(a\,b)", 11, 6}}},
+           Case{"trailing escape", R"(tail\)", {{"tail", 0, 5}}},
+           Case{"escaped trailing separator", R"(tail\,)", {{"tail,", 0, 6}}},
+           Case{"control bytes", "a\nb_c", {{"ab_c", 0, 5}}},
+           Case{"first NUL", std::string("a\0b", 3), {{"a", 0, 1}}},
+           Case{"long token", std::string(257, 'x'), {{std::string(257, 'x'), 0, 257}}},
+       }) {
+    SCOPED_TRACE(test.name);
+    auto tk = NewSimpleTokenizer(nullptr, nullptr, 0);
+    std::string input = test.input;
+    tk->Start(tk, input.data(), input.size(), 0);
+    Token token = {0};
+    for (size_t i = 0; i < test.expected.size(); ++i) {
+      const auto &expected = test.expected[i];
+      ASSERT_EQ(tk->Next(tk, &token), i + 1);
+      ASSERT_EQ(token.pos, i + 1);
+      ASSERT_EQ(std::string(token.tok, token.tokLen), expected.normalized);
+      ASSERT_EQ(token.raw, input.data() + expected.offset);
+      ASSERT_EQ(token.rawLen, expected.rawLen);
+    }
+    ASSERT_EQ(tk->Next(tk, &token), 0);
+    tk->Free(tk);
+  }
 }

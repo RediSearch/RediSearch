@@ -27,8 +27,11 @@ nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
 quote = { version = "1" }
-rand_core = { version = "0.6", default-features = false, features = ["std"] }
+rand = { version = "0.9", default-features = false, features = ["os_rng", "std"] }
+rand_core-274715c4dabd11b0 = { package = "rand_core", version = "0.9", default-features = false, features = ["os_rng", "std"] }
+rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
@@ -54,8 +57,11 @@ nix = { version = "0.26", default-features = false, features = ["poll"] }
 num-traits = { version = "0.2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
 quote = { version = "1" }
-rand_core = { version = "0.6", default-features = false, features = ["std"] }
+rand = { version = "0.9", default-features = false, features = ["os_rng", "std"] }
+rand_core-274715c4dabd11b0 = { package = "rand_core", version = "0.9", default-features = false, features = ["os_rng", "std"] }
+rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }
