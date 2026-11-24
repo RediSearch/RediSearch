@@ -493,6 +493,13 @@ select_macos_compilers() {
   for dir in "${candidates[@]}"; do
     if [[ -x "$dir/clang" && -x "$dir/clang++" && \
           "$(clang_major_version "$dir/clang")" == "$LLVM_VERSION" ]]; then
+      # run_cmake() runs its command unquoted, so these paths would be split
+      # at the space and fail in CMake with an unrelated error.
+      if [[ "$dir" =~ [[:space:]] ]]; then
+        echo "Error: LLVM $LLVM_VERSION is at '$dir', whose path contains whitespace." >&2
+        echo "Paths with whitespace are not supported; set LLVM_INSTALL_DIR to a path without it." >&2
+        exit 1
+      fi
       MACOS_C_COMPILER="$dir/clang"
       MACOS_CXX_COMPILER="$dir/clang++"
       export LIBCLANG_PATH="${dir%/bin}/lib"
