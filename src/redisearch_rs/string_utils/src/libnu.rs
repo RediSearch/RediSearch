@@ -40,17 +40,27 @@ pub const fn nu_seq_len(b: u8) -> usize {
 ///
 /// If `seq` is empty or longer than four bytes.
 pub const fn nu_utf8_decode(seq: &[u8]) -> u32 {
+    assert!(
+        !seq.is_empty() && seq.len() <= 4,
+        "a sequence is one to four bytes long"
+    );
+    let mut window = [0; 4];
+    window.split_at_mut(seq.len()).0.copy_from_slice(seq);
+    decode_window(&window, seq.len())
+}
+
+/// [`nu_utf8_decode`] the first `seq_len` bytes of `window`. A fixed-size
+/// window lets the hot loop in [`nu_codepoints`] decode without slicing.
+const fn decode_window(window: &[u8; 4], seq_len: usize) -> u32 {
     const fn payload(b: u8) -> u32 {
         (b & 0x3F) as u32
     }
-    match *seq {
-        [b0] => b0 as u32,
-        [b0, b1] => ((b0 & 0x1F) as u32) << 6 | payload(b1),
-        [b0, b1, b2] => ((b0 & 0x0F) as u32) << 12 | payload(b1) << 6 | payload(b2),
-        [b0, b1, b2, b3] => {
-            ((b0 & 0x07) as u32) << 18 | payload(b1) << 12 | payload(b2) << 6 | payload(b3)
-        }
-        _ => panic!("a sequence is one to four bytes long"),
+    let [b0, b1, b2, b3] = *window;
+    match seq_len {
+        1 => b0 as u32,
+        2 => ((b0 & 0x1F) as u32) << 6 | payload(b1),
+        3 => ((b0 & 0x0F) as u32) << 12 | payload(b1) << 6 | payload(b2),
+        _ => ((b0 & 0x07) as u32) << 18 | payload(b1) << 12 | payload(b2) << 6 | payload(b3),
     }
 }
 
@@ -64,19 +74,42 @@ pub const fn nu_utf8_decode(seq: &[u8]) -> u32 {
 pub fn nu_codepoints(bytes: &[u8]) -> impl Iterator<Item = u32> + '_ {
     let mut rest = bytes;
     std::iter::from_fn(move || {
-        let &lead = rest.first()?;
-        let seq_len = nu_seq_len(lead);
-        let codepoint = match rest.split_at_checked(seq_len) {
-            Some((seq, tail)) => {
-                rest = tail;
-                nu_utf8_decode(seq)
-            }
-            None => {
-                let mut padded = [0; 4];
-                padded[..rest.len()].copy_from_slice(rest);
+        let (&lead, after_lead) = rest.split_first()?;
+        // Most terms are ASCII, which needs no sequence slicing.
+        if lead.is_ascii() {
+            if lead == 0 {
                 rest = &[];
-                nu_utf8_decode(&padded[..seq_len])
+                return None;
             }
+            rest = after_lead;
+            return Some(lead.into());
+        }
+        let codepoint = if let Some(window) = rest.first_chunk::<4>() {
+            // One arm per length, each advancing by a constant: a branch the
+            // CPU predicts, where a computed advance would make each step wait
+            // for the previous lead byte to load.
+            let window = *window;
+            match nu_seq_len(lead) {
+                2 => {
+                    rest = &rest[2..];
+                    decode_window(&window, 2)
+                }
+                3 => {
+                    rest = &rest[3..];
+                    decode_window(&window, 3)
+                }
+                _ => {
+                    rest = &rest[4..];
+                    decode_window(&window, 4)
+                }
+            }
+        } else {
+            // Within three bytes of the end, the window reads as zeros past it.
+            let seq_len = nu_seq_len(lead);
+            let mut padded = [0; 4];
+            padded[..rest.len()].copy_from_slice(rest);
+            rest = rest.get(seq_len..).unwrap_or_default();
+            decode_window(&padded, seq_len)
         };
         if codepoint == 0 {
             rest = &[];

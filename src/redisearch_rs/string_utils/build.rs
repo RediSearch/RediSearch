@@ -14,6 +14,7 @@ fn main() {
     build_utils::bind_foreign_c_symbols();
 
     generate_case_fold_table();
+    generate_lowercase_table();
 }
 
 /// Writes `case_fold.rs` to `OUT_DIR`: the first codepoint of each codepoint's
@@ -51,14 +52,64 @@ fn generate_case_fold_table() {
         }
     }
 
-    let mut out = String::from("[\n");
-    for (codepoint, (_, first)) in folds {
-        if codepoint != first {
-            writeln!(out, "    (0x{codepoint:04X}, 0x{first:04X}),").unwrap();
+    let pairs = folds
+        .into_iter()
+        .map(|(codepoint, (_, first))| (codepoint, first))
+        .filter(|(codepoint, first)| codepoint != first);
+    write_block_map("case_fold.rs", "CASE_FOLD", pairs);
+}
+
+/// Writes `lowercase.rs` to `OUT_DIR`: the first codepoint of each
+/// [`char::to_lowercase`] result, for every [`char`] it changes.
+///
+/// Taken from the `std` this script is built with, which is the `std` the
+/// crate is built with, so the table matches [`char::to_lowercase`] exactly.
+fn generate_lowercase_table() {
+    let mut pairs = Vec::new();
+    for c in (0..=char::MAX as u32).filter_map(char::from_u32) {
+        let mut lowered = c.to_lowercase();
+        let first = lowered
+            .next()
+            .expect("lowercasing yields at least one char");
+        let rest: Vec<char> = lowered.collect();
+        assert!(
+            rest.is_empty() || (c == '\u{130}' && rest == ['\u{307}']),
+            "{c:?} lowercases to several chars; runes::lowercase only expects U+0130 to"
+        );
+        if first != c {
+            pairs.push((u32::from(c), u32::from(first)));
         }
     }
-    out.push(']');
+    write_block_map("lowercase.rs", "LOWERCASE", pairs);
+}
 
-    let dest = PathBuf::from(env::var("OUT_DIR").unwrap()).join("case_fold.rs");
+/// Writes `file` to `OUT_DIR`, declaring `static {name}: BlockMap<N>` that
+/// maps each codepoint in `pairs` to its non-zero value.
+fn write_block_map(file: &str, name: &str, pairs: impl IntoIterator<Item = (u32, u32)>) {
+    const BLOCK: u32 = 256;
+    let mut blocks = BTreeMap::<u32, Vec<u32>>::new();
+    for (codepoint, mapped) in pairs {
+        assert_ne!(mapped, 0, "0 marks an unmapped codepoint");
+        blocks
+            .entry(codepoint / BLOCK)
+            .or_insert_with(|| vec![0; BLOCK as usize])[(codepoint % BLOCK) as usize] = mapped;
+    }
+    assert!(
+        blocks.len() < usize::from(u8::MAX),
+        "u8::MAX marks a block with no mappings"
+    );
+
+    let mut index = vec![u8::MAX; (char::MAX as u32 / BLOCK + 1) as usize];
+    let mut out = format!(
+        "static {name}: BlockMap<{}> = BlockMap {{\n    blocks: [\n",
+        blocks.len()
+    );
+    for (position, (block, values)) in blocks.iter().enumerate() {
+        index[*block as usize] = position as u8;
+        writeln!(out, "        {values:?},").unwrap();
+    }
+    writeln!(out, "    ],\n    index: {index:?},\n}};").unwrap();
+
+    let dest = PathBuf::from(env::var("OUT_DIR").unwrap()).join(file);
     fs::write(dest, out).unwrap();
 }
