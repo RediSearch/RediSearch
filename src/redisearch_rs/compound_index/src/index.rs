@@ -9,6 +9,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
     ops::{Bound, Range},
 };
 
@@ -181,17 +182,7 @@ impl<T> CompoundIndex<T> {
     /// The terminal at the end of `path`, if that path was inserted.
     pub fn get(&self, path: &[Key<'_>]) -> Result<Option<&T>, PathError> {
         let steps = self.route(path)?;
-        let mut node = &self.root;
-        for step in &steps {
-            match node.children().child(step) {
-                Some(child) => node = child,
-                None => return Ok(None),
-            }
-        }
-        match node {
-            Node::Terminal(terminal) => Ok(Some(terminal)),
-            Node::Inner(_) => unreachable!("{INVARIANT}"),
-        }
+        Ok(self.find(&steps))
     }
 
     /// The terminal at the end of `path`, created with `init` if the path is new: the route step
@@ -225,7 +216,9 @@ impl<T> CompoundIndex<T> {
         init: impl FnOnce() -> T,
     ) -> Result<&mut T, InsertError> {
         let steps = self.route(path)?;
-        let is_new = self.check_new_path(&steps)?;
+        // The same check as `check_paths`, so a batch it accepts always inserts here.
+        self.check_routed(std::slice::from_ref(&steps))?;
+        let is_new = self.find(&steps).is_none();
         // Built before anything is inserted, so a panicking `init` leaves the index unchanged.
         let mut terminal = is_new.then(init);
 
@@ -279,30 +272,12 @@ impl<T> CompoundIndex<T> {
     ///
     /// A path error is reported for the first invalid path; cardinality is checked once every path
     /// has been routed.
-    pub fn check_paths<'k>(&self, paths: &[&[Key<'k>]]) -> Result<(), InsertError> {
-        // The parent's path → its existing children and the new ones the batch adds.
-        let mut new_children: BTreeMap<Vec<Step<'k>>, (usize, BTreeSet<Step<'k>>)> =
-            BTreeMap::new();
-        for path in paths {
-            let steps = self.route(path)?;
-            // `None` once the walk has left the existing nodes: everything below is new.
-            let mut node = Some(&self.root);
-            for (depth, step) in steps.iter().enumerate() {
-                let children = node.map(Node::children);
-                node = children.and_then(|children| children.child(step));
-                if node.is_none() {
-                    new_children
-                        .entry(steps[..depth].to_vec())
-                        .or_insert_with(|| (children.map_or(0, Children::len), BTreeSet::new()))
-                        .1
-                        .insert(*step);
-                }
-            }
-        }
-        for (parent, (existing, added)) in &new_children {
-            self.check_room(parent.len(), *existing, added.len())?;
-        }
-        Ok(())
+    pub fn check_paths(&self, paths: &[&[Key<'_>]]) -> Result<(), InsertError> {
+        let routed = paths
+            .iter()
+            .map(|path| self.route(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.check_routed(&routed)
     }
 
     /// The terminals whose path satisfies every constraint, one constraint per level.
@@ -366,43 +341,62 @@ impl<T> CompoundIndex<T> {
             .collect()
     }
 
-    /// Whether `steps` leads to a path not inserted yet. Fails if inserting it would add a child
-    /// beyond a tag level's cardinality limit.
-    ///
-    /// Only the first missing node can break a limit: every node below it is new, so it starts
-    /// empty and each limit is at least one.
-    fn check_new_path(&self, steps: &[Step<'_>]) -> Result<bool, InsertError> {
+    /// The terminal at the end of `steps`, if that path was inserted.
+    fn find(&self, steps: &[Step<'_>]) -> Option<&T> {
         let mut node = &self.root;
-        for (level_index, step) in steps.iter().enumerate() {
-            let children = node.children();
-            match children.child(step) {
-                Some(child) => node = child,
-                None => {
-                    self.check_room(level_index, children.len(), 1)?;
-                    return Ok(true);
+        for step in steps {
+            node = node.children().child(step)?;
+        }
+        match node {
+            Node::Terminal(terminal) => Some(terminal),
+            Node::Inner(_) => unreachable!("{INVARIANT}"),
+        }
+    }
+
+    /// Fails if inserting every path of `paths` would give a node more children than its level's
+    /// cardinality limit. The one write-side check: [`CompoundIndex::check_paths`] runs it on a
+    /// batch and [`CompoundIndex::get_or_insert_with`] on its single path, so they cannot
+    /// disagree.
+    fn check_routed(&self, paths: &[Vec<Step<'_>>]) -> Result<(), InsertError> {
+        // A parent on a level with a limit → its existing children and the new ones the batch
+        // adds. A level without a limit accepts any child, so it is not tracked.
+        let mut new_children: BTreeMap<&[Step<'_>], (usize, BTreeSet<Step<'_>>)> = BTreeMap::new();
+        for steps in paths {
+            // `None` once the walk has left the existing nodes: everything below is new.
+            let mut node = Some(&self.root);
+            for (depth, step) in steps.iter().enumerate() {
+                let children = node.map(Node::children);
+                node = children.and_then(|children| children.child(step));
+                if node.is_none() && self.max_cardinality(depth).is_some() {
+                    new_children
+                        .entry(&steps[..depth])
+                        .or_insert_with(|| (children.map_or(0, Children::len), BTreeSet::new()))
+                        .1
+                        .insert(*step);
                 }
             }
         }
-        Ok(false)
-    }
-
-    /// Fails if a node on `level_index` holding `existing` children cannot take `added` more.
-    fn check_room(
-        &self,
-        level_index: usize,
-        existing: usize,
-        added: usize,
-    ) -> Result<(), InsertError> {
-        if let Level::Tag(tag) = &self.levels[level_index]
-            && let Some(max) = tag.max_cardinality()
-            && existing + added > max.get()
-        {
-            return Err(InsertError::CardinalityExceeded {
-                level: level_index,
-                max: max.get(),
-            });
+        for (parent, (existing, added)) in &new_children {
+            let level = parent.len();
+            let max = self
+                .max_cardinality(level)
+                .expect("only levels with a limit are tracked");
+            if existing + added.len() > max.get() {
+                return Err(InsertError::CardinalityExceeded {
+                    level,
+                    max: max.get(),
+                });
+            }
         }
         Ok(())
+    }
+
+    /// The cardinality limit of the level at `level_index`, if it has one.
+    fn max_cardinality(&self, level_index: usize) -> Option<NonZeroUsize> {
+        match &self.levels[level_index] {
+            Level::Tag(tag) => tag.max_cardinality(),
+            Level::Buckets(_) => None,
+        }
     }
 
     fn plan<'c>(&self, constraints: &[Constraint<'c>]) -> Result<Vec<LevelPlan<'c>>, CollectError> {

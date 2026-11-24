@@ -403,6 +403,28 @@ fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
     }
 }
 
+/// `-0.0` equals `0.0` as a range end, as IEEE comparison has it. Comparing bit patterns or with
+/// `total_cmp` would order `-0.0` below the boundary, so `(-0` would wrongly count `[0, 10)` as
+/// wholly inside and return the elements valued `0.0` it excludes.
+#[test]
+fn a_negative_zero_range_end_is_the_zero_boundary() {
+    let mut index = Index::new(vec![bucket_level(&[-10.0, 0.0, 10.0]), tag_level()]).unwrap();
+    post(&mut index, &[Key::Numeric(-5.0), tag("x")], 0);
+    post(&mut index, &[Key::Numeric(0.0), tag("x")], 1);
+    let walk = |start, end| {
+        index
+            .collect_terminals(&[range(start, end), Constraint::Any], WalkLimits::UNLIMITED)
+            .map(|terminals| union(&terminals))
+    };
+
+    assert_eq!(walk(Included(-0.0), Excluded(10.0)), Ok(vec![1]));
+    assert_eq!(walk(Excluded(-0.0), Excluded(0.0)), Ok(vec![]));
+    assert_eq!(
+        walk(Excluded(-0.0), Excluded(10.0)),
+        Err(CollectError::UnalignedBucketRange { level: 0 })
+    );
+}
+
 #[test]
 fn numeric_keys_route_to_their_bucket() {
     let index = years();

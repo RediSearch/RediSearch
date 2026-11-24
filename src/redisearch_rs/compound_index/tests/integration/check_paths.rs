@@ -89,10 +89,13 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
+    /// `check_paths` promises that an accepted batch inserts in any order, so the batch is
+    /// inserted in a different order from the one it was checked in.
     #[test]
     fn check_paths_accepts_exactly_the_batches_that_insert_whole(
         existing in prop::collection::vec(row(), 0..6),
-        batch in prop::collection::vec(row(), 0..6),
+        (batch, insert_order) in prop::collection::vec(row(), 0..6)
+            .prop_flat_map(|batch| (Just(batch.clone()), Just(batch).prop_shuffle())),
     ) {
         let mut index = Index::new(vec![tag_level_max(2), tag_level_max(2)]).unwrap();
         for row in &existing {
@@ -102,9 +105,9 @@ proptest! {
 
         let rows: Vec<[Key<'static>; 2]> = batch.iter().map(path).collect();
         let checked = check(&index, &rows);
-        let inserted_whole = rows
+        let inserted_whole = insert_order
             .iter()
-            .all(|row| index.get_or_insert_with(row, Vec::new).is_ok());
+            .all(|row| index.get_or_insert_with(&path(row), Vec::new).is_ok());
         prop_assert_eq!(checked.is_ok(), inserted_whole);
     }
 }
