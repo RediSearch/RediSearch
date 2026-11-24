@@ -3416,6 +3416,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "toksep"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "toksep_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "toksep",
+ "workspace_hack",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
