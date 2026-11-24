@@ -105,8 +105,17 @@ def evaluate(rows):
         raise ValueError("evaluation requires at least one measured case")
     results = outcomes(rows, LEGACY, POLICY)
     versus_recheck = outcomes(rows, RECHECK, POLICY)
-    for result, recheck_result in zip(results, versus_recheck):
-        result["confirmed_regression"] &= recheck_result["confirmed_regression"]
+    for row, result, recheck_result in zip(rows, results, versus_recheck, strict=True):
+        flagged = result["confirmed_regression"] and recheck_result["confirmed_regression"]
+        result["first_block_regression"] = flagged
+        if flagged and result["candidate_ok"] and row.get("timing_order") == "balanced":
+            if "confirmation_runs" not in row:
+                raise ValueError(f"{row['case']} is missing its regression confirmation measurements")
+            repeat = {**row, "runs": row["confirmation_runs"]}
+            fresh, = outcomes([repeat], LEGACY, POLICY)
+            fresh_recheck, = outcomes([repeat], RECHECK, POLICY)
+            flagged = fresh["confirmed_regression"] and fresh_recheck["confirmed_regression"]
+        result["confirmed_regression"] = flagged
     groups = defaultdict(list)
     for row, result in zip(rows, results):
         groups[row["workload"]].append(result)

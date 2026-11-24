@@ -62,8 +62,9 @@ required to measure the branch's feedback and exact-scan behavior.
 
 ## Validate on fresh workloads
 
-Run all three config values on each frozen graph. Alternate the trial order,
-pair timings by case, and add a second legacy control under `legacy_repeat`.
+Run all three config values on each frozen graph. Balance each policy's
+position and predecessor in the trial order. Pair timings by case and add
+a second legacy control under `legacy_repeat`.
 Compute recall against exact filtered top K. Run at least eight repetitions
 per case. Record profile modes separately from timed commands.
 
@@ -76,8 +77,10 @@ python3 scripts/hnsw_hybrid_policy/check_latency.py \
 The scorer checks common-case mean latency against both legacy controls, zero
 confirmed common-case regressions, fewer than 10% confirmed regressions
 overall, and preservation of every legacy recall pass without new query
-failures. A confirmed latency regression exceeds 5% in all but one paired
-repetition against each legacy control. The report also gives raw median
+failures. A flagged slowdown exceeds 5% in all but one paired repetition
+against each legacy control. On balanced runs, repeat flagged cases in a
+separate balanced block on the same graph to confirm the slowdown.
+The report also gives raw median
 deltas and first-trained recall outcomes. Common cases are the customer-shaped
 replays and single numeric ranges, TAG, and TEXT predicates at K up to 100,
 including broad negation controls. With extra saturation stress cases, the
