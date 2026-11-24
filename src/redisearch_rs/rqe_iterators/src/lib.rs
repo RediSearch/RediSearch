@@ -363,6 +363,10 @@ pub trait RQEIterator<'index> {
     /// the value is exact.
     ///
     /// Only meaningful while the iterator is positioned on a result.
+    ///
+    /// Composites build theirs from their children's: [`Intersection`] sums all of them,
+    /// [`Union`] sums those positioned on the current document, both scaled by
+    /// `max(weight, 1)`.
     fn current_max_score(&self) -> f64 {
         f64::INFINITY
     }
@@ -371,8 +375,15 @@ pub trait RQEIterator<'index> {
     /// to the end of the storage block that holds it, or `None` when it has no block to report.
     ///
     /// Computed, like [`current_max_score`](Self::current_max_score), without I/O, and only
-    /// meaningful while the iterator is positioned on a result: an implementation must return
-    /// `None` rather than a guess when it is not positioned.
+    /// meaningful while the iterator is positioned on a result. Composites skip whole windows of
+    /// documents with it inside [`read_with_threshold`](Self::read_with_threshold), so an
+    /// implementation must return `None` rather than a guess when it is not positioned.
+    ///
+    /// Composites build theirs from their children's, and only when every child they consult
+    /// reports one: the block ends at the earliest
+    /// [`last_doc_id`](score_bound::BlockBound::last_doc_id) among them and its
+    /// [`max_score`](score_bound::BlockBound::max_score) is the sum of theirs, scaled as in
+    /// [`current_max_score`](Self::current_max_score).
     fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
         None
     }
@@ -388,7 +399,11 @@ pub trait RQEIterator<'index> {
     /// does must override this.
     ///
     /// The caller passes the threshold its own score is measured against, so a composite must not
-    /// hand it to its children, whose scores are only part of its own.
+    /// hand it to its children, whose scores are only part of its own: [`Intersection`] and
+    /// [`Union`] read their children with plain [`read`](Self::read) and
+    /// [`skip_to`](Self::skip_to), and skip documents their children's
+    /// [`current_block_bound`](Self::current_block_bound)s show cannot reach the threshold: the
+    /// intersection whole windows, the union up to a Block-Max WAND pivot.
     /// [`skip_to`](Self::skip_to) has no thresholded form.
     fn read_with_threshold(
         &mut self,

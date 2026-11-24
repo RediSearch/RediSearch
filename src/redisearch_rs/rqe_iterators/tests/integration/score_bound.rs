@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The score-bound hooks' defaults, and their forwarding through wrappers and the C ABI, over
-//! [`Blocked`] leaves.
+//! Composition of [`RQEIterator::current_max_score`] across composite iterators, and the
+//! forwarding of the other score-bound hooks through wrappers, over [`Blocked`] leaves.
 
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    RQEIterator,
+    Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    UnionFullFlat, UnionFullHeap, UnionQuickFlat,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -47,8 +50,23 @@ fn leaves_report_no_bound_by_default() {
     assert_eq!(it.current_block_bound(), None);
 }
 
+/// A composite reports bounds only when every child does.
 #[test]
-fn not_optional_and_wrappers_report_score_bounds() {
+fn reports_score_bounds_composes() {
+    let term = || TermOrPlain::Term(Blocked::single([1], 1.0));
+    let plain = || TermOrPlain::Plain(IdListSorted::new(vec![1]));
+
+    assert!(Intersection::new(vec![term(), term()], 1.0, false).reports_score_bounds());
+    assert!(!Intersection::new(vec![term(), plain()], 1.0, false).reports_score_bounds());
+    assert!(!Intersection::<TermOrPlain>::new(vec![], 1.0, false).reports_score_bounds());
+
+    assert!(UnionFullFlat::new(vec![term(), term()]).reports_score_bounds());
+    assert!(UnionFullHeap::new(vec![term(), term()]).reports_score_bounds());
+    assert!(UnionQuickFlat::new(vec![term(), term()]).reports_score_bounds());
+    assert!(!UnionFullFlat::new(vec![term(), plain()]).reports_score_bounds());
+    assert!(!UnionFullHeap::new(vec![plain(), term()]).reports_score_bounds());
+    assert!(!UnionFullFlat::<TermOrPlain>::new(vec![]).reports_score_bounds());
+
     let not = Not::new(Blocked::single([1], 1.0), 5, 1.0, NoTimeoutChecker);
     assert!(!not.reports_score_bounds());
     let optional = Optional::new(5, 1.0, Blocked::single([1], 1.0));
@@ -64,6 +82,82 @@ fn not_optional_and_wrappers_report_score_bounds() {
 }
 
 #[test]
+fn intersection_sums_children() {
+    let mut it = Intersection::new(
+        vec![
+            Blocked::single([1, 2, 3], 1.5),
+            Blocked::single([2, 3], 2.0),
+        ],
+        1.0,
+        false,
+    );
+    assert_eq!(read_doc(&mut it), 2);
+    assert_eq!(it.current_max_score(), 3.5);
+}
+
+#[test]
+fn intersection_with_unbounded_child_is_unbounded() {
+    let mut it = Intersection::new(
+        vec![
+            Blocked::single([1, 2], 1.5),
+            Blocked::single([2], f64::INFINITY),
+        ],
+        1.0,
+        false,
+    );
+    read_doc(&mut it);
+    assert_eq!(it.current_max_score(), f64::INFINITY);
+}
+
+#[test]
+fn weight_scales_up_but_never_down() {
+    let children = || vec![Blocked::single([1], 1.0), Blocked::single([1], 2.0)];
+
+    let mut heavy = Intersection::new(children(), 2.0, false);
+    read_doc(&mut heavy);
+    assert_eq!(heavy.current_max_score(), 6.0);
+
+    // DOCSCORE ignores the weight, so a weight below 1 must not shrink the bound.
+    let mut light = Intersection::new(children(), 0.5, false);
+    read_doc(&mut light);
+    assert_eq!(light.current_max_score(), 3.0);
+
+    let mut union = UnionFullFlat::new(children());
+    union.current().expect("unread union holds a result").weight = 2.0;
+    read_doc(&mut union);
+    assert_eq!(union.current_max_score(), 6.0);
+}
+
+/// Every union variant sums only the children positioned on the current document.
+#[test]
+fn union_sums_children_on_current_doc() {
+    fn check<'index, I: RQEIterator<'index>>(mut it: I, on_shared_doc: impl Fn(f64) -> bool) {
+        // Children: a = {1, 3} bound 1, b = {2, 3} bound 2, c = {3} bound 4.
+        assert_eq!(read_doc(&mut it), 1);
+        assert_eq!(it.current_max_score(), 1.0);
+        assert_eq!(read_doc(&mut it), 2);
+        assert_eq!(it.current_max_score(), 2.0);
+        assert_eq!(read_doc(&mut it), 3);
+        let bound = it.current_max_score();
+        assert!(on_shared_doc(bound), "bound {bound} on the shared document");
+    }
+    let children = || {
+        vec![
+            Blocked::single([1, 3], 1.0),
+            Blocked::single([2, 3], 2.0),
+            Blocked::single([3], 4.0),
+        ]
+    };
+    check(UnionFullFlat::new(children()), |bound| bound == 7.0);
+    check(UnionFullHeap::new(children()), |bound| bound == 7.0);
+    // A quick-exit union stops at the first child on the document and leaves the others behind,
+    // so only that child is in its result. The bound covers at least that child.
+    check(UnionQuickFlat::new(children()), |bound| {
+        (1.0..=7.0).contains(&bound)
+    });
+}
+
+#[test]
 fn not_and_optional_report_no_bound() {
     let mut not = Not::new(Blocked::single([2], 1.0), 5, 1.0, NoTimeoutChecker);
     read_doc(&mut not);
@@ -72,6 +166,23 @@ fn not_and_optional_report_no_bound() {
     let mut optional = Optional::new(5, 1.0, Blocked::single([1], 1.0));
     assert_eq!(read_doc(&mut optional), 1);
     assert_eq!(optional.current_max_score(), f64::INFINITY);
+
+    // An intersection with a NOT or optional child can no longer be bounded.
+    let mut and_not = Intersection::new(
+        vec![
+            TermOrNot::Term(Blocked::single([1, 3], 1.0)),
+            TermOrNot::Not(Not::new(
+                Blocked::single([2], 1.0),
+                5,
+                1.0,
+                NoTimeoutChecker,
+            )),
+        ],
+        1.0,
+        false,
+    );
+    read_doc(&mut and_not);
+    assert_eq!(and_not.current_max_score(), f64::INFINITY);
 }
 
 #[test]
@@ -90,6 +201,32 @@ fn default_read_with_threshold_is_read() {
             break;
         }
     }
+}
+
+/// Children get plain reads: the threshold bounds the composite's score, not theirs.
+#[test]
+fn composites_do_not_pass_the_threshold_on() {
+    let leaf = Blocked::single([1, 2], 1.0);
+    let log = leaf.log();
+    let mut and = Intersection::new(vec![leaf], 1.0, false);
+    let doc = and
+        .read_with_threshold(min_score(0.5))
+        .expect("read failed")
+        .map(|r| r.doc_id);
+    assert_eq!(doc, Some(1));
+    assert_eq!(log.borrow().thresholded_reads, 0);
+    assert_eq!(log.borrow().last_threshold, None);
+
+    let leaf = Blocked::single([3], 1.0);
+    let log = leaf.log();
+    let mut or = UnionFullFlat::new(vec![leaf]);
+    let doc = or
+        .read_with_threshold(min_score(0.5))
+        .expect("read failed")
+        .map(|r| r.doc_id);
+    assert_eq!(doc, Some(3));
+    assert_eq!(log.borrow().thresholded_reads, 0);
+    assert_eq!(log.borrow().last_threshold, None);
 }
 
 #[test]
@@ -184,3 +321,108 @@ fn c_threshold_that_cannot_drop_is_a_plain_read() {
     let it = unsafe { CRQEIterator::new(raw) };
     assert_eq!(it.last_doc_id(), 5);
 }
+
+/// Mixes a leaf that reports bounds with one that does not under one composite child type.
+enum TermOrPlain {
+    Term(Blocked),
+    Plain(IdListSorted<'static>),
+}
+
+/// Mixes a scored leaf with a NOT under one composite child type.
+enum TermOrNot {
+    Term(Blocked),
+    Not(Not<'static, Blocked, NoTimeoutChecker>),
+}
+
+macro_rules! forward_either {
+    ($ty:ident, $a:ident, $b:ident) => {
+        impl RQEIterator<'static> for $ty {
+            fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
+                match self {
+                    Self::$a(it) => it.current(),
+                    Self::$b(it) => it.current(),
+                }
+            }
+
+            fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
+                match self {
+                    Self::$a(it) => it.read(),
+                    Self::$b(it) => it.read(),
+                }
+            }
+
+            fn skip_to(
+                &mut self,
+                doc_id: DocId,
+            ) -> Result<Option<SkipToOutcome<'_, 'static>>, RQEIteratorError> {
+                match self {
+                    Self::$a(it) => it.skip_to(doc_id),
+                    Self::$b(it) => it.skip_to(doc_id),
+                }
+            }
+
+            fn revalidate(
+                &mut self,
+                spec: &IndexSpecReadGuard,
+            ) -> Result<RQEValidateStatus<'_, 'static>, RQEIteratorError> {
+                match self {
+                    Self::$a(it) => it.revalidate(spec),
+                    Self::$b(it) => it.revalidate(spec),
+                }
+            }
+
+            fn rewind(&mut self) {
+                match self {
+                    Self::$a(it) => it.rewind(),
+                    Self::$b(it) => it.rewind(),
+                }
+            }
+
+            fn num_estimated(&self) -> usize {
+                match self {
+                    Self::$a(it) => it.num_estimated(),
+                    Self::$b(it) => it.num_estimated(),
+                }
+            }
+
+            fn last_doc_id(&self) -> DocId {
+                match self {
+                    Self::$a(it) => it.last_doc_id(),
+                    Self::$b(it) => it.last_doc_id(),
+                }
+            }
+
+            fn at_eof(&self) -> bool {
+                match self {
+                    Self::$a(it) => it.at_eof(),
+                    Self::$b(it) => it.at_eof(),
+                }
+            }
+
+            fn type_(&self) -> IteratorType {
+                IteratorType::Mock
+            }
+
+            fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+                1.0
+            }
+
+            fn reports_score_bounds(&self) -> bool {
+                match self {
+                    Self::$a(it) => it.reports_score_bounds(),
+                    Self::$b(it) => it.reports_score_bounds(),
+                }
+            }
+
+            fn current_max_score(&self) -> f64 {
+                match self {
+                    Self::$a(it) => it.current_max_score(),
+                    Self::$b(it) => it.current_max_score(),
+                }
+            }
+        }
+    };
+}
+
+forward_either!(TermOrPlain, Term, Plain);
+forward_either!(TermOrNot, Term, Not);
