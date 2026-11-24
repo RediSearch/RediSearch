@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: skill-markdown-only
+expected_outcome: |
+  Assigns risk:T2, not T0: .skills/ files are agent instruction files, and the procedure puts any change to agent instruction files at T2 even when they are Markdown. Needs one peer approval.
