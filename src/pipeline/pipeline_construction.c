@@ -516,9 +516,11 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
   RS_ASSERT(params->iteratorTree);
+  // A hybrid subquery that ends early is merged as empty and successful.
   ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
       params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
-      params->common.reqflags & QEXEC_F_PROFILE);
+      params->common.reqflags & QEXEC_F_PROFILE,
+      IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common));
   // Ownership of the iterator tree and the slot ranges is now with the pipeline.
   params->iteratorTree = NULL;
   params->querySlots = NULL;

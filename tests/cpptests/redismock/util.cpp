@@ -75,6 +75,14 @@ void RMCK::flushdb(RedisModuleCtx *ctx) {
   ctx->db->clear();
 }
 
+void RMCK::setKeyTrimmed(RedisModuleCtx *ctx, const char *key, bool trimmed) {
+  if (trimmed) {
+    ctx->db->trimmed.insert(key);
+  } else {
+    ctx->db->trimmed.erase(key);
+  }
+}
+
 extern "C" {
 static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int err = REDISMODULE_OK;

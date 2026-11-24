@@ -80,7 +80,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
+      sync_ref = DepleterSync_New(req->nrequests);
     }
 
     // Each subquery opens its own disk read view below. They observe the same state only because
