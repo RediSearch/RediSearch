@@ -417,6 +417,30 @@ def test_flex_aggregate_allows_sortby(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_allows_slop_and_inorder(env):
+    _create_flex_search(env)
+
+    for args in (['SLOP', '0'], ['INORDER'], ['SLOP', '0', 'INORDER']):
+        env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', *args) \
+            .equal([1, 'doc:1'])
+        env.expect('FT.AGGREGATE', 'idx', 'hello world', *args,
+                   'GROUPBY', '0', 'REDUCE', 'COUNT', '0', 'AS', 'n') \
+            .equal([1, ['n', '1']])
+        env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world',
+                   'NOCONTENT', *args).noError()
+        env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello world',
+                   *args).noError()
+
+    # The arguments are applied, not just accepted.
+    env.expect('FT.SEARCH', 'idx', 'world hello', 'NOCONTENT', 'INORDER') \
+        .equal([0])
+    env.expect('FT.AGGREGATE', 'idx', 'world hello', 'INORDER',
+               'GROUPBY', '0', 'REDUCE', 'COUNT', '0', 'AS', 'n') \
+        .equal([0])
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_aggregate_rejects_withcursor(env):
     """User-facing WITHCURSOR stays blocked on flex; only the coordinator's
     internal shard cursors are supported."""
@@ -988,16 +1012,6 @@ def test_flex_blocks_suggest_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_slop_argument(env):
-    """Test that SLOP argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
-        .error().contains('SLOP is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_blocks_drop_and_dropindex_dd(env):
     """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
     _create_flex_search(env)
@@ -1012,16 +1026,6 @@ def test_flex_blocks_drop_and_dropindex_dd(env):
 
     # FT.DROPINDEX without DD should work
     env.expect('FT.DROPINDEX', 'idx').ok()
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_inorder_argument(env):
-    """Test that INORDER argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
-        .error().contains('INORDER is not supported in Redis Flex')
 
 
 @skip(cluster=True)

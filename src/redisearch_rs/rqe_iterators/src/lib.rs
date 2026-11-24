@@ -131,9 +131,9 @@ pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, 
 #[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
-    /// The iterator has reached the time limit for execution.
-    #[error("reached time limit")]
-    TimedOut,
+    /// The iterator ended early on a timeout or memory pressure.
+    #[error("iterator stopped")]
+    Stopped,
     /// Iterator failed to read from the inverted index.
     #[error("failed to read from inverted index")]
     IoError(#[from] std::io::Error),
@@ -232,7 +232,7 @@ pub trait RQEIterator<'index> {
     /// # Errors
     ///
     /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
-    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`RQEIteratorError`] — [`Stopped`](RQEIteratorError::Stopped) or
     /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
     /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
     /// may have been repositioned or dropped while the state derived from them was never re-synced.
@@ -240,7 +240,7 @@ pub trait RQEIterator<'index> {
     /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
     /// consumes the iterator and drops it on the same failure.
     ///
-    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// At the FFI boundary the two errors are reported apart: `Stopped` becomes
     /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
     /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
     ///
@@ -404,11 +404,11 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 /// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
 /// implementation will provide iterators `rqe_iterators` does not know about.
 ///
-/// Each iterator constructor requires a `snapshot` handle. It must be a
-/// [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) returned from the disk API's
-/// `createSnapshot` for the same `index`, and it must remain valid for the lifetime of the
-/// returned iterator. This is what guarantees every iterator created for one query observes
-/// the same database state — there is no live-database fallback.
+/// Each iterator constructor requires a `view` handle: the query's disk read view, a
+/// [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) returned from the disk API's
+/// `createQueryView` for the same `index`, which must remain valid for the lifetime of the
+/// returned iterator. It is what makes every iterator created for one query agree on which
+/// documents the query can see; there is no fallback for reading without one.
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
@@ -424,7 +424,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
         status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -444,7 +444,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         num_docs: usize,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
@@ -463,7 +463,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         num_docs: usize,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
@@ -474,7 +474,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over documents missing the given schema field.
@@ -484,7 +484,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
@@ -494,7 +494,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -511,6 +511,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

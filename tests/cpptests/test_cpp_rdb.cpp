@@ -20,7 +20,9 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
+#include <climits>
 #include <iterator>  // For std::size
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,7 @@ extern "C" {
 #include "rules.h"
 #include "alias.h"
 #include "triemap_ffi.h"
+#include "tag_index.h"
 #include "search_disk.h"
 #include "stopwords.h"
 #include "doc_table.h"
@@ -2112,4 +2115,82 @@ TEST_F(RdbMockTest, testLegacyFieldTypeMapping) {
       QueryError_ClearError(&status);
     }
   }
+}
+
+static void freeCountTrie(TrieMap *map) {
+  TrieMap_Free(map, [](void *) {});
+}
+
+TEST_F(RdbMockTest, DiskTagTrieCountsRoundTrip) {
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> map(NewTrieMap(), freeCountTrie);
+  const char binaryTag[] = {'a', '\0', 'b'};
+  TrieMap_Add(map.get(), "", 0, reinterpret_cast<void *>(uintptr_t{1}), nullptr);
+  TrieMap_Add(map.get(), binaryTag, sizeof(binaryTag), reinterpret_cast<void *>(UINTPTR_MAX),
+              nullptr);
+
+  TrieMap_RdbSave(io.get(), map.get());
+  io->read_pos = 0;
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                              freeCountTrie);
+  ASSERT_NE(restored, nullptr);
+  EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+  EXPECT_EQ(TrieMap_NUniqueKeys(restored.get()), 2u);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(restored.get(), "", 0)), 1u);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(restored.get(), binaryTag, sizeof(binaryTag))),
+            UINTPTR_MAX);
+}
+
+TEST_F(RdbMockTest, DiskTagTrieLoadReturnsNullOnValidationAndIoErrors) {
+  for (const auto &[key, count] :
+       std::vector<std::pair<std::string, uint64_t>>{{std::string("tag\0", 4), 0}, {"tag", 1}}) {
+    std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                 RMCK_FreeRdbIO);
+    RMCK_SaveUnsigned(io.get(), 1);
+    RMCK_SaveStringBuffer(io.get(), key.data(), key.size());
+    RMCK_SaveDouble(io.get(), 0.0);
+    RMCK_SaveUnsigned(io.get(), count);
+    io->read_pos = 0;
+    std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                                freeCountTrie);
+    EXPECT_EQ(restored, nullptr);
+  }
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  RMCK_SaveUnsigned(io.get(), 1);
+  io->read_pos = 0;
+  std::unique_ptr<TrieMap, decltype(&freeCountTrie)> restored(TrieMap_RdbLoad(io.get()),
+                                                              freeCountTrie);
+  EXPECT_EQ(restored, nullptr);
+  EXPECT_NE(RMCK_IsIOError(io.get()), 0);
+}
+
+TEST_F(RdbMockTest, DiskTagCountsRestoreSuffixBeforeStorageBinding) {
+  std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(), RMCK_FreeRdbIO);
+  auto *diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
+  std::unique_ptr<TagIndex, decltype(&TagIndex_Free)> source(NewTagIndex(diskSpec, 2, true),
+                                                             TagIndex_Free);
+  const char *tags[] = {"hello", "world", ""};
+  IndexStats stats = {0};
+  TagIndex_Commit(source.get(), tags, 3, &stats);
+  TagIndex_RdbSave(io.get(), source.get());
+  io->read_pos = 0;
+  std::unique_ptr<TagIndex, decltype(&TagIndex_Free)> restored(TagIndex_RdbLoad(io.get(), 2, true),
+                                                               TagIndex_Free);
+  ASSERT_NE(restored, nullptr);
+  EXPECT_EQ(restored->diskSpec, nullptr);
+  EXPECT_TRUE(restored->valuesAreCounts);
+  auto timeout = timespec{.tv_sec = LONG_MAX, .tv_nsec = 0};
+  auto matches = TagIndex_GetSuffixMatches(restored.get(), "llo", 3, false, timeout, true);
+  ASSERT_EQ(array_len(matches), 1u);
+  EXPECT_STREQ(matches[0][0], "hello");
+  array_free(matches);
+  auto *iter = TrieMap_IterateWithFilter(restored->values, "hel", 3, TM_PREFIX_MODE);
+  char *key;
+  tm_len_t len;
+  void *count;
+  ASSERT_EQ(TrieMapIterator_Next(iter, &key, &len, &count), 1);
+  EXPECT_EQ(std::string(key, len), "hello");
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(count), 1u);
+  EXPECT_EQ(TrieMapIterator_Next(iter, &key, &len, &count), 0);
+  TrieMapIterator_Free(iter);
 }

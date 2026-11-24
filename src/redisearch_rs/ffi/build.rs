@@ -197,7 +197,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/iterators/vector_top_k.h",
-        fns: &["RS_VecSimCheckTimeout"],
+        fns: &[
+            "RS_VecSimCheckMemory",
+            "RS_VecSimCheckMemoryEvery",
+            "RS_VecSimCheckTimeout",
+        ],
         types: &[],
         vars: &[],
     },
@@ -257,6 +261,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["QueryEvalCtx"],
         vars: &[],
     },
+    // Vector iterator tests fake memory pressure and trigger a memory stop.
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &[
+            "QueryMemory_ResetFakePressure",
+            "QueryMemory_SetForcedRatio",
+        ],
+        types: &[],
+        vars: &["QUERY_MEMORY_RATIO_READ_INTERVAL"],
+    },
     HeaderAllowlist {
         path: "src/query_node.h",
         fns: &[],
@@ -270,6 +284,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryNumericNode",
             "QueryPhraseNode",
             "QueryPrefixNode",
+            "QuerySparseVectorNode",
             "QueryTagNode",
             "QueryTokenNode",
             "QueryVectorNode",
@@ -332,6 +347,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // RSE: the disk API passes DocIdMeta's "length unknown" marker through to the Rust side.
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &[],
+        types: &[],
+        vars: &["DOCID_META_DOCLEN_UNKNOWN"],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -357,7 +379,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAPI",
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
-            "RedisSearchDiskSnapshot",
+            "RedisSearchDiskQueryView",
             "SearchDiskCompactionCallbacks",
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
@@ -591,6 +613,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `FieldExpirationPredicate` is taken by value in TTL table function
     // signatures (src/ttl_table.h).
     "field.h",
+    // `SparseMetric` is stored by value in `FieldSpec.sparseVecOpts`
+    // (src/field_spec.h) — the full enum definition is required.
+    "sparse_vector_index.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.
     "inverted_index.h",

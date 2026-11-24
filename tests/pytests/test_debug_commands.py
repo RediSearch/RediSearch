@@ -55,10 +55,14 @@ class TestDebugCommands(object):
         self.env.assertIn(res, (0, 1, True, False),
                           message=f'expected a boolean, got {res!r}')
 
-    def testDiskLiveSnapshotsIsZeroWithoutDisk(self):
-        """No disk snapshot is ever taken on a RAM index, so the counter stays at zero."""
+    def testDiskLiveQueryViewsIsZeroWithoutDisk(self):
+        """No disk query view is ever opened on a RAM index, so the counter stays at zero.
+
+        The former subcommand name stays registered as an alias.
+        """
+        self.env.expect(debug_cmd(), 'DISK_LIVE_QUERY_VIEWS').equal(0)
         self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS').equal(0)
-        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS', 'extra').error().contains(
+        self.env.expect(debug_cmd(), 'DISK_LIVE_QUERY_VIEWS', 'extra').error().contains(
             'wrong number of arguments')
 
     def testDiskStatsRequiresDiskIndex(self):
@@ -81,6 +85,8 @@ class TestDebugCommands(object):
             "DUMP_NUMIDXTREE",
             "DUMP_TAGIDX",
             "INFO_TAGIDX",
+            "INFO_SPARSEIDX",
+            "DUMP_SPARSEIDX",
             "DUMP_GEOMIDX",
             "DUMP_PREFIX_TRIE",
             "IDTODOCID",
@@ -96,6 +102,7 @@ class TestDebugCommands(object):
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
             "DISK_FLUSH_NOWAIT",
+            "DISK_LIVE_QUERY_VIEWS",
             "DISK_LIVE_SNAPSHOTS",
             "DISK_PAUSE_BG_WORK",
             "DISK_RESUME_BG_WORK",
@@ -161,7 +168,7 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'GC_THREADS_ALIVE', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_SNAPSHOTS',
+                        'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_QUERY_VIEWS', 'DISK_LIVE_SNAPSHOTS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:

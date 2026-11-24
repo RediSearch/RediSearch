@@ -29,7 +29,7 @@ bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, cons
 /**
  * @brief Mark an argument as unsupported in Flex indexes
  *
- * @param argName Argument name string (e.g., "SLOP", "WITHSUFFIXTRIE")
+ * @param argName Argument name string (e.g., "HIGHLIGHT", "WITHSUFFIXTRIE")
  * @param status Query error status
  * @return true if the argument is supported, false otherwise
  */

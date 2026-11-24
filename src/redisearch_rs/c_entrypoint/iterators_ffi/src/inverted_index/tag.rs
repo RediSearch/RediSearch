@@ -16,19 +16,157 @@ use inverted_index::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType,
+    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome,
+    boxed::{finish_resume_in_place, resume_child_slot_in_place, suspend_child_slot_in_place},
     interop::RQEIteratorWrapper,
     inverted_index::{Tag, TagLookup},
     profile_print,
 };
+
+/// Suspended counterpart of [`TagIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// Retains the `'query` lifetime so query-attached borrows stay valid across
+/// the suspend/resume cycle.
+///
+/// `#[repr(C, u8)]`, like [`TagIterator`], so the two enums share their tag
+/// encoding and payload offset. Suspend and resume rewrite the payload in place
+/// and relabel the whole box, rather than rebuilding it, so the iterator's
+/// result keeps its address across the cycle: a parent's aggregate result
+/// points into it.
+#[repr(C, u8)]
+pub enum TagIteratorSuspended<'query> {
+    /// Suspended form of [`TagIterator::Encoded`].
+    Encoded(
+        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
+    /// Suspended form of [`TagIterator::Raw`].
+    Raw(
+        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
+}
+
+// Compile-time proof of what the relabels below rely on:
+//
+// (a) Arm correspondence. Each suspended arm is spelled as its active arm's
+//     `Suspended` projection, so suspending lands on the right type by
+//     construction; resuming must also land back on the active arm's payload
+//     type, which only `Tag`'s impls guarantee, so it is asserted here.
+//
+// (b) Whole-enum layout identity. Under `#[repr(C, u8)]` the payload offset is
+//     fixed by the enum's alignment, so this also pins it; each payload's own
+//     layout is checked by the slot helpers.
+const _: () = {
+    use rqe_iterators::boxed::assert_resumes_to_itself;
+
+    // (a)
+    assert_resumes_to_itself::<Tag<'static, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>();
+    assert_resumes_to_itself::<Tag<'static, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>(
+    );
+
+    // (b)
+    rqe_iterators::boxed::assert_layout_compatible::<
+        TagIterator<'static>,
+        TagIteratorSuspended<'static>,
+    >();
+};
+
+impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let variant = unsafe { raw.as_mut() }.expect("Box pointers are non-null");
+        match variant {
+            TagIterator::Encoded(t) => {
+                // SAFETY: `t` is the valid, exclusively-owned payload; the slot is
+                // relabelled as its suspended form below.
+                unsafe { suspend_child_slot_in_place(NonNull::from(t)) }
+            }
+            TagIterator::Raw(t) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(NonNull::from(t)) }
+            }
+        }
+        // SAFETY: the payload now holds its suspended form at the same offset and
+        // the tag is unchanged, so the allocation is a valid
+        // `TagIteratorSuspended` (layout proof above). `Box::from_raw` reuses the
+        // allocation, keeping the result's address.
+        unsafe { Box::from_raw(raw.cast::<TagIteratorSuspended<'index>>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
+    type Resumed<'a>
+        = TagIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Mirror of `TagIterator::suspend`: resume the payload in place, then
+        // relabel the box, or free it as a shell if the payload was consumed.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let variant = unsafe { raw.as_mut() }.expect("Box pointers are non-null");
+        let outcome = match variant {
+            TagIteratorSuspended::Encoded(s) => {
+                // SAFETY: `s` is the valid, exclusively-owned payload. On a
+                // recoverable outcome the slot holds its resumed form; otherwise it
+                // is left uninitialised and `finish_resume_in_place` frees the box
+                // without dropping it.
+                unsafe { resume_child_slot_in_place(NonNull::from(s), guard) }
+            }
+            TagIteratorSuspended::Raw(s) => {
+                // SAFETY: as above.
+                unsafe { resume_child_slot_in_place(NonNull::from(s), guard) }
+            }
+        };
+
+        // SAFETY: 1. `raw` came from `Box::into_raw` and the borrow above has ended.
+        // 2. `outcome` is the payload slot's, and the tag needs no drop.
+        // 3. The resumed payload keeps its tag, so the allocation is a valid
+        // `TagIterator<'a>` (layout proof above).
+        unsafe { finish_resume_in_place::<_, TagIterator<'a>>(raw, outcome) }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            TagIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.num_estimated(),
+            TagIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
 /// Tag inverted indices are always created with `DocIdsOnly` flags, so only
 /// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
 /// raw encoding ([`RawDocIdsOnly`]) are supported.
-pub(super) enum TagIterator<'index> {
+///
+/// Its `#[repr(C, u8)]` is what lets it suspend in place; see
+/// [`TagIteratorSuspended`].
+#[repr(C, u8)]
+pub enum TagIterator<'index> {
+    /// Reads an index with the variable-length [`DocIdsOnly`] encoding.
     Encoded(Tag<'index, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
+    /// Reads an index with the fixed-width [`RawDocIdsOnly`] encoding.
     Raw(Tag<'index, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
 }
 
@@ -188,6 +326,7 @@ where
 /// 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+/// 8. `idx` must be the inverted index that `tag_idx` stores for `term`'s tag.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     idx: *const ffi::InvertedIndex,
@@ -220,47 +359,68 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     // SAFETY: 7. guarantees term is a heap-allocated RSQueryTerm
     let term = unsafe { Box::from_raw(term) };
 
-    // Build the expiration checker for the Default predicate
-    let filter_ctx = FieldFilterContext {
-        field: field_mask_or_index,
-        predicate: FieldExpirationPredicate::Default,
-    };
-
-    // Create the appropriate tag iterator variant based on encoding type.
-    let iterator = match ii_ref {
-        inverted_index_ffi::InvertedIndex::DocIdsOnly(ii) => {
-            let reader = ii.reader();
-            // SAFETY: 5., 6. guarantee context/spec validity for the lifetime of the checker.
-            let checker =
-                unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx, reader.flags()) };
-            // SAFETY: 1., 2. guarantee idx validity and revalidation semantics.
-            // 3., 4. guarantee tag_index and TrieMap validity.
-            // 5., 6. guarantee context/spec validity.
-            // 7. guarantees term ownership transfer.
-            // The DocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Encoded(unsafe {
-                Tag::new(reader, sctx_nn, lookup, term, weight, checker)
-            })
-        }
-        inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
-            let reader = ii.reader();
-            // SAFETY: 5., 6. guarantee context/spec validity for the lifetime of the checker.
-            let checker =
-                unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx, reader.flags()) };
-            // SAFETY: 1., 2. guarantee idx validity and revalidation semantics.
-            // 3., 4. guarantee tag_index and TrieMap validity.
-            // 5., 6. guarantee context/spec validity.
-            // 7. guarantees term ownership transfer.
-            // The RawDocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Raw(unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) })
-        }
-        _ => panic!(
-            "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
-            std::mem::discriminant(ii_ref)
-        ),
-    };
+    // SAFETY: `TagIterator::new`'s 1. holds by our 1. and 2., its 2. by our 3., 4.
+    // and 8., and its 3. by our 5. and 6.
+    let iterator =
+        unsafe { TagIterator::new(ii_ref, lookup, sctx_nn, field_mask_or_index, term, weight) };
 
     RQEIteratorWrapper::boxed_new(iterator).as_ptr()
+}
+
+impl<'index> TagIterator<'index> {
+    /// Creates an iterator over the tag inverted index `ii`, picking the variant
+    /// that matches its encoding.
+    ///
+    /// # Panics
+    ///
+    /// If `ii` is neither [`DocIdsOnly`] nor [`RawDocIdsOnly`] encoded.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ii` must stay valid while the iterator is active. While it is suspended,
+    ///    `ii` may be freed and replaced; resuming detects that through `lookup`.
+    /// 2. `lookup` must resolve tags in the [`TagIndex`](ffi::TagIndex) that holds `ii`.
+    /// 3. `sctx` must point to a valid [`RedisSearchCtx`](ffi::RedisSearchCtx) whose
+    ///    `spec` is valid, and both must remain valid for `'index`.
+    pub unsafe fn new(
+        ii: &'index inverted_index_ffi::InvertedIndex,
+        lookup: CTagIndexLookup,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        field_mask_or_index: FieldMaskOrIndex,
+        term: Box<RSQueryTerm>,
+        weight: f64,
+    ) -> Self {
+        let filter_ctx = FieldFilterContext {
+            field: field_mask_or_index,
+            predicate: FieldExpirationPredicate::Default,
+        };
+
+        match ii {
+            inverted_index_ffi::InvertedIndex::DocIdsOnly(ii) => {
+                let reader = ii.reader();
+                // SAFETY: 1., 2. and 3. by our 3.
+                let checker =
+                    unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
+                // SAFETY: 1. and 2. by our 3. 3. by our 2.; the arm matches
+                // `lookup`'s encoding to the reader's.
+                TagIterator::Encoded(unsafe {
+                    Tag::new(reader, sctx, lookup, term, weight, checker)
+                })
+            }
+            inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
+                let reader = ii.reader();
+                // SAFETY: as above.
+                let checker =
+                    unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
+                // SAFETY: as above.
+                TagIterator::Raw(unsafe { Tag::new(reader, sctx, lookup, term, weight, checker) })
+            }
+            _ => panic!(
+                "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+                std::mem::discriminant(ii)
+            ),
+        }
+    }
 }
 
 impl profile_print::ProfilePrint for TagIterator<'_> {
