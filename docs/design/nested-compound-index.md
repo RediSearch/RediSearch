@@ -229,7 +229,7 @@ The index has two layers:
   - the routing levels: `Level::Tag` (a TrieMap per node, optional per-node `max_cardinality`) and
     `Level::Buckets` (fixed half-open buckets, one slot per bucket on every node, at most
     `MAX_BUCKETS` of them);
-  - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
+  - `get_or_insert_with(path, init)`, which validates the whole path (key types, bucket
     bounds, cardinality) before creating anything, so a rejected insert leaves the index
     unchanged, and returns `&mut T`. This is the first half of **route, then post**: the index
     routes an element to its terminal and the caller posts the doc id there, so the routing
@@ -250,7 +250,7 @@ The index has two layers:
   ```
   `Terminal` owns the post half of route, then post: one method adds a doc id with the element's
   terminal value to whichever structure it wraps, and ingest (§3) calls it on the `&mut Terminal`
-  that `terminal_or_insert_with` returns.
+  that `get_or_insert_with` returns.
   Each terminal is read by the iterators that exist today, which keeps the query side cheap.
   The per-terminal stats the planner needs (`unique_docs`, `entries`) come from these structures.
 
@@ -324,7 +324,7 @@ Internal types, private to the crate, that carry the "check first" rule:
    call `check_paths` on all the document's rows together, and fail the document if it errors.
    Checking each row alone is not enough: two new values under one parent can each fit a
    `MAXCARD` limit alone and break it together, which would leave the document half indexed.
-   Then, for each row, call `terminal_or_insert_with` on the routing values, which cannot fail
+   Then, for each row, call `get_or_insert_with` on the routing values, which cannot fail
    after a successful check, and insert into the terminal:
    - NUMERIC terminal: `NumericRangeTree::add(doc_id, value, is_multivalued = true, …)`.
    - TAG terminal: append `doc_id` to that value's posting list.

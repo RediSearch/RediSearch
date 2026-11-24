@@ -408,11 +408,8 @@ fn numeric_keys_route_to_their_bucket() {
     let index = years();
     // 2023.5 shares the bucket [2022, 2024) with doc 1's 2022.
     assert_eq!(
-        index.terminal(&[Key::Numeric(2023.5), tag("x")]).unwrap(),
+        index.get(&[Key::Numeric(2023.5), tag("x")]).unwrap(),
         Some(&vec![1])
     );
-    assert_eq!(
-        index.terminal(&[Key::Numeric(2024.0), tag("y")]).unwrap(),
-        None
-    );
+    assert_eq!(index.get(&[Key::Numeric(2024.0), tag("y")]).unwrap(), None);
 }

@@ -23,7 +23,7 @@ fn retain_removes_the_rejected_terminals() {
     // (blue, L) held only doc 1; (red, M) keeps doc 3.
     assert_eq!(removed, 1);
     assert_eq!(index.num_terminals(), 3);
-    assert_eq!(index.terminal(&[tag("blue"), tag("L")]).unwrap(), None);
+    assert_eq!(index.get(&[tag("blue"), tag("L")]).unwrap(), None);
     let all = index
         .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
         .unwrap();
@@ -58,10 +58,7 @@ fn retain_drops_emptied_bucket_children() {
     post(&mut index, &[Key::Numeric(15.0), tag("x")], 2);
 
     assert_eq!(index.retain_terminals(|docs| docs != &vec![1]), 1);
-    assert_eq!(
-        index.terminal(&[Key::Numeric(5.0), tag("x")]).unwrap(),
-        None
-    );
+    assert_eq!(index.get(&[Key::Numeric(5.0), tag("x")]).unwrap(), None);
     let all = index
         .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
         .unwrap();
@@ -110,12 +107,9 @@ fn a_panicking_keep_leaves_the_terminal_count_exact_on_bucket_levels() {
 
     // The first bucket's terminal was rejected before the panic; the second survives.
     assert_eq!(index.num_terminals(), 1);
+    assert_eq!(index.get(&[Key::Numeric(5.0), tag("x")]).unwrap(), None);
     assert_eq!(
-        index.terminal(&[Key::Numeric(5.0), tag("x")]).unwrap(),
-        None
-    );
-    assert_eq!(
-        index.terminal(&[Key::Numeric(15.0), tag("x")]).unwrap(),
+        index.get(&[Key::Numeric(15.0), tag("x")]).unwrap(),
         Some(&vec![2])
     );
 }

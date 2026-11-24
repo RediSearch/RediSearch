@@ -97,14 +97,14 @@ proptest! {
         let mut index = Index::new(vec![tag_level_max(2), tag_level_max(2)]).unwrap();
         for row in &existing {
             // Rows past a limit are simply not inserted; the rest is the starting index.
-            let _ = index.terminal_or_insert_with(&path(row), Vec::new);
+            let _ = index.get_or_insert_with(&path(row), Vec::new);
         }
 
         let rows: Vec<[Key<'static>; 2]> = batch.iter().map(path).collect();
         let checked = check(&index, &rows);
         let inserted_whole = rows
             .iter()
-            .all(|row| index.terminal_or_insert_with(row, Vec::new).is_ok());
+            .all(|row| index.get_or_insert_with(row, Vec::new).is_ok());
         prop_assert_eq!(checked.is_ok(), inserted_whole);
     }
 }

@@ -79,7 +79,7 @@ pub enum PathError {
     },
 }
 
-/// Why [`CompoundIndex::terminal_or_insert_with`](crate::CompoundIndex::terminal_or_insert_with)
+/// Why [`CompoundIndex::get_or_insert_with`](crate::CompoundIndex::get_or_insert_with)
 /// rejected a path. A rejected insert leaves the index unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InsertError {

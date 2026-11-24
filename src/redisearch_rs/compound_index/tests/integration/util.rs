@@ -40,10 +40,7 @@ pub fn tag_in<'a>(values: &[&'a str]) -> Constraint<'a> {
 
 /// Posts `doc` in the terminal at `path`, creating it if needed.
 pub fn post(index: &mut Index, path: &[Key<'_>], doc: u32) {
-    index
-        .terminal_or_insert_with(path, Vec::new)
-        .unwrap()
-        .push(doc);
+    index.get_or_insert_with(path, Vec::new).unwrap().push(doc);
 }
 
 /// The distinct doc ids found in `terminals`, sorted: what a union of their posting lists

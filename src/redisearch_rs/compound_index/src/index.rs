@@ -50,7 +50,7 @@ impl WalkLimits {
 /// The routing levels of a compound index, with a terminal of type `T` at the end of each path.
 ///
 /// See the [crate documentation](crate) for what a path means. Terminals are created on first
-/// insert, by [`CompoundIndex::terminal_or_insert_with`], and removed by
+/// insert, by [`CompoundIndex::get_or_insert_with`], and removed by
 /// [`CompoundIndex::retain_terminals`], which also drops the nodes left without children.
 pub struct CompoundIndex<T> {
     levels: Box<[Level]>,
@@ -179,7 +179,7 @@ impl<T> CompoundIndex<T> {
     }
 
     /// The terminal at the end of `path`, if that path was inserted.
-    pub fn terminal(&self, path: &[Key<'_>]) -> Result<Option<&T>, PathError> {
+    pub fn get(&self, path: &[Key<'_>]) -> Result<Option<&T>, PathError> {
         let steps = self.route(path)?;
         let mut node = &self.root;
         for step in &steps {
@@ -212,14 +212,14 @@ impl<T> CompoundIndex<T> {
     /// let path = [Key::Tag(b"red"), Key::Tag(b"M")];
     ///
     /// // Route, then post.
-    /// index.terminal_or_insert_with(&path, Vec::new).unwrap().push(7);
+    /// index.get_or_insert_with(&path, Vec::new).unwrap().push(7);
     /// // Same path, so the same terminal: `init` does not run again.
-    /// index.terminal_or_insert_with(&path, Vec::new).unwrap().push(9);
+    /// index.get_or_insert_with(&path, Vec::new).unwrap().push(9);
     ///
-    /// assert_eq!(index.terminal(&path).unwrap(), Some(&vec![7, 9]));
+    /// assert_eq!(index.get(&path).unwrap(), Some(&vec![7, 9]));
     /// assert_eq!(index.num_terminals(), 1);
     /// ```
-    pub fn terminal_or_insert_with(
+    pub fn get_or_insert_with(
         &mut self,
         path: &[Key<'_>],
         init: impl FnOnce() -> T,
@@ -270,7 +270,7 @@ impl<T> CompoundIndex<T> {
 
     /// Checks that every path of `paths` can be inserted together, without inserting anything.
     ///
-    /// Each path passing [`CompoundIndex::terminal_or_insert_with`]'s checks on its own is not
+    /// Each path passing [`CompoundIndex::get_or_insert_with`]'s checks on its own is not
     /// enough for a batch: two new values under the same parent may each fit a cardinality limit
     /// alone and break it together. This counts the new children every parent would receive from
     /// the whole batch, including parents the batch itself creates. When it returns `Ok`, inserting

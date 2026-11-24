@@ -15,7 +15,7 @@ use crate::util::{Index, bucket_level, orders, post, tag, tag_level, tag_level_m
 fn elements_with_the_same_path_share_a_terminal() {
     let index = orders();
     // Doc 3 has two (red, M) items, and doc 1 one: all three land in one terminal.
-    let red_m = index.terminal(&[tag("red"), tag("M")]).unwrap().unwrap();
+    let red_m = index.get(&[tag("red"), tag("M")]).unwrap().unwrap();
     assert_eq!(red_m, &vec![1, 3, 3]);
 }
 
@@ -24,17 +24,14 @@ fn each_distinct_path_gets_its_own_terminal() {
     let index = orders();
     // (red, M), (red, L), (blue, L), (blue, M).
     assert_eq!(index.num_terminals(), 4);
-    assert_eq!(
-        index.terminal(&[tag("blue"), tag("L")]).unwrap(),
-        Some(&vec![1])
-    );
+    assert_eq!(index.get(&[tag("blue"), tag("L")]).unwrap(), Some(&vec![1]));
 }
 
 #[test]
 fn a_path_never_inserted_has_no_terminal() {
     let index = orders();
-    assert_eq!(index.terminal(&[tag("green"), tag("M")]).unwrap(), None);
-    assert_eq!(index.terminal(&[tag("red"), tag("S")]).unwrap(), None);
+    assert_eq!(index.get(&[tag("green"), tag("M")]).unwrap(), None);
+    assert_eq!(index.get(&[tag("red"), tag("S")]).unwrap(), None);
 }
 
 #[test]
@@ -72,7 +69,7 @@ fn invalid_paths_are_rejected() {
     ];
     for (name, path, expected) in cases {
         assert_eq!(
-            index.terminal_or_insert_with(path, Vec::new).err(),
+            index.get_or_insert_with(path, Vec::new).err(),
             Some(InsertError::Path(expected.clone())),
             "{name}"
         );
@@ -91,7 +88,7 @@ fn cardinality_limits_children_per_parent_not_per_level() {
 
     assert_eq!(
         index
-            .terminal_or_insert_with(&[tag("red"), tag("L")], Vec::new)
+            .get_or_insert_with(&[tag("red"), tag("L")], Vec::new)
             .err(),
         Some(InsertError::CardinalityExceeded { level: 1, max: 1 })
     );
@@ -104,7 +101,7 @@ fn a_rejected_insert_leaves_the_index_unchanged() {
 
     assert!(
         index
-            .terminal_or_insert_with(&[tag("blue"), tag("M")], Vec::new)
+            .get_or_insert_with(&[tag("blue"), tag("M")], Vec::new)
             .is_err()
     );
     assert_eq!(index.num_terminals(), 1);
@@ -118,7 +115,7 @@ fn a_rejected_insert_leaves_the_index_unchanged() {
 fn a_panicking_init_leaves_the_index_unchanged() {
     let mut index = Index::new(vec![tag_level_max(1), tag_level()]).unwrap();
     let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = index.terminal_or_insert_with(&[tag("red"), tag("M")], || panic!("init failed"));
+        let _ = index.get_or_insert_with(&[tag("red"), tag("M")], || panic!("init failed"));
     }));
     assert!(attempt.is_err());
 
@@ -152,7 +149,7 @@ fn lookups_reject_invalid_paths() {
         ),
     ];
     for (name, path, expected) in cases {
-        assert_eq!(index.terminal(path), Err(expected.clone()), "{name}");
+        assert_eq!(index.get(path), Err(expected.clone()), "{name}");
     }
 }
 
@@ -162,10 +159,7 @@ fn an_empty_tag_value_is_an_ordinary_value() {
     post(&mut index, &[tag(""), tag("M")], 1);
     post(&mut index, &[tag("red"), tag("M")], 2);
 
-    assert_eq!(
-        index.terminal(&[tag(""), tag("M")]).unwrap(),
-        Some(&vec![1])
-    );
+    assert_eq!(index.get(&[tag(""), tag("M")]).unwrap(), Some(&vec![1]));
     let empty_only = index
         .collect_terminals(
             &[Constraint::TagIn(vec![b""]), Constraint::Any],
@@ -183,5 +177,5 @@ fn an_empty_tag_value_is_an_ordinary_value() {
     assert_eq!(union(&every_value), vec![1, 2]);
 
     assert_eq!(index.retain_terminals(|docs| docs != &vec![1]), 1);
-    assert_eq!(index.terminal(&[tag(""), tag("M")]).unwrap(), None);
+    assert_eq!(index.get(&[tag(""), tag("M")]).unwrap(), None);
 }

@@ -26,7 +26,7 @@
 //! The index never sees a doc id. Indexing an element takes two steps, and the index owns only
 //! the first:
 //!
-//! 1. **Route**: [`CompoundIndex::terminal_or_insert_with`] follows the element's path, creates
+//! 1. **Route**: [`CompoundIndex::get_or_insert_with`] follows the element's path, creates
 //!    the missing nodes and the terminal if the path is new, and returns `&mut T`.
 //! 2. **Post**: the caller adds the doc id, with the element's terminal value, to that `T`.
 //!

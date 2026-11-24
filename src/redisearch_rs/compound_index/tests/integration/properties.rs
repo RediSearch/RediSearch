@@ -119,7 +119,7 @@ fn index_of(elements: &[Element]) -> CompoundIndex<Vec<usize>> {
         CompoundIndex::new(vec![tag_level(), tag_level(), bucket_level(&YEARS)]).unwrap();
     for (id, e) in elements.iter().enumerate() {
         index
-            .terminal_or_insert_with(&path_of(e), Vec::new)
+            .get_or_insert_with(&path_of(e), Vec::new)
             .unwrap()
             .push(id);
     }
