@@ -112,6 +112,10 @@ typedef struct AggregationPipelineParams {
    *  Used by highlighting result processors to apply proper stemming,
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
+
+  /** The request's `diskScoreSkippingQuery`, taken when the request was created: whether a score
+   *  sorter may pass its heap minimum upstream as a threshold. */
+  bool diskScoreSkippingQuery;
 } AggregationPipelineParams;
 
 /**

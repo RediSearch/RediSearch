@@ -124,6 +124,10 @@ typedef struct {
   unsigned int BM25STD_TanhFactor;
   // OOM policy
   RSOomPolicy oomPolicy;
+  // Query-side kill switch for score-bound candidate filtering on disk indexes. Ignoring the
+  // bounds is always correct, so it can be flipped at any time; a query keeps the value it was
+  // created with, and it affects reads only.
+  bool diskScoreSkippingQuery;
 } RequestConfig;
 
 typedef struct {
@@ -558,6 +562,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskStatistics = false,                                                   \
+    .requestConfigParams.diskScoreSkippingQuery = true,                        \
     .diskSq8Enabled = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
