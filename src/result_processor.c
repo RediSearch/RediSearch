@@ -3408,12 +3408,8 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   }
   if (rc == RS_RESULT_STOPPED) {
     RP_HoldStop(&self->base);
-    // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
-    // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
-    // as standalone does by counting rows as they stream. An ordinary deadline keeps the exact
-    // total the WITHCOUNT barrier supplied. A memory stop is sticky, so rows upstream of it are
-    // never read later: with no rows held the total is rebased to zero.
-    // A blocked-client timeout owns the reply and keeps the exact total, as in RP_StopPolicy.
+    // A memory stop ends the read for good, so a preloaded total (coordinator WITHCOUNT) is
+    // rebased on the rows held here. A blocked-client timeout owns the reply and keeps the total.
     const QueryRequestLimits *limits = self->base.parent->limits;
     if (self->totalPreloaded && limits && QueryRequestLimits_IsMemoryStopped(limits) &&
         !QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
