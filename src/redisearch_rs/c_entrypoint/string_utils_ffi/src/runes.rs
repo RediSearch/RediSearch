@@ -9,9 +9,15 @@
 
 //! The C rune API, over [`string_utils::runes`].
 
-use std::{ffi::c_char, mem::MaybeUninit, ptr::NonNull, slice};
+use std::{cell::RefCell, ffi::c_char, mem::MaybeUninit, ptr::NonNull, slice};
 
 use string_utils::runes;
+
+thread_local! {
+    /// The encoding buffer [`runesToStr`] reuses, so each call allocates only
+    /// the buffer it returns. Trie searches call it once per result.
+    static ENCODED: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
 
 /// View `len` items at `ptr` as a slice, which may dangle or be null when
 /// `len` is zero.
@@ -29,12 +35,27 @@ const unsafe fn slice_or_empty<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
     }
 }
 
-/// Append one zero item to `items` and hand the allocation to C, which frees
-/// it with `rm_free` because the global allocator is backed by
-/// `RedisModule_Alloc`.
-fn into_module_buffer<T: Default>(mut items: Vec<T>) -> NonNull<T> {
-    items.push(T::default());
-    NonNull::new(Box::into_raw(items.into_boxed_slice()).cast()).expect("Box pointers are non-null")
+/// Copy `items` into a new allocation from the Redis module allocator,
+/// followed by one zero item, so the C caller can free it with `rm_free`.
+///
+/// Not a boxed slice: shrinking a `Vec` to its exact length reallocates on
+/// nearly every call, which made [`runesToStr`] up to twice as slow.
+fn to_module_buffer<T: Copy + Default>(items: &[T]) -> NonNull<T> {
+    // SAFETY: `RedisModule_Alloc` is set during module init and not mutated
+    // afterwards.
+    let alloc = unsafe { redis_module::RedisModule_Alloc }.expect("Redis allocator not available");
+    // SAFETY: any size may be requested; the result is checked below.
+    let buf = unsafe { alloc(size_of_val(items) + size_of::<T>()) }.cast::<T>();
+    let buf = NonNull::new(buf).expect("the Redis allocator returned NULL");
+    // SAFETY: `buf` is a fresh allocation, aligned for any type, with room for
+    // `items.len() + 1` items, so it cannot overlap `items`.
+    unsafe { buf.copy_from_nonoverlapping(NonNull::from(items).cast(), items.len()) };
+    // SAFETY: the allocation holds `items.len() + 1` items, so the offset
+    // stays within it.
+    let end = unsafe { buf.add(items.len()) };
+    // SAFETY: `end` is the last item slot of the allocation, aligned as above.
+    unsafe { end.write(T::default()) };
+    buf
 }
 
 /// Fold `r` with [`runes::fold_rune`].
@@ -62,16 +83,11 @@ pub unsafe extern "C" fn runesToStr(
 ) -> *mut c_char {
     // SAFETY: see safety point 1 above.
     let runes = unsafe { slice_or_empty(in_, len) };
-    // Each rune encodes to at most three bytes; the spare one is the
-    // terminator, so `into_module_buffer` never reallocates.
-    let mut bytes = Vec::with_capacity(runes.len() * 3 + 1);
-    let (ptr, n) = match runes::runes_to_bytes_into(runes, &mut bytes) {
-        Ok(()) => {
-            let n = bytes.len();
-            (into_module_buffer(bytes).as_ptr(), n)
-        }
-        Err(_) => (std::ptr::null_mut(), 0),
-    };
+    let (ptr, n) =
+        ENCODED.with_borrow_mut(|bytes| match runes::runes_to_bytes_into(runes, bytes) {
+            Ok(()) => (to_module_buffer(bytes).as_ptr(), bytes.len()),
+            Err(_) => (std::ptr::null_mut(), 0),
+        });
     // SAFETY: see safety point 2 above.
     unsafe { utflen.write(n) };
     ptr.cast()
@@ -99,10 +115,7 @@ pub unsafe extern "C" fn strToLowerRunes(
     // SAFETY: see safety point 1 above.
     let bytes = unsafe { slice_or_empty(s.cast::<u8>(), utf8_len) };
     let (ptr, n) = match runes::lower_runes(bytes) {
-        Ok(runes) => {
-            let n = runes.len();
-            (into_module_buffer(runes).as_ptr(), n)
-        }
+        Ok(runes) => (to_module_buffer(&runes).as_ptr(), runes.len()),
         Err(_) => (std::ptr::null_mut(), 0),
     };
     // SAFETY: see safety point 2 above.
@@ -133,10 +146,7 @@ pub unsafe extern "C" fn strToSingleCodepointFoldedRunes(
     // SAFETY: see safety point 1 above.
     let bytes = unsafe { slice_or_empty(s.cast::<u8>(), utf8_len) };
     let (ptr, n) = match runes::fold_runes(bytes) {
-        Ok(runes) => {
-            let n = runes.len();
-            (into_module_buffer(runes).as_ptr(), n)
-        }
+        Ok(runes) => (to_module_buffer(&runes).as_ptr(), runes.len()),
         Err(_) => (std::ptr::null_mut(), 0),
     };
     // SAFETY: see safety point 2 above.
