@@ -406,8 +406,11 @@ static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
   InfoValue *values = fields->toplevelValues;
   const InfoValue *docs =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
-  if (fields->docTable[0].isSet) {
-    docs = &fields->docTable[0];
+  const InfoValue *diskDocs =
+      findInfoTypeAndValue(fields->docTable, docTableSpecs, ARRAY_SIZE(docTableSpecs), "num_docs")
+          .value;
+  if (diskDocs && diskDocs->isSet) {
+    docs = diskDocs;
   }
   const InfoValue *records =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;
