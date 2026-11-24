@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `collect_terminals` and `retain_terminals` checked against brute-force filters over the
-//! inserted elements.
+//! `collect_terminals` checked against a brute-force filter over the inserted elements.
 
 use std::{
     collections::BTreeSet,
@@ -180,33 +179,4 @@ proptest! {
         prop_assert_eq!(found.len(), found_set.len());
     }
 
-    #[test]
-    fn retain_keeps_exactly_the_surviving_elements_and_counts_their_paths(
-        elements in prop::collection::vec(element(), 0..MAX_ELEMENTS),
-        deleted in prop::collection::btree_set(0..MAX_ELEMENTS, 0..MAX_ELEMENTS),
-    ) {
-        let mut index = index_of(&elements);
-        index.retain_terminals(|ids| {
-            ids.retain(|id| !deleted.contains(id));
-            !ids.is_empty()
-        });
-
-        let all = [Constraint::Any, Constraint::Any, Constraint::Any];
-        let terminals = index.collect_terminals(&all, WalkLimits::UNLIMITED).unwrap();
-        let found: BTreeSet<usize> = terminals.iter().flat_map(|t| t.iter().copied()).collect();
-        let survivors: BTreeSet<usize> =
-            (0..elements.len()).filter(|id| !deleted.contains(id)).collect();
-        prop_assert_eq!(found, survivors.clone());
-
-        // One terminal per distinct path among the survivors: (color, size, year bucket).
-        let paths: BTreeSet<(&str, &str, usize)> = survivors
-            .iter()
-            .map(|&id| {
-                let e = &elements[id];
-                (e.color, e.size, YEARS.iter().filter(|b| **b <= e.year).count())
-            })
-            .collect();
-        prop_assert_eq!(index.num_terminals(), paths.len());
-        prop_assert_eq!(terminals.len(), paths.len());
-    }
 }

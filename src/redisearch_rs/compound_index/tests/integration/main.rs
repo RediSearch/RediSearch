@@ -12,5 +12,4 @@ mod collect;
 mod insert;
 mod levels;
 mod properties;
-mod retain;
 mod util;

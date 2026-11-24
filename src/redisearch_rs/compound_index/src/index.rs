@@ -51,8 +51,7 @@ impl WalkLimits {
 /// The routing levels of a compound index, with a terminal of type `T` at the end of each path.
 ///
 /// See the [crate documentation](crate) for what a path means. Terminals are created on first
-/// insert, by [`CompoundIndex::get_or_insert_with`], and removed by
-/// [`CompoundIndex::retain_terminals`], which also drops the nodes left without children.
+/// insert, by [`CompoundIndex::get_or_insert_with`].
 pub struct CompoundIndex<T> {
     levels: Box<[Level]>,
     root: Node<T>,
@@ -91,12 +90,6 @@ enum LevelPlan<'c> {
     Buckets(Range<usize>),
 }
 
-/// Whether a subtree survives [`CompoundIndex::retain_terminals`].
-enum Fate {
-    Keep,
-    Drop,
-}
-
 const INVARIANT: &str = "a node's kind matches its depth, checked when the path was routed";
 
 impl<T> Node<T> {
@@ -133,13 +126,6 @@ impl<T> Children<T> {
             Level::Buckets(buckets) => {
                 Self::Buckets((0..buckets.num_buckets()).map(|_| None).collect())
             }
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match self {
-            Self::Tag(map) => map.n_unique_keys() == 0,
-            Self::Buckets(slots) => slots.iter().all(Option::is_none),
         }
     }
 }
@@ -299,24 +285,6 @@ impl<T> CompoundIndex<T> {
         };
         walk.visit(&self.root, &plan)?;
         Ok(walk.out)
-    }
-
-    /// Removes the terminals for which `keep` returns `false`, then every node left without
-    /// children. Returns how many terminals were removed.
-    ///
-    /// `keep` receives each terminal mutably, so a garbage collector can compact it and drop it
-    /// in the same pass when nothing is left in it.
-    ///
-    /// If `keep` panics, the terminals it rejected so far are removed and
-    /// [`CompoundIndex::num_terminals`] counts the rest exactly. Nodes the interrupted pass left
-    /// without children are dropped by the next pass.
-    pub fn retain_terminals(&mut self, mut keep: impl FnMut(&mut T) -> bool) -> usize {
-        let before = self.num_terminals;
-        let Node::Inner(children) = &mut self.root else {
-            unreachable!("{INVARIANT}");
-        };
-        retain_children(children, &mut keep, &mut self.num_terminals);
-        before - self.num_terminals
     }
 
     fn route<'k>(&self, path: &[Key<'k>]) -> Result<Vec<Step<'k>>, PathError> {
@@ -595,60 +563,5 @@ impl<'s, T> Walk<'s, T> {
             _ => unreachable!("constraints were checked against their levels"),
         }
         Ok(())
-    }
-}
-
-/// Removes the rejected terminals below `children`, decrementing `num_terminals` for each as
-/// it goes, so the count stays exact if `keep` panics.
-fn retain_children<T>(
-    children: &mut Children<T>,
-    keep: &mut impl FnMut(&mut T) -> bool,
-    num_terminals: &mut usize,
-) {
-    match children {
-        Children::Tag(map) => {
-            // The trie has no mutable iterator, so walk its keys and look each one up.
-            let keys: Vec<Vec<u8>> = map.iter().map(|(key, _)| key).collect();
-            for key in keys {
-                let child = map.find_mut(&key).expect("the key was just listed");
-                if let Fate::Drop = retain_node(child, keep, num_terminals) {
-                    map.remove(&key);
-                }
-            }
-        }
-        Children::Buckets(slots) => {
-            for slot in slots.iter_mut() {
-                if let Some(child) = slot
-                    && let Fate::Drop = retain_node(child, keep, num_terminals)
-                {
-                    *slot = None;
-                }
-            }
-        }
-    }
-}
-
-fn retain_node<T>(
-    node: &mut Node<T>,
-    keep: &mut impl FnMut(&mut T) -> bool,
-    num_terminals: &mut usize,
-) -> Fate {
-    match node {
-        Node::Terminal(terminal) => {
-            if keep(terminal) {
-                Fate::Keep
-            } else {
-                *num_terminals -= 1;
-                Fate::Drop
-            }
-        }
-        Node::Inner(children) => {
-            retain_children(children, keep, num_terminals);
-            if children.is_empty() {
-                Fate::Drop
-            } else {
-                Fate::Keep
-            }
-        }
     }
 }

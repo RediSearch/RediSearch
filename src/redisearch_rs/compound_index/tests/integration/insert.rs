@@ -175,7 +175,4 @@ fn an_empty_tag_value_is_an_ordinary_value() {
         )
         .unwrap();
     assert_eq!(union(&every_value), vec![1, 2]);
-
-    assert_eq!(index.retain_terminals(|docs| docs != &vec![1]), 1);
-    assert_eq!(index.get(&[tag(""), tag("M")]).unwrap(), None);
 }

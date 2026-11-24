@@ -237,8 +237,9 @@ The index has two layers:
   - `check_paths(paths)`, which runs the same checks on all of one document's paths together,
     so ingest can index a document whole or not at all (§3, "Ingest path");
   - `collect_terminals(constraints, limits)`, the planner's walk (§5), which fails instead of
-    truncating past either of its `WalkLimits`: terminals returned and nodes entered;
-  - `retain_terminals(keep)`, which drops terminals and the nodes left without children, for GC.
+    truncating past either of its `WalkLimits`: terminals returned and nodes entered.
+
+  Removing terminals comes with GC (fifth PR), which removes each emptied terminal by its path.
 - **The terminals** (second PR), reusing existing structures unchanged:
   ```rust
   enum Terminal {
@@ -294,8 +295,7 @@ Public types, used by the later PRs:
   the walk fails rather than returning a truncated, wrong result.
 - **`num_terminals`**: a running count of terminals, so `FT.INFO` and the ingest cap
   `NESTED_MAX_TERMINALS` read it without a walk. It changes in exactly two places: +1 when an
-  insert creates a path, −1 when retain drops a terminal. Retain decrements per terminal, so the
-  count stays exact even if its callback panics.
+  insert creates a path, −1 when GC (fifth PR) removes one.
 - **Errors**: `SchemaError` (levels), `BucketsError` (boundaries), `PathError` (a path that does not
   route), `InsertError` (adds the cardinality limit), `CollectError` (adds the walk limits). Each
   names the level at fault, so the C side can build a user-facing message.
@@ -345,7 +345,7 @@ This is the invariant every posting list in the codebase already relies on.
 - GC: add a scanner `index_gc/src/scanners/compound.rs`. It walks the tree depth-first and, at each
   terminal, reuses the numeric and inverted-index GC routines. The fork-GC delta message carries
   the **path** (`value₁ … valueₙ₋₁`) plus the existing per-terminal delta, so the parent finds the
-  same terminal. After the deltas are applied, `retain_terminals` drops the emptied terminals and
+  same terminal. After the deltas are applied, each emptied terminal is removed by its path, with
   the TrieMap entries left without children, so a value that no element uses any more doesn't
   leak a subtree.
 
@@ -552,7 +552,7 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
 
 1. **Design and routing layer**: this document and the `compound_index` crate: tag and bucket
    levels with their limits, path insert that checks before mutating, `check_paths` for a whole
-   document, the constraint walk with its `WalkLimits`, and `retain_terminals`. Pure Rust, tested
+   document, and the constraint walk with its `WalkLimits`. Pure Rust, tested
    under `miri`, with property tests against brute-force filters.
 2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting an
    element's terminal value, the iterator builders (one numeric filter iterator or tag iterator
@@ -577,8 +577,8 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      shape in the §5 table.
    - Benchmarks in the PR description: shard-sized data (about 55K docs × 280 elements), a full
      prefix, a skipped level and range-only, against one NUMERIC field per combination.
-5. **GC**: the compound scanner, fork-GC deltas keyed by path, and pruning with
-   `retain_terminals`. Tests for update and delete churn followed by GC, checking that terminal
+5. **GC**: the compound scanner, fork-GC deltas keyed by path, and removing each emptied
+   terminal by its path. Tests for update and delete churn followed by GC, checking that terminal
    and memory counts drop.
 
 ### Follow-ups tracked from review
@@ -587,7 +587,6 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 
 | Follow-up | Owner |
 |---|---|
-| GC copies every key of a tag node on each pass, because `TrieMap` has no mutable iterator. Add a `retain` or mutable lending iterator to `trie_rs::TrieMap` | Terminals (2) or GC (5) |
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
 | The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Read side (4) |
