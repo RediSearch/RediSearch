@@ -59,9 +59,10 @@ impl Clause {
         if field_idx >= spec.numFields as usize {
             return None;
         }
-        // SAFETY: the index spec read lock pins its field array, attached
-        // name buffers, and numeric trees for evaluation.
-        let field = unsafe { FieldSpec::from_raw(spec.fields.add(field_idx)) };
+        // SAFETY: field_idx is within the field array pinned by the spec read lock.
+        let field_ptr = unsafe { spec.fields.add(field_idx) };
+        // SAFETY: the read lock also pins the field and its attached name buffers and tree.
+        let field = unsafe { FieldSpec::from_raw(field_ptr) };
         if !field.types().contains(FieldSpecType::Numeric) {
             return None;
         }
@@ -138,7 +139,7 @@ pub(crate) fn try_plan(
     let k = unsafe { vq.__bindgen_anon_1.knn.k };
     if !(50_000..=1_000_000).contains(&docs)
         || !(1..=128).contains(&k)
-        || ctx.spec().stats.scoring.numDocuments as usize != docs
+        || ctx.spec().stats.scoring.numDocuments != docs
     {
         return None;
     }
