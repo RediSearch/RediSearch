@@ -250,7 +250,12 @@ def testDialect1GeoQueryOnANonGeoFieldMatchesNothing(env):
     # the filter's geohash ranges used to be matched against.
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'loc', 'GEO').ok()
-    conn.execute_command('HSET', 'doc:1', 'n', 5, 't', 'red', 'loc', '1,1')
+    # `n` holds the geohash score of the query center, so matching the filter's geohash ranges
+    # against the numeric tree would find the document.
+    conn.execute_command('GEOADD', 'geohash_probe', 1, 1, 'p')
+    center_score = conn.execute_command('ZSCORE', 'geohash_probe', 'p')
+    conn.execute_command('DEL', 'geohash_probe')
+    conn.execute_command('HSET', 'doc:1', 'n', center_score, 't', 'red', 'loc', '1,1')
     for field in ['n', 't']:
         env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km]', 'DIALECT', 1).equal([0])
         env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km] @loc:[1 1 10 km]',
