@@ -452,12 +452,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["TRIEMAP_NOTFOUND"],
     },
     HeaderAllowlist {
-        path: "src/toksep.h",
-        fns: &["toksep", "istoksep"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/trie/levenshtein.h",
         fns: &[],
         types: &["TrieMatchMode"],

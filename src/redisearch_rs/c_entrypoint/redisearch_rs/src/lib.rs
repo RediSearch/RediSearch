@@ -46,6 +46,7 @@ pub use spellcheck_dictionary_ffi as spellcheck_dictionary;
 pub use string_utils_ffi as string_utils;
 pub use term_dictionary_ffi as term_dictionary;
 pub use term_suffix_index_ffi as term_suffix_index;
+pub use toksep_ffi as toksep;
 pub use trie_rdb_ffi as trie_rdb;
 pub use triemap_ffi as triemap;
 pub use ttl_table_ffi as ttl_table;
