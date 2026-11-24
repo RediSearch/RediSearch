@@ -213,13 +213,14 @@ fn run_rust_filtered(
     };
     let source = NumericScoreSource::filtered(
         index.tree(),
-        filter,
+        NumericFilter {
+            ascending: ASCENDING,
+            ..filter
+        },
         window,
-        ASCENDING,
-        RANGE_BATCH_SIZE,
         index.n,
-        child_estimate,
-    );
+    )
+    .with_range_batch_size(RANGE_BATCH_SIZE);
     // Fresh owned copies each call, mirroring the C side's per-run allocation.
     let mut count = 0usize;
     if union_arity > 1 {
@@ -253,7 +254,13 @@ fn partition_ids(ids: &[DocId], arity: usize) -> Vec<IdList<'static, true>> {
 
 /// Run one Rust top-k scan with no child filter, returning result count.
 fn run_rust_unfiltered(index: &Index, filter: NumericFilter, k: NonZeroUsize) -> usize {
-    let source = NumericScoreSource::unfiltered(index.tree(), filter, ASCENDING);
+    let source = NumericScoreSource::unfiltered(
+        index.tree(),
+        NumericFilter {
+            ascending: ASCENDING,
+            ..filter
+        },
+    );
     let mut it = new_numeric_top_k_unfiltered(source, k);
     let mut count = 0usize;
     while it.read().unwrap().is_some() {

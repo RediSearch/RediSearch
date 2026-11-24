@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <future>
@@ -398,12 +399,13 @@ TEST_F(DiskSlotTrimTest, AccountingWaitsForWriteLockedDeletionNotification) {
     EXPECT_EQ(backendFuture.wait_for(std::chrono::seconds(3)), std::future_status::ready);
     EXPECT_EQ(finishedFuture.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
   };
-  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, uint32_t *length) {
+  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, const char *, size_t) {
     afterStorageDelete();
-    *length = 1;
     return true;
   };
-  IndexSpec_DeleteDocById(spec, 1);
+  RedisModuleString *key = RedisModule_CreateString(nullptr, "{moving}:1", 10);
+  IndexSpec_DeleteDocById(spec, key, 1, 1);
+  RedisModule_FreeString(nullptr, key);
   gcWorker.join();
   afterStorageDelete = {};
   backendReached = nullptr;
@@ -1521,11 +1523,14 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
         RedisModule_GetBlockedClientPrivateData;
     decltype(RedisModule_ReplyWithSimpleString) simple = RedisModule_ReplyWithSimpleString;
     decltype(RedisModule_ReplyWithError) error = RedisModule_ReplyWithError;
+    // The pool is global: hand later tests back the one they would have found.
+    bool hadPool = GC_ThreadPoolNumThreads() > 0;
     RestoreHooks() {
       RedisModule_ThreadSafeContextLock(RSDummyContext);
     }
     ~RestoreHooks() {
       GC_ThreadPoolDestroy();
+      if (hadPool) GC_ThreadPoolStart();
       RedisModule_ThreadSafeContextUnlock(RSDummyContext);
       if (replyData) GCForcedRunOutcomeFree(RSDummyContext, replyData);
       RedisModule_CreateSubcommand = create;
@@ -1612,6 +1617,12 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
   EXPECT_NE(invoke(false, true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
+  // A forced run that finds its index dropped terminates and frees the context, as a scheduled
+  // run does, so it needs one from the heap rather than the fixture's.
+  auto *owned = static_cast<GCContext *>(rm_calloc(1, sizeof(GCContext)));
+  memcpy(owned, &gc, sizeof(GCContext));
+  gc.gcCtx = nullptr;
+  spec->gc = owned;
   EXPECT_NE(invoke(true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
@@ -1793,7 +1804,8 @@ TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingA
   RedisModule_HashSet(key, REDISMODULE_HASH_CFIELDS, "v", value, nullptr);
   RedisModule_FreeString(nullptr, value);
   RedisModule_CloseKey(key);
-  ASSERT_EQ(DocIdMeta_Set(RSDummyContext, doc.docKey, spec->specId, 42), REDISMODULE_OK);
+  ASSERT_EQ(DocIdMeta_Set(RSDummyContext, doc.docKey, spec->specId, 42, DOCID_META_DOCLEN_UNKNOWN),
+            REDISMODULE_OK);
   QueryError error = QueryError_Default();
   auto *ctx = NewAddDocumentCtx(spec, &doc, &error);
   ASSERT_NE(ctx, nullptr);
@@ -1807,7 +1819,7 @@ TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingA
   search.spec = spec;
   api.docTable.putDocument = [](RedisSearchDiskIndexSpec *, SearchDiskWriteBatchHandle *,
                                 const char *, size_t, float, uint32_t, uint32_t, uint32_t,
-                                uint32_t *oldLen, t_expirationTimePoint, t_docId *oldId) {
+                                uint32_t *oldLen, t_expirationTimePoint, t_docId *oldId, uint32_t) {
     EXPECT_EQ(*oldId, 42u);
     *oldId = 0;
     *oldLen = 0;

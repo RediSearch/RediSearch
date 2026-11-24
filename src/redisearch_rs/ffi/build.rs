@@ -30,7 +30,7 @@ struct HeaderAllowlist {
 const HEADERS: &[HeaderAllowlist] = &[
     // `c_wrappers/vecsim`: query replies and their iterators.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        path: "src/vecsim/query_results.h",
         fns: &[
             "VecSimBatchIterator_Free",
             "VecSimBatchIterator_HasNext",
@@ -54,7 +54,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     // `c_wrappers/vecsim`: index handle + adhoc-BF / batch-iterator entry points.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        path: "src/vecsim/vec_sim.h",
         fns: &[
             "VecSimBatchIterator_New",
             "VecSimIndex_AddVector",
@@ -81,7 +81,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
     // vector-index API exposed through `src/search_disk_api.h`.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
+        path: "src/vecsim/vec_sim_common.h",
         fns: &[],
         types: &[
             "ThrottleCB",
@@ -140,6 +140,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DocTable_Exists",
             "DocTable_ForEachLiveId",
             "DocTable_Free",
+            "DocTable_IsVisible",
             "DocTable_KeyEquals",
             "DocTable_Put",
             "DocTable_StartKeyMap",
@@ -331,6 +332,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // RSE: the disk API passes DocIdMeta's "length unknown" marker through to the Rust side.
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &[],
+        types: &[],
+        vars: &["DOCID_META_DOCLEN_UNKNOWN"],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -357,7 +365,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAPI",
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
-            "RedisSearchDiskSnapshot",
+            "RedisSearchDiskQueryView",
             "SearchDiskCompactionCallbacks",
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
@@ -600,6 +608,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `src/stemmer.h` includes `language.h`, which carries the `RSLanguage_*`
+    // declarations and the `RSLanguage` enum.
+    // The enum is embedded by value in `Stemmer`, `Document` and
+    // `RSSearchOptions`, so its full definition is required.
+    "language.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
@@ -716,7 +729,6 @@ fn main() {
         deps.clone(),
         permitted_dir.clone(),
         src.join("inverted_index"),
-        deps.join("VectorSimilarity").join("src"),
         src.join("buffer"),
         src.join("ttl_table"),
         src.join("trie"),

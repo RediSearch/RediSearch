@@ -20,7 +20,7 @@
 #include "indexes_scan.h"
 #include "indexes_scanner.h"
 #include "coord/debug_command_names.h"
-#include "VecSim/vec_sim_debug.h"
+#include "vecsim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "numeric_range_tree.h"
@@ -51,9 +51,9 @@
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
-#include "VecSim/info_iterator.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/info_iterator.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_common.h"
 #include "concurrent_ctx.h"
 #include "config.h"
 #include "doc_table.h"
@@ -881,17 +881,16 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (TagIndex_HasDiskSpec(tagIndex)) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
-    goto end;
-  }
-
   iter = TagIndex_IterateValues(tagIndex);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
+    if (TagIndex_HasDiskSpec(tagIndex)) {
+      RedisModule_ReplyWithLongLong(sctx->redisCtx, (uintptr_t)iv);
+      ++resultSize;
+      continue;
+    }
     IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(iv, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
@@ -1086,6 +1085,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ctx, "GC_COMPACT_ALL_INCOMPLETE COMPACT_ALL did not complete (index unavailable, background "
              "work paused or compaction cancelled)");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_BUSY) {
+    return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1245,16 +1247,17 @@ DEBUG_COMMAND(DiskFlush) {
   return REDISMODULE_OK;
 }
 
-// FT.DEBUG DISK_LIVE_SNAPSHOTS
-// Number of disk snapshots currently alive, so tests can assert they are released.
-DEBUG_COMMAND(DiskLiveSnapshots) {
+// FT.DEBUG DISK_LIVE_QUERY_VIEWS
+// Number of per-query disk read views (RedisSearchDiskQueryView handles) currently alive, so
+// tests can assert they are released.
+DEBUG_COMMAND(DiskLiveQueryViews) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveSnapshotCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveQueryViewCount());
 }
 
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
@@ -1374,9 +1377,14 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
   GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
                                        GC_FORCED_RUN_RETRY_INTERVAL_MS);
-  GCContext_ForceBGInvoke(sp->gc, forced);
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-  return REDISMODULE_OK;
+  switch (GCContext_ForceBGInvoke(sp->gc, forced)) {
+    case GC_FORCED_RUN_BUSY:
+      return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
+    case GC_FORCED_RUN_FAILED:
+      return RedisModule_ReplyWithError(ctx, "GC_FAILED the run could not be queued");
+    default:
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 DEBUG_COMMAND(GCStopFutureRuns) {
@@ -1413,8 +1421,8 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-// Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
-// This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
+// Block the client until the GC pool is idle: no job queued and none running on any GC thread.
+// Callers stop the schedules they wait on first, or the pool may never go idle.
 DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1422,6 +1430,14 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
   GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
+}
+
+// GC_THREADS_ALIVE: how many GC pool threads are running.
+DEBUG_COMMAND(GCThreadsAlive) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)GC_ThreadPoolThreadsAlive());
 }
 
 // GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
@@ -1713,9 +1729,8 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (TagIndex_HasDiskSpec(idx)) {
-    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
+  if (TagIndex_HasDiskSpec(idx) && options.dumpIdEntries) {
+    RedisModule_ReplyWithError(ctx, "dump_id_entries not supported for disk-mode indexes");
     goto end;
   }
 
@@ -1751,10 +1766,14 @@ DEBUG_COMMAND(InfoTagIndex) {
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
     RedisModule_ReplyWithLiteral(ctx, "num_entries");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
-
-    RedisModule_ReplyWithLiteral(ctx, "num_blocks");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
+    if (TagIndex_HasDiskSpec(idx)) {
+      RedisModule_ReplyWithLongLong(ctx, (uintptr_t)iv);
+      nsubelem -= 2;
+    } else {
+      RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
+      RedisModule_ReplyWithLiteral(ctx, "num_blocks");
+      RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
+    }
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
@@ -4109,13 +4128,15 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
-                               {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
+                               {"DISK_LIVE_QUERY_VIEWS", DiskLiveQueryViews},
+                               {"DISK_LIVE_SNAPSHOTS", DiskLiveQueryViews}, // Former name, kept for existing diagnostic scripts.
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GC_STOP_SCHEDULE", GCStopFutureRuns},
                                {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},
                                {"GC_WAIT_FOR_JOBS", GCWaitForAllJobs},
+                               {"GC_THREADS_ALIVE", GCThreadsAlive},
                                {"GIT_SHA", GitSha},
                                {"TTL", ttl},
                                {"TTL_PAUSE", ttlPause},

@@ -199,6 +199,76 @@ fn an_invalidated_spec_can_still_be_read_locked() {
     }
 }
 
+/// The closure-scoped locks run their closure on a live spec, and skip it once
+/// the spec is invalidated.
+#[test]
+#[cfg_attr(miri, ignore = "takes the C spec lock")]
+fn the_closure_locks_run_only_while_the_spec_is_alive() {
+    redis_mock::init_redis_module_mock();
+    let keys_dict = OwnedDict::<KeysDictType>::create();
+    // SAFETY: zero is valid for every field this test leaves unset.
+    let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    // SAFETY: the static name is copied, because the spec takes ownership.
+    spec.specName = unsafe { ffi::NewHiddenString(c"idx".as_ptr(), 3, true) };
+    spec.obfuscatedName = CString::new("Index@test").unwrap().into_raw();
+    spec.keysDict = keys_dict.as_mut_ptr();
+    let rwlock = (&raw mut spec.rwlock).cast::<libc::pthread_rwlock_t>();
+    // SAFETY: `rwlock` points at the spec's own, not yet used, lock storage.
+    assert_eq!(unsafe { libc::pthread_rwlock_init(rwlock, ptr::null()) }, 0);
+    // SAFETY: the spec outlives the references, and `keep_spec` leaves its storage.
+    let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(keep_spec)) };
+    // SAFETY: `strong` is the live reference created above.
+    let weak = unsafe { StrongRef_Demote(strong) };
+    // SAFETY: `weak` is a valid weak reference until it is released below.
+    let weak_ref = unsafe { IndexSpecWeakRef::from_raw(weak) };
+    let spec_addr = &raw const spec;
+
+    // SAFETY: `rwlock` was initialized above and stays live; a successful try is
+    // undone right away.
+    let writer_gets_in = || unsafe {
+        let rc = libc::pthread_rwlock_trywrlock(rwlock);
+        if rc == 0 {
+            libc::pthread_rwlock_unlock(rwlock);
+        }
+        rc == 0
+    };
+    let read = weak_ref.with_read_lock(|guard| {
+        assert!(!writer_gets_in(), "the read lock is held in the closure");
+        guard.as_ptr()
+    });
+    assert_eq!(read, Some(spec_addr));
+    let written = weak_ref.with_write_lock(|_| {
+        assert!(!writer_gets_in(), "the write lock is held in the closure");
+    });
+    assert_eq!(written, Some(()));
+    assert!(
+        writer_gets_in(),
+        "both locks are released after their closure"
+    );
+
+    // SAFETY: `strong` is live; this is what dropping the index does.
+    unsafe { StrongRef_Invalidate(strong) };
+    assert_eq!(
+        weak_ref.with_read_lock(|_| panic!("the spec is gone")),
+        None::<()>
+    );
+    assert_eq!(
+        weak_ref.with_write_lock(|_| panic!("the spec is gone")),
+        None::<()>
+    );
+
+    // SAFETY: both references were created above and are released once, the lock
+    // was initialized above and is released, and the spec's names were allocated
+    // above and are freed once.
+    unsafe {
+        WeakRef_Release(weak);
+        StrongRef_Release(strong);
+        libc::pthread_rwlock_destroy(rwlock);
+        ffi::HiddenString_Free(spec.specName, true);
+        drop(CString::from_raw(spec.obfuscatedName));
+    }
+}
+
 /// The specs whose free callback ran, by address.
 static FREED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 

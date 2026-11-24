@@ -31,7 +31,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "iterators_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "config.h"
 #include "doc_table.h"
 #include "geo_ffi.h"
@@ -198,6 +198,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->disk.batch = NULL;
   aCtx->oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
+  aCtx->disk.docLen = 0;
   aCtx->disk.openKey = NULL;
   aCtx->fieldChanges = NULL;
   if (aCtx->specFlags & Index_Async) {

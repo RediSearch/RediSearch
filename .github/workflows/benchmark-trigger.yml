@@ -125,3 +125,27 @@ jobs:
       # Baseline against master when the 'bench:vs-master' label is set (for
       # stacked PRs), otherwise against the PR base branch.
       base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
+
+  vecsim-micro-benchmarks:
+    name: Trigger selected VecSim benchmarks
+    if: >-
+      (github.event.action == 'labeled' &&
+       (startsWith(github.event.label.name, 'bm-') || startsWith(github.event.label.name, 'benchmarks-'))) ||
+      (contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+       (contains(format(',{0}', join(github.event.pull_request.labels.*.name, ',')), ',bm-') ||
+        contains(format(',{0}', join(github.event.pull_request.labels.*.name, ',')), ',benchmarks-'))) ||
+      (github.event.action == 'labeled' && github.event.label.name == 'bench:vs-master' &&
+       (contains(format(',{0}', join(github.event.pull_request.labels.*.name, ',')), ',bm-') ||
+        contains(format(',{0}', join(github.event.pull_request.labels.*.name, ',')), ',benchmarks-')))
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.number }}-vecsim-benchmark
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
+    secrets: inherit
+    with:
+      vecsim-only: true
+      vecsim-suite: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}

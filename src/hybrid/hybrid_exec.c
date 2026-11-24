@@ -41,7 +41,7 @@
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
 #include "search_disk_utils.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "config.h"
 #include "query_flags.h"
@@ -930,7 +930,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   // In-memory background depleters acquire their own read locks before this thread unlocks.
   // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
   // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
-  // Disk depletion uses the snapshot taken during the build and needs no spec lock.
+  // Disk depletion reads through the per-query view taken during the build and needs no spec lock.
   const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
   bool unlockSuppressed = false;
 

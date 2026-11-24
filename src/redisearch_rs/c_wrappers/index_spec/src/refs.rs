@@ -11,7 +11,7 @@
 
 use std::ptr::NonNull;
 
-use crate::{IndexSpecReadLock, IndexSpecWriteLock};
+use crate::{IndexSpecReadGuard, IndexSpecReadLock, IndexSpecWriteGuard, IndexSpecWriteLock};
 
 /// A weak reference to an [`IndexSpec`](crate::IndexSpec).
 ///
@@ -43,6 +43,35 @@ impl IndexSpecWeakRef {
         // When promotion fails, IndexSpecRef_Promote returns StrongRef { rm: NULL } —
         // no reference was acquired, so there is nothing to release.
         NonNull::new(raw).map(|spec| IndexSpecStrongRef { strong_ref, spec })
+    }
+
+    /// Promote, read-lock the spec, and run `f` under the lock.
+    ///
+    /// The closure scope keeps the guard from outliving the strong reference
+    /// that keeps the spec alive. Returns `None`, without calling `f`, if the
+    /// spec has been deleted.
+    ///
+    /// # Aborts
+    ///
+    /// As [`IndexSpecStrongRef::read`] does.
+    pub fn with_read_lock<T>(&self, f: impl FnOnce(&IndexSpecReadGuard<'_>) -> T) -> Option<T> {
+        let lock = self.promote()?.read();
+        Some(f(&lock.guard()))
+    }
+
+    /// Promote, write-lock the spec, and run `f` under the lock.
+    ///
+    /// Like [`with_read_lock`](Self::with_read_lock), with the write lock.
+    ///
+    /// # Aborts
+    ///
+    /// As [`IndexSpecStrongRef::write`] does.
+    pub fn with_write_lock<T>(
+        &self,
+        f: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T,
+    ) -> Option<T> {
+        let mut lock = self.promote()?.write();
+        Some(f(&mut lock.guard()))
     }
 }
 

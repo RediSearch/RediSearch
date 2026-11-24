@@ -15,6 +15,7 @@ members = [
     "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "language",
     "nul_terminated_bytes",
     "over_aligned_alloc",
     "numeric_range_tree",
@@ -50,6 +51,7 @@ members = [
     "tools/ffi_geiger",
     "tools/safety_report",
     "tools/migration_stats",
+    "tools/port_graph",
     "tracing_assert",
     "tracing_redismodule",
     "trie_bencher",
@@ -139,6 +141,7 @@ index_spec = { path = "./c_wrappers/index_spec" }
 index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+language = { path = "./language" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }
@@ -247,6 +250,10 @@ toml = "0.9"
 tracing = "0.1.44"
 tracing_log_error = "0.1"
 tracing-core = "0.1"
+tree-sitter = "0.27"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-rust = "0.24"
 tracing-subscriber = { version = "0.3.22", default-features = false, features = [
     "std",
     "fmt",

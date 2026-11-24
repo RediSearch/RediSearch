@@ -339,8 +339,8 @@ typedef enum {
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
  *    during QAST_Iterate() which already runs under the read-lock.
- * 2. Disk iterators capture an implicit snapshot at creation time, ensuring
- *    consistency for disk reads without needing to hold the lock.
+ * 2. Disk iterators read through the storage layer's per-query view, which keeps
+ *    disk reads consistent without holding the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
 static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
@@ -587,7 +587,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root,
   ret->firstRead = true;
 #endif
 
-  // Keep one per-query snapshot so the pool and queue sizes stay paired.
+  // Read both sizes once per query so the pool and queue sizes stay paired.
   const uint16_t asyncPoolSize = (uint16_t)RSGlobalConfig.diskAsyncReadPoolSize;
   const uint16_t asyncQueueFactor = (uint16_t)RSGlobalConfig.diskAsyncReadQueueFactor;
   RS_ASSERT(asyncQueueFactor >= 1);
