@@ -40,6 +40,7 @@ mod config;
 mod disk;
 mod expansion;
 mod nodes;
+mod numeric_knn;
 
 pub use config::Config;
 

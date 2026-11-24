@@ -17,6 +17,7 @@
 //! - [`find`]: Read path (range queries)
 //! - [`gc`][]: Maintenance (garbage collection, trimming, compaction)
 
+mod dense_values;
 mod find;
 mod gc;
 mod insert;
@@ -27,6 +28,8 @@ mod util;
 pub(crate) use util::CheckedCount;
 
 pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult, scan_range_index_gc};
+
+use std::sync::{Arc, OnceLock};
 
 use rqe_core::DocId;
 
@@ -168,6 +171,8 @@ pub struct NumericRangeTree {
     unique_id: TreeUniqueId,
     /// Whether to use float compression for numeric values.
     compress_floats: bool,
+    // Filled only when the experimental KNN filter asks for a dense snapshot.
+    dense_values: OnceLock<Option<Arc<[f64]>>>,
 }
 
 impl NumericRangeTree {
@@ -227,6 +232,7 @@ impl NumericRangeTree {
             revision_id: 0,
             unique_id: TreeUniqueId::next(),
             compress_floats,
+            dense_values: OnceLock::new(),
         }
     }
 
