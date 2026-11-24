@@ -85,6 +85,8 @@ class TestDebugCommands(object):
             "DUMP_NUMIDXTREE",
             "DUMP_TAGIDX",
             "INFO_TAGIDX",
+            "INFO_SPARSEIDX",
+            "DUMP_SPARSEIDX",
             "DUMP_GEOMIDX",
             "DUMP_PREFIX_TRIE",
             "IDTODOCID",

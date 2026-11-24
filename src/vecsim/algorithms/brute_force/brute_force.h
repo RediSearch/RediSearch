@@ -274,7 +274,7 @@ BruteForceIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
                                                VecSimQueryParams *queryParams) const {
 
     auto rep = new VecSimQueryReply(this->allocator);
-    void *timeoutCtx = queryParams ? queryParams->timeoutCtx : NULL;
+    void *stopCtx = queryParams ? queryParams->stopCtx : NULL;
     this->lastMode = STANDARD_KNN;
 
     if (0 == k) {
@@ -291,8 +291,8 @@ BruteForceIndex<DataType, DistType>::topKQuery(const void *queryBlob, size_t k,
     auto vectors_it = this->vectors->getIterator();
     idType curr_id = 0;
     while (auto *vector = vectors_it->next()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
-            rep->code = VecSim_QueryReply_TimedOut;
+        if (VECSIM_STOP(stopCtx)) {
+            rep->code = VecSim_QueryReply_Stopped;
             delete TopCandidates;
             return rep;
         }
@@ -325,7 +325,7 @@ BruteForceIndex<DataType, DistType>::rangeQuery(const void *queryBlob, double ra
                                                 VecSimQueryParams *queryParams) const {
     auto processed_query_ptr = this->preprocessQuery(queryBlob);
     auto rep = new VecSimQueryReply(this->allocator);
-    void *timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
+    void *stopCtx = queryParams ? queryParams->stopCtx : nullptr;
     this->lastMode = RANGE_QUERY;
 
     // Compute scores in every block and save results that are within the range.
@@ -337,8 +337,8 @@ BruteForceIndex<DataType, DistType>::rangeQuery(const void *queryBlob, double ra
     idType curr_id = 0;
     const void *processed_query = processed_query_ptr.get();
     while (vectors_it->hasNext()) {
-        if (VECSIM_TIMEOUT(timeoutCtx)) {
-            rep->code = VecSim_QueryReply_TimedOut;
+        if (VECSIM_STOP(stopCtx)) {
+            rep->code = VecSim_QueryReply_Stopped;
             break;
         }
         auto score = this->calcDistance(vectors_it->next(), processed_query);

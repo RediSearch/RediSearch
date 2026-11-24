@@ -27,8 +27,10 @@
 #include "inverted_index_ffi.h"
 #include "tag_index.h"
 #include "iterators_ffi.h"
+#include "iterators/vector_top_k.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
+#include "sparse_vector_index_ffi.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
@@ -1671,6 +1673,68 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
       break;
     }
   }
+}
+
+// How many dimensions INFO_SPARSEIDX lists when TOP is not given.
+#define SPARSE_DEBUG_DEFAULT_TOP 10
+
+/**
+ * FT.DEBUG INFO_SPARSEIDX <index> <field> [TOP <n>]
+ * The field's size and its `n` longest dimensions, longest first.
+ */
+DEBUG_COMMAND(InfoSparseVectorIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4 && argc != 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long top = SPARSE_DEBUG_DEFAULT_TOP;
+  if (argc == 6) {
+    const char *opt = RedisModule_StringPtrLen(argv[4], NULL);
+    if (strcasecmp(opt, "TOP") || RedisModule_StringToLongLong(argv[5], &top) != REDISMODULE_OK ||
+        top < 0) {
+      return RedisModule_ReplyWithError(ctx, "Expected TOP <non-negative integer>");
+    }
+  }
+  GET_SEARCH_CTX(argv[2])
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_SPARSE_VECTOR);
+  if (!fs) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+  } else {
+    SparseVectorIndex_DebugInfo(sctx->redisCtx, FieldSpec_OpenSparseVectorIndex(fs, false),
+                                (size_t)top);
+  }
+  SearchCtx_Release(sctx);
+  return REDISMODULE_OK;
+}
+
+/**
+ * FT.DEBUG DUMP_SPARSEIDX <index> <field> <dim_id>
+ * The posting list of one dimension, as a flat [doc_id, weight, ...] array.
+ */
+DEBUG_COMMAND(DumpSparseVectorIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long dimId;
+  if (RedisModule_StringToLongLong(argv[4], &dimId) != REDISMODULE_OK || dimId < 0 ||
+      dimId > UINT32_MAX) {
+    return RedisModule_ReplyWithError(ctx, "Invalid dimension ID");
+  }
+  GET_SEARCH_CTX(argv[2])
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_SPARSE_VECTOR);
+  if (!fs) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
+  } else {
+    SparseVectorIndex_DebugDumpDimension(sctx->redisCtx, FieldSpec_OpenSparseVectorIndex(fs, false),
+                                         (uint32_t)dimId);
+  }
+  SearchCtx_Release(sctx);
+  return REDISMODULE_OK;
 }
 
 /**
@@ -3720,11 +3784,6 @@ static inline int TimedOut_Always(QueryRequestLimits *timeout) {
   return TIMED_OUT;
 }
 
-// Global timeout callback for VecSim searches.
-// Need the redirection so tests can pass a mock function to test timeout behavior.
-// Defined in vector_top_k.c, called from the Rust vector top-k scan.
-extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
-
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
  * Set the timeout callback for VecSim searches globally
@@ -3740,12 +3799,10 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcmp("enable", op)) {
-    vecsimTimeoutCallback = TimedOut_Always;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_Always);
+    RS_VecSimSetTimeoutCallback(TimedOut_Always);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else if (!strcmp("disable", op)) {
-    vecsimTimeoutCallback = VecSim_TimedOut;
-    VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
+    RS_VecSimSetTimeoutCallback(NULL);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
@@ -4113,6 +4170,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
                                {"DUMP_TAGIDX", DumpTagIndex},
                                {"INFO_TAGIDX", InfoTagIndex},
+                               {"INFO_SPARSEIDX", InfoSparseVectorIndex},
+                               {"DUMP_SPARSEIDX", DumpSparseVectorIndex},
                                {"DUMP_GEOMIDX", DumpGeometryIndex},
                                {"DUMP_PREFIX_TRIE", DumpPrefixTrie},
                                {"IDTODOCID", IdToDocId},

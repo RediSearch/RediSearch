@@ -38,7 +38,7 @@ impl ScoreBatch for InterruptibleBatch {
     fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         if let Some(remaining) = &mut self.remaining {
             if *remaining == 0 {
-                return Err(RQEIteratorError::TimedOut);
+                return Err(RQEIteratorError::Stopped);
             }
             *remaining -= 1;
         }
@@ -83,7 +83,7 @@ impl ScoreSource for PartialThenTimingOutSource {
                 remaining: self.batch_error_after,
             }));
         }
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     }
 
     fn lookup_score(&mut self, _: DocId) -> Option<f64> {
@@ -128,7 +128,7 @@ impl ScoreSource for PartialThenTimingOutSource {
     }
 }
 
-/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`],
+/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::Stopped`],
 /// counting how many times it was driven.
 ///
 /// Used to verify that timeout errors propagate correctly through [`TopKIterator`],
@@ -152,7 +152,7 @@ impl ScoreSource for TimingOutSource {
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         self.next_batch_calls += 1;
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     }
 
     fn lookup_score(&mut self, _: DocId) -> Option<f64> {
@@ -369,7 +369,7 @@ fn candidate_errors_propagate_with_a_child_and_in_direct_mode() {
         let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![(1, 1.0)], |_, _| {
             BatchStrategy::Continue
         })
-        .with_candidate_filter(|_, _| Err(RQEIteratorError::TimedOut));
+        .with_candidate_filter(|_, _| Err(RQEIteratorError::Stopped));
         let mut it = TopKIterator::new_with_mode(
             source,
             child,
@@ -378,7 +378,7 @@ fn candidate_errors_propagate_with_a_child_and_in_direct_mode() {
             mode,
         );
         assert!(
-            matches!(it.read(), Err(RQEIteratorError::TimedOut)),
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
             "{mode:?}"
         );
     }
@@ -562,7 +562,7 @@ fn unfiltered_timeout_propagated() {
     ));
     assert!(matches!(
         it.read().unwrap_err(),
-        rqe_iterators::RQEIteratorError::TimedOut
+        rqe_iterators::RQEIteratorError::Stopped
     ));
 }
 
@@ -604,7 +604,7 @@ fn failed_collection_yields_what_it_collected() {
         TopKMode::Batches,
     );
 
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     let mut emitted = Vec::new();
     while let Some(r) = it.read().unwrap() {
@@ -634,7 +634,7 @@ fn batch_read_errors_preserve_already_collected_hits() {
         );
 
         assert!(
-            matches!(it.read(), Err(RQEIteratorError::TimedOut)),
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
             "{name}"
         );
         let emitted: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -856,7 +856,7 @@ fn unfiltered_timeout_polled_while_skipping_expired() {
         NonZeroUsize::new(3).unwrap(),
         Ascending,
     ));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -876,7 +876,7 @@ fn yield_timeout_polled_while_skipping_expired() {
         NonZeroUsize::new(3).unwrap(),
         Ascending,
     ));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -894,7 +894,7 @@ fn unfiltered_timeout_polled_before_yielding_valid() {
         Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -914,7 +914,7 @@ fn yield_timeout_polled_before_yielding_valid() {
         Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -937,7 +937,7 @@ fn timed_out_collection_serves_its_hits_even_if_the_deadline_clears() {
         TopKMode::AdhocBF,
     ));
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(
@@ -1000,7 +1000,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
                 // Session 1: return one batch then error, leaving the heap dirty.
                 match n {
                     0 => Ok(Some(MockScoreBatch::new(vec![(1, 1.0), (3, 3.0)]))),
-                    _ => Err(RQEIteratorError::TimedOut),
+                    _ => Err(RQEIteratorError::Stopped),
                 }
             } else {
                 // Session 2 (after rewind): return the same batch then stop cleanly.
@@ -1067,7 +1067,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
 
     // Session 1: the source returns one batch (doc 1, doc 3 land in the heap)
     // then errors before finalize_collection() can drain it.
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     it.rewind();
 
@@ -1231,10 +1231,10 @@ fn adhoc_empty_child_is_eof() {
 }
 
 /// An adhoc scan that hits the query deadline mid-walk must abort with
-/// [`RQEIteratorError::TimedOut`], not return a truncated top-k.
+/// [`RQEIteratorError::Stopped`], not return a truncated top-k.
 #[test]
 fn adhoc_timeout_propagated() {
-    // Returns `TimedOut` from the second `adhoc_strategy` call, simulating the
+    // Returns `Stopped` from the second `check_timeout` call, simulating the
     // deadline firing after one document has been scored.
     struct TimingOutAdhocSource {
         adhoc_calls: u32,
@@ -1282,7 +1282,7 @@ fn adhoc_timeout_propagated() {
         fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
             self.adhoc_calls += 1;
             if self.adhoc_calls >= 2 {
-                Err(RQEIteratorError::TimedOut)
+                Err(RQEIteratorError::Stopped)
             } else {
                 Ok(())
             }
@@ -1299,7 +1299,7 @@ fn adhoc_timeout_propagated() {
         Ascending,
         TopKMode::AdhocBF,
     ));
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 }
 
 // ── ProfileChildren ───────────────────────────────────────────────────────────

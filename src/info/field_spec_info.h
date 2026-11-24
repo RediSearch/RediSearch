@@ -26,6 +26,7 @@ extern "C" {
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
+    SparseVectorIndexStats sparseStats;
   };
   FieldType type;
   // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
@@ -92,6 +93,12 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
 
 // Reads vector metrics from a field-statistics map into initialized statistics.
 void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRReply *reply);
+
+// Reads sparse vector metrics from a field-statistics map into initialized statistics.
+void FieldSpecStats_DeserializeSparseVectorMetrics(FieldSpecStats *stats, const MRReply *reply);
+
+// Get the combined stats of all sparse vector fields in the index.
+SparseVectorIndexStats IndexSpec_GetSparseVectorIndexesStats(const IndexSpec *sp);
 
 //Get the total memory usage of all the vector fields in the index (in bytes).
 size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
