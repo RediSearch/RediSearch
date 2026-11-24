@@ -23,7 +23,7 @@ static const char ToksepMap_g[256] = {
  * Function reads string pointed to by `s` and indicates the length of the next
  * token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep(char **s, size_t *tokLen) {
+static inline char *toksep_inline(char **s, size_t *tokLen) {
   uint8_t *pos = (uint8_t *)*s;
   char *orig = *s;
   int escaped = 0;
@@ -45,8 +45,11 @@ static inline char *toksep(char **s, size_t *tokLen) {
   return orig;
 }
 
-static inline int istoksep(int c) {
+static inline int istoksep_inline(int c) {
   return ToksepMap_g[(uint8_t)c] != 0;
 }
+
+char *toksep(char **s, size_t *tokLen);
+int istoksep(int c);
 
 #endif
