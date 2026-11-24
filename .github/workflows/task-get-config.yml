@@ -86,6 +86,13 @@ jobs:
               " && n=0; until apt update && apt install -y git; do n=$((n+1)); [ $n -lt 5 ] || exit 1; sleep $((n*15)); done"
           )
 
+          # Keep uv off GITHUB_PATH so the Rocky 9 container retains access to bash.
+          rocky9_setup = (
+              'dnf update -y && dnf install -y git'
+              ' && { echo UV_INSTALL_DIR=/usr/local/bin; echo UV_NO_MODIFY_PATH=1; }'
+              ' >> "$GITHUB_ENV"'
+          )
+
           # Platform configurations
           platform_configs = {
               "macos": {
@@ -160,12 +167,12 @@ jobs:
               "rockylinux:9": {
                   "x86_64": {
                       'container': 'rockylinux:9',
-                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'setup_script': rocky9_setup,
                       'name': 'Rocky Linux 9 x86_64'
                   },
                   "aarch64": {
                       'container': 'rockylinux:9',
-                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'setup_script': rocky9_setup,
                       'name': 'Rocky Linux 9 ARM64'
                   }
               },
