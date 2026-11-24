@@ -589,7 +589,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     const prs = stages.flatMap((s) => job.prs[s]?.url ?? []);
     const briefing = `${prefix} You take over a ${profile.name} job at stage \`${next}\` from ${host.threadUrl(from)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. ${follow} and read the skills they name. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
 
-First subscribe to the CI and comments of ${prs.join(' and ')}.
+First try subscribing to the CI and comments of ${prs.join(' and ')}. If subscriptions are unavailable, follow the host policy's fallback.
 
 ## Stage \`${next}\`
 
