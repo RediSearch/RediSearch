@@ -35,27 +35,18 @@ const unsafe fn slice_or_empty<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
     }
 }
 
-/// Copy `items` into a new allocation from the Redis module allocator,
-/// followed by one zero item, so the C caller can free it with `rm_free`.
+/// Copy `items` into a new allocation, followed by one zero item, so the C
+/// caller can free it with `rm_free`: the global allocator is backed by
+/// `RedisModule_Alloc`.
 ///
-/// Not a boxed slice: shrinking a `Vec` to its exact length reallocates on
-/// nearly every call, which made [`runesToStr`] up to twice as slow.
+/// [`Vec::with_capacity`] allocates exactly the requested capacity, so the
+/// boxed slice never reallocates; shrinking a longer [`Vec`] did, on nearly
+/// every call.
 fn to_module_buffer<T: Copy + Default>(items: &[T]) -> NonNull<T> {
-    // SAFETY: `RedisModule_Alloc` is set during module init and not mutated
-    // afterwards.
-    let alloc = unsafe { redis_module::RedisModule_Alloc }.expect("Redis allocator not available");
-    // SAFETY: any size may be requested; the result is checked below.
-    let buf = unsafe { alloc(size_of_val(items) + size_of::<T>()) }.cast::<T>();
-    let buf = NonNull::new(buf).expect("the Redis allocator returned NULL");
-    // SAFETY: `buf` is a fresh allocation, aligned for any type, with room for
-    // `items.len() + 1` items, so it cannot overlap `items`.
-    unsafe { buf.copy_from_nonoverlapping(NonNull::from(items).cast(), items.len()) };
-    // SAFETY: the allocation holds `items.len() + 1` items, so the offset
-    // stays within it.
-    let end = unsafe { buf.add(items.len()) };
-    // SAFETY: `end` is the last item slot of the allocation, aligned as above.
-    unsafe { end.write(T::default()) };
-    buf
+    let mut buf = Vec::with_capacity(items.len() + 1);
+    buf.extend_from_slice(items);
+    buf.push(T::default());
+    NonNull::from(Box::leak(buf.into_boxed_slice())).cast()
 }
 
 /// Fold `r` with [`runes::fold_rune`].
