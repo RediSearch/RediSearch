@@ -1549,6 +1549,8 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "compound_index",
+ "index_result",
+ "inverted_index",
  "nested_index",
  "numeric_range_tree",
  "proptest",

@@ -15,5 +15,6 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 mod indexing;
+mod numeric_terminals;
 mod properties;
 mod util;
