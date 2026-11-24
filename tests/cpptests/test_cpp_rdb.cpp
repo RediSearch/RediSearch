@@ -19,7 +19,6 @@ extern "C" {
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 
 #include <string>
-#include <iterator>
 #include <memory>
 #include <functional>
 
@@ -650,8 +649,8 @@ class LegacyLoadScope {
 // non-null messages, so setting an error on it frees garbage instead of passing by chance.
 static void __attribute__((noinline)) dirtyStackForUninitializedQueryError() {
   volatile uint64_t slots[8192];
-  for (size_t i = 0; i < std::size(slots); i++) {
-    slots[i] = 0xdeadbe00;
+  for (auto &slot : slots) {
+    slot = 0xdeadbe00;
   }
 }
 
@@ -659,7 +658,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoadWithRegisteredAlias) {
   const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
   QueryError err = {};
   const char *alias = "dup_alias";
-  StrongRef spec_ref = IndexSpec_Parse("dup_alias_idx", args, std::size(args), &err);
+  StrongRef spec_ref = IndexSpec_Parse("dup_alias_idx", args, sizeof(args) / sizeof(args[0]), &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
   Spec_AddToDict(spec_ref.rm);
