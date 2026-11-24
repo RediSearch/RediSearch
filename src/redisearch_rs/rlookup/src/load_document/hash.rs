@@ -258,17 +258,18 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
                     // Key name is already taken by a query key.
                     return;
                 } else {
-                    c.into_current().unwrap()
+                    c.into_current()
                 }
             } else {
                 // First returned document, create the key.
-                rlookup
-                    .get_key_load(
-                        field_cstr.to_owned(),
-                        field_cstr,
-                        RLookupKeyFlag::ForceLoad.into(),
-                    )
-                    .unwrap()
+                rlookup.get_key_load(
+                    field_cstr.to_owned(),
+                    field_cstr,
+                    RLookupKeyFlag::ForceLoad.into(),
+                )
+            };
+            let Some(key) = key else {
+                return;
             };
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {
@@ -389,6 +390,27 @@ mod tests {
 
         let v = hval_to_value(&s, HashCoerceType::Str);
         assert_eq!(expect_string(&v), b"\xff\xfe\x80hello");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+    fn load_all_fills_the_last_row_slot_and_skips_the_rest() {
+        redis_mock::init_redis_module_mock();
+        let mut builder = redis_mock::TestContext::builder();
+        builder.with_key_type(&KeyType::Hash);
+        builder.inject_key_value(c"fits".to_owned(), c"1".to_owned());
+        builder.inject_key_value(c"overflows".to_owned(), c"2".to_owned());
+        let mut ctx = builder.build();
+        let format = HashDocumentFormat::new(NonNull::from_mut(&mut ctx).cast(), false);
+        let mut rlookup = RLookup::new();
+        rlookup.fill_all_but_last_row_slot();
+        let mut row = RLookupRow::new();
+
+        format
+            .load_all(&mut rlookup, &mut row, &make_string(&c"doc:1".to_owned()))
+            .unwrap();
+
+        assert_eq!(row.num_dyn_values(), 1);
     }
 
     #[test]

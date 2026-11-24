@@ -276,10 +276,11 @@ static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_
              : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
 }
 
-static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId,
+                            uint32_t docLen) {
   return aCtx->disk.openKey
-             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
-             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId, docLen)
+             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId, docLen);
 }
 
 /** Assigns a document ID to a single document. Handles only the RAM index.
@@ -332,7 +333,7 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
     doc->docId = dmd->id;
     // Publish the key -> docId mapping. Crash on failure (matches the disk
     // post-commit policy) rather than leave a DMD with no mapping.
-    int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
+    int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id, aCtx->fwIdx->totalFreq);
     RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK,
                          "DocIdMeta_Set failed while indexing in memory mode");
   }

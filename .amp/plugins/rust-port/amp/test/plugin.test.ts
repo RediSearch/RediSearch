@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
+import type { CreateAgentConfig } from '@ampcode/plugin';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ampHost } from '../plugin.ts';
@@ -30,10 +31,12 @@ function amp(text: string) {
   };
   const api = {
     system: { ampURL: new URL('https://ampcode.com') },
-    createAgent: (config: { instructions: string }) => (
-      (seen.instructions = config.instructions),
-      agent
-    ),
+    createAgent: (config: CreateAgentConfig) => {
+      assert.equal(config.extends, undefined);
+      assert.match(config.model, /^[^/]+\/[^/]+$/);
+      seen.instructions = config.instructions;
+      return agent;
+    },
     threads: { get: () => ({ ...thread, agent: async () => agent }) },
   } as any;
   return { api, seen };

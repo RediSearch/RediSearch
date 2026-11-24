@@ -68,6 +68,10 @@ bool hset(RedisModuleCtx *ctx, const char *rkey, const char *hkey, const char *v
 /** Clears the database associated with the context */
 void flushdb(RedisModuleCtx *);
 
+/** Marks `key` as awaiting trim (or not): OpenKey hides it unless the caller
+ * passes REDISMODULE_OPEN_KEY_ACCESS_TRIMMED. */
+void setKeyTrimmed(RedisModuleCtx *, const char *key, bool trimmed);
+
 void init();
 
 std::vector<RedisModuleString *> CreateArgv(RedisModuleCtx *, const char *s, ...);

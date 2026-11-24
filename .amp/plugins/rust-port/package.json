@@ -14,7 +14,7 @@
     "execa": "10.1.1"
   },
   "devDependencies": {
-    "@ampcode/plugin": "0.0.0-20261029001459-g185813a",
+    "@ampcode/plugin": "0.0.0-20261123001411-g03d1fb9",
     "@rollup/plugin-commonjs": "29.0.3",
     "@rollup/plugin-node-resolve": "16.0.3",
     "@rollup/plugin-typescript": "12.3.0",

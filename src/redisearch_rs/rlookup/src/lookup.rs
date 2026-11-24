@@ -57,6 +57,8 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a list of [`RLookupKey`]s addressable by string name.
+/// It holds at most one key per row slot; once every slot is taken, creating a
+/// key yields `None`.
 ///
 /// # Sealing
 ///
@@ -205,7 +207,7 @@ impl<'a> RLookup<'a> {
     }
 
     /// Resolve a writable key by name, lazily indexing wide lookups before the search.
-    pub(crate) fn get_or_create_key_by_name(&mut self, name: &[u8]) -> &RLookupKey<'a> {
+    pub(crate) fn get_or_create_key_by_name(&mut self, name: &[u8]) -> Option<&RLookupKey<'a>> {
         let slot = if let Some(slot) = self.keys.find_slot_for_write(name) {
             slot
         } else {
@@ -214,10 +216,9 @@ impl<'a> RLookup<'a> {
             self.get_key_write_slot(
                 CString::new(name).expect("field names cannot contain NUL"),
                 RLookupKeyFlags::empty(),
-            )
-            .expect("a missing key must be writable")
+            )?
         };
-        self.keys.get(slot).unwrap()
+        self.keys.get(slot)
     }
 
     /// Add all non-overridden keys from `src` to `self`.
@@ -337,7 +338,7 @@ impl<'a> RLookup<'a> {
         // the schema as SORTABLE, and create only if so.
         let name = match self.gen_key_from_spec(name, flags) {
             Ok(key) => {
-                return Some(self.keys.push_slot(key));
+                return self.keys.push(key);
             }
             Err(name) => name,
         };
@@ -349,7 +350,7 @@ impl<'a> RLookup<'a> {
             let special = self.hidden_if_schema_special(key.name().as_ref());
             key.flags |= special;
 
-            return Some(self.keys.push_slot(key));
+            return self.keys.push(key);
         }
 
         None
@@ -450,7 +451,7 @@ impl<'a> RLookup<'a> {
             // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags.
             self.keys
-                .push_slot(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))?
         };
 
         Some(key)
@@ -548,10 +549,10 @@ impl<'a> RLookup<'a> {
                 .unwrap();
             slot
         } else {
-            self.keys.push_slot(RLookupKey::new(
+            self.keys.push(RLookupKey::new(
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ))
+            ))?
         };
 
         let key = self.keys.cursor_at_mut(slot).into_current().unwrap();
@@ -589,6 +590,11 @@ impl<'a> RLookup<'a> {
         }
 
         Some(slot)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fill_all_but_last_row_slot(&mut self) {
+        self.keys.fill_all_but_last_row_slot();
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.

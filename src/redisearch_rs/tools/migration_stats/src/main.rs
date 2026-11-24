@@ -30,6 +30,14 @@ const NON_PRODUCTION_CRATES: &[&str] = &[
     "workspace_hack",
 ];
 
+/// VecSim, its tests and its benchmarks. Vendored from a former external
+/// dependency, it is not part of the migration and would skew the C metrics.
+const VECSIM_DIRS: &[&str] = &[
+    "src/vecsim/",
+    "tests/cpptests/vecsim/",
+    "tests/cpptests/micro-benchmarks/vecsim/",
+];
+
 /// Directories of a crate that hold no production code.
 const NON_PRODUCTION_CRATE_DIRS: &[&str] = &["tests", "benches", "examples"];
 
@@ -178,6 +186,9 @@ fn is_c_or_cpp(path: &str) -> bool {
 fn is_relevant(path: &str) -> bool {
     if let Some(rel) = path.strip_prefix(RUST_ROOT) {
         return extension(rel) == "rs" || rel.ends_with("Cargo.toml");
+    }
+    if VECSIM_DIRS.iter().any(|dir| path.starts_with(dir)) {
+        return false;
     }
     if path.starts_with("src/") && matches!(extension(path), "rl" | "y") {
         // Only their presence matters: they reveal the `.c` files generated
@@ -444,6 +455,25 @@ mod tests {
             .collect();
         let stats = c_code_stats(&files);
         assert_eq!((stats.c.files, stats.c.lines), (1, 3));
+    }
+
+    #[test]
+    fn excludes_vecsim() {
+        let tree = [
+            (
+                "src/vecsim/vec_sim.cpp",
+                "int vecsim(void) {\n  return 0;\n}\n",
+            ),
+            ("src/query.c", "int query(void) {\n  return 0;\n}\n"),
+            ("tests/cpptests/vecsim/unit/test_hnsw.cpp", ""),
+            ("tests/cpptests/micro-benchmarks/vecsim/bm.cpp", ""),
+        ];
+        let relevant: Vec<_> = tree
+            .iter()
+            .map(|(path, _)| *path)
+            .filter(|path| is_relevant(path))
+            .collect();
+        assert_eq!(relevant, ["src/query.c"]);
     }
 
     #[test]

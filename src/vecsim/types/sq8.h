@@ -18,6 +18,7 @@ namespace vecsim_types {
 // Represents a scalar-quantized 8-bit blob with reconstruction metadata
 struct sq8 : quantized_metadata {
     using value_type = uint8_t;
+    using metadata_type = float;
     static constexpr uint8_t max_code = std::numeric_limits<uint8_t>::max();
 
     static constexpr size_t data_bytes_count(size_t dim) { return dim; }

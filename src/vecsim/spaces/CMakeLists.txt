@@ -1,6 +1,7 @@
 # Build non optimized code in a single project without architecture optimization flag.
 project(VectorSimilaritySpaces_no_optimization)
 add_library(VectorSimilaritySpaces_no_optimization
+	sq8_fp64.cpp
 	L2/L2.cpp
 	IP/IP.cpp
 )

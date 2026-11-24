@@ -73,7 +73,8 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
   const briefing = sent.find((s) => s.thread === 'T-2')!.message;
   assert.match(briefing, /You take over a port job at stage `b`/);
   assert.match(briefing, /Follow `core\.md` and `host\.md`/);
-  assert.match(briefing, /subscribe to the CI and comments of https:\/\/forge\/pull\/1\./);
+  assert.match(briefing, /try subscribing to the CI and comments of https:\/\/forge\/pull\/1\./);
+  assert.match(briefing, /If subscriptions are unavailable, follow the host policy's fallback\./);
   const { job } = await state();
   assert.deepEqual([job.owner, job.former, job.used], ['T-2', [WORKER], 1]);
 

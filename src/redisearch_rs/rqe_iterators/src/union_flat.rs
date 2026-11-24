@@ -982,40 +982,19 @@ where
     type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator))
-        // correctly transitions its vtable. For concrete-typed `I` this is
-        // the same whole-box cast that would otherwise happen at the outer
-        // level, just per-child.
-        //
-        // Walked through the buffer pointer rather than `iter_mut`, as `resume`
-        // does: each transition retypes a slot from `I` to `I::Suspended`, so a
-        // typed `IterMut<IndexedChild<I>>` would still be describing the buffer
-        // as `IndexedChild<I>` after the first one. Nothing here re-reads a
-        // transitioned slot, so that iterator would not actually be misused —
-        // but the borrow claims something that stops being true half way
-        // through, and every other caller of the slot helper already hands it a
-        // raw pointer.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-            // for the rest of this function, so the children Vec is reachable
-            // and unaliased. The borrow is used only to reach the buffer pointer
-            // and length, and ends here.
-            let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
+        let inner_of = |elem: NonNull<IndexedChild<I>>| {
+            // SAFETY: `suspend_children_in_place` passes a valid element.
+            let inner = unsafe { &raw mut (*elem.as_ptr()).inner };
+            NonNull::new(inner).expect("child slot is non-null")
         };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let elem = unsafe { base.add(i) };
-            // SAFETY: `elem` addresses a valid `IndexedChild`; `&raw mut` forms
-            // a pointer to its `inner` slot without going through a reference.
-            let inner =
-                NonNull::new(unsafe { &raw mut (*elem).inner }).expect("child slot is non-null");
-            // SAFETY: `inner` holds a valid, owned `I`; the helper leaves the
-            // slot holding a valid `I::Suspended`.
-            unsafe { crate::boxed::suspend_child_slot_in_place(inner) };
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. `inner_of`
+        // projects each element onto its child. 3. The cast below relabels
+        // every slot as `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, inner_of) };
         // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
         // (now byte-rewritten with `I::Suspended` payloads) and
         // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).

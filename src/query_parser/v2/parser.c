@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "config.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -2370,7 +2371,17 @@ static YYACTIONTYPE yy_reduce(
       case 76: /* expr ::= modifier COLON geometry_query */
 {
   yylhsminor.yy119 = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy128.fs, INDEXFLD_T_GEOMETRY)) {
+  if (yymsp[0].minor.yy119 && yymsp[0].minor.yy119->type == QN_SPARSE_VECTOR) {
+    // `@field:[SPARSE $q]` shares the `[TERM ATTRIBUTE]` shape of a geoshape query.
+    if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy128.fs, INDEXFLD_T_SPARSE_VECTOR)) {
+      REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy128, SPEC_SPARSE_VECTOR_STR);
+      QueryNode_Free(yymsp[0].minor.yy119);
+    } else {
+      // `yymsp[-2].minor.yy128.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set.
+      yymsp[0].minor.yy119->svn.fieldIndex = ctx->sctx->spec ? yymsp[-2].minor.yy128.fs->index : RS_INVALID_FIELD_INDEX;
+      yylhsminor.yy119 = yymsp[0].minor.yy119;
+    }
+  } else if (ctx->sctx->spec && !FIELD_IS(yymsp[-2].minor.yy128.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy128, SPEC_GEOMETRY_STR);
     QueryNode_Free(yymsp[0].minor.yy119);
   } else if (yymsp[0].minor.yy119) {
@@ -2385,11 +2396,23 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 77: /* geometry_query ::= LSQB TERM ATTRIBUTE RSQB */
 {
-  // Geometry param is actually a case sensitive term
-  yymsp[-1].minor.yy0.type = QT_PARAM_TERM_CASE;
-  yymsp[-3].minor.yy119 = NewGeometryNode_FromWkt_WithParams(ctx, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len, &yymsp[-1].minor.yy0);
-  if (!yymsp[-3].minor.yy119) {
-    reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Expecting a geoshape predicate");
+  if (yymsp[-2].minor.yy0.len == strlen("SPARSE") && !strncasecmp("SPARSE", yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len)) {
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      // `SPARSE` was never a geoshape predicate, so this query was an error before the feature
+      // existed too; only the message changes, to say how to enable it.
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, SPARSE_VECTOR_UNSTABLE_ERR);
+      yymsp[-3].minor.yy119 = NULL;
+    } else {
+      // The query vector is binary, so it is always a parameter.
+      yymsp[-3].minor.yy119 = NewSparseVectorNode_WithParams(ctx, NULL, &yymsp[-1].minor.yy0);
+    }
+  } else {
+    // Geometry param is actually a case sensitive term
+    yymsp[-1].minor.yy0.type = QT_PARAM_TERM_CASE;
+    yymsp[-3].minor.yy119 = NewGeometryNode_FromWkt_WithParams(ctx, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len, &yymsp[-1].minor.yy0);
+    if (!yymsp[-3].minor.yy119) {
+      reportSyntaxError(ctx->status, &yymsp[-1].minor.yy0, "Syntax error: Expecting a geoshape predicate");
+    }
   }
 }
         break;

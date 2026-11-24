@@ -205,6 +205,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       }
     }
 
+    if (FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR)) {
+      REPLY_KVSTR("data_type", "FLOAT32");
+      REPLY_KVINT("dim", fs->sparseVecOpts.dim);
+      REPLY_KVSTR("distance_metric",
+                  fs->sparseVecOpts.metric == SparseMetric_Cosine ? "COSINE" : "IP");
+    }
+
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
       VecSimAlgo field_algo = vec_params.algo;
@@ -322,6 +329,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_records", num_records);
   REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
+  // Only indexes with a sparse field report it, so FT.INFO of every other index is unchanged
+  // while the feature is unstable (SPARSE_VECTOR_UNSTABLE_ERR). Already counted in
+  // `inverted_sz_mb`: sparse posting lists are inverted indexes.
+  if (sp->flags & Index_HasSparseVec) {
+    REPLY_KVNUM("sparse_vector_index_sz_mb",
+                IndexSpec_GetSparseVectorIndexesStats(sp).memory / (float)0x100000);
+  }
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
