@@ -37,7 +37,7 @@ async function setup(host: Host = fakeHost().host) {
   await commit({ README: 'r\n' });
   // The work goes on a branch of its own, so `main` stays the base the first stage diffs against.
   await sh(['checkout', '-q', '-b', 'work']);
-  const { forge, published } = fakeForge();
+  const { forge, published, linked } = fakeForge();
   const port = engine({
     ...{ root, dir, profile, host, vcs: gitVcs(root), forge: () => forge },
     ...{ policy: ['core.md', 'host.md'], log: () => {}, disposed: new AbortController().signal },
@@ -47,7 +47,7 @@ async function setup(host: Host = fakeHost().host) {
   const state = async (): Promise<State> =>
     JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
   await run('plan', { plan });
-  return { port, run, commit, state, published, dir };
+  return { port, run, commit, state, published, linked, forge, dir };
 }
 
 test('admitting the first stage publishes it and hands the job to a fresh worker', async () => {
@@ -92,6 +92,23 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
     ],
   );
   assert.equal((await state()).job.owner, 'T-2');
+});
+
+test('every publication links all stage PRs, and a failed link holds nothing back', async () => {
+  const { run, commit, state, linked, forge } = await setup();
+  const url = (n: number) => `https://forge/pull/${n}`;
+  const a = await commit({ 'a/t.txt': 'pins\n' });
+  await run('claim', { stage: 'a', revision: a });
+  forge.linkStack = async () => {
+    throw new Error('stacks are unavailable');
+  };
+  const b = await commit({ 'b/x.txt': 'x\n' });
+  assert.match(await run('claim', { stage: 'b', revision: b }, 'T-2'), /Stage b admitted/);
+  assert.equal((await state()).job.prs.b?.url, url(2));
+  assert.deepEqual(
+    linked.map((l) => [l.base, l.prs.map((p) => p.url)]),
+    [['main', [url(1)]]],
+  );
 });
 
 test('a state recorded with its stages out of order is read in the profile order', async () => {
