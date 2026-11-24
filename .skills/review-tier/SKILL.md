@@ -1,6 +1,6 @@
 ---
 name: review-tier
-description: Assign a RediSearch, RediSearchEnterprise, or VectorSimilarity pull request its review risk tier (risk:T0 to risk:T3, plus experimental) under the team's "Search code review procedure", and explain which rule and which file decided it. Use whenever someone asks what tier or risk label a PR should get, whether a PR needs a code-owner or peer review, whether it can self-merge, whether the experimental exception applies, or what must happen before it merges — even if they only paste a PR number or say "how risky is this change". Reads the current procedure from Confluence each run, so it follows the draft as it changes.
+description: Assign a RediSearch, or RediSearchEnterprise pull request its review risk tier (risk:T0 to risk:T3, plus experimental) under the team's "Search code review procedure", and explain which rule and which file decided it. Use whenever someone asks what tier or risk label a PR should get, whether a PR needs a code-owner or peer review, whether it can self-merge, whether the experimental exception applies, or what must happen before it merges — even if they only paste a PR number or say "how risky is this change". Reads the current procedure from Confluence each run, so it follows the draft as it changes.
 ---
 
 # Review tier
