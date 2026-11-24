@@ -231,7 +231,9 @@ The index has two layers:
     `MAX_BUCKETS` of them);
   - `terminal_or_insert_with(path, init)`, which validates the whole path (key types, bucket
     bounds, cardinality) before creating anything, so a rejected insert leaves the index
-    unchanged;
+    unchanged, and returns `&mut T`. This is the first half of **route, then post**: the index
+    routes an element to its terminal and the caller posts the doc id there, so the routing
+    layer never handles doc ids;
   - `check_paths(paths)`, which runs the same checks on all of one document's paths together,
     so ingest can index a document whole or not at all (§3, "Ingest path");
   - `collect_terminals(constraints, limits)`, the planner's walk (§5), which fails instead of
@@ -246,6 +248,9 @@ The index has two layers:
       Tag(TrieMap<InvertedIndex /* DocIdsOnly */>),
   }
   ```
+  `Terminal` owns the post half of route, then post: one method adds a doc id with the element's
+  terminal value to whichever structure it wraps, and ingest (§3) calls it on the `&mut Terminal`
+  that `terminal_or_insert_with` returns.
   Each terminal is read by the iterators that exist today, which keeps the query side cheap.
   The per-terminal stats the planner needs (`unique_docs`, `entries`) come from these structures.
 

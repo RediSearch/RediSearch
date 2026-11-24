@@ -21,6 +21,19 @@
 //! [`CompoundIndex::collect_terminals`] walk that skips a level only visits more terminals, and
 //! never returns a terminal whose path breaks a constraint.
 //!
+//! # Route, then post
+//!
+//! The index never sees a doc id. Indexing an element takes two steps, and the index owns only
+//! the first:
+//!
+//! 1. **Route**: [`CompoundIndex::terminal_or_insert_with`] follows the element's path, creates
+//!    the missing nodes and the terminal if the path is new, and returns `&mut T`.
+//! 2. **Post**: the caller adds the doc id, with the element's terminal value, to that `T`.
+//!
+//! Elements of one document that share a path get the same terminal, so the terminal decides
+//! whether a doc id posted twice is stored twice. To index a document whole or not at all, run
+//! [`CompoundIndex::check_paths`] on all its paths first: once it passes, no route fails.
+//!
 //! The design is described in `docs/design/nested-compound-index.md`.
 
 mod constraint;

@@ -194,10 +194,31 @@ impl<T> CompoundIndex<T> {
         }
     }
 
-    /// The terminal at the end of `path`, created with `init` if the path is new.
+    /// The terminal at the end of `path`, created with `init` if the path is new: the route step
+    /// of [route, then post](crate#route-then-post).
     ///
     /// Creating the path adds every missing node on the way. The path is checked in full
     /// before anything is added, so an error leaves the index unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use compound_index::{CompoundIndex, Key, Level, TagLevel};
+    ///
+    /// // Terminals are doc-id lists; levels are `color`, then `size`.
+    /// let mut index: CompoundIndex<Vec<u32>> =
+    ///     CompoundIndex::new(vec![Level::Tag(TagLevel::new()), Level::Tag(TagLevel::new())])
+    ///         .unwrap();
+    /// let path = [Key::Tag(b"red"), Key::Tag(b"M")];
+    ///
+    /// // Route, then post.
+    /// index.terminal_or_insert_with(&path, Vec::new).unwrap().push(7);
+    /// // Same path, so the same terminal: `init` does not run again.
+    /// index.terminal_or_insert_with(&path, Vec::new).unwrap().push(9);
+    ///
+    /// assert_eq!(index.terminal(&path).unwrap(), Some(&vec![7, 9]));
+    /// assert_eq!(index.num_terminals(), 1);
+    /// ```
     pub fn terminal_or_insert_with(
         &mut self,
         path: &[Key<'_>],
