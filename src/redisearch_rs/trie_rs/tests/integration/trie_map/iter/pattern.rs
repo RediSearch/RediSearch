@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::time::Instant;
+use std::{cell::Cell, time::Instant};
 
 use lending_iterator::LendingIterator;
 use trie_rs::{
@@ -221,20 +221,53 @@ mod property_based {
 }
 
 #[test]
-fn suffix_scan_can_stop_before_yielding_its_first_match() {
+fn prefix_scan_can_stop_after_yielding_a_match() {
+    const KEYS: usize = 300;
     let mut trie = TrieMap::new();
-    for i in 0..1000 {
-        trie.insert(format!("key{i:04}").as_bytes(), ());
+    for i in 0..KEYS {
+        trie.insert(format!("prefix{i:04}").as_bytes(), ());
     }
-    trie.insert(b"zz-last-match", ());
-    let mut iter = trie.pattern_lending_iter(b"-match", PatternMode::Suffix);
+
+    let pattern = b"prefix";
+    let mode = PatternMode::Prefix;
+    assert_eq!(keys(trie.pattern_lending_iter(pattern, mode)).len(), KEYS);
+
+    let cancelled = Cell::new(false);
+    let stop = || cancelled.get();
+    let mut iter = trie.pattern_lending_iter(pattern, mode);
+    iter.set_stop_check(&stop);
     assert_eq!(
         iter.next().map(|(key, _)| key.to_vec()),
-        Some(b"zz-last-match".to_vec())
+        Some(b"prefix0000".to_vec())
     );
 
-    let stop = || true;
-    let mut iter = trie.pattern_lending_iter(b"-match", PatternMode::Suffix);
-    iter.set_stop_check(&stop);
-    assert!(iter.next().is_none());
+    cancelled.set(true);
+    assert!(keys(iter).len() < KEYS - 1);
+}
+
+#[test]
+fn unanchored_scans_can_stop_before_yielding_their_first_match() {
+    let mut trie = TrieMap::new();
+    for i in 0..300 {
+        trie.insert(format!("key{i:04}").as_bytes(), ());
+    }
+    let last_match = b"zz-last-match-end";
+    trie.insert(last_match, ());
+
+    for (mode, pattern) in [
+        (PatternMode::Suffix, b"match-end".as_slice()),
+        (PatternMode::Contains, b"last-match"),
+        (PatternMode::Wildcard, b"*last?match*"),
+    ] {
+        assert_eq!(
+            keys(trie.pattern_lending_iter(pattern, mode)),
+            owned(&[last_match]),
+            "{mode:?}"
+        );
+
+        let stop = || true;
+        let mut iter = trie.pattern_lending_iter(pattern, mode);
+        iter.set_stop_check(&stop);
+        assert!(iter.next().is_none(), "{mode:?} yielded the final match");
+    }
 }
