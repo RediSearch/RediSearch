@@ -123,7 +123,7 @@ pub(crate) struct DensePlan {
 }
 
 impl DensePlan {
-    pub(crate) fn execution_hint(&self) -> ffi::NumericKnnPlan {
+    pub(crate) const fn execution_hint(&self) -> ffi::NumericKnnPlan {
         self.execution_hint
     }
 
