@@ -469,7 +469,12 @@ SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec
 
 bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch) {
     RS_ASSERT(disk && batch);
-    return disk->index.commitWriteBatch(batch);
+    return disk->index.commitWriteBatch(batch, false) == SEARCH_DISK_COMMIT_OK;
+}
+
+SearchDiskCommitResult SearchDisk_TryCommitDocumentBatch(SearchDiskWriteBatchHandle *batch) {
+    RS_ASSERT(disk && batch);
+    return disk->index.commitWriteBatch(batch, true);
 }
 
 void SearchDisk_AbortWriteBatch(SearchDiskWriteBatchHandle *batch) {
