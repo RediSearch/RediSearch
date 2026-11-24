@@ -68,8 +68,8 @@ pub(crate) fn eval<'index>(
         node.num_children() <= 1,
         "a vector node has at most one (filter) child"
     );
-    let child = if node.num_children() == 0 {
-        None
+    let (child, numeric_plan) = if node.num_children() == 0 {
+        (None, ffi::NumericKnnPlan_NumericKnnLegacy)
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing. The offset requirement is
@@ -85,12 +85,19 @@ pub(crate) fn eval<'index>(
             .as_ref()
             .map(|_| unsafe { ctx.build_timeout_context() });
         let regular = eval_node(ctx, node.child_mut(0), config)?;
-        Some(match (filter, timeout) {
+        match (filter, timeout) {
             (Some(filter), Some(timeout)) => {
-                filter.into_iterator(regular, timeout).into_c_iterator()
+                let plan = filter.execution_hint();
+                (
+                    Some(filter.into_iterator(regular, timeout).into_c_iterator()),
+                    plan,
+                )
             }
-            _ => regular.into_c_iterator(),
-        })
+            _ => (
+                Some(regular.into_c_iterator()),
+                ffi::NumericKnnPlan_NumericKnnLegacy,
+            ),
+        }
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
@@ -101,6 +108,7 @@ pub(crate) fn eval<'index>(
             ctx.as_non_null().as_ptr(),
             vq,
             child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+            numeric_plan,
         )
     };
 

@@ -205,7 +205,8 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
-QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
+                                 NumericKnnPlan numeric_plan) {
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
   RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
@@ -246,6 +247,22 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
+      }
+      if (numeric_plan != NumericKnnLegacy && info.algo == VecSimAlgo_HNSWLIB && !info.isDisk &&
+          !info.isMulti && type == VecSimType_FLOAT32 && dim >= 64 && dim <= 256) {
+        qParams.hnswRuntimeParams.prefetchBatchVectors = true;
+        if (numeric_plan == NumericKnnExact && qParams.searchMode == EMPTY_MODE &&
+            qParams.batchSize == 0) {
+          const VecSimParams *params = &fieldSpec->vectorOpts.vecSimParams;
+          if (params->algo == VecSimAlgo_TIERED) {
+            params = params->algoParams.tieredParams.primaryIndexParams;
+          }
+          // An exhaustive scan of compressed vectors does not have full-precision recall.
+          if (params->algo == VecSimAlgo_HNSWLIB &&
+              params->algoParams.hnswParams.quantType == VecSimQuant_NONE) {
+            qParams.searchMode = HYBRID_ADHOC_BF;
+          }
+        }
       }
       // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
       // it, fall back to the index's create-time RERANK default

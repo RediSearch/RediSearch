@@ -81,6 +81,17 @@ public:
     // Random order iteration
     const auto begin() const { return this->c.begin(); }
     const auto end() const { return this->c.end(); }
+
+    auto takeEntries() {
+        typename std_queue::container_type entries(this->getAllocator());
+        this->c.swap(entries);
+        return entries;
+    }
+
+    void replaceEntries(typename std_queue::container_type &&entries) {
+        this->c.swap(entries);
+        std::make_heap(this->c.begin(), this->c.end(), this->comp);
+    }
 };
 
 // min-heap

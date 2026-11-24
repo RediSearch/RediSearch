@@ -17,11 +17,22 @@ insertion invalidates the snapshot. Each snapshot costs approximately eight
 bytes per document per participating field. The first eligible query after
 an insertion may pay to rebuild it.
 
-The tree changes the child filter iterator used by KNN. It preserves the legacy
-match estimate for vector planning and passes the query's vector policy, batch
-size, and search effort to VecSim. The new filter probes query deadlines during
-seeks and checks that its document domain is still valid on revalidation.
-`FT.PROFILE` shows `DENSE-NUMERIC-FILTER` when the new path is selected.
+The tree preserves the legacy match estimate. For single-value FP32 RAM HNSW
+with 64 to 256 dimensions, it can also choose the following vector paths.
+
+- For an automatic two-range AND with K up to 32, the planner samples the
+  combined predicate at up to 1,024 document IDs. It chooses exact search for
+  an uncompressed vector index when at most 10% of the sample matches. This
+  avoids starting graph traversal on selective conjunctions that often fall
+  back to exact search.
+- When the query uses batches, the iterator prefetches newly discovered
+  vectors, defers ordering distant candidates, and transfers saved results in
+  bulk. This preserves candidate ordering, tie-breaking, and search effort.
+
+The tree honors an explicit `HYBRID_POLICY` or `BATCH_SIZE`. HNSW graph
+traversal uses the requested `EF_RUNTIME`. The numeric filter probes query
+deadlines during seeks and checks its document domain on revalidation.
+`FT.PROFILE` shows `DENSE-NUMERIC-FILTER` when the dense filter is selected.
 
 ## Run the Redis comparison
 

@@ -330,6 +330,7 @@ typedef enum {
 typedef struct {
     size_t efRuntime; // EF parameter for HNSW graph accuracy/latency for search.
     double epsilon;   // Epsilon parameter for HNSW graph accuracy/latency for range search.
+    bool prefetchBatchVectors; // Internal batch traversal hint supplied by the query planner.
 } HNSWRuntimeParams;
 
 typedef struct {

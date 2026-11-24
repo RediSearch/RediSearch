@@ -36,6 +36,26 @@ template <typename DataType, typename DistType>
 void HNSWSingle_BatchIterator<DataType, DistType>::prepareResults(
     VecSimQueryReply *rep, candidatesLabelsMaxHeap<DistType> *top_candidates, size_t n_res) {
 
+    if (this->prefetch_batch_vectors && top_candidates->size() > n_res &&
+        this->top_candidates_extras.hasOrderedDistances()) {
+        using MaxHeap = vecsim_stl::max_priority_queue<DistType, labelType>;
+        auto *heap = dynamic_cast<MaxHeap *>(top_candidates);
+        if (heap && std::none_of(heap->begin(), heap->end(),
+                                 [](const auto &item) { return std::isnan(item.first); })) {
+            // Partition by (distance, label), the same key used by the legacy heaps.
+            auto entries = heap->takeEntries();
+            auto extra = entries.begin() + n_res;
+            std::nth_element(entries.begin(), extra, entries.end());
+            std::sort(entries.begin(), extra);
+            rep->results.resize(n_res);
+            for (size_t i = 0; i < n_res; ++i) {
+                std::tie(rep->results[i].score, rep->results[i].id) = entries[i];
+            }
+            this->top_candidates_extras.appendEntries(extra, entries.end());
+            return;
+        }
+    }
+
     // Put the "spare" results (if exist) in the extra candidates heap.
     while (top_candidates->size() > n_res) {
         this->top_candidates_extras.emplace(top_candidates->top()); // (distance, label)
@@ -53,6 +73,16 @@ void HNSWSingle_BatchIterator<DataType, DistType>::prepareResults(
 template <typename DataType, typename DistType>
 void HNSWSingle_BatchIterator<DataType, DistType>::fillFromExtras(
     candidatesLabelsMaxHeap<DistType> *top_candidates) {
+    auto &extras = this->top_candidates_extras;
+    if (this->prefetch_batch_vectors && top_candidates->empty() && !extras.empty() &&
+        extras.size() <= this->ef && extras.hasOrderedDistances()) {
+        using MaxHeap = vecsim_stl::max_priority_queue<DistType, labelType>;
+        if (auto *heap = dynamic_cast<MaxHeap *>(top_candidates)) {
+            // The entire saved batch fits, so it needs one heap build and no per-item moves.
+            heap->replaceEntries(extras.takeEntries());
+            return;
+        }
+    }
     while (top_candidates->size() < this->ef && !this->top_candidates_extras.empty()) {
         top_candidates->emplace(this->top_candidates_extras.top().first,
                                 this->top_candidates_extras.top().second);

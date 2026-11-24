@@ -96,14 +96,37 @@ impl PreparedPredicate {
             Self::Or(a, b) => ids.find(|&id| a.matches(id) || b.matches(id)),
         }
     }
+
+    fn prefers_exact(&self, docs: usize) -> bool {
+        let Self::And(a, b) = self else {
+            return false;
+        };
+        // Sample the conjunction itself so that correlated columns are not estimated
+        // by multiplying the selectivity of the two ranges.
+        let stride = docs.div_ceil(1024);
+        // Use exact search in the range where a failed batch attempt can cost as much
+        // as scoring the matching documents. Keep high-eligibility conjunctions in AUTO.
+        let max_matches = docs.div_ceil(stride) / 10;
+        (1..=docs)
+            .step_by(stride)
+            .filter(|&id| a.matches(id) && b.matches(id))
+            .take(max_matches + 1)
+            .count()
+            <= max_matches
+    }
 }
 
 pub(crate) struct DensePlan {
     predicate: PreparedPredicate,
     docs: usize,
+    execution_hint: ffi::NumericKnnPlan,
 }
 
 impl DensePlan {
+    pub(crate) fn execution_hint(&self) -> ffi::NumericKnnPlan {
+        self.execution_hint
+    }
+
     pub(crate) fn into_iterator<'index>(
         self,
         regular: Evaluated<'index>,
@@ -150,7 +173,16 @@ pub(crate) fn try_plan(
         Predicate::And(a, b) => PreparedPredicate::And(prepare(a)?, prepare(b)?),
         Predicate::Or(a, b) => PreparedPredicate::Or(prepare(a)?, prepare(b)?),
     };
-    Some(DensePlan { predicate, docs })
+    let execution_hint = if k <= 32 && predicate.prefers_exact(docs) {
+        ffi::NumericKnnPlan_NumericKnnExact
+    } else {
+        ffi::NumericKnnPlan_NumericKnnDense
+    };
+    Some(DensePlan {
+        predicate,
+        docs,
+        execution_hint,
+    })
 }
 
 struct DenseIterator<'index> {

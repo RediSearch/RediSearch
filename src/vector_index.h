@@ -181,7 +181,10 @@ typedef VecSimIndexBasicInfo (*VectorIndex_BasicInfoFn)(VecSimIndex *index);
 void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn);
 #endif
 
-QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
+typedef enum { NumericKnnLegacy, NumericKnnDense, NumericKnnExact } NumericKnnPlan;
+
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
+                                 NumericKnnPlan numeric_plan);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
