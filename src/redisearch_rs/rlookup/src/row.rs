@@ -146,12 +146,12 @@ impl<'a> RLookupRow<'a> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: SharedValue) -> Option<SharedValue> {
-        let idx = key.dstidx;
-        if self.dyn_values.len() <= idx as usize {
-            self.set_dyn_capacity((idx + 1) as usize);
+        let idx = usize::from(key.dstidx);
+        if self.dyn_values.len() <= idx {
+            self.set_dyn_capacity(idx + 1);
         }
 
-        let prev = self.dyn_values[idx as usize].replace(val);
+        let prev = self.dyn_values[idx].replace(val);
 
         if prev.is_none() {
             self.num_dyn_values += 1;
@@ -197,8 +197,9 @@ impl<'a> RLookupRow<'a> {
         name: &[u8],
         val: SharedValue,
     ) {
-        let key = rlookup.get_or_create_key_by_name(name);
-        self.write_key(key, val);
+        if let Some(key) = rlookup.get_or_create_key_by_name(name) {
+            self.write_key(key, val);
+        }
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
@@ -258,22 +259,22 @@ impl<'a> RLookupRow<'a> {
             if let Some(value) = src_row.get(src_key) {
                 // Find corresponding key in destination lookup
                 let dst_key = match dst_lookup.find_key_by_name(src_key.name()) {
-                    Some(k) => k.into_current().unwrap(),
+                    Some(k) => k.into_current(),
                     None if create_missing_keys => {
                         // Inherit non-transient flags from source.
                         let flags = src_key.flags & !TRANSIENT_FLAGS;
 
                         // Key doesn't exist in destination - create it on demand.
                         // This can happen with LOAD * where keys are created dynamically.
-                        dst_lookup
-                            .get_key_write(src_key.name().clone(), flags)
-                            .unwrap()
+                        dst_lookup.get_key_write(src_key.name().clone(), flags)
                     }
                     _ => panic!("all source keys must exist in destination"),
                 };
 
                 // Write fields to destination
-                dst_row.write_key(dst_key, value.clone());
+                if let Some(dst_key) = dst_key {
+                    dst_row.write_key(dst_key, value.clone());
+                }
             }
         }
     }

@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { readFeedback } from '../github.ts';
+import { github, readFeedback } from '../github.ts';
 
 const CI = { gate: 'pr-validation', advisory: /sonar|codecov/i };
 
@@ -35,7 +38,7 @@ function data(pr: Record<string, unknown>) {
       pullRequest: {
         state: 'OPEN',
         headRefOid: 'h',
-        reviewThreads: { nodes: [] },
+        reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
         reviews: { nodes: [] },
         comments: { nodes: [] },
         commits: { nodes: [] },
@@ -189,4 +192,107 @@ test('two threads with the same text stay two findings; an edited comment is a n
   const key = (body: string) =>
     read(data({ comments: { nodes: [issue(body)] } }), 'rust', 1)!.comments[0].key;
   assert.notEqual(key('rename this'), key('rename that'));
+});
+
+test('GitHub feedback uses local gh when primary credentials are missing or denied', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'github-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const scenario of [
+    { name: 'environment token works without gh', env: 'app-token', primary: 200 },
+    { name: 'git helper works without gh', git: 'app-token', primary: 200 },
+    { name: 'no git credentials', primary: 401, gh: true },
+    { name: 'bad environment token', env: 'app-token', primary: 401, gh: true },
+    { name: 'App lacks access', git: 'app-token', primary: 403, gh: true },
+    { name: 'repository hidden from App', env: 'app-token', primary: 404, gh: true },
+    {
+      name: 'network error is not an auth failure',
+      env: 'app-token',
+      primary: 0,
+      gh: true,
+      error: 'offline',
+    },
+    {
+      name: 'a denied write is not retried',
+      env: 'app-token',
+      primary: 200,
+      gh: true,
+      write: true,
+      error: 403,
+    },
+    {
+      name: 'server error is not an auth failure',
+      env: 'app-token',
+      primary: 500,
+      gh: true,
+      error: 500,
+    },
+    {
+      name: 'no gh login preserves access error',
+      env: 'app-token',
+      primary: 403,
+      gh: false,
+      error: 403,
+    },
+    { name: 'no gh executable preserves access error', env: 'app-token', primary: 404, error: 404 },
+    { name: 'no credentials anywhere', primary: 401, error: 'No GitHub credentials' },
+  ]) {
+    await t.test(scenario.name, async (t) => {
+      const env = { ...process.env };
+      t.after(() => {
+        process.env = env;
+      });
+      process.env.PATH = root;
+      delete process.env.GH_TOKEN;
+      delete process.env.GITHUB_TOKEN;
+      if (scenario.env) {
+        process.env.GH_TOKEN = scenario.env;
+        process.env.GITHUB_TOKEN = 'secondary-token';
+      }
+      await writeFile(
+        join(root, 'git'),
+        `#!${process.execPath}
+if (!${Boolean(scenario.git)}) process.exit(1);
+process.stdout.write(${JSON.stringify(`password=${scenario.git}\n`)});`,
+        { mode: 0o755 },
+      );
+      await rm(join(root, 'gh'), { force: true });
+      if (scenario.gh !== undefined)
+        await writeFile(
+          join(root, 'gh'),
+          `#!${process.execPath}
+if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || !${scenario.gh}) process.exit(1);
+process.stdout.write('cli-token\\n');`,
+          { mode: 0o755 },
+        );
+      t.mock.method(globalThis, 'fetch', async (_url: string, options: RequestInit) => {
+        const auth = new Headers(options.headers).get('authorization');
+        if (!scenario.primary) throw new Error('offline');
+        const status =
+          auth === 'token cli-token'
+            ? 200
+            : scenario.write && options.method === 'POST'
+              ? 403
+              : scenario.primary;
+        const body =
+          status === 200
+            ? options.method === 'POST'
+              ? { data: data({ commits: checks(run('pr-validation', 'SUCCESS')) }) }
+              : { id: 1 }
+            : { message: `GitHub status ${status}` };
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      const forge = github({ root, repository: 'o/r', ci: CI });
+      const feedback = () =>
+        scenario.write
+          ? forge.replyToComment(1, 2, 'Fixed.')
+          : forge.fetchFeedback({ stage: 'rust', number: 1, posted: [], head: 'h' });
+      if (typeof scenario.error === 'number')
+        await assert.rejects(feedback, { status: scenario.error });
+      else if (scenario.error) await assert.rejects(feedback, new RegExp(scenario.error));
+      else assert.deepEqual(await feedback(), { findings: [], pending: false });
+    });
+  }
 });

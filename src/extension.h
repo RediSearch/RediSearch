@@ -40,6 +40,15 @@ typedef struct {
 /* Get a scoring function by name. Returns NULL if no such scoring function exists */
 ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs, const char *name);
 
+/* Whether `name` is a scorer a query selects by itself, which `SCORER` and the default-scorer
+ * configuration must reject. The sparse vector scorer is the only one: a query with a sparse node
+ * already uses it, and any other query would score every document 0 with it. */
+bool Extensions_IsAutomaticScorer(const char *name);
+
+#define AUTOMATIC_SCORER_ERR                                                             \
+  "SPARSE is selected automatically for sparse vector queries and cannot be named as a " \
+  "scorer"
+
 /* Get a query expander function by name. Returns NULL if no such function exists */
 ExtQueryExpanderCtx *Extensions_GetQueryExpander(RSQueryExpanderCtx *ctx, const char *name);
 

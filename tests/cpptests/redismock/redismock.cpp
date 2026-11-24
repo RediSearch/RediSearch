@@ -51,6 +51,7 @@ static RedisModuleKeyMetaClassId nextClassId = 1;
 static std::set<std::pair<std::string, RedisModuleKeyMetaClassId>> keyMetaDirty;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
 static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
+static std::map<RedisModuleKeyMetaClassId, int> classVersions;
 
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -181,6 +182,9 @@ RedisModuleString **HashValue::kvarray(RedisModuleCtx *allocctx) const {
 }
 
 RedisModuleKey *RMCK_OpenKey(RedisModuleCtx *ctx, RedisModuleString *s, int mode) {
+  if (!(mode & REDISMODULE_OPEN_KEY_ACCESS_TRIMMED) && ctx->db->trimmed.count(*s)) {
+    return NULL;
+  }
   // Look up in db:
   Value *vv = ctx->db->get(s);
   // Always return a valid key handle, matching real Redis behavior.
@@ -1701,11 +1705,16 @@ static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
                                                          int encver,
                                                          RedisModuleKeyMetaClassConfig *config) {
   REDISMODULE_NOT_USED(ctx);
-  REDISMODULE_NOT_USED(encver);
   RedisModuleKeyMetaClassId classId = nextClassId++;
   classConfigs[classId] = *config;
   classNames[name] = classId;
+  classVersions[classId] = encver;
   return classId;
+}
+
+int RMCK_GetKeyMetaClassVersion(RedisModuleKeyMetaClassId classId) {
+  auto it = classVersions.find(classId);
+  return it == classVersions.end() ? -1 : it->second;
 }
 
 static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,

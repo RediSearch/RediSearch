@@ -17,6 +17,7 @@
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
+#include "sparse_vector_index_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "rmalloc.h"
@@ -198,6 +199,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->disk.batch = NULL;
   aCtx->oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
+  aCtx->disk.docLen = 0;
   aCtx->disk.openKey = NULL;
   aCtx->fieldChanges = NULL;
   if (aCtx->specFlags & Index_Async) {
@@ -327,6 +329,10 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
       if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_TAG) && aCtx->fdatas[ii].tags) {
         TagIndex_FreePreprocessedData(aCtx->fdatas[ii].tags);
         aCtx->fdatas[ii].tags = NULL;
+      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_SPARSE_VECTOR) &&
+                 aCtx->fdatas[ii].sparseVec) {
+        PreparedSparseVector_Free(aCtx->fdatas[ii].sparseVec);
+        aCtx->fdatas[ii].sparseVec = NULL;
       } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
                  aCtx->fdatas[ii].arrNumeric && !FIELD_IS_NULL(aCtx, ii)) {
         array_free(aCtx->fdatas[ii].arrNumeric);
@@ -640,24 +646,25 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   _NumericRangeTree_Add((t), (docId), (value), (hasFieldExpiration), (isMulti),         \
                         RSGlobalConfig.numericTreeMaxDepthRange)
 
-static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                   const FieldSpec *fs, const FieldIndexerData *fdata,
+static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const FieldSpec *fs,
+                                   const FieldIndexerData *fdata, FieldType fieldType,
                                    QueryError *status) {
   const double *values = fdata->isMulti ? fdata->arrNumeric : &fdata->numeric;
   const size_t count = fdata->isMulti ? array_len(fdata->arrNumeric) : 1;
   if (!SearchDisk_IndexNumerics(ctx->redisCtx, ctx->spec->diskSpec, aCtx->disk.batch, values, count,
-                                aCtx->doc->docId, fs->index)) {
+                                aCtx->doc->docId, fs->index, fieldType)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Numeric indexing failed");
     return -1;
   }
   return 0;
 }
 
-FIELD_BULK_INDEXER(numericIndexer) {
+// Indexes both NUMERIC and GEO fields; `fieldType` says which, since a GEO
+// value is a geohash stored in a numeric range tree.
+static int numericIndexer(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const FieldSpec *fs,
+                          const FieldIndexerData *fdata, FieldType fieldType, QueryError *status) {
   if (aCtx->disk.batch) {
-    // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
-    // IXFLDPOS_GEO through this indexer.
-    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
+    return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, fieldType, status);
   }
 
   NumericRangeTree *rt = openNumericOrGeoIndex(ctx->spec, &ctx->spec->fields[fs->index], CREATE_INDEX);
@@ -739,6 +746,46 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     curr_vec += fdata->vecLen;
   }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
+  return 0;
+}
+
+FIELD_PREPROCESSOR(sparseVectorPreprocessor) {
+  const char *blob;
+  size_t len;
+  if (field->unionType == FLD_VAR_T_RMS) {
+    blob = RedisModule_StringPtrLen(field->text, &len);
+  } else if (field->unionType == FLD_VAR_T_CSTR) {
+    blob = field->strval;
+    len = field->strlen;
+  } else if (field->unionType == FLD_VAR_T_NULL) {
+    fdata->isNull = 1;
+    return 0;
+  } else {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid sparse vector value");
+    return -1;
+  }
+  char err[128];
+  fdata->sparseVec =
+      PreparedSparseVector_FromBlob((const uint8_t *)blob, len, fs->sparseVecOpts.dim,
+                                    fs->sparseVecOpts.metric, err, sizeof(err));
+  if (!fdata->sparseVec) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Could not add sparse vector",
+                                  ": %s", err);
+    return -1;
+  }
+  return 0;
+}
+
+FIELD_BULK_INDEXER(sparseVectorIndexer) {
+  // Posting lists keep their doc IDs increasing, and an update always gets a new doc ID, so the
+  // whole vector is written again rather than relabeled.
+  SparseVectorIndex *idx = FieldSpec_OpenSparseVectorIndex(&ctx->spec->fields[fs->index], true);
+  SparseVectorAddOutcome rv = SparseVectorIndex_Add(idx, aCtx->doc->docId, fdata->sparseVec);
+  // Kept in step with what GC subtracts when it collects these entries.
+  ctx->spec->stats.invertedSize += rv.bytes;
+  ctx->spec->stats.numRecords += rv.records;
+  IndexStats_BlockCountAdd(&ctx->spec->stats, (int64_t)rv.blocks);
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_SPARSE_VECTOR, 1);
   return 0;
 }
 
@@ -907,10 +954,8 @@ FIELD_BULK_APPLIER(numericApplier) {
 }
 
 FIELD_BULK_APPLIER(geoApplier) {
-  // Per-spec geo stats are bumped by `numericIndexer` in both modes (geo
-  // values are stored as geohash `f64`s in the numeric index, so the same
-  // code path applies). The applier only handles the global field-docs
-  // counter.
+  // Per-spec geo stats are bumped by `numericIndexer` in both modes. The applier
+  // only handles the global field-docs counter.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
@@ -935,7 +980,8 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_TAG] = tagPreprocessor,
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
-    };
+    [IXFLDPOS_SPARSE_VECTOR] = sparseVectorPreprocessor,
+};
 
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
@@ -949,8 +995,10 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           rc = tagIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
+          rc = numericIndexer(cur, sctx, fs, fdata, INDEXFLD_T_NUMERIC, status);
+          break;
         case IXFLDPOS_GEO:
-          rc = numericIndexer(cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(cur, sctx, fs, fdata, INDEXFLD_T_GEO, status);
           break;
         case IXFLDPOS_VECTOR:
           // Disk mode: defer the actual `VecSimIndex_AddVector` to
@@ -964,6 +1012,9 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
         case IXFLDPOS_GEOMETRY:
           rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_SPARSE_VECTOR:
+          rc = sparseVectorIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;

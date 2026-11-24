@@ -20,17 +20,15 @@ use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use numeric_score_source::{
-    DocValidity, NumericTopKIterator, new_numeric_top_k, range_iterator::NumericTreeRef,
+    DocValidity, NumericOptimizerMode, NumericTopKIterator, new_numeric_top_k,
+    range_iterator::NumericTreeRef,
 };
 use rqe_iterators::{
-    FieldExpirationChecker,
-    c2rust::CRQEIterator,
-    interop::{RQEIteratorWrapper, patch_vtable},
+    FieldExpirationChecker, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     utils::AnyTimeoutContext,
 };
 
-/// Probe the query deadline once every this many candidate documents.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
 
 /// Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
 ///
@@ -42,8 +40,9 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 /// owning child iterator for a filtered query, whose selectivity sizes the
 /// initial value-window and drives the expand-and-retry path.
 ///
-/// `filter` is read once to copy the numeric range parameters; it is not
-/// retained after this call.
+/// `filter` is read once to copy the numeric range parameters, including the
+/// sort direction; it is not retained after this call. `mode` is the
+/// [`NumericOptimizerMode`] the query plan chose.
 ///
 /// Documents the doc table no longer shows (deleted, or hidden by a pending slot
 /// deletion) are dropped before they can take a top-k slot.
@@ -70,9 +69,9 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 pub unsafe extern "C" fn NewNumericTopKIterator(
     tree: *const NumericRangeTree,
     filter: *const NumericFilter,
-    ascending: bool,
     k: usize,
     num_docs: usize,
+    mode: NumericOptimizerMode,
     child: *mut QueryIterator,
     sctx: *const RedisSearchCtx,
     filter_ctx: *const FieldFilterContext,
@@ -110,7 +109,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     let child = NonNull::new(child).map(|c| unsafe { CRQEIterator::new(c) });
 
     let reduced = new_numeric_top_k(
-        tree, filter, ascending, k, num_docs, validity, expiration, timeout, child,
+        tree, filter, k, num_docs, mode, validity, expiration, timeout, child,
     );
     match reduced {
         Ok(reduced) => box_reduced(reduced),
@@ -121,9 +120,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     }
 }
 
-/// Box a reduced numeric top-k into the C [`QueryIterator`] handle, clearing
-/// the root-only `SkipTo` vtable slot so the C highlighter falls back to
-/// sequential reads.
+/// Box a reduced numeric top-k into the C [`QueryIterator`] handle.
 fn box_reduced<V: DocValidity>(
     reduced: Option<NumericTopKIterator<'_, V, FieldExpirationChecker, AnyTimeoutContext>>,
 ) -> *mut QueryIterator {
@@ -137,8 +134,6 @@ fn box_reduced<V: DocValidity>(
     } else {
         RQEIteratorWrapper::boxed_new(it)
     };
-    // SAFETY: `ptr` comes from `boxed_new`/`boxed_new_compound` above and has no
-    // other alias yet, satisfying 1 and 2.
-    unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
-    ptr.as_ptr()
+    // SAFETY: `ptr` was just boxed above and has no other alias.
+    unsafe { without_skip_to(ptr) }
 }

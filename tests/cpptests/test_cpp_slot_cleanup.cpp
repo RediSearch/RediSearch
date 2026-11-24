@@ -145,7 +145,7 @@ TEST_F(SlotCleanupTest, DeleteDocByIdUnsafeUpdatesIndexState) {
   ASSERT_EQ(vectorCount(), 2);
 
   IndexSpec_LockWrite(spec);
-  IndexSpec_DeleteDocById_Unsafe(spec, id);
+  IndexSpec_DeleteDocById_Unsafe(spec, nullptr, id, DOCID_META_DOCLEN_UNKNOWN);
   IndexSpec_Unlock(spec);
 
   EXPECT_FALSE(present(id));
@@ -156,8 +156,8 @@ TEST_F(SlotCleanupTest, DeleteDocByIdUnsafeUpdatesIndexState) {
 
   // A docId that is already gone, or was never assigned, leaves the index untouched.
   IndexSpec_LockWrite(spec);
-  IndexSpec_DeleteDocById_Unsafe(spec, id);
-  IndexSpec_DeleteDocById_Unsafe(spec, id + 100);
+  IndexSpec_DeleteDocById_Unsafe(spec, nullptr, id, DOCID_META_DOCLEN_UNKNOWN);
+  IndexSpec_DeleteDocById_Unsafe(spec, nullptr, id + 100, DOCID_META_DOCLEN_UNKNOWN);
   IndexSpec_Unlock(spec);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
   EXPECT_EQ(vectorCount(), 1);
@@ -199,7 +199,7 @@ TEST_F(SlotCleanupTest, DocChangedBetweenPhasesIsNotDeletedTwice) {
   // Re-indexing a key gives it a fresh docId and drops the old one; a plain delete drops it too.
   t_docId rewrittenNow = index("{a}1", "changed");
   ASSERT_NE(rewrittenNow, rewritten);
-  IndexSpec_DeleteDocById(spec, deleted);
+  IndexSpec_DeleteDocById(spec, nullptr, deleted, DOCID_META_DOCLEN_UNKNOWN);
   ASSERT_EQ(spec->stats.scoring.numDocuments, 2);
 
   SlotCleanup_ApplyDeletes(spec, docIds);
@@ -344,7 +344,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *handle, t_docId id,
                                           RSDocumentMetadata *dmd, AllocateKeyCallback allocateKey,
                                           const t_expirationTimePoint *,
-                                          RedisSearchDiskSnapshot *, DiskReadFailureReason *reason) {
+                                          RedisSearchDiskQueryView *, DiskReadFailureReason *reason) {
       EXPECT_FALSE(IndexSpec_IsLocked(reinterpret_cast<IndexSpec *>(handle)));
       if (onDiskMetadataRead) onDiskMetadataRead(reinterpret_cast<IndexSpec *>(handle), id);
       if (firstDiskDocDeleted && id == 1) {
@@ -399,7 +399,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     QueryProcessingCtx processing{};
     processing.isProfile = counts != nullptr;
     ResultProcessor *processor =
-        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false);
+        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false, false);
     processor->parent = &processing;
     SearchResult result = SearchResult_New();
     std::vector<t_docId> ids;
@@ -457,7 +457,7 @@ struct BufferedAsyncPool {
   std::vector<Read> reads;
   std::vector<RSDocumentMetadata *> decoded;
   std::vector<t_docId> deletedIds;
-  uint64_t snapshotMarker = 0;
+  uint64_t queryViewMarker = 0;
   size_t creates = 0, adds = 0, polls = 0, frees = 0, syncReads = 0;
 };
 
@@ -497,14 +497,14 @@ class BufferedDiskQuery {
   SearchResult result;
 
  public:
-  BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskSnapshot *snapshot,
+  BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskQueryView *view,
                     bool profiled = false)
       : result(SearchResult_New()) {
     sctx.redisCtx = ctx;
     sctx.spec = spec;
-    sctx.diskSnapshot = snapshot;
+    sctx.diskQueryView = view;
     processing.isProfile = profiled;
-    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false);
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false, false);
     QITR_PushRP(&processing, processor);
     RPQueryIterator_ConfigureAsyncIO(processor);
   }
@@ -597,18 +597,18 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
     };
     api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *, t_docId, RSDocumentMetadata *,
                                           AllocateKeyCallback, const t_expirationTimePoint *,
-                                          RedisSearchDiskSnapshot *, DiskReadFailureReason *reason) {
+                                          RedisSearchDiskQueryView *, DiskReadFailureReason *reason) {
       *reason = DISK_READ_ERROR;
       ++bufferedAsyncPool->syncReads;
       ADD_FAILURE() << "the async query must not fall back to synchronous metadata reads";
       return false;
     };
     api.docTable.createAsyncReadPool = [](RedisSearchDiskIndexSpec *, uint16_t capacity,
-                                          RedisSearchDiskSnapshot *snapshot, bool) {
+                                          RedisSearchDiskQueryView *view, bool) {
       ++bufferedAsyncPool->creates;
       EXPECT_EQ(capacity, 8);
-      EXPECT_EQ(snapshot,
-                reinterpret_cast<RedisSearchDiskSnapshot *>(&bufferedAsyncPool->snapshotMarker));
+      EXPECT_EQ(view,
+                reinterpret_cast<RedisSearchDiskQueryView *>(&bufferedAsyncPool->queryViewMarker));
       return static_cast<RedisSearchDiskAsyncReadPool>(bufferedAsyncPool);
     };
     api.docTable.addAsyncRead = [](RedisSearchDiskAsyncReadPool handle, t_docId id,
@@ -666,8 +666,8 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
     DiskSlotVisibilityTest::TearDown();
   }
 
-  RedisSearchDiskSnapshot *snapshot() {
-    return reinterpret_cast<RedisSearchDiskSnapshot *>(&pool.snapshotMarker);
+  RedisSearchDiskQueryView *view() {
+    return reinterpret_cast<RedisSearchDiskQueryView *>(&pool.queryViewMarker);
   }
 
   PendingSlotDeletion *registerTrim() {
@@ -692,7 +692,7 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
 
 TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesTrimBeforeConsumption) {
   {
-    BufferedDiskQuery query(ctx, spec, snapshot(), true);
+    BufferedDiskQuery query(ctx, spec, view(), true);
     ASSERT_EQ(query.first(), 1);
     expectDecodedBeforeTrim();
     EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
@@ -707,7 +707,7 @@ TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesTrimBeforeConsumpti
 
 TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesFinalBatchCompletion) {
   {
-    BufferedDiskQuery query(ctx, spec, snapshot());
+    BufferedDiskQuery query(ctx, spec, view());
     ASSERT_EQ(query.first(), 1);
     expectDecodedBeforeTrim();
     auto *pending = registerTrim();
@@ -723,7 +723,7 @@ TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesFinalBatchCompletio
 
 TEST_F(DiskSlotAsyncVisibilityTest, EarlyQueryFreeReleasesEveryBufferedMetadataReference) {
   {
-    BufferedDiskQuery query(ctx, spec, snapshot());
+    BufferedDiskQuery query(ctx, spec, view());
     ASSERT_EQ(query.first(), 1);
     expectDecodedBeforeTrim();
     registerTrim();
@@ -739,7 +739,7 @@ class AcceptedDiskResultTest : public DiskSlotAsyncVisibilityTest,
                                public ::testing::WithParamInterface<AcceptedResultBuffer> {};
 
 TEST_P(AcceptedDiskResultTest, AcceptedRowsSurviveLaterTrimRegistration) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
+  BufferedDiskQuery query(ctx, spec, view());
   switch (GetParam()) {
     case AcceptedResultBuffer::Sorter:
       query.sortByScore();
@@ -784,7 +784,7 @@ TEST_F(DiskSlotAsyncVisibilityTest, MetadataFailuresDoNotReclassifyAsyncCandidat
   metadataFailures = {{2, DISK_READ_DELETED}, {3, DISK_READ_EXPIRED},
                       {4, DISK_READ_NOT_FOUND}, {5, DISK_READ_ERROR}};
   {
-    BufferedDiskQuery query(ctx, spec, snapshot(), true);
+    BufferedDiskQuery query(ctx, spec, view(), true);
     EXPECT_EQ(query.remaining(), (std::vector<t_docId>{1, 6}));
     EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
   }
@@ -792,7 +792,7 @@ TEST_F(DiskSlotAsyncVisibilityTest, MetadataFailuresDoNotReclassifyAsyncCandidat
   EXPECT_EQ(pool.frees, 1u);
   pool.deletedIds = {1};
   {
-    BufferedDiskQuery query(ctx, spec, snapshot(), true);
+    BufferedDiskQuery query(ctx, spec, view(), true);
     EXPECT_EQ(query.remaining(), (std::vector<t_docId>{6}));
     EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{1, 5}));
   }

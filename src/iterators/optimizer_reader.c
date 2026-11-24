@@ -54,8 +54,12 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
 
 static size_t OPT_NumEstimated(const QueryIterator *self) {
   const OptimizerIterator *opt = (const OptimizerIterator *)self;
-  return MIN(opt->child->NumEstimated(opt->child) ,
-              opt->numericIter->NumEstimated(opt->numericIter));
+  size_t estimate = opt->child->NumEstimated(opt->child);
+  // `OPT_Rewind` leaves no numeric iterator once the filter has no range left.
+  if (opt->numericIter) {
+    estimate = MIN(estimate, opt->numericIter->NumEstimated(opt->numericIter));
+  }
+  return estimate;
 }
 
 // TODO: handle MOVED better
@@ -69,6 +73,9 @@ static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) 
   }
   if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
+  }
+  if (!opt->numericIter) {
+    return VALIDATE_OK;
   }
   ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
   if (numericStatus == VALIDATE_TIMEOUT) {
@@ -98,12 +105,15 @@ static void OPT_Rewind(QueryIterator *self) {
   child->Rewind(child);
 
   // update numeric filter with old iterator result estimation
-  // used to skip ranges when creating new numeric iterator
+  // used to skip ranges when creating new numeric iterator. There is none once a previous rewind
+  // found no range left.
   QueryIterator *numeric = optIt->numericIter;
   NumericFilter *nf = qOpt->nf;
-  nf->offset += numeric->NumEstimated(numeric);
-  numeric->Free(numeric);
-  optIt->numericIter = NULL;
+  if (numeric) {
+    nf->offset += numeric->NumEstimated(numeric);
+    numeric->Free(numeric);
+    optIt->numericIter = NULL;
+  }
 
   double successRatio = getSuccessRatio(optIt);
 
@@ -144,6 +154,12 @@ void OptimizerIterator_Free(QueryIterator *self) {
     it->numericIter->Free(it->numericIter);
   }
 
+  // Results still in the heap were never yielded, so their document references are still ours.
+  while (heap_count(it->heap) > 0) {
+    RSIndexResult *res = heap_poll(it->heap);
+    DMD_Return(res->dmd);
+  }
+
   // we always use the array as RSResultData_Numeric. no need for IndexResult_Free
   rm_free(it->resArr);
   heap_free(it->heap);
@@ -180,6 +196,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
       if (numericRes == NULL || childRes->docId == numericRes->docId) {
         rc1 = child->Read(child);
         if (rc1 == ITERATOR_EOF) break;
+        if (rc1 == ITERATOR_STOPPED) return ITERATOR_STOPPED;
         rc2 = numeric->SkipTo(numeric, child->lastDocId);
       } else if (childRes->docId > numericRes->docId) {
         rc2 = numeric->SkipTo(numeric, childRes->docId);
@@ -187,6 +204,10 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         rc1 = child->SkipTo(child, numericRes->docId);
       }
 
+      // A stopped child leaves `current` untouched, possibly NULL.
+      if (rc1 == ITERATOR_STOPPED || rc2 == ITERATOR_STOPPED) {
+        return ITERATOR_STOPPED;
+      }
       if (rc1 == ITERATOR_EOF || rc2 == ITERATOR_EOF) {
         break;
       }

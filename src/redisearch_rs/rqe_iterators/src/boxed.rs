@@ -55,8 +55,9 @@
 use std::ptr::NonNull;
 
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
@@ -148,7 +149,7 @@ pub trait RQESuspendedIterator<'query> {
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
-    /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
+    /// [`Stopped`](RQEIteratorError::Stopped)) — distinct from `Aborted`. On
     /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'index>(
         self: Box<Self>,
@@ -251,6 +252,74 @@ pub const fn assert_layout_compatible<A, B>() {
     );
 }
 
+/// Compile-time assertion that resuming `I`'s suspended form yields `I`.
+///
+/// Relabelling a slot back to `I` after [`resume_child_slot_in_place`] needs
+/// this type identity; equal layouts alone do not make the value valid as `I`.
+pub const fn assert_resumes_to_itself<I>()
+where
+    I: RQEIteratorBoxed<'static>,
+    I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
+{
+}
+
+/// Suspend, in place, an iterator whose only [`Ref`](ref_mode::Ref)-dependent
+/// state is the owned result `result` projects onto, returning `slot` as its
+/// suspended form `S`. The allocation never moves.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `A`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `S` is `A` with that field
+///    retyped to a [`Suspended`] [`RawIndexResult`]: same layout, and every
+///    other field valid unchanged at `S`.
+pub(crate) unsafe fn suspend_owned_result_in_place<'index, A, S>(
+    mut slot: NonNull<A>,
+    result: impl FnOnce(&mut A) -> &mut RSIndexResult<'index>,
+) -> NonNull<S> {
+    const { assert_layout_compatible::<A, S>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+    // Caller's 2: every field is now valid at `S`.
+    slot.cast::<S>()
+}
+
+/// Reverse [`suspend_owned_result_in_place`], returning `slot` as its active
+/// form `A`.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `S`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `A` is `S` with that field
+///    retyped to an [`Active`] [`RSIndexResult`] for `'a`: same layout, and
+///    every other field valid unchanged at `A`.
+/// 3. The preconditions of [`RawIndexResult::into_active`] hold for that field
+///    at `'a`.
+pub(crate) unsafe fn resume_owned_result_in_place<'query, 'a, S, A>(
+    mut slot: NonNull<S>,
+    result: impl FnOnce(&mut S) -> &mut RawIndexResult<'query, Suspended>,
+) -> NonNull<A>
+where
+    'query: 'a,
+{
+    const { assert_layout_compatible::<S, A>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    // 3. Caller's 3.
+    unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+    // Caller's 2: every field is now valid at `A`.
+    slot.cast::<A>()
+}
+
 /// Suspend a single child slot in place: read the value out, call its
 /// [`RQEIteratorBoxed::suspend`] through the trait, and write the suspended
 /// counterpart back into the same slot.
@@ -327,6 +396,43 @@ where
     unsafe { std::ptr::write(slot.cast::<I::Suspended>().as_ptr(), suspended) };
     // Slot reinitialised — disarm the abort guard.
     std::mem::forget(bomb);
+}
+
+/// Suspend every child of a composite's children buffer in place, through
+/// [`suspend_child_slot_in_place`] on each.
+///
+/// The buffer is walked through its raw pointer rather than `iter_mut`, since
+/// each transition retypes a slot from `I` to `I::Suspended`.
+///
+/// `slot_of` locates the child within an element. It is called once per
+/// element, before that element's child is suspended.
+///
+/// # Safety
+///
+/// 1. `children` must point to a valid, exclusively-owned `Vec<E>`.
+/// 2. `slot_of` must return a pointer to the `I` held by the element it is given.
+/// 3. From this call on, the caller must interpret every child slot as
+///    `I::Suspended`, as [`suspend_child_slot_in_place`] requires of a single slot.
+pub(crate) unsafe fn suspend_children_in_place<'index, E, I>(
+    mut children: NonNull<Vec<E>>,
+    slot_of: impl Fn(NonNull<E>) -> NonNull<I>,
+) where
+    I: RQEIteratorBoxed<'index> + 'index,
+{
+    let (base, len) = {
+        // SAFETY: 1. The borrow only reaches the buffer pointer and length, and
+        // ends here.
+        let children = unsafe { children.as_mut() };
+        let base = NonNull::new(children.as_mut_ptr()).expect("Vec buffers are non-null");
+        (base, children.len())
+    };
+    for i in 0..len {
+        // SAFETY: `i < len`, so the offset stays within the buffer.
+        let elem = unsafe { base.add(i) };
+        // SAFETY: by 1 and 2 the slot holds a valid, exclusively-owned `I`; its
+        // reinterpretation as `I::Suspended` is delegated to the caller by 3.
+        unsafe { suspend_child_slot_in_place(slot_of(elem)) };
+    }
 }
 
 /// Outcome of [`resume_child_slot_in_place`], mirroring the recoverable

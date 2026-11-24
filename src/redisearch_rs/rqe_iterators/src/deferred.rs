@@ -31,8 +31,8 @@ pub struct ProducedResults {
 
 /// A closure that produces an iterator's results on first access.
 ///
-/// Returns [`RQEIteratorError::TimedOut`] if the underlying computation timed out before
-/// producing results.
+/// Returns [`RQEIteratorError::Stopped`] if the underlying computation ended early on a
+/// timeout or a requested stop, before producing results.
 ///
 /// # Lifetime
 ///
@@ -41,6 +41,6 @@ pub struct ProducedResults {
 /// matters when the producer owns state that the underlying query engine may still reference
 /// after the call returns — e.g. a deferred vector range query whose `VecSimQueryParams`
 /// (and its timeout context) must outlive the query, mirroring how the KNN hybrid iterator
-/// keeps its `runtimeParams`/`timeoutCtx` for its whole lifetime. Hence [`FnMut`] (retained)
+/// keeps its `runtimeParams`/`stopCtx` for its whole lifetime. Hence [`FnMut`] (retained)
 /// rather than [`FnOnce`] (consumed and dropped on first call).
 pub type Producer<'a> = Box<dyn FnMut() -> Result<ProducedResults, RQEIteratorError> + 'a>;

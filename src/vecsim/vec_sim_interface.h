@@ -260,13 +260,14 @@ public:
     virtual VecSimAdhocBfCtx *newAdhocBfCtx(const void *queryBlob) const { return nullptr; }
 
     /**
-     * @brief Allow 3rd party timeout callback to be used for limiting runtime of a query.
+     * @brief Allow a 3rd party callback to stop a running query early, on a timeout or memory
+     * pressure. Searches that it stops return VecSim_QueryReply_Stopped.
      *
-     * @param callback timeoutCallbackFunction function. should get void* and return int.
+     * @param callback stopCallbackFunction function. should get void* and return int.
      */
-    static timeoutCallbackFunction timeoutCallback;
-    inline static void setTimeoutCallbackFunction(timeoutCallbackFunction callback) {
-        VecSimIndexInterface::timeoutCallback = callback;
+    static stopCallbackFunction stopCallback;
+    inline static void setStopCallbackFunction(stopCallbackFunction callback) {
+        VecSimIndexInterface::stopCallback = callback;
     }
 
     static logCallbackFunction logCallback;
