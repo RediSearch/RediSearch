@@ -12,11 +12,12 @@ use std::{cell::Cell, rc::Rc, time::Duration};
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{
     ExpirationChecker, IteratorType, MemTracker, NoOpChecker, NoTracker, RQEIterator,
-    RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
     geo_shape::GeoShape,
     utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
 use rstest_reuse::apply;
 
 use crate::id_cases;
@@ -440,6 +441,94 @@ fn revalidate_is_a_noop_and_preserves_position() {
     assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 3);
     assert!(matches!(it.read(), Ok(None)));
+}
+
+/// The id list is owned, so resume has nothing to re-derive. The allocation,
+/// and with it the result a parent may point into, stays where it was.
+#[test]
+fn suspend_and_resume_preserve_position() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut it = Box::new(plain(vec![1, 2, 3]));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let allocation = std::ptr::from_ref(&*it).cast::<u8>();
+    let result = std::ptr::from_mut(it.current().unwrap());
+
+    let suspended = it.suspend();
+    assert_eq!(std::ptr::from_ref(&*suspended).cast::<u8>(), allocation);
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
+
+    let Ok(ResumeOutcome::Ok(mut it)) = suspended.resume(&mock_ctx.spec_read()) else {
+        panic!("resume must succeed in place");
+    };
+    assert_eq!(std::ptr::from_ref(&*it).cast::<u8>(), allocation);
+    assert_eq!(std::ptr::from_mut(it.current().unwrap()), result);
+    assert_eq!(it.num_estimated(), 3);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 3);
+    assert!(matches!(it.read(), Ok(None)));
+}
+
+/// An iterator suspended past its last id resumes there.
+#[test]
+fn suspend_and_resume_preserve_eof() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut it = Box::new(plain(vec![1, 2]));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+    assert!(matches!(it.read(), Ok(None)));
+
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+        .expect("resume failed")
+        .expect_ok();
+    assert!(it.current().is_none());
+    assert_eq!(it.last_doc_id(), 2);
+    assert!(matches!(it.read(), Ok(None)));
+}
+
+/// A caller can replace the virtual result through `current`; resume must not
+/// trust it.
+#[test]
+fn resume_aborts_on_a_non_virtual_result() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut it = Box::new(plain(vec![1, 2]));
+    it.read().unwrap();
+    *it.current().unwrap() = RSIndexResult::build_numeric(1.0).build();
+
+    assert!(matches!(
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read()),
+        Ok(ResumeOutcome::Aborted)
+    ));
+}
+
+/// Suspend/resume reuses the allocation, so it leaves the counter alone, and an
+/// aborted resume gives the bytes back.
+#[test]
+fn memory_tracking_survives_suspend_and_resume() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let tracker = CellTracker::default();
+    let mut it = Box::new(GeoShape::new(
+        vec![1u64, 2],
+        NoTimeoutChecker,
+        NoOpChecker,
+        tracker.clone(),
+    ));
+    let tracked = tracker.get();
+    assert_ne!(tracked, 0);
+    it.read().unwrap();
+
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+        .expect("resume failed")
+        .expect_ok();
+    assert_eq!(tracker.get(), tracked);
+
+    // Force the abort path, which drops the iterator in its suspended form.
+    *it.current().unwrap() = RSIndexResult::build_numeric(1.0).build();
+    assert!(matches!(
+        revalidate_via_resume(it, &mock_ctx.spec_read()),
+        Ok(ResumeOutcome::Aborted)
+    ));
+    assert_eq!(tracker.get(), 0);
 }
 
 /// An expired candidate must not survive in `result` when the scan's timeout check

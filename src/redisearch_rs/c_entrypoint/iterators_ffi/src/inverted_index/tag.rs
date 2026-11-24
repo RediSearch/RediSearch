@@ -58,14 +58,9 @@ pub enum TagIteratorSuspended<'query> {
 //     fixed by the enum's alignment, so this also pins it; each payload's own
 //     layout is checked by the slot helpers.
 const _: () = {
-    /// (a) — fails to compile unless resuming `I`'s suspended form yields `I`.
-    const fn assert_resumes_to_itself<I>()
-    where
-        I: RQEIteratorBoxed<'static>,
-        I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
-    {
-    }
+    use rqe_iterators::boxed::assert_resumes_to_itself;
 
+    // (a)
     assert_resumes_to_itself::<Tag<'static, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>();
     assert_resumes_to_itself::<Tag<'static, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>>(
     );

@@ -31,12 +31,17 @@
 //!   [`MemTracker`] implementation, backed by the index's externally-owned
 //!   counter shared across the C boundary.
 
-use index_result::RSIndexResult;
+use std::ptr::NonNull;
+
+use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{OwnedSlice, TimeoutContext},
@@ -82,13 +87,18 @@ impl MemTracker for NoTracker {
 
 /// An iterator over a geometry query's matching document IDs.
 ///
+/// See [`GeoShape`] and [`SuspendedGeoShape`]. The only `Rf`-dependent field
+/// is `result`.
+///
 /// # Type parameters
 ///
-/// * `'index` — lifetime of the index being queried.
+/// * `'query` — lifetime of the query-pipeline data `result` may borrow.
+/// * `Rf` — whether `result` is [`Active`] or [`Suspended`].
 /// * `T` — the [`TimeoutContext`] used to detect query timeouts.
 /// * `E` — the [`ExpirationChecker`] used to skip expired documents.
 /// * `M` — the [`MemTracker`] kept in sync with the iterator's allocation.
-pub struct GeoShape<'index, T, E, M: MemTracker> {
+#[repr(C)]
+pub struct RawGeoShape<'query, Rf: Ref, T, E, M: MemTracker> {
     /// The matching document IDs, sorted in ascending order. May contain
     /// duplicates (the geometry index does not guarantee uniqueness); they are
     /// yielded as-is.
@@ -101,7 +111,7 @@ pub struct GeoShape<'index, T, E, M: MemTracker> {
     /// [`skip_to`](Self::skip_to). Reset to 0 on [`rewind`](Self::rewind).
     last_doc_id: DocId,
     /// Reusable result object, avoiding an allocation on every `read`.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
     /// Timeout source consulted while scanning.
     timeout_ctx: T,
     /// Field-expiration strategy.
@@ -113,6 +123,38 @@ pub struct GeoShape<'index, T, E, M: MemTracker> {
     /// Added on construction, subtracted on drop.
     tracked_bytes: usize,
 }
+
+/// An [`Active`] [`RawGeoShape`], the instantiation that implements
+/// [`RQEIterator`].
+pub type GeoShape<'index, T, E, M> = RawGeoShape<'index, Active<'index>, T, E, M>;
+
+/// A [`Suspended`] [`RawGeoShape`].
+///
+/// Suspending drops nothing, as the id list is owned. The distinct type stops
+/// reads while the spec read lock is released, since they check field
+/// expiration against index memory.
+pub type SuspendedGeoShape<'query, T, E, M> = RawGeoShape<'query, Suspended, T, E, M>;
+
+// Compile-time proof that `GeoShape` and its suspended counterpart are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    type A<'a> = GeoShape<'a, u8, u8, NoTracker>;
+    type S<'a> = SuspendedGeoShape<'a, u8, u8, NoTracker>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, ids) == offset_of!(S, ids));
+    assert!(offset_of!(A, offset) == offset_of!(S, offset));
+    assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, timeout_ctx) == offset_of!(S, timeout_ctx));
+    assert!(offset_of!(A, expiration_checker) == offset_of!(S, expiration_checker));
+    assert!(offset_of!(A, mem_tracker) == offset_of!(S, mem_tracker));
+    assert!(offset_of!(A, tracked_bytes) == offset_of!(S, tracked_bytes));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, T, E, M> GeoShape<'index, T, E, M>
 where
@@ -423,14 +465,89 @@ where
     }
 }
 
-impl<T, E, M: MemTracker> ProfilePrint for GeoShape<'_, T, E, M> {
+impl<Rf: Ref, T, E, M: MemTracker> ProfilePrint for RawGeoShape<'_, Rf, T, E, M> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"GEO-SHAPE", map);
     }
 }
 
-impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
+impl<Rf: Ref, T, E, M: MemTracker> Drop for RawGeoShape<'_, Rf, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
+    }
+}
+
+impl<'index, T, E, M> RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
+where
+    T: TimeoutContext + 'index,
+    E: ExpirationChecker + 'index,
+    M: MemTracker + 'index,
+{
+    type Suspended = SuspendedGeoShape<'index, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let slot = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY:
+        // 1. `slot` came from a `Box` this function owns.
+        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
+        let suspended = unsafe {
+            suspend_owned_result_in_place::<_, Self::Suspended>(slot, |it| &mut it.result)
+        };
+        // SAFETY: the same allocation, now valid at `Self::Suspended`.
+        unsafe { Box::from_raw(suspended.as_ptr()) }
+    }
+}
+
+impl<'query, T, E, M> RQESuspendedIterator<'query> for SuspendedGeoShape<'query, T, E, M>
+where
+    T: TimeoutContext + 'query,
+    E: ExpirationChecker + 'query,
+    M: MemTracker + 'query,
+{
+    type Resumed<'a>
+        = GeoShape<'a, T, E, M>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // `current` hands out `&mut`, so a caller may have stored a kind that
+        // borrows index memory.
+        let kind = self.result.kind();
+        if kind != RSResultKind::Virtual {
+            tracing::warn!(
+                "An internal invariant has been violated. A suspended geo shape iterator is \
+                 storing a {kind} result instead of the expected virtual kind"
+            );
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let slot = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY:
+        // 1. `slot` came from a `Box` this function owns.
+        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
+        // 3. A virtual result holds no index pointers; `'query: 'a` covers its
+        //    query-pipeline ones.
+        let active = unsafe {
+            resume_owned_result_in_place::<'query, 'a, _, GeoShape<'a, T, E, M>>(slot, |it| {
+                &mut it.result
+            })
+        };
+        // SAFETY: the same allocation, now valid at `GeoShape<'a, ..>`.
+        let active = unsafe { Box::from_raw(active.as_ptr()) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.len()
     }
 }
