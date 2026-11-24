@@ -399,7 +399,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     QueryProcessingCtx processing{};
     processing.isProfile = counts != nullptr;
     ResultProcessor *processor =
-        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false);
+        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false, false);
     processor->parent = &processing;
     SearchResult result = SearchResult_New();
     std::vector<t_docId> ids;
@@ -504,7 +504,7 @@ class BufferedDiskQuery {
     sctx.spec = spec;
     sctx.diskQueryView = view;
     processing.isProfile = profiled;
-    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false);
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false, false);
     QITR_PushRP(&processing, processor);
     RPQueryIterator_ConfigureAsyncIO(processor);
   }

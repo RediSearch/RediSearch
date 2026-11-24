@@ -477,8 +477,8 @@ impl QueryErrorCode {
             },
             Self::SafeDepleterFailure => ErrorCodeStrings {
                 prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
-                default_msg: c"Failed to acquire index lock for background depletion",
-                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock for background depletion",
+                default_msg: c"Background depletion failed",
+                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Background depletion failed",
             },
             Self::FlexUnsupportedQuery => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
