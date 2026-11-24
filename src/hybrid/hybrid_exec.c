@@ -255,10 +255,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   CommonPipelineCtx ctx = {
     .limits = &hreq->base.limits,
     .oomPolicy = hreq->base.reqConfig.oomPolicy,
-    // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
-    // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
-    // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
+    .rowLimits = hreq->requests[SEARCH_INDEX] ? &hreq->requests[SEARCH_INDEX]->base.limits : NULL,
   };
 
 #ifdef ENABLE_ASSERT

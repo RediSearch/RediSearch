@@ -73,12 +73,12 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
 
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
-// AggregateResults loop (for testing pipeline state mid-aggregation).
+// result collection loop (for testing pipeline state mid-aggregation).
 // Self-releases the pause when the request has been marked as timed out by
 // the main-thread timeout callback (RETURN-STRICT path): the callback waits
 // synchronously for BG to signal completion, so the test cannot send a
 // resume command while it is in flight.
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
+static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimits *limits) {
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -90,7 +90,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
+    if (limits && QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -99,54 +99,54 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
+static inline void debugCheckAndPauseAfterAggregateResult(const QueryRequestLimits *limits) {}
 #endif
 
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
-   SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = SearchResult_New();
-   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-     // Decrement the result limit, now that we got a valid result.
-     rp->parent->resultLimit--;
+static inline SearchResult **collectResults(ResultProcessor *rp, const CommonPipelineCtx *chunk,
+                                            bool storeRows, int *rc) {
+  SearchResult **results = array_new(SearchResult *, 8);
+  SearchResult row = SearchResult_New();
+  while ((!chunk || rp->parent->resultLimit) && (*rc = rp->Next(rp, &row)) == RS_RESULT_OK) {
+    if (storeRows) {
+      array_append(results, SearchResult_AllocateMove(&row));
+      row = SearchResult_New();
+    } else {
+      SearchResult_Clear(&row);
+    }
+    if (chunk) {
+      rp->parent->resultLimit--;
+      debugCheckAndPauseAfterAggregateResult(chunk->rowLimits);
+      if (chunk->rowLimits && (QueryRequestLimits_IsMemoryStopped(chunk->rowLimits) ||
+                               QueryRequestLimits_IsBlockedClientTimedOut(chunk->rowLimits))) {
+        *rc = RS_RESULT_STOPPED;
+        break;
+      }
+    }
+  }
+  SearchResult_Destroy(&row);
+  return results;
+}
 
-     array_append(results, SearchResult_AllocateMove(&r));
+SearchResult **Pipeline_CollectResults(ResultProcessor *rp, bool storeRows, int *rc) {
+  return storeRows ? collectResults(rp, NULL, true, rc) : collectResults(rp, NULL, false, rc);
+}
 
-     debugCheckAndPauseAfterAggregateResult(areq);
-
-     // clean the search result
-     r = SearchResult_New();
-
-     // Honour a memory stop or a main-thread timeout flag at the row
-     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
-     // from internal buffers without re-touching upstream's per-row timeout check.
-     if (areq && (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
-                  QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits))) {
-       *rc = RS_RESULT_STOPPED;
-       break;
-     }
-   }
-
-   if (*rc != RS_RESULT_OK) {
-     SearchResult_Destroy(&r);
-   }
-
-   return results;
- }
-
- void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
-     // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
-     // same way.
-     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
-       *rc = RS_RESULT_STOPPED;
-     }
-   } else {
-     // Send the results received from the pipeline as they come (no need to aggregate)
-     *rc = rp->Next(rp, r);
-   }
- }
+void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results,
+                         SearchResult *r, int *rc) {
+  if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return ||
+      ctx->oomPolicy == OomPolicy_Fail) {
+    // Aggregate all results before populating the response
+    *results = collectResults(rp, ctx, true, rc);
+    // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
+    // same way.
+    if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
+      *rc = RS_RESULT_STOPPED;
+    }
+  } else {
+    // Send the results received from the pipeline as they come (no need to aggregate)
+    *rc = rp->Next(rp, r);
+  }
+}
 
  /**
   * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
