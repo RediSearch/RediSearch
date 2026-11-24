@@ -69,6 +69,16 @@ static inline bool DiskASM_IsKeyBeingImported(const RedisModuleString *key) {
   return DiskASM_ImportWindow_numSlots_g != 0 && key && DiskASM_IsKeySlotBeingImported(key);
 }
 
+// The out-of-line part of DiskASM_IsAnySlotBeingImported.
+bool DiskASM_IsAnyRangeSlotBeingImported(const RedisModuleSlotRangeArray *slots);
+
+// Whether any slot of `slots` is in the window. The window is empty on a node that imports
+// nothing, such as a source trimming the slots it migrated away, so that check is inline.
+static inline bool DiskASM_IsAnySlotBeingImported(const RedisModuleSlotRangeArray *slots) {
+  return DiskASM_ImportWindow_numSlots_g != 0 && slots &&
+         DiskASM_IsAnyRangeSlotBeingImported(slots);
+}
+
 #ifdef __cplusplus
 }
 #endif
