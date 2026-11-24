@@ -80,6 +80,35 @@ impl Clause {
     fn matches(&self, id: usize) -> bool {
         self.filter.value_in_range(self.values[id])
     }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx")]
+    fn read_mask(&self, start: usize) -> u64 {
+        use std::arch::x86_64::{
+            _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _mm256_and_pd, _mm256_cmp_pd,
+            _mm256_loadu_pd, _mm256_movemask_pd, _mm256_set1_pd,
+        };
+
+        let lo = _mm256_set1_pd(self.filter.min);
+        let hi = _mm256_set1_pd(self.filter.max);
+        let mut mask = 0_u64;
+        for (i, values) in self.values[start..start + 64].chunks_exact(4).enumerate() {
+            // SAFETY: each complete chunk holds four readable doubles. The load is unaligned.
+            let values = unsafe { _mm256_loadu_pd(values.as_ptr()) };
+            let above = if self.filter.min_inclusive {
+                _mm256_cmp_pd::<_CMP_GE_OQ>(values, lo)
+            } else {
+                _mm256_cmp_pd::<_CMP_GT_OQ>(values, lo)
+            };
+            let below = if self.filter.max_inclusive {
+                _mm256_cmp_pd::<_CMP_LE_OQ>(values, hi)
+            } else {
+                _mm256_cmp_pd::<_CMP_LT_OQ>(values, hi)
+            };
+            mask |= (_mm256_movemask_pd(_mm256_and_pd(above, below)) as u64) << (i * 4);
+        }
+        mask
+    }
 }
 
 enum PreparedPredicate {
@@ -89,6 +118,16 @@ enum PreparedPredicate {
 }
 
 impl PreparedPredicate {
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx")]
+    fn read_mask(&self, start: usize) -> u64 {
+        match self {
+            Self::Single(a) => a.read_mask(start),
+            Self::And(a, b) => a.read_mask(start) & b.read_mask(start),
+            Self::Or(a, b) => a.read_mask(start) | b.read_mask(start),
+        }
+    }
+
     fn seek(&self, mut ids: std::ops::Range<usize>) -> Option<usize> {
         match self {
             Self::Single(a) => ids.find(|&id| a.matches(id)),
@@ -141,6 +180,10 @@ impl DensePlan {
             timeout,
             result: RSIndexResult::build_virt().weight(1.0).build(),
             exhausted: false,
+            #[cfg(target_arch = "x86_64")]
+            packed_reads: std::arch::is_x86_feature_detected!("avx"),
+            #[cfg(target_arch = "x86_64")]
+            read_mask: None,
         }))
     }
 }
@@ -191,9 +234,44 @@ struct DenseIterator<'index> {
     timeout: AnyTimeoutContext,
     result: RSIndexResult<'index>,
     exhausted: bool,
+    #[cfg(target_arch = "x86_64")]
+    packed_reads: bool,
+    #[cfg(target_arch = "x86_64")]
+    read_mask: Option<(usize, u64)>,
 }
 
 impl<'index> DenseIterator<'index> {
+    #[cfg(target_arch = "x86_64")]
+    fn read_packed(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.exhausted {
+            return Ok(None);
+        }
+        let mut first = self.result.doc_id as usize + 1;
+        loop {
+            let base = first & !63;
+            if base + 64 > self.plan.docs + 1 {
+                return self.seek(first as DocId);
+            }
+            self.timeout.check_timeout()?;
+            let bits = match self.read_mask {
+                Some((cached, bits)) if cached == base => bits,
+                _ => {
+                    // SAFETY: the iterator selected this path only on a CPU with AVX. A complete
+                    // block is in bounds for all columns because their document domain is shared.
+                    let bits = unsafe { self.plan.predicate.read_mask(base) };
+                    self.read_mask = Some((base, bits));
+                    bits
+                }
+            };
+            let remaining = bits & (u64::MAX << (first - base));
+            if remaining != 0 {
+                self.result.doc_id = (base + remaining.trailing_zeros() as usize) as DocId;
+                return Ok(Some(&mut self.result));
+            }
+            first = base + 64;
+        }
+    }
+
     fn seek(
         &mut self,
         target: DocId,
@@ -224,6 +302,10 @@ impl<'index> RQEIterator<'index> for DenseIterator<'index> {
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        #[cfg(target_arch = "x86_64")]
+        if self.packed_reads {
+            return self.read_packed();
+        }
         self.seek(self.result.doc_id + 1)
     }
 

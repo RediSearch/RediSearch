@@ -38,6 +38,7 @@ def test_numeric_knn_decision_tree():
     blob = struct.pack(vector_format, *(rng.random() for _ in range(dim)))
     cases = (
         "@a:[(200 20000]",
+        "@a:[-inf (20000]",
         "@a:[(200 20000] @b:[(42000 59900]",
         "@a:[(200 10000] | @a:[(40000 59000]",
     )
@@ -67,6 +68,15 @@ def test_numeric_knn_decision_tree():
     env.assertEqual(actual, exact)
     env.assertContains("DENSE-NUMERIC-FILTER", repr(profile))
     env.assertContains("HYBRID_ADHOC_BF", repr(profile))
+
+    batches = narrow.format("HYBRID_POLICY BATCHES EF_RUNTIME 128 BATCH_SIZE 25")
+    env.expect("CONFIG", "SET", flag, "no").ok()
+    expected = conn.execute_command("FT.SEARCH", "idx", batches, *narrow_args)
+    env.expect("CONFIG", "SET", flag, "yes").ok()
+    actual, profile = conn.execute_command("FT.PROFILE", "idx", "SEARCH", "QUERY", batches,
+                                           *narrow_args)
+    env.assertEqual(actual, expected)
+    env.assertContains("HYBRID_BATCHES", repr(profile))
 
     # A hole in the doc-ID domain makes the dense path ineligible.
     conn.delete("d:111")

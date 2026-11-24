@@ -34,6 +34,10 @@ traversal uses the requested `EF_RUNTIME`. The numeric filter probes query
 deadlines during seeks and checks its document domain on revalidation.
 `FT.PROFILE` shows `DENSE-NUMERIC-FILTER` when the dense filter is selected.
 
+On x86-64 with AVX, sequential reads compare the numeric bounds in groups of
+64 document IDs and cache the matching IDs as a bit mask. Sparse seeks and
+the final partial block use the scalar lookup.
+
 ## Run the Redis comparison
 
 Use a disposable server with the candidate module, one shard, six search
