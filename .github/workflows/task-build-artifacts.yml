@@ -122,13 +122,17 @@ jobs:
               ;;
           esac
       - name: Setup
-        working-directory: .install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh ${{ steps.mode.outputs.mode }}
+          working_directory: .install
       - name: Install aws cli
         working-directory: .install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
       - name: Setup test dependencies
-        run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
 
