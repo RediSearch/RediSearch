@@ -14,10 +14,13 @@ use query_types::QueryNodeType;
 use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome, c2rust::CRQEIterator, index_load, index_load::IndexLoad,
-    union_opaque::build_union,
+    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, index_load,
+    index_load::IndexLoad, score_bound::MinCompetitiveScore, union_opaque::build_union,
 };
-use rqe_iterators_test_utils::{ContractChecker, MockContext};
+use rqe_iterators_test_utils::{
+    ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
+};
+use rstest::rstest;
 
 use crate::utils::{Mock, MockRevalidateResult};
 
@@ -294,4 +297,84 @@ fn key_slot_survives_profiling() {
 
     drop(profiled);
     assert!(!handle.is_valid);
+}
+
+#[test]
+fn read_with_threshold_attaches() {
+    let mut key = FakeKey::new();
+    let mut it = IndexLoad::new(Mock::new_with_values([1], [5.0]));
+    bind(&mut it, &mut key);
+
+    let threshold = MinCompetitiveScore::new(1.0).expect("a finite threshold applies");
+    let result = it.read_with_threshold(threshold).unwrap().unwrap();
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 5.0));
+}
+
+/// A full union over a loading child and a sibling that aborts or moves on
+/// revalidation stays on its document. The value it took from the loading child
+/// when it read that document must survive the rebuild, although the loading
+/// child itself reports no move and pushes nothing again.
+fn union_over_loading_child(
+    key: &mut FakeKey,
+    sibling_outcome: MockRevalidateResult,
+) -> CRQEIterator {
+    let mut loading = IndexLoad::new(Mock::new_with_values([1, 2], [10.0, 20.0]));
+    bind(&mut loading, key);
+    let sibling = Mock::new([1, 3]);
+    sibling.data().set_revalidate_result(sibling_outcome);
+    let children = vec![
+        CRQEIterator::from_rust_leaf(loading),
+        CRQEIterator::from_rust_leaf(sibling),
+    ];
+    let union = build_union(children, false, 20, QueryNodeType::Union, 1.0);
+    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    unsafe { CRQEIterator::new(union) }
+}
+
+#[rstest]
+fn union_keeps_the_value_when_a_sibling_changes_on_revalidate(
+    #[values(MockRevalidateResult::Abort, MockRevalidateResult::Move)]
+    sibling_outcome: MockRevalidateResult,
+) {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut key = FakeKey::new();
+    let mut it = union_over_loading_child(&mut key, sibling_outcome);
+
+    let result = it.read().unwrap().unwrap();
+    assert_eq!(result.doc_id, 1);
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+
+    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
+    assert!(
+        matches!(status, RQEValidateStatus::Ok),
+        "the union stays on doc 1"
+    );
+    let result = it.current().unwrap();
+    assert_eq!(result.doc_id, 1);
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+
+    let result = it.read().unwrap().unwrap();
+    assert_eq!(result.doc_id, 2);
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 20.0));
+}
+
+#[rstest]
+fn union_keeps_the_value_when_a_sibling_changes_on_resume(
+    #[values(MockRevalidateResult::Abort, MockRevalidateResult::Move)]
+    sibling_outcome: MockRevalidateResult,
+) {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let mut key = FakeKey::new();
+    let mut it = union_over_loading_child(&mut key, sibling_outcome);
+
+    let result = it.read().unwrap().unwrap();
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+
+    let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
+        .unwrap()
+        .expect_ok();
+    let result = it.current().unwrap();
+    assert_eq!(result.doc_id, 1);
+    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
 }

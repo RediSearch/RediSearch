@@ -52,7 +52,10 @@ struct KeySlot<'query>(NonNull<*mut RLookupKey<'query>>);
 
 impl<'query> KeySlot<'query> {
     fn new() -> Self {
-        Self(NonNull::from(Box::leak(Box::new(std::ptr::null_mut()))))
+        Self(
+            NonNull::new(Box::into_raw(Box::new(std::ptr::null_mut())))
+                .expect("Box pointers are non-null"),
+        )
     }
 
     /// The key pipeline construction bound, or null while it has bound none.
@@ -459,6 +462,29 @@ pub fn boxed_new(child: CRQEIterator) -> NonNull<QueryIterator> {
     RQEIteratorWrapper::boxed_new_compound(IndexLoad::new(child))
 }
 
+/// The decorator behind `header`.
+///
+/// # Safety
+///
+/// 1. `header` was returned by [`boxed_new`] and is still live.
+/// 2. The caller holds that iterator exclusively for as long as the returned
+///    reference is used, and picks an `'index` its key slot may borrow for.
+const unsafe fn decorator<'index>(
+    header: NonNull<QueryIterator>,
+) -> &'index mut IndexLoad<'index, CRQEIterator> {
+    // SAFETY: (1): the header is live.
+    let type_ = unsafe { header.as_ref() }.type_;
+    debug_assert!(
+        matches!(type_, IteratorType::IndexLoad),
+        "expected an index-loading decorator"
+    );
+    // SAFETY: (1) and (2).
+    unsafe {
+        &mut RQEIteratorWrapper::<IndexLoad<'index, CRQEIterator>>::mut_ref_from_header_ptr(header)
+            .inner
+    }
+}
+
 /// The key slot of the decorator behind `header`, as [`IndexLoad::key_slot`].
 ///
 /// # Safety
@@ -470,11 +496,8 @@ pub fn boxed_new(child: CRQEIterator) -> NonNull<QueryIterator> {
 pub const unsafe fn own_key_ref<'index>(
     header: NonNull<QueryIterator>,
 ) -> NonNull<*mut RLookupKey<'index>> {
-    // SAFETY: (1) and (2).
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<IndexLoad<'index, CRQEIterator>>::mut_ref_from_header_ptr(header)
-    };
-    wrapper.inner.key_slot()
+    // SAFETY: (1), (2) and (3).
+    unsafe { decorator(header) }.key_slot()
 }
 
 /// Give the decorator behind `header` the [`RLookupKeyHandle`] it invalidates
@@ -491,9 +514,7 @@ pub unsafe fn set_key_handle(
     handle: Option<NonNull<RLookupKeyHandle<'_>>>,
 ) {
     // SAFETY: (1) and (2).
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<IndexLoad<'_, CRQEIterator>>::mut_ref_from_header_ptr(header)
-    };
+    let decorator = unsafe { decorator(header) };
     // SAFETY: (3).
-    unsafe { wrapper.inner.set_handle(handle) };
+    unsafe { decorator.set_handle(handle) };
 }
