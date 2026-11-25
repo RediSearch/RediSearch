@@ -288,13 +288,15 @@ fn unanchored_scans_can_stop_before_yielding_their_first_match() {
 fn long_wildcard_patterns_can_stop_before_their_first_match() {
     for (backend, literal_len) in [("u128", 80), ("filter", 140)] {
         let mut trie = TrieMap::new();
-        for i in 0..500 {
-            trie.insert(format!("key{i:04}").as_bytes(), ());
+        for first in b'a'..=b'o' {
+            for second in b'a'..=b't' {
+                trie.insert(&[b'k', first, second], ());
+            }
         }
         let literal = "a".repeat(literal_len);
-        let last_match = format!("zz{literal}x");
+        let last_match = format!("zzz{literal}");
         trie.insert(last_match.as_bytes(), ());
-        let pattern = format!("*{literal}?");
+        let pattern = format!("???{literal}");
 
         let scan = || trie.pattern_lending_iter(pattern.as_bytes(), PatternMode::Wildcard);
         assert_eq!(keys(scan()), owned(&[last_match.as_bytes()]), "{backend}");
