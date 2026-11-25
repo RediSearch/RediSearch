@@ -168,6 +168,10 @@ pub struct NumericScoreSource<
     timeout: T,
 }
 
+/// Callback collecting live document IDs that are not yet in the heap when an
+/// unbounded unfiltered walk finishes short of `k`.
+pub type UnscoredLiveDocsFn = Box<dyn Fn(usize, &dyn Fn(DocId) -> bool) -> Vec<DocId>>;
+
 /// Scan state is independent of the query's validity, expiration and timeout
 /// policies, so replacing a policy transfers this state unchanged.
 struct NumericScan<'index> {
@@ -190,9 +194,10 @@ struct NumericScan<'index> {
     num_iterations: usize,
     /// Strategy reported as the profile's `Optimizer mode`.
     optimizer_mode: NumericOptimizerMode,
-    /// When set, collect matches lacking the sort field (up to `max_doc_id` for
-    /// unfiltered scans) once an unbounded walk finishes with `heap.len() < k`.
-    collect_missing_max_doc_id: Option<DocId>,
+    /// When set, collect matches lacking the sort field once an unbounded walk
+    /// finishes with `heap.len() < k`. For unfiltered (elided wildcard) walks,
+    /// this enumerates live unscored document IDs directly from the doc table.
+    unscored_live_docs: Option<UnscoredLiveDocsFn>,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -229,7 +234,7 @@ impl<'index> NumericScoreSource<'index> {
                 heap_old_size: 0,
                 num_iterations: 0,
                 optimizer_mode: NumericOptimizerMode::PartialRange,
-                collect_missing_max_doc_id: None,
+                unscored_live_docs: None,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -297,10 +302,10 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     }
 
     /// Enable collecting matching documents that lack a value for the sort
-    /// field when the walk finishes short of `k`, using `max_doc_id` as the
-    /// upper bound when no filter child is present.
-    pub fn with_collect_missing(mut self, max_doc_id: DocId) -> Self {
-        self.scan.collect_missing_max_doc_id = Some(max_doc_id);
+    /// field when the walk finishes short of `k`, using `live_docs` to
+    /// enumerate live unscored document IDs when no filter child is present.
+    pub fn with_collect_missing(mut self, live_docs: UnscoredLiveDocsFn) -> Self {
+        self.scan.unscored_live_docs = Some(live_docs);
         self
     }
 
@@ -450,11 +455,18 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     }
 
     fn collects_unscored_on_shortfall(&self) -> bool {
-        self.scan.collect_missing_max_doc_id.is_some()
+        self.scan.unscored_live_docs.is_some()
     }
 
-    fn unscored_max_doc_id(&self) -> Option<DocId> {
-        self.scan.collect_missing_max_doc_id
+    fn unscored_live_docs(
+        &self,
+        heap_count: usize,
+        is_valued: &dyn Fn(DocId) -> bool,
+    ) -> Vec<DocId> {
+        match self.scan.unscored_live_docs {
+            Some(ref f) => f(heap_count, is_valued),
+            None => Vec::new(),
+        }
     }
 
     fn rewind(&mut self) {

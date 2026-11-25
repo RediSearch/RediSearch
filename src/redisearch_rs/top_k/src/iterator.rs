@@ -9,7 +9,9 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, collections::HashSet, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
+use std::{
+    cmp::Ordering, collections::HashSet, marker::PhantomData, num::NonZeroUsize, ptr::NonNull,
+};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -687,7 +689,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         let (valued_vec, valued_set) = if self.heap.len() <= LINEAR_THRESHOLD {
             (self.heap.doc_ids().collect::<Vec<_>>(), None)
         } else {
-            (Vec::new(), Some(self.heap.doc_ids().collect::<HashSet<_>>()))
+            (
+                Vec::new(),
+                Some(self.heap.doc_ids().collect::<HashSet<_>>()),
+            )
         };
         let is_valued = |doc_id: DocId| -> bool {
             if let Some(ref set) = valued_set {
@@ -708,11 +713,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     offer_accepted(&mut self.heap, &mut self.source, doc_id, f64::NAN, || None);
                 }
             }
-        } else if let Some(max_doc_id) = self.source.unscored_max_doc_id() {
-            for doc_id in 1..=max_doc_id {
-                if is_valued(doc_id) {
-                    continue;
-                }
+        } else {
+            let candidates = self.source.unscored_live_docs(self.heap.len(), &is_valued);
+            for doc_id in candidates {
                 if self.source.accept_candidate(doc_id, f64::NAN)? {
                     offer_accepted(&mut self.heap, &mut self.source, doc_id, f64::NAN, || None);
                 }

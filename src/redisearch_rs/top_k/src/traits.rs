@@ -375,13 +375,19 @@ pub trait ScoreSource {
         false
     }
 
-    /// Upper bound on document IDs to scan when [`collects_unscored_on_shortfall`](Self::collects_unscored_on_shortfall)
+    /// Collect live unscored document IDs (not satisfying `is_valued`) when
+    /// [`collects_unscored_on_shortfall`](Self::collects_unscored_on_shortfall)
     /// runs without a filter child (e.g. an elided wildcard).
     ///
-    /// Only used when the iterator has no child filter; returning `None` skips
-    /// the unfiltered unscored scan.
-    fn unscored_max_doc_id(&self) -> Option<DocId> {
-        None
+    /// `heap_count` is the number of scored documents already in the heap; a
+    /// source that knows the live document count can return an empty `Vec` in
+    /// O(1) when `heap_count` already accounts for every live document.
+    fn unscored_live_docs(
+        &self,
+        _heap_count: usize,
+        _is_valued: &dyn Fn(DocId) -> bool,
+    ) -> Vec<DocId> {
+        Vec::new()
     }
 
     /// Whether this source can still collect after the index spec read lock

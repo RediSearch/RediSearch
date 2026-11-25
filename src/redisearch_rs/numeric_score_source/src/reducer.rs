@@ -14,13 +14,13 @@ use std::{collections::TryReserveError, num::NonZeroUsize};
 
 use inverted_index::NumericFilter;
 use numeric_range_tree::RangeWindow;
-use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator, utils::TimeoutContext};
 use top_k::{ChildReduction, ScoreOrdering, TopKHeap, reduce_child};
 
 use crate::{
     DocValidity, NoTieBreak, NumericOptimizerMode, NumericOrder, NumericScoreSource,
-    NumericTopKIterator, assemble, range_iterator::NumericTreeRef, source::estimate_limit,
+    NumericTopKIterator, UnscoredLiveDocsFn, assemble, range_iterator::NumericTreeRef,
+    source::estimate_limit,
 };
 
 /// Error of [`new_numeric_top_k`]: the heap for `k` results could not be
@@ -90,9 +90,13 @@ where
 
 /// Like [`new_numeric_top_k`], with an explicit [`ScoreOrdering`] (for
 /// multi-key tie-breaks and direction-aware doc-id tie-breaking) and optional
-/// `unscored_max_doc_id` to collect matches lacking the sort field when an
-/// unbounded walk finishes short of `k`.
+/// `unscored_live_docs` enumerator to collect matches lacking the sort field
+/// when an unbounded walk finishes short of `k`.
 #[expect(clippy::too_many_arguments, reason = "one parameter per query input")]
+#[expect(
+    clippy::type_complexity,
+    reason = "return type mirrors NumericTopKIterator generic parameters"
+)]
 pub fn new_numeric_top_k_with_order<'index, V, E, T, O>(
     tree: impl Into<NumericTreeRef<'index>>,
     filter: NumericFilter,
@@ -100,7 +104,7 @@ pub fn new_numeric_top_k_with_order<'index, V, E, T, O>(
     num_docs: usize,
     mode: NumericOptimizerMode,
     order: O,
-    unscored_max_doc_id: Option<DocId>,
+    unscored_live_docs: Option<UnscoredLiveDocsFn>,
     validity: V,
     expiration: E,
     timeout: T,
@@ -141,8 +145,8 @@ where
         .with_validity(validity)
         .with_expiration(expiration)
         .with_timeout(timeout);
-    let source = match unscored_max_doc_id {
-        Some(max_doc_id) => source.with_collect_missing(max_doc_id),
+    let source = match unscored_live_docs {
+        Some(live_docs) => source.with_collect_missing(live_docs),
         None => source,
     };
     Ok(Some(assemble(source, child, heap)))

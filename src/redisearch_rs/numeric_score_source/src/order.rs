@@ -141,11 +141,18 @@ mod tests {
 
     #[test]
     fn single_key_desc_breaks_ties_by_descending_doc_id() {
-        let mut heap = TopKHeap::new(NonZeroUsize::new(2).unwrap(), NumericOrder::single_key(false));
+        let mut heap = TopKHeap::new(
+            NonZeroUsize::new(2).unwrap(),
+            NumericOrder::single_key(false),
+        );
         for id in [1, 5, 3, 10] {
             heap.push(id, 42.0);
         }
-        let ids: Vec<DocId> = heap.drain_sorted().into_iter().map(|r| r.scored.doc_id).collect();
+        let ids: Vec<DocId> = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored.doc_id)
+            .collect();
         assert_eq!(ids, vec![10, 5]);
     }
 
@@ -158,7 +165,11 @@ mod tests {
             heap.push(2, 10.0);
             heap.push(3, f64::NAN);
             heap.push(4, 20.0);
-            let ids: Vec<DocId> = heap.drain_sorted().into_iter().map(|r| r.scored.doc_id).collect();
+            let ids: Vec<DocId> = heap
+                .drain_sorted()
+                .into_iter()
+                .map(|r| r.scored.doc_id)
+                .collect();
             let expected = if asc { vec![2, 4, 1] } else { vec![4, 2, 3] };
             assert_eq!(ids, expected, "asc={asc}");
         }
@@ -175,7 +186,11 @@ mod tests {
         for id in [4, 1, 2, 3] {
             heap.push(id, 5.0);
         }
-        let ids: Vec<DocId> = heap.drain_sorted().into_iter().map(|r| r.scored.doc_id).collect();
+        let ids: Vec<DocId> = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored.doc_id)
+            .collect();
         // rank 20 (doc 3 > doc 1 because last key is DESC), then rank 10 (doc 2), then missing (doc 4).
         assert_eq!(ids, vec![3, 1, 2, 4]);
     }

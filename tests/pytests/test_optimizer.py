@@ -1052,6 +1052,26 @@ def testRangeOnSortFieldExcludesMatchesWithoutValue(env):
         env.assertEqual(env.cmd(*search)[1:], ['a'], message=query)
 
 
+@skip(no_json=True, cluster=True)
+def testMixedScalarAndArraySecondaryTagTieBreakMatchesPlain(env):
+    """A JSON secondary TAG SORTABLE field mixing scalar strings and arrays must rank identically
+    under WITHOUTCOUNT and WITHCOUNT (preserving IncompatibleAgainstString compatibility order)."""
+    import json
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.n', 'AS', 'n', 'NUMERIC', 'SORTABLE',
+               '$.s', 'AS', 's', 'TAG', 'SORTABLE').ok()
+    conn.execute_command('JSON.SET', 'a', '$', json.dumps({'n': 0, 's': 'z'}))
+    conn.execute_command('JSON.SET', 'b', '$', json.dumps({'n': 0, 's': ['a']}))
+
+    for order in ('ASC', 'DESC'):
+        base = ['FT.AGGREGATE', 'idx', '*', 'SORTBY', 4, '@n', 'ASC', '@s', order,
+                'MAX', 1, 'LOAD', 1, '@__key', 'DIALECT', 3]
+        opt = env.cmd(*base[:3], 'WITHOUTCOUNT', *base[3:])[1:]
+        plain = env.cmd(*base[:3], 'WITHCOUNT', *base[3:])[1:]
+        env.assertEqual(opt, plain, message=f's {order}')
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results
@@ -1197,3 +1217,44 @@ def testOptimizeArgsDefault():
     # DEFAULT DIALECT 4 and WITHCOUNT explicitly specified ==> WITHCOUNT
     env.assertEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHCOUNT'))
     env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHOUTCOUNT'))
+
+
+def testUnfilteredUnscoredAfterHeavyDeletions():
+    ''' Unfiltered SORTBY with LIMIT > live_docs after heavy deletions matches WITHCOUNT '''
+    env = Env(useSlaves=False)
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TAG')
+
+    # Advance max_doc_id well past live doc count.
+    for i in range(500):
+        conn.execute_command('HSET', f'tmp:{i}', 'n', i)
+    for i in range(500):
+        conn.execute_command('DEL', f'tmp:{i}')
+
+    # Case 1: all live docs have `n`, LIMIT > live_docs (O(1) short-circuit path).
+    for i in range(5):
+        conn.execute_command('HSET', f'val:{i}', 'n', i * 10)
+    for direction in ('ASC', 'DESC'):
+        plain = conn.execute_command(
+            'FT.SEARCH', 'idx', '*', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '20', 'NOCONTENT', 'WITHCOUNT',
+        )
+        opt = conn.execute_command(
+            'FT.SEARCH', 'idx', '*', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '20', 'NOCONTENT', 'WITHOUTCOUNT',
+        )
+        env.assertEqual(opt[1:], plain[1:])
+
+    # Case 2: some live docs lack `n` (DocTable_ForEachLiveId enumeration path).
+    for i in range(4):
+        conn.execute_command('HSET', f'miss:{i}', 't', 'onlytag')
+    for direction in ('ASC', 'DESC'):
+        plain = conn.execute_command(
+            'FT.SEARCH', 'idx', '*', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '20', 'NOCONTENT', 'WITHCOUNT',
+        )
+        opt = conn.execute_command(
+            'FT.SEARCH', 'idx', '*', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '20', 'NOCONTENT', 'WITHOUTCOUNT',
+        )
+        env.assertEqual(opt[1:], plain[1:])

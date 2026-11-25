@@ -12,10 +12,13 @@
 //!
 //! This module provides [`NewNumericTopKIterator`].
 
-use std::{cmp::Ordering, ptr::NonNull, sync::Arc};
+use std::{cmp::Ordering, ffi::c_void, ptr::NonNull, sync::Arc};
 
 use document_metadata::OwnedDocumentMetadata;
-use ffi::{DocTable, DocTable_Borrow, DocTable_IsVisible, QueryIterator, RedisSearchCtx};
+use ffi::{
+    DocTable, DocTable_Borrow, DocTable_ForEachLiveId, DocTable_IsVisible, QueryIterator,
+    RedisSearchCtx,
+};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
@@ -106,7 +109,7 @@ impl TieBreakComparator for DocTableTieBreaker {
                 (Some(_), None) => return Ordering::Less,
                 (None, Some(_)) => return Ordering::Greater,
                 (Some(va), Some(vb)) => {
-                    let ord = value::comparison::compare(va, vb, true).unwrap_or(Ordering::Equal);
+                    let ord = value::comparison::compare_with_query_error(va, vb, None);
                     if ord != Ordering::Equal {
                         let ascending = (self.sort_asc_map & (1u64 << (i + 1))) != 0;
                         return if ascending { ord } else { ord.reverse() };
@@ -186,8 +189,6 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     debug_assert!(!spec.is_null(), "sctx.spec must be non-null");
     // SAFETY: guaranteed by 4.
     let docs = unsafe { &raw const (*spec).docs };
-    // SAFETY: guaranteed by 4.
-    let max_doc_id = unsafe { (*docs).maxDocId };
     // SAFETY: 4 keeps the inline doc table valid for the iterator's lifetime.
     let validity = move |doc_id| unsafe { DocTable_IsVisible(docs, doc_id) };
 
@@ -199,22 +200,22 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     let filter = unsafe { *filter };
 
     // SAFETY: guaranteed by 6.
-    let (sort_asc_map, tie_break_keys, collect_missing) = if let Some(spec) =
-        unsafe { sort_spec.as_ref() }
-    {
-        let keys = if spec.num_tie_break_keys > 0 {
-            debug_assert!(!spec.tie_break_sort_idx.is_null());
-            // SAFETY: guaranteed by 6.
-            let slice =
-                unsafe { std::slice::from_raw_parts(spec.tie_break_sort_idx, spec.num_tie_break_keys) };
-            Some(Arc::<[i16]>::from(slice))
+    let (sort_asc_map, tie_break_keys, collect_missing) =
+        if let Some(spec) = unsafe { sort_spec.as_ref() } {
+            let keys = if spec.num_tie_break_keys > 0 {
+                debug_assert!(!spec.tie_break_sort_idx.is_null());
+                // SAFETY: guaranteed by 6.
+                let slice = unsafe {
+                    std::slice::from_raw_parts(spec.tie_break_sort_idx, spec.num_tie_break_keys)
+                };
+                Some(Arc::<[i16]>::from(slice))
+            } else {
+                None
+            };
+            (spec.sort_asc_map, keys, spec.collect_missing)
         } else {
-            None
+            (u64::from(filter.ascending), None, false)
         };
-        (spec.sort_asc_map, keys, spec.collect_missing)
-    } else {
-        (u64::from(filter.ascending), None, false)
-    };
 
     let num_tie_break_keys = tie_break_keys.as_ref().map_or(0, |k| k.len());
     let last_ascending = (sort_asc_map & (1u64 << num_tie_break_keys)) != 0;
@@ -227,7 +228,36 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
             tie_break_keys,
         },
     );
-    let unscored_max_doc_id = collect_missing.then_some(max_doc_id);
+    let unscored_live_docs = collect_missing.then(|| {
+        let f: numeric_score_source::UnscoredLiveDocsFn = Box::new(move |heap_count, is_valued| {
+            // SAFETY: 4 keeps `docs` valid for the iterator's lifetime under the spec read lock.
+            let live_docs = unsafe { (*docs).size };
+            if heap_count >= live_docs {
+                return Vec::new();
+            }
+            struct CollectCtx<'a> {
+                is_valued: &'a dyn Fn(DocId) -> bool,
+                out: Vec<DocId>,
+            }
+            unsafe extern "C" fn on_live_doc(ctx: *mut c_void, doc_id: DocId) {
+                // SAFETY: `ctx` points to `CollectCtx` on the stack of `DocTable_ForEachLiveId`.
+                let state = unsafe { &mut *ctx.cast::<CollectCtx<'_>>() };
+                if !(state.is_valued)(doc_id) {
+                    state.out.push(doc_id);
+                }
+            }
+            let mut ctx = CollectCtx {
+                is_valued,
+                out: Vec::new(),
+            };
+            // SAFETY: `docs` is valid under the read lock; `on_live_doc` only touches `ctx`.
+            unsafe {
+                DocTable_ForEachLiveId(docs, Some(on_live_doc), (&raw mut ctx).cast::<c_void>());
+            }
+            ctx.out
+        });
+        f
+    });
 
     // Adopt the filter child as an owning Rust iterator. A null child means a
     // plain range scan.
@@ -241,7 +271,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
         num_docs,
         mode,
         order,
-        unscored_max_doc_id,
+        unscored_live_docs,
         validity,
         expiration,
         timeout,
