@@ -189,6 +189,18 @@ jobs:
                       'name': 'Rocky Linux 9 ARM64'
                   }
               },
+              "rockylinux:10": {
+                  "x86_64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 ARM64'
+                  }
+              },
               "amazonlinux:2": {
                   "x86_64": {
                       'container': 'amazonlinux:2',
