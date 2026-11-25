@@ -16,7 +16,7 @@
 
 use std::ops::Bound;
 
-use compound_index::{BucketRange, Constraint, Level};
+use compound_index::{Constraint, TagSet};
 
 use crate::{NestedIndex, TerminalKind};
 
@@ -74,9 +74,6 @@ pub enum TerminalFilter<'a> {
 }
 
 /// One conjunction of a group, ready to walk.
-///
-/// Every tag set in it, in a [`Constraint::TagIn`] or [`Constraint::TagNotIn`], is sorted and
-/// holds each value once, so a caller can binary-search it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Branch<'a> {
     /// One constraint per routing level, for
@@ -95,7 +92,7 @@ pub enum PlanError {
         /// The level named.
         level: usize,
     },
-    /// A tag condition on a numeric level, or a range on a tag level.
+    /// A range on a tag level, or a tag condition on a numeric terminal.
     #[error("the condition on level {level} does not match the level's type")]
     PredicateMismatch {
         /// The level.
@@ -122,25 +119,18 @@ pub fn plan<'a>(
     expr: &Expr<'a>,
     max_branches: usize,
 ) -> Result<Vec<Branch<'a>>, PlanError> {
-    let levels = index.routing().levels();
-    let num_levels = levels.len() + 1;
+    let num_routing = index.routing().levels().len();
     let conjunctions = dnf(expr, false, max_branches)?;
     let mut branches = Vec::with_capacity(conjunctions.len());
     for mut conjunction in conjunctions {
-        let mut filters: Vec<LevelFilter<'a>> = (0..num_levels)
-            .map(|level| {
-                let numeric = if level < levels.len() {
-                    matches!(levels[level], Level::Buckets(_))
-                } else {
-                    matches!(index.terminal_kind(), TerminalKind::Numeric(_))
-                };
-                if numeric {
-                    LevelFilter::Range(Bound::Unbounded, Bound::Unbounded)
-                } else {
-                    LevelFilter::Tag(TagFilter::Any)
-                }
-            })
-            .collect();
+        // Routing levels are tags; only the terminal may be numeric.
+        let mut routing: Vec<TagFilter<'a>> = (0..num_routing).map(|_| TagFilter::Any).collect();
+        let mut terminal = match index.terminal_kind() {
+            TerminalKind::Numeric(_) => {
+                TerminalCondition::Range(Bound::Unbounded, Bound::Unbounded)
+            }
+            TerminalKind::Tag => TerminalCondition::Tag(TagFilter::Any),
+        };
         // Value lists first, then prefixes, then negations: a negation under a prefix can only
         // be planned once a value list has turned the prefix into a set, so taking literals in
         // this order makes the outcome, plan or error, independent of how the query orders them.
@@ -154,27 +144,22 @@ pub fn plan<'a>(
         let mut possible = true;
         for literal in &conjunction {
             let level = literal.clause.level;
-            let filter = filters
-                .get_mut(level)
-                .ok_or(PlanError::NoSuchLevel { level })?;
-            possible &= filter.and(literal)?;
+            possible &= match level.cmp(&num_routing) {
+                std::cmp::Ordering::Less => routing[level].and(literal)?,
+                std::cmp::Ordering::Equal => terminal.and(literal)?,
+                std::cmp::Ordering::Greater => return Err(PlanError::NoSuchLevel { level }),
+            };
         }
         if !possible {
             continue;
         }
-        let terminal = match filters.pop().expect("at least one level") {
-            LevelFilter::Tag(tag) => TerminalFilter::Tag(tag.into_constraint()),
-            LevelFilter::Range(start, end) => TerminalFilter::Numeric { start, end },
+        let terminal = match terminal {
+            TerminalCondition::Tag(tag) => TerminalFilter::Tag(tag.into_constraint()),
+            TerminalCondition::Range(start, end) => TerminalFilter::Numeric { start, end },
         };
-        let routing = filters
+        let routing = routing
             .into_iter()
-            .map(|filter| match filter {
-                LevelFilter::Tag(tag) => tag.into_constraint(),
-                LevelFilter::Range(Bound::Unbounded, Bound::Unbounded) => Constraint::Any,
-                LevelFilter::Range(start, end) => {
-                    Constraint::BucketRange(BucketRange { start, end })
-                }
-            })
+            .map(TagFilter::into_constraint)
             .collect();
         branches.push(Branch { routing, terminal });
     }
@@ -276,8 +261,8 @@ fn dnf<'a>(expr: &Expr<'a>, negate: bool, max: usize) -> Result<Vec<Vec<Literal<
     }
 }
 
-/// The conditions a conjunction puts on one level so far.
-enum LevelFilter<'a> {
+/// The conditions a conjunction puts on the terminal so far, of the terminal's kind.
+enum TerminalCondition<'a> {
     Tag(TagFilter<'a>),
     Range(Bound<f64>, Bound<f64>),
 }
@@ -307,25 +292,19 @@ impl<'a> TagFilter<'a> {
     fn into_constraint(self) -> Constraint<'a> {
         match self {
             Self::Any => Constraint::Any,
-            Self::Among(values) => Constraint::TagIn(values),
-            Self::Excluding(values) => Constraint::TagNotIn(values),
+            Self::Among(values) => Constraint::TagIn(TagSet::new(values)),
+            Self::Excluding(values) => Constraint::TagNotIn(TagSet::new(values)),
             Self::Prefix(prefix) => Constraint::TagPrefix(prefix),
         }
     }
 }
 
-impl<'a> LevelFilter<'a> {
-    /// Adds `literal` to the level's conditions. Returns `false` when they can no longer match.
+impl<'a> TerminalCondition<'a> {
+    /// Adds `literal` to the terminal's conditions. Returns `false` when they can no longer match.
     fn and(&mut self, literal: &Literal<'a>) -> Result<bool, PlanError> {
         let level = literal.clause.level;
         match (self, &literal.clause.predicate) {
-            (Self::Tag(filter), Predicate::TagIn(values)) => filter.and_in(values, literal.negated),
-            (Self::Tag(filter), Predicate::TagPrefix(prefix)) => {
-                if literal.negated {
-                    return Err(PlanError::NegatedPrefix);
-                }
-                filter.and_prefix(prefix)
-            }
+            (Self::Tag(filter), _) => filter.and(literal),
             (Self::Range(start, end), Predicate::Range { start: lo, end: hi }) => {
                 debug_assert!(!literal.negated, "`dnf` complements negated ranges");
                 *start = max_start(*start, *lo);
@@ -338,6 +317,22 @@ impl<'a> LevelFilter<'a> {
 }
 
 impl<'a> TagFilter<'a> {
+    /// Adds `literal` to the level's conditions. Returns `false` when they can no longer match.
+    fn and(&mut self, literal: &Literal<'a>) -> Result<bool, PlanError> {
+        match &literal.clause.predicate {
+            Predicate::TagIn(values) => self.and_in(values, literal.negated),
+            Predicate::TagPrefix(prefix) => {
+                if literal.negated {
+                    return Err(PlanError::NegatedPrefix);
+                }
+                self.and_prefix(prefix)
+            }
+            Predicate::Range { .. } => Err(PlanError::PredicateMismatch {
+                level: literal.clause.level,
+            }),
+        }
+    }
+
     fn and_in(&mut self, values: &[&'a [u8]], negated: bool) -> Result<bool, PlanError> {
         let values = sorted_set(values);
         let next = match (std::mem::replace(self, Self::Any), negated) {

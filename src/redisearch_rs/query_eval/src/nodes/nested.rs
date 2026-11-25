@@ -65,9 +65,7 @@ impl GroupError {
     const fn code(&self) -> QueryErrorCode {
         match self {
             Self::Plan(PlanError::TooManyBranches { .. }) => QueryErrorCode::Limit,
-            Self::Unsupported
-            | Self::Plan(_)
-            | Self::Walk(CollectError::UnalignedBucketRange { .. }) => QueryErrorCode::Syntax,
+            Self::Unsupported | Self::Plan(_) => QueryErrorCode::Syntax,
             // The group opens nothing rather than the terminals reached so far; the request then
             // answers as for any timeout before the first read (`AREQ_EmptyTreeOnBuildTimeout`).
             Self::Walk(CollectError::TimedOut) => QueryErrorCode::TimedOut,
@@ -278,20 +276,21 @@ impl Readers {
                     match constraint {
                         Constraint::TagIn(values) => {
                             // A value with a NUL byte is never indexed.
-                            for tag in values.iter().filter_map(|value| Tag::new(value)) {
+                            for tag in values.values().iter().filter_map(|value| Tag::new(value)) {
                                 // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
                                 unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                             }
                         }
                         Constraint::Any | Constraint::TagNotIn(_) => {
-                            let excluded: &[&[u8]] = match constraint {
-                                Constraint::TagNotIn(excluded) => excluded,
-                                _ => &[],
+                            let excluded = match constraint {
+                                Constraint::TagNotIn(excluded) => Some(excluded),
+                                _ => None,
                             };
-                            debug_assert!(excluded.is_sorted(), "a planned set is sorted");
                             let mut it = tags.value_iter();
                             while let Some((tag, _)) = it.advance() {
-                                if excluded.binary_search(&tag.as_bytes()).is_err() {
+                                if !excluded
+                                    .is_some_and(|excluded| excluded.contains(tag.as_bytes()))
+                                {
                                     // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
                                     unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                                 }
@@ -311,9 +310,6 @@ impl Readers {
                                 // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
                                 unsafe { self.open_tag(tags, tags_ptr, tag) }?;
                             }
-                        }
-                        Constraint::BucketRange(_) => {
-                            unreachable!("a tag terminal's filter is a tag constraint")
                         }
                     }
                 }

@@ -10,10 +10,7 @@
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
 use nested_index::query::{Branch, Clause, Expr, PlanError, Predicate, TerminalFilter, plan};
-use nested_index::{
-    BucketLevel, BucketRange, Constraint, FloatCompression, Level, NestedIndex, TagLevel,
-    TerminalKind,
-};
+use nested_index::{Constraint, FloatCompression, NestedIndex, TagLevel, TagSet, TerminalKind};
 use proptest::prelude::*;
 
 use crate::util::{materials, priced};
@@ -47,8 +44,16 @@ fn not(expr: Expr<'_>) -> Expr<'_> {
     Expr::Not(Box::new(expr))
 }
 
+fn tag_set<'a>(values: &[&'a str]) -> TagSet<'a> {
+    TagSet::new(values.iter().map(|v| v.as_bytes()))
+}
+
 fn tag_in<'a>(values: &[&'a str]) -> Constraint<'a> {
-    Constraint::TagIn(values.iter().map(|v| v.as_bytes()).collect())
+    Constraint::TagIn(tag_set(values))
+}
+
+fn tag_not_in<'a>(values: &[&'a str]) -> Constraint<'a> {
+    Constraint::TagNotIn(tag_set(values))
 }
 
 const ANY_PRICE: TerminalFilter<'static> = TerminalFilter::Numeric {
@@ -119,7 +124,7 @@ fn negations_on_one_level_add_up() {
     ]);
     assert_eq!(
         plan_priced(&expr)[0].routing[0],
-        Constraint::TagNotIn(vec![b"blue", b"red"])
+        tag_not_in(&["blue", "red"])
     );
 }
 
@@ -174,8 +179,8 @@ fn not_is_pushed_down_to_the_clauses() {
     let expr = not(Expr::And(vec![tags(COLOR, &["red"]), tags(SIZE, &["M"])]));
     let branches = plan_priced(&expr);
     assert_eq!(branches.len(), 2);
-    assert_eq!(branches[0].routing[0], Constraint::TagNotIn(vec![b"red"]));
-    assert_eq!(branches[1].routing[1], Constraint::TagNotIn(vec![b"M"]));
+    assert_eq!(branches[0].routing[0], tag_not_in(&["red"]));
+    assert_eq!(branches[1].routing[1], tag_not_in(&["M"]));
     // A double negation cancels.
     assert_eq!(
         plan_priced(&not(not(tags(COLOR, &["red"])))),
@@ -202,25 +207,6 @@ fn a_negated_range_is_below_or_above_it() {
     );
     // Outside an unbounded range is nothing.
     assert_eq!(plan_priced(&not(range(PRICE, Unbounded, Unbounded))), []);
-}
-
-#[test]
-fn a_range_on_a_bucket_level_becomes_a_bucket_range() {
-    let index = NestedIndex::new(
-        vec![Level::Buckets(
-            BucketLevel::new(vec![2020.0, 2022.0, 2024.0]).unwrap(),
-        )],
-        TerminalKind::Numeric(FloatCompression::Off),
-    )
-    .unwrap();
-    let branches = plan(&index, &range(0, Included(2020.0), Excluded(2022.0)), 16).unwrap();
-    assert_eq!(
-        branches[0].routing,
-        [Constraint::BucketRange(BucketRange {
-            start: Included(2020.0),
-            end: Excluded(2022.0)
-        })]
-    );
 }
 
 #[test]
@@ -443,10 +429,9 @@ fn satisfies(constraint: &Constraint<'_>, value: &str) -> bool {
     let value = value.as_bytes();
     match constraint {
         Constraint::Any => true,
-        Constraint::TagIn(values) => values.contains(&value),
-        Constraint::TagNotIn(values) => !values.contains(&value),
+        Constraint::TagIn(values) => values.contains(value),
+        Constraint::TagNotIn(values) => !values.contains(value),
         Constraint::TagPrefix(p) => value.starts_with(p),
-        Constraint::BucketRange(_) => unreachable!("the index has tag levels only"),
     }
 }
 
@@ -492,7 +477,7 @@ proptest! {
 fn an_unconstrained_group_is_one_open_branch() {
     // `@items:( )` cannot be written, but an empty AND is every element.
     let index = NestedIndex::new(
-        vec![Level::Tag(TagLevel::new())],
+        vec![TagLevel::new()],
         TerminalKind::Numeric(FloatCompression::Off),
     )
     .unwrap();

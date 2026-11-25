@@ -14,8 +14,7 @@ use std::ptr;
 
 use inverted_index::NumericFilter;
 use nested_index::{
-    Element, FloatCompression, IndexParams, Key, Level, NestedIndex, Tag, TagLevel, TerminalKind,
-    TerminalValue,
+    Element, FloatCompression, IndexParams, NestedIndex, Tag, TagLevel, TerminalKind, TerminalValue,
 };
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
@@ -84,20 +83,17 @@ impl NestedFixture {
         } else {
             TerminalKind::Tag
         };
-        let levels = routing
-            .iter()
-            .map(|_| Level::Tag(TagLevel::new()))
-            .collect();
+        let levels = routing.iter().map(|_| TagLevel::new()).collect();
         let mut index = NestedIndex::new(levels, kind).unwrap();
         for (doc_id, elements) in docs {
-            let keys: Vec<Vec<Key<'_>>> = elements
+            let keys: Vec<Vec<&[u8]>> = elements
                 .iter()
                 .map(|values| {
                     values[..values.len() - 1]
                         .iter()
                         .map(|value| match value {
-                            Value::Tag(tag) => Key::Tag(tag.as_bytes()),
-                            Value::Number(n) => Key::Numeric(*n),
+                            Value::Tag(tag) => tag.as_bytes(),
+                            Value::Number(_) => unreachable!("routing values are tags"),
                         })
                         .collect()
                 })

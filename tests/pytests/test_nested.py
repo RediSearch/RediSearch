@@ -597,25 +597,6 @@ def testATagTerminal(env):
 
 @skip(no_json=True, cluster=True)
 @unstable_features
-def testABucketLevel(env):
-    """A range on a BUCKETS level selects whole buckets, and one cutting a bucket fails."""
-    conn = getConnectionByEnv(env)
-    create(env, '$.items[*]', 'AS', 'items', 'NESTED', 2,
-           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
-           '$.price', 'AS', 'price', 'NUMERIC', 'INDEX', 2, 'year', 'price').ok()
-    put(conn, 'doc:1', [{'year': 2020, 'price': 5}, {'year': 2023, 'price': 50}])
-    put(conn, 'doc:2', [{'year': 2021, 'price': 50}, {'year': 2023, 'price': 5}])
-    # Buckets are half-open: `[2022 (2024]` is exactly the second one.
-    env.assertEqual(ids(env, '@items:( @year:[2022 (2024] @price:[0 10] )'), ['doc:2'])
-    env.assertEqual(ids(env, '@items:( @year:[2020 (2022] @price:[0 10] )'), ['doc:1'])
-    env.assertEqual(ids(env, '@items:( @year:[-inf +inf] @price:[40 60] )'), ['doc:1', 'doc:2'])
-    # A range cutting a bucket cannot be answered from the buckets.
-    env.expect('FT.SEARCH', 'idx', '@items:( @year:[2021 2023] )', 'DIALECT', 2).error() \
-        .contains('must cover whole buckets')
-
-
-@skip(no_json=True, cluster=True)
-@unstable_features
 def testInvalidGroupsAreRejected(env):
     """Unknown sub-fields, wrong types, unsupported clauses and limits are query errors."""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
