@@ -254,10 +254,13 @@ extern dictType dictTypeUint64;
 uint64_t stringsHashFunction(const void *key);
 uint64_t hiddenNameHashFunction(const void *key);
 uint64_t redisStringsHashFunction(const void *key);
+/* RString callbacks borrow binary-safe views: s must be non-NULL and readable for n bytes. */
+uint64_t rstringHashFunction(const void *key);
 
 int stringsKeyCompare(void *privdata, const void *key1, const void *key2);
 int hiddenNameKeyCompare(void *privdata, const void *key1, const void *key2);
 int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2);
+int rstringKeyCompare(void *privdata, const void *key1, const void *key2);
 
 void stringsKeyDestructor(void *privdata, void *key);
 void hiddenNameKeyDestructor(void *privdata, void *key);
@@ -266,12 +269,8 @@ void redisStringsKeyDestructor(void *privdata, void *key);
 void* stringsKeyDup(void *privdata, const void *key);
 void* hiddenNameKeyDup(void *privdata, const void *key);
 void* redisStringsKeyDup(void *privdata, const void *key);
-
-/* Binary-safe RString keys: s must be non-NULL and readable for n bytes.
- * Lookups borrow the view. rstringKeyDup copies the view and bytes into one
- * allocation, without a terminator; release it with stringsKeyDestructor. */
-uint64_t rstringHashFunction(const void *key);
-int rstringKeyCompare(void *privdata, const void *key1, const void *key2);
+/* Copies the view and bytes into one allocation without a terminator;
+ * release it with stringsKeyDestructor. */
 void *rstringKeyDup(void *privdata, const void *key);
 
 
