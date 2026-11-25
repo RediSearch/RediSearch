@@ -13,7 +13,6 @@
 #include <math.h>
 
 #include "iterators_ffi.h"
-#include "json.h"
 #include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
@@ -76,39 +75,59 @@ static bool resolveTieBreakKeys(QOptimizer *opt, const IndexSpec *spec,
   return true;
 }
 
+/* Whether a LOAD step aliases a loaded field onto any key of the arrange step, overwriting the
+ * value the optimizer would otherwise read from the schema's sorting vector. */
+static bool loadStepOverwritesSortKey(const PLN_LoadStep *lstp, const PLN_ArrangeStep *arng) {
+  ArgsCursor ac = lstp->args;
+  while (!AC_IsAtEnd(&ac)) {
+    AC_Advance(&ac);  // field path
+    if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR) && !AC_IsAtEnd(&ac)) {
+      const char *alias = NULL;
+      size_t len = 0;
+      if (AC_GetString(&ac, &alias, &len, 0) == AC_OK) {
+        if (len > 0 && alias[0] == '@') {
+          alias++;
+          len--;
+        }
+        for (size_t i = 0; i < array_len(arng->sortKeys); i++) {
+          if (strlen(arng->sortKeys[i]) == len && memcmp(arng->sortKeys[i], alias, len) == 0) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /* Whether a step before the arrange step can drop rows or change their sort values. The optimizer
  * prunes documents while collecting them, before any later step runs, so such a step would act on
- * the rows the optimizer kept rather than on every match. Only LOAD leaves rows as they are. */
+ * the rows the optimizer kept rather than on every match. Only LOAD without a sort-key alias
+ * leaves rows and sort values as they are. */
 static bool stepsBeforeCanReshapeRows(const AGGPlan *pln, const PLN_ArrangeStep *arng) {
   DLLIST_FOREACH(nn, &pln->steps) {
     const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
     if (stp == &arng->base) {
       return false;
     }
-    if (stp->type != PLN_T_ROOT && stp->type != PLN_T_LOAD) {
+    if (stp->type == PLN_T_LOAD) {
+      if (loadStepOverwritesSortKey((const PLN_LoadStep *)stp, arng)) {
+        return true;
+      }
+      continue;
+    }
+    if (stp->type != PLN_T_ROOT) {
       return true;
     }
   }
   return false;
 }
 
-/* Whether the field's JSON path can yield several values per document. */
-static bool fieldMayHoldManyValues(const IndexSpec *spec, const FieldSpec *field) {
-  if (!isSpecJson(spec) || !field->fieldPath) {
-    return false;
-  }
-  RedisModuleString *err = NULL;
-  JSONPath path = japi ? pathParse(field->fieldPath, &err) : NULL;
-  if (err) {
-    RedisModule_FreeString(RSDummyContext, err);
-  }
-  if (!path) {
-    // A path that cannot be parsed cannot be shown to be single, so assume the worst.
-    return true;
-  }
-  bool isSingle = japi->pathIsSingle(path);
-  japi->pathFree(path);
-  return !isSingle;
+/* Whether a document can hold several numeric values for the field. On JSON indexes even a
+ * single-result JSONPath (such as `$.n`) can select a JSON array `[0, 10]`, which is indexed as
+ * multiple numeric values; on HASH indexes every numeric field holds at most one value. */
+static bool fieldMayHoldManyValues(const IndexSpec *spec) {
+  return isSpecJson(spec);
 }
 
 void QOptimizer_Parse(AREQ *req) {
@@ -133,7 +152,7 @@ void QOptimizer_Parse(AREQ *req) {
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
         opt->sortAscMap = arng->sortAscMap;
-        opt->sortFieldMayHoldManyValues = fieldMayHoldManyValues(sctx->spec, field);
+        opt->sortFieldMayHoldManyValues = fieldMayHoldManyValues(sctx->spec);
       } else {
         // sortby a non-numeric field first, or by a later key the heap cannot read, no optimization
         opt->type = Q_OPT_NONE;

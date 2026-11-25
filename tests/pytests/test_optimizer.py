@@ -1219,9 +1219,8 @@ def testOptimizeArgsDefault():
     env.assertNotEqual(conn.execute_command(*query, 'WITHCOUNT'), conn.execute_command(*query, 'WITHOUTCOUNT'))
 
 
-def testUnfilteredUnscoredAfterHeavyDeletions():
+def testUnfilteredUnscoredAfterHeavyDeletions(env):
     ''' Unfiltered SORTBY with LIMIT > live_docs after heavy deletions matches WITHCOUNT '''
-    env = Env(useSlaves=False)
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TAG')
 
@@ -1258,3 +1257,45 @@ def testUnfilteredUnscoredAfterHeavyDeletions():
             'LIMIT', '0', '20', 'NOCONTENT', 'WITHOUTCOUNT',
         )
         env.assertEqual(opt[1:], plain[1:])
+
+
+def testJsonArraySinglePathNotBoundedByIntersection(env):
+    ''' JSON single-result path $.n can still hold an array [0, 10]; @n:[0 0] @n:[10 10] must match '''
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.n', 'AS', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"n":[0,10]}')
+    for direction in ('ASC', 'DESC'):
+        plain = conn.execute_command(
+            'FT.SEARCH', 'idx', '@n:[0 0] @n:[10 10]', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '5', 'NOCONTENT', 'WITHCOUNT', 'DIALECT', '3',
+        )
+        opt = conn.execute_command(
+            'FT.SEARCH', 'idx', '@n:[0 0] @n:[10 10]', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '5', 'NOCONTENT', 'WITHOUTCOUNT', 'DIALECT', '3',
+        )
+        env.assertEqual(plain[1:], ['doc:1'])
+        env.assertEqual(opt[1:], plain[1:])
+
+
+def testLoadAliasOverwritingSortKeyDisablesOptimizer(env):
+    ''' LOAD 3 @m AS s before SORTBY 4 @n ASC @s ASC MAX 1 must use the aliased value '''
+    conn = getConnectionByEnv(env)
+    env.cmd(
+        'FT.CREATE', 'idx', 'SCHEMA',
+        'n', 'NUMERIC', 'SORTABLE',
+        's', 'NUMERIC', 'SORTABLE',
+        'm', 'NUMERIC', 'SORTABLE',
+    )
+    conn.execute_command('HSET', 'a', 'n', 0, 's', 1, 'm', 10)
+    conn.execute_command('HSET', 'b', 'n', 0, 's', 2, 'm', 0)
+    plain = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'WITHCOUNT',
+        'LOAD', '4', '@__key', '@m', 'AS', 's',
+        'SORTBY', '4', '@n', 'ASC', '@s', 'ASC', 'MAX', '1',
+    )
+    opt = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'LOAD', '4', '@__key', '@m', 'AS', 's',
+        'SORTBY', '4', '@n', 'ASC', '@s', 'ASC', 'MAX', '1',
+    )
+    env.assertEqual(opt[1:], plain[1:])
