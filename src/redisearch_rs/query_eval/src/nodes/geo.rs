@@ -48,6 +48,21 @@ pub(crate) fn eval<'index>(
         field_index < ctx.spec().numFields,
         "fieldIndex must be within the spec's current field count"
     );
+    if cfg!(debug_assertions) {
+        let spec = ctx.spec();
+        // SAFETY: `field_index` is within `spec.numFields` (asserted above), so this
+        // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+        // SAFETY: `field_ptr` points into the live spec's field array, which the
+        // query's spec read lock keeps alive and unmodified throughout evaluation.
+        let field = unsafe { &*field_ptr };
+        // Both query parsers and the legacy `GEOFILTER` argument build a geo node only on a
+        // GEO field.
+        assert!(
+            field.types() & ffi::FieldType_INDEXFLD_T_GEO != 0,
+            "a geo node must reference a geo field"
+        );
+    }
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise geo iterator instead of opening the in-memory range tree.
