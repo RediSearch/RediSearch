@@ -968,8 +968,8 @@ typedef struct {
 
   ScoreThresholdMode scoreThreshold;
 
-  // Whether a timeout warning needs to be propagated down the downstream
-  bool timedOut;
+  // Whether the stop warning needs to be propagated down the downstream
+  bool stopped;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -982,8 +982,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     rm_free(cur_best);
     return RS_RESULT_OK;
   }
-  int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
-  self->timedOut = false;
+  int ret = self->stopped ? RS_RESULT_STOPPED : RS_RESULT_EOF;
+  self->stopped = false;
   return ret;
 }
 
@@ -1015,7 +1015,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   // and the main-thread drain pops the heap.
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
-    self->timedOut = true;
+    self->stopped = true;
     RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
@@ -2138,7 +2138,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
-   bool timedOut;
+   bool stopped;
  } RPMaxScoreNormalizer;
 
 
@@ -2154,8 +2154,8 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    size_t length = array_len(self->pool);
    if (length == 0) {
     // We've already yielded all results, return EOF
-    int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
-    self->timedOut = false;
+    int ret = self->stopped ? RS_RESULT_STOPPED : RS_RESULT_EOF;
+    self->stopped = false;
     return ret;
    }
   SearchResult *poppedResult = array_pop(self->pool);
@@ -2179,7 +2179,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    if (RP_StopPolicy(rp) != TimeoutPolicy_Return) {
      return RS_RESULT_STOPPED;
    }
-   ((RPMaxScoreNormalizer *)rp)->timedOut = true;
+   ((RPMaxScoreNormalizer *)rp)->stopped = true;
    RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
@@ -2781,7 +2781,8 @@ static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnC
   return false;
 }
 
-/* Whether an upstream ended on a stop that is not a memory stop. */
+/* Whether an upstream ended on a stop that is not a memory stop: ApplyOomStop maps a memory stop,
+ * so it is not reported as a timeout. */
 static bool RPHybridMerger_TimedOut(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     const QueryProcessingCtx *parent = self->upstreams[i]->parent;

@@ -45,7 +45,8 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
 /**
  * Per-row memory checkpoint for replaying the rows a finished pipeline buffered. On true the
  * caller stops replaying; the query OOM warning is then set in `err`. Never an error: the reply
- * has started.
+ * has started. A no-op under ON_OOM FAIL (StoredResults_StopBeforeReply decided) and once the
+ * request was memory-stopped while buffering.
  */
 bool StoredResults_ShouldStop(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                               QueryError *err);

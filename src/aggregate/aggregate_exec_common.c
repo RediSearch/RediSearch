@@ -86,10 +86,11 @@ bool StoredResults_StopBeforeReply(QueryRequestLimits *limits, RSOomPolicy oomPo
   // A blocked-client timeout's callback owns the reply, as in ApplyOomStop. A stop requested
   // while buffering was already applied, so only a new one counts here.
   if (oomPolicy != OomPolicy_Fail || QueryRequestLimits_IsBlockedClientTimedOut(limits) ||
-      QueryRequestLimits_IsMemoryStopped(limits)) {
+      QueryRequestLimits_IsMemoryStopped(limits) || !QueryMemory_CheckpointExact(limits)) {
     return false;
   }
-  return QueryMemory_CheckBeforeExecution(limits, oomPolicy, err) != REDISMODULE_OK;
+  QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  return true;
 }
 
 static bool oomStopKeepsBufferedRows(const QueryRequestLimits *limits, RSOomPolicy oomPolicy) {

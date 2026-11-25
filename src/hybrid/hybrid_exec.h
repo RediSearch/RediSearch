@@ -63,7 +63,8 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 /**
  * ApplyOomStop for FT.HYBRID: each stopped subquery (its code in subqueriesReturnCodes) goes
  * through ApplyOomStop with its own limits, then the tail's `rc` with the request's, with the
- * error or warning on the tail. Idempotent.
+ * error or warning on the tail. Does nothing after a blocked-client timeout, whose reply is the
+ * timeout's. Idempotent.
  */
 int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc);
 
