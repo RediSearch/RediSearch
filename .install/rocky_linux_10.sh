@@ -18,3 +18,9 @@ cat <<'PROFILE' | $MODE tee /etc/profile.d/llvm21.sh >/dev/null
 export PATH="/usr/lib64/llvm21/bin:$PATH"
 export LIBCLANG_PATH=/usr/lib64/llvm21/lib64
 PROFILE
+
+# Rocky 9 got this from gcc-toolset; with the system GCC it is a separate package. This branch's
+# Boost multiprecision includes quadmath.h where __float128 exists (x86_64 only).
+if [[ $(uname -m) == x86_64 ]]; then
+    $MODE dnf install -y libquadmath-devel
+fi
