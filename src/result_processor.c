@@ -968,8 +968,8 @@ typedef struct {
 
   ScoreThresholdMode scoreThreshold;
 
-  // Whether a timeout warning needs to be propagated down the downstream
-  bool timedOut;
+  // Whether the stop warning needs to be propagated down the downstream
+  bool stopped;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -982,8 +982,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     rm_free(cur_best);
     return RS_RESULT_OK;
   }
-  int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
-  self->timedOut = false;
+  int ret = self->stopped ? RS_RESULT_STOPPED : RS_RESULT_EOF;
+  self->stopped = false;
   return ret;
 }
 
@@ -1015,7 +1015,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   // and the main-thread drain pops the heap.
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
-    self->timedOut = true;
+    self->stopped = true;
     RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
@@ -1633,18 +1633,18 @@ static void rpSafeLoader_TruncateBuffer(RPSafeLoader *self, size_t end) {
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
-  // The pipeline's timeout state, NULL for a pipeline built without a request.
-  QueryRequestLimits *timeout = self->base_loader.base.parent->limits;
+  // The pipeline's request limits, NULL for a pipeline built without a request.
+  QueryRequestLimits *limits = self->base_loader.base.parent->limits;
   // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
   // with nothing held upstream, cuts the load.
-  const bool checkMemory = timeout && !QueryRequestLimits_IsMemoryStopped(timeout);
+  const bool checkMemory = limits && !QueryRequestLimits_IsMemoryStopped(limits);
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     // A timeout never cuts the load: its callback waits for this worker.
-    if (checkMemory && QueryMemory_Checkpoint(timeout)) {
+    if (checkMemory && QueryMemory_Checkpoint(limits)) {
       // Rows load in order, so the loaded prefix ends here: the yield phase hands it out, then
       // ends on the stop. The rest still matched the query, so they are not counted as skipped.
       self->last_buffered_rc = RS_RESULT_STOPPED;
@@ -1695,7 +1695,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
-  QueryRequestLimits *timeout = rp->parent->limits;
+  QueryRequestLimits *limits = rp->parent->limits;
   // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
   // holds its rows past a stop and yields them over several reads.
   bool ownStop = false;
@@ -1711,9 +1711,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
-    const bool heldUpstream = timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+    const bool heldUpstream = limits && QueryRequestLimits_IsMemoryStopped(limits);
     const bool fillStopped = RP_FillShouldStop(rp);
-    ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+    ownStop |= !heldUpstream && limits && QueryRequestLimits_IsMemoryStopped(limits);
     if (fillStopped) {
       result_status = RS_RESULT_STOPPED;
       break;
@@ -2138,7 +2138,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
-   bool timedOut;
+   bool stopped;
  } RPMaxScoreNormalizer;
 
 
@@ -2154,8 +2154,8 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    size_t length = array_len(self->pool);
    if (length == 0) {
     // We've already yielded all results, return EOF
-    int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
-    self->timedOut = false;
+    int ret = self->stopped ? RS_RESULT_STOPPED : RS_RESULT_EOF;
+    self->stopped = false;
     return ret;
    }
   SearchResult *poppedResult = array_pop(self->pool);
@@ -2179,7 +2179,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    if (RP_StopPolicy(rp) != TimeoutPolicy_Return) {
      return RS_RESULT_STOPPED;
    }
-   ((RPMaxScoreNormalizer *)rp)->timedOut = true;
+   ((RPMaxScoreNormalizer *)rp)->stopped = true;
    RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
@@ -2468,13 +2468,13 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution.
-  QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-  bool timed_out = QueryRequestLimits_ShouldStopExact(timeout);
-  if (!timed_out) {
+  // Check if a timeout or a memory stop already fired before starting execution.
+  QueryRequestLimits *limits = self->depletingThreadCtx->limits;
+  bool stopped = QueryRequestLimits_ShouldStopExact(limits);
+  if (!stopped) {
     RPSafeDepleter_DepleteFromUpstream(self);
   } else {
-    // Timeout before starting - no need to do any work
+    // Stopped before starting - no need to do any work
     self->last_rc = RS_RESULT_STOPPED;
   }
 
