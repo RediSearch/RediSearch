@@ -8822,6 +8822,7 @@ class TestNoDeadlockQueryWithConcurrentWriter:
 def test_fail_coord_search_worker_reply_resp2():
     env = Env(protocol=2, moduleArgs='WORKERS 1 TIMEOUT 0')
     skipIfNoEnableAssert(env)
+    verify_shard_init(env)
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
