@@ -343,11 +343,16 @@ FT.CREATE idx ON HASH PREFIX 1 doc: SCHEMA
 ### Document Value
 
 - **HASH**: a binary blob of little-endian `(u32 dim_id, f32 weight)` pairs with strictly increasing `dim_id`. Binary like dense vectors, with no text parsing on the write path.
-- **JSON**: `{"indices": [331, 14136], "values": [0.5, 0.7]}`, the shape most sparse-vector clients produce.
+- **JSON**, in either of two shapes:
+  - **Arrays**: `{"indices": [331, 14136], "values": [0.5, 0.7]}`, the shape Qdrant and Pinecone store. `indices` must be strictly increasing, as for HASH.
+  - **Map**: `{"331": 0.5, "14136": 0.7}`, the shape Milvus and OpenSearch `sparse_vector` store. Keys are dimension IDs in canonical decimal form (no sign, no leading zero, at most 2³²−1); key order carries no meaning, so the pairs are sorted on ingest.
+
+  An object with an `indices` or `values` key is the arrays shape, and must have both and nothing else. Any other object, including `{}`, is the map shape. String token keys (Elasticsearch, Vespa) are not accepted.
 
 ```
 HSET doc:1 title "running shoes" category footwear splade <blob>
 JSON.SET doc:2 $ '{"splade": {"indices": [331, 14136], "values": [0.5, 0.7]}}'
+JSON.SET doc:3 $ '{"splade": {"14136": 0.7, "331": 0.5}}'
 ```
 
 ### Query
@@ -463,7 +468,7 @@ Each step is roughly one reviewable PR.
 | 0 | Proposal and design review, spec delta for the new field type and query semantics | `docs/design/`, GitHub issue | In progress | Maintainer agreement on metrics, syntax, union semantics |
 | 1 | Storage crate: `f32` weights, input validation, `COSINE` normalization | `sparse_vector_index/` | Done | Rust unit tests + property test against a brute-force dot product |
 | 2 | Schema: field type, parse `SPARSEVECTOR <nargs> …` (`DIM`, `DISTANCE_METRIC`, `TYPE`), `FT.INFO` output, spec RDB save/load of the field attributes, free on drop | `spec.c`, `field_spec.[ch]`, `info/` | Done (spec encoding version 31) | Flow tests for create / info / invalid args / RDB reload |
-| 3 | Indexing: HASH blob and JSON parsing, add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Done | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
+| 3 | Indexing: HASH blob and JSON parsing (arrays and map shapes), add on write, delete through DocTable, FFI create/add/free | `document.c`, `sparse_vector_index_ffi/` | Done | Flow tests: index, update, delete, expire, rejection of dimension IDs `≥ DIM` |
 | 4 | Query: `@field:[SPARSE $q]` parser node, iterator tree (`DimensionIterator`s, `Union`, `SparseVectorIterator`), `SparseScore` result kind, sparse score as the default document score, `$YIELD_SCORE_AS` | `query_parser/v2/`, `query.c`, `sparse_vector_index/`, `query_eval/`, `ext/default.c` | Done | Top `LIMIT` equals a brute-force reference; filtered, combined-with-text and unfiltered flow tests |
 | 5 | GC scanner | `index_gc/src/scanners/` | Done (fork and thread policies; emptied dimensions are removed) | GC flow tests; memory returns after delete |
 | 6 | Cluster and `FT.HYBRID`: coordinator merge, a sparse `SEARCH` clause fused with dense `VSIM`, `FT.PROFILE` output | `coord/`, `hybrid/` | Partial: `FT.PROFILE` done; `FT.HYBRID` rejects sparse queries for now (see [FT.HYBRID](#fthybrid)); cluster merge not yet tested | Cluster flow tests; dense + sparse RRF/LINEAR tests |

@@ -454,6 +454,27 @@ def testJson(env):
     env.assertEqual(ids_and_scores(res), [('doc:1', 3.0), ('doc:2', 1.5)])
 
 
+@skip(no_json=True)
+def testJsonMap(env):
+    """A `{dim_id: weight}` map indexes the same vector as the two-array form, whatever the
+    order of its keys, so documents from map-based stores load unchanged."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, on='JSON', path='$.sp')
+    conn.execute_command('JSON.SET', 'doc:arrays', '$', json.dumps(
+        {'sp': {'indices': [3, 10, 42], 'values': [0.5, 2, 1.25]}}))
+    # Keys out of order, and an integer weight, as the array form allows.
+    conn.execute_command('JSON.SET', 'doc:map', '$', '{"sp": {"42": 1.25, "3": 0.5, "10": 2}}')
+    conn.execute_command('JSON.SET', 'doc:empty', '$', json.dumps({'sp': {}}))
+    env.assertEqual(int(index_info(env)['num_docs']), 3)
+
+    q = [(3, 2.0), (10, 1.0), (42, 4.0)]
+    res = search(env, '@sp:[SPARSE $q]', q, 'WITHSCORES', 'NOCONTENT')
+    env.assertEqual(sorted(ids_and_scores(res)), [('doc:arrays', 8.0), ('doc:map', 8.0)])
+    # Both documents hold the same dimensions, so each dimension has exactly their two entries.
+    env.assertEqual(int(index_info(env)['num_records']), 6)
+
+
 @skip(no_json=True, cluster=True)
 def testJsonInvalidValues(env):
     """Each malformed value is rejected as an indexing failure with its own error,
@@ -467,6 +488,15 @@ def testJsonInvalidValues(env):
         ({'indices': [-1], 'values': [1.0]}, 'Invalid sparse vector index at index 0'),
         ({'indices': [1]}, 'must have `indices` and `values` arrays'),
         ({'indices': [2, 1], 'values': [1.0, 1.0]}, 'strictly increasing'),
+        ({'indices': [1], 'values': [1.0], '5': 1.0}, 'cannot have other keys'),
+        ({'-1': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'01': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'1.5': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'token': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'4294967296': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'1': 'x'}, 'Invalid sparse vector value'),
+        ({'1': [1.0]}, 'Invalid sparse vector value'),
+        ({'100': 1.0}, 'out of range'),
         ([1, 2], 'Unsupported field type'),
     ], start=1):
         conn.execute_command('JSON.SET', f'doc:bad{n}', '$', json.dumps({'sp': bad}))
