@@ -466,9 +466,12 @@ where
                 if child.last_doc_id() == target {
                     return child.current_max_score();
                 }
-                match child.current_block_bound() {
-                    Some(block) if block.last_doc_id >= target => block.max_score,
-                    _ => f64::INFINITY,
+                if let Some(block) = child.current_block_bound()
+                    && block.last_doc_id >= target
+                {
+                    block.max_score
+                } else {
+                    f64::INFINITY
                 }
             })
             .sum();
