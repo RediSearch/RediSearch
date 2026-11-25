@@ -47,7 +47,7 @@ All three bits set (`0b111`) is text + dense + sparse, the full hybrid, and the 
 
 **What it replaces.** Kind comes from the slot, so no per-arm record is needed, and "at most one dense and one sparse arm" holds by construction: a second arm of the same kind finds its slot taken, and the parser rejects it. The cost is that a second dense arm (two embeddings) would need a fourth slot. That is one constant and one bit, and not part of this design.
 
-**Which slot.** A `VSIM` arm lands in slot 1 or 2 depending on its field type, which is known only once `applyVectorQuery` resolves the field. The parser keeps each VSIM arm's request until then (two of them for a three-arm query), and `applyVectorQuery` stores it in the dense or sparse slot and sets the bit. *To verify in the PR:* nothing before field resolution reads `requests[VECTOR_INDEX]`.
+**Which slot.** A `VSIM` arm lands in slot 1 or 2 depending on its field type, which is known only once `applyVectorQuery` resolves the field. The parser keeps each VSIM arm's request until then (two of them for a three-arm query), and `applyVectorQuery` stores it in the dense or sparse slot and sets the bit. Before field resolution nothing reads the VSIM arm by its slot: until then it is reached by its position after `SEARCH`, and the mask starts as `SEARCH` plus a dense `VSIM`, the only arms read by slot that early.
 
 ## Phase 1: a sparse field in the VSIM arm
 
@@ -79,6 +79,8 @@ FT.HYBRID idx 2
 | `SHARD_K_RATIO` | Trades recall for speed in the cluster; sparse stays exact |
 | `FILTER ... POLICY` | Chooses how VecSim filters; a sparse filter is an intersection |
 | `RANGE`, `RADIUS`, `EPSILON` | Sparse range queries are not in v1 |
+| `RERANK` | Re-scores approximate candidates; sparse retrieval is already exact |
+| `FILTER ... BATCH_SIZE` | Tunes VecSim's batched filtering; a sparse filter is an intersection |
 
 **What stays rejected.** A `@f:[SPARSE $q]` node in the `SEARCH` arm or inside `FILTER`, so a query has one way to say "sparse arm". The error text changes to point at `VSIM @field`.
 
@@ -165,7 +167,7 @@ No two-arm dense query changes in its syntax, its results, its shard command or 
 - **Gate.** A sparse field can be created only with `ENABLE_UNSTABLE_FEATURES`, and since the flag can be turned off later, a `VSIM` arm on one checks it on every query, as `[SPARSE $q]` does in `FT.SEARCH`. The N-arm count, a repeated `VSIM` and `WEIGHTS` are also new surface, so they go behind the same gate until they graduate.
 - **New coordinator, old shard, phase 1.** The old shard rejects a `SPARSEVECTOR` field in `VSIM` ("Expected a VECTOR field"), and the coordinator returns that error.
 - **New coordinator, old shard, phase 2.** The old shard rejects a count other than 2 ("FT.HYBRID currently supports only two subqueries"). A two-arm query goes out in the old form, with the same 6-element mapping reply.
-- **COMBINE forwarding.** The coordinator always forwards a legacy counted `COMBINE` so all shards use the same window. Fusion happens on the coordinator, so `WEIGHTS` is left out of the forwarded clause. Old shards then accept two-arm weighted queries. *To verify in the PR:* nothing on the shard reads the weights.
+- **COMBINE forwarding.** The coordinator always forwards a legacy counted `COMBINE` so all shards use the same window. Fusion happens on the coordinator, so `WEIGHTS` is left out of the forwarded clause. Old shards then accept two-arm weighted queries. *To verify in the WEIGHTS PR:* nothing on the shard reads the weights.
 - **Persistence.** None. Nothing in this design touches RDB or the index format.
 
 ## Plan

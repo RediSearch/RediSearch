@@ -590,7 +590,6 @@ final:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
       vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
-      pvd->knnK = vq->knn.k;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;

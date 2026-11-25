@@ -817,9 +817,9 @@ def testHybridSparseFilterPrefixWarning(env):
         run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 
-@skip(cluster=True)
 def testHybridSparseProfile(env):
-    """FT.PROFILE shows the VSIM arm's SPARSE_VECTOR iterator, and the sorter that keeps K."""
+    """FT.PROFILE shows each shard's VSIM arm: the SPARSE_VECTOR iterator, and the sorter that keeps
+    K of the shard's candidates."""
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     create_index(env, dim=10)
@@ -827,16 +827,21 @@ def testHybridSparseProfile(env):
         conn.execute_command('HSET', f'doc:{k}', 'sp', sparse_blob([(1, k + 1.0)]))
     res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', 'nomatch', 'VSIM', '@sp', '$q',
                   'KNN', 2, 'K', 2, 'PARAMS', 2, 'q', sparse_blob([(1, 1.0)]))
-    shard = to_dict(to_dict(res[-1])['Shards'][0])
-    vsim = to_dict(shard['VSIM'])
-    iterator = to_dict(vsim['Iterators profile'])
-    env.assertEqual(iterator['Type'], 'SPARSE_VECTOR')
-    processors = [to_dict(rp) for rp in vsim['Result processors profile']]
-    types = [rp['Type'] for rp in processors]
-    env.assertEqual(types[:4], ['Index', 'Metrics Applier', 'Vector Normalizer', 'Sorter'],
-                    message=types)
-    env.assertEqual(processors[2]['Results processed'], 5)
-    env.assertEqual(processors[3]['Results processed'], 2)
+    shards = [to_dict(shard) for shard in to_dict(res[-1])['Shards']]
+    env.assertEqual(len(shards), env.shardsCount)
+    candidates = 0
+    for shard in shards:
+        vsim = to_dict(shard['VSIM'])
+        env.assertEqual(to_dict(vsim['Iterators profile'])['Type'], 'SPARSE_VECTOR')
+        processors = [to_dict(rp) for rp in vsim['Result processors profile']]
+        types = [rp['Type'] for rp in processors]
+        env.assertEqual(types[:4], ['Index', 'Metrics Applier', 'Vector Normalizer', 'Sorter'],
+                        message=types)
+        normalized, kept = processors[2]['Results processed'], processors[3]['Results processed']
+        env.assertEqual(kept, min(2, normalized), message=processors)
+        candidates += normalized
+    # Every document is a candidate on the shard that holds it.
+    env.assertEqual(candidates, 5)
 
 
 def testDenseRangeDistanceIsNotASparseScore(env):
@@ -930,6 +935,8 @@ def testRdbSavedWithFlagOnLoadsWithFlagOff(env):
     env.assertEqual(sparse_field_stats(env)['num_records'], 6)
     env.expect('FT.SEARCH', 'idx', '@sp:[SPARSE $q]', 'PARAMS', 2, 'q',
                sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(GATE_ERROR)
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@sp', '$q', 'PARAMS', 2, 'q',
+               sparse_blob([(1, 1.0)])).error().contains(GATE_ERROR)
 
     set_unstable_features(env, True)
     env.assertEqual(search_ids(env), ['doc:1', 'doc:2', 'doc:3'])
@@ -973,6 +980,8 @@ def testRestartResetsFlagButKeepsSparseIndex(env):
     check_sparse_index_after_reload(env, [1, 2])
     env.expect('FT.SEARCH', 'idx', '@sp:[SPARSE $q]', 'PARAMS', 2, 'q',
                sparse_blob([(1, 1.0)]), 'DIALECT', 2).error().contains(GATE_ERROR)
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@sp', '$q', 'PARAMS', 2, 'q',
+               sparse_blob([(1, 1.0)])).error().contains(GATE_ERROR)
 
     set_unstable_features(env, True)
     env.assertEqual(search_ids(env), ['doc:1', 'doc:2'])
