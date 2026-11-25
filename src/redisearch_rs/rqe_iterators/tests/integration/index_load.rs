@@ -222,15 +222,18 @@ fn resume_moved_reattaches() {
 fn resume_ok_keeps_position_and_allocation() {
     let mock_ctx = MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
-    let it = Box::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])));
+    let mut it = Box::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     let address = &*it as *const _ as usize;
 
     let suspended = it.suspend();
     assert_eq!(&*suspended as *const _ as usize, address);
-    let ResumeOutcome::Ok(it) = suspended.resume(&guard).unwrap() else {
+    let ResumeOutcome::Ok(mut it) = suspended.resume(&guard).unwrap() else {
         panic!("the child did not move");
     };
     assert_eq!(&*it as *const _ as usize, address);
+    assert_eq!(it.current().unwrap().doc_id, 1);
+    assert_eq!(it.last_doc_id(), 1);
 }
 
 #[test]

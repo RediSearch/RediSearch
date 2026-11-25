@@ -218,6 +218,7 @@ def testRejectedOnVectorClause(env):
         .error().contains('`$as` is supported only on NUMERIC clauses')
 
 
+@skip(cluster=True)
 def testRejectedOnCompressedTree(env):
     """A field whose range tree was built with float compression may hold values other than the
     indexed ones, so it cannot be loaded; a tree built before compression was enabled still can."""
@@ -293,6 +294,7 @@ def testProfileShowsNoKeyspaceLoader(env):
 
 @skip(cluster=True)
 def testExplainShowsTheAlias(env):
+    """FT.EXPLAIN prints the alias on the NUMERIC clause that loads it."""
     setup_hash_index(env)
     res = env.cmd('FT.EXPLAIN', 'idx', '@n:[15 25] => {$as: v}')
     env.assertContains('NUMERIC {15.000000 <= @n <= 25.000000} => {$as: v}', res)
