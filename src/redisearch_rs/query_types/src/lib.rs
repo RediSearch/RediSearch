@@ -243,10 +243,11 @@ pub struct QueryNodeOptions {
     pub weight: f64,
     /// Phonetic matching mode for this node.
     pub phonetic: PhoneticMode,
-    /// Name of the distance field to emit in results (set via the
-    /// `yield_distance_as` query attribute on vector nodes). Owned
-    /// null-terminated C string, freed with `rm_free` when the query
-    /// node is destroyed. `NULL` when no distance field is requested.
+    /// Name of the per-hit value to emit in results: the distance of a vector
+    /// node (`yield_distance_as`), the score of a sparse vector node
+    /// (`yield_score_as`), or the value a numeric node matched (`as`, an
+    /// unstable feature). Owned null-terminated C string, freed with `rm_free`
+    /// when the query node is destroyed. `NULL` when no value is requested.
     pub dist_field: *mut c_char,
     /// Whether [`weight`](Self::weight) was explicitly set by the user in
     /// the query (as opposed to the default of `1.0`).

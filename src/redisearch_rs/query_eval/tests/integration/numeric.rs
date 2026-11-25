@@ -15,6 +15,8 @@
 //! cannot execute.
 #![cfg(not(miri))]
 
+use std::ffi::{CStr, CString};
+
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 use query::mock::MockQueryNode;
@@ -42,12 +44,19 @@ struct NumericFixture {
     // `QueryEvalCtx`/node hold raw pointers into them.
     _config: Box<IteratorsConfig>,
     _filter: Box<NumericFilter>,
+    /// The `$as` alias the node borrows, if any.
+    _alias: Option<CString>,
 }
 
 impl NumericFixture {
     /// Numeric range tree over documents `1..=3` (values `1.0, 2.0, 3.0`) with a
     /// `QN_NUMERIC` node for the inclusive filter `[min, max]`.
     fn new(min: f64, max: f64) -> Self {
+        Self::with_alias(min, max, None)
+    }
+
+    /// Like [`new`](Self::new), with the node carrying the `$as` alias `alias`.
+    fn with_alias(min: f64, max: f64, alias: Option<&CStr>) -> Self {
         let _guard = GlobalGuard::default();
 
         // Documents 1..=3 with numeric values 1.0, 2.0, 3.0.
@@ -81,6 +90,11 @@ impl NumericFixture {
         let mut node = MockQueryNode::new(QueryNodeType::Numeric);
         node.opts_mut().weight = 1.0;
         node.set_numeric_filter(&mut *filter as *mut NumericFilter);
+        let alias = alias.map(CStr::to_owned);
+        if let Some(alias) = &alias {
+            // The evaluator only reads the alias; the fixture owns it.
+            node.opts_mut().dist_field = alias.as_ptr().cast_mut();
+        }
 
         Self {
             _guard,
@@ -89,6 +103,7 @@ impl NumericFixture {
             node,
             _config: config,
             _filter: filter,
+            _alias: alias,
         }
     }
 
@@ -140,4 +155,35 @@ fn eval_numeric_out_of_range_yields_no_results() {
         fixture.eval().is_none(),
         "a fully out-of-range numeric filter must not build an iterator"
     );
+}
+
+/// `TestContext` builds its range tree with float compression, which may store
+/// a value other than the indexed one, so `$as` on it is rejected. The binding
+/// path is covered end to end by the `test_index_loading` flow tests.
+#[test]
+fn eval_numeric_with_alias_on_compressed_tree_is_rejected() {
+    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"));
+    assert!(fixture.eval().is_none());
+    assert_eq!(
+        fixture.ctx.status().code(),
+        query_error::QueryErrorCode::Inval
+    );
+    // Reserved before the check, and left unbound.
+    let requests = fixture.ctx.metric_requests();
+    assert_eq!(requests.len(), 1);
+    // SAFETY: the request names the fixture's live alias.
+    assert_eq!(unsafe { CStr::from_ptr(requests[0].metric_name) }, c"v");
+    assert!(requests[0].key_handle.is_null());
+}
+
+#[test]
+fn eval_numeric_with_alias_under_not_is_rejected() {
+    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"));
+    fixture.ctx.set_in_not_sub_tree(true);
+    assert!(fixture.eval().is_none());
+    assert_eq!(
+        fixture.ctx.status().code(),
+        query_error::QueryErrorCode::BadAttr
+    );
+    assert!(fixture.ctx.metric_requests().is_empty());
 }

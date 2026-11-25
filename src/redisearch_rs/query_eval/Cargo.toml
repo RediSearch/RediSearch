@@ -24,6 +24,7 @@ hidden_string.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 lending-iterator.workspace = true
+numeric_range_tree.workspace = true
 query.workspace = true
 query_error.workspace = true
 query_flags.workspace = true

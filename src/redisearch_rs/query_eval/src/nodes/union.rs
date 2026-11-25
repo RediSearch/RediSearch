@@ -13,6 +13,7 @@ use rqe_iterators::{c2rust::CRQEIterator, union_opaque::build_union};
 
 use crate::{
     Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+    index_load,
 };
 
 /// `QN_UNION` — a logical OR over its children (matches any document matched by
@@ -22,7 +23,7 @@ use crate::{
 /// child's field mask is first intersected with the union node's own mask, and
 /// `quick_exit` is enabled when the union only needs the matching id set rather
 /// than per-child scores — i.e. inside a `NOT` subtree or when the node's weight
-/// is zero.
+/// is zero and no clause under it loads a value.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
@@ -42,8 +43,10 @@ pub(crate) fn eval<'index>(
 
     // We want results from every matching child (`quick_exit == false`) unless
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
-    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
-    let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring
+    // — and no clause under it loads a value, which a document matched by
+    // several branches would lose with the branch quick exit skips.
+    let quick_exit = ctx.in_not_sub_tree() || (weight == 0.0 && !index_load::subtree_loads(&node));
     let min_union_iter_heap = config.min_union_iter_heap;
 
     // Recursively evaluate every child, narrowing its field mask first.

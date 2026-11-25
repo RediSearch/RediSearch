@@ -18,7 +18,7 @@ use rqe_core::RS_INVALID_FIELD_INDEX;
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext};
+use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, index_load};
 
 /// `QN_NUMERIC` — a numeric range filter on a numeric field.
 ///
@@ -28,8 +28,12 @@ use crate::{Config, Evaluated, QueryEvalContext};
 /// sub-ranges. Returns `None` when the field has no numeric index yet,
 /// no sub-range matches, or the disk iterator not be created
 /// (in which case the failure is reported via [`status`](QueryEvalContext::status)).
+///
+/// A node with a `$as` alias is wrapped by [`index_load::decorate`]; see
+/// [`index_load`] for when it is rejected instead.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
     nf: &NumericFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
@@ -60,6 +64,8 @@ pub(crate) fn eval<'index>(
         );
     }
 
+    let load = index_load::reserve(ctx, node).ok()?;
+
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
     // tree.
@@ -77,7 +83,9 @@ pub(crate) fn eval<'index>(
         // a disk index is in use; `field_index` belongs to the numeric node's
         // field spec; `view` is the disk read view taken at query start.
         return match unsafe { disk.new_numeric_iterator(nf, field_index, view) } {
-            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            // Disk indexes store the raw double, so loading never needs the
+            // lossless check of the in-memory path.
+            Ok(it) => Some(index_load::decorate(ctx, load, Evaluated::RustLeaf(it))),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
                 // error rather than silently returning empty results.
@@ -86,6 +94,17 @@ pub(crate) fn eval<'index>(
                 None
             }
         };
+    }
+
+    if load.is_some() {
+        // SAFETY: `field_index` is within the spec's current field count (both
+        // parsers only build numeric nodes on resolved fields), so this stays
+        // within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { ctx.spec().fields.add(field_index as usize) };
+        // SAFETY: `field_ptr` points into the live spec's field array, which the
+        // query's spec read lock keeps alive and unmodified throughout evaluation.
+        let field = unsafe { &*field_ptr };
+        index_load::check_lossless(ctx, field).ok()?;
     }
 
     let field_ctx = FieldFilterContext {
@@ -103,5 +122,5 @@ pub(crate) fn eval<'index>(
     let iter =
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
-    iter.map(Evaluated::RustCompound)
+    iter.map(|it| index_load::decorate(ctx, load, Evaluated::RustCompound(it)))
 }
