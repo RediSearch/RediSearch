@@ -77,13 +77,6 @@ typedef struct QueryIterator {
   // end" after a revalidation. Clearing it is also what keeps the pointer safe: an
   // iterator that owns the result it hands out frees it on the way past the end, so a
   // pointer left behind would dangle rather than merely go stale.
-  //
-  // Caveat, until the port completes: `OptimizerIterator` and `HybridIterator` are still
-  // implemented in C and do not clear this field, so after they report EOF it keeps
-  // pointing at the last result they yielded. Both are slated to be replaced by the Rust
-  // `TopKIterator`, which clears it like every other Rust iterator; until then, a caller
-  // that inspects this field after a non-OK status may get a document it has already
-  // consumed instead of NULL. Check the status, not this field.
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */

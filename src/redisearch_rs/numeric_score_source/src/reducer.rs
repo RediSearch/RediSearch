@@ -54,7 +54,7 @@ impl std::fmt::Debug for HeapReserveError {
 /// # Errors
 ///
 /// Returns [`HeapReserveError`] when the heap for `k` results cannot be
-/// reserved; C's `NewOptimizerIterator` likewise rejects such a `LIMIT`.
+/// reserved.
 #[expect(clippy::too_many_arguments, reason = "one parameter per query input")]
 pub fn new_numeric_top_k<'index, V, E, T>(
     tree: impl Into<NumericTreeRef<'index>>,
