@@ -721,7 +721,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
     const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
     const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
-    do {
+    while (!QueryRequest_BackgroundReplyTimedOut(&req->base)) {
       MRReply_Free(rpnet->current.root);
       RPNet_resetCurrent(rpnet);
       // A memory stop, possibly requested mid-drain, aborts the pop on an empty channel with
@@ -729,7 +729,10 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
       if (QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
         rpnet->drainOnly = true;
       }
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+      if (getNextReply(rpnet) == RS_RESULT_EOF) {
+        break;
+      }
+    }
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;
     rpnet->breakdown.freeTime = freeTime;
@@ -1050,8 +1053,9 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Signal timeout to the background thread
+  // The worker may be waiting for a shard, including during profile encoding.
   QueryRequestLimits_MarkTimedOut(&req->base.limits);
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
@@ -1128,7 +1132,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ under RETURN-STRICT. Reads results
 // stored by the BG thread in req->base.reply. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
