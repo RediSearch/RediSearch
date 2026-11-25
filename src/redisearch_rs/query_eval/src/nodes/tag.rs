@@ -11,6 +11,7 @@
 
 use std::{
     borrow::Cow,
+    cell::Cell,
     ffi::{CStr, c_void},
     ops::Bound,
     ptr::NonNull,
@@ -62,6 +63,16 @@ fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
     // only for the single flag read below.
     let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
     timeout.is_some_and(QueryRequestLimitsHandle::blocked_client_timed_out)
+}
+
+/// Poll for blocked-client cancellation across dictionary entries and node visits.
+fn disk_traversal_stopped(ctx: &QueryEvalContext, remaining: &Cell<u32>) -> bool {
+    if remaining.get() != 0 {
+        remaining.set(remaining.get() - 1);
+        return false;
+    }
+    remaining.set(CANCELLATION_CHECK_GRANULARITY - 1);
+    blocked_client_cancelled(ctx)
 }
 
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
@@ -134,8 +145,12 @@ pub(crate) fn eval<'index>(
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let is_disk = !ctx.spec().diskSpec.is_null();
     let children = (0..num_children)
-        .map(|i| {
+        .map_while(|i| {
+            if is_disk && blocked_client_cancelled(ctx) {
+                return None;
+            }
             let child = node.child_mut(i);
             let child = eval_child(
                 ctx,
@@ -147,7 +162,7 @@ pub(crate) fn eval<'index>(
                 max_prefix_expansions,
                 config,
             );
-            into_child_iterator(child)
+            Some(into_child_iterator(child))
         })
         .collect();
     let iter = build_union(
@@ -479,8 +494,14 @@ fn collect_range_readers(
     );
 
     let mut children = Vec::new();
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    let remaining = Cell::new(0);
     let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-    while let Some((value, _)) = values.next() {
+    while let Some((value, _)) = if is_disk {
+        values.next_with_stop(&|| disk_traversal_stopped(ctx, &remaining))
+    } else {
+        values.next()
+    } {
         if children.len() == max_prefix_expansions {
             ctx.status()
                 .warnings_mut()
@@ -490,11 +511,13 @@ fn collect_range_readers(
         // The deadline installed above covers a clock cycle. A blocked-client
         // cycle carries no deadline, so without this the walk would not observe
         // that the client has already timed out.
-        until_cancellation_check -= 1;
-        if until_cancellation_check == 0 {
-            until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-            if blocked_client_cancelled(ctx) {
-                break;
+        if !is_disk {
+            until_cancellation_check -= 1;
+            if until_cancellation_check == 0 {
+                until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
+                if blocked_client_cancelled(ctx) {
+                    break;
+                }
             }
         }
         children.extend(open_reader_child(ctx, index, value, field_index));
@@ -519,7 +542,8 @@ fn eval_wildcard<'index>(
         .token_mut()
         .expect("a tag wildcard child must carry a token");
     let is_disk = !ctx.spec().diskSpec.is_null();
-    // Preserve disk pattern escapes until `WildcardPattern::parse` identifies literal bytes.
+    // On disk, `WildcardPattern::parse` handles escapes. The RAM path keeps the
+    // legacy normalization so existing RAM queries retain their matching semantics.
     if !is_disk {
         // SAFETY: the AST owns this token in the module allocator.
         unsafe { tok.normalize_tag(case_sensitive) };
@@ -640,7 +664,13 @@ fn collect_filtered_readers(
     );
 
     let mut children = Vec::new();
-    while let Some((value, _)) = values.next() {
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    let remaining = Cell::new(0);
+    while let Some((value, _)) = if is_disk {
+        values.next_with_stop(&|| disk_traversal_stopped(ctx, &remaining))
+    } else {
+        values.next()
+    } {
         if children.len() == max_prefix_expansions {
             ctx.status()
                 .warnings_mut()

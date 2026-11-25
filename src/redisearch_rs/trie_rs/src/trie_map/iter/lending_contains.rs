@@ -29,6 +29,14 @@ impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
     }
+
+    pub(crate) fn next_with_stop(
+        &mut self,
+        stop: &impl Fn() -> bool,
+    ) -> Option<(&[u8], &'tm Data)> {
+        let item = self.0.advance_with_stop(stop)?;
+        Some((self.0.key(), item))
+    }
 }
 
 // See `LendingIter` for why this is a `LendingIterator` rather than an `Iterator`.
