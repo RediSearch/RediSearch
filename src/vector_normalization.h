@@ -11,6 +11,7 @@
 
 #include "vecsim/vec_sim_common.h"
 #include "rmutil/rm_assert.h"
+#include "sparse_vector_index.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,6 +86,35 @@ static inline VectorNormFunction getVectorNormalizationFunction(VecSimMetric met
   }
 }
 
+/**
+ * Sparse inner product: the raw dot product, unchanged.
+ * It has no upper bound, so no fixed mapping puts it in [0, 1]. RRF ranks it as it is; under
+ * LINEAR the weights have to account for its scale.
+ */
+static inline double SparseVectorNorm_IP(double dot_product) {
+  return dot_product;
+}
+
+/**
+ * Sparse cosine: (1 + cosine_similarity) / 2, as for a dense COSINE field.
+ * The sparse index yields the similarity itself, the dot product of the normalized vectors,
+ * rather than a distance.
+ */
+static inline double SparseVectorNorm_Cosine(double cosine_similarity) {
+  return (1.0 + cosine_similarity) / 2.0;
+}
+
+/** The normalization function for a sparse vector field's metric. */
+static inline VectorNormFunction getSparseVectorNormalizationFunction(SparseMetric metric) {
+  switch (metric) {
+    case SparseMetric_InnerProduct:
+      return SparseVectorNorm_IP;
+    case SparseMetric_Cosine:
+      return SparseVectorNorm_Cosine;
+  }
+  RS_ABORT("Unknown SparseMetric in getSparseVectorNormalizationFunction");
+  return NULL;
+}
 
 #ifdef __cplusplus
 }

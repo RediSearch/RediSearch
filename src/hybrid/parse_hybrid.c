@@ -74,6 +74,14 @@ static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *sta
   return REDISMODULE_OK;
 }
 
+// Remember the first option given that a sparse field does not support, for applyVectorQuery to
+// reject once it knows the field's type. `name` is a string literal.
+static void noteDenseOnlyOption(ParsedVectorData *pvd, const char *name) {
+  if (!pvd->denseOnlyOption) {
+    pvd->denseOnlyOption = name;
+  }
+}
+
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
   return (VecSimRawParam){
     .name = rm_strndup(name, nameLen),
@@ -172,7 +180,9 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
-static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, bool *hasRerank, QueryError *status) {
+static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd,
+                             bool *hasRerank, QueryError *status) {
+  noteDenseOnlyOption(pvd, "RERANK");
   if (*hasRerank) {
     QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
     return REDISMODULE_ERR;
@@ -230,6 +240,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
+      noteDenseOnlyOption(pvd, "EF_RUNTIME");
       if (hasEF) {
         QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate EF_RUNTIME argument");
         return REDISMODULE_ERR;
@@ -248,11 +259,12 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
-      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+      if (parseRerankClause(ac, vq, pvd, &hasRerank, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      noteDenseOnlyOption(pvd, "SHARD_K_RATIO");
       if (hasShardKRatio) {
         QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
         return REDISMODULE_ERR;
@@ -337,7 +349,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
-      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+      if (parseRerankClause(ac, vq, pvd, &hasRerank, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
 
@@ -412,6 +424,12 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   }
 
   ArgParser_Free(parser);
+  if (policy) {
+    noteDenseOnlyOption(pvd, "POLICY");
+  }
+  if (batchSize) {
+    noteDenseOnlyOption(pvd, "BATCH_SIZE");
+  }
   return REDISMODULE_OK;
 }
 
@@ -509,6 +527,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vq->type = VECSIM_QT_KNN;
     vq->knn.order = BY_SCORE;
   } else if (AC_AdvanceIfMatch(ac, "RANGE")) {
+    noteDenseOnlyOption(pvd, "RANGE");
     if (parseRangeClause(ac, vq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -571,6 +590,7 @@ final:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
       vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
+      pvd->knnK = vq->knn.k;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
@@ -675,6 +695,7 @@ static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
     if (pvd->query->knn.k > windowValue) {
       pvd->query->knn.k = windowValue;
     }
+    pvd->knnK = pvd->query->knn.k;
   }
 }
 
@@ -848,6 +869,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const char *vectorScoreFieldAlias = NULL;
   PLN_VectorNormalizerStep *vnStep = NULL;
   PLN_ArrangeStep *arrangeStep = NULL;
+  const ParsedVectorData *pvd = NULL;
   AggregationPipelineParams params;
   HybridParseContext hybridParseCtx;
 
@@ -994,6 +1016,20 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
+  }
+
+  // The VSIM arm's slot is known only now that applyVectorQuery has resolved its field.
+  pvd = vectorRequest->parsedVectorData;
+  parsedCmdCtx->armMask = HybridArm_Bit(SEARCH_INDEX) | HybridArm_Bit(pvd->armSlot);
+  if (pvd->armSlot == SPARSE_INDEX) {
+    // VecSim stops a dense KNN after K results, but a sparse node yields every document that
+    // shares a dimension with the query. Keeping the K best normalized scores gives the arm the
+    // top K that FT.SEARCH returns. It goes right after the normalizer, which sets the score, so
+    // only those K are loaded.
+    PLN_ArrangeStep *topK = AGPLN_GetOrCreateArrangeStep(&vectorRequest->pipeline.ap);
+    AGPLN_PopStep(&topK->base);
+    AGPLN_AddAfter(&vectorRequest->pipeline.ap, &vnStep->base, &topK->base);
+    topK->limit = pvd->knnK;
   }
 
   // Build here, after AREQ_ApplyContext on both sub-queries: it has resolved the

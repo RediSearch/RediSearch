@@ -507,7 +507,8 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *cmd,
   }
 }
 
-static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
+// Each arm's coordinator sorter keeps what the merger can use of the shards' merged replies.
+static void setupCoordinatorArrangeSteps(HybridRequest *hreq, HybridPipelineParams *hybridParams) {
   const bool isRRF = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF;
   const size_t window =
       isRRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
@@ -516,24 +517,20 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
   // follows non-deterministic shard arrival order. Break ties by `__key` (multi-shard path only).
   const char *scoreTieBreakField = isRRF ? UNDERSCORE_KEY : NULL;
 
-  // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
-  const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
-  const size_t K = isKNN ? vectorRequest->ast.root->vn.vq->knn.k : 0;
-
-  PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
-  searchArrangeStep->limit = window;
-  searchArrangeStep->scoreTieBreakField = scoreTieBreakField;
-
-  PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
-  vectorArrangeStep->scoreTieBreakField = scoreTieBreakField;
-  if (isKNN) {
-    // Vector subquery is a KNN query
-    // Heapsize should be min(window, KNN K)
-    // ast structure is: root = vector node <- filter node <- ... rest
-    vectorArrangeStep->limit = MIN(window, K);
-  } else {
-    // its range, limit = window
-    vectorArrangeStep->limit = window;
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *arm = hreq->requests[i];
+    PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(arm));
+    arrangeStep->scoreTieBreakField = scoreTieBreakField;
+    arrangeStep->limit = window;
+    if (HybridArmMask_SlotAt(hreq->armMask, i) == SEARCH_INDEX) {
+      continue;
+    }
+    // A VSIM arm: a KNN arm returns at most K per shard, and the merged top K is exact, so the
+    // sorter keeps min(window, K). A RANGE arm keeps the window.
+    const ParsedVectorData *pvd = arm->parsedVectorData;
+    if (pvd->explainQueryType == VECSIM_QT_KNN) {
+      arrangeStep->limit = MIN(window, pvd->knnK);
+    }
   }
 }
 
@@ -613,8 +610,8 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   // ...]
 
   // Get RPNets for SEARCH and VSIM requests
-  AREQ *searchAreq = hreq->requests[SEARCH_INDEX];
-  AREQ *vsimAreq = hreq->requests[VECTOR_INDEX];
+  AREQ *searchAreq = HybridRequest_Arm(hreq, SEARCH_INDEX);
+  AREQ *vsimAreq = hreq->requests[HYBRID_VSIM_ARM_POSITION];
   RPNet *searchRpnet = (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc;
   RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
 
@@ -704,8 +701,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
     ParseHybridCommandCtx cmd = {0};
-    cmd.search = hreq->requests[SEARCH_INDEX];
-    cmd.vector = hreq->requests[VECTOR_INDEX];
+    cmd.search = HybridRequest_Arm(hreq, SEARCH_INDEX);
+    cmd.vector = hreq->requests[HYBRID_VSIM_ARM_POSITION];
     cmd.cursorConfig = &hreq->base.cursorConfig;
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
@@ -747,6 +744,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Set request flags from hybridParams
     hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
+    hreq->armMask = cmd.armMask;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
@@ -756,7 +754,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         }
     }
     // apply the sorting changes after the distribute phase
-    setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
+    setupCoordinatorArrangeSteps(hreq, &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
     // Capture the parsed state forwarded to the shards, used to build the
@@ -883,10 +881,13 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // Create KNN context for SHARD_K_RATIO optimization if applicable
     HybridKnnContext *knnCtx = NULL;
     if (hreq->kArgIndex >= 0) {
-        // Get the VectorQuery from the vector request's AST
-        const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
-        const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
-                          ? vectorRequest->ast.root->vn.vq : NULL;
+        // Get the VectorQuery from the dense arm's AST. A sparse arm has none: it rejects
+        // SHARD_K_RATIO and stays exact.
+        const AREQ *vectorRequest = HybridRequest_Arm(hreq, VECTOR_INDEX);
+        const VectorQuery *vq =
+            (vectorRequest && vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                ? vectorRequest->ast.root->vn.vq
+                : NULL;
         if (vq && vq->type == VECSIM_QT_KNN) {
             knnCtx = rm_calloc(1, sizeof(HybridKnnContext));
             *knnCtx = (HybridKnnContext){

@@ -12,6 +12,7 @@
 use std::ptr::NonNull;
 
 use query_error::QueryErrorCode;
+use query_types::QueryNodeFlags;
 use rqe_core::FieldIndex;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use sparse_vector_index::{SparseMetric, SparseVectorIndex, SparseVectorIterator};
@@ -70,12 +71,18 @@ pub(crate) fn eval<'index>(
     // learns the score's name and a `SORTBY` on it resolves on an empty result;
     // the request then simply stays unbound.
     let dist_field = node.opts().dist_field;
+    // An FT.HYBRID VSIM arm without YIELD_SCORE_AS keeps its score out of the
+    // reply, as a dense arm does.
+    let is_internal = node
+        .opts()
+        .flags
+        .contains(QueryNodeFlags::HideVectorDistanceField);
     let request_id = (!dist_field.is_null()).then(|| {
         // SAFETY: `dist_field` is non-null, per the guard above, and is the
         // NUL-terminated name the parser stored on the node's options. The
         // request borrows it; the node owns it, and the AST outlives the
         // metric-request array.
-        unsafe { ctx.add_metric_request(dist_field, false) }
+        unsafe { ctx.add_metric_request(dist_field, is_internal) }
     });
 
     // A field no document has written to yet has no index, and matches nothing.

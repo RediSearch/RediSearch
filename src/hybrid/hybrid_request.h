@@ -14,6 +14,7 @@
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_debug.h"
+#include "hybrid/hybrid_arm.h"
 #include "util/references.h"
 #include "redismodule.h"
 
@@ -25,16 +26,21 @@ struct Cursor;
 
 // Number of requests in a hybrid command: SEARCH + VSIM
 #define HYBRID_REQUEST_NUM_SUBQUERIES 2
-#define SEARCH_INDEX 0
-#define VECTOR_INDEX 1
+// Position of the VSIM arm in HybridRequest.requests, after SEARCH. Its slot, dense or sparse,
+// is known only once the field is resolved; until then MakeDefaultHybridRequest's mask assumes
+// dense.
+#define HYBRID_VSIM_ARM_POSITION 1
 // Field name for implicit key loading in hybrid requests
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
     QueryRequest base;
 
+    // The active arms, in slot order: requests[HybridArmMask_Position(armMask, slot)] is the arm
+    // in `slot`, so nrequests == HybridArmMask_Count(armMask).
     arrayof(AREQ*) requests;
     size_t nrequests;
+    HybridArmMask armMask;
     Pipeline *tailPipeline;
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
@@ -62,6 +68,14 @@ static_assert(offsetof(HybridRequest, base) == 0,
 _Static_assert(offsetof(HybridRequest, base) == 0,
                "QueryRequest must be HybridRequest's first member");
 #endif
+
+/* The arm in `slot`, or NULL when the request has none. */
+static inline AREQ *HybridRequest_Arm(const HybridRequest *req, HybridArmSlot slot) {
+  if (!HybridArmMask_Has(req->armMask, slot)) {
+    return NULL;
+  }
+  return req->requests[HybridArmMask_Position(req->armMask, slot)];
+}
 
 static inline HybridRequest *QueryRequest_GetHybrid(QueryRequest *request) {
   RS_ASSERT(request != NULL);

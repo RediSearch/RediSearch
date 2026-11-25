@@ -552,8 +552,172 @@ def testSchemaFingerprintCoversSparseAttributes(env):
     env.assertEqual(len(fingerprints), 3)
 
 
-def testHybridRejectsSparseQueries(env):
-    """Sparse vector queries are not supported in FT.HYBRID yet, in either clause."""
+# ---------------------------------------------------------------------------
+# FT.HYBRID: a VSIM arm on a SPARSEVECTOR field
+# ---------------------------------------------------------------------------
+
+RRF_CONSTANT = 60
+WINDOW = 20
+
+
+def hybrid(env, search, q, *args):
+    """The FT.HYBRID reply rows, in order, each as a dict, after the reply's `total_results`."""
+    res = to_dict(env.cmd('FT.HYBRID', 'idx', 'SEARCH', search, 'VSIM', '@sp', '$q', *args,
+                          'PARAMS', 2, 'q', sparse_blob(q)))
+    return res['total_results'], [to_dict(row) for row in res['results']]
+
+
+def load_random_docs(env, n=200, dim=100, seed=4321):
+    """`n` documents with random sparse vectors, alternating between tags `a` and `b`."""
+    conn = getConnectionByEnv(env)
+    rnd = random.Random(seed)
+    docs = {}
+    for k in range(n):
+        dims = sorted(rnd.sample(range(dim), rnd.randint(1, 10)))
+        docs[f'doc:{k}'] = [(i, f32(rnd.uniform(0.01, 3.0))) for i in dims]
+        conn.execute_command('HSET', f'doc:{k}', 'title', 'filler', 'cat', 'ab'[k % 2],
+                             'sp', sparse_blob(docs[f'doc:{k}']))
+    return docs, rnd
+
+
+def brute_force_top(docs, q, k, keep=lambda key: True):
+    """The `k` best (key, dot product) pairs among the documents sharing a dimension with `q`."""
+    scored = ((key, dot(q, v)) for key, v in docs.items() if keep(key))
+    return sorted(((key, s) for key, s in scored if s is not None), key=lambda x: -x[1])[:k]
+
+
+def testHybridSparseArmMatchesBruteForce(env):
+    """With a text arm that matches nothing, the fused ranking is the sparse arm's: its top K
+    are the exact best dot products, scored 1 / (CONSTANT + rank) by RRF and BETA times the raw
+    dot product by LINEAR. In a cluster the shards' top K merge into the same exact top K."""
+    enable_unstable_features(env)
+    create_index(env)
+    docs, rnd = load_random_docs(env)
+    for _ in range(5):
+        q = [(i, f32(rnd.uniform(0.01, 2.0))) for i in sorted(rnd.sample(range(100), 6))]
+        expected = brute_force_top(docs, q, 10)
+
+        total, rows = hybrid(env, 'nomatch', q)
+        env.assertEqual(total, 10)
+        env.assertEqual([r['__key'] for r in rows], [key for key, _ in expected])
+        for rank, row in enumerate(rows, 1):
+            env.assertAlmostEqual(float(row['__score']), 1 / (RRF_CONSTANT + rank), 1e-9)
+
+        total, rows = hybrid(env, 'nomatch', q, 'COMBINE', 'LINEAR', 4, 'ALPHA', 0.3, 'BETA', 0.7)
+        env.assertEqual([r['__key'] for r in rows], [key for key, _ in expected])
+        for row, (_, s) in zip(rows, expected):
+            env.assertAlmostEqual(float(row['__score']), 0.7 * s, 1e-4)
+
+
+def testHybridTextAndSparseArmsFuse(env):
+    """RRF adds a document's text and sparse ranks: the one text match, fifth by dot product,
+    ranks first, and the rest keep their sparse order."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env)
+    docs, rnd = load_random_docs(env)
+    q = [(i, f32(rnd.uniform(0.01, 2.0))) for i in sorted(rnd.sample(range(100), 6))]
+    sparse = brute_force_top(docs, q, 10)
+    text_match = sparse[4][0]
+    conn.execute_command('HSET', text_match, 'title', 'zebra')
+
+    fused = {key: 1 / (RRF_CONSTANT + rank) for rank, (key, _) in enumerate(sparse, 1)}
+    fused[text_match] += 1 / (RRF_CONSTANT + 1)
+    expected = sorted(fused.items(), key=lambda x: -x[1])
+
+    total, rows = hybrid(env, 'zebra', q)
+    env.assertEqual(total, 10)
+    env.assertEqual([r['__key'] for r in rows], [key for key, _ in expected])
+    for row, (_, score) in zip(rows, expected):
+        env.assertAlmostEqual(float(row['__score']), score, 1e-9)
+
+
+def testHybridSparseFilter(env):
+    """FILTER intersects the sparse arm with the filter query: its top K are the best dot
+    products among the matching documents, as FT.SEARCH computes them."""
+    enable_unstable_features(env)
+    create_index(env)
+    docs, rnd = load_random_docs(env)
+    q = [(i, f32(rnd.uniform(0.01, 2.0))) for i in sorted(rnd.sample(range(100), 6))]
+    in_a = lambda key: int(key.split(':')[1]) % 2 == 0
+    expected = brute_force_top(docs, q, 10, keep=in_a)
+
+    for filter_args in (['FILTER', '@cat:{a}'], ['FILTER', 1, '@cat:{a}']):
+        total, rows = hybrid(env, 'nomatch', q, 'KNN', 2, 'K', 10, *filter_args)
+        env.assertEqual(total, 10)
+        env.assertEqual([r['__key'] for r in rows], [key for key, _ in expected])
+
+    res = search(env, '@cat:{a} @sp:[SPARSE $q]', q, 'NOCONTENT', 'LIMIT', 0, 10)
+    env.assertEqual(res[1:], [key for key, _ in expected])
+
+
+def testHybridSparseKIsCappedAtWindow(env):
+    """The sparse arm returns K results, and at most WINDOW of them."""
+    enable_unstable_features(env)
+    create_index(env)
+    docs, rnd = load_random_docs(env)
+    q = [(i, f32(rnd.uniform(0.01, 2.0))) for i in sorted(rnd.sample(range(100), 20))]
+    candidates = brute_force_top(docs, q, len(docs))
+    env.assertGreater(len(candidates), WINDOW + 10, message=len(candidates))
+
+    for k, returned in [(5, 5), (WINDOW + 10, WINDOW)]:
+        total, rows = hybrid(env, 'nomatch', q, 'KNN', 2, 'K', k, 'LIMIT', 0, 100)
+        env.assertEqual(total, returned)
+        env.assertEqual([r['__key'] for r in rows], [key for key, _ in candidates[:returned]])
+
+
+def testHybridSparseYieldScoreAs(env):
+    """YIELD_SCORE_AS returns the arm's score: the raw dot product under IP, and
+    (1 + cosine) / 2 under COSINE. Without it the score stays out of the reply."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+               'ip', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
+               'cos', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'COSINE').ok()
+    for key, v in [('doc:1', [(1, 3.0), (2, 4.0)]), ('doc:2', [(1, 100.0)])]:
+        conn.execute_command('HSET', key, 'ip', sparse_blob(v), 'cos', sparse_blob(v))
+
+    def scores(field, *args):
+        res = to_dict(env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nomatch', 'VSIM', f'@{field}', '$q',
+                              *args, 'PARAMS', 2, 'q', sparse_blob([(1, 5.0)])))
+        return {row['__key']: row for row in map(to_dict, res['results'])}
+
+    rows = scores('ip', 'YIELD_SCORE_AS', 's')
+    env.assertEqual({key: float(row['s']) for key, row in rows.items()},
+                    {'doc:1': 15.0, 'doc:2': 500.0})
+    rows = scores('cos', 'YIELD_SCORE_AS', 's')
+    got = {key: float(row['s']) for key, row in rows.items()}
+    env.assertAlmostEqual(got['doc:1'], (1 + 0.6) / 2, 1e-6)
+    env.assertAlmostEqual(got['doc:2'], 1.0, 1e-6)
+    rows = scores('ip')
+    env.assertEqual({key: sorted(row) for key, row in rows.items()},
+                    {'doc:1': ['__key', '__score'], 'doc:2': ['__key', '__score']})
+
+
+def testHybridSparseRejectsDenseOnlyOptions(env):
+    """Options that tune VecSim's approximate search are rejected on a sparse field, each by
+    name, as are RANGE queries and an invalid query vector."""
+    enable_unstable_features(env)
+    create_index(env, dim=10)
+    q = sparse_blob([(1, 1.0)])
+    for option, args in [
+        ('EF_RUNTIME', ['KNN', 4, 'K', 5, 'EF_RUNTIME', 10]),
+        ('SHARD_K_RATIO', ['KNN', 4, 'K', 5, 'SHARD_K_RATIO', 0.5]),
+        ('RERANK', ['KNN', 4, 'K', 5, 'RERANK', 1]),
+        ('RANGE', ['RANGE', 2, 'RADIUS', 1]),
+        ('POLICY', ['FILTER', 3, '@cat:{a}', 'POLICY', 'ADHOC']),
+        ('BATCH_SIZE', ['FILTER', 3, '@cat:{a}', 'BATCH_SIZE', 10]),
+    ]:
+        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@sp', '$q', *args,
+                   'PARAMS', 2, 'q', q) \
+            .error().contains(f'{option} is not supported on a SPARSEVECTOR field')
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@sp', '$q',
+               'PARAMS', 2, 'q', sparse_blob([(10, 1.0)])).error().contains('out of range')
+
+
+def testHybridRejectsSparseQueriesOutsideVsim(env):
+    """A `[SPARSE $q]` node stays rejected in the SEARCH clause and in the VSIM FILTER, so
+    FT.HYBRID has one way to write a sparse arm."""
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sp', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
@@ -562,12 +726,56 @@ def testHybridRejectsSparseQueries(env):
                          'emb', struct.pack('<2f', 1.0, 1.0))
     params = ['PARAMS', 4, 'q', sparse_blob([(1, 1.0)]), 'v', struct.pack('<2f', 1.0, 1.0)]
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '@sp:[SPARSE $q]', 'VSIM', '@emb', '$v', *params) \
-        .error().contains('SPARSE vector queries are not supported in FT.HYBRID SEARCH')
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@emb', '$v', 'FILTER', '@sp:[SPARSE $q]',
-               *params).error().contains('SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER')
-    # The same index still serves FT.HYBRID without a sparse clause.
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@emb', '$v', *params)
-    env.assertEqual(to_dict(res)['total_results'], 1)
+        .error().contains('SPARSE vector queries are not supported in FT.HYBRID SEARCH, use VSIM @field')
+    for vsim in (['@emb', '$v'], ['@sp', '$q']):
+        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', *vsim, 'FILTER', '@sp:[SPARSE $q]',
+                   *params).error().contains(
+                       'SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER, use VSIM @field')
+    # The same index serves FT.HYBRID with a dense arm or a sparse one.
+    for vsim in (['@emb', '$v'], ['@sp', '$q']):
+        res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', *vsim, *params)
+        env.assertEqual(to_dict(res)['total_results'], 1)
+
+
+def testHybridSparseExplainScore(env):
+    """EXPLAINSCORE names the sparse arm and the mapping its score went through."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+               'ip', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'IP',
+               'cos', 'SPARSEVECTOR', 4, 'DIM', 10, 'DISTANCE_METRIC', 'COSINE').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'red', 'ip', sparse_blob([(1, 2.0)]),
+                         'cos', sparse_blob([(1, 2.0)]))
+    for field, envelope in [('ip', 'sparse vector branch (KNN, IP: raw dot product)'),
+                            ('cos', 'sparse vector branch (KNN, COSINE: (1 + cosine) / 2)')]:
+        res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'red', 'VSIM', f'@{field}', '$q', 'EXPLAINSCORE',
+                      'PARAMS', 2, 'q', sparse_blob([(1, 1.0)]))
+        explain = to_dict(to_dict(res)['results'][0])['score']
+        # [final score, [formula line, [[hybrid node, [text branch, vector branch]]]]]
+        hybrid_node = explain[1][1][0]
+        env.assertEqual(hybrid_node[1][-1], [envelope, ['vector rank = 1']], message=explain)
+
+
+@skip(cluster=True)
+def testHybridSparseProfile(env):
+    """FT.PROFILE shows the VSIM arm's SPARSE_VECTOR iterator, and the sorter that keeps K."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, dim=10)
+    for k in range(5):
+        conn.execute_command('HSET', f'doc:{k}', 'sp', sparse_blob([(1, k + 1.0)]))
+    res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', 'nomatch', 'VSIM', '@sp', '$q',
+                  'KNN', 2, 'K', 2, 'PARAMS', 2, 'q', sparse_blob([(1, 1.0)]))
+    shard = to_dict(to_dict(res[-1])['Shards'][0])
+    vsim = to_dict(shard['VSIM'])
+    iterator = to_dict(vsim['Iterators profile'])
+    env.assertEqual(iterator['Type'], 'SPARSE_VECTOR')
+    processors = [to_dict(rp) for rp in vsim['Result processors profile']]
+    types = [rp['Type'] for rp in processors]
+    env.assertEqual(types[:4], ['Index', 'Metrics Applier', 'Vector Normalizer', 'Sorter'],
+                    message=types)
+    env.assertEqual(processors[2]['Results processed'], 5)
+    env.assertEqual(processors[3]['Results processed'], 2)
 
 
 def testDenseRangeDistanceIsNotASparseScore(env):

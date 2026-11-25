@@ -31,7 +31,8 @@ typedef struct HybridExplainContext {
   // concurrent FT.CONFIG SET DEFAULT_SCORER cannot pull the string out from
   // under a long-running query while we render the explain wrapper.
   char *textScorerName;
-  // Owned: e.g. "vector branch (KNN)" or "vector branch (RANGE: radius=…, epsilon=…)".
+  // Owned: e.g. "vector branch (KNN)", "vector branch (RANGE: radius=…, epsilon=…)" or
+  // "sparse vector branch (KNN, IP: raw dot product)".
   char *vectorBranchEnvelope;
   // Vector retrieval mode of the VSIM sub-query.
   VectorQueryType vectorMode;

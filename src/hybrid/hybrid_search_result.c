@@ -26,6 +26,10 @@
 #include "rmutil/rm_assert.h"
 #include "search_result.h"
 
+// Source positions in a merged result. EXPLAINSCORE renders only the SEARCH arm followed by one
+// VSIM arm, dense or sparse, whose slot the explain context records.
+enum { TEXT_SOURCE = 0, VSIM_SOURCE = 1 };
+
 void HybridExplainContext_Free(HybridExplainContext *ctx) {
   if (!ctx) return;
   rm_free(ctx->textScorerName);
@@ -53,7 +57,13 @@ HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, c
   const ParsedVectorData *pvd = vectorReq->parsedVectorData;
   ctx->vectorMode = pvd ? pvd->explainQueryType : VECSIM_QT_KNN;
 
-  if (pvd && pvd->explainQueryType == VECSIM_QT_RANGE) {
+  if (pvd && pvd->armSlot == SPARSE_INDEX) {
+    // Name the mapping, since under IP the "normalized" score is the raw dot product.
+    ctx->vectorBranchEnvelope =
+        rm_strdup(pvd->sparseMetric == SparseMetric_Cosine
+                      ? "sparse vector branch (KNN, COSINE: (1 + cosine) / 2)"
+                      : "sparse vector branch (KNN, IP: raw dot product)");
+  } else if (pvd && pvd->explainQueryType == VECSIM_QT_RANGE) {
     if (pvd->explainRangeEpsilon) {
       rm_asprintf(&ctx->vectorBranchEnvelope,
                   "vector branch (RANGE: radius=%.4f, epsilon=%s)",
@@ -182,7 +192,7 @@ static void moveScoreExplainInto(RSScoreExplain *dst, RSScoreExplain *src) {
 // Detach and return the search sub-result's RSScoreExplain (or NULL).
 // The caller takes ownership; the source no longer points to it.
 static RSScoreExplain *takeTextSubresultScoreExplain(const HybridSearchResult *hybridResult) {
-  SearchResult *textResult = hybridResult->searchResults[SEARCH_INDEX];
+  SearchResult *textResult = hybridResult->searchResults[TEXT_SOURCE];
   RSScoreExplain *scorerSubtree = SearchResult_GetScoreExplainMut(textResult);
   if (scorerSubtree) {
     SearchResult_SetScoreExplain(textResult, NULL);
@@ -249,7 +259,7 @@ static RSScoreExplain *buildTextBranch(const HybridSearchResult *hybridResult,
                                        const HybridScoringContext *scoringCtx,
                                        const HybridExplainContext *explainCtx,
                                        double textValue) {
-  const bool hasText = hybridResult->hasResults[SEARCH_INDEX];
+  const bool hasText = hybridResult->hasResults[TEXT_SOURCE];
   const bool isRRF = (scoringCtx->scoringType == HYBRID_SCORING_RRF);
 
   RSScoreExplain *parent = rm_calloc(1, sizeof(RSScoreExplain));
@@ -286,7 +296,7 @@ static RSScoreExplain *buildVectorBranch(const HybridSearchResult *hybridResult,
                                          const HybridScoringContext *scoringCtx,
                                          const HybridExplainContext *explainCtx,
                                          double vectorValue) {
-  const bool hasVector = hybridResult->hasResults[VECTOR_INDEX];
+  const bool hasVector = hybridResult->hasResults[VSIM_SOURCE];
   const bool isRRF = (scoringCtx->scoringType == HYBRID_SCORING_RRF);
   const bool isRange = (explainCtx->vectorMode == VECSIM_QT_RANGE);
 
@@ -379,7 +389,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   RS_ASSERT(hybridResult && scoringCtx);
 
   // Pick the "primary" — first non-null source in index order. This biases
-  // toward the text branch (SEARCH_INDEX=0) when both branches matched, so
+  // toward the text branch (TEXT_SOURCE) when both branches matched, so
   // the merged result keeps the search-side RSIndexResult.
   SearchResult *primary = NULL;
   int8_t targetIndex = -1;
@@ -402,11 +412,11 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   double textValue = 0.0, vectorValue = 0.0;
   if (explainCtx) {
     RS_ASSERT(hybridResult->numSources == HYBRID_REQUEST_NUM_SUBQUERIES);
-    if (hybridResult->hasResults[SEARCH_INDEX]) {
-      textValue = SearchResult_GetScore(hybridResult->searchResults[SEARCH_INDEX]);
+    if (hybridResult->hasResults[TEXT_SOURCE]) {
+      textValue = SearchResult_GetScore(hybridResult->searchResults[TEXT_SOURCE]);
     }
-    if (hybridResult->hasResults[VECTOR_INDEX]) {
-      vectorValue = SearchResult_GetScore(hybridResult->searchResults[VECTOR_INDEX]);
+    if (hybridResult->hasResults[VSIM_SOURCE]) {
+      vectorValue = SearchResult_GetScore(hybridResult->searchResults[VSIM_SOURCE]);
     }
   }
 

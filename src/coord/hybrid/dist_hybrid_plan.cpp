@@ -103,7 +103,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     QueryError *status) {
     // The score alias for text is not part of a step to be distributed at this present time
     // We need to open the alias in the distributed lookup
-    AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+    AREQ *searchReq = HybridRequest_Arm(hreq, SEARCH_INDEX);
     if (searchReq->searchopts.scoreAlias) {
       auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(searchReq), NULL, NULL, PLN_T_DISTRIBUTE);
       RLookup_GetKey_Write(&dstp->lk, searchReq->searchopts.scoreAlias, RLOOKUP_F_NOFLAGS);
