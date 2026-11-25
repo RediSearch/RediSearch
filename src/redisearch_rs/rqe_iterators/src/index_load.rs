@@ -143,21 +143,21 @@ fn hit_value(result: &RSIndexResult<'_>) -> Option<f64> {
 /// Replace `result`'s metrics with `(key, value of the hit)`, or leave them
 /// untouched when `key` is null or the hit holds no number.
 fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'index>) {
-    if key.is_null() {
+    // The metrics vector types the key the way C sees it: the header
+    // `RLookupKey` is exported under, which is this key's first field.
+    //
+    // SAFETY: a non-null `key` is the key pipeline construction bound, owned by
+    // the pipeline's lookup, which outlives every result the iterator tree
+    // yields.
+    let Some(key) = (unsafe { key.cast::<ffi::RLookupKey>().as_ref() }) else {
         return;
-    }
+    };
     let Some(value) = hit_value(result) else {
         return;
     };
     let metrics = result.metrics_mut();
     metrics.reset();
-    // The metrics vector types the key the way C sees it: the header
-    // `RLookupKey` is exported under, which is this key's first field.
-    //
-    // SAFETY: `key` is non-null per the check above. It is the key pipeline
-    // construction bound, owned by the pipeline's lookup, which outlives every
-    // result the iterator tree yields.
-    metrics.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, value);
+    metrics.push_with_key(key, value);
 }
 
 impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {

@@ -17,7 +17,7 @@
 //! in an [`IndexLoad`](rqe_iterators::index_load::IndexLoad) decorator bound
 //! to it.
 
-use ffi::FieldSpec;
+use field_spec::FieldSpec;
 use numeric_range_tree::NumericRangeTree;
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
@@ -62,10 +62,16 @@ pub(crate) fn reserve(
 /// Whether `field`'s numeric range tree was built with float compression,
 /// which may store a value other than the indexed one, so loading from it is
 /// rejected by [`reject_lossy`]. A field with no tree yet has nothing to load.
-pub(crate) fn compresses_floats(field: &FieldSpec) -> bool {
-    // SAFETY: a numeric field's `tree` is null or the `NumericRangeTree` the
-    // field owns, which the query's spec read lock keeps alive and unmodified.
-    unsafe { field.tree.cast::<NumericRangeTree>().as_ref() }
+///
+/// The codec is the tree's own, fixed when indexing creates it. Trees are not
+/// persisted: on RDB load they are rebuilt from the keyspace under the
+/// `search-_numeric-compress` value current at that time, so a restart can
+/// change the answer either way, and the answer always matches the tree.
+pub(crate) fn compresses_floats(field: &ffi::FieldSpec) -> bool {
+    // SAFETY: `field` is a field of the live spec, which the query's spec read
+    // lock keeps alive and unmodified, names included.
+    unsafe { FieldSpec::from_raw(field) }
+        .tree()
         .is_some_and(NumericRangeTree::compresses_floats)
 }
 
@@ -91,7 +97,10 @@ pub(crate) fn decorate<'index>(
     // all callbacks populated — exactly the precondition of `CRQEIterator::new`.
     let child = unsafe { CRQEIterator::new(evaluated.into_c_iterator()) };
     let it = index_load::boxed_new(child);
-    bind_metric_request(ctx, request, it);
+    // SAFETY: `it` was just built by its constructor and nothing else holds it;
+    // `request` was reserved on `ctx` by `reserve`; the AST, which owns the
+    // metric-request array, outlives the iterator tree.
+    unsafe { bind_metric_request(ctx, request, it) };
     Evaluated::RustCompound(it)
 }
 

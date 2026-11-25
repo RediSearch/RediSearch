@@ -111,14 +111,13 @@ pub(crate) fn eval<'index>(
 
 /// The field `field_index` names in `spec`.
 fn field_spec(spec: &ffi::IndexSpec, field_index: FieldIndex) -> &ffi::FieldSpec {
-    debug_assert!(
+    assert!(
         field_index < spec.numFields,
         "field_index must be within the spec's current field count"
     );
-    // SAFETY: `field_index` is within `spec.numFields` (asserted above): both query
-    // parsers and the legacy `FILTER` argument build a numeric node only on a
-    // resolved field. So this stays within the bounds of the `numFields`-sized
-    // array `spec.fields` points to.
+    // SAFETY: `field_index` is within `spec.numFields` (asserted above), so this
+    // stays within the bounds of the `numFields`-sized array `spec.fields`
+    // points to.
     let field = unsafe { spec.fields.add(field_index as usize) };
     // SAFETY: `field` points into the live spec's field array, which the query's
     // spec read lock keeps alive and unmodified throughout evaluation.

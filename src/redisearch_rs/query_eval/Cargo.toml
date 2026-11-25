@@ -20,6 +20,7 @@ doc_key_map_ffi = { path = "../c_entrypoint/doc_key_map_ffi" }
 fat_array.workspace = true
 ffi.workspace = true
 field.workspace = true
+field_spec.workspace = true
 hidden_string.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true

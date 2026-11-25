@@ -1969,6 +1969,7 @@ dependencies = [
  "fat_array",
  "ffi",
  "field",
+ "field_spec",
  "geo",
  "hidden_string",
  "index_result",

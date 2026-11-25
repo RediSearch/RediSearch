@@ -102,7 +102,10 @@ pub(crate) fn eval<'index>(
     };
 
     if let Some(id) = request_id {
-        bind_metric_request(ctx, id, it);
+        // SAFETY: `it` was just built by its constructor and nothing else holds
+        // it; `id` was reserved on `ctx` above; the AST, which owns the
+        // metric-request array, outlives the iterator tree.
+        unsafe { bind_metric_request(ctx, id, it) };
     }
     Some(Evaluated::C(it))
 }
