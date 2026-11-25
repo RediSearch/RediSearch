@@ -176,9 +176,16 @@ impl TieBreakComparator for DocTableTieBreaker {
 /// 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
 ///    duration of this call.
 ///
-/// 6. `sort_spec`, when non-null, must point to a valid [`NumericTopKSortSpec`]
-///    whose `tie_break_sort_idx` is valid for `num_tie_break_keys` elements when
-///    `num_tie_break_keys > 0`.
+/// 6. `sort_spec`, when non-null, must point to a [valid] [`NumericTopKSortSpec`]
+///    for the duration of this call:
+///    - when `num_tie_break_keys > 0`, `tie_break_sort_idx` is non-null, aligned,
+///      and valid for reads of `num_tie_break_keys` initialized `i16` elements;
+///    - when `num_unconditional_ranges > 0`, `unconditional_ranges` is non-null,
+///      aligned, and valid for reads of `num_unconditional_ranges` initialized
+///      [`NumericTopKRangeBound`] elements;
+///    - `boundary_iter`, when non-null, is a [valid], uniquely-owned
+///      `QueryIterator *` with every callback populated (same contract as `child`
+///      in clause 3), whose ownership transfers to this constructor.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

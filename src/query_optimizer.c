@@ -138,6 +138,8 @@ void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   opt->sctx = sctx;
+  opt->hasPositionalConstraints =
+      ((req->searchopts.flags & Search_InOrder) != 0) || (req->searchopts.slop >= 0);
 
   // get FieldSpec of sortby field and results limit
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
@@ -349,19 +351,78 @@ static bool isPureSortFieldRange(const QueryNode *node, t_fieldIndex fieldIndex)
          node->nn.nf->fieldIndex == fieldIndex;
 }
 
-/* Lift a keyset/lexicographic union whose every branch bounds the sort field and at least one
- * branch is a pure numeric range on it (such as `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`).
- * The pure numeric branches move into `opt->unconditionalRanges` (checked in O(1) against each
- * walked value), the remaining conditional branches detach into `opt->boundaryNode`, and the
- * union is removed from the main query tree so `child` never builds an iterator over the full
- * tail `@n:[(c +inf]`. */
+static int cmpSortFieldBoundsByMin(const void *a, const void *b) {
+  const SortFieldBounds *ba = a;
+  const SortFieldBounds *bb = b;
+  if (ba->min < bb->min) return -1;
+  if (ba->min > bb->min) return 1;
+  if (ba->minInclusive != bb->minInclusive) return ba->minInclusive ? -1 : 1;
+  return 0;
+}
+
+/* Whether the union's branch intervals cover their hull contiguously without gaps.
+ * Disjoint branches such as `@n:[0 0] | @n:[999999 999999]` leave a gap whose values would all
+ * be scanned and rejected if lifted into a single hull walk; keeping the indexed OR lets the
+ * union seek directly across the gap. */
+static bool unionBranchesAreContiguous(const QueryNode *unionNode, t_fieldIndex targetFieldIndex,
+                                       SortFieldBounds *hullOut) {
+  int n = QueryNode_NumChildren(unionNode);
+  if (n == 0) {
+    return false;
+  }
+  SortFieldBounds stackBuf[8];
+  SortFieldBounds *branches =
+      n <= 8 ? stackBuf : rm_malloc((size_t)n * sizeof(*branches));
+  bool ok = true;
+  for (int i = 0; i < n; ++i) {
+    if (!impliedSortFieldBounds(unionNode->children[i], targetFieldIndex, &branches[i])) {
+      ok = false;
+      break;
+    }
+  }
+  if (ok) {
+    qsort(branches, (size_t)n, sizeof(*branches), cmpSortFieldBoundsByMin);
+    double reachMax = branches[0].max;
+    bool reachMaxInc = branches[0].maxInclusive;
+    for (int i = 1; i < n; ++i) {
+      if (branches[i].min > reachMax ||
+          (branches[i].min == reachMax && !branches[i].minInclusive && !reachMaxInc)) {
+        ok = false;
+        break;
+      }
+      if (branches[i].max > reachMax) {
+        reachMax = branches[i].max;
+        reachMaxInc = branches[i].maxInclusive;
+      } else if (branches[i].max == reachMax) {
+        reachMaxInc = reachMaxInc || branches[i].maxInclusive;
+      }
+    }
+    if (ok) {
+      hullOut->min = branches[0].min;
+      hullOut->minInclusive = branches[0].minInclusive;
+      hullOut->max = reachMax;
+      hullOut->maxInclusive = reachMaxInc;
+    }
+  }
+  if (branches != stackBuf) {
+    rm_free(branches);
+  }
+  return ok;
+}
+
+/* Lift a keyset/lexicographic union whose every branch bounds the sort field contiguously (no
+ * gaps) and at least one branch is a pure numeric range on it (such as
+ * `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`). The pure numeric branches move into
+ * `opt->unconditionalRanges` (checked in O(1) against each walked value), the remaining
+ * conditional branches detach into `opt->boundaryNode`, and the union is removed from the main
+ * query tree so `child` never builds an iterator over the full tail `@n:[(c +inf]`. */
 static bool tryLiftUnion(QueryNode *unionNode, QueryNode *parent, int unionIdx,
                          QueryNode **rootPtr, t_fieldIndex targetFieldIndex, QOptimizer *opt) {
   if (unionNode->type != QN_UNION || unionNode->opts.weight != 1) {
     return false;
   }
   SortFieldBounds bounds;
-  if (!impliedSortFieldBounds(unionNode, targetFieldIndex, &bounds)) {
+  if (!unionBranchesAreContiguous(unionNode, targetFieldIndex, &bounds)) {
     return false;
   }
 
@@ -426,7 +487,8 @@ static bool liftUnionSortRanges(QueryNode **rootPtr, t_fieldIndex targetFieldInd
   if (root->type == QN_UNION) {
     return tryLiftUnion(root, NULL, -1, rootPtr, targetFieldIndex, opt);
   }
-  if (root->type == QN_PHRASE && root->opts.weight == 1 && !root->pn.exact) {
+  if (root->type == QN_PHRASE && root->opts.weight == 1 && !root->pn.exact &&
+      !opt->hasPositionalConstraints && !root->opts.inOrder && root->opts.maxSlop == -1) {
     for (int i = 0; i < QueryNode_NumChildren(root); ++i) {
       if (tryLiftUnion(root->children[i], root, i, rootPtr, targetFieldIndex, opt)) {
         return true;

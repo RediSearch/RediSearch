@@ -100,6 +100,7 @@ struct UnionBoundaryFilter {
     unconditional: Box<[NumericRangeBound]>,
     boundary: Option<CRQEIterator>,
     boundary_exhausted: bool,
+    boundary_released: bool,
 }
 
 impl UnionBoundaryFilter {
@@ -399,6 +400,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             unconditional,
             boundary,
             boundary_exhausted,
+            boundary_released: false,
         });
         self
     }
@@ -555,21 +557,27 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 
     fn release_index_handles(&mut self) {
         self.scan.ranges.release_index_handles();
-        if let Some(ref mut uf) = self.scan.union_filter {
-            uf.boundary = None;
+        if let Some(ref mut uf) = self.scan.union_filter
+            && uf.boundary.take().is_some()
+        {
+            uf.boundary_released = true;
             uf.boundary_exhausted = true;
         }
     }
 
     fn finish_collection(&mut self) {
-        if let Some(ref mut uf) = self.scan.union_filter {
-            uf.boundary = None;
-            uf.boundary_exhausted = true;
-        }
+        // Keep `uf.boundary` intact so an outer `rewind()` can re-run
+        // collection with the boundary filter still in place; `Drop` and
+        // `release_index_handles` free it when done or suspended.
     }
 
     fn can_collect_after_lock_release(&self) -> bool {
         self.scan.ranges.can_collect_after_lock_release()
+            && !self
+                .scan
+                .union_filter
+                .as_ref()
+                .is_some_and(|uf| uf.boundary_released)
     }
 
     fn collects_unscored_on_shortfall(&self) -> bool {

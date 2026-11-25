@@ -1385,3 +1385,43 @@ def testAggregateWithoutCountUsesOptimizerUnderDialect2(env):
         'SORTBY', '4', '@n', 'ASC', '@m', 'ASC', 'MAX', '5', 'LOAD', '1', '@__key', 'DIALECT', '2',
     )
     env.assertEqual(opt[1:], plain[1:])
+
+
+def testNestedUnionWithPositionalConstraintsNotLifted(env):
+    ''' Nested union inside a positional query (SLOP 0 INORDER) must keep positional join '''
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT')
+    conn.execute_command('HSET', 'wrong_order', 'n', 0, 't', 'bar foo')
+    conn.execute_command('HSET', 'right_order', 'n', 0, 't', 'foo bar')
+    conn.execute_command('HSET', 'tail_doc', 'n', 5, 't', 'foo')
+    for direction in ('ASC', 'DESC'):
+        plain = conn.execute_command(
+            'FT.SEARCH', 'idx', 'foo (@n:[(0 +inf] | (@n:[0 0] bar))',
+            'SLOP', '0', 'INORDER', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '10', 'NOCONTENT', 'WITHCOUNT',
+        )
+        opt = conn.execute_command(
+            'FT.SEARCH', 'idx', 'foo (@n:[(0 +inf] | (@n:[0 0] bar))',
+            'SLOP', '0', 'INORDER', 'SORTBY', 'n', direction,
+            'LIMIT', '0', '10', 'NOCONTENT', 'WITHOUTCOUNT',
+        )
+        env.assertNotIn('wrong_order', plain[1:])
+        env.assertEqual(opt[1:], plain[1:])
+
+
+def testDisjointPureUnionNotLifted(env):
+    ''' Disjoint pure numeric ranges (@n:[0 0] | @n:[1000 1000]) match WITHCOUNT without lifting '''
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE')
+    for i in range(0, 1001, 10):
+        conn.execute_command('HSET', f'd:{i}', 'n', i)
+    for direction in ('ASC', 'DESC'):
+        plain = conn.execute_command(
+            'FT.SEARCH', 'idx', '@n:[0 0] | @n:[1000 1000]',
+            'SORTBY', 'n', direction, 'LIMIT', '0', '5', 'NOCONTENT', 'WITHCOUNT',
+        )
+        opt = conn.execute_command(
+            'FT.SEARCH', 'idx', '@n:[0 0] | @n:[1000 1000]',
+            'SORTBY', 'n', direction, 'LIMIT', '0', '5', 'NOCONTENT', 'WITHOUTCOUNT',
+        )
+        env.assertEqual(opt[1:], plain[1:])

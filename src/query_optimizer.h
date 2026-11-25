@@ -97,6 +97,10 @@ typedef struct QOptimizer {
     // `$.n[*]`). A query predicate then constrains any of them, not the one the document sorts by.
     bool sortFieldMayHoldManyValues;
 
+    // Whether the query carries top-level positional constraints (`INORDER` or `SLOP >= 0`),
+    // which disallow splitting a nested union out of an enclosing intersection.
+    bool hasPositionalConstraints;
+
     // When a keyset/lexicographic union (such as `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`) has
     // pure numeric range branches on the sort field, those branches are lifted into
     // `unconditionalRanges` and the remaining conditional branches are detached into
