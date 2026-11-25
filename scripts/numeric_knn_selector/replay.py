@@ -32,6 +32,17 @@ def index_info(client):
     return dict(zip(info[::2], info[1::2]))
 
 
+def require_stock_calibration(client):
+    """Check the workload scope and confirm that AUTO uses the stock selector."""
+    selector = "search-_numeric-knn-decision-tree"
+    if client.config_get(selector).get(selector, "no") != "no":
+        raise ValueError(f"set {selector} to no before calibrating stock AUTO")
+    if index_info(client)[b"num_docs"] != DATA_ROWS:
+        raise ValueError("the sealed million-document index is required")
+    if client.config_get("search-workers") != {"search-workers": "6"}:
+        raise ValueError("expected six Redis search workers")
+
+
 def build(args):
     client = connection(args)
     client.execute_command(

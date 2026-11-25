@@ -18,7 +18,7 @@ from statistics import median
 import sys
 import time
 
-from replay import DATA_ROWS, connection, index_info, read_queries, search
+from replay import DATA_ROWS, connection, read_queries, require_stock_calibration, search
 
 
 FAMILIES = ("single", "and", "or")
@@ -89,10 +89,7 @@ def selected_queries(queries, per_family, warmup, seed=20500, excluded=()):
 def capture(args):
     queries = read_queries(args.data / "tests.jsonl", 10000)
     client = connection(args)
-    if index_info(client)[b"num_docs"] != DATA_ROWS:
-        raise ValueError("the sealed million-document index is required")
-    if client.config_get("search-workers") != {"search-workers": "6"}:
-        raise ValueError("expected six Redis search workers")
+    require_stock_calibration(client)
     excluded_ids = set()
     if args.exclude_samples:
         with args.exclude_samples.open() as source:

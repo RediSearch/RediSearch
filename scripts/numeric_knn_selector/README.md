@@ -23,7 +23,8 @@ and extract `vectors.npy`, `payloads.jsonl` and `tests.jsonl`. The archive
 SHA-256 is `8ae0aae24fd8eda4d265a3968b1d7b0c5a1b3dc504ec4e6d970a100655ea4baa`.
 Start Redis with `--enable-debug-command local` so the loader can verify the
 vector indexing queue has drained. If using a module with the experimental
-selector, keep `search-_numeric-knn-decision-tree` off for calibration.
+selector, set `search-_numeric-knn-decision-tree` to `no` for calibration and
+stock-mode replay.
 
 ```sh
 python3 scripts/numeric_knn_selector/replay.py \
@@ -85,6 +86,7 @@ The fixed batch-size candidate lost ground-truth hits on the full AND
 replay. To fit an exact-only alternative, replay every AND query under
 its current choice and stock exact. The current selector already uses exact
 for some queries and the replay skips duplicate measurements for those.
+The replay accepts a family-to-tree JSON map or the report from either fitter.
 
 ```sh
 cat > exact-policy.json <<'JSON'

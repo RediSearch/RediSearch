@@ -14,30 +14,32 @@ import sys
 
 from fit_selector import FAMILIES, measure, planning_profile
 from fit_tree import CURRENT, current_action, planner_features, route
-from replay import DATA_ROWS, connection, index_info, read_queries
+from replay import connection, read_queries, require_stock_calibration
 
 
 def main():
     """Capture paired durations and exact-hit sets for changed queries."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("socket")
-    parser.add_argument("policy", type=Path)
+    parser.add_argument("policy", type=Path, help="fitter report or family-to-tree JSON map")
     parser.add_argument("output", type=Path)
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--family", choices=FAMILIES, default="and")
     args = parser.parse_args()
-    queries = read_queries(args.data / "tests.jsonl", 10_000)
-    policy = json.loads(args.policy.read_text())
+    document = json.loads(args.policy.read_text())
+    policy = document.get("policy", document)
+    tree = policy.get(args.family)
+    if tree is None:
+        parser.error(f"{args.policy} has no tree for the {args.family} family")
+
     client = connection(args)
-    if index_info(client)[b"num_docs"] != DATA_ROWS:
-        raise ValueError("the sealed million-document index is required")
-    if client.config_get("search-workers") != {"search-workers": "6"}:
-        raise ValueError("expected six Redis search workers")
+    require_stock_calibration(client)
+    queries = read_queries(args.data / "tests.jsonl", 10_000)
 
     def check(i):
         query = queries[i]
         row = {"id": i, "family": query[-1], **planning_profile(client, query)}
-        chosen = route(policy[row["family"]], planner_features(row))
+        chosen = route(tree, planner_features(row))
         old = current_action(row)
         row.update(choice=chosen, current=old)
         if chosen in (CURRENT, old):
