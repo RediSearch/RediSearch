@@ -670,6 +670,7 @@ proptest! {
     /// Thresholded reads keep every document a plain read yields that reaches the threshold in
     /// force while it is passed, and yield only real matches, in increasing order, then EOF.
     #[test]
+    #[cfg_attr(miri, ignore = "Thousands of random trees: too slow under Miri")]
     fn thresholded_reads_keep_every_competitive_document(tree in tree(40, 30), thresholds in thresholds()) {
         let scores = tree.scores();
         let mut logs = Vec::new();
