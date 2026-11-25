@@ -366,20 +366,3 @@ fn a_cardinality_limit_counts_values_from_earlier_documents() {
     );
     assert_eq!(index.routing().num_terminals(), 1);
 }
-
-#[test]
-fn doc_ids_must_increase_across_documents() {
-    let mut index = priced(None);
-    index
-        .index_document(5, &elements(&[item("red", "M", 20.0)]), PARAMS)
-        .unwrap();
-    for doc_id in [5, 4] {
-        assert_eq!(
-            index
-                .index_document(doc_id, &elements(&[item("blue", "L", 1.0)]), PARAMS)
-                .err(),
-            Some(IndexError::DocIdNotIncreasing { doc_id, last: 5 })
-        );
-    }
-    assert_eq!(index.routing().num_terminals(), 1);
-}

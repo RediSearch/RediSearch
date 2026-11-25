@@ -54,8 +54,6 @@ pub struct NestedIndex {
     routing: CompoundIndex<Terminal>,
     terminal_kind: TerminalKind,
     num_records: usize,
-    /// The last document indexed, `0` before the first one; doc ids start at 1.
-    last_doc_id: DocId,
 }
 
 impl NestedIndex {
@@ -65,7 +63,6 @@ impl NestedIndex {
             routing: CompoundIndex::new(levels)?,
             terminal_kind,
             num_records: 0,
-            last_doc_id: 0,
         })
     }
 
@@ -86,10 +83,11 @@ impl NestedIndex {
 
     /// Indexes every element of the document `doc_id`.
     ///
-    /// Everything is checked first: `doc_id` must be greater than every doc id indexed before, as
-    /// for any posting list; each element's value must have the terminal's type and not be NaN;
-    /// and all the document's paths must route and fit the cardinality limits together. Only then
-    /// is anything written, so an error leaves the index unchanged.
+    /// `doc_id` must be greater than every doc id indexed before, as for any posting list; the
+    /// doc table guarantees it. Everything else is checked first: each element's value must have
+    /// the terminal's type and not be NaN, and all the document's paths must route and fit the
+    /// cardinality limits together. Only then is anything written, so an error leaves the index
+    /// unchanged.
     ///
     /// Several elements of one document may share a path; their values all land in the same
     /// terminal.
@@ -99,13 +97,6 @@ impl NestedIndex {
         elements: &[Element<'_>],
         params: IndexParams,
     ) -> Result<IndexDelta, IndexError> {
-        debug_assert_ne!(doc_id, 0, "doc ids start at 1");
-        if doc_id <= self.last_doc_id {
-            return Err(IndexError::DocIdNotIncreasing {
-                doc_id,
-                last: self.last_doc_id,
-            });
-        }
         for (position, element) in elements.iter().enumerate() {
             if !self.terminal_kind.accepts(&element.value) {
                 return Err(IndexError::ValueMismatch { element: position });
@@ -158,7 +149,7 @@ impl NestedIndex {
                     }
                     // A NESTED element has no field expiration. Several elements of one document
                     // may share a terminal, which makes the document multi-valued there; doc ids
-                    // increase across documents, checked above, so accepting a repeated doc id
+                    // increase across documents, so accepting a repeated doc id
                     // admits nothing else.
                     let added = tree.add(doc_id, value, false, true, params.max_depth_range);
                     delta.records += i64::from(added.num_records_delta);
@@ -180,7 +171,6 @@ impl NestedIndex {
             .num_records
             .checked_add_signed(delta.records as isize)
             .expect("the record count stays non-negative");
-        self.last_doc_id = doc_id;
         Ok(delta)
     }
 }
