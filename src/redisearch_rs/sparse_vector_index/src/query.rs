@@ -17,17 +17,23 @@
 //! `Σ q_i · d_i`. The top K is chosen downstream, by the result-processor
 //! sorter, from the request's `LIMIT`.
 
-use std::ptr::NonNull;
+use std::{alloc::Layout, ptr::NonNull};
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RSResultKind, SuspendedIndexResult};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{IndexReaderCore, numeric::NumericFloatCompression};
+use inverted_index::{IndexReaderCore, RawIndexReaderCore, numeric::NumericFloatCompression};
+use ref_mode::Ref;
 use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, NoOpChecker, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    UnionFullFlat, UnionFullHeap,
-    inverted_index::InvIndIterator,
+    IteratorType, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome, UnionFullFlat,
+    UnionFullHeap,
+    boxed::{
+        ResumeSlotOutcome, finish_resume_in_place, resume_child_slot_in_place,
+        suspend_child_slot_in_place,
+    },
+    inverted_index::{InvIndIterator, RawInvIndIterator},
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -36,37 +42,120 @@ use crate::SparseVectorIndex;
 type PostingListIterator<'index> =
     InvIndIterator<'index, IndexReaderCore<'index, NumericFloatCompression>, NoOpChecker>;
 
-/// An iterator over one dimension's posting list, yielding `(doc_id, d_i)`
-/// with the query weight `q_i` as its result weight.
+type SuspendedPostingListIterator<'query> =
+    <PostingListIterator<'query> as RQEIteratorBoxed<'query>>::Suspended;
+
+/// A [`DimensionIterator`] in either mode: `P` is the posting-list iterator's
+/// active or suspended form.
 ///
-/// GC removes a dimension whose posting list it empties, which frees the list.
-/// So on [`revalidate`](RQEIterator::revalidate) this looks the dimension up
-/// again and aborts when its list is gone or replaced, before the reader
-/// touches it. The union then drops this child: a dimension no document has
-/// contributes nothing to any score.
-pub struct DimensionIterator<'index> {
-    it: PostingListIterator<'index>,
+/// # Invariants
+///
+/// 1. [`DimensionIterator`] and [`SuspendedDimensionIterator`] are
+///    layout-identical, so suspend and resume convert [`it`](Self::it) in
+///    place and reinterpret the box. Enforced by a `const _` assertion block.
+#[repr(C)]
+pub struct RawDimensionIterator<P> {
+    /// Boxed so that the result [`DimensionUnion`] points into lives outside
+    /// its child vector, which it reborrows mutably while holding those
+    /// pointers.
+    it: Box<P>,
     /// The index the posting list belongs to. Only dereferenced under the spec
-    /// read lock, in `revalidate`; it lives as long as its field, which outlives
-    /// every query on it.
+    /// read lock, in [`reseat_on_live_list`](Self::reseat_on_live_list).
     index: NonNull<SparseVectorIndex>,
+    /// The dimension whose posting list [`it`](Self::it) reads.
     dim_id: u32,
 }
 
+/// An iterator over one dimension's posting list, yielding `(doc_id, d_i)`
+/// with the query weight `q_i` as its result weight.
+///
+/// GC frees the posting list of a dimension it empties, so
+/// [`revalidate`](RQEIterator::revalidate) and
+/// [`resume`](RQESuspendedIterator::resume) look the dimension up again and
+/// abort when its list is gone or replaced. The union then drops this child,
+/// which contributed nothing to any score.
+pub type DimensionIterator<'index> = RawDimensionIterator<PostingListIterator<'index>>;
+
+/// The suspended form of a [`DimensionIterator`].
+pub type SuspendedDimensionIterator<'query> =
+    RawDimensionIterator<SuspendedPostingListIterator<'query>>;
+
+// Invariant 1 on `RawDimensionIterator`.
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+    type A = DimensionIterator<'static>;
+    type S = SuspendedDimensionIterator<'static>;
+    assert!(offset_of!(A, it) == offset_of!(S, it));
+    assert!(offset_of!(A, index) == offset_of!(S, index));
+    assert!(offset_of!(A, dim_id) == offset_of!(S, dim_id));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'query, Rf: Ref, RRf: Ref, RA>
+    RawDimensionIterator<
+        RawInvIndIterator<
+            'query,
+            Rf,
+            RawIndexReaderCore<RRf, NumericFloatCompression>,
+            NoOpChecker,
+            RA,
+        >,
+    >
+{
+    /// Look the dimension up again and reseat the reader on its posting list.
+    /// Returns `false`, leaving the reader untouched, when GC removed or
+    /// replaced the list.
+    ///
+    /// Shared by [`revalidate`](RQEIterator::revalidate) and
+    /// [`resume`](RQESuspendedIterator::resume) so both make the same decision.
+    ///
+    /// # Safety
+    ///
+    /// 1. [`index`](Self::index) points to a live [`SparseVectorIndex`].
+    /// 2. The spec read lock is held from this call until the iterator is next
+    ///    parked.
+    unsafe fn reseat_on_live_list(&mut self) -> bool {
+        // SAFETY: 1. the pointee is allocated, and 2. no writer holds a
+        // mutable reference to it while this one lives.
+        let index = unsafe { self.index.as_ref() };
+        let Some(list) = index.get_dimension(self.dim_id) else {
+            return false;
+        };
+        let ii = list.inner();
+        if !self.it.reads_index(ii) {
+            return false;
+        }
+        // SAFETY: 1. `reads_index` held just above. 2. `ii` was resolved through
+        // its owner just now, after any write made while the iterator was
+        // parked. 3. The read lock (this function's 2.) keeps it allocated and
+        // unwritten until the iterator is parked again.
+        unsafe { self.it.reseat_reader_index(NonNull::from(ii)) };
+        true
+    }
+}
+
 impl<'index> DimensionIterator<'index> {
+    /// Build the iterator over dimension `dim_id` of `index`, with `weight` as
+    /// its result weight. Returns `None` when no document has the dimension.
+    ///
     /// # Safety
     ///
     /// As [`SparseVectorIterator::new`].
-    unsafe fn new(index: NonNull<SparseVectorIndex>, dim_id: u32, weight: f32) -> Option<Self> {
-        // SAFETY: the caller guarantees `index` is valid and unwritten for
-        // `'index` while the iterator is not parked.
+    pub unsafe fn new(index: NonNull<SparseVectorIndex>, dim_id: u32, weight: f32) -> Option<Self> {
+        // SAFETY: 1, 2 of `SparseVectorIterator::new`: the pointee lives for
+        // `'index` and is not written while this borrow is used.
         let index_ref: &'index SparseVectorIndex = unsafe { index.as_ref() };
         let posting_list = index_ref.get_dimension(dim_id)?;
         let result = RSIndexResult::build_numeric(0.0)
             .weight(f64::from(weight))
             .build();
         Some(Self {
-            it: InvIndIterator::new(posting_list.reader(), result, NoOpChecker),
+            it: Box::new(InvIndIterator::new(
+                posting_list.reader(),
+                result,
+                NoOpChecker,
+            )),
             // Kept as given, not re-derived from `index_ref`: a GC write
             // between parks invalidates every reference derived from a
             // shared borrow, and revalidation must read through a pointer
@@ -97,21 +186,12 @@ impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: the caller holds the spec read lock (`spec` witnesses it), so
-        // the field's index is alive and no writer holds it.
-        let index = unsafe { self.index.as_ref() };
-        let Some(list) = index.get_dimension(self.dim_id) else {
-            return Ok(RQEValidateStatus::Aborted);
-        };
-        let ii = list.inner();
-        if !self.it.reads_index(ii) {
+        // SAFETY: 1. `index` came from `SparseVectorIterator::new`, whose
+        // caller keeps it alive. 2. `spec` witnesses the read lock, which the
+        // caller holds until the iterator is parked again.
+        if !unsafe { self.reseat_on_live_list() } {
             return Ok(RQEValidateStatus::Aborted);
         }
-        // SAFETY: 1. `reads_index` held just above. 2. `ii` was resolved through
-        // its owner just now, after any write made while the iterator was parked.
-        // 3. The read lock keeps it allocated and unwritten until the iterator is
-        // parked again.
-        unsafe { self.it.reseat_reader_index(NonNull::from(ii)) };
         self.it.revalidate(spec)
     }
 
@@ -140,15 +220,106 @@ impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
     }
 }
 
+impl<'index> RQEIteratorBoxed<'index> for DimensionIterator<'index> {
+    type Suspended = SuspendedDimensionIterator<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let slot = unsafe { &raw mut (*raw).it };
+        // SAFETY: `slot` is an initialized field of the exclusively owned
+        // allocation, rewritten below; a panic in between leaks the allocation,
+        // as only `raw` owns it, rather than dropping the moved-from slot.
+        let it = unsafe { slot.read() };
+        let suspended = it.suspend();
+        // SAFETY: `slot` is aligned and in bounds, and `Box` is pointer-sized
+        // whatever its pointee, so the suspended box fits it.
+        unsafe {
+            slot.cast::<Box<SuspendedPostingListIterator<'index>>>()
+                .write(suspended)
+        };
+        // SAFETY: `it` now holds its suspended form, and `index` and `dim_id`
+        // carry no mode: by invariant 1 on `RawDimensionIterator` the
+        // allocation is a valid `SuspendedDimensionIterator`.
+        unsafe { Box::from_raw(raw.cast::<SuspendedDimensionIterator<'index>>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for SuspendedDimensionIterator<'query> {
+    type Resumed<'a>
+        = DimensionIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // SAFETY: 1. `index` came from `SparseVectorIterator::new`, whose
+        // caller keeps it alive. 2. `guard` witnesses the read lock, which the
+        // caller holds until the iterator is parked again.
+        if !unsafe { self.reseat_on_live_list() } {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let slot = unsafe { &raw mut (*raw).it };
+        // SAFETY: as in `suspend`; `resume` consumes the moved-out value.
+        let it = unsafe { slot.read() };
+        let outcome = it.resume(guard).map(|outcome| {
+            let (it, slot_outcome) = match outcome {
+                ResumeOutcome::Ok(it) => (it, ResumeSlotOutcome::Unchanged),
+                ResumeOutcome::Moved(it) => (it, ResumeSlotOutcome::Moved),
+                ResumeOutcome::Aborted => return ResumeSlotOutcome::Aborted,
+            };
+            // SAFETY: as in `suspend`.
+            unsafe { slot.cast::<Box<PostingListIterator<'a>>>().write(it) };
+            slot_outcome
+        });
+        // SAFETY: 1. `raw` came from `Box::into_raw` and nothing borrows the
+        // allocation. 2. `outcome` is the slot's, and `index` and `dim_id` need
+        // no drop. 3. Once `it` holds its active form for `'a`, by invariant 1 on
+        // `RawDimensionIterator` the allocation is a valid `DimensionIterator<'a>`.
+        unsafe { finish_resume_in_place(raw, outcome) }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.it.last_doc_id()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+}
+
 /// The union over the query's dimension iterators. Always a full union (no
 /// quick exit), so each result aggregates every dimension present at that
 /// document, which the sum needs.
-enum DimensionUnion<'index> {
-    // Boxed: the union keeps pointers to its children's results while it
-    // reborrows its child vector mutably, so each result must live outside that
-    // vector's allocation, as a C child's does.
-    Flat(UnionFullFlat<'index, Box<DimensionIterator<'index>>>),
-    Heap(UnionFullHeap<'index, Box<DimensionIterator<'index>>>),
+///
+/// `#[repr(C, u8)]`, as is [`SuspendedDimensionUnion`], so the two share a tag
+/// encoding and suspend and resume convert the payload in place.
+///
+/// Public only because [`SparseVectorIterator`] names it; not exported.
+#[repr(C, u8)]
+pub enum DimensionUnion<'index> {
+    /// The union [`SparseVectorIterator::new`] picks for few dimensions.
+    Flat(UnionFullFlat<'index, DimensionIterator<'index>>),
+    /// The union [`SparseVectorIterator::new`] picks for many dimensions.
+    Heap(UnionFullHeap<'index, DimensionIterator<'index>>),
+}
+
+/// The suspended form of a [`DimensionUnion`], arm for arm. Public for the
+/// same reason, through [`SuspendedSparseVectorIterator`].
+#[repr(C, u8)]
+pub enum SuspendedDimensionUnion<'query> {
+    /// The suspended [`Flat`](DimensionUnion::Flat) union.
+    Flat(<UnionFullFlat<'query, DimensionIterator<'query>> as RQEIteratorBoxed<'query>>::Suspended),
+    /// The suspended [`Heap`](DimensionUnion::Heap) union.
+    Heap(<UnionFullHeap<'query, DimensionIterator<'query>> as RQEIteratorBoxed<'query>>::Suspended),
 }
 
 macro_rules! dispatch {
@@ -171,16 +342,21 @@ fn score(result: &RSIndexResult<'_>) -> f64 {
     })
 }
 
-/// Iterator for one `@field:[SPARSE $q]` query node.
+/// A [`SparseVectorIterator`] in either mode: `U` is the dimension union's
+/// active or suspended form, and `R` the score result's.
 ///
-/// Yields every document that shares a dimension with the query, in doc-ID
-/// order, as a [`SparseScore`](index_result::RSResultKind::SparseScore) result whose
-/// value is the document's dot product with the query. Reducing at this node
-/// keeps the sparse score apart from any text or tag clauses the node is
-/// combined with.
-pub struct SparseVectorIterator<'index> {
-    union: DimensionUnion<'index>,
-    result: RSIndexResult<'index>,
+/// # Invariants
+///
+/// 1. [`SparseVectorIterator`] and [`SuspendedSparseVectorIterator`] are
+///    layout-identical, so suspend and resume convert the union and the result
+///    in place and reinterpret the box, keeping the allocation C holds
+///    pointers into, such as the
+///    [`key_mut_ref`](SparseVectorIterator::key_mut_ref) slot. Enforced by a
+///    `const _` assertion block.
+#[repr(C)]
+pub struct RawSparseVectorIterator<'query, U, R> {
+    union: U,
+    result: R,
     /// The number of query dimensions that have a posting list.
     num_dimensions: usize,
     /// The number of dimensions in the query, found or not.
@@ -188,9 +364,43 @@ pub struct SparseVectorIterator<'index> {
     /// Where the score is yielded for `$YIELD_SCORE_AS`, or null when it is not.
     /// Written by the pipeline once the lookup key is resolved, through the
     /// handle [`key_handle`](Self::key_handle) tracks.
-    own_key: *mut RLookupKey<'index>,
-    key_handle: KeyHandleSlot<'index>,
+    own_key: *mut RLookupKey<'query>,
+    key_handle: KeyHandleSlot<'query>,
 }
+
+/// Iterator for one `@field:[SPARSE $q]` query node.
+///
+/// Yields every document that shares a dimension with the query, in doc-ID
+/// order, as a [`SparseScore`](index_result::RSResultKind::SparseScore) result whose
+/// value is the document's dot product with the query. Reducing at this node
+/// keeps the sparse score apart from any text or tag clauses the node is
+/// combined with.
+pub type SparseVectorIterator<'index> =
+    RawSparseVectorIterator<'index, DimensionUnion<'index>, RSIndexResult<'index>>;
+
+/// The suspended form of a [`SparseVectorIterator`].
+pub type SuspendedSparseVectorIterator<'query> =
+    RawSparseVectorIterator<'query, SuspendedDimensionUnion<'query>, SuspendedIndexResult<'query>>;
+
+// Invariant 1 on `RawSparseVectorIterator`. The union arms carry their own
+// proofs.
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+    type A = SparseVectorIterator<'static>;
+    type S = SuspendedSparseVectorIterator<'static>;
+    assert!(offset_of!(A, union) == offset_of!(S, union));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, num_dimensions) == offset_of!(S, num_dimensions));
+    assert!(offset_of!(A, query_dimensions) == offset_of!(S, query_dimensions));
+    assert!(offset_of!(A, own_key) == offset_of!(S, own_key));
+    assert!(offset_of!(A, key_handle) == offset_of!(S, key_handle));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+    assert!(size_of::<DimensionUnion<'static>>() == size_of::<SuspendedDimensionUnion<'static>>());
+    assert!(
+        align_of::<DimensionUnion<'static>>() == align_of::<SuspendedDimensionUnion<'static>>()
+    );
+};
 
 impl<'index> SparseVectorIterator<'index> {
     /// Build the iterator for `query`, a vector already checked and
@@ -206,9 +416,11 @@ impl<'index> SparseVectorIterator<'index> {
     ///
     /// 1. `index` points to a live [`SparseVectorIndex`] that outlives the
     ///    iterator (`'index`).
-    /// 2. The index is written to only while the iterator is parked across a
-    ///    lock release, and [`revalidate`](RQEIterator::revalidate) is called
-    ///    before the iterator is used again, under the read lock.
+    /// 2. The index is written to only while the iterator is parked, that is
+    ///    held across a read-lock release, and
+    ///    [`revalidate`](RQEIterator::revalidate) or
+    ///    [`resume`](RQESuspendedIterator::resume) is called under the read lock
+    ///    before the iterator is used again.
     /// 3. `index` was not derived from a shared reference that such a write
     ///    would invalidate: pass the owner's own pointer, such as the one the
     ///    field stores.
@@ -217,12 +429,12 @@ impl<'index> SparseVectorIterator<'index> {
         query: &[(u32, f32)],
         min_union_iter_heap: usize,
     ) -> Option<Self> {
-        let children: Vec<Box<DimensionIterator<'index>>> = query
+        let children: Vec<DimensionIterator<'index>> = query
             .iter()
             .filter_map(|&(dim_id, weight)| {
                 // SAFETY: the caller upholds this function's contract, which is
                 // `DimensionIterator::new`'s.
-                unsafe { DimensionIterator::new(index, dim_id, weight) }.map(Box::new)
+                unsafe { DimensionIterator::new(index, dim_id, weight) }
             })
             .collect();
 
@@ -391,6 +603,146 @@ impl<'index> RQEIterator<'index> for SparseVectorIterator<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for SparseVectorIterator<'index> {
+    type Suspended = SuspendedSparseVectorIterator<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        match unsafe { &mut (*raw).union } {
+            // SAFETY: the payload is valid and exclusively owned, and is read as
+            // its suspended form from here on.
+            DimensionUnion::Flat(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
+            // SAFETY: as above.
+            DimensionUnion::Heap(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
+        }
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let result = NonNull::new(unsafe { &raw mut (*raw).result })
+            .expect("a field of a non-null allocation is non-null");
+        // SAFETY: 1. `result` is aligned and points to an initialized field.
+        // 2. It is unaliased: `raw` exclusively owns the allocation, and no
+        // reference into it is live.
+        unsafe { RSIndexResult::into_suspended_in_place(result) };
+        // SAFETY: the union payload and the result now hold their suspended forms,
+        // the union tag encodes the same arm in both enums, and the other fields
+        // carry no index borrows: by invariant 1 on `RawSparseVectorIterator`
+        // the allocation is a valid `SuspendedSparseVectorIterator`.
+        unsafe { Box::from_raw(raw.cast::<SuspendedSparseVectorIterator<'index>>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for SuspendedSparseVectorIterator<'query> {
+    type Resumed<'a>
+        = SparseVectorIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // `current()` hands the result out mutably, so a consumer could have
+        // swapped in a result that borrows the index, which this iterator cannot
+        // revalidate. Refuse before reinterpreting anything.
+        if self.result.kind() != RSResultKind::SparseScore {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        // On `Aborted` or `Err` the helper leaves the payload uninitialized,
+        // which the teardown below accounts for.
+        let outcome = match unsafe { &mut (*raw).union } {
+            // SAFETY: the payload is valid and exclusively owned.
+            SuspendedDimensionUnion::Flat(u) => unsafe {
+                resume_child_slot_in_place(NonNull::from(u), guard)
+            },
+            // SAFETY: as above.
+            SuspendedDimensionUnion::Heap(u) => unsafe {
+                resume_child_slot_in_place(NonNull::from(u), guard)
+            },
+        };
+        let moved = match outcome {
+            Ok(ResumeSlotOutcome::Unchanged) => false,
+            Ok(ResumeSlotOutcome::Moved) => true,
+            Ok(ResumeSlotOutcome::Aborted) | Err(_) => {
+                // SAFETY: `raw` is exclusively owned and its union slot was
+                // consumed; every other field is still initialized.
+                unsafe { free_without_union(raw) };
+                return outcome.map(|_| ResumeOutcome::Aborted);
+            }
+        };
+
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let result = NonNull::new(unsafe { &raw mut (*raw).result })
+            .expect("a field of a non-null allocation is non-null");
+        // SAFETY: 1. and 2. `result` is initialized and unaliased. 3. A sparse
+        // score holds no index-backed pointers, as checked on entry; its metrics
+        // borrow query-pipeline data, valid for `'a` by `'query: 'a`.
+        unsafe { SuspendedIndexResult::into_active_in_place::<'a>(result) };
+        // SAFETY: the union payload and the result now hold their active forms
+        // for `'a`, the union tag encodes the same arm in both enums, and the
+        // other fields carry no index borrows: by invariant 1 on
+        // `RawSparseVectorIterator` the allocation is a valid
+        // `SparseVectorIterator<'a>`.
+        let mut active = unsafe { Box::from_raw(raw.cast::<SparseVectorIterator<'a>>()) };
+
+        if !moved {
+            return Ok(ResumeOutcome::Ok(active));
+        }
+        // As in `revalidate`: reduce the union's new position into the result.
+        let it = &mut *active;
+        let key = it.own_key;
+        if let Some(from) = dispatch!(&mut it.union, u => u.current().map(|r| &*r)) {
+            SparseVectorIterator::load(&mut it.result, from, key);
+        }
+        Ok(ResumeOutcome::Moved(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match &self.union {
+            SuspendedDimensionUnion::Flat(u) => RQESuspendedIterator::last_doc_id(u),
+            SuspendedDimensionUnion::Heap(u) => RQESuspendedIterator::last_doc_id(u),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match &self.union {
+            SuspendedDimensionUnion::Flat(u) => RQESuspendedIterator::num_estimated(u),
+            SuspendedDimensionUnion::Heap(u) => RQESuspendedIterator::num_estimated(u),
+        }
+    }
+}
+
+/// Drop every field of `*raw` but the union, then free the allocation.
+///
+/// # Safety
+///
+/// 1. `raw` came from [`Box::into_raw`], and is exclusively owned.
+/// 2. The union payload was consumed, while every other field is initialized.
+unsafe fn free_without_union(raw: *mut SuspendedSparseVectorIterator<'_>) {
+    // SAFETY: 1. `raw` points to a live allocation of this type, so the field
+    // place is in bounds.
+    let result = unsafe { &raw mut (*raw).result };
+    // SAFETY: as above.
+    let key_handle = unsafe { &raw mut (*raw).key_handle };
+    // SAFETY: 1. and 2. The fields are initialized, and dropped once each. The
+    // union's tag needs no drop.
+    unsafe { std::ptr::drop_in_place(result) };
+    // SAFETY: as above.
+    unsafe { std::ptr::drop_in_place(key_handle) };
+    // SAFETY: 1. The global allocator allocated it for the `Box` it came from.
+    unsafe {
+        std::alloc::dealloc(
+            raw.cast(),
+            Layout::new::<SuspendedSparseVectorIterator<'_>>(),
+        )
+    };
 }
 
 impl ProfilePrint for SparseVectorIterator<'_> {
