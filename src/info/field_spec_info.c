@@ -11,14 +11,15 @@
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_common.h"
 #include "info/index_error.h"
 #include "info/vector_index_stats.h"
 #include "obfuscation/hidden.h"
 #include "redis_index.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "sparse_vector_index_ffi.h"
 #include "vector_index.h"
 
 // Per-field disk metric reply keys, shared by the shard emitter and the
@@ -27,6 +28,22 @@
 #define FIELD_DISK_SHARED_BYTES    "disk_shared_bytes"
 #define FIELD_DISK_TOTAL_BYTES     "disk_total_bytes"
 #define FIELD_DISK_NUM_KEYS        "disk_num_keys"
+
+// Per-field sparse vector metric reply keys, shared by the shard emitter and the
+// coordinator deserializer.
+#define FIELD_SPARSE_MEMORY "memory"
+#define FIELD_SPARSE_NUM_DIMENSIONS "num_dimensions"
+#define FIELD_SPARSE_NUM_RECORDS "num_records"
+
+// Each shard holds its own documents, so every metric is a sum. A dimension
+// several shards have is counted once per shard: `num_dimensions` is the sum of
+// the shards' posting lists, not the number of distinct dimension IDs.
+static void SparseVectorIndexStats_Combine(SparseVectorIndexStats *dst,
+                                           const SparseVectorIndexStats *src) {
+  dst->memory += src->memory;
+  dst->num_dimensions += src->num_dimensions;
+  dst->num_records += src->num_records;
+}
 
 // Per-field disk metrics are cluster-wide totals, so each metric is summed
 // across shards. A shard that omits the `disk` metrics (e.g. an older,
@@ -60,6 +77,8 @@ static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *
     }
     if (first->type == INDEXFLD_T_VECTOR) {
         VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
+    } else if (first->type == INDEXFLD_T_SPARSE_VECTOR) {
+        SparseVectorIndexStats_Combine(&first->sparseStats, &second->sparseStats);
     }
     // Disk metrics apply to every field type, independently of `type`.
     PerFieldTextDiskMetrics_Combine(&first->textDisk, &second->textDisk);
@@ -144,6 +163,17 @@ void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRRepl
     }
 }
 
+void FieldSpecStats_DeserializeSparseVectorMetrics(FieldSpecStats *stats, const MRReply *reply) {
+  stats->type = INDEXFLD_T_SPARSE_VECTOR;
+  // Absent from a shard on an older version during a rolling upgrade.
+  const MRReply *memory = MRReply_MapElement(reply, FIELD_SPARSE_MEMORY);
+  const MRReply *dims = MRReply_MapElement(reply, FIELD_SPARSE_NUM_DIMENSIONS);
+  const MRReply *records = MRReply_MapElement(reply, FIELD_SPARSE_NUM_RECORDS);
+  if (memory) stats->sparseStats.memory = MRReply_Integer(memory);
+  if (dims) stats->sparseStats.num_dimensions = MRReply_Integer(dims);
+  if (records) stats->sparseStats.num_records = MRReply_Integer(records);
+}
+
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
@@ -155,6 +185,11 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
                 REPLY_KVINT(VectorIndexStats_Metrics[i],
                             VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
             }
+            break;
+        case INDEXFLD_T_SPARSE_VECTOR:
+            REPLY_KVINT(FIELD_SPARSE_MEMORY, stats->sparseStats.memory);
+            REPLY_KVINT(FIELD_SPARSE_NUM_DIMENSIONS, stats->sparseStats.num_dimensions);
+            REPLY_KVINT(FIELD_SPARSE_NUM_RECORDS, stats->sparseStats.num_records);
             break;
         default:
             break;
@@ -279,6 +314,25 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   return stats;
 }
 
+// Get the stats of the sparse vector field `fs`. A field no document has written to yet has no
+// index and reports zeros.
+static SparseVectorIndexStats IndexSpec_GetSparseVectorIndexStats(FieldSpec *fs) {
+  const SparseVectorIndex *idx = FieldSpec_OpenSparseVectorIndex(fs, false);
+  return idx ? SparseVectorIndex_Stats(idx) : (SparseVectorIndexStats){0};
+}
+
+SparseVectorIndexStats IndexSpec_GetSparseVectorIndexesStats(const IndexSpec *sp) {
+  SparseVectorIndexStats stats = {0};
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR)) {
+      SparseVectorIndexStats field_stats = IndexSpec_GetSparseVectorIndexStats(fs);
+      SparseVectorIndexStats_Combine(&stats, &field_stats);
+    }
+  }
+  return stats;
+}
+
 // Get the stats of the field `fs`.
 FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
@@ -286,6 +340,9 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
       stats.vecStats = IndexSpec_GetVectorIndexStats(fs);
+      return stats;
+    case INDEXFLD_T_SPARSE_VECTOR:
+      stats.sparseStats = IndexSpec_GetSparseVectorIndexStats(fs);
       return stats;
     default:
       return (FieldSpecStats){0};

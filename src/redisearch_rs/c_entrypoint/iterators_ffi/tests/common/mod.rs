@@ -50,7 +50,7 @@ pub fn range_iterator<'index>(
     order: VecSimQueryReply_Order,
     yields_metric: bool,
 ) -> RangeIterator<'index> {
-    // SAFETY: all-zero is a valid `VecSimQueryParams`; the iterator sets `timeoutCtx` itself.
+    // SAFETY: all-zero is a valid `VecSimQueryParams`; the iterator sets `stopCtx` itself.
     let params: VecSimQueryParams = unsafe { std::mem::zeroed() };
     // SAFETY:
     // 1. The returned `RangeIterator` borrows `index`, so the index and its timeout outlive the

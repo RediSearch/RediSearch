@@ -27,6 +27,13 @@ pub struct ScoredResult {
     pub score: f64,
 }
 
+/// Outcome of [`TopKHeap::push_with_record_lazy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Offer {
+    Rejected,
+    Inserted { evicted: Option<DocId> },
+}
+
 /// A drained heap element: the [`ScoredResult`] used for ordering plus the
 /// optional child record captured at match time.
 ///
@@ -198,7 +205,10 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         score: f64,
         record: Option<RSIndexResult<'index>>,
     ) -> bool {
-        self.push_with_record_lazy(doc_id, score, move || record)
+        matches!(
+            self.push_with_record_lazy(doc_id, score, move || record),
+            Offer::Inserted { .. }
+        )
     }
 
     /// Like [`push_with_record`](Self::push_with_record), but the record is
@@ -213,7 +223,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         doc_id: DocId,
         score: f64,
         make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
-    ) -> bool {
+    ) -> Offer {
         let result = ScoredResult { doc_id, score };
         if self.is_full()
             && self
@@ -221,10 +231,11 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 .peek()
                 .is_some_and(|worst| !self.is_better(result, worst))
         {
-            return false;
+            return Offer::Rejected;
         }
-        self.insert_retained(result, make_record);
-        true
+        Offer::Inserted {
+            evicted: self.insert_retained(result, make_record),
+        }
     }
 
     /// Whether `candidate` outranks `worst` under [`HeapEntry`]'s ordering, and
@@ -242,7 +253,8 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     }
 
     /// Inserts `result`, which [`push_with_record_lazy`](Self::push_with_record_lazy)
-    /// accepted, evicting the worst element when the heap is full.
+    /// accepted, evicting and returning the worst element's doc id when the heap
+    /// is full.
     ///
     /// Kept out of line so the rejection test inlines into scan loops on its own.
     #[inline(never)]
@@ -250,7 +262,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         &mut self,
         result: ScoredResult,
         make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
-    ) {
+    ) -> Option<DocId> {
         let entry = HeapEntry {
             result,
             record: make_record(),
@@ -261,9 +273,12 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 .inner
                 .peek_mut()
                 .expect("a full heap has capacity > 0 and so holds a worst element");
+            let evicted = worst.result.doc_id;
             *worst = entry;
+            Some(evicted)
         } else {
             self.inner.push(entry);
+            None
         }
     }
 
@@ -399,6 +414,14 @@ mod tests {
             .collect_vec();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn push_reports_the_evicted_doc() {
+        let mut heap = TopKHeap::new(non_zero_capacity(1), Ascending);
+        heap.push(1, 5.0);
+        let offer = heap.push_with_record_lazy(2, 3.0, || None);
+        assert_eq!(offer, Offer::Inserted { evicted: Some(1) });
     }
 
     #[test]

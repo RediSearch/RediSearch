@@ -29,8 +29,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim.h"
+#include "vecsim/vec_sim_common.h"
 #include "field_spec.h"
 #include "gc/gc.h"
 #include "geometry/geometry_types.h"
@@ -205,6 +205,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       }
     }
 
+    if (FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR)) {
+      REPLY_KVSTR("data_type", "FLOAT32");
+      REPLY_KVINT("dim", fs->sparseVecOpts.dim);
+      REPLY_KVSTR("distance_metric",
+                  fs->sparseVecOpts.metric == SparseMetric_Cosine ? "COSINE" : "IP");
+    }
+
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
       VecSimAlgo field_algo = vec_params.algo;
@@ -315,7 +322,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize;
+    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -325,13 +332,31 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   }
   REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
+  // Only indexes with a sparse field report it, so FT.INFO of every other index is unchanged
+  // while the feature is unstable (SPARSE_VECTOR_UNSTABLE_ERR). Already counted in
+  // `inverted_sz_mb`: sparse posting lists are inverted indexes.
+  if (sp->flags & Index_HasSparseVec) {
+    REPLY_KVNUM("sparse_vector_index_sz_mb",
+                IndexSpec_GetSparseVectorIndexesStats(sp).memory / (float)0x100000);
+  }
   REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
   REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
   REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
   REPLY_KVNUM("key_table_size_mb", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
-  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  if (isDisk) {
+    TextResourceMetrics text = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec).text;
+    REPLY_KVMAP("column_families");
+    REPLY_KVMAP("text");
+    REPLY_KVINT("ram_metadata_bytes", text_overhead);
+    REPLY_KVINT("memtable_bytes", text.memtable_bytes);
+    REPLY_KVINT("storage_bytes", text.storage_bytes);
+    REPLY_MAP_END;
+    REPLY_MAP_END;
+  } else {
+    REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
+  }
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",

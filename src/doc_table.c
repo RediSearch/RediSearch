@@ -87,11 +87,20 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
   return NULL;
 }
 
-const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+static RSDocumentMetadata *DocTable_GetVisible(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (dmd && DocTable_HasPendingDeletions(t) && DocTable_IsDocPendingDeletion(t, dmd)) {
     return NULL;
   }
+  return dmd;
+}
+
+bool DocTable_IsVisible(const DocTable *t, t_docId docId) {
+  return DocTable_GetVisible(t, docId) != NULL;
+}
+
+const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+  RSDocumentMetadata *dmd = DocTable_GetVisible(t, docId);
   if (dmd) {
     DMD_Incref(dmd);
   }
@@ -458,6 +467,11 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
   rm_free(md);
 }
 
+void DocTable_StopTrackingDeleted(DocTable *t) {
+  DeletedDocs_Free(t->deletedDocs);
+  t->deletedDocs = NULL;
+}
+
 void DocTable_Free(DocTable *t) {
   DeletedDocs_Free(t->deletedDocs);
   for (int i = 0; i < t->cap; ++i) {
@@ -753,4 +767,8 @@ t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
 
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
   return DocKeyMap_MemoryUsage(t->keyMap);
+}
+
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t) {
+  return t->deletedDocs ? DeletedDocs_MemoryUsage(t->deletedDocs) : 0;
 }

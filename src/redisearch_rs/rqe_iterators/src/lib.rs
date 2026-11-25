@@ -58,6 +58,7 @@ pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
 pub mod resume_outcome;
+pub mod score_bound;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -132,9 +133,9 @@ pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, 
 #[derive(Debug, Error)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
-    /// The iterator has reached the time limit for execution.
-    #[error("reached time limit")]
-    TimedOut,
+    /// The iterator ended early on a timeout or memory pressure.
+    #[error("iterator stopped")]
+    Stopped,
     /// Iterator failed to read from the inverted index.
     #[error("failed to read from inverted index")]
     IoError(#[from] std::io::Error),
@@ -233,7 +234,7 @@ pub trait RQEIterator<'index> {
     /// # Errors
     ///
     /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
-    /// [`RQEIteratorError`] — [`TimedOut`](RQEIteratorError::TimedOut) or
+    /// [`RQEIteratorError`] — [`Stopped`](RQEIteratorError::Stopped) or
     /// [`IoError`](RQEIteratorError::IoError) — which is distinct from
     /// [`Aborted`](RQEValidateStatus::Aborted). On `Err` the fix-up is left half-applied: children
     /// may have been repositioned or dropped while the state derived from them was never re-synced.
@@ -241,7 +242,7 @@ pub trait RQEIterator<'index> {
     /// read from it or revalidate it again. This mirrors [`RQESuspendedIterator::resume`], which
     /// consumes the iterator and drops it on the same failure.
     ///
-    /// At the FFI boundary the two errors are reported apart: `TimedOut` becomes
+    /// At the FFI boundary the two errors are reported apart: `Stopped` becomes
     /// `VALIDATE_TIMEOUT`, which tells the C caller the result set is incomplete, while `IoError`
     /// becomes `VALIDATE_ABORTED`, a dead subtree in a query that still has time left.
     ///
@@ -330,6 +331,87 @@ pub trait RQEIterator<'index> {
     /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
     /// - Everything else: `1.0` — neutral, no influence.
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
+
+    /**************** score bounds ****************/
+
+    /// Whether [`current_max_score`](Self::current_max_score) can ever be finite for this
+    /// iterator.
+    ///
+    /// Fixed when the iterator is built, so callers check it once and take the plain
+    /// [`read`](Self::read) path when it is `false`. A leaf reports bounds only for the scorers
+    /// it knows how to bound; a composite only when every child does, since a single unbounded
+    /// child makes the composed bound infinite.
+    fn reports_score_bounds(&self) -> bool {
+        // TODO(MOD-21193): disk leaves report bounds from their scoring context.
+        false
+    }
+
+    /// Upper bound on the final score of the document the iterator is positioned on, under the
+    /// query's scorer.
+    ///
+    /// Computed only from data the iterator already holds: it must not cost I/O, and must never be
+    /// less than the score the scorer would compute. [`f64::INFINITY`] means "unknown" and is
+    /// always correct.
+    ///
+    /// [`read_with_threshold`](Self::read_with_threshold) drops a document whose value cannot reach
+    /// the threshold, so how tight it is decides how many candidates are dropped before their
+    /// document is read. It covers this one document, where
+    /// [`current_block_bound`](Self::current_block_bound) covers a whole block: any value from the
+    /// exact score up is valid, and the block maximum is the loosest useful one. The block maximum
+    /// drops nothing beyond what skipping blocks already does; a per-document bound, or the exact
+    /// score when the iterator can compute it, also drops weak documents inside blocks that are
+    /// kept. It only decides drops: a kept candidate is still read and scored as usual, even when
+    /// the value is exact.
+    ///
+    /// Only meaningful while the iterator is positioned on a result.
+    ///
+    /// Composites build theirs from their children's: [`Intersection`] sums all of them,
+    /// [`Union`] sums those positioned on the current document, both scaled by
+    /// `max(weight, 1)`.
+    fn current_max_score(&self) -> f64 {
+        f64::INFINITY
+    }
+
+    /// Bound on the scores of every document the iterator can yield from its current position up
+    /// to the end of the storage block that holds it, or `None` when it has no block to report.
+    ///
+    /// Computed, like [`current_max_score`](Self::current_max_score), without I/O, and only
+    /// meaningful while the iterator is positioned on a result. Composites skip whole windows of
+    /// documents with it inside [`read_with_threshold`](Self::read_with_threshold), so an
+    /// implementation must return `None` rather than a guess when it is not positioned.
+    ///
+    /// Composites build theirs from their children's, and only when every child they consult
+    /// reports one: the block ends at the earliest
+    /// [`last_doc_id`](score_bound::BlockBound::last_doc_id) among them and its
+    /// [`max_score`](score_bound::BlockBound::max_score) is the sum of theirs, scaled as in
+    /// [`current_max_score`](Self::current_max_score).
+    fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
+        None
+    }
+
+    /// [`read`](Self::read), except that the iterator may move past documents whose
+    /// [`current_max_score`](Self::current_max_score) is below `min_competitive_score` without
+    /// yielding them. It never moves past a document that could reach `min_competitive_score`,
+    /// and never yields one whose [`current_max_score`](Self::current_max_score) cannot
+    /// ([`score_bound::can_drop`]), so the caller takes every result as competitive.
+    ///
+    /// The default, a plain [`read`](Self::read), is only correct for an iterator that does not
+    /// [report bounds](Self::reports_score_bounds), which is never given a threshold; one that
+    /// does must override this.
+    ///
+    /// The caller passes the threshold its own score is measured against, so a composite must not
+    /// hand it to its children, whose scores are only part of its own: [`Intersection`] and
+    /// [`Union`] read their children with plain [`read`](Self::read) and
+    /// [`skip_to`](Self::skip_to), and skip documents their children's
+    /// [`current_block_bound`](Self::current_block_bound)s show cannot reach the threshold: the
+    /// intersection whole windows, the union up to a Block-Max WAND pivot.
+    /// [`skip_to`](Self::skip_to) has no thresholded form.
+    fn read_with_threshold(
+        &mut self,
+        _min_competitive_score: score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.read()
+    }
 }
 
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
@@ -386,6 +468,25 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         (**self).intersection_sort_weight(prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        (**self).reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        (**self).current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
+        (**self).current_block_bound()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read_with_threshold(min_competitive_score)
+    }
 }
 
 /// Combined trait for iterators that implement both [`RQEIterator`] and
@@ -426,11 +527,11 @@ pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterato
 /// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
 /// implementation will provide iterators `rqe_iterators` does not know about.
 ///
-/// Each iterator constructor requires a `snapshot` handle. It must be a
-/// [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) returned from the disk API's
-/// `createSnapshot` for the same `index`, and it must remain valid for the lifetime of the
-/// returned iterator. This is what guarantees every iterator created for one query observes
-/// the same database state — there is no live-database fallback.
+/// Each iterator constructor requires a `view` handle: the query's disk read view, a
+/// [`RedisSearchDiskQueryView`](ffi::RedisSearchDiskQueryView) returned from the disk API's
+/// `createQueryView` for the same `index`, which must remain valid for the lifetime of the
+/// returned iterator. It is what makes every iterator created for one query agree on which
+/// documents the query can see; there is no fallback for reading without one.
 pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
@@ -446,7 +547,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
         status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -456,13 +557,17 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the weight in `scoring`. The iterator will also filter the results according to the
     /// given field mask. Use this variant for phrase queries, slop constraints, or any query that needs
     /// term positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_with_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         scoring: TermScoringContext,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        num_docs: usize,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
@@ -471,13 +576,17 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the weight in `scoring`. The iterator will also filter the results according to the
     /// given field mask. Use this variant for BM25_STD queries or any query that doesn't need term
     /// positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_without_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         scoring: TermScoringContext,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        num_docs: usize,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
@@ -488,7 +597,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over documents missing the given schema field.
@@ -498,7 +607,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
@@ -508,7 +617,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -525,6 +634,6 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
-        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+        view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

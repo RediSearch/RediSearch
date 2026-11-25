@@ -20,7 +20,7 @@
 #include "query_eval_ffi.h"
 #include "util/misc.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/expr/expression.h"
 #include "config.h"
@@ -72,14 +72,14 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       if (loadKeys) {
         // We failed to get the key for reading, so we know getting it for loading will succeed.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
-        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
+      if (!srckeys[ii] || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         goto cleanup;
       }
+      *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
     }
     dstkeys[ii] = RLookup_GetKey_WriteEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
@@ -294,7 +294,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
+          if (!sortkey || !(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -323,7 +323,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
         scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
       }
-      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey, params->diskScoreSkippingQuery);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -505,15 +505,18 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
   RS_ASSERT(params->iteratorTree);
+  // A hybrid subquery that ends early is merged as empty and successful.
   ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
       params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
-      params->common.reqflags & QEXEC_F_PROFILE);
+      params->common.reqflags & QEXEC_F_PROFILE,
+      IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common));
   // Ownership of the iterator tree and the slot ranges is now with the pipeline.
   params->iteratorTree = NULL;
   params->querySlots = NULL;
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
+  RPQueryIterator_ConfigureAsyncIO(rpUpstream);
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.

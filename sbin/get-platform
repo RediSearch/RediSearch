@@ -137,7 +137,13 @@ def map_version_artifact(osnick):
         "ol8": "rhel8",
         "rocky8": "rhel8",
         "rocky9": "rhel9",
+        "rocky10": "rhel10",
     }
+
+    # RHEL images report ID=rhel with a minor VERSION_ID (e.g. rhel10.0); keep the
+    # artifact name stable across minor updates.
+    if osnick.startswith("rhel") and "." in osnick:
+        return osnick.split(".", 1)[0]
 
     # Special mapping: any alpine3.x → alpine3
     if osnick.startswith("alpine3") or osnick.startswith("NotpineForGHA3"):

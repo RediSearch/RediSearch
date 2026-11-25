@@ -185,15 +185,29 @@ typedef struct ResultProcessor {
 } ResultProcessor;
 
 /** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
- * `itr` visits every docId in ascending order, which a profile wrapper hides. */
+ * `itr` visits every docId in ascending order, which a profile wrapper hides.
+ * `failOnRevalidateAbort` makes a read fail with `SEARCH_SAFE_DEPLETER_FAILURE` when the index
+ * changed under `itr`, instead of ending as if the index were exhausted. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
                                      const RedisModuleSlotRangeArray *querySlots,
                                      uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled,
-                                     bool denseAscendingScan);
+                                     bool denseAscendingScan, bool failOnRevalidateAbort);
 
 /** Read candidate counts from a profiled Index processor. */
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
                                         uint64_t *notDiscarded);
+
+/**
+ * Enable async metadata reads when supported and configured; otherwise keep synchronous reads.
+ * Call once after attaching the processor to its query context, before execution.
+ */
+void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp);
+
+/**
+ * For profiled queries only: write accumulated metadata completion-wait time to out_ns in
+ * nanoseconds. Return false without writing when the processor has no async read pool.
+ */
+bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -219,8 +233,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ * @param scoreSkipping whether a full heap may publish its minimum as the pipeline's
+ * `minCompetitiveScore`: the request's `diskScoreSkippingQuery`, taken when the request was
+ * created.
  */
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey,
+                                     bool scoreSkipping);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -376,19 +394,14 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Launches all the safe depleters in the array and resolves the lock handshake, without waiting
-* for depletion to finish: on RS_RESULT_OK, depletion is still in flight, and each depleter's Next
-* waits for its own completion, so consumers observe results in completion order. A lock failure
-* returns RS_RESULT_ERROR — only after draining the group, so no background thread outlives the
-* error return.
+* Launches all the safe depleters in the array, without waiting for depletion to finish: on
+* RS_RESULT_OK, depletion is still in flight, and each depleter's Next waits for its own
+* completion, so consumers observe results in completion order.
 * @param safeDepleters Array of safe depleter processors
-* @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
-*                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
-*                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
-* @return RS_RESULT_OK if all safe depleters launched and locked successfully, otherwise an error code
+* @return RS_RESULT_OK if all safe depleters launched successfully, otherwise an error code
 */
-int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Blocks until every safe depleter's background job has finished (successfully or not); after it
@@ -403,16 +416,15 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 *         (errors take priority over timeouts)
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * safe depleters to coordinate their background threads and wake each other when depleting completes.
 * @param num_depleters Number of RPSafeDepleter processors that will share this sync object
-* @param take_index_lock Whether the safe depleters should participate in index locking coordination
 */
-StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
+StrongRef DepleterSync_New(unsigned int num_depleters);
 
 /*******************************************************************************************************************
  *  Hybrid Merger Result Processor

@@ -18,12 +18,12 @@
 #include "util/references.h"
 #include "util/rs_atomic.h"
 #include <time.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define GC_THREAD_POOL_SIZE 1
 
 // Bits of GCContext.schedFlags.
 typedef enum {
@@ -62,6 +62,10 @@ typedef enum {
   // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
   // work was paused before it started), the index disappeared, or compaction was cancelled.
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
+  // The cycle stopped on an error, logged as a warning, and collected only what it applied first.
+  GC_FORCED_RUN_FAILED,
+  // Another run of the index was in flight, so this one did not start.
+  GC_FORCED_RUN_BUSY,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a
@@ -76,10 +80,21 @@ typedef struct {
   GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
+// The longest GC interval a timer can be armed with. The jitter can double a period, and Redis
+// arms a module timer at its monotonic clock plus the period in microseconds, so this keeps that
+// sum in range while the clock reads below LLONG_MAX / 2 microseconds.
+#define GC_MAX_INTERVAL_SEC (LLONG_MAX / 4 / 1000 / 1000)
+
+// Interval configs may accept more than GC_MAX_INTERVAL_SEC, which is where this caps them.
+static inline long long GC_IntervalSecToMs(size_t sec) {
+  return (long long)(sec < GC_MAX_INTERVAL_SEC ? sec : GC_MAX_INTERVAL_SEC) * 1000;
+}
+
 // Builds a forced run with its deadline stamped from now, which is why callers use this rather
 // than filling the struct themselves: a forkWaitMs without a matching deadline reads as a budget
 // that expired before the first attempt. Call it on the thread asking for the collection, so the
 // budget runs from there rather than from whenever the GC worker picks the job up.
+
 static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryIntervalMs) {
   GCForcedRun forced;
   forced.forkWaitMs = forkWaitMs;
@@ -111,22 +126,23 @@ typedef struct GCCallbacks {
   void (*onWrite)(void* ctx);
   void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
-  struct timespec (*getInterval)(void* ctx);
+  long long (*getIntervalMs)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
 typedef struct GCContext {
   void* gcCtx;
+  GCCallbacks callbacks;
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
-  bool enabled;                // periodic collection wanted. Guarded by the GIL
   // Captured by the pass that posted the re-arm; a queued GC_FORCEINVOKE can overwrite the
-  // GC's retryInterval before the one-shot drains, so it is not re-read there.
-  struct timespec pendingInterval;
+  // GC's retryIntervalMs before the one-shot drains, so it is not re-read there.
+  long long pendingIntervalMs;
   // Main thread only in the real path; the atomic covers the RS_IsMock fallback, where the GC
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
-  GCCallbacks callbacks;
+  bool enabled;  // periodic collection wanted. Guarded by the GIL
+  bool diskGC;   // a disk index's context, whatever GC_POLICY says
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
@@ -145,7 +161,8 @@ void GCContext_OnUpdate(GCContext* gc);
 // keeps no ownership. With a blocked client, the outcome reaches its reply as unblock privdata,
 // freed by GCForcedRunOutcomeFree.
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
-void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
+// OK once the run is queued; BUSY or FAILED when it never will be.
+GCForcedRunOutcome GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
 void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
@@ -172,7 +189,12 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalTime += src->totalTime;
 }
 
+// The delay, in ms, before the timer `gc` arms for `intervalMs` fires.
+long long GCContext_NextPeriodMs(const GCContext* gc, long long intervalMs);
+
 void GC_ThreadPoolStart();
+// Resize a started GC pool to what the policy and search-gc-threads call for.
+void GC_ThreadPoolSetSize(void);
 void GC_ThreadPoolDestroy();
 // Gate through which GC jobs take the GIL, so GC_ThreadPoolDestroy can join them while holding it.
 extern GilGate gcGilGate_g;
@@ -185,8 +207,13 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs);
 // GC jobs currently executing. For diagnosing a GC_ThreadPoolWaitForPause timeout; stale the
 // moment it is read anywhere else.
 size_t GC_ThreadPoolJobsInProgress(void);
-// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause.
+// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause, and apply a size change
+// made while it was paused.
 void GC_ThreadPoolResume(void);
+// The GC pool's threads, a requested reduction counted as done; 0 before the pool exists.
+size_t GC_ThreadPoolNumThreads(void);
+// The GC pool's threads still running, which a reduction lowers only once its threads exit.
+size_t GC_ThreadPoolThreadsAlive(void);
 // Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
 // progress across a drain, which no ordinary entry point can do -- a real cycle returns
 // long before GC_ThreadPoolWaitForPause could observe it.

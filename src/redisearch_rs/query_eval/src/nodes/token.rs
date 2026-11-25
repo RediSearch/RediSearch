@@ -161,6 +161,7 @@ fn eval_disk<'index>(
         term,
         effective_field_mask,
         weight,
+        num_docs_in_term,
         needs_offsets,
         scorer,
     )?;

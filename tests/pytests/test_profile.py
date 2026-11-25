@@ -1735,7 +1735,7 @@ def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=1
     env: Test environment
     pause_cmd: Command to pause the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'PAUSE'])
     resume_cmd: Command to resume the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'RESUME'])
-    pause_duration_ms: How long to keep the pool paused (in milliseconds)
+    pause_duration_ms: How long the queued query waits in the paused pool (in milliseconds)
 
   Returns:
     The FT.PROFILE result
@@ -1749,21 +1749,30 @@ def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=1
     except Exception as e:
       error[0] = e
 
-  # Pause the pool
-  env.cmd(*pause_cmd)
-
-  # Start the profile command in a background thread
   profile_thread = threading.Thread(target=run_profile)
-  profile_thread.start()
+  stats_cmd = [*pause_cmd[:-1], 'STATS']
+  env.cmd(*pause_cmd)
+  try:
+    pending_before = to_dict(env.cmd(*stats_cmd))['totalPendingJobs']
+    profile_thread.start()
 
-  # Wait for the pause duration
-  time.sleep(pause_duration_ms / 1000.0)
+    def profile_is_queued():
+      if error[0]:
+        raise error[0]
+      stats = to_dict(env.cmd(*stats_cmd))
+      return stats['totalPendingJobs'] > pending_before, stats
 
-  # Resume the pool
-  env.cmd(*resume_cmd)
+    # Thread startup and connection setup must not consume the measured queue wait.
+    wait_for_condition(profile_is_queued, 'FT.PROFILE did not enter the paused pool', timeout=10)
+    time.sleep(pause_duration_ms / 1000.0)
+  finally:
+    try:
+      env.cmd(*resume_cmd)
+    finally:
+      if profile_thread.ident is not None:
+        profile_thread.join(timeout=10)
 
-  # Wait for the profile command to complete
-  profile_thread.join(timeout=10)
+  env.assertFalse(profile_thread.is_alive(), message='FT.PROFILE did not finish after resuming the pool')
 
   if error[0]:
     raise error[0]

@@ -54,12 +54,9 @@ use index_spec::IndexSpecReadGuard;
 ///    transitions is layout-identical across modes, which the slot helpers
 ///    that rewrite it ([`suspend_child_slot_in_place`] /
 ///    [`resume_child_slot_in_place`]) enforce at compile time.
-///    [`Trimmed`](Self::Trimmed) never transitions, but its payload still
-///    shapes the enum's size, alignment and payload offset; an
-///    [`assert_layout_compatible`] guard on that payload in the enclosing
-///    [`RawUnionOpaque`]'s
-///    [`suspend`](RQEIteratorBoxed::suspend) /
-///    [`resume`](RQESuspendedIterator::resume) covers it. Hence
+///    A [`Trimmed`](Self::Trimmed) resume aborts without a slot helper, so
+///    [`RawUnionOpaque`]'s [`resume`](RQESuspendedIterator::resume) checks that
+///    payload with [`assert_layout_compatible`]. Hence
 ///    `RawUnionVariant<Active, I>` and `RawUnionVariant<Suspended, I::Suspended>`
 ///    are layout-identical, and a payload rewritten in place keeps its tag.
 ///
@@ -290,6 +287,25 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        delegate_variant_ref!(self, reports_score_bounds)
+    }
+
+    fn current_max_score(&self) -> f64 {
+        delegate_variant_ref!(self, current_max_score)
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        delegate_variant_ref!(self, current_block_bound)
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        delegate_variant_ref_mut!(self, read_with_threshold, min_competitive_score)
+    }
 }
 
 impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
@@ -509,25 +525,9 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         // The const proof on `RawUnionOpaque` fixes a representative child; the
         // whole-box cast below is generic over `I`, so check every instantiation.
-        // `Trimmed` never goes through a slot helper, so its payload gets its
-        // own check: equal outer sizes alone do not pin the payload offset.
         const {
             crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
-            crate::boxed::assert_layout_compatible::<
-                RawUnionTrimmed<'index, Active<'index>, I>,
-                RawUnionTrimmed<'index, Suspended, I::Suspended>,
-            >();
         };
-
-        // Refused on `&self`, before `Box::into_raw`, so that the panic unwinds
-        // and drops the box normally, as the legacy `revalidate` path does.
-        // Inside the slot helper's abort-on-unwind window, `UnionTrimmed`'s own
-        // `unreachable!` would abort the process instead.
-        if matches!(self.variant, UnionVariant::Trimmed(_)) {
-            unreachable!(
-                "suspend is not supported on UnionTrimmed — trimmed unions are not subject to GC"
-            );
-        }
 
         let raw = Box::into_raw(self);
 
@@ -557,7 +557,10 @@ where
                 // SAFETY: as above.
                 unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
             }
-            UnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+            UnionVariant::Trimmed(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) }
+            }
         }
 
         // SAFETY: the variant now holds its suspended form at the same offset
@@ -585,7 +588,8 @@ where
     where
         'query: 'a,
     {
-        // See `suspend` for why the outer cast and `Trimmed` need their own guards.
+        // As in `suspend`, plus `Trimmed`'s payload, which skips the slot
+        // helper: equal outer sizes alone do not pin its offset.
         const {
             crate::boxed::assert_layout_compatible::<Self, Self::Resumed<'a>>();
             crate::boxed::assert_layout_compatible::<
@@ -594,12 +598,11 @@ where
             >();
         };
 
-        // `suspend` never produces a suspended trimmed union; refused before
-        // `Box::into_raw` for the reason given there.
-        if matches!(self.variant, RawUnionVariant::Trimmed(_)) {
-            unreachable!(
-                "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
-            );
+        // A trimmed union always aborts (see `RawUnionTrimmed`). Decided before
+        // `Box::into_raw`, so the box drops normally.
+        if let RawUnionVariant::Trimmed(it) = &self.variant {
+            it.debug_assert_drained_on_resume();
+            return Ok(ResumeOutcome::Aborted);
         }
 
         let raw = Box::into_raw(self);
@@ -629,7 +632,7 @@ where
                 // SAFETY: as above.
                 unsafe { crate::boxed::resume_child_slot_in_place(NonNull::from(it), guard) }
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+            RawUnionVariant::Trimmed(_) => unreachable!("aborted before `Box::into_raw` above"),
         };
 
         // Only valid once the payload holds its resumed form.
@@ -683,7 +686,9 @@ where
             RawUnionVariant::HeapQuick(it) => {
                 <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::last_doc_id(it)
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<'query, Suspended, S> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
         }
     }
 
@@ -701,7 +706,9 @@ where
             RawUnionVariant::HeapQuick(it) => {
                 <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::num_estimated(it)
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<'query, Suspended, S> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
         }
     }
 }

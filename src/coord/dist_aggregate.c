@@ -38,7 +38,7 @@
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
 #include "cursor.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "concurrent_ctx.h"
 #include "obfuscation/hidden_unicode.h"
@@ -490,7 +490,8 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 
 // Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp,
+                           const RSSearchOptions *searchOpts) {
   // We need to prepend the array with the command, index, and query that
   // we want to use. Lengths ride along so binary-capable arguments (the query,
   // user-defined names) reach the shards without strlen truncation.
@@ -582,6 +583,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
     APPEND_LITERAL("VERBATIM");
   }
 
+  // Forwarded from the parsed options rather than an argv scan, which would
+  // also match an APPLY alias spelled SLOP or INORDER.
+  char *slop = NULL;
+  if (searchOpts->slop != -1) {
+    int slop_len = rm_asprintf(&slop, "%d", searchOpts->slop);
+    APPEND_LITERAL("SLOP");
+    APPEND_ARG(slop, (size_t)slop_len);
+  }
+  if (searchOpts->flags & Search_InOrder) {
+    APPEND_LITERAL("INORDER");
+  }
+
   for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
     APPEND_ARG(us->serialized[ii], strlen(us->serialized[ii]));
   }
@@ -626,6 +639,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   MRCommand_SetPrefix(xcmd, "_FT");
 
   rm_free(n_prefixes);
+  rm_free(slop);
   array_free(tmparr);
   array_free(tmplens);
 }
@@ -828,7 +842,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   AggregateKnnContext knnSnapshot;
   bool hasKnnSnapshot = false;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, &r->searchopts);
 
   if (knnCtx) {
     hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);

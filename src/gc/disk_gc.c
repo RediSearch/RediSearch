@@ -16,6 +16,7 @@
 #include "config.h"
 #include "spec.h"
 #include "search_disk.h"
+#include "vector_index.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "info/global_stats.h"
@@ -129,6 +130,11 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     }
     IndexSpec_Unlock(sp);
 
+    // The vector counterpart of the compaction above, as the RAM fork GC cycle ends. It takes the
+    // spec read lock itself, and that lock is not recursive, so the lock above is already released.
+    // The tiered disk index only plans moves in memory and queues them, so this does no storage IO.
+    VecSim_CallTieredIndexesGC(gc->index);
+
     // After the cycle, which itself writes to that storage, and here rather than on the main
     // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
     // memtables it covers first.
@@ -236,9 +242,9 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = (long long)atomic_load(&gc->lastRunTimeMs);
 }
 
-static struct timespec getIntervalCb(void *ctx) {
+static long long getIntervalMsCb(void *ctx) {
   const DiskGC *gc = ctx;
-  return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
+  return GC_IntervalSecToMs(gc->intervalSec);
 }
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -265,7 +271,7 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
-  callbacks->getInterval = getIntervalCb;
+  callbacks->getIntervalMs = getIntervalMsCb;
   callbacks->onDelete = deleteCb;
   callbacks->onWrite = writeCb;
   callbacks->onUpdate = updateCb;

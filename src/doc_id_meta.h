@@ -9,11 +9,18 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ * Document length recorded for a key whose metadata predates length tracking (loaded from a
+ * version-1 payload). Whoever needs the length then reads it from the doc-table row instead.
+ */
+#define DOCID_META_DOCLEN_UNKNOWN UINT32_MAX
 
 /*
  * Initialize the DocIdMeta module by registering its key metadata class.
@@ -24,14 +31,17 @@ extern "C" {
 bool DocIdMeta_Init(RedisModuleCtx *ctx);
 
 /*
- * Set the docId for the given key and index spec.
+ * Set the docId and document length for the given key and index spec.
  * @param ctx The Redis module context
  * @param keyName The key name to set the docId for
  * @param specId The unique incarnation ID of the index spec
  * @param docId The docId to set
- * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
+ * @param docLen The document's length (sum of its term frequencies), the value the doc-table row
+ * holds for `docId`
+ * @return REDISMODULE_OK if the entry was set, REDISMODULE_ERR otherwise
  */
-int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId, uint64_t docId);
+int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId, uint64_t docId,
+                  uint32_t docLen);
 
 /*
  * Get the docId for the given key and index spec.
@@ -43,6 +53,15 @@ int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t spec
  */
 int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId,
                   uint64_t *docId);
+
+/*
+ * Get the docId and document length for the given key and index spec.
+ * @param docLen Output parameter for the document length, DOCID_META_DOCLEN_UNKNOWN when the
+ * entry was loaded from a version-1 payload
+ * @return REDISMODULE_OK if the entry was found, REDISMODULE_ERR otherwise
+ */
+int DocIdMeta_GetEntry(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId,
+                       uint64_t *docId, uint32_t *docLen);
 
 /*
  * Delete the docId entry for the given key and index spec.
@@ -71,7 +90,7 @@ int DocIdMeta_PruneDeletedSpecs(RedisModuleCtx *ctx, RedisModuleString *keyName)
 int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName);
 
 /*
- * Open-key variants of Set/Get/Delete.
+ * Open-key variants of Set/Get/GetEntry/Delete.
  *
  * These operate on a RedisModuleKey that the caller has already opened, instead
  * of opening (and closing) the key by name internally. Use them on hot paths
@@ -84,8 +103,11 @@ int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName);
  * The name-based variants above are thin wrappers that open the key and delegate
  * to these.
  */
-int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId);
+int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docId,
+                             uint32_t docLen);
 int DocIdMeta_GetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId);
+int DocIdMeta_GetEntryWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId,
+                                  uint32_t *docLen);
 int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId);
 
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks

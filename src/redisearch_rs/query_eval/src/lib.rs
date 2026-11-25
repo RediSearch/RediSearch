@@ -44,8 +44,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, tag, token,
-    union, vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix,
+    sparse_vector, tag, token, union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -345,6 +345,13 @@ fn eval_node_with_offsets<'index>(
             fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
         }
         QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        QueryNode::SparseVector { field_index, blob } => {
+            // The blob borrows the request's PARAMS, not the node, so it is
+            // detached from the node borrow before the node is passed on.
+            // SAFETY: see `QueryNode::SparseVector`: the blob outlives the AST.
+            let blob = unsafe { std::slice::from_raw_parts(blob.as_ptr(), blob.len()) };
+            sparse_vector::eval(ctx, node, field_index, blob, config)
+        }
         // A lex range only ever hangs off a tag node, whose evaluator dispatches
         // its own children, so reaching it from here is a bug.
         QueryNode::LexRange { .. } => {

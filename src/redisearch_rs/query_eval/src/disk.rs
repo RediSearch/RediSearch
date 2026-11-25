@@ -20,11 +20,12 @@ use search_disk::SearchDiskHandle;
 use crate::{QueryEvalContext, scorers::BuiltInScorer};
 
 /// Build a search-on-disk reader for a single term, resolving the query's disk
-/// snapshot and turning a failure into a query error.
+/// view and turning a failure into a query error.
 ///
 /// `disk` must wrap the spec's own disk index. `term` must already carry its
 /// scoring metadata: the document count its IDF is derived from is looked up
-/// differently per caller, so computing it stays with the caller.
+/// differently per caller, so computing it stays with the caller. `num_docs` is
+/// that count; the iterator reports it as its estimate.
 /// `needs_offsets` selects the offset-carrying iterator variant. `scorer` is
 /// the query's built-in scorer, passed on in the iterator's
 /// [`TermScoringContext`].
@@ -39,11 +40,12 @@ pub(crate) fn new_term_iterator<'index>(
     term: Box<RSQueryTerm>,
     field_mask: FieldMask,
     weight: f64,
+    num_docs: usize,
     needs_offsets: bool,
     scorer: Option<BuiltInScorer>,
 ) -> Option<Box<dyn RQEIteratorPrintable<'index> + 'index>> {
-    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-        .expect("query.sctx.diskSnapshot is null for a disk-backed query");
+    let view = NonNull::new(ctx.sctx().diskQueryView)
+        .expect("query.sctx.diskQueryView is null for a disk-backed query");
     let idf = match scorer {
         Some(BuiltInScorer::Bm25Std | BuiltInScorer::Bm25StdTanh | BuiltInScorer::Bm25StdNorm) => {
             term.bm25_idf()
@@ -59,9 +61,9 @@ pub(crate) fn new_term_iterator<'index>(
     // SAFETY: `disk` wraps the spec's disk index, valid for `'index`
     // (`QueryEvalContext` invariants 1/2), and single-threaded query evaluation
     // gives us the only live reference to it; the enterprise iterators are
-    // registered whenever a disk index is in use; `snapshot` is the disk
-    // snapshot taken at query start.
-    match unsafe { disk.new_term_iterator(term, field_mask, scoring, needs_offsets, snapshot) } {
+    // registered whenever a disk index is in use; `view` is the disk
+    // view taken at query start.
+    match unsafe { disk.new_term_iterator(term, field_mask, scoring, num_docs, needs_offsets, view) } {
         Ok(it) => Some(it),
         Err(err) => {
             ctx.status()

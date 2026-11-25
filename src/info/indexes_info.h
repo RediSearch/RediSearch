@@ -22,6 +22,9 @@ typedef struct {
   size_t total_mark_deleted_vectors;      // Number of vectors marked as deleted
   size_t total_direct_hnsw_insertions;    // Total vectors inserted directly to HNSW (bypassing flat buffer)
   size_t total_flat_buffer_size;          // Total flat buffer size across all tiered indexes
+  size_t total_sparse_vector_idx_mem;     // Total memory used by sparse vector posting lists
+  size_t total_sparse_vector_dimensions;  // Posting lists across all sparse vector fields
+  size_t total_sparse_vector_records;     // (doc, weight) pairs across all sparse vector fields
 } TotalIndexesFieldsInfo;
 
 typedef struct {
@@ -29,6 +32,7 @@ typedef struct {
   size_t total_mem;  // Total memory used by the indexes
   size_t min_mem;    // Memory used by the smallest (local) index
   size_t max_mem;    // Memory used by the largest (local) index
+  uint64_t text_ram_metadata_bytes;
 
   // Indexing
   rs_wall_clock_ns_t indexing_time;  // Time spent on indexing

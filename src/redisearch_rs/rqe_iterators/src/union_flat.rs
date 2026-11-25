@@ -972,6 +972,66 @@ where
             1.0
         }
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        crate::composite::all_report_score_bounds(self.children.iter().map(|child| &child.inner))
+    }
+
+    fn current_max_score(&self) -> f64 {
+        if self.is_eof {
+            return f64::INFINITY;
+        }
+        // A superset of the children in the aggregate result: a quick-exit union keeps only the
+        // first one, and the bound only loosens.
+        let doc_id = self.last_doc_id();
+        crate::composite::summed_max_score(
+            self.children
+                .iter()
+                .map(|child| &child.inner)
+                .filter(|child| child.last_doc_id() == doc_id),
+            self.result.weight,
+        )
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        if self.is_eof || self.last_doc_id() == 0 {
+            return None;
+        }
+        // The same children the pivot reads, so an enclosing window and this union's own pivot
+        // agree on which children bound the block.
+        crate::composite::summed_block_bound(
+            crate::composite::PivotingUnion::live_children(self),
+            crate::composite::PivotingUnion::score_weight(self),
+        )
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        crate::composite::union_read_with_threshold(self, min_competitive_score)
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> crate::composite::PivotingUnion<'index>
+    for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    type Child = I;
+
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a I>
+    where
+        I: 'a,
+    {
+        self.children[..self.num_active]
+            .iter()
+            .map(|child| &child.inner)
+    }
+
+    fn score_weight(&self) -> f64 {
+        self.result.weight
+    }
 }
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
@@ -982,40 +1042,19 @@ where
     type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator))
-        // correctly transitions its vtable. For concrete-typed `I` this is
-        // the same whole-box cast that would otherwise happen at the outer
-        // level, just per-child.
-        //
-        // Walked through the buffer pointer rather than `iter_mut`, as `resume`
-        // does: each transition retypes a slot from `I` to `I::Suspended`, so a
-        // typed `IterMut<IndexedChild<I>>` would still be describing the buffer
-        // as `IndexedChild<I>` after the first one. Nothing here re-reads a
-        // transitioned slot, so that iterator would not actually be misused —
-        // but the borrow claims something that stops being true half way
-        // through, and every other caller of the slot helper already hands it a
-        // raw pointer.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-            // for the rest of this function, so the children Vec is reachable
-            // and unaliased. The borrow is used only to reach the buffer pointer
-            // and length, and ends here.
-            let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
+        let inner_of = |elem: NonNull<IndexedChild<I>>| {
+            // SAFETY: `suspend_children_in_place` passes a valid element.
+            let inner = unsafe { &raw mut (*elem.as_ptr()).inner };
+            NonNull::new(inner).expect("child slot is non-null")
         };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let elem = unsafe { base.add(i) };
-            // SAFETY: `elem` addresses a valid `IndexedChild`; `&raw mut` forms
-            // a pointer to its `inner` slot without going through a reference.
-            let inner =
-                NonNull::new(unsafe { &raw mut (*elem).inner }).expect("child slot is non-null");
-            // SAFETY: `inner` holds a valid, owned `I`; the helper leaves the
-            // slot holding a valid `I::Suspended`.
-            unsafe { crate::boxed::suspend_child_slot_in_place(inner) };
-        }
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. `inner_of`
+        // projects each element onto its child. 3. The cast below relabels
+        // every slot as `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, inner_of) };
         // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
         // (now byte-rewritten with `I::Suspended` payloads) and
         // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).

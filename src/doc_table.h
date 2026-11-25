@@ -106,6 +106,9 @@ typedef struct {
 /* Creates a new DocTable with a given capacity. `track_deleted` gives it a `deletedDocs` set. */
 DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted);
 
+/* Free the `deletedDocs` set, if any, and record no further deletions. */
+void DocTable_StopTrackingDeleted(DocTable *t);
+
 typedef enum {
   DocKeyMapActivation_Unchanged,
   DocKeyMapActivation_Ready,
@@ -139,8 +142,11 @@ bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t l
 /* Key-map allocation, including unused capacity; zero when disabled. */
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
-// No GC policy reads the deleted set yet; the one that does turns tracking on here.
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize, false)
+/* An estimate of the `deletedDocs` set's memory; zero when the table tracks no deletions. */
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t);
+
+#define DocTable_New(cap) \
+  NewDocTable(cap, RSGlobalConfig.maxDocTableSize, RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -158,6 +164,10 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
+
+/* Whether DocTable_Borrow would return metadata, without acquiring a reference.
+ * Caller holds the spec read or write lock. */
+bool DocTable_IsVisible(const DocTable *t, t_docId docId);
 
 /* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
  * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
@@ -364,6 +374,11 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 
 /* Load the doc table from RDB. This is used for legacy RDB load only.
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ *
+ * The loaded table only lives until loading ends: Indexes_UpgradeLegacyIndexes then drops the
+ * legacy index keys, replaces this table with a new one and the index is rebuilt from the
+ * keyspace. Nothing loaded here, deleted docs and their postings included, ever reaches the GC,
+ * so it needs no record of them.
  */
 int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 

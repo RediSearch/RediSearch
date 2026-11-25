@@ -44,6 +44,9 @@ typedef struct FieldIndexerData {
     // struct {
     //   arrayof(GEOMETRY) arrGeometry;
     // };
+
+    // A sparse vector field's value, checked and normalized; owned
+    struct PreparedSparseVector *sparseVec;
   };
 
 } FieldIndexerData;

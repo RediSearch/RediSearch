@@ -84,6 +84,8 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
+QueryNode *NewSparseVectorNode_WithParams(QueryParseCtx *q, const FieldSpec *field,
+                                          QueryToken *vec);
 
 /* Build a `QN_LEXRANGE` node bounded on exactly one side.
  *

@@ -25,7 +25,7 @@ use index_gc::{
     liveness::GoneIds,
     spec_access::SpecWriteAccess,
     stats::GcStatsSink,
-    thread::{DELTAS_PER_APPLY, KEYS_PER_HOLD, LockReport, SpecLockAccess, run_cycle},
+    thread::{CycleReport, DELTAS_PER_APPLY, KEYS_PER_HOLD, SpecLockAccess, run_cycle},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -298,10 +298,10 @@ impl GcStatsSink for Recorder {
 
 /// Read locks a cycle takes on a spec with only terms: one to read the deleted
 /// set, `term_chunks` to walk the terms, and one each to list numeric trees,
-/// walk the (absent) tag values, list missing fields and scan the (absent)
-/// existing-docs index.
+/// walk the (absent) tag values, walk the (absent) sparse vector dimensions,
+/// list missing fields and scan the (absent) existing-docs index.
 const fn terms_only_read_locks(term_chunks: u64) -> u64 {
-    1 + term_chunks + 4
+    1 + term_chunks + 5
 }
 
 /// Write locks a cycle takes: `apply_chunks` to apply deltas, and one to prune
@@ -313,9 +313,10 @@ const fn write_locks(apply_chunks: u64) -> u64 {
 /// Read locks a cycle takes on a spec with one numeric field and nothing else:
 /// one to read the deleted set, one to walk the (absent) terms, one to list the
 /// tree's nodes, `node_chunks` to snapshot them, one to check the tree for
-/// leaves split since, then one each for tags, missing fields and existing docs.
+/// leaves split since, then one each for tags, sparse vectors, missing fields
+/// and existing docs.
 const fn numeric_only_read_locks(node_chunks: u64) -> u64 {
-    1 + 1 + 1 + node_chunks + 1 + 3
+    1 + 1 + 1 + node_chunks + 1 + 4
 }
 
 #[test]
@@ -329,7 +330,10 @@ fn a_cycle_on_a_table_that_does_not_track_deletions_fails_and_collects_nothing()
 
     let error = run_cycle(&mut spec, &mut recorder, true).unwrap_err();
 
-    assert!(matches!(error, ("deleted docs", GcError::ApplyError(_))));
+    assert!(matches!(
+        error,
+        ("deleted docs", GcError::DeletionsUntracked)
+    ));
     assert!(spec.has_term(b"apple"));
     assert_eq!(recorder.total(), GcApplyStats::default());
 }
@@ -415,11 +419,14 @@ fn a_scanners_few_keys_take_one_read_lock_and_one_write_lock() {
 
     assert_eq!(
         report,
-        LockReport {
+        CycleReport {
             read_locks: terms_only_read_locks(1),
             write_locks: write_locks(1),
             max_read_hold: report.max_read_hold,
             max_write_hold: report.max_write_hold,
+            retained: 0,
+            // The fixture's whole deleted set: nothing was denied.
+            pruned: 1024,
         }
     );
     assert_eq!(recorder.0.len(), 1, "one flush per applying write lock");
@@ -576,6 +583,7 @@ fn ids_copied_by_a_leaf_split_mid_cycle_stay_in_the_set() {
         !spec.deleted_docs().is_empty(),
         "the IDs the copies may hold are kept for the next cycle"
     );
+    assert_eq!(report.retained, spec.deleted_docs().len());
 
     run_cycle(&mut spec, &mut recorder, false).unwrap();
 
