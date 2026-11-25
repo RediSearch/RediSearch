@@ -311,12 +311,18 @@ override of it, under both policies, is simpler and keeps the two policies consi
 ## FT.INFO (T4)
 
 - Required, not optional: an override doesn't follow later `CONFIG SET` changes, so
-  users need to see which value each index uses. Only the field names are still open.
+  users need to see which value each index uses.
 - New top-level `gc_settings` map with `run_interval` and `clean_threshold`, each a map
-  of `configured` and `effective`. T5 adds `clean_ratio_ppm` in the same shape. Values
-  are integers. `configured` is null when inherited: RESP3 null, RESP2 nil bulk string.
+  of `override` and `effective`. T5 adds `clean_ratio_ppm` in the same shape. Values
+  are integers; `run_interval` is in seconds, like the command and the global settings.
+  `override` is null when inherited: RESP3 null, RESP2 nil bulk string.
   `effective` is the override, or the active policy's global. A later setting, such as
   `policy`, is one more key, so clients that read the map by key are unaffected.
+- The setting keys are the `GC SET` keywords in lowercase. `override` rather than
+  `configured`, which reads as the `CONFIG SET` global, the value an override replaces.
+  The interval key has no `_sec` suffix, so it keeps matching the keyword; the docs
+  state the unit. A flat form (`run_interval`, `run_interval_override`) was rejected:
+  two keys per setting, and clients already read nested maps such as `gc_stats`.
 - Present for every index except TEMPORARY indexes, whether or not the node runs GC.
   FT.INFO of a TEMPORARY index is unchanged. On a disk index `effective` is the global
   value disk GC reads, and `clean_ratio_ppm` (T5) is left out, because disk GC ignores
@@ -325,7 +331,7 @@ override of it, under both policies, is simpler and keeps the two policies consi
   `GCContext`, and summed by the coordinator).
 - The coordinator drops top-level keys it doesn't know, so T4 adds `gc_settings` to its
   merge. It copies the first shard's section, and tolerates shard replies without one
-  (older shards during an upgrade). `configured` is the same on every shard once a
+  (older shards during an upgrade). `override` is the same on every shard once a
   fan-out has succeeded everywhere. `effective` can differ if the global settings
   differ between shards, since `CONFIG SET` is per node. A shard that rejected the
   command (partial upgrade, out of memory) shows its own values only in its own
@@ -401,9 +407,9 @@ Existing behavior that per-index settings do not depend on, left as it is:
 
 The spec delta describes the recommended answer to each.
 
-1. **FT.INFO field names.** The `gc_settings` section is agreed and required (T4); only
-   its field names are open. Recommended: the names above, with no per-node GC flag.
-   Whether GC runs on a node is already visible through `CONFIG GET search-no-gc`.
+1. **FT.INFO field names (settled).** The names in FT.INFO (T4) above, with no per-node
+   GC flag. Whether GC runs on a node is already visible through
+   `CONFIG GET search-no-gc`.
 2. **Schema fingerprint.** Leave the overrides out of `schemaFingerprint`. They are
    operational tuning, not schema. Fingerprints are compared only between nodes on the
    same encoding version, so mixed versions are not the concern. Cost:

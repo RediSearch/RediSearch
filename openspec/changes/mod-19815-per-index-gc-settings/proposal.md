@@ -65,7 +65,7 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
   other shards keep the change, the command returns an error, and running it again
   brings the shards back in line.
 - Given an alias, the command changes the index the alias points to at that moment.
-- `FT.INFO` gains a `gc_settings` section with the configured and effective value of
+- `FT.INFO` gains a `gc_settings` section with the override and effective value of
   each setting. Later GC settings are added to it as new keys.
 - `FT.ALTER ... GC` is rejected on TEMPORARY indexes, which have no GC, and on Flex
   nodes, as every `FT.ALTER` is there today, until task 6. It is accepted and stored on

@@ -337,22 +337,22 @@ the RDB.
 
 ### Requirement: FT.INFO reports GC settings
 FT.INFO SHALL include a `gc_settings` map with `run_interval`, `clean_threshold` and
-(T5) `clean_ratio_ppm`. Each SHALL be a map with `configured` (the override, or null
-when inherited) and `effective` (the value in use: the override, or the active policy's
-global), both integers. A null `configured` SHALL be a RESP3 null and a RESP2 nil bulk
-string. The section SHALL be present for every index except TEMPORARY indexes, in RESP2
-and RESP3, standalone and through the coordinator, which SHALL report the first shard's
-section. On a disk index, `gc_settings` SHALL NOT include `clean_ratio_ppm`, because
-disk GC ignores the ratio.
+(T5) `clean_ratio_ppm`. Each SHALL be a map with `override` (the index's own value, or
+null when inherited) and `effective` (the value in use: the override, or the active
+policy's global), both integers, with `run_interval` in seconds. A null `override`
+SHALL be a RESP3 null and a RESP2 nil bulk string. The section SHALL be present for
+every index except TEMPORARY indexes, in RESP2 and RESP3, standalone and through the
+coordinator, which SHALL report the first shard's section. On a disk index,
+`gc_settings` SHALL NOT include `clean_ratio_ppm`, because disk GC ignores the ratio.
 
 #### Scenario: Inherited setting
 - **WHEN** the node runs THREAD, `idx` has no run interval override, and
   `search-thread-gc-run-interval` is 7
-- **THEN** FT.INFO SHALL report `run_interval` with `configured` null and `effective` 7
+- **THEN** FT.INFO SHALL report `run_interval` with `override` null and `effective` 7
 
 #### Scenario: Overridden setting
 - **WHEN** `idx` has `CLEAN_THRESHOLD 0`
-- **THEN** FT.INFO SHALL report `clean_threshold` with `configured` 0 and `effective` 0
+- **THEN** FT.INFO SHALL report `clean_threshold` with `override` 0 and `effective` 0
 
 #### Scenario: Disk index (T5)
 - **WHEN** the node runs Redis Flex

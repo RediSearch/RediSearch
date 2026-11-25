@@ -16,7 +16,7 @@ needs 2 and 3, and its Flex path needs 6.
 - [ ] 0.3 Confirm Active-Active behavior with RS/DMC; the proxy needs no change
 - [x] 0.4 Sync MOD-19815, T0–T5 and the Confluence page with the review decisions
 - [ ] 0.5 Product sign-off on T5 (decision 13)
-- [ ] 0.6 Note on MOD-20523 that per-index `POLICY` is postponed, with the RDB and
+- [x] 0.6 Note on MOD-20523 that per-index `POLICY` is postponed, with the RDB and
       FT.INFO room this spec leaves for it
 
 ## 1. Scheduler ([MOD-20260](https://redislabs.atlassian.net/browse/MOD-20260), [#12234](https://github.com/RediSearch/RediSearch/pull/12234) on [#12236](https://github.com/RediSearch/RediSearch/pull/12236))
