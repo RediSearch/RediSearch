@@ -350,10 +350,11 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue **argv, size_t argc, RSV
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
 
-  const char *p_str = RSValue_StringPtrLen(str, NULL);
+  size_t len;
+  const char *p_str = RSValue_StringPtrLen(str, &len);
   size_t n;
   const char *p_pref = RSValue_StringPtrLen(pref, &n);
-  RSValue_SetNumber(result, strncmp(p_pref, p_str, n) == 0);
+  RSValue_SetNumber(result, n <= len && memcmp(p_pref, p_str, n) == 0);
   return EXPR_EVAL_OK;
 }
 
@@ -365,14 +366,15 @@ static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSVal
   RSValue *pref = RSValue_Dereference(argv[1]);
 
   size_t p_str_size;
-  char *p_str = (char *)RSValue_StringPtrLen(str, &p_str_size);
+  const char *p_str = RSValue_StringPtrLen(str, &p_str_size);
   size_t p_pref_size;
-  const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
+  const char *p_pref = RSValue_StringPtrLen(pref, &p_pref_size);
 
   size_t num;
   if (p_pref_size > 0) {
+    const char *end = p_str + p_str_size;
     num = 0;
-    while ((p_str = strstr(p_str, p_pref)) != NULL) {
+    while ((p_str = memmem(p_str, end - p_str, p_pref, p_pref_size)) != NULL) {
       num++;
       p_str++;
     }
