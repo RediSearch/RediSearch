@@ -25,10 +25,11 @@ use std::sync::Arc;
 use field_spec::{FieldSpec, FieldSpecType};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocId, DocLiveness};
-use nested_index::{NestedIndex, PathStep, PostingsMut, PostingsRef, Terminal};
+use nested_index::{NestedIndex, PostingsMut, PostingsRef, Terminal};
 use numeric_range_tree::{NodeIndex, NumericIndex};
 use rqe_core::FieldIndex;
 use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 use tag_index::{TagValueGcDelta, TagValueSnapshot};
 
 use crate::fork::wire::{deserialize, serialize};
@@ -76,32 +77,9 @@ pub struct NestedField {
     pub field_index: FieldIndex,
 }
 
-/// One step of a terminal's path, as it travels the pipe; see [`PathStep`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum WireStep {
-    /// [`PathStep::Tag`].
-    Tag(#[serde(with = "serde_bytes")] Vec<u8>),
-    /// [`PathStep::Bucket`].
-    Bucket(u64),
-}
-
-impl From<&PathStep> for WireStep {
-    fn from(step: &PathStep) -> Self {
-        match step {
-            PathStep::Tag(value) => Self::Tag(value.clone()),
-            PathStep::Bucket(bucket) => Self::Bucket(*bucket as u64),
-        }
-    }
-}
-
-impl From<WireStep> for PathStep {
-    fn from(step: WireStep) -> Self {
-        match step {
-            WireStep::Tag(value) => Self::Tag(value),
-            // A bucket position past `usize` names no bucket, which the lookup reports.
-            WireStep::Bucket(bucket) => Self::Bucket(usize::try_from(bucket).unwrap_or(usize::MAX)),
-        }
-    }
+/// A terminal's path as it travels the pipe: its tag value on each routing level, as bytes.
+fn to_wire(path: &[Vec<u8>]) -> Vec<ByteBuf> {
+    path.iter().cloned().map(ByteBuf::from).collect()
 }
 
 /// The GC work one terminal holds.
@@ -122,8 +100,9 @@ pub enum TerminalWork {
 /// One terminal's GC work, located by its path.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NestedTerminalDelta {
-    /// The terminal's path, as [`NestedIndex::collect_terminal`] takes it.
-    pub path: Vec<WireStep>,
+    /// The terminal's path, its tag value on each routing level, as
+    /// [`NestedIndex::collect_terminal`] takes it.
+    pub path: Vec<ByteBuf>,
     /// What to collect from it.
     pub work: TerminalWork,
 }
@@ -216,8 +195,8 @@ pub fn nested_field_indexes(spec: &IndexSpecReadGuard) -> Vec<FieldIndex> {
 pub fn next_nested_terminal(
     spec: &IndexSpecReadGuard,
     field_index: FieldIndex,
-    after: Option<&[PathStep]>,
-) -> Option<Vec<PathStep>> {
+    after: Option<&[Vec<u8>]>,
+) -> Option<Vec<Vec<u8>>> {
     let index = fetch_nested_index(spec.field_specs().get(usize::from(field_index))?)?;
     let mut next = None;
     index.routing().for_each_terminal_after(after, |path, _| {
@@ -271,7 +250,7 @@ impl TerminalCursor {
 /// Posting lists of one terminal that may hold gone documents, copied under a read hold by
 /// [`snapshot_nested_chunk`] so the thread GC can scan them without the lock.
 pub struct NestedTerminalSnapshot {
-    path: Vec<WireStep>,
+    path: Vec<ByteBuf>,
     copies: TerminalCopies,
 }
 
@@ -348,7 +327,7 @@ impl NestedTerminalSnapshot {
 pub fn snapshot_nested_chunk(
     spec: &IndexSpecReadGuard,
     field_index: FieldIndex,
-    path: &[PathStep],
+    path: &[Vec<u8>],
     cursor: &mut TerminalCursor,
     live: &impl DocLiveness,
     should_stop: &mut dyn FnMut() -> bool,
@@ -417,7 +396,7 @@ pub fn snapshot_nested_chunk(
     // A terminal with no list still costs its lookup.
     let stopped = if visited == 0 { should_stop() } else { stopped };
     let snapshot = copies.map(|copies| NestedTerminalSnapshot {
-        path: path.iter().map(WireStep::from).collect(),
+        path: to_wire(path),
         copies,
     });
     (snapshot, stopped)
@@ -433,7 +412,7 @@ pub fn snapshot_nested_chunk(
 pub fn nested_ranges_added_since(
     spec: &IndexSpecReadGuard,
     field_index: FieldIndex,
-    path: &[PathStep],
+    path: &[Vec<u8>],
     listing: &TreeListing,
 ) -> Vec<RangeInclusive<DocId>> {
     let tree = spec
@@ -505,7 +484,7 @@ pub fn apply_nested_terminal_with(
     live: Option<&dyn DocLiveness>,
 ) -> Result<TerminalApplied, GcError> {
     let index = nested_index_mut(guard, field_index)?;
-    let path: Vec<PathStep> = delta.path.into_iter().map(PathStep::from).collect();
+    let path: Vec<Vec<u8>> = delta.path.into_iter().map(ByteBuf::into_vec).collect();
     let track = live.is_some();
     let applied = index.collect_terminal(&path, |terminal| {
         let applied = apply_work(terminal, delta.work, live);
@@ -663,7 +642,7 @@ pub fn collect_nested(
                 written = serialize(
                     writer,
                     Some(NestedTerminalDelta {
-                        path: path.iter().map(WireStep::from).collect(),
+                        path: to_wire(path),
                         work,
                     }),
                 );

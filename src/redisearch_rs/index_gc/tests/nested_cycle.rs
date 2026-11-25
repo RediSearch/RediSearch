@@ -22,7 +22,7 @@ use index_gc::{
     GcApplyStats, GcError, HandleOutcome,
     fork::wire::serialize,
     scanners::nested::{
-        NestedField, NestedTerminalDelta, TerminalWork, WireStep, apply_nested_terminal_with,
+        NestedField, NestedTerminalDelta, TerminalWork, apply_nested_terminal_with,
         handle_nested_with, scan_terminal,
     },
     spec_access::SpecWriteAccess,
@@ -31,9 +31,9 @@ use index_gc::{
 };
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use nested_index::{
-    Element, FloatCompression, IndexParams, Key, Level, NestedIndex, PathStep, TagLevel,
-    TerminalKind, TerminalValue,
+    Element, FloatCompression, IndexParams, NestedIndex, TagLevel, TerminalKind, TerminalValue,
 };
+use serde_bytes::ByteBuf;
 
 extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -43,7 +43,7 @@ const PARAMS: IndexParams = IndexParams { max_depth_range: 0 };
 /// `color` and `size` tag levels over numeric terminals.
 fn priced() -> NestedIndex {
     NestedIndex::new(
-        vec![Level::Tag(TagLevel::new()), Level::Tag(TagLevel::new())],
+        vec![TagLevel::new(), TagLevel::new()],
         TerminalKind::Numeric(FloatCompression::Off),
     )
     .unwrap()
@@ -51,7 +51,7 @@ fn priced() -> NestedIndex {
 
 /// Index `doc_id` as one element `(color, size) → value`.
 fn put(index: &mut NestedIndex, doc_id: u64, color: &str, size: &str, value: f64) {
-    let path = [Key::Tag(color.as_bytes()), Key::Tag(size.as_bytes())];
+    let path = [color.as_bytes(), size.as_bytes()];
     let element = Element {
         path: &path,
         value: TerminalValue::Numeric(value),
@@ -59,11 +59,13 @@ fn put(index: &mut NestedIndex, doc_id: u64, color: &str, size: &str, value: f64
     index.index_document(doc_id, &[element], PARAMS).unwrap();
 }
 
-fn path(color: &str, size: &str) -> Vec<PathStep> {
-    vec![
-        PathStep::Tag(color.as_bytes().to_vec()),
-        PathStep::Tag(size.as_bytes().to_vec()),
-    ]
+fn path(color: &str, size: &str) -> Vec<Vec<u8>> {
+    vec![color.as_bytes().to_vec(), size.as_bytes().to_vec()]
+}
+
+/// `path` as it travels the fork-GC pipe.
+fn wire(path: &[Vec<u8>]) -> Vec<ByteBuf> {
+    path.iter().cloned().map(ByteBuf::from).collect()
 }
 
 type Writer = Box<dyn FnOnce(&mut NestedIndex)>;
@@ -233,8 +235,7 @@ fn a_thread_cycle_collects_terminals_and_drops_the_emptied_ones() {
     put(&mut index, 3, "blue", "m", 3.0);
     let blue = index
         .routing()
-        .get(&[Key::Tag(b"blue"), Key::Tag(b"m")])
-        .unwrap()
+        .get(&[&b"blue"[..], &b"m"[..]])
         .unwrap()
         .alive()
         .clone();
@@ -266,8 +267,8 @@ fn a_leaf_split_between_scan_and_apply_keeps_every_deleted_id() {
             for doc_id in 1..=n {
                 put(&mut index, doc_id, "red", "m", doc_id as f64);
             }
-            let terminal = index.routing().get(&[Key::Tag(b"red"), Key::Tag(b"m")]);
-            terminal.unwrap().unwrap().numeric().unwrap().num_leaves() > 1
+            let terminal = index.routing().get(&[&b"red"[..], &b"m"[..]]);
+            terminal.unwrap().numeric().unwrap().num_leaves() > 1
         })
         .unwrap()
         - 1;
@@ -314,7 +315,7 @@ fn the_fork_parent_skips_a_stale_delta_and_reads_the_rest_of_the_stream() {
     index.routing().for_each_terminal(|path, terminal| {
         if let Some(work) = scan_terminal(terminal, live).work {
             deltas.push(NestedTerminalDelta {
-                path: path.iter().map(WireStep::from).collect(),
+                path: wire(path),
                 work,
             });
         }
@@ -323,9 +324,9 @@ fn the_fork_parent_skips_a_stale_delta_and_reads_the_rest_of_the_stream() {
     let mut spec = NestedSpec::create(index, []);
 
     // A delta for a path no terminal is at, then the real one.
+    let stale = wire(&path("green", "m"));
     let mut wire = Vec::new();
     serialize(&mut wire, Some(NestedField { field_index: 0 })).unwrap();
-    let stale = path("green", "m").iter().map(WireStep::from).collect();
     let stale_work = {
         let mut index = priced();
         put(&mut index, 1, "green", "m", 1.0);
@@ -384,7 +385,7 @@ fn a_delta_never_lands_on_another_terminal() {
 
     // A tree other than the one scanned, as a replacement at the same path would be.
     let wrong_tree = NestedTerminalDelta {
-        path: path("red", "m").iter().map(WireStep::from).collect(),
+        path: wire(&path("red", "m")),
         work: TerminalWork::Numeric {
             unique_id: unique_id.wrapping_add(1),
             nodes,
@@ -396,7 +397,7 @@ fn a_delta_never_lands_on_another_terminal() {
     ));
     // Tag work on a numeric terminal.
     let wrong_kind = NestedTerminalDelta {
-        path: path("red", "m").iter().map(WireStep::from).collect(),
+        path: wire(&path("red", "m")),
         work: TerminalWork::Tag(Vec::new()),
     };
     assert!(matches!(
@@ -415,29 +416,12 @@ fn a_delta_never_lands_on_another_terminal() {
     assert_eq!(spec.index().num_records(), 1, "nothing was removed");
 }
 
-#[test]
-fn an_out_of_range_bucket_names_no_bucket() {
-    let mut index = NestedIndex::new(
-        vec![Level::Tag(TagLevel::new())],
-        TerminalKind::Numeric(FloatCompression::Off),
-    )
-    .unwrap();
-    let key = [Key::Tag(b"red")];
-    let element = Element {
-        path: &key,
-        value: TerminalValue::Numeric(1.0),
-    };
-    index.index_document(1, &[element], PARAMS).unwrap();
-    let step = PathStep::from(WireStep::Bucket(u64::MAX));
-    assert!(index.terminal_at_mut(&[step]).is_none());
-}
-
 /// A `color` tag level over tag terminals, with document `doc_id` holding `value` under
 /// `color`.
 fn tagged(elements: impl IntoIterator<Item = (u64, String, String)>) -> NestedIndex {
-    let mut index = NestedIndex::new(vec![Level::Tag(TagLevel::new())], TerminalKind::Tag).unwrap();
+    let mut index = NestedIndex::new(vec![TagLevel::new()], TerminalKind::Tag).unwrap();
     for (doc_id, color, value) in elements {
-        let path = [Key::Tag(color.as_bytes())];
+        let path = [color.as_bytes()];
         let element = Element {
             path: &path,
             value: TerminalValue::Tag(nested_index::Tag::new(value.as_bytes()).unwrap()),
@@ -512,7 +496,7 @@ fn a_posting_list_that_fails_to_decode_keeps_its_ids_for_the_next_cycle() {
     let mut spec = NestedSpec::create(tagged(elements), 1..=4);
     let list = spec
         .index()
-        .terminal_at_mut(&[PathStep::Tag(b"red".to_vec())])
+        .terminal_at_mut(&[b"red".to_vec()])
         .and_then(|terminal| terminal.tag_mut())
         .and_then(|tags| tags.find_value_mut(b"v"))
         .expect("red holds v");
@@ -534,8 +518,8 @@ fn a_leaf_split_between_two_holds_of_a_walk_keeps_its_deleted_ids() {
     let mut index = priced();
     let mut docs = 0;
     let tree_nodes = |index: &NestedIndex| {
-        let terminal = index.routing().get(&[Key::Tag(b"red"), Key::Tag(b"m")]);
-        terminal.unwrap().map_or(0, |terminal| {
+        let terminal = index.routing().get(&[&b"red"[..], &b"m"[..]]);
+        terminal.map_or(0, |terminal| {
             terminal
                 .numeric()
                 .unwrap()
@@ -548,11 +532,7 @@ fn a_leaf_split_between_two_holds_of_a_walk_keeps_its_deleted_ids() {
         put(&mut index, docs, "red", "m", docs as f64);
     }
     // Delete the documents of the last leaf the walk visits, which a later hold copies.
-    let terminal = index
-        .routing()
-        .get(&[Key::Tag(b"red"), Key::Tag(b"m")])
-        .unwrap()
-        .unwrap();
+    let terminal = index.routing().get(&[&b"red"[..], &b"m"[..]]).unwrap();
     let last_leaf = terminal
         .numeric()
         .unwrap()
@@ -657,7 +637,7 @@ fn the_fork_parent_applies_a_large_terminal_in_pieces() {
     serialize(
         &mut wire,
         Some(NestedTerminalDelta {
-            path: vec![WireStep::Tag(b"red".to_vec())],
+            path: vec![ByteBuf::from(b"red".to_vec())],
             work,
         }),
     )

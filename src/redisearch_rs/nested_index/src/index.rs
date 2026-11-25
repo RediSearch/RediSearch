@@ -60,7 +60,7 @@ pub struct NestedIndex {
     num_records: usize,
     /// The terminals a collector reached and has not finished; see
     /// [`NestedIndex::finish_collection`].
-    collected: BTreeSet<Vec<PathStep>>,
+    collected: BTreeSet<Vec<Vec<u8>>>,
 }
 
 /// What [`NestedIndex::finish_collection`] freed.
@@ -93,7 +93,7 @@ impl NestedIndex {
     /// [`NestedIndex::finish_collection`] drops it. `None` when no terminal is at `path`.
     pub fn collect_terminal<R>(
         &mut self,
-        path: &[PathStep],
+        path: &[Vec<u8>],
         collect: impl FnOnce(&mut Terminal) -> (R, usize),
     ) -> Option<R> {
         let terminal = self.routing.terminal_at_mut(path)?;
@@ -147,7 +147,7 @@ impl NestedIndex {
     /// The terminal at `path`, for a test to write to behind the index's back, as a writer
     /// racing a collector would.
     #[cfg(feature = "unittest")]
-    pub fn terminal_at_mut(&mut self, path: &[PathStep]) -> Option<&mut Terminal> {
+    pub fn terminal_at_mut(&mut self, path: &[Vec<u8>]) -> Option<&mut Terminal> {
         self.routing.terminal_at_mut(path)
     }
 

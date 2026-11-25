@@ -49,7 +49,6 @@ use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
 use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
-use nested_index::PathStep;
 use numeric_range_tree::NodeIndex;
 
 use crate::liveness::GoneIds;
@@ -524,12 +523,12 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
             // The ID ranges a scan or an apply left uncollected, retained after the run.
             let uncollected = std::cell::RefCell::new(Vec::new());
             // The terminal being walked, and the last one walked to the end.
-            let mut current: Option<Vec<PathStep>> = None;
-            let mut after: Option<Vec<PathStep>> = None;
+            let mut current: Option<Vec<Vec<u8>>> = None;
+            let mut after: Option<Vec<Vec<u8>>> = None;
             let mut cursor = TerminalCursor::default();
             // The numeric terminals walked to the end, with what their trees held when their
             // walks started.
-            let mut walked: Vec<(Vec<PathStep>, Arc<TreeListing>)> = Vec::new();
+            let mut walked: Vec<(Vec<Vec<u8>>, Arc<TreeListing>)> = Vec::new();
             let snapshot_chunk =
                 |guard: &IndexSpecReadGuard<'_>,
                  should_stop: StopCheck<'_>,

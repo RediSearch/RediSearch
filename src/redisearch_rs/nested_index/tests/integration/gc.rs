@@ -12,7 +12,7 @@
 //! drop the emptied terminals with [`NestedIndex::finish_collection`], which revokes each dropped
 //! terminal's token.
 
-use nested_index::{Element, NestedIndex, PathStep, PostingsMut, PrunedTerminals, Terminal};
+use nested_index::{Element, NestedIndex, PostingsMut, PrunedTerminals, Terminal};
 use rqe_core::DocId;
 
 use crate::util::{PARAMS, elements, item, materials, priced, tag, tag_value};
@@ -20,7 +20,7 @@ use crate::util::{PARAMS, elements, item, materials, priced, tag, tag_value};
 /// Remove every posting of a document `live` says is gone, through
 /// [`NestedIndex::collect_terminal`] as a collector does, and return how many were removed.
 fn collect(index: &mut NestedIndex, live: impl Fn(DocId) -> bool + Copy) -> usize {
-    let mut paths: Vec<Vec<PathStep>> = Vec::new();
+    let mut paths: Vec<Vec<Vec<u8>>> = Vec::new();
     index
         .routing()
         .for_each_terminal(|path, _| paths.push(path.to_vec()));
@@ -88,27 +88,9 @@ fn emptied_numeric_terminals_are_dropped_with_their_routing_nodes() {
     assert_eq!(pruned.terminals, 2);
     assert!(pruned.bytes > 0, "an emptied tree still holds its range");
     assert_eq!(index.routing().num_terminals(), 1);
-    assert!(
-        index
-            .routing()
-            .get(&[tag("red"), tag("m")])
-            .unwrap()
-            .is_some()
-    );
-    assert!(
-        index
-            .routing()
-            .get(&[tag("red"), tag("l")])
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        index
-            .routing()
-            .get(&[tag("blue"), tag("m")])
-            .unwrap()
-            .is_none()
-    );
+    assert!(index.routing().get(&[tag("red"), tag("m")]).is_some());
+    assert!(index.routing().get(&[tag("red"), tag("l")]).is_none());
+    assert!(index.routing().get(&[tag("blue"), tag("m")]).is_none());
     assert_eq!(index.num_records(), 1);
 }
 
@@ -144,7 +126,7 @@ fn emptied_tag_terminals_are_dropped() {
     assert_eq!(pruned.terminals, 1);
     // The emptied value went with the collection; nothing is left to count.
     assert_eq!((pruned.bytes, pruned.blocks), (0, 0));
-    assert!(index.routing().get(&[tag("blue")]).unwrap().is_none());
+    assert!(index.routing().get(&[tag("blue")]).is_none());
     assert_eq!(index.num_records(), 1);
 }
 
@@ -157,7 +139,7 @@ fn dropping_a_terminal_revokes_its_token_only() {
             .unwrap();
     }
     let token = |index: &NestedIndex, color: &str| {
-        let terminal = index.routing().get(&[tag(color), tag("m")]).unwrap();
+        let terminal = index.routing().get(&[tag(color), tag("m")]);
         terminal.expect("the terminal exists").alive().clone()
     };
     let (red, blue) = (token(&index, "red"), token(&index, "blue"));
@@ -179,7 +161,7 @@ fn a_dropped_terminal_gives_back_exactly_what_it_held() {
             )
             .unwrap();
     }
-    let path = [PathStep::Tag(b"red".to_vec()), PathStep::Tag(b"m".to_vec())];
+    let path = [b"red".to_vec(), b"m".to_vec()];
     collect(&mut index, |_| false);
     let terminal = index
         .routing()
@@ -218,7 +200,7 @@ fn finishing_sees_every_terminal_reached_and_only_those() {
             .index_document(doc_id, &elements(&[item(color, "m", 1.0)]), PARAMS)
             .unwrap();
     }
-    let red = [PathStep::Tag(b"red".to_vec()), PathStep::Tag(b"m".to_vec())];
+    let red = [b"red".to_vec(), b"m".to_vec()];
     index.collect_terminal(&red, |_| ((), 0)).unwrap();
     let mut seen = 0;
     let pruned = index.finish_collection(usize::MAX, |_| seen += 1);
@@ -231,7 +213,7 @@ fn a_terminal_whose_inner_ranges_hold_entries_is_kept_until_they_go() {
     // With ranges kept on inner nodes, a split leaves copies of the leaves' entries above them.
     let params = nested_index::IndexParams { max_depth_range: 2 };
     let mut index = priced(None);
-    let path = [PathStep::Tag(b"red".to_vec()), PathStep::Tag(b"m".to_vec())];
+    let path = [b"red".to_vec(), b"m".to_vec()];
     let has_inner_range = |index: &NestedIndex| {
         let tree = index
             .routing()
