@@ -816,3 +816,17 @@ def testNumericTree(env:Env):
     cause_split(1) # to the left (of 2, right of 0)
 
     validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field, 'MINIMAL'))
+
+
+@skip(cluster=True)
+def testDialect1NumericQueryOnANonNumericFieldMatchesNothing(env):
+    # DIALECT 2 rejects a numeric range on a non-NUMERIC field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection. A GEO field keeps its points in a numeric range tree,
+    # which an unbounded range used to match.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'loc', 'GEO', 't', 'TAG', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'loc', '1,1', 't', 'red', 'n', 5)
+    for field in ['loc', 't']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[-inf +inf]', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[-inf +inf] @n:[5 5]', 'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@n:[5 5]', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])

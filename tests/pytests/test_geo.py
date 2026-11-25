@@ -167,3 +167,23 @@ def testGeoOnReopen(env:Env):
     checkResults(res)
 
   env.assertEqual(len(ids), n)
+
+
+@skip(cluster=True)
+def testDialect1GeoQueryOnANonGeoFieldMatchesNothing(env):
+    # DIALECT 2 rejects a geo filter on a non-GEO field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection. A NUMERIC field's range tree holds plain numbers, which
+    # the filter's geohash ranges used to be matched against.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'loc', 'GEO').ok()
+    # `n` holds the geohash score of the query center, so matching the filter's geohash ranges
+    # against the numeric tree would find the document.
+    conn.execute_command('GEOADD', 'geohash_probe', 1, 1, 'p')
+    center_score = conn.execute_command('ZSCORE', 'geohash_probe', 'p')
+    conn.execute_command('DEL', 'geohash_probe')
+    conn.execute_command('HSET', 'doc:1', 'n', center_score, 't', 'red', 'loc', '1,1')
+    for field in ['n', 't']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km]', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km] @loc:[1 1 10 km]',
+                   'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@loc:[1 1 10 km]', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])
