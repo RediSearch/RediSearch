@@ -756,6 +756,67 @@ def testHybridSparseExplainScore(env):
         env.assertEqual(hybrid_node[1][-1], [envelope, ['vector rank = 1']], message=explain)
 
 
+def testHybridSparseRequiresUnstableFeatures(env):
+    """A sparse field created with the flag on is refused by a VSIM arm once the flag is off, as
+    `[SPARSE $q]` is in FT.SEARCH."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, dim=10)
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 1.0)]))
+    set_unstable_features(env, False)
+    try:
+        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@sp', '$q',
+                   'PARAMS', 2, 'q', sparse_blob([(1, 1.0)])).error().contains(GATE_ERROR)
+    finally:
+        set_unstable_features(env, True)
+
+
+def testHybridSparseWithTailSteps(env):
+    """LOAD and SORTBY apply to the fused results of a sparse arm, after its top K is kept."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, dim=10)
+    for k, title in enumerate(['e', 'd', 'c', 'b', 'a']):
+        conn.execute_command('HSET', f'doc:{k}', 'title', title, 'cat', 'x',
+                             'sp', sparse_blob([(1, k + 1.0)]))
+    # The top 3 by dot product are doc:4, doc:3 and doc:2.
+    total, rows = hybrid(env, 'nomatch', [(1, 1.0)], 'KNN', 2, 'K', 3,
+                         'LOAD', 3, '@__key', '@title', '@cat', 'SORTBY', 2, '@title', 'ASC')
+    env.assertEqual(total, 3)
+    env.assertEqual([(r['__key'], r['title'], r['cat']) for r in rows],
+                    [('doc:4', 'a', 'x'), ('doc:3', 'b', 'x'), ('doc:2', 'c', 'x')])
+
+
+def testHybridSparseCosineUnderLinear(env):
+    """LINEAR adds BETA times the COSINE arm's (1 + cosine) / 2."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, metric='COSINE', dim=10)
+    conn.execute_command('HSET', 'doc:1', 'sp', sparse_blob([(1, 3.0), (2, 4.0)]))
+    conn.execute_command('HSET', 'doc:2', 'sp', sparse_blob([(1, 100.0)]))
+    _, rows = hybrid(env, 'nomatch', [(1, 5.0)], 'COMBINE', 'LINEAR', 4, 'ALPHA', 0.3, 'BETA', 0.7)
+    env.assertEqual([r['__key'] for r in rows], ['doc:2', 'doc:1'])
+    env.assertAlmostEqual(float(rows[0]['__score']), 0.7 * (1 + 1.0) / 2, 1e-6)
+    env.assertAlmostEqual(float(rows[1]['__score']), 0.7 * (1 + 0.6) / 2, 1e-6)
+
+
+def testHybridSparseFilterPrefixWarning(env):
+    """A FILTER that hits the prefix-expansion limit warns for the VSIM arm, not for SEARCH."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    create_index(env, dim=10)
+    for k, title in enumerate(['run', 'running', 'runner']):
+        conn.execute_command('HSET', f'doc:{k}', 'title', title, 'sp', sparse_blob([(1, 1.0)]))
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    try:
+        res = to_dict(env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nomatch', 'VSIM', '@sp', '$q',
+                              'FILTER', '@title:run*', 'PARAMS', 2, 'q', sparse_blob([(1, 1.0)])))
+        env.assertContains('Max prefix expansions limit was reached (VSIM)', res['warnings'])
+        env.assertNotContains('Max prefix expansions limit was reached (SEARCH)', res['warnings'])
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+
 @skip(cluster=True)
 def testHybridSparseProfile(env):
     """FT.PROFILE shows the VSIM arm's SPARSE_VECTOR iterator, and the sorter that keeps K."""

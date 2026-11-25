@@ -1526,6 +1526,12 @@ static void setVectorArmRoot(const ParsedVectorData *pvd, QueryAST *ast, QueryNo
 static int applySparseVectorQuery(AREQ *req, const FieldSpec *field, QueryAST *ast,
                                   QueryError *status) {
   ParsedVectorData *pvd = req->parsedVectorData;
+  // The flag can be turned off after a sparse field was created, so it is checked on every query,
+  // as the `[SPARSE $q]` parser rule does.
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, SPARSE_VECTOR_UNSTABLE_ERR);
+    return REDISMODULE_ERR;
+  }
   if (pvd->denseOnlyOption) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                      "%s is not supported on a " SPEC_SPARSE_VECTOR_STR " field",
@@ -1575,7 +1581,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   } else if (FIELD_IS(vectorField, INDEXFLD_T_SPARSE_VECTOR)) {
     return applySparseVectorQuery(req, vectorField, ast, status);
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    // A SPARSEVECTOR field exists only with ENABLE_UNSTABLE_FEATURES, so it is not named here.
+    // A SPARSEVECTOR field is unstable surface, so it is not named here.
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   }

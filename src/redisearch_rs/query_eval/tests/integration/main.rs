@@ -23,6 +23,7 @@ mod numeric;
 mod optional;
 mod phrase;
 mod prefix;
+mod sparse_vector;
 mod tag;
 mod token;
 mod union;

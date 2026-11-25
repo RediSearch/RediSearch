@@ -1020,16 +1020,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // The VSIM arm's slot is known only now that applyVectorQuery has resolved its field.
   pvd = vectorRequest->parsedVectorData;
+  RS_ASSERT(pvd->armSlot == VECTOR_INDEX || pvd->armSlot == SPARSE_INDEX);
   parsedCmdCtx->armMask = HybridArm_Bit(SEARCH_INDEX) | HybridArm_Bit(pvd->armSlot);
   if (pvd->armSlot == SPARSE_INDEX) {
     // VecSim stops a dense KNN after K results, but a sparse node yields every document that
     // shares a dimension with the query. Keeping the K best normalized scores gives the arm the
     // top K that FT.SEARCH returns. It goes right after the normalizer, which sets the score, so
-    // only those K are loaded.
+    // only those K are loaded. It stays out of the shard command: each shard parses the VSIM clause
+    // and adds its own, and the coordinator's copy is set up by setupCoordinatorArrangeSteps.
     PLN_ArrangeStep *topK = AGPLN_GetOrCreateArrangeStep(&vectorRequest->pipeline.ap);
     AGPLN_PopStep(&topK->base);
     AGPLN_AddAfter(&vectorRequest->pipeline.ap, &vnStep->base, &topK->base);
     topK->limit = pvd->knnK;
+    topK->runLocal = true;
   }
 
   // Build here, after AREQ_ApplyContext on both sub-queries: it has resolved the

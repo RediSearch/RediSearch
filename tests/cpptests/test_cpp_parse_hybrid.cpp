@@ -140,8 +140,10 @@ class ParseHybridTest : public ::testing::Test {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
     hybridParams = {};
+    // The index the command names, so a test can target an index of its own.
+    const char *indexName = RedisModule_StringPtrLen(args[1], NULL);
     hybridRequest =
-        MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true), args, args.size());
+        MakeDefaultHybridRequest(NewSearchCtxC(ctx, indexName, true), args, args.size());
     result.search = hybridRequest->requests[0];
     result.vector = hybridRequest->requests[1];
     result.tailPlan = &hybridRequest->tailPipeline->ap;
@@ -2191,4 +2193,38 @@ TEST_F(ParseHybridTest, testShardKRatioDefaultValue) {
   const VectorQuery *vq = vecReq->ast.root->vn.vq;
   // Default should be 1.0 (DEFAULT_SHARD_WINDOW_RATIO - no optimization)
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
+}
+
+// A VSIM arm on a SPARSEVECTOR field: the sparse slot, a sparse query node, and a top-K sorter
+// that runs on this node only, so it never reaches the shard command.
+TEST_F(ParseHybridTest, testSparseVsimArm) {
+  const bool unstable = RSGlobalConfig.enableUnstableFeatures;
+  RSGlobalConfig.enableUnstableFeatures = true;
+  const std::string sparseIndex = index_name + "_sparse";
+  QueryError qerr = QueryError_Default();
+  RMCK::ArgvList create(ctx, "FT.CREATE", sparseIndex.c_str(), "ON", "HASH", "SCHEMA",
+                        "title", "TEXT", "sp", "SPARSEVECTOR", "4", "DIM", "10",
+                        "DISTANCE_METRIC", "IP");
+  ASSERT_TRUE(Indexes_CreateNewSpec(ctx, create, create.size(), &qerr))
+      << QueryError_GetUserError(&qerr);
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", sparseIndex.c_str(), "SEARCH", "hello", "VSIM", "@sp",
+                      "$BLOB", "KNN", "2", "K", "5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+
+  EXPECT_EQ(result.armMask, HybridArm_Bit(SEARCH_INDEX) | HybridArm_Bit(SPARSE_INDEX));
+  const AREQ *vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  EXPECT_EQ(vecReq->ast.root->type, QN_SPARSE_VECTOR);
+  EXPECT_EQ(vecReq->parsedVectorData->armSlot, SPARSE_INDEX);
+  EXPECT_EQ(vecReq->parsedVectorData->knnK, 5);
+  PLN_ArrangeStep *topK = AGPLN_GetArrangeStep(AREQ_AGGPlan(const_cast<AREQ *>(vecReq)));
+  ASSERT_TRUE(topK != nullptr);
+  EXPECT_EQ(topK->limit, 5);
+  EXPECT_TRUE(topK->runLocal);
+
+  // The flag can be turned off after the field was created; the arm is refused then.
+  RSGlobalConfig.enableUnstableFeatures = false;
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL, "SPARSEVECTOR is unavailable");
+  RSGlobalConfig.enableUnstableFeatures = unstable;
 }
