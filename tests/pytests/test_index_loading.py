@@ -101,9 +101,10 @@ def testDocumentMatchedByEveryBranchKeepsTheValue(env):
     """A union with a loading branch is evaluated in full, even with weight 0, so a document
     matched by several branches keeps the value."""
     setup_hash_index(env)
-    rows = aggregate_rows(env, '(@t:{a} | @n:[25 35] => {$as: v}) => {$weight: 0}',
-                          'LOAD', '1', '@id', 'FILTER', '@id == 3')
-    env.assertEqual(rows, [{'v': '30.5', 'id': '3'}])
+    for query in ['(@t:{a} | @n:[25 35] => {$as: v}) => {$weight: 0}',
+                  '((@t:{a} | @n:[25 35] => {$as: v}) => {$weight: 0} | @t:{zzz}) => {$weight: 0}']:
+        rows = aggregate_rows(env, query, 'LOAD', '1', '@id', 'FILTER', '@id == 3')
+        env.assertEqual(rows, [{'v': '30.5', 'id': '3'}], message=query)
 
 
 @skip(cluster=True)

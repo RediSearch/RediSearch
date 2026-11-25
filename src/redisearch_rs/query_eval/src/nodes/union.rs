@@ -13,7 +13,6 @@ use rqe_iterators::{c2rust::CRQEIterator, union_opaque::build_union};
 
 use crate::{
     Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
-    index_load,
 };
 
 /// `QN_UNION` — a logical OR over its children (matches any document matched by
@@ -41,13 +40,8 @@ pub(crate) fn eval<'index>(
     let weight = node.opts().weight;
     let node_type = node.node_type();
 
-    // We want results from every matching child (`quick_exit == false`) unless
-    // either (1) we are inside a `NOT` subtree, where only the id set matters,
-    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring
-    // — and no clause under it loads a value, which a document matched by
-    // several branches would lose with the branch quick exit skips.
-    let quick_exit = ctx.in_not_sub_tree() || (weight == 0.0 && !index_load::subtree_loads(&node));
     let min_union_iter_heap = config.min_union_iter_heap;
+    let loading_before = ctx.num_loading_clauses();
 
     // Recursively evaluate every child, narrowing its field mask first.
     let children: Vec<CRQEIterator> = (0..num_children)
@@ -57,6 +51,14 @@ pub(crate) fn eval<'index>(
             eval_child_iterator(ctx, child, config, offsets)
         })
         .collect();
+
+    // We want results from every matching child (`quick_exit == false`) unless
+    // either (1) we are inside a `NOT` subtree, where only the id set matters,
+    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring
+    // — and no clause under it loads a value, which a document matched by
+    // several branches would lose with the branch quick exit skips.
+    let subtree_loads = ctx.num_loading_clauses() != loading_before;
+    let quick_exit = ctx.in_not_sub_tree() || (weight == 0.0 && !subtree_loads);
 
     let iter = build_union(children, quick_exit, min_union_iter_heap, node_type, weight);
 

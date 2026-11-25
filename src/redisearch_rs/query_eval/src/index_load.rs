@@ -52,6 +52,7 @@ pub(crate) fn reserve(
         );
         return Err(Rejected);
     }
+    ctx.count_loading_clause();
     // SAFETY: `alias` is non-null, as on every loading node, and is the
     // NUL-terminated name the parser stored on the node's options. The
     // request borrows it; the node owns it, and the AST outlives the
@@ -102,11 +103,6 @@ pub(crate) fn decorate<'index>(
     // metric-request array, outlives the iterator tree.
     unsafe { bind_metric_request(ctx, request, it) };
     Evaluated::RustCompound(it)
-}
-
-/// Whether a clause in the subtree of `node` loads a value.
-pub(crate) fn subtree_loads(node: &QueryNodeRef) -> bool {
-    loads(node) || node.children().any(|child| subtree_loads(&child))
 }
 
 /// Whether `node` itself loads a value.
