@@ -406,3 +406,18 @@ def testLoadsInsideVectorFilter(env):
 
                 rows = aggregate_rows(env, query, 'PARAMS', '2', 'b', blob, 'SORTBY', '2', '@dist', 'ASC')
                 env.assertEqual(rows, expected_rows, message=(query, rows))
+
+
+def testOptimizerKeepsTheScorerDecision(env):
+    """Without SORTBY the optimizer only decides whether results need scoring and sorting, which
+    `$as` must not change: an optimized query replies the same, total, order and scores, with or
+    without a loading clause."""
+    setup_hash_index(env)
+
+    for optimize in [['WITHOUTCOUNT'], ['DIALECT', '4']]:
+        for args in [[], ['WITHSCORES']]:
+            plain = env.cmd('FT.SEARCH', 'idx', '@t:{a} @n:[5 85]', *args, 'NOCONTENT',
+                            'LIMIT', '0', '2', *optimize)
+            loading = env.cmd('FT.SEARCH', 'idx', '@t:{a} @n:[5 85] => {$as: v}', *args,
+                              'NOCONTENT', 'LIMIT', '0', '2', *optimize)
+            env.assertEqual(loading, plain, message=(optimize, args))

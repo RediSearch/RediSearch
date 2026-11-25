@@ -181,9 +181,10 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
 
-  // The numeric top-k the optimizer can put at the root yields results of its own, without the
-  // values a loading clause attaches.
-  if (IndexLoading_TreeLoads(root)) {
+  // The numeric top-k the optimizer can put at the root, only ever for a numeric SORTBY, yields
+  // results of its own, without the values a loading clause attaches. Without SORTBY the optimizer
+  // only decides on the scorer, which a loading clause does not affect.
+  if (isSortby && IndexLoading_TreeLoads(root)) {
     opt->type = Q_OPT_NONE;
     return;
   }
