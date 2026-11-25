@@ -11,8 +11,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nested_index::{Constraint, NestedIndex, Terminal, WalkLimits};
+use nested_index::{Constraint, NestedIndex, Terminal};
 use proptest::prelude::*;
+use timeout::NoTimeoutChecker;
 
 use crate::util::{PARAMS, elements, item, priced};
 
@@ -32,7 +33,11 @@ fn element() -> impl Strategy<Value = (&'static str, &'static str, f64)> {
 fn total_entries(index: &NestedIndex) -> usize {
     index
         .routing()
-        .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
+        .collect_terminals(
+            &[Constraint::Any, Constraint::Any],
+            usize::MAX,
+            &mut NoTimeoutChecker,
+        )
         .unwrap()
         .iter()
         .map(|terminal| match terminal {

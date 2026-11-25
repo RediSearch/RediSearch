@@ -16,10 +16,11 @@
 //! tag constraints and runs the price range in each, so a doc matches only when one element
 //! satisfies every condition.
 
-use compound_index::{CompoundIndex, Constraint, Key, Level, TagLevel, WalkLimits};
+use compound_index::{CompoundIndex, Constraint, Key, Level, TagLevel};
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader as _, NumericFilter};
 use numeric_range_tree::NumericRangeTree;
+use timeout::NoTimeoutChecker;
 
 use crate::util::tag;
 
@@ -46,7 +47,7 @@ fn post(index: &mut PriceIndex, path: &[Key<'_>], doc: u64, price: f64) {
 /// The docs with an element on a path matching `constraints` and a price in `[min, max]`.
 fn query(index: &PriceIndex, constraints: &[Constraint<'_>], min: f64, max: f64) -> Vec<u64> {
     let trees = index
-        .collect_terminals(constraints, WalkLimits::UNLIMITED)
+        .collect_terminals(constraints, usize::MAX, &mut NoTimeoutChecker)
         .unwrap();
     let filter = NumericFilter {
         min,

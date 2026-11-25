@@ -1559,6 +1559,7 @@ dependencies = [
  "rqe_core",
  "tag_index",
  "thiserror",
+ "timeout",
  "workspace_hack",
 ]
 

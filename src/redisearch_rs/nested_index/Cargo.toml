@@ -31,6 +31,7 @@ proptest = { workspace = true, features = ["std"] }
 # `unittest` runs the tree's own delta and invariant checks on every add.
 numeric_range_tree = { workspace = true, features = ["unittest"] }
 tag_index = { workspace = true, features = ["test-utils"] }
+timeout.workspace = true
 nested_index = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 
