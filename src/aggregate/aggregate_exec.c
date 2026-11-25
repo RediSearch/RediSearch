@@ -530,13 +530,9 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
                                      cachedVars *cv, RespSchema *schema) {
   bool stopped = false;
-  // Under ON_OOM FAIL the replay always completes: StoredResults_StopBeforeReply decided. A stop
-  // already applied while buffering made the held rows the reply, so only a new one cuts.
-  const bool checkPerRow = req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
-                           !QueryRequestLimits_IsMemoryStopped(&req->base.limits);
   array_foreach(results, res, {
-    stopped = stopped || (checkPerRow && StoredResults_ShouldStopForMemory(
-                                             &req->base.limits, AREQ_QueryProcessingCtx(req)->err));
+    stopped = stopped || StoredResults_ShouldStop(&req->base.limits, req->base.reqConfig.oomPolicy,
+                                                  AREQ_QueryProcessingCtx(req)->err);
     if (!stopped) {
       serializeResult(req, reply, res, cv, schema);
     }
@@ -761,7 +757,7 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * checked before the header. A timeout that stopped the pipeline or fired a blocked-client
  * callback owns the reply, so it is not second-guessed here.
  */
-static void stopBeforeReplay(AREQ *req, QueryProcessingCtx *qctx, const ChunkSerializeState *state,
+static void stopBeforeReply(AREQ *req, QueryProcessingCtx *qctx, const ChunkSerializeState *state,
                              int rc) {
   if (state->results != NULL && !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
       (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) && !QueryError_HasError(qctx->err)) {
@@ -776,7 +772,7 @@ static void stopBeforeReplay(AREQ *req, QueryProcessingCtx *qctx, const ChunkSer
 static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
   QueryProcessingCtx *qctx, int rc, size_t limit, cachedVars *cv, ChunkSerializeState *state) {
 
-    stopBeforeReplay(req, qctx, state, rc);
+    stopBeforeReply(req, qctx, state, rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (handleSendChunkError(req, reply, qctx, rc)) {
@@ -815,7 +811,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     while (
         --rp->parent->resultLimit &&
-        !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy, &rc) &&
+        !RP_ReadShouldStop(rp->parent, &rc) &&
         (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
       serializeResult(req, reply, state->r, cv, &schema);
       SearchResult_Clear(state->r);
@@ -1019,7 +1015,7 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
 static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, ResultProcessor *rp,
   QueryProcessingCtx *qctx, int rc, cachedVars *cv, ChunkSerializeState *state) {
 
-    stopBeforeReplay(req, qctx, state, rc);
+    stopBeforeReply(req, qctx, state, rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (handleSendChunkError(req, reply, qctx, rc)) {
@@ -1055,8 +1051,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
       }
 
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
-                                   &rc) &&
+             !RP_ReadShouldStop(rp->parent, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
         SearchResult_Clear(state->r);
