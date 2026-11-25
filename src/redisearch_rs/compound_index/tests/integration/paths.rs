@@ -12,27 +12,22 @@
 
 use std::ops::ControlFlow;
 
-use compound_index::{Constraint, Key, PathStep, WalkLimits};
+use compound_index::{Constraint, Key, PathStep};
 
-use crate::util::{Index, bucket_level, orders, post, tag, tag_level};
+use crate::util::{CountsChecks, Index, bucket_level, orders, post, tag, tag_level};
 
 fn tag_step(value: &str) -> PathStep {
     PathStep::Tag(value.as_bytes().to_vec())
 }
 
-/// How many nodes a walk leaving both levels open enters: the smallest node budget it fits in.
+/// How many nodes a walk leaving both levels open enters: the walk checks the timeout once per
+/// node entered.
 fn nodes_entered(index: &Index) -> usize {
-    (0..)
-        .find(|&max_nodes| {
-            let limits = WalkLimits {
-                max_terminals: usize::MAX,
-                max_nodes,
-            };
-            index
-                .collect_terminals(&[Constraint::Any, Constraint::Any], limits)
-                .is_ok()
-        })
-        .unwrap()
+    let mut checks = CountsChecks(0);
+    index
+        .collect_terminals(&[Constraint::Any, Constraint::Any], usize::MAX, &mut checks)
+        .unwrap();
+    checks.0
 }
 
 #[test]
