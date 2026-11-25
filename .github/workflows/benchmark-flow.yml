@@ -287,15 +287,24 @@ jobs:
         # Everything dynamic goes through env rather than being expanded into the
         # script: a PR author controls their own branch name, so interpolating it
         # into a shell command lets them inject arbitrary code.
-        run: |
-          redisbench-admin compare \
-              --defaults_filename ./tests/benchmarks/defaults.yml \
-              --comparison-branch "$COMPARISON_BRANCH" \
-              --baseline-branch "$BASELINE_BRANCH" \
-              --architectures x86_64,aarch64 \
-              --auto-approve \
-              --pull-request "$PULL_REQUEST" \
-              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
-              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
-              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
-              --last_n_baseline 20
+        #
+        # Retried because redisbench-admin does not retry its GitHub API calls,
+        # so a transient GitHub 5xx while upserting the PR comment fails the
+        # job after the benchmarks themselves succeeded. compare only exits
+        # non-zero on errors, never on a detected regression, and re-running it
+        # just recomputes the report and upserts the same comment.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          max_retries: 3
+          command: |
+            redisbench-admin compare \
+                --defaults_filename ./tests/benchmarks/defaults.yml \
+                --comparison-branch "$COMPARISON_BRANCH" \
+                --baseline-branch "$BASELINE_BRANCH" \
+                --architectures x86_64,aarch64 \
+                --auto-approve \
+                --pull-request "$PULL_REQUEST" \
+                --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+                --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
+                --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
+                --last_n_baseline 20
