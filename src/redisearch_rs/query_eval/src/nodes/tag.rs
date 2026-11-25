@@ -10,6 +10,7 @@
 //! Evaluation of `QN_TAG` query nodes.
 
 use std::{
+    borrow::Cow,
     ffi::{CStr, c_void},
     ops::Bound,
     ptr::NonNull,
@@ -26,6 +27,7 @@ use rqe_iterators::{
     c2rust::CRQEIterator,
     union_opaque::{build_union, build_union_with_q_str},
 };
+use rqe_wildcard::{Token, WildcardPattern};
 use string_utils::{tag::unescape, unicode::tolower_bytes};
 use trie_rs::{
     TrieMap, TrieMapOpaque,
@@ -489,21 +491,21 @@ fn eval_wildcard<'index>(
     let mut tok = child
         .token_mut()
         .expect("a tag wildcard child must carry a token");
-    // SAFETY: invariant (5) of `QueryNodeMut::new` puts this token in the
-    // module allocator whenever the field is case-insensitive.
-    unsafe { tok.normalize_tag(case_sensitive) };
-    tok.remove_wildcard_escapes();
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    // Preserve disk pattern escapes until `WildcardPattern::parse` identifies literal bytes.
+    if !is_disk {
+        // SAFETY: the AST owns this token in the module allocator.
+        unsafe { tok.normalize_tag(case_sensitive) };
+        tok.remove_wildcard_escapes();
+    }
     let tok_ref = tok.as_ref();
     let pattern = tok_ref
         .as_bytes()
         .expect("a tag wildcard token must carry a string");
-    if below_min_term_prefix(pattern, min_term_prefix) {
+    if !is_disk && below_min_term_prefix(pattern, min_term_prefix) {
         return None;
     }
-
     let children = if pattern.is_empty() {
-        // Not `b""`: an empty slice's pointer dangles, while this one points at
-        // a real NUL, for readers that forward the value as a C string.
         open_reader_child(ctx, index, c"".to_bytes(), field.index)
             .into_iter()
             .collect()
@@ -551,6 +553,26 @@ fn eval_wildcard<'index>(
                 max_prefix_expansions,
             )
         }
+    } else if is_disk {
+        let pattern = if case_sensitive {
+            Cow::Borrowed(pattern)
+        } else {
+            tolower_bytes(pattern)
+        };
+        let pattern = WildcardPattern::parse(&pattern);
+        let literals: usize = pattern
+            .tokens()
+            .iter()
+            .map(|token| match token {
+                Token::Literal(bytes) => bytes.len(),
+                _ => 0,
+            })
+            .sum();
+        if literals > 0 && literals < min_term_prefix && pattern.tokens().contains(&Token::Any) {
+            return None;
+        }
+        let values = PatternLendingIter::Wildcard(index.values().wildcard_iter(pattern).into());
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     } else {
         let values = index
             .values()
