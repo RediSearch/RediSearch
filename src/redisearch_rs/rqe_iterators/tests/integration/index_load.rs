@@ -13,9 +13,13 @@ use index_result::RSIndexResult;
 use query_types::QueryNodeType;
 use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, index_load,
-    index_load::IndexLoad, interop::RQEIteratorWrapper, score_bound::MinCompetitiveScore,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+    c2rust::CRQEIterator,
+    index_load,
+    index_load::IndexLoad,
+    interop::RQEIteratorWrapper,
+    score_bound::{BlockBound, MinCompetitiveScore},
     union_opaque::build_union,
 };
 use rqe_iterators_test_utils::{
@@ -23,7 +27,10 @@ use rqe_iterators_test_utils::{
 };
 use rstest::rstest;
 
-use crate::utils::{Mock, MockRevalidateResult};
+use crate::utils::{
+    Mock, MockIteratorError, MockRevalidateResult,
+    blocked::{Block, Blocked},
+};
 
 /// A stand-in for the key pipeline construction resolves: the decorator only
 /// stores a reference to it, never reads it.
@@ -262,6 +269,59 @@ fn resume_aborted_frees_the_decorator() {
         !handle.is_valid,
         "freeing the decorator invalidates its handle"
     );
+}
+
+#[test]
+fn resume_error_frees_the_decorator() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let child = Mock::new_with_values([1], [1.0]);
+    child
+        .data()
+        .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+    let mut handle = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+    let mut it = Box::new(IndexLoad::new(child));
+    // SAFETY: as in `resume_aborted_frees_the_decorator`.
+    unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
+
+    assert!(matches!(
+        it.suspend().resume(&guard),
+        Err(RQEIteratorError::Stopped)
+    ));
+    assert!(
+        !handle.is_valid,
+        "freeing the decorator invalidates its handle"
+    );
+}
+
+#[test]
+fn forwards_score_bounds_to_the_child() {
+    let it = IndexLoad::new(Blocked::new(vec![
+        Block::tight(&[(1, 3.0), (2, 5.0)]),
+        Block::loose(&[(7, 1.0)], 4.0),
+    ]));
+    let mut it = ContractChecker::new(it);
+    assert!(it.reports_score_bounds());
+
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.current_max_score(), 3.0);
+    assert_eq!(
+        it.current_block_bound(),
+        Some(BlockBound {
+            last_doc_id: 2,
+            max_score: 5.0
+        })
+    );
+
+    let threshold = MinCompetitiveScore::new(4.5).expect("a finite threshold applies");
+    assert_eq!(
+        it.read_with_threshold(threshold).unwrap().unwrap().doc_id,
+        2
+    );
+    assert!(it.read_with_threshold(threshold).unwrap().is_none());
 }
 
 /// A C-ABI parent sees through the decorator to its child's sort weight: here
