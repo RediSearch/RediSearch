@@ -2543,6 +2543,7 @@ void Indexes_UpgradeLegacyIndexes() {
     sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
 
     // clear index stats
+    IndexError_Clear(sp->stats.indexError);
     memset(&sp->stats, 0, sizeof(sp->stats));
     // Init the index error
     sp->stats.indexError = IndexError_Init();
@@ -2673,13 +2674,15 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
-    QueryError _status;
+    // Replaying aux data can encounter an alias already registered by an earlier load.
+    QueryError _status = {0};
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     int rc = IndexAlias_Add(s, spec_ref, 0, &_status);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
+    QueryError_ClearError(&_status);
   }
 
   sp->indexer = NewIndexer(sp);
@@ -2726,6 +2729,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  sp->stats.indexError = IndexError_Init();
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -2814,12 +2818,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= INDEX_MIN_ALIAS_VERSION) {
     size_t narr = RedisModule_LoadUnsigned(rdb);
     for (size_t ii = 0; ii < narr; ++ii) {
-      QueryError status;
+      QueryError status = {0};
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, spec_ref, 0, &status);
       RedisModule_Free(s);
       RS_ASSERT(rc == REDISMODULE_OK);
+      QueryError_ClearError(&status);
     }
   }
   sp->indexer = NewIndexer(sp);
@@ -2828,11 +2833,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", sp->name);
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    IndexSpec_ClearAliases(spec_ref);
     StrongRef_Release(spec_ref);
     return NULL;
   }
 
-  QueryError status;
+  QueryError status = {0};
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
   dictDelete(legacySpecRules, sp->name);
@@ -2841,6 +2848,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            sp->name, QueryError_GetError(&status));
+    QueryError_ClearError(&status);
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    IndexSpec_ClearAliases(spec_ref);
     StrongRef_Release(spec_ref);
     return NULL;
   }
