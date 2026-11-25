@@ -112,7 +112,7 @@ TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
   p->Free = resultProcessor_GenericFree;
   p->kout = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   QITR_PushRP(&qitr, p);
-  ResultProcessor *sorter = RPSorter_NewByScore(NUM_RESULTS, NULL);
+  ResultProcessor *sorter = RPSorter_NewByScore(NUM_RESULTS, NULL, false);
   QITR_PushRP(&qitr, sorter);
 
   QueryRequestLimits_RequestMemoryStop(&timeout);
