@@ -2059,13 +2059,17 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def test_fail_timeout_before_coord_store_aggregate(self):
-        """Test timeout occurring before coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_before_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+    def test_fail_timeout_before_coord_encode_aggregate(self):
+        """Test timeout occurring before coordinator encodes results for FT.AGGREGATE."""
+        self._test_fail_timeout_before_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_after_coord_store_aggregate(self):
-        """Test timeout occurring after coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+    def test_fail_timeout_during_coord_encode_aggregate(self):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, ['FT.AGGREGATE', 'idx', '*'], before=False, coordinator=True, during=True)
+
+    def test_fail_timeout_after_coord_encode_aggregate(self):
+        """Test timeout occurring after coordinator encodes results for FT.AGGREGATE."""
+        self._test_fail_timeout_after_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_store_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
@@ -2085,45 +2089,44 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def _test_fail_timeout_coord_store_cursor_read_impl(self, before):
-        """FAIL timeout on FT.CURSOR READ paused before/after coord AREQ_StoreResults."""
+    def _test_fail_timeout_coord_encode_cursor_read_impl(self, before):
+        """FAIL timeout on FT.CURSOR READ paused before or after coordinator reply encoding."""
         env = self.env
         skipIfNoEnableAssert(env)
 
-        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
+        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(
+            env, timeout=0)
 
-        if before:
-            setPauseBeforeStoreResults(env, True, internal=False)
-        else:
-            setPauseAfterStoreResults(env, True, internal=False)
+        point = ('Before' if before else 'After') + 'CoordBackgroundReplyEncode'
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
             wait_for_condition(
-                lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-                'Timeout while waiting for FT.CURSOR READ to pause around store results'
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                'Timeout while waiting for FT.CURSOR READ to pause around worker encoding'
             )
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
         finally:
-            resetStoreResultsDebug(env)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
 
         # Wait for the worker's post-timeout wind-down before asserting.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
                                                     base_err_coord,
-                                                    'FAIL coord-store cursor-read timeout')
+                                                    'FAIL coordinator reply encoding timeout')
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
-    def test_fail_timeout_before_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just before coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=True)
+    def test_fail_timeout_before_coord_encode_cursor_read(self):
+        """Test FAIL timeout on FT.CURSOR READ just before coordinator reply encoding."""
+        self._test_fail_timeout_coord_encode_cursor_read_impl(before=True)
 
-    def test_fail_timeout_after_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just after coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=False)
+    def test_fail_timeout_after_coord_encode_cursor_read(self):
+        """Test FAIL timeout on FT.CURSOR READ just after coordinator reply encoding."""
+        self._test_fail_timeout_coord_encode_cursor_read_impl(before=False)
 
     def test_sticky_policy_fail_aggregate_config_return_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN."""
