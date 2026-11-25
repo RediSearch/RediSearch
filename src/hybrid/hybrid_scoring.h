@@ -38,6 +38,11 @@ typedef struct {
   double constant;
   size_t window;
   bool hasExplicitWindow;           // Flag to track if window was explicitly set in the query args
+  // COMBINE RRF ... WEIGHTS: one weight per subquery, in subquery order, so a document scores
+  // Σ weights[i] / (constant + rank_i). NULL when WEIGHTS was not given, which weighs every
+  // subquery 1. Owned.
+  double *weights;
+  size_t numWeights;
 } HybridRRFContext;
 
 typedef struct {
@@ -69,7 +74,8 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  * Format the hybrid score node label (the inner node of the EXPLAINSCORE
  * wrapper that holds the text + vector branches).
  *
- * For RRF: "Hybrid score (RRF: window=W, constant=K)".
+ * For RRF: "Hybrid score (RRF: window=W, constant=K)", plus ", weights=[w1, w2]" when
+ * WEIGHTS was given.
  * For LINEAR: "Hybrid score (LINEAR: alpha=A, beta=B, window=W)" (assumes the
  * two-source hybrid layout — text=weight[0], vector=weight[1]).
  *
@@ -85,6 +91,8 @@ char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx
  *
  *   RRF, both matched:
  *     "final score: 1 / (constant K + rank N1) + 1 / (constant K + rank N2) = S"
+ *   RRF with WEIGHTS, each term is prefixed by its weight:
+ *     "final score: W1 * 1 / (constant K + rank N1) + W2 * 1 / (constant K + rank N2) = S"
  *   RRF, text-only:
  *     "final score: 1 / (constant K + rank N1) + 0 [vector: no match] = S"
  *   LINEAR, both matched:
