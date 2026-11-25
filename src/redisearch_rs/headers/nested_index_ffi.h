@@ -10,20 +10,6 @@
 #include "rqe_core.h"
 
 /**
- * The kind of one routing level, as C declares it.
- */
-typedef enum NestedLevelKind {
-  /**
-   * Children keyed by an exact tag value.
-   */
-  NestedLevelKind_Tag = 0,
-  /**
-   * Children keyed by fixed numeric buckets.
-   */
-  NestedLevelKind_Buckets = 1,
-} NestedLevelKind;
-
-/**
  * The kind of the last attribute of `INDEX`, which every terminal stores.
  */
 typedef enum NestedTerminalKind {
@@ -70,28 +56,6 @@ typedef struct NestedIndexOutcome {
    */
   int64_t block_delta;
 } NestedIndexOutcome;
-
-/**
- * One routing level of a NESTED field's `INDEX`, as C describes it.
- */
-typedef struct NestedLevelDef {
-  /**
-   * Which kind of level this is.
-   */
-  enum NestedLevelKind kind;
-  /**
-   * For [`NestedLevelKind::Tag`]: the `MAXCARD` limit per node, `0` for none.
-   */
-  size_t max_cardinality;
-  /**
-   * For [`NestedLevelKind::Buckets`]: the boundaries, `num_boundaries` of them.
-   */
-  const double *boundaries;
-  /**
-   * For [`NestedLevelKind::Buckets`]: the number of boundaries.
-   */
-  size_t num_boundaries;
-} NestedLevelDef;
 
 #ifdef __cplusplus
 extern "C" {
@@ -144,21 +108,20 @@ bool NestedIndex_IndexDocument(struct NestedIndex *index, t_docId doc_id, const 
 /**
  * Build the index of a NESTED field from its routing levels and terminal kind.
  *
- * `compress_floats` applies to numeric terminals, and is read from the module configuration
- * once, when the index is built. Returns null when the levels are rejected (too few or too many,
- * invalid bucket boundaries), after writing a NUL-terminated reason into `err`. Free a non-null
- * result with [`NestedIndex_Free`].
+ * Every routing level is a tag level; `max_cardinality` holds each one's `MAXCARD` limit per
+ * node, `0` for none. `compress_floats` applies to numeric terminals, and is read from the module
+ * configuration once, when the index is built. Returns null when the levels are rejected (too
+ * few or too many), after writing a NUL-terminated reason into `err`. Free a non-null result
+ * with [`NestedIndex_Free`].
  *
  * # Safety
  *
- * 1. `levels` is [valid] for reads of `num_levels` elements, or `num_levels` is zero.
- * 2. Every [`NestedLevelKind::Buckets`] level's `boundaries` is [valid] for reads of
- *    `num_boundaries` elements, or `num_boundaries` is zero.
- * 3. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
+ * 1. `max_cardinality` is [valid] for reads of `num_levels` elements, or `num_levels` is zero.
+ * 2. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct NestedIndex *NestedIndex_New(const struct NestedLevelDef *levels, size_t num_levels, enum NestedTerminalKind terminal, bool compress_floats, char *err, size_t err_len);
+struct NestedIndex *NestedIndex_New(const size_t *max_cardinality, size_t num_levels, enum NestedTerminalKind terminal, bool compress_floats, char *err, size_t err_len);
 
 /**
  * The number of terminals, one per distinct path indexed.
@@ -219,17 +182,6 @@ void NestedRows_Free(struct NestedRows *rows);
  * included; it only sizes the first allocation. Free it with [`NestedRows_Free`].
  */
 struct NestedRows *NestedRows_New(size_t num_levels);
-
-/**
- * Append a numeric key to the current element.
- *
- * # Safety
- *
- * 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void NestedRows_PushNumericKey(struct NestedRows *rows, double value);
 
 /**
  * Append a tag key to the current element.

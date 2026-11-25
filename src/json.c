@@ -1281,10 +1281,10 @@ static NestedValueStatus JSON_ReadNestedValue(RedisJSON element, const NestedSub
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "NESTED NUMERIC sub-field",
                                     " `%s` value is outside its RANGE", sub->name);
       rv = NestedValue_Error;
-    } else if (terminal) {
-      NestedRows_FinishNumeric(rows, num);
     } else {
-      NestedRows_PushNumericKey(rows, num);
+      // NUMERIC sub-fields are always last in INDEX, so a number is always the terminal value.
+      RS_ASSERT(terminal);
+      NestedRows_FinishNumeric(rows, num);
     }
   }
   japi->freeIter(iter);

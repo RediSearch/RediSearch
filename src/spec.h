@@ -65,7 +65,6 @@ struct IndexesScanner;
 #define SPEC_NESTED_STR "NESTED"
 #define SPEC_NESTED_INDEX_STR "INDEX"
 #define SPEC_NESTED_MAXCARD_STR "MAXCARD"
-#define SPEC_NESTED_BUCKETS_STR "BUCKETS"
 #define SPEC_NESTED_RANGE_STR "RANGE"
 
 // NESTED fields are behind ENABLE_UNSTABLE_FEATURES, gated like sparse vectors: creating one is
@@ -226,8 +225,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_NESTED_VERSION 31
 // The layout of a NESTED field's RDB definition, saved first so it can change on its own.
 #define NESTED_RDB_FORMAT 1
-// A sanity bound on loaded bucket boundaries; the Rust level enforces its own, smaller limit.
-#define NESTED_RDB_MAX_BOUNDARIES 4096
 #define INDEX_SPARSE_VECTOR_VERSION 31
 #define INDEX_SST_TAG_VALUES_VERSION 30
 #define INDEX_SST_SPEC_ID_VERSION 29

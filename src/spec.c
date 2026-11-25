@@ -1540,8 +1540,8 @@ static bool NestedDef_Validate(const NestedDef *def, char *err, size_t errLen) {
     if (sub->type != INDEXFLD_T_TAG && (sub->caseSensitive || sub->maxCardinality)) {
       REJECT("CASESENSITIVE and MAXCARD apply to TAG sub-fields, not `%s`", sub->name);
     }
-    if (sub->type != INDEXFLD_T_NUMERIC && (sub->numBuckets || sub->hasRange)) {
-      REJECT("BUCKETS and RANGE apply to NUMERIC sub-fields, not `%s`", sub->name);
+    if (sub->type != INDEXFLD_T_NUMERIC && sub->hasRange) {
+      REJECT("RANGE applies to NUMERIC sub-fields, not `%s`", sub->name);
     }
     if (sub->hasRange && !(sub->rangeMin <= sub->rangeMax)) {
       REJECT("RANGE of `%s` needs two numbers, the first not greater than the second", sub->name);
@@ -1561,19 +1561,15 @@ static bool NestedDef_Validate(const NestedDef *def, char *err, size_t errLen) {
     used[def->levels[i]] = true;
     const NestedSubField *sub = &def->subFields[def->levels[i]];
     bool last = i + 1 == def->numLevels;
-    if (last && sub->numBuckets) {
-      REJECT("BUCKETS on the last INDEX sub-field `%s` is not supported yet", sub->name);
-    }
     // Until garbage collection frees the values deleted or replaced documents held, a limit would
     // keep counting them and reject later updates.
     if (sub->maxCardinality) {
       REJECT("MAXCARD (on `%s`) is not supported yet", sub->name);
     }
-    if (!last && sub->type == INDEXFLD_T_NUMERIC && !sub->numBuckets) {
-      REJECT("NUMERIC sub-field `%s` must declare BUCKETS unless it is last in INDEX", sub->name);
-    }
-    if (!last && sub->hasRange) {
-      REJECT("RANGE applies to the last INDEX sub-field, not `%s`", sub->name);
+    // Routing levels are TAG: a numeric one could neither split nor filter its children, since
+    // nothing below it stores its value. RANGE applies only to NUMERIC, so it is last too.
+    if (!last && sub->type == INDEXFLD_T_NUMERIC) {
+      REJECT("NUMERIC sub-field `%s` must be last in INDEX", sub->name);
     }
   }
   return true;
@@ -1621,19 +1617,6 @@ static int parseNestedSubField(ArgsCursor *ac, NestedSubField *sub, QueryError *
       seenMaxCard = true;
       if (AC_GetSize(ac, &sub->maxCardinality, AC_F_GE1) != AC_OK) {
         NESTED_ERR("MAXCARD of `%s` must be a positive integer", name);
-      }
-    } else if (sub->type == INDEXFLD_T_NUMERIC && AC_AdvanceIfMatch(ac, SPEC_NESTED_BUCKETS_STR)) {
-      if (sub->buckets) NESTED_ERR("BUCKETS given twice for `%s`", name);
-      size_t n;
-      if (AC_GetSize(ac, &n, AC_F_GE1) != AC_OK || n < 2 || AC_NumRemaining(ac) < n) {
-        NESTED_ERR("BUCKETS of `%s` needs a count of at least 2, then that many boundaries", name);
-      }
-      sub->buckets = rm_malloc(n * sizeof(*sub->buckets));
-      sub->numBuckets = n;
-      for (size_t i = 0; i < n; i++) {
-        if (AC_GetDouble(ac, &sub->buckets[i], 0) != AC_OK) {
-          NESTED_ERR("BUCKETS of `%s` has a boundary that is not a number", name);
-        }
       }
     } else if (sub->type == INDEXFLD_T_NUMERIC && AC_AdvanceIfMatch(ac, SPEC_NESTED_RANGE_STR)) {
       if (seenRange) NESTED_ERR("RANGE given twice for `%s`", name);
@@ -3107,10 +3090,6 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
       RedisModule_SaveUnsigned(rdb, sub->type);
       RedisModule_SaveUnsigned(rdb, sub->caseSensitive);
       RedisModule_SaveUnsigned(rdb, sub->maxCardinality);
-      RedisModule_SaveUnsigned(rdb, sub->numBuckets);
-      for (size_t b = 0; b < sub->numBuckets; b++) {
-        RedisModule_SaveDouble(rdb, sub->buckets[b]);
-      }
       RedisModule_SaveUnsigned(rdb, sub->hasRange);
       RedisModule_SaveDouble(rdb, sub->rangeMin);
       RedisModule_SaveDouble(rdb, sub->rangeMax);
@@ -3163,19 +3142,6 @@ static int loadNestedField(RedisModuleIO *rdb, FieldSpec *f) {
     sub->type = (FieldType)type;
     sub->caseSensitive = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR) != 0;
     sub->maxCardinality = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
-    uint64_t numBuckets = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
-    if (numBuckets > NESTED_RDB_MAX_BOUNDARIES) {
-      RedisModule_LogIOError(rdb, "warning", "Invalid NESTED bucket count %llu",
-                             (unsigned long long)numBuckets);
-      return REDISMODULE_ERR;
-    }
-    if (numBuckets) {
-      sub->buckets = rm_malloc(numBuckets * sizeof(*sub->buckets));
-      sub->numBuckets = numBuckets;
-      for (uint64_t b = 0; b < numBuckets; b++) {
-        sub->buckets[b] = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
-      }
-    }
     sub->hasRange = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR) != 0;
     sub->rangeMin = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
     sub->rangeMax = LoadDouble_IOError(rdb, return REDISMODULE_ERR);
@@ -4410,8 +4376,6 @@ static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isD
       Sha1_UpdateU64(hash, sub->type);
       Sha1_UpdateU64(hash, sub->caseSensitive);
       Sha1_UpdateU64(hash, sub->maxCardinality);
-      Sha1_UpdateU64(hash, sub->numBuckets);
-      Sha1_UpdateBuffer(hash, (const char *)sub->buckets, sub->numBuckets * sizeof(*sub->buckets));
       Sha1_UpdateU64(hash, sub->hasRange);
       Sha1_UpdateBuffer(hash, (const char *)&sub->rangeMin, sizeof(sub->rangeMin));
       Sha1_UpdateBuffer(hash, (const char *)&sub->rangeMax, sizeof(sub->rangeMax));

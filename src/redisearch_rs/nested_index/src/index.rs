@@ -109,9 +109,9 @@ impl NestedIndex {
         let paths: Vec<&[&[u8]]> = elements.iter().map(|element| element.path).collect();
         self.routing
             .check_paths(&paths)
-            .map_err(|CardinalityExceeded { level, max }| {
-                IndexError::CardinalityExceeded { level, max }
-            })
+            .map_err(
+                |CardinalityExceeded { level, max }| IndexError::CardinalityExceeded { level, max },
+            )
     }
 
     /// Indexes every element of the document `doc_id`.

@@ -95,7 +95,6 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
       }
       rm_free(sub->name);
       rm_free(sub->path);
-      rm_free(sub->buckets);
     }
     rm_free(def);
     fs->nestedOpts.def = NULL;
@@ -113,26 +112,20 @@ void FieldSpec_InitNested(FieldSpec *fs) {
 bool FieldSpec_BuildNestedIndex(FieldSpec *fs, char *err, size_t errLen) {
   RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NESTED));
   RS_ASSERT(fs->nestedOpts.def->numLevels >= 1);
-  // Every level but the last routes; the last is the terminal.
+  // Every level but the last routes, on a TAG sub-field; the last is the terminal.
   uint8_t numRouting = fs->nestedOpts.def->numLevels - 1;
-  NestedLevelDef defs[NESTED_MAX_SUBFIELDS] = {0};
+  size_t maxCardinality[NESTED_MAX_SUBFIELDS] = {0};
   for (uint8_t i = 0; i < numRouting; i++) {
     const NestedSubField *sub = &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[i]];
-    if (sub->type == INDEXFLD_T_TAG) {
-      defs[i].kind = NestedLevelKind_Tag;
-      defs[i].max_cardinality = sub->maxCardinality;
-    } else {
-      defs[i].kind = NestedLevelKind_Buckets;
-      defs[i].boundaries = sub->buckets;
-      defs[i].num_boundaries = sub->numBuckets;
-    }
+    RS_ASSERT(sub->type == INDEXFLD_T_TAG);
+    maxCardinality[i] = sub->maxCardinality;
   }
   const NestedSubField *terminal =
       &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[fs->nestedOpts.def->numLevels - 1]];
   NestedTerminalKind kind =
       terminal->type == INDEXFLD_T_TAG ? NestedTerminalKind_Tag : NestedTerminalKind_Numeric;
-  struct NestedIndex *index =
-      NestedIndex_New(defs, numRouting, kind, RSGlobalConfig.numericCompress, err, errLen);
+  struct NestedIndex *index = NestedIndex_New(maxCardinality, numRouting, kind,
+                                              RSGlobalConfig.numericCompress, err, errLen);
   if (!index) {
     return false;
   }

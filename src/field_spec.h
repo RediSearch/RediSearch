@@ -88,9 +88,6 @@ typedef struct NestedSubField {
   bool caseSensitive;
   // TAG: MAXCARD, 0 when unset.
   size_t maxCardinality;
-  // NUMERIC: BUCKETS boundaries (an `rm_malloc`ed array), NULL when unset.
-  double *buckets;
-  size_t numBuckets;
   // NUMERIC: RANGE, when `hasRange`.
   bool hasRange;
   double rangeMin;

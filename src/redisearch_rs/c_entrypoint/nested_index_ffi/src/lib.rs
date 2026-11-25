@@ -9,7 +9,7 @@
 
 //! C bindings for the index of a NESTED field.
 //!
-//! The schema crosses the boundary once, as an array of [`NestedLevelDef`] given to
+//! The schema crosses the boundary once, as the `MAXCARD` of each routing level given to
 //! [`NestedIndex_New`]. Indexing is split in two, as for sparse vectors, so that reading the JSON
 //! document runs before the spec write lock is taken: the loader fills a [`NestedRows`] element by
 //! element, and [`NestedIndex_IndexDocument`] checks and writes it under the lock.
@@ -18,36 +18,9 @@ use std::{ffi::c_char, num::NonZeroUsize};
 
 use ffi::t_docId;
 use nested_index::{
-    BucketLevel, Element, FloatCompression, IndexParams, Key, Level, NestedIndex, TagLevel,
-    TerminalKind, TerminalValue,
+    Element, FloatCompression, IndexParams, NestedIndex, TagLevel, TerminalKind, TerminalValue,
 };
 use tag_index::Tag;
-
-/// The kind of one routing level, as C declares it.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cheadergen::config(export, prefix_with_name)]
-pub enum NestedLevelKind {
-    /// Children keyed by an exact tag value.
-    Tag = 0,
-    /// Children keyed by fixed numeric buckets.
-    Buckets = 1,
-}
-
-/// One routing level of a NESTED field's `INDEX`, as C describes it.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-#[cheadergen::config(export)]
-pub struct NestedLevelDef {
-    /// Which kind of level this is.
-    pub kind: NestedLevelKind,
-    /// For [`NestedLevelKind::Tag`]: the `MAXCARD` limit per node, `0` for none.
-    pub max_cardinality: usize,
-    /// For [`NestedLevelKind::Buckets`]: the boundaries, `num_boundaries` of them.
-    pub boundaries: *const f64,
-    /// For [`NestedLevelKind::Buckets`]: the number of boundaries.
-    pub num_boundaries: usize,
-}
 
 /// The kind of the last attribute of `INDEX`, which every terminal stores.
 #[repr(C)]
@@ -75,9 +48,8 @@ pub struct NestedIndexOutcome {
     pub block_delta: i64,
 }
 
-/// One element's key on a routing level, or its terminal value, owned until the document is
-/// indexed.
-enum Owned {
+/// One element's terminal value, owned until the document is indexed.
+enum OwnedValue {
     Tag(Vec<u8>),
     Numeric(f64),
 }
@@ -86,10 +58,10 @@ enum Owned {
 ///
 /// Each element is its keys, pushed in level order, then its terminal value, which ends it.
 pub struct NestedRows {
-    /// Every element's keys, back to back.
-    keys: Vec<Owned>,
+    /// Every element's routing tag values, back to back.
+    keys: Vec<Vec<u8>>,
     /// One `(number of keys, value)` per finished element.
-    elements: Vec<(usize, Owned)>,
+    elements: Vec<(usize, OwnedValue)>,
     /// Keys pushed since the last finished element.
     pending: usize,
 }
@@ -114,61 +86,40 @@ unsafe fn write_error(err: *mut c_char, err_len: usize, message: &str) {
 
 /// Build the index of a NESTED field from its routing levels and terminal kind.
 ///
-/// `compress_floats` applies to numeric terminals, and is read from the module configuration
-/// once, when the index is built. Returns null when the levels are rejected (too few or too many,
-/// invalid bucket boundaries), after writing a NUL-terminated reason into `err`. Free a non-null
-/// result with [`NestedIndex_Free`].
+/// Every routing level is a tag level; `max_cardinality` holds each one's `MAXCARD` limit per
+/// node, `0` for none. `compress_floats` applies to numeric terminals, and is read from the module
+/// configuration once, when the index is built. Returns null when the levels are rejected (too
+/// few or too many), after writing a NUL-terminated reason into `err`. Free a non-null result
+/// with [`NestedIndex_Free`].
 ///
 /// # Safety
 ///
-/// 1. `levels` is [valid] for reads of `num_levels` elements, or `num_levels` is zero.
-/// 2. Every [`NestedLevelKind::Buckets`] level's `boundaries` is [valid] for reads of
-///    `num_boundaries` elements, or `num_boundaries` is zero.
-/// 3. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
+/// 1. `max_cardinality` is [valid] for reads of `num_levels` elements, or `num_levels` is zero.
+/// 2. `err` is [valid] for writes of `err_len` bytes, or `err_len` is zero.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NestedIndex_New(
-    levels: *const NestedLevelDef,
+    max_cardinality: *const usize,
     num_levels: usize,
     terminal: NestedTerminalKind,
     compress_floats: bool,
     err: *mut c_char,
     err_len: usize,
 ) -> *mut NestedIndex {
-    let defs = if num_levels == 0 {
+    let limits = if num_levels == 0 {
         &[][..]
     } else {
         // SAFETY: guaranteed by 1.
-        unsafe { std::slice::from_raw_parts(levels, num_levels) }
+        unsafe { std::slice::from_raw_parts(max_cardinality, num_levels) }
     };
-    let mut built = Vec::with_capacity(defs.len());
-    for (position, def) in defs.iter().enumerate() {
-        let level = match def.kind {
-            NestedLevelKind::Tag => Level::Tag(match NonZeroUsize::new(def.max_cardinality) {
-                Some(max) => TagLevel::with_max_cardinality(max),
-                None => TagLevel::new(),
-            }),
-            NestedLevelKind::Buckets => {
-                let boundaries = if def.num_boundaries == 0 {
-                    Vec::new()
-                } else {
-                    // SAFETY: guaranteed by 2.
-                    unsafe { std::slice::from_raw_parts(def.boundaries, def.num_boundaries) }
-                        .to_vec()
-                };
-                match BucketLevel::new(boundaries) {
-                    Ok(buckets) => Level::Buckets(buckets),
-                    Err(e) => {
-                        // SAFETY: guaranteed by 3.
-                        unsafe { write_error(err, err_len, &format!("level {position}: {e}")) };
-                        return std::ptr::null_mut();
-                    }
-                }
-            }
-        };
-        built.push(level);
-    }
+    let levels = limits
+        .iter()
+        .map(|&max| match NonZeroUsize::new(max) {
+            Some(max) => TagLevel::with_max_cardinality(max),
+            None => TagLevel::new(),
+        })
+        .collect();
     let kind = match terminal {
         NestedTerminalKind::Numeric => TerminalKind::Numeric(if compress_floats {
             FloatCompression::On
@@ -177,10 +128,10 @@ pub unsafe extern "C" fn NestedIndex_New(
         }),
         NestedTerminalKind::Tag => TerminalKind::Tag,
     };
-    match NestedIndex::new(built, kind) {
+    match NestedIndex::new(levels, kind) {
         Ok(index) => Box::into_raw(Box::new(index)),
         Err(e) => {
-            // SAFETY: guaranteed by 3.
+            // SAFETY: guaranteed by 2.
             unsafe { write_error(err, err_len, &e.to_string()) };
             std::ptr::null_mut()
         }
@@ -242,22 +193,7 @@ pub unsafe extern "C" fn NestedRows_PushTagKey(
     let rows = unsafe { &mut *rows };
     // SAFETY: guaranteed by 2.
     let bytes = unsafe { bytes(value, len) };
-    rows.keys.push(Owned::Tag(bytes.to_vec()));
-    rows.pending += 1;
-}
-
-/// Append a numeric key to the current element.
-///
-/// # Safety
-///
-/// 1. `rows` is a [valid] pointer returned by [`NestedRows_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NestedRows_PushNumericKey(rows: *mut NestedRows, value: f64) {
-    // SAFETY: guaranteed by 1.
-    let rows = unsafe { &mut *rows };
-    rows.keys.push(Owned::Numeric(value));
+    rows.keys.push(bytes.to_vec());
     rows.pending += 1;
 }
 
@@ -280,7 +216,7 @@ pub unsafe extern "C" fn NestedRows_FinishTag(
     // SAFETY: guaranteed by 2.
     let bytes = unsafe { bytes(value, len) };
     rows.elements
-        .push((rows.pending, Owned::Tag(bytes.to_vec())));
+        .push((rows.pending, OwnedValue::Tag(bytes.to_vec())));
     rows.pending = 0;
 }
 
@@ -295,7 +231,8 @@ pub unsafe extern "C" fn NestedRows_FinishTag(
 pub unsafe extern "C" fn NestedRows_FinishNumeric(rows: *mut NestedRows, value: f64) {
     // SAFETY: guaranteed by 1.
     let rows = unsafe { &mut *rows };
-    rows.elements.push((rows.pending, Owned::Numeric(value)));
+    rows.elements
+        .push((rows.pending, OwnedValue::Numeric(value)));
     rows.pending = 0;
 }
 
@@ -316,23 +253,26 @@ pub unsafe extern "C" fn NestedRows_DiscardElement(rows: *mut NestedRows) {
 }
 
 /// Calls `f` with the elements of `rows`, borrowed from it. Fails, naming the element, when a tag
-/// value contains a NUL byte.
-fn with_elements<R>(rows: &NestedRows, f: impl FnOnce(&[Element<'_>]) -> R) -> Result<R, String> {
+/// value contains a NUL byte, or when an element does not have `num_levels` keys, one per routing
+/// level: the index panics on such a path, which must not happen inside the server.
+fn with_elements<R>(
+    num_levels: usize,
+    rows: &NestedRows,
+    f: impl FnOnce(&[Element<'_>]) -> R,
+) -> Result<R, String> {
     debug_assert_eq!(rows.pending, 0, "every element is finished before use");
-    let keys: Vec<Key<'_>> = rows
-        .keys
-        .iter()
-        .map(|key| match key {
-            Owned::Tag(bytes) => Key::Tag(bytes),
-            Owned::Numeric(value) => Key::Numeric(*value),
-        })
-        .collect();
+    let keys: Vec<&[u8]> = rows.keys.iter().map(Vec::as_slice).collect();
     let mut elements = Vec::with_capacity(rows.elements.len());
     let mut start = 0;
     for (position, (num_keys, value)) in rows.elements.iter().enumerate() {
+        if *num_keys != num_levels {
+            return Err(format!(
+                "element {position}: expected {num_levels} routing values, got {num_keys}"
+            ));
+        }
         let value = match value {
-            Owned::Numeric(value) => TerminalValue::Numeric(*value),
-            Owned::Tag(bytes) => match Tag::new(bytes) {
+            OwnedValue::Numeric(value) => TerminalValue::Numeric(*value),
+            OwnedValue::Tag(bytes) => match Tag::new(bytes) {
                 Some(tag) => TerminalValue::Tag(tag),
                 None => return Err(format!("element {position}: tag value contains a NUL byte")),
             },
@@ -370,7 +310,7 @@ pub unsafe extern "C" fn NestedIndex_CheckDocument(
     let index = unsafe { &*index };
     // SAFETY: guaranteed by 2.
     let rows = unsafe { &*rows };
-    let checked = with_elements(rows, |elements| {
+    let checked = with_elements(index.routing().levels().len(), rows, |elements| {
         index.check_document(elements).map_err(|e| e.to_string())
     })
     .and_then(|result| result);
@@ -412,7 +352,7 @@ pub unsafe extern "C" fn NestedIndex_IndexDocument(
     let index = unsafe { &mut *index };
     // SAFETY: guaranteed by 2.
     let rows = unsafe { &*rows };
-    let indexed = with_elements(rows, |elements| {
+    let indexed = with_elements(index.routing().levels().len(), rows, |elements| {
         index
             .index_document(doc_id, elements, IndexParams { max_depth_range })
             .map_err(|e| e.to_string())

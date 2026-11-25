@@ -91,19 +91,19 @@ def testInfoShowsTheDefinition(env):
     enable_unstable_features(env)
     create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
            '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE',
-           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
+           '$.size', 'AS', 'size', 'TAG',
            '$.price', 'AS', 'price', 'NUMERIC', 'RANGE', 0, 1000,
-           'INDEX', 3, 'color', 'year', 'price').ok()
+           'INDEX', 3, 'color', 'size', 'price').ok()
 
     attribute = nested_attribute(env)
     env.assertEqual(attribute['identifier'], '$.items[*]')
     env.assertEqual(attribute['attribute'], 'items')
-    env.assertEqual(attribute['index'], ['color', 'year', 'price'])
+    env.assertEqual(attribute['index'], ['color', 'size', 'price'])
     env.assertEqual(attribute['terminals'], 0)
-    color, year, price = [to_dict(s) for s in attribute['sub_fields']]
+    color, size, price = [to_dict(s) for s in attribute['sub_fields']]
     env.assertEqual((color['identifier'], color['type'], color['case_sensitive']),
                     ('$.color', 'TAG', 'true'))
-    env.assertEqual([float(b) for b in year['buckets']], [2020.0, 2022.0, 2024.0])
+    env.assertEqual((size['type'], 'case_sensitive' in size), ('TAG', False))
     env.assertEqual((float(price['range_min']), float(price['range_max'])), (0.0, 1000.0))
 
 
@@ -124,12 +124,6 @@ def testInvalidDefinitionsAreRejected(env):
         ('an empty sub-field name',
          ['NESTED', 2, *sub('$.c', '', 'TAG'), *sub('$.p', 'p', 'NUMERIC'),
           'INDEX', 2, 'c', 'p'], 'both non-empty'),
-        ('BUCKETS given twice',
-         ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 2, 0, 1, 'BUCKETS', 2, 0, 1),
-          *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'y', 'c'], 'BUCKETS given twice'),
-        ('more buckets than allowed',
-         ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 1026, *range(1026)),
-          *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'y', 'c'], 'at most 1024 buckets'),
         ('a sub-field count of zero',
          ['NESTED', 0, 'INDEX', 0], 'number of sub-fields'),
         ('too many sub-fields',
@@ -155,24 +149,22 @@ def testInvalidDefinitionsAreRejected(env):
         ('a single sub-field',
          ['NESTED', 1, *sub('$.p', 'p', 'NUMERIC'), 'INDEX', 1, 'p'],
          'at least one routing sub-field'),
-        ('a NUMERIC routing level without BUCKETS',
+        ('a NUMERIC routing level',
          ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC'), *sub('$.c', 'c', 'TAG'),
-          'INDEX', 2, 'y', 'c'], 'must declare BUCKETS'),
-        ('BUCKETS on the last level',
+          'INDEX', 2, 'y', 'c'], 'NUMERIC sub-field `y` must be last in INDEX'),
+        # Not an option: it reads as the next sub-field's path, which has no `AS`.
+        ('BUCKETS',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG'), *sub('$.p', 'p', 'NUMERIC', 'BUCKETS', 2, 0, 1),
-          'INDEX', 2, 'c', 'p'], 'not supported yet'),
+          'INDEX', 2, 'c', 'p'], 'expected `INDEX'),
         ('MAXCARD, until garbage collection frees stale values',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG', 'MAXCARD', 2), *sub('$.p', 'p', 'NUMERIC'),
           'INDEX', 2, 'c', 'p'], 'MAXCARD (on `c`) is not supported yet'),
-        ('RANGE on a routing level',
-         ['NESTED', 2, *sub('$.p', 'p', 'NUMERIC', 'BUCKETS', 2, 0, 1, 'RANGE', 0, 1),
-          *sub('$.c', 'c', 'TAG'), 'INDEX', 2, 'p', 'c'], 'RANGE applies to the last'),
+        ('RANGE on a TAG sub-field',
+         ['NESTED', 2, *sub('$.c', 'c', 'TAG', 'RANGE', 0, 1), *sub('$.p', 'p', 'NUMERIC'),
+          'INDEX', 2, 'c', 'p'], 'expected `<path> AS <name>`'),
         ('an inverted RANGE',
          ['NESTED', 2, *sub('$.c', 'c', 'TAG'), *sub('$.p', 'p', 'NUMERIC', 'RANGE', 5, 1),
           'INDEX', 2, 'c', 'p'], 'the first not greater than the second'),
-        ('decreasing bucket boundaries',
-         ['NESTED', 2, *sub('$.y', 'y', 'NUMERIC', 'BUCKETS', 2, 5, 1), *sub('$.c', 'c', 'TAG'),
-          'INDEX', 2, 'y', 'c'], 'not greater than the previous'),
     ]
     for name, definition, error in cases:
         if definition is None:
@@ -308,18 +300,18 @@ def testASubFieldWithSeveralValuesRejectsTheDocument(env):
 
 
 @skip(no_json=True, cluster=True)
-def testAValueOutsideTheRoutingBucketsRejectsTheDocument(env):
+def testARejectedDocumentHasNoneOfItsFieldsIndexed(env):
     enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
                '$.t', 'AS', 't', 'TEXT',
                '$.items[*]', 'AS', 'items', 'NESTED', 2,
-               '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
-               '$.price', 'AS', 'price', 'NUMERIC',
-               'INDEX', 2, 'year', 'price').ok()
+               '$.color', 'AS', 'color', 'TAG',
+               '$.price', 'AS', 'price', 'NUMERIC', 'RANGE', 0, 100,
+               'INDEX', 2, 'color', 'price').ok()
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(
-        {'t': 'hello', 'items': [{'year': 2021, 'price': 1}, {'year': 2030, 'price': 2}]}))
-    env.assertContains('outside the level', errors(env)['last indexing error'])
+        {'t': 'hello', 'items': [{'color': 'red', 'price': 1}, {'color': 'red', 'price': 500}]}))
+    env.assertContains('outside its RANGE', errors(env)['last indexing error'])
     env.assertEqual(nested_attribute(env)['terminals'], 0)
     # Rejected whole: its TEXT field is not indexed either.
     env.assertEqual(int(index_info(env)['num_docs']), 0)
@@ -333,11 +325,11 @@ def testReloadKeepsTheDefinitionAndReindexes(env):
     conn = getConnectionByEnv(env)
     create(env, '$.items[*]', 'AS', 'items', 'NESTED', 3,
            '$.color', 'AS', 'color', 'TAG', 'CASESENSITIVE',
-           '$.year', 'AS', 'year', 'NUMERIC', 'BUCKETS', 3, 2020, 2022, 2024,
+           '$.size', 'AS', 'size', 'TAG',
            '$.price', 'AS', 'price', 'NUMERIC', 'RANGE', 0, 1000,
-           'INDEX', 3, 'color', 'year', 'price').ok()
+           'INDEX', 3, 'color', 'size', 'price').ok()
     for n in range(10):
-        put(conn, f'doc:{n}', [{'color': f'c{n % 3}', 'year': 2020 + n % 4, 'price': n}])
+        put(conn, f'doc:{n}', [{'color': f'c{n % 3}', 'size': f's{n % 4}', 'price': n}])
     before = nested_attribute(env)
 
     for _ in env.reloadingIterator():
@@ -437,11 +429,11 @@ def testLoadRejectsAnInvalidDefinition(env):
         return env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, payload)
 
     # Module values are written as an opcode, 2 for an unsigned and 4 for a double, then the
-    # value. After `qb`'s path: its type, CASESENSITIVE, MAXCARD, bucket count and RANGE flag, two
-    # RANGE doubles, then the level count and the levels.
+    # value. After `qb`'s path: its type, CASESENSITIVE, MAXCARD and RANGE flag, two RANGE
+    # doubles, then the level count and the levels.
     UINT = b'\x02'
     qb_path = dump.index(b'$.qb\x00')
-    levels = qb_path + len(b'$.qb\x00') + 5 * 2 + 2 * 9
+    levels = qb_path + len(b'$.qb\x00') + 4 * 2 + 2 * 9
     env.assertEqual(dump[levels:levels + 6], UINT + b'\x02' + UINT + b'\x00' + UINT + b'\x01')
 
     def replace(old, new, at=None):

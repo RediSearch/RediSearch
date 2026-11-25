@@ -245,13 +245,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
         if (sub->maxCardinality) {
           REPLY_KVINT("max_cardinality", sub->maxCardinality);
         }
-        if (sub->numBuckets) {
-          REPLY_KVARRAY("buckets");
-          for (size_t b = 0; b < sub->numBuckets; b++) {
-            RedisModule_Reply_Double(reply, sub->buckets[b]);
-          }
-          REPLY_ARRAY_END;
-        }
         if (sub->hasRange) {
           REPLY_KVNUM("range_min", sub->rangeMin);
           REPLY_KVNUM("range_max", sub->rangeMax);
