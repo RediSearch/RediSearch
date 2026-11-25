@@ -474,6 +474,8 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * carrying just the vector score instead of a deep copy of the child's scoring
  * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
  *
+ * A set `sctx->maxVisibleDocId` keeps later documents out of the k results.
+ *
  * # Safety
  *
  * 1. `index` is non-null and [valid], and outlives the returned iterator.
