@@ -437,6 +437,16 @@ static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
   return request->replyDeferred;
 }
 
+static inline bool QueryRequest_RepliesOnFailWorker(const QueryRequest *request) {
+  return request->blockedClientCycleActive && !QueryRequest_UsesReplyCallback(request) &&
+         request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
+}
+
+static inline bool QueryRequest_FailWorkerReplyCancelled(const QueryRequest *request) {
+  return QueryRequest_RepliesOnFailWorker(request) &&
+         QueryRequestLimits_IsBlockedClientTimedOut(&request->limits);
+}
+
 /* Record one complete inline response for a blocked cycle, including errors.
  * Foreground execution has no OnFree and is not counted. */
 #ifdef ENABLE_ASSERT

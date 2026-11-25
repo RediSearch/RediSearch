@@ -2879,11 +2879,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->base.limits.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    reply_cb = DistAggregateReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
-                                                : DistAggregateTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
-    if (policy == TimeoutPolicy_ReturnStrict) {
+    if (policy == TimeoutPolicy_Fail) {
+      timeout_cb = DistAggregateTimeoutFailCallback;
+    } else {
+      reply_cb = DistAggregateReplyCallback;
+      timeout_cb = DistAggregateTimeoutReturnStrictCallback;
       r->base.async.requiresAggregateResultsSync = true;
     }
   }
@@ -3005,10 +3006,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   hreq->profileClocks.coordStartTime = coordInitialTime;
 
   if (policy != TimeoutPolicy_Return) {
-    reply_cb = DistHybridReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistHybridTimeoutFailCallback
-                                                : DistHybridTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
+    if (policy == TimeoutPolicy_Fail) {
+      timeout_cb = DistHybridTimeoutFailCallback;
+    } else {
+      reply_cb = DistHybridReplyCallback;
+      timeout_cb = DistHybridTimeoutReturnStrictCallback;
+    }
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);

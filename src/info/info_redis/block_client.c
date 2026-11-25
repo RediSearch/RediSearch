@@ -91,6 +91,10 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   // Snapshot the disposition before clearing the per-cycle fields it lives in.
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
+  if (QueryRequest_FailWorkerReplyCancelled(request)) {
+    // The worker may have encoded a cursor ID that Redis discarded.
+    disposition = CURSOR_DISPOSITION_FREE;
+  }
   request->blockedClientCycleActive = false;
   request->replyDeferred = false;
 #ifdef ENABLE_ASSERT
@@ -120,7 +124,9 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   if (QueryRequest_UsesReplyCallback(request)) {
     RS_ASSERT(request->inlineReplyCount == 0);
   } else {
-    RS_ASSERT(request->inlineReplyCount == 1);
+    RS_ASSERT(request->inlineReplyCount == 1 ||
+              (request->inlineReplyCount == 0 &&
+               QueryRequest_FailWorkerReplyCancelled(request)));
     RS_ASSERT(!request->reply.hasStoredResults && request->reply.results == NULL);
   }
   // Debug-only counter so tests can deterministically observe that
@@ -154,8 +160,8 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
                                                       rs_wall_clock_ms_t timeout_ms) {
-  // If a timeout is armed, both callbacks must be provided.
-  RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
+  // A worker reply can use a timer without a success callback.
+  RS_ASSERT(timeout_ms == 0 || timeout_cb != NULL);
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);
@@ -171,7 +177,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                        RedisModuleCmdFunc timeout_cb,
                                                        rs_wall_clock_ms_t timeout_ms) {
   RS_ASSERT(cursor->query == request);
-  RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
+  RS_ASSERT(timeout_ms == 0 || timeout_cb != NULL);
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          QueryRequest_OnFree, timeout_ms);

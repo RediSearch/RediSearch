@@ -534,28 +534,26 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 
 }
 
-// Helper for error handling in coordinator HREQ execution.
-// FAIL / RETURN_STRICT (deferred reply): store the error for the
-//   reply_callback to handle.
-// RETURN (inline reply): reply directly - an empty result set with a
-//   timeout warning when the error is a non-fail-policy timeout (no result set
-//   was produced here), otherwise the error itself.
+// Deferred replies retain errors for the callback. Direct replies use the worker context.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (!QueryRequest_UsesReplyCallback(&hreq->base)) {
-    QueryRequest_RecordInlineReply(&hreq->base);
-  }
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
-    // Deep copy since QueryError contains heap-allocated strings.
-    // reply_callback will clear the stored error after replying.
     QueryError_ClearError(&hreq->base.reply.err);
     QueryError_CloneFrom(status, &hreq->base.reply.err);
-    // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
-  } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->base.limits.timeout.config.timeoutPolicy, IsProfile(hreq))) {
-    // Error is a timeout under a non-fail policy, which must not surface as an
-    // error: reply an empty result set with the timeout warning instead.
+    return;
+  }
+
+  if (QueryRequest_FailWorkerReplyCancelled(&hreq->base)) {
+    QueryError_ClearError(status);
+    return;
+  }
+
+  QueryRequest_RecordInlineReply(&hreq->base);
+  RSTimeoutPolicy policy = hreq->base.limits.timeout.config.timeoutPolicy;
+  if (policy != TimeoutPolicy_Fail &&
+      !ShouldReplyWithError(QueryError_GetCode(status), policy, IsProfile(hreq))) {
     common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
-                                    IsInternal(hreq), IsProfile(hreq));
+                                  IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
@@ -623,11 +621,24 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
+#ifdef ENABLE_ASSERT
+    if (QueryRequest_RepliesOnFailWorker(&hreq->base)) {
+      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE, hreq_timed_out, hreq);
+    }
+#endif
+    if (QueryRequest_FailWorkerReplyCancelled(&hreq->base)) {
+      goto done_err;
+    }
     QueryRequest_RecordInlineReply(&hreq->base);
 
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
+#ifdef ENABLE_ASSERT
+    if (QueryRequest_RepliesOnFailWorker(&hreq->base)) {
+      SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+    }
+#endif
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
@@ -1236,16 +1247,17 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     rs_wall_clock_ms_t timeoutMS = 0;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {
-      replyCallback = internal
-          ? HybridQueryCursorReplyCallback
-          : HybridQueryReplyCallback;
-
       timeoutMS = hreq->base.limits.timeout.config.queryTimeoutMS;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
+        // The initial shard reply only publishes cursor IDs and warnings.
+        if (internal) {
+          replyCallback = HybridQueryCursorReplyCallback;
+        }
         timeoutCallback = HybridQueryTimeoutFailCallback;
       } else {
         RS_ASSERT(timeoutPolicy == TimeoutPolicy_ReturnStrict);
+        replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
         timeoutCallback = internal
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
