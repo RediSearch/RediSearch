@@ -80,6 +80,8 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _token: &ffi::RSToken,
+        _total_docs: usize,
+        _num_docs: usize,
         _field_index: FieldIndex,
         _weight: f64,
         _view: std::ptr::NonNull<ffi::RedisSearchDiskQueryView>,

@@ -317,9 +317,13 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   }
 
   if (idx->diskSpec) {
-    // DISK MODE: Direct disk API call
+    // DISK MODE: the values trie holds each tag's document count, which the
+    // disk iterator needs to score a match like the in-memory one.
+    void *count = TrieMap_Find(idx->values, (char *)value, len);
+    size_t numDocs = count == TRIEMAP_NOTFOUND ? 0 : (uintptr_t)count;
     RSToken tok = {.str = (char *)value, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
+    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, numDocs, fieldIndex, weight,
+                                     status);
   }
 
   // MEMORY MODE: Look up in TrieMap

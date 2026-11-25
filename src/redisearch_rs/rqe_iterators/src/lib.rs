@@ -554,10 +554,15 @@ pub trait SearchEnterpriseIterators: Send + Sync {
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
     /// then iterator will have the given weight.
+    ///
+    /// `total_docs` and `num_docs` (the documents in the index and those carrying the tag) give
+    /// the tag's IDFs, as for an in-memory tag reader.
     fn new_tag_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         token: &ffi::RSToken,
+        total_docs: usize,
+        num_docs: usize,
         field_index: FieldIndex,
         weight: f64,
         view: NonNull<ffi::RedisSearchDiskQueryView>,

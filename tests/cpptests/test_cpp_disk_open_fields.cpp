@@ -625,8 +625,8 @@ TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
   };
   api.index.freeQueryView = [](RedisSearchDiskQueryView *) {};
   static std::vector<std::string> opened;
-  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, t_fieldIndex,
-                                double, RedisSearchDiskQueryView *,
+  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, size_t, size_t,
+                                t_fieldIndex, double, RedisSearchDiskQueryView *,
                                 QueryError *) -> QueryIterator * {
     opened.emplace_back(tok->str, tok->len);
     return nullptr;
