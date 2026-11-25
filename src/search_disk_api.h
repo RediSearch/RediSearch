@@ -859,6 +859,14 @@ typedef struct IndexDiskAPI {
    * was opened with, or the value persisted in its RDB state).
    */
   bool (*isScoreSkippingEnabled)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief At least the score of every document indexed so far, NaN never: +inf when the
+   * index cannot tell. Score skipping bounds the leaves whose contribution is a fixed
+   * fraction of the document's score with it. Never decreases while the index is open, so a
+   * value read when a query starts stays valid for the whole query. No I/O.
+   */
+  double (*maxDocScore)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 /** Disk index operations supporting slot migration. */

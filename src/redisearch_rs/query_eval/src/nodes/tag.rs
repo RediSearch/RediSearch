@@ -34,8 +34,15 @@ use trie_rs::{
     iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
+use search_disk::SearchDiskHandle;
+
 use super::wildcard_query::below_min_term_prefix;
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
+use crate::{
+    Config, Evaluated, QueryEvalContext, QueryNodeMut,
+    constant_leaf_bound::ConstantLeaf,
+    disk::{constant_bound_for, with_constant_bound_c},
+    into_child_iterator,
+};
 
 /// The request's clock deadline, or `None` when it has no clock-based timeout.
 fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
@@ -108,6 +115,12 @@ pub(crate) fn eval<'index>(
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
     let index = unsafe { TagIndexRef::new(index) };
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
+    // `RedisSearchDiskIndexSpec` that stays valid for `'index`
+    // (`QueryEvalContext` invariants 1/2).
+    let leaf_bound = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) }
+        .and_then(|disk| constant_bound_for(ctx, config, &disk, ConstantLeaf::Tag));
+    let index = index.with_leaf_bound(leaf_bound);
 
     let weight = node.opts().weight;
     let min_term_prefix = ctx.config().min_term_prefix as usize;
@@ -735,7 +748,7 @@ fn open_reader(
     // SAFETY: `index` is live by its type invariant, `ctx` supplies a live
     // search context and status, and `value` is length-delimited and readable
     // for the call.
-    NonNull::new(unsafe {
+    let reader = NonNull::new(unsafe {
         ffi::TagIndex_OpenReader(
             index.as_ptr(),
             ctx.sctx_ptr(),
@@ -745,7 +758,10 @@ fn open_reader(
             field_index,
             ctx.status_ptr(),
         )
-    })
+    })?;
+    // SAFETY: `TagIndex_OpenReader` returns an owning query iterator with all
+    // the callbacks `CRQEIterator` requires.
+    Some(unsafe { with_constant_bound_c(reader, index.leaf_bound) })
 }
 
 /// Open an expansion's reader over one tag value as a union child.
@@ -765,7 +781,12 @@ fn open_reader_child(
 
 /// A tag index that stays alive for the whole query evaluation.
 #[derive(Clone, Copy)]
-struct TagIndexRef(NonNull<ffi::TagIndex>);
+struct TagIndexRef {
+    index: NonNull<ffi::TagIndex>,
+    /// The bound every reader opened on the index reports, from
+    /// [`constant_bound_for`], or `None` for readers that report none.
+    leaf_bound: Option<f64>,
+}
 
 impl TagIndexRef {
     /// Wrap a tag index pointer.
@@ -775,12 +796,20 @@ impl TagIndexRef {
     /// `index` must point to a tag index that stays alive and is not
     /// restructured for as long as the query is being evaluated.
     const unsafe fn new(index: NonNull<ffi::TagIndex>) -> Self {
-        Self(index)
+        Self {
+            index,
+            leaf_bound: None,
+        }
+    }
+
+    /// The same index, whose readers report `leaf_bound`.
+    const fn with_leaf_bound(self, leaf_bound: Option<f64>) -> Self {
+        Self { leaf_bound, ..self }
     }
 
     /// The raw pointer to the tag index.
     const fn as_ptr(self) -> *mut ffi::TagIndex {
-        self.0.as_ptr()
+        self.index.as_ptr()
     }
 
     /// The index's values trie, mapping each tag value to its postings.

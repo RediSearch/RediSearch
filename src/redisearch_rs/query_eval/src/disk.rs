@@ -14,10 +14,18 @@ use std::ptr::NonNull;
 use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
-use rqe_iterators::{RQEIteratorPrintable, TermScoringContext};
+use rqe_iterators::{
+    ConstantBound, RQEIteratorPrintable, TermScoringContext, c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+};
 use search_disk::SearchDiskHandle;
 
-use crate::{QueryEvalContext, scorers::BuiltInScorer};
+use crate::{
+    Config, EvalResult, QueryEvalContext,
+    constant_leaf_bound::{ConstantLeaf, constant_leaf_bound},
+    effective_scorer,
+    scorers::BuiltInScorer,
+};
 
 /// Build a search-on-disk reader for a single term, resolving the query's disk
 /// view and turning a failure into a query error.
@@ -63,7 +71,9 @@ pub(crate) fn new_term_iterator<'index>(
     // gives us the only live reference to it; the enterprise iterators are
     // registered whenever a disk index is in use; `view` is the disk
     // view taken at query start.
-    match unsafe { disk.new_term_iterator(term, field_mask, scoring, num_docs, needs_offsets, view) } {
+    match unsafe {
+        disk.new_term_iterator(term, field_mask, scoring, num_docs, needs_offsets, view)
+    } {
         Ok(it) => Some(it),
         Err(err) => {
             ctx.status()
@@ -71,6 +81,58 @@ pub(crate) fn new_term_iterator<'index>(
             None
         }
     }
+}
+
+/// The bound every document of a disk `leaf` gets under the query's scorer, or `None` when
+/// the index keeps no score bounds or the scorer has none for the leaf.
+///
+/// Read once per leaf, when it is built: the index's maximum document score only grows, so
+/// the value stays valid for the whole query.
+pub(crate) fn constant_bound_for(
+    ctx: &QueryEvalContext,
+    config: Config,
+    disk: &SearchDiskHandle,
+    leaf: ConstantLeaf,
+) -> Option<f64> {
+    if !disk.score_skipping_enabled() {
+        return None;
+    }
+    constant_leaf_bound(
+        effective_scorer(ctx, config)?,
+        leaf,
+        disk.max_doc_score(),
+        avg_doc_len(&ctx.spec().stats.scoring),
+    )
+}
+
+/// `leaf`, reporting `max_score` for every document when it is `Some`.
+pub(crate) fn with_constant_bound<'index>(
+    leaf: EvalResult<'index>,
+    max_score: Option<f64>,
+) -> EvalResult<'index> {
+    match max_score {
+        Some(max_score) => Box::new(ConstantBound::new(leaf, max_score)),
+        None => leaf,
+    }
+}
+
+/// [`with_constant_bound`] for a leaf a C constructor built, lowered back to the C ABI.
+///
+/// # Safety
+///
+/// `leaf` must be an owning query iterator with all the callbacks [`CRQEIterator::new`]
+/// requires.
+pub(crate) unsafe fn with_constant_bound_c(
+    leaf: NonNull<ffi::QueryIterator>,
+    max_score: Option<f64>,
+) -> NonNull<ffi::QueryIterator> {
+    let Some(max_score) = max_score else {
+        return leaf;
+    };
+    // SAFETY: guaranteed by the caller.
+    let leaf: EvalResult<'_> = Box::new(unsafe { CRQEIterator::new(leaf) });
+    // Lowered as a boxed trait object, the shape every disk leaf already has on the C side.
+    RQEIteratorWrapper::boxed_new(with_constant_bound(leaf, Some(max_score)))
 }
 
 /// The average document length the C scorers read from

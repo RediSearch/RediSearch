@@ -18,7 +18,11 @@ use rqe_core::RS_INVALID_FIELD_INDEX;
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext};
+use crate::{
+    Config, Evaluated, QueryEvalContext,
+    constant_leaf_bound::ConstantLeaf,
+    disk::{constant_bound_for, with_constant_bound},
+};
 
 /// `QN_NUMERIC` — a numeric range filter on a numeric field.
 ///
@@ -50,6 +54,7 @@ pub(crate) fn eval<'index>(
     // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
     // for the null (in-memory) case.
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        let max_score = constant_bound_for(ctx, config, &disk, ConstantLeaf::Numeric);
         let view = NonNull::new(ctx.sctx().diskQueryView)
             .expect("query.sctx.diskQueryView is null for a disk-backed numeric query");
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
@@ -58,7 +63,7 @@ pub(crate) fn eval<'index>(
         // a disk index is in use; `field_index` belongs to the numeric node's
         // field spec; `view` is the disk read view taken at query start.
         return match unsafe { disk.new_numeric_iterator(nf, field_index, view) } {
-            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            Ok(it) => Some(Evaluated::RustLeaf(with_constant_bound(it, max_score))),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
                 // error rather than silently returning empty results.

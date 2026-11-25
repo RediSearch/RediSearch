@@ -500,6 +500,11 @@ bool SearchDisk_IsScoreSkippingEnabled(RedisSearchDiskIndexSpec *index) {
   return disk->index.isScoreSkippingEnabled(index);
 }
 
+double SearchDisk_GetMaxDocScore(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  return disk->index.maxDocScore(index);
+}
+
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
