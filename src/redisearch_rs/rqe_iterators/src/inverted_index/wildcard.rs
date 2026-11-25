@@ -14,6 +14,7 @@ use inverted_index::{
 };
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -62,28 +63,31 @@ where
     E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
-    /// Check if the iterator should abort revalidation.
+    /// The `existingDocs` inverted index, freshly resolved from `spec`, or `None`
+    /// when the iterator must [abort](RQEValidateStatus::Aborted) — the garbage
+    /// collector nulled it out after collecting all documents, or replaced it with
+    /// a new allocation.
     ///
-    /// The garbage collector may either null out `existingDocs` (after
-    /// collecting all documents) or replace it with a new allocation. In
-    /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// Hands back the resolution so the caller can
+    /// [reseat](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     ///
     /// # Safety
     ///
     /// 1. `spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+    fn resolve_live_index(
+        &self,
+        spec: &IndexSpecReadGuard,
+    ) -> Option<NonNull<inverted_index::InvertedIndex<E>>> {
         // the garbage collector may set existing_docs to NULL after garbage collecting all documents
-        let Some(existing_docs) = spec.existing_docs() else {
-            return true;
-        };
+        let existing_docs = spec.existing_docs()?;
 
         // SAFETY: The encoding variant matches E (structural invariant).
         let ii = E::from_opaque(existing_docs);
 
-        !self.it.reader.points_to_ii(ii)
+        self.it.reader.points_to_ii(ii).then(|| NonNull::from(ii))
     }
 }
 
@@ -165,9 +169,16 @@ where
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // The existingDocs encoding match is a structural invariant: the
         // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(RQEValidateStatus::Aborted);
-        }
+        };
+
+        // `revalidate` reads the index's GC marker through the reader's pointer,
+        // which may not have survived a write to the index.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
+        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         self.it.revalidate(spec)
     }
@@ -225,9 +236,16 @@ where
         // Step 1: identity check on the suspended form. On abort we drop the
         // suspended iterator without promoting it to Active — nothing is
         // materialized.
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(ResumeOutcome::Aborted);
-        }
+        };
+
+        // `resume_in_place` first reads the index's GC marker through the reader's
+        // pointer, which may not have survived a write while suspended.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
+        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         // Step 2: run the shared in-place resume transition on the inner
         // core iterator (refresh pointers, reset stale offsets, promote the

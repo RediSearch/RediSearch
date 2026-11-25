@@ -12,10 +12,10 @@
 use std::ptr::NonNull;
 
 use ffi::{
-    VecSimQueryReply, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut, VecSimQueryReply_Free,
+    VecSimQueryReply, VecSimQueryReply_Code_VecSim_QueryReply_Stopped, VecSimQueryReply_Free,
     VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Iterator,
-    VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryResult_GetId,
-    VecSimQueryResult_GetScore,
+    VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryReply_Len,
+    VecSimQueryResult, VecSimQueryResult_GetId, VecSimQueryResult_GetScore,
 };
 use rqe_core::DocId;
 
@@ -27,7 +27,7 @@ pub struct QueryReply {
     ///
     /// # Invariant
     ///
-    /// Valid (returned by `VecSimIndex_TopKQuery` or
+    /// Valid (returned by `VecSimIndex_TopKQuery`, `VecSimIndex_RangeQuery` or
     /// `VecSimBatchIterator_Next`) and not yet freed, from construction until
     /// [`Drop`].
     inner: NonNull<VecSimQueryReply>,
@@ -53,10 +53,10 @@ impl QueryReply {
     }
 
     /// Convert a raw reply pointer into a [`Result`], translating the VecSim
-    /// reply code into [`QueryError::TimedOut`] when applicable.
+    /// reply code into [`QueryError::Stopped`] when applicable.
     ///
     /// The caller never has to free: a null `raw` yields `Ok(None)`, and a
-    /// timed-out reply is freed before returning [`QueryError::TimedOut`].
+    /// stopped reply is freed before returning [`QueryError::Stopped`].
     ///
     /// `order` must be the sort order requested from the VecSim query call that
     /// produced `raw`.
@@ -78,11 +78,22 @@ impl QueryReply {
         let reply = unsafe { Self::from_raw(reply, order) };
         // SAFETY: `reply.inner` upholds its invariant.
         let code = unsafe { VecSimQueryReply_GetCode(reply.inner.as_ptr()) };
-        if code == VecSimQueryReply_Code_VecSim_QueryReply_TimedOut {
+        if code == VecSimQueryReply_Code_VecSim_QueryReply_Stopped {
             drop(reply);
-            return Err(QueryError::TimedOut);
+            return Err(QueryError::Stopped);
         }
         Ok(Some(reply))
+    }
+
+    /// Number of results in the reply.
+    pub fn len(&self) -> usize {
+        // SAFETY: `self.inner` upholds its invariant.
+        unsafe { VecSimQueryReply_Len(self.inner.as_ptr()) }
+    }
+
+    /// Whether the reply has no results.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Consume the reply and produce an iterator over its results.
@@ -153,19 +164,32 @@ impl ReplyResults {
         );
         self.find(|&(id, _)| id >= target)
     }
+
+    /// Like [`Iterator::next`], but yields only the doc id, sparing callers
+    /// that never read the score a VecSim call per result.
+    #[inline]
+    pub fn next_id(&mut self) -> Option<DocId> {
+        let result = self.next_result()?;
+        // SAFETY: `result` is owned by `self.reply`, which outlives this borrow.
+        Some(unsafe { VecSimQueryResult_GetId(result.as_ptr()) } as DocId)
+    }
+
+    /// Advance the VecSim iterator, returning the next result owned by
+    /// [`reply`](Self::reply).
+    #[inline]
+    fn next_result(&mut self) -> Option<NonNull<VecSimQueryResult>> {
+        // SAFETY: `self.iter` upholds its invariant.
+        NonNull::new(unsafe { VecSimQueryReply_IteratorNext(self.iter.as_ptr()) })
+    }
 }
 
 impl Iterator for ReplyResults {
     type Item = (DocId, f64);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: `self.iter` upholds its invariant.
-        let result = unsafe { VecSimQueryReply_IteratorNext(self.iter.as_ptr()) };
-        if result.is_null() {
-            return None;
-        }
-        // SAFETY: `result` is non-null and owned by `self.reply`, which
-        // outlives this borrow.
+        let result = self.next_result()?.as_ptr();
+        // SAFETY: `result` is owned by `self.reply`, which outlives this borrow.
         let id = unsafe { VecSimQueryResult_GetId(result) } as DocId;
         // SAFETY: as above.
         let score = unsafe { VecSimQueryResult_GetScore(result) };

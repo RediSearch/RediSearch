@@ -1,7 +1,7 @@
 name: Setup build environment
 description: |
   Post-checkout environment setup shared by the RediSearch CI task workflows
-  (task-build, task-test, task-test-unit, task-test-flow, task-miri).
+  (task-build, task-test, task-test-unit, task-test-flow, task-rust-standalone-tests).
 
   This action MUST run after `actions/checkout` (its own `uses:` references and
   the local nested actions it calls only exist on disk once the repo is checked
@@ -168,7 +168,7 @@ runs:
       if: ${{ inputs.install-script == 'true' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: ./install_script.sh $INSTALL_MODE
         working_directory: .install
@@ -188,18 +188,18 @@ runs:
         workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
         # Save cache even when the job fails, so subsequent runs can reuse
         # compiled artifacts. Without this, cache is never populated on
-        # platforms with high failure rates (e.g. macOS x86_64).
+        # platforms with high failure rates.
         cache-on-failure: true
 
     - name: Setup Rust test dependencies
       # Wrapped in retry-command (5 attempts) to survive cargo-binstall's
       # GitHub API rate-limits. github_token gives cargo-binstall authenticated
       # API calls (5000 req/hr vs 60/hr unauthenticated), avoiding 403s that
-      # force ~18 min source compilations on macOS Intel runners.
+      # force slow source compilations.
       if: ${{ inputs.rust-test-deps == 'true' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: .install/test_deps/install_rust_deps.sh $INSTALL_MODE
         github_token: ${{ inputs.github-token }}
@@ -208,7 +208,7 @@ runs:
       if: ${{ inputs.python-test-deps == 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
 
@@ -216,7 +216,7 @@ runs:
       if: ${{ inputs.sanitizer-setup == 'true' && inputs.san == 'address' && inputs.image-built != 'true' }}
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
-      uses: ./.github/actions/retry-command
+      uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
       with:
         command: ./install_llvm.sh $INSTALL_MODE
         working_directory: .install

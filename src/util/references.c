@@ -14,6 +14,9 @@
 
 #include "rmalloc.h"
 #include "redismodule.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -60,6 +63,9 @@ static void RefManager_ReturnStrongReference(RefManager *rm) {
 static void RefManager_ReturnWeakReference(RefManager *rm) {
   if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
     rm_free(rm);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait("RefManagerFreed");
+#endif
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager freed: %p", rm);
   }
 }

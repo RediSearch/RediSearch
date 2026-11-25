@@ -17,15 +17,15 @@
 //! `QN_UNION`, and so on — mirroring the per-node-type layout of this crate's
 //! integration tests. This module keeps what they share: the evaluator
 //! [`Config`], the [`Evaluated`] outcome type, the dispatcher and its
-//! [`qast_iterate`] entry point, and the helpers for evaluating a child node
-//! ([`eval_child_iterator`]) and for delegating an unported node to C
-//! ([`eval_node_c`]).
+//! [`QueryIteratorTree::new`] entry point, and the helpers for evaluating a
+//! child node ([`eval_child_iterator`]) and lowering an evaluated one
+//! ([`into_child_iterator`]).
 
-use std::ptr::NonNull;
+use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -44,8 +44,8 @@ mod nodes;
 pub use config::Config;
 
 use nodes::{
-    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
-    vector, wildcard, wildcard_query,
+    fuzzy, geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix,
+    sparse_vector, tag, token, union, vector, wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -62,15 +62,14 @@ pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 ///
 /// - [`Evaluated::RustLeaf`] — a Rust iterator held as a trait object, not yet
 ///   lowered to the C ABI.
-/// - [`Evaluated::C`] — an iterator *built by* C, either by the
-///   [`ffi::Query_EvalNode`] dispatcher for a node type not yet ported or by a C
-///   constructor a ported node calls. Handed straight back to C so the C-side
+/// - [`Evaluated::C`] — an iterator *built by* a C constructor a ported node
+///   calls. Handed straight back to C so the C-side
 ///   optimizer/profiler keep seeing the original iterator.
 /// - [`Evaluated::RustCompound`] — an owning C-ABI handle that Rust built and
 ///   already lowered, returned as-is rather than as a trait object (see the
 ///   variant docs for the two cases that need this shape).
-// TODO: Remove this enum once all the node types have been ported to Rust
-// and C `Query_EvalNode` has been removed.
+// TODO: Remove this enum once C iterator constructors no longer return owning
+// raw handles to the evaluator.
 #[must_use = "an unconsumed `Evaluated` may leak its owning iterator handle; consume it via `into_c_iterator` or `into_boxed`"]
 pub enum Evaluated<'index> {
     /// An iterator implemented in Rust, held as a boxed trait object.
@@ -79,10 +78,8 @@ pub enum Evaluated<'index> {
     /// if and when it crosses back to C.
     RustLeaf(EvalResult<'index>),
 
-    /// An owning C iterator handle built by C: either by the
-    /// [`ffi::Query_EvalNode`] dispatcher, for a node type not yet ported to
-    /// Rust, or by a C constructor a ported node calls (e.g.
-    /// [`ffi::NewVectorIterator`]).
+    /// An owning C iterator handle built by a C constructor called by a ported
+    /// node (e.g. [`ffi::NewVectorIterator`]).
     C(NonNull<ffi::QueryIterator>),
 
     /// An owning C-ABI [`QueryIterator`](ffi::QueryIterator) handle that Rust
@@ -133,10 +130,10 @@ impl<'index> Evaluated<'index> {
     /// [`RQEIteratorWrapper::boxed_new`]; an already-lowered handle
     /// ([`Evaluated::C`] or [`Evaluated::RustCompound`]) is returned as-is, so
     /// C-side introspection (optimizer, profiler) keeps seeing the same iterator.
-    pub fn into_c_iterator(self) -> *mut ffi::QueryIterator {
+    pub fn into_c_iterator(self) -> NonNull<ffi::QueryIterator> {
         match self {
             Evaluated::RustLeaf(it) => RQEIteratorWrapper::boxed_new(it),
-            Evaluated::C(it) | Evaluated::RustCompound(it) => it.as_ptr(),
+            Evaluated::C(it) | Evaluated::RustCompound(it) => it,
         }
     }
 
@@ -150,7 +147,7 @@ impl<'index> Evaluated<'index> {
             Evaluated::C(it) | Evaluated::RustCompound(it) => {
                 // SAFETY: both handle variants hold a valid, owning `QueryIterator`
                 // with all required callbacks populated — `Evaluated::C` came from
-                // `ffi::Query_EvalNode`, `Evaluated::RustCompound` from
+                // a C iterator constructor, `Evaluated::RustCompound` from
                 // `RQEIteratorWrapper::boxed_new_compound` — exactly the
                 // preconditions of `CRQEIterator::new`.
                 Box::new(unsafe { CRQEIterator::new(it) })
@@ -159,16 +156,145 @@ impl<'index> Evaluated<'index> {
     }
 }
 
-/// Build the executable iterator tree for a parsed query AST.
+/// Which document ids the root iterator of a [`QueryIteratorTree`] visits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocIdCoverage {
+    /// Every document id, in ascending order: a wildcard scan.
+    Dense,
+    /// Only the document ids that match, which may be few.
+    Selective,
+}
+
+/// The executable iterator tree built from a parsed query AST.
 ///
-/// The `root` node is evaluated via [`eval_node`]. When evaluation yields no
-/// iterator (`None`), an [`Empty`] iterator is returned.
-pub fn qast_iterate<'index>(
-    ctx: &'index mut QueryEvalContext,
-    root: QueryNodeMut<'_>,
-    config: Config,
-) -> Evaluated<'index> {
-    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
+/// A dedicated type rather than a bare root iterator, so it can carry more as
+/// the evaluator grows.
+///
+/// The tree borrows the [`QueryEvalContext`] it was built from for `'index`:
+/// its iterators read index data reached through that context.
+pub struct QueryIteratorTree<'index> {
+    /// Owns every iterator in the tree, through its children.
+    // Private, as a `CRQEIterator` carries no lifetime: safe code only gets it
+    // out bound to `'index` (`into_root`) or as a raw pointer, which needs
+    // `unsafe` to use beyond the borrow of the context.
+    root: CRQEIterator,
+    /// Which document ids [`Self::root`] visits, decided before
+    /// [`Self::into_profiled`] wraps it in a profile iterator that hides its
+    /// type.
+    coverage: DocIdCoverage,
+    // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
+    _ctx: PhantomData<&'index mut QueryEvalContext>,
+}
+
+impl<'index> QueryIteratorTree<'index> {
+    /// Build the executable iterator tree for a parsed query AST.
+    ///
+    /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
+    /// when it yields none.
+    pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
+        let root = into_child_iterator(eval_node(ctx, root, config));
+        let coverage = DocIdCoverage::of(&root);
+        Self::from_root(root, coverage)
+    }
+
+    const fn from_root(root: CRQEIterator, coverage: DocIdCoverage) -> Self {
+        Self {
+            root,
+            coverage,
+            _ctx: PhantomData,
+        }
+    }
+
+    /// Wrap every iterator in the tree in a profile iterator, via
+    /// [`CRQEIterator::into_profiled`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree has already been profiled.
+    pub fn into_profiled(self) -> Self {
+        Self::from_root(self.root.into_profiled(), self.coverage)
+    }
+
+    /// Consume the tree into its root iterator, which still borrows the
+    /// context for `'index`.
+    pub fn into_root(self) -> impl RQEIteratorPrintable<'index> + 'index {
+        self.root
+    }
+
+    /// The root iterator, still owned by the tree.
+    pub const fn root_ptr(&self) -> NonNull<ffi::QueryIterator> {
+        self.root.as_raw()
+    }
+
+    /// Which document ids the root iterator visits, unchanged by
+    /// [`Self::into_profiled`].
+    pub const fn doc_id_coverage(&self) -> DocIdCoverage {
+        self.coverage
+    }
+
+    /// Replace the root iterator with `root`, returning the previous one
+    /// unfreed, typically because `root` already owns it as a child.
+    pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
+        self.coverage = DocIdCoverage::of(&root);
+        std::mem::replace(&mut self.root, root).into_raw()
+    }
+
+    /// Consume the tree into its owning root iterator handle.
+    pub fn into_raw_root(self) -> NonNull<ffi::QueryIterator> {
+        self.root.into_raw()
+    }
+
+    /// Detach the tree from the borrow of the context it was built from.
+    ///
+    /// # Safety
+    ///
+    /// For as long as the returned tree is alive:
+    ///
+    /// 1. The index data reached through the context it was built from must
+    ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
+    /// 2. No other iterator tree may be built from that context.
+    pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
+        QueryIteratorTree::from_root(self.root, self.coverage)
+    }
+}
+
+impl DocIdCoverage {
+    /// [`Self::Dense`] for a wildcard iterator, whether it walks the doc id
+    /// range or the index's existing-docs inverted index.
+    fn of(root: &CRQEIterator) -> Self {
+        match root.type_ {
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard => Self::Dense,
+            _ => Self::Selective,
+        }
+    }
+}
+
+/// Whether the disk term readers of a subtree must read offsets whatever the
+/// scorer.
+///
+/// A phrase that filters by term position
+/// ([`filters_by_position`](rqe_iterators::intersection::filters_by_position))
+/// checks the positions in its children's results, but the children don't
+/// carry the phrase's slop or order, so their own options never ask for
+/// offsets. The phrase therefore evaluates them under
+/// [`Required`](Self::Required).
+///
+/// - [`eval_node`] starts at [`Automatic`](Self::Automatic).
+/// - Union, optional and phrase nodes pass the requirement on, so it reaches
+///   every term a child expands into; a phrase that filters by position
+///   raises it to [`Required`](Self::Required).
+/// - NOT and a vector query's filter restart their child at
+///   [`Automatic`](Self::Automatic): a NOT yields virtual results, and a
+///   phrase never looks inside a hybrid result, so neither exposes the child's
+///   positions to an enclosing phrase.
+/// - Term leaves (token, prefix, fuzzy, wildcard query) hand it to
+///   [`expansion_needs_offsets`]; every other leaf ignores it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OffsetRequirement {
+    /// The node's own options and the scorer decide.
+    Automatic,
+    /// An enclosing phrase filters by term position.
+    Required,
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -176,8 +302,8 @@ pub fn qast_iterate<'index>(
 /// Returns `None` when the node produces no results.
 ///
 /// The node is taken as an **exclusive** [`QueryNodeMut`], by value. Evaluation
-/// mutates the AST — it narrows children's field masks, and the C evaluator it
-/// falls back to rewrites tokens in place — so a shared borrow would be a lie.
+/// mutates the AST — it narrows children's field masks and normalizes tag,
+/// prefix and wildcard tokens in place — so a shared borrow would be a lie.
 /// Taking it by value is also what lets the borrow checker police that: an arm
 /// that reads a payload out of the node (e.g. a token handle) keeps it
 /// shared-borrowed, and can therefore neither mutate it nor hand it on to a
@@ -187,88 +313,99 @@ pub fn eval_node<'index>(
     node: QueryNodeMut<'_>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    match node.as_enum() {
-        QueryNode::Null => Some(null::eval()),
-        QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
-        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(keys, doc_ids)),
-        QueryNode::Missing { field } => missing::eval(ctx, field).map(Evaluated::RustLeaf),
-        QueryNode::Optional => Some(optional::eval(ctx, node, config)),
-        QueryNode::Not => Some(not::eval(ctx, node, config)),
-        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config),
-        QueryNode::Union => Some(union::eval(ctx, node, config)),
-        QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
-        QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
-        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
-        QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
-        QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
-        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
-        QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
-        // Binds nothing, so the node stays free to be passed on by value —
-        // evaluation rewrites its token.
-        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
-        // Node types not yet ported to Rust are delegated back to the C
-        // dispatcher.
-        _ => eval_node_c(ctx, node, config),
-    }
+    eval_node_with_offsets(ctx, node, config, OffsetRequirement::Automatic)
 }
 
-/// Evaluate a not-yet-ported node by delegating to the C [`ffi::Query_EvalNode`]
-/// dispatcher, returning its C iterator as [`Evaluated::C`].
-///
-/// Returns `None` when `Query_EvalNode` produces no iterator (NULL), preserving
-/// the C semantics where some nodes (e.g. an empty expansion) yield no results.
-///
-/// Consumes `node`: the C dispatcher mutates the subtree it is given — it
-/// rewrites wildcard and prefix tokens in place — so no borrow of it may still
-/// be outstanding. Taking it by value makes the borrow checker enforce that.
-fn eval_node_c<'index>(
+/// [`eval_node`] under the [`OffsetRequirement`] imposed by the node's
+/// ancestors.
+fn eval_node_with_offsets<'index>(
     ctx: &'index mut QueryEvalContext,
     node: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
-    let q = ctx.as_non_null().as_ptr();
-    let n = node.as_non_null().as_ptr();
-    let config = (&raw const config).cast::<ffi::EvalConfig>();
-    // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
-    // with exclusive access, since `ctx` is `&mut`) and `n` from a live
-    // `QueryNodeMut` (a valid `RSQueryNode` we hold exclusively, so C may mutate
-    // it), satisfying `Query_EvalNode`'s contract. `config` points to a live
-    // `Config` valid for the duration of the call.
-    let it = unsafe { ffi::Query_EvalNode(q, n, config) };
-    NonNull::new(it).map(Evaluated::C)
+    match node.as_enum() {
+        QueryNode::Null => Some(null::eval()),
+        QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
+        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(ctx, keys, doc_ids)),
+        QueryNode::Missing { field_index } => {
+            missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
+        }
+        QueryNode::Optional => Some(optional::eval(ctx, node, config, offsets)),
+        QueryNode::Not => Some(not::eval(ctx, node, config)),
+        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config, offsets),
+        QueryNode::Union => Some(union::eval(ctx, node, config, offsets)),
+        QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
+        QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
+        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config, offsets),
+        QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
+        QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
+        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config, offsets),
+        QueryNode::Fuzzy { tok, max_dist } => {
+            fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
+        }
+        QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        QueryNode::SparseVector { field_index, blob } => {
+            // The blob borrows the request's PARAMS, not the node, so it is
+            // detached from the node borrow before the node is passed on.
+            // SAFETY: see `QueryNode::SparseVector`: the blob outlives the AST.
+            let blob = unsafe { std::slice::from_raw_parts(blob.as_ptr(), blob.len()) };
+            sparse_vector::eval(ctx, node, field_index, blob, config)
+        }
+        // A lex range only ever hangs off a tag node, whose evaluator dispatches
+        // its own children, so reaching it from here is a bug.
+        QueryNode::LexRange { .. } => {
+            unreachable!("a lex range is evaluated as a child of a tag node")
+        }
+        // Binds nothing, so the node stays free to be passed on by value —
+        // evaluation rewrites its token.
+        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config, offsets),
+    }
 }
 
 /// Evaluate a child node into an owning [`CRQEIterator`] for use as a child of
-/// a Rust compound iterator.
-///
-/// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
-/// reducer can apply its empty-child rules, since a missing child is
-/// equivalent to one that matches nothing.
+/// a Rust compound iterator, lowered by [`into_child_iterator`].
 fn eval_child_iterator(
     ctx: &mut QueryEvalContext,
     child: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> CRQEIterator {
-    let ptr = match eval_node(&mut *ctx, child, config) {
+    into_child_iterator(eval_node_with_offsets(&mut *ctx, child, config, offsets))
+}
+
+/// Lower an evaluated node into an owning [`CRQEIterator`], for use as a child
+/// of a Rust compound iterator or as the root of a [`QueryIteratorTree`].
+///
+/// A `None` node (no results) becomes a freshly boxed [`Empty`] so a reducer
+/// can apply its empty-child rules, since a missing child is equivalent to one
+/// that matches nothing.
+fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
+    let ptr = match evaluated {
         Some(ev) => ev.into_c_iterator(),
         None => RQEIteratorWrapper::boxed_new(Empty),
     };
-    // `into_c_iterator` and `boxed_new` always return a valid, owning, non-null
-    // C `QueryIterator`.
-    let nn = NonNull::new(ptr).expect("evaluated child iterator must not be null");
-    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // SAFETY: `ptr` is a valid, owning C `QueryIterator` with all callbacks
     // populated — exactly the precondition of `CRQEIterator::new`.
-    unsafe { CRQEIterator::new(nn) }
+    unsafe { CRQEIterator::new(ptr) }
 }
 
 /// Whether a term disk reader must carry term offsets: required when the node
-/// forces slop/in-order matching, or when the effective scorer needs positions.
+/// forces slop/in-order matching ([`slop_forces_offsets`]), when an enclosing
+/// phrase does so on its behalf ([`OffsetRequirement::Required`]), or when the
+/// effective scorer needs positions. Never required on an index created with
+/// `NOOFFSETS` (no [`ffi::IndexFlags_Index_StoreTermOffsets`]), which stores
+/// none to read.
 /// Used only on the disk path.
 fn expansion_needs_offsets(
     ctx: &mut QueryEvalContext,
     opts: &QueryNodeOptions,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> bool {
+    if ctx.spec().flags & ffi::IndexFlags_Index_StoreTermOffsets == 0 {
+        return false;
+    }
     // The query's own scorer wins; a query that sets none falls back to the
     // configured default, while a custom (non built-in) scorer conservatively
     // needs offsets since we can't resolve what it does.
@@ -277,7 +414,8 @@ fn expansion_needs_offsets(
         RequestedScorer::Custom(_) => None,
         RequestedScorer::BuiltIn(scorer) => Some(scorer),
     };
-    slop_forces_offsets(opts.max_slop, opts.in_order)
+    offsets == OffsetRequirement::Required
+        || slop_forces_offsets(opts.max_slop, opts.in_order)
         || scorer.is_none_or(BuiltInScorer::needs_offsets)
 }
 

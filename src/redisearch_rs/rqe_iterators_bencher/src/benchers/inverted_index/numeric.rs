@@ -203,7 +203,7 @@ impl NumericBencher {
                     )
                 };
 
-                // SAFETY: `range_tree` is None so no pointer invariants apply.
+                // SAFETY: nothing writes to the index while the iterator lives.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
 
                 while let Ok(Some(current)) = it.read() {
@@ -238,7 +238,7 @@ impl NumericBencher {
                     )
                 };
 
-                // SAFETY: `range_tree` is None so no pointer invariants apply.
+                // SAFETY: nothing writes to the index while the iterator lives.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
 
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {

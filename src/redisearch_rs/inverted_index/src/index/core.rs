@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
+    ops::RangeInclusive,
     sync::atomic::{self, AtomicU32},
 };
 use thin_vec::ThinVec;
@@ -53,6 +54,17 @@ pub struct InvertedIndex<E> {
     /// differ, allowing cursors to detect the replacement.
     unique_id: IndexUniqueId,
 
+    /// The entries of each block that belong to a field with a field-level expiration:
+    /// `expiration[i]` covers `blocks[i]`. Empty — and unallocated — until the first such entry
+    /// is added, so indexes without field TTLs pay only this field's stack size. Kept outside
+    /// [`IndexBlock`] so the block's size and layout stay as they were before field-expiration
+    /// tracking (MOD-20225).
+    ///
+    /// Invariant: empty, or exactly as long as `blocks`. [`Self::push_block`] is the only place
+    /// either grows, and blocks leave only with their bitset, through [`Self::take_block`] and
+    /// [`Self::take_blocks`].
+    pub(crate) expiration: ThinVec<ExpirationBits, BlockCapacity>,
+
     /// The encoder to use when adding new entries to the index
     pub(crate) _encoder: PhantomData<E>,
 }
@@ -72,7 +84,7 @@ pub struct AddRecordOutcome {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -87,14 +99,21 @@ pub struct IndexBlock {
 
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
-
-    /// The entries in this block that belong to a field with a field-level expiration, see
-    /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
-    pub(crate) expiration_bits: ExpirationBits,
 }
+
+// MOD-20225: growing the block past this measurably slows queries that never read it. Keep
+// per-block extras in a side structure such as `InvertedIndex::expiration` instead.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<IndexBlock>() == 48);
 
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
+
+    /// Whether the block carries its entries, as opposed to a dataless snapshot copy that
+    /// kept only its bounds and count. See [`InvertedIndex::gc_snapshot`].
+    pub(crate) const fn has_data(&self) -> bool {
+        !self.buffer.is_empty() || self.num_entries == 0
+    }
 
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
@@ -104,30 +123,13 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
-            expiration_bits: ExpirationBits::new(),
         }
     }
 
-    /// The number of bytes occupied by the field-expiration bitset, if any.
-    fn expiration_bits_len(&self) -> usize {
-        self.expiration_bits.mem_usage()
-    }
-
-    /// Get the memory usage of this block, including the stack size, the capacity of the bytes
-    /// buffer, and the field-expiration bitset.
-    pub fn mem_usage(&self) -> usize {
-        Self::STACK_SIZE + self.buffer.capacity() + self.expiration_bits_len()
-    }
-
-    /// Record that the entry at `ordinal` (its 0-based position within this block)
-    /// belongs to a document with at least one field-level expiration.
-    pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
-        self.expiration_bits.insert(ordinal);
-    }
-
-    /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
-    pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
-        self.expiration_bits.contains(ordinal)
+    /// Get the memory usage of this block, including the stack size and the capacity of the
+    /// bytes buffer.
+    pub const fn mem_usage(&self) -> usize {
+        Self::STACK_SIZE + self.buffer.capacity()
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
@@ -165,6 +167,7 @@ impl<E: Encoder> InvertedIndex<E> {
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
+            expiration: ThinVec::new(),
             _encoder: Default::default(),
         }
     }
@@ -194,21 +197,162 @@ impl<E: Encoder> InvertedIndex<E> {
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
+            expiration: ThinVec::new(),
             _encoder: Default::default(),
         }
+    }
+
+    /// Whether two consecutive blocks before the last would fit one block together:
+    /// a header-only test for leftovers of earlier cycles, so a GC pass is worth it
+    /// even when nothing is gone.
+    pub fn has_compactable_run(&self) -> bool {
+        (0..self.blocks.len()).any(|i| self.packs_with_next(i))
+    }
+
+    /// Whether block `i` and the one after it, both before the last, fit one block
+    /// together. A run the GC packs is a chain of such pairs, so a block that packs with
+    /// neither neighbour never joins one.
+    fn packs_with_next(&self, i: usize) -> bool {
+        let next_idx = i + 1;
+        // The last block never joins a run: writers append to it, and the apply's
+        // staleness check names it by position.
+        if next_idx + 1 >= self.blocks.len() {
+            return false;
+        }
+        let left = &self.blocks[i];
+        let right = &self.blocks[next_idx];
+        let combined_entries = u32::from(left.num_entries) + u32::from(right.num_entries);
+
+        combined_entries <= u32::from(E::RECOMMENDED_BLOCK_ENTRIES)
+            && Self::spans_one_block(left.first_doc_id, right.last_doc_id)
+    }
+
+    /// How many consecutive blocks from `i` the GC packs into one: the longest run before
+    /// the last block, every one of them `usable`, whose entries fit one block. The scan
+    /// and [`Self::gc_snapshot`] both walk the blocks with it, so the snapshot copies
+    /// exactly the runs the scan packs. Below 2 when block `i` starts no run.
+    pub(crate) fn compaction_run(&self, i: usize, usable: impl Fn(&IndexBlock) -> bool) -> usize {
+        let last_idx = self.blocks.len().saturating_sub(1);
+        let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
+        let mut total = 0;
+        let mut run = 0;
+        while i + run < last_idx && usable(&self.blocks[i + run]) {
+            let block = &self.blocks[i + run];
+            let next = total + u32::from(block.num_entries);
+            if next > limit
+                || !Self::spans_one_block(self.blocks[i].first_doc_id, block.last_doc_id)
+            {
+                break;
+            }
+            total = next;
+            run += 1;
+        }
+        run
+    }
+
+    /// Whether entries from `first` to `last` can share one block: every delta between
+    /// them fits the codec's, whichever base it takes. A run spanning more would split
+    /// back into as many blocks, so packing it would never shrink it.
+    pub(crate) fn spans_one_block(first: DocId, last: DocId) -> bool {
+        E::Delta::from_u64(last - first).is_some()
+    }
+
+    /// A private copy of the blocks a GC scan has to decode, for scanning without a lock.
+    ///
+    /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
+    /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
+    /// count but no data, so a scan of the copy skips them as it would skip the originals,
+    /// and a repair never touches them. The blocks of a run the scan will pack (see
+    /// [`Self::compaction_run`]) are copied regardless. Returns `None` when no block needs
+    /// a look. Scan the copy with the same `live`: another source may find a dataless block dirty and leave
+    /// its entries uncollected for this cycle.
+    pub fn gc_snapshot(
+        &self,
+        live: &impl crate::DocLiveness,
+        scope: crate::GcSnapshotScope,
+    ) -> Option<Self> {
+        let span = self.doc_id_range()?;
+        if !live.any_gone(*span.start(), *span.end()) && !self.has_compactable_run() {
+            return None;
+        }
+        let mut copy = Self {
+            blocks: ThinVec::with_capacity(self.blocks.len()),
+            n_unique_docs: self.n_unique_docs,
+            flags: self.flags,
+            gc_marker: AtomicU32::new(self.gc_marker()),
+            unique_id: self.unique_id,
+            expiration: ThinVec::new(),
+            _encoder: Default::default(),
+        };
+        let mut i = 0;
+        while i < self.blocks.len() {
+            // Copying a run lets the scan compact it even where nothing is gone.
+            let run = match scope {
+                crate::GcSnapshotScope::AllBlocks => 1,
+                crate::GcSnapshotScope::DirtyBlocks => self.compaction_run(i, |_| true).max(1),
+            };
+            for j in i..i + run {
+                let b = &self.blocks[j];
+                if scope == crate::GcSnapshotScope::AllBlocks
+                    || run > 1
+                    || live.any_gone(b.first_doc_id, b.last_doc_id)
+                {
+                    // The bits go with the block: a repair carries them onto the survivors.
+                    let bits = self.expiration.get(j).cloned().unwrap_or_default();
+                    copy.push_block(b.clone(), bits);
+                } else {
+                    let hollow = IndexBlock {
+                        first_doc_id: b.first_doc_id,
+                        last_doc_id: b.last_doc_id,
+                        num_entries: b.num_entries,
+                        buffer: Vec::new(),
+                    };
+                    copy.push_block(hollow, ExpirationBits::new());
+                }
+            }
+            i += run;
+        }
+        Some(copy)
+    }
+
+    /// The doc IDs the index spans, from its first block's first to its last block's last;
+    /// `None` for an index without blocks.
+    pub fn doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        Some(self.blocks.first()?.first_doc_id..=self.blocks.last()?.last_doc_id)
+    }
+
+    /// The doc IDs the last block spans; `None` for an index without blocks.
+    pub fn last_block_doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        let last = self.blocks.last()?;
+        Some(last.first_doc_id..=last.last_doc_id)
     }
 
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         let blocks_heap = self.blocks.mem_usage();
-        let blocks_buffers: usize = self
-            .blocks
-            .iter()
-            .map(|b| b.buffer.capacity() + b.expiration_bits_len())
-            .sum();
+        let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
         let stack = std::mem::size_of::<Self>();
 
-        blocks_heap + blocks_buffers + stack
+        blocks_heap + blocks_buffers + self.expiration_mem_usage() + stack
+    }
+
+    /// Heap bytes held by [`Self::expiration`], including each block's bitset.
+    pub(crate) fn expiration_mem_usage(&self) -> usize {
+        self.expiration.mem_usage()
+            + self
+                .expiration
+                .iter()
+                .map(ExpirationBits::mem_usage)
+                .sum::<usize>()
+    }
+
+    /// Whether entry `ordinal` (its 0-based position within block `block_idx`) belongs to a
+    /// document with a field-level expiration.
+    #[inline(always)]
+    pub(crate) fn expiration_bit(&self, block_idx: usize, ordinal: u16) -> bool {
+        self.expiration
+            .get(block_idx)
+            .is_some_and(|bits| bits.contains(ordinal))
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -259,7 +403,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // We take ownership of the block since we are going to keep using self. So we can't have a
         // mutable reference to the block we are working with at the same time.
-        let mut block = self.take_block(doc_id, same_doc);
+        let (mut block, mut bits) = self.take_block(doc_id, same_doc);
         let mut mem_growth = 0;
 
         let delta_base = E::delta_base(&block);
@@ -277,7 +421,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 let new_block = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                mem_growth += self.add_block(block);
+                mem_growth += self.add_block(block, std::mem::take(&mut bits));
                 block = new_block;
 
                 E::Delta::zero()
@@ -294,22 +438,23 @@ impl<E: Encoder> InvertedIndex<E> {
         // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
 
-        // Record the document-level field-expiration bit for this entry at its
-        // ordinal within the block — which is the current `num_entries`, before
-        // the bump below. The codec (the `buffer` above) is untouched; the bit
-        // lives in the block's side bitset.
-        let bits_len_before = block.expiration_bits_len();
-        if has_field_expiration {
-            block.set_expiration_bit(block.num_entries);
-        }
-        let buf_growth = buf_growth + (block.expiration_bits_len() - bits_len_before);
+        // The codec does not carry the field-expiration flag: it goes into the block's bitset,
+        // at the entry's ordinal within the block — the current `num_entries`, before the bump
+        // below.
+        let buf_growth = if has_field_expiration {
+            let bits_before = bits.mem_usage();
+            bits.insert(block.num_entries);
+            buf_growth + bits.mem_usage() - bits_before
+        } else {
+            buf_growth
+        };
 
         debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
         block.last_doc_id = doc_id;
 
         // We took ownership of the block so put it back
-        mem_growth += self.add_block(block);
+        mem_growth += self.add_block(block, bits);
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -335,8 +480,8 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
-    /// Take a block that can be written to.
-    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> IndexBlock {
+    /// Take a block that can be written to, with its field-expiration bitset.
+    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> (IndexBlock, ExpirationBits) {
         if self.blocks.is_empty()
             || (
                 // If the block is full
@@ -349,19 +494,32 @@ impl<E: Encoder> InvertedIndex<E> {
                         >= E::RECOMMENDED_BLOCK_ENTRIES
             )
         {
-            IndexBlock::new(doc_id)
+            (IndexBlock::new(doc_id), ExpirationBits::new())
         } else {
-            self.blocks
+            let block = self
+                .blocks
                 .pop()
-                .expect("to get the last block since we know there is one")
+                .expect("to get the last block since we know there is one");
+            (block, self.expiration.pop().unwrap_or_default())
         }
+    }
+
+    /// Move every block out of the index, in order, each with its field-expiration bitset.
+    pub(crate) fn take_blocks(
+        &mut self,
+    ) -> impl Iterator<Item = (IndexBlock, ExpirationBits)> + use<E> {
+        let mut bits = std::mem::take(&mut self.expiration).into_iter();
+        std::mem::take(&mut self.blocks)
+            .into_iter()
+            .map(move |block| (block, bits.next().unwrap_or_default()))
     }
 
     /// Add a block back to the index. This allows us to control the growth strategy used by the
     /// `blocks` vector.
     ///
-    /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
-    fn add_block(&mut self, block: IndexBlock) -> usize {
+    /// It returns how many bytes have been added to the size of the heap allocations backing the
+    /// blocks vector and [`Self::expiration`].
+    fn add_block(&mut self, block: IndexBlock, bits: ExpirationBits) -> usize {
         let had_allocated = self.blocks.has_allocated();
         let mem_growth = if self.blocks.len() == self.blocks.capacity() {
             self.blocks.reserve_exact(1);
@@ -378,8 +536,27 @@ impl<E: Encoder> InvertedIndex<E> {
             0
         };
 
+        mem_growth + self.push_block(block, bits)
+    }
+
+    /// Append `block` with its field-expiration bitset `bits`. Returns how many bytes
+    /// [`Self::expiration`]'s own allocation grew by; the growth of `blocks` and of `bits` is the
+    /// caller's to count.
+    pub(crate) fn push_block(&mut self, block: IndexBlock, bits: ExpirationBits) -> usize {
         self.blocks.push(block);
-        mem_growth
+        if self.expiration.is_empty() && bits.is_empty() {
+            return 0;
+        }
+        let before = self.expiration.mem_usage();
+        // The first non-empty bitset creates the array, with empty bitsets for the blocks before
+        // it. Grow exactly, as `Self::add_block` grows `blocks`: an index with field TTLs pays a
+        // second reallocation per new block, but holds no spare bitset slots.
+        let missing = self.blocks.len() - self.expiration.len();
+        self.expiration.reserve_exact(missing);
+        self.expiration
+            .extend(std::iter::repeat_with(ExpirationBits::new).take(missing - 1));
+        self.expiration.push(bits);
+        self.expiration.mem_usage() - before
     }
 
     /// Returns the number of unique documents in the index.

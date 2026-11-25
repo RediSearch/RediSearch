@@ -28,6 +28,7 @@ typedef uint16_t t_len;
 #define TRIE_OK_NEW                1   /* Successfully added a new entry */
 #define TRIE_OK_UPDATED            0   /* Entry already existed, score/payload updated */
 #define TRIE_ERR_PAYLOAD_OVERFLOW -1   /* Payload too large or allocation overflow */
+#define TRIE_ERR_TOO_MANY_CHILDREN -2  /* A node on the path already has the most children t_len holds */
 
 typedef enum {
   Trie_Sort_Lex = 0,
@@ -42,7 +43,7 @@ struct timespec;
 typedef struct TriePayload TriePayload;
 typedef struct TrieNode TrieNode;
 typedef struct TrieIterator TrieIterator;
-typedef struct QueryRequestTimeout QueryRequestTimeout;
+typedef struct QueryRequestLimits QueryRequestLimits;
 
 /* Opaque accessors over TrieNode struct internals. These are the only
  * supported way to read TrieNode fields from outside src/trie/. */
@@ -75,6 +76,8 @@ typedef enum {
  *   TRIE_OK_NEW (1)                - String was added (new entry)
  *   TRIE_OK_UPDATED (0)            - String already existed, score/payload updated
  *   TRIE_ERR_PAYLOAD_OVERFLOW (-1) - Payload too large or allocation overflow
+ *   TRIE_ERR_TOO_MANY_CHILDREN (-2) - The string needs a new child under a full node; the trie is
+ *                                     left unchanged
  *
  * Note: The return value is used by Trie_InsertRune to update the Trie size
  * member (incremented only when TRIE_OK_NEW is returned).
@@ -122,6 +125,15 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
                       size_t *numDocs, void *matchCtx);
 
 typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *, size_t);
+
+/* Called with each key a visit walk reaches; returning non-zero stops the walk. */
+typedef int (*TrieVisitCallback)(const rune *key, size_t len, void *ctx);
+
+/* Visit, in lexicographic rune order, every key of the subtree at `n` that sorts strictly after
+ * `after`, until `visit` returns non-zero. Requires a Trie_Sort_Lex trie. Returns non-zero when
+ * `visit` stopped the walk. */
+int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
+                        TrieVisitCallback visit, void *ctx);
 typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 
 /**
@@ -136,11 +148,11 @@ typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
  */
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx,
-                              QueryRequestTimeout *timeout);
+                              QueryRequestLimits *timeout);
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx,
-                              QueryRequestTimeout *timeout);
+                              QueryRequestLimits *timeout);
 
 #ifdef __cplusplus
 }

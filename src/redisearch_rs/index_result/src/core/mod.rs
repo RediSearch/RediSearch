@@ -9,7 +9,7 @@
 
 mod proximity;
 
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
@@ -19,6 +19,8 @@ use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
+
+use crate::SharedQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
@@ -43,29 +45,13 @@ pub struct RawIndexResultBuilder<'query, R: Ref> {
 /// Created via [`RawIndexResult::build_term`]. Use [`Self::borrowed_record`]
 /// or [`Self::owned_record`] to set the term record data before calling
 /// [`Self::build`].
-pub struct RawTermResultBuilder<'query, R: Ref> {
+pub struct RawTermResultBuilder<R: Ref> {
     doc_id: DocId,
     field_mask: FieldMask,
     freq: u32,
     weight: f64,
-    record: TermBuilderRecord<'query, R>,
+    record: RawTermRecord<R>,
     has_field_expiration: bool,
-}
-
-/// Internal enum holding the term record data for the builder.
-enum TermBuilderRecord<'query, R: Ref> {
-    Borrowed {
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RawOffsetSlice<R>,
-    },
-    Owned {
-        term: Option<&'query RSQueryTerm>,
-        offsets: RSOffsetVector,
-    },
-    FullyOwned {
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector,
-    },
 }
 
 impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
@@ -135,6 +121,18 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
         }
     }
 
+    /// Create a builder for a sparse vector score result with the given number
+    const fn sparse_score(num: f64) -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: RS_FIELDMASK_ALL,
+            freq: 0,
+            data: RawResultData::SparseScore(num),
+            weight: 1.0,
+            has_field_expiration: false,
+        }
+    }
+
     /// Create a builder for an intersection index result with the given capacity
     fn intersect(cap: usize) -> Self {
         Self {
@@ -187,7 +185,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
     }
 }
 
-impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
+impl<R: Ref> RawTermResultBuilder<R> {
     /// Create a new term result builder
     const fn new() -> Self {
         Self {
@@ -195,10 +193,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             field_mask: 0,
             freq: 1,
             weight: 0.0,
-            record: TermBuilderRecord::Borrowed {
-                term: None,
-                offsets: RawOffsetSlice::empty(),
-            },
+            record: RawTermRecord::new(),
             has_field_expiration: false,
         }
     }
@@ -242,56 +237,31 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
         term: Option<Box<RSQueryTerm>>,
         offsets: RawOffsetSlice<R>,
     ) -> Self {
-        self.record = TermBuilderRecord::Borrowed { term, offsets };
+        self.record = RawTermRecord::Borrowed {
+            term: term.map(SharedQueryTerm::new),
+            offsets,
+        };
         self
     }
 
-    /// Set the term record data with owned offsets and an optional borrowed query term.
+    /// Set the term record data with owned offsets and an optional query term.
     ///
-    /// Produces an [`RawTermRecord::Owned`] variant. Use this when the offset
-    /// data does not live long enough to be borrowed by the result.
+    /// Produces an [`RawTermRecord::Owned`] variant. Use this when the offsets
+    /// do not live long enough to be borrowed by the result, such as for
+    /// readers that decode offsets from a transient source like a disk page.
     #[inline]
-    pub fn owned_record(
-        mut self,
-        term: Option<&'query RSQueryTerm>,
-        offsets: RSOffsetVector,
-    ) -> Self {
-        self.record = TermBuilderRecord::Owned { term, offsets };
-        self
-    }
-
-    /// Set the term record data with an owned query term (wrapped in a
-    /// [`Box`]) and owned offsets.
-    ///
-    /// Produces an [`RawTermRecord::FullyOwned`] variant. Use this when the
-    /// offsets do not live long enough to be borrowed by the result, but the
-    /// caller still wants the record to own the query term (as with
-    /// [`Self::borrowed_record`]). This is the right choice for readers that
-    /// decode offsets from a transient source such as a disk page.
-    #[inline]
-    pub fn fully_owned_record(
-        mut self,
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector,
-    ) -> Self {
-        self.record = TermBuilderRecord::FullyOwned { term, offsets };
+    pub fn owned_record(mut self, term: Option<Box<RSQueryTerm>>, offsets: RSOffsetVector) -> Self {
+        self.record = RawTermRecord::Owned {
+            term: term.map(SharedQueryTerm::new),
+            offsets,
+        };
         self
     }
 
     /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RawIndexResult<'query, R> {
-        let data = match self.record {
-            TermBuilderRecord::Borrowed { term, offsets } => {
-                RawResultData::Term(RawTermRecord::Borrowed { term, offsets })
-            }
-            TermBuilderRecord::Owned { term, offsets } => {
-                RawResultData::Term(RawTermRecord::Owned { term, offsets })
-            }
-            TermBuilderRecord::FullyOwned { term, offsets } => {
-                RawResultData::Term(RawTermRecord::FullyOwned { term, offsets })
-            }
-        };
+    pub fn build<'query>(self) -> RawIndexResult<'query, R> {
+        let data = RawResultData::Term(self.record);
         RawIndexResult {
             doc_id: self.doc_id,
             dmd: ptr::null(),
@@ -461,16 +431,13 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
-    ///    `RSIndexResult<'a>`.
+    /// 1. `slot` is aligned and points to an initialized [`RSIndexResult`].
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.
     pub const unsafe fn into_suspended_in_place(
-        slot: *mut Self,
-    ) -> *mut RawIndexResult<'a, Suspended> {
-        debug_assert!(!slot.is_null());
-
+        slot: NonNull<Self>,
+    ) -> NonNull<RawIndexResult<'a, Suspended>> {
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
@@ -565,19 +532,17 @@ impl<'query> RawIndexResult<'query, Suspended> {
     ///
     /// The caller must guarantee that:
     ///
-    /// 1. `slot` is non-null, aligned, and points to an initialized
-    ///    `RawIndexResult<Suspended>`.
+    /// 1. `slot` is aligned and points to an initialized
+    ///    [`RawIndexResult`] in the [`Suspended`] state.
     /// 2. `slot` must be unaliased for the duration of the call: no other
     ///    reference or pointer may be used to access the slot while this runs,
     ///    since the value is moved out and written back through `slot` alone.
     /// 3. The safety preconditions of [`RawIndexResult::into_active`] must hold
     ///    for the chosen lifetime `'a`.
-    pub const unsafe fn into_active_in_place<'a>(slot: *mut Self) -> *mut RSIndexResult<'a>
+    pub const unsafe fn into_active_in_place<'a>(slot: NonNull<Self>) -> NonNull<RSIndexResult<'a>>
     where
         'query: 'a,
     {
-        debug_assert!(!slot.is_null());
-
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
@@ -610,6 +575,11 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         RawIndexResultBuilder::metric(num)
     }
 
+    /// Create a builder for a sparse vector score result with the given number
+    pub const fn build_sparse_score(num: f64) -> RawIndexResultBuilder<'query, R> {
+        RawIndexResultBuilder::sparse_score(num)
+    }
+
     /// Create a builder for an intersection index result with the given capacity
     pub fn build_intersect(cap: usize) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::intersect(cap)
@@ -626,7 +596,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Create a specialized builder for a term index result
-    pub const fn build_term() -> RawTermResultBuilder<'query, R> {
+    pub const fn build_term() -> RawTermResultBuilder<R> {
         RawTermResultBuilder::new()
     }
 
@@ -648,7 +618,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {}
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {}
         }
         self.metrics.reset();
     }
@@ -668,7 +639,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         );
 
         match &self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => *numeric,
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => *numeric,
             RawResultData::Union(_)
             | RawResultData::Intersection(_)
             | RawResultData::Term(_)
@@ -696,7 +669,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         );
 
         match &mut self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => numeric,
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => numeric,
             RawResultData::Union(_)
             | RawResultData::Intersection(_)
             | RawResultData::Term(_)
@@ -712,7 +687,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// `None`.
     pub const fn as_numeric(&self) -> Option<f64> {
         match &self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(*numeric),
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => Some(*numeric),
             RawResultData::HybridMetric(_)
             | RawResultData::Union(_)
             | RawResultData::Intersection(_)
@@ -725,7 +702,9 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// returns `None`.
     pub const fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
-            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(numeric),
+            RawResultData::Numeric(numeric)
+            | RawResultData::Metric(numeric)
+            | RawResultData::SparseScore(numeric) => Some(numeric),
             RawResultData::HybridMetric(_)
             | RawResultData::Union(_)
             | RawResultData::Intersection(_)
@@ -741,7 +720,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// # Safety
     ///
     /// 1. `Self::is_term()` must return `true` for `self`.
-    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<'query, R> {
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<R> {
         debug_assert!(
             self.is_term(),
             "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RawIndexResult` \
@@ -756,6 +735,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => {
                 // SAFETY: unreachable because of safety condition 1
                 unsafe { std::hint::unreachable_unchecked() }
@@ -765,7 +745,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term(&self) -> Option<&RawTermRecord<'query, R>> {
+    pub const fn as_term(&self) -> Option<&RawTermRecord<R>> {
         match &self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -773,13 +753,14 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as a mutable term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<'query, R>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<R>> {
         match &mut self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -787,6 +768,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
             | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_)
             | RawResultData::HybridMetric(_) => None,
         }
     }
@@ -811,7 +793,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -829,7 +812,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
@@ -843,7 +827,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
@@ -869,7 +854,8 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => {
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -891,7 +877,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     const fn is_numeric(&self) -> bool {
         matches!(
             self.data,
-            RawResultData::Numeric(_) | RawResultData::Metric(_)
+            RawResultData::Numeric(_) | RawResultData::Metric(_) | RawResultData::SparseScore(_)
         )
     }
 
@@ -916,15 +902,15 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Union(RawAggregateResult::Owned(_))
             | RawResultData::Intersection(RawAggregateResult::Owned(_))
             | RawResultData::HybridMetric(RawAggregateResult::Owned(_))
-            | RawResultData::Term(RawTermRecord::Owned { .. })
-            | RawResultData::Term(RawTermRecord::FullyOwned { .. }) => true,
+            | RawResultData::Term(RawTermRecord::Owned { .. }) => true,
             RawResultData::Union(RawAggregateResult::Borrowed(_))
             | RawResultData::Intersection(RawAggregateResult::Borrowed(_))
             | RawResultData::HybridMetric(RawAggregateResult::Borrowed(_))
             | RawResultData::Term(RawTermRecord::Borrowed { .. })
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => false,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => false,
         }
     }
 }
@@ -1020,14 +1006,20 @@ impl<'a> RSIndexResult<'a> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 
-    /// Create an owned copy of this index result, allocating new memory for the contained data.
+    /// Create a copy of this index result that owns its offsets and shares ownership of its
+    /// query terms.
     ///
-    /// The returned result may borrow the term data from the original result.
-    pub fn to_owned(&'a self) -> RSIndexResult<'a> {
+    /// The copy borrows no term or offsets from `self`: it stays valid after `self` is
+    /// dropped, and after the iterators holding the terms `self` points at are dropped. It
+    /// still shares the [`metrics`](Self::metrics) keys, which belong to the query and are
+    /// what the returned `'a` stands for, and the [`dmd`](Self::dmd) pointer, which it neither
+    /// owns nor releases.
+    pub fn to_owned(&self) -> RSIndexResult<'a> {
         RawIndexResult {
             doc_id: self.doc_id,
             dmd: self.dmd,
@@ -1095,7 +1087,8 @@ impl<'a> RSIndexResult<'a> {
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
-            | RawResultData::Metric(_) => None,
+            | RawResultData::Metric(_)
+            | RawResultData::SparseScore(_) => None,
         }
     }
 }

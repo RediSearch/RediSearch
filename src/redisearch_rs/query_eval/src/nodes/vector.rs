@@ -69,22 +69,29 @@ pub(crate) fn eval<'index>(
         "a vector node has at most one (filter) child"
     );
     let child = if node.num_children() == 0 {
-        std::ptr::null_mut()
+        None
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
-        // filter, so the whole node yields nothing.
-        eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
+        // filter, so the whole node yields nothing. The offset requirement is
+        // not inherited; see `OffsetRequirement`.
+        Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
-    // valid `VectorQuery`, and `child` is either null or an owning iterator that
-    // `NewVectorIterator` takes over on success.
-    let it = unsafe { ffi::NewVectorIterator(ctx.as_non_null().as_ptr(), vq, child) };
+    // valid `VectorQuery`, and `child` is either absent (null) or an owning
+    // iterator that `NewVectorIterator` takes over on success.
+    let it = unsafe {
+        ffi::NewVectorIterator(
+            ctx.as_non_null().as_ptr(),
+            vq,
+            child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+        )
+    };
 
     let Some(it) = NonNull::new(it) else {
         // `NewVectorIterator` does not take ownership of the child on its
         // failure paths, so the child is ours to release.
-        if let Some(child) = NonNull::new(child) {
+        if let Some(child) = child {
             // SAFETY: `child` is an owning `QueryIterator` handle with all its
             // callbacks populated, and nothing else holds it.
             drop(unsafe { CRQEIterator::new(child) });
@@ -126,10 +133,19 @@ fn resolve_score_field(
     }
 
     if !vq.scoreField.is_null() {
-        debug_assert!(!vq.field.is_null(), "a vector query must have a field spec");
-        // SAFETY: a well-formed vector query points at a valid `FieldSpec`
-        // whose `fieldName` is a valid `HiddenString`.
-        let field = unsafe { &*vq.field };
+        let spec = ctx.spec();
+        debug_assert!(
+            vq.fieldIndex < spec.numFields,
+            "fieldIndex must be within the spec's current field count"
+        );
+        // SAFETY: `fieldIndex` is within `spec.numFields` (asserted above), so this stays
+        // within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(vq.fieldIndex as usize) };
+        // SAFETY: `fieldIndex` was captured from the field's own stable index at parse
+        // time. `IndexSpec.fields` only grows between then and now (existing indices stay
+        // valid), and `spec` is the current field array, read under the lock evaluation
+        // holds.
+        let field = unsafe { &*field_ptr };
         let default = default_score_field(field);
         // SAFETY: the parser only ever stores a live, NUL-terminated string here.
         let score_field = unsafe { CStr::from_ptr(vq.scoreField) };
@@ -222,28 +238,25 @@ fn bind_metric_request(
     // SAFETY: `it` is a valid iterator freshly returned by `NewVectorIterator`.
     let iterator_type = unsafe { it.as_ref() }.type_;
 
-    // Neither accessor can infer the key's borrow — one comes from C, the other
-    // from a type-erased header — and `bind_metric_request_key` leaves it free
-    // on both sides too, so nothing constrains the lifetime inferred here. It is
-    // discharged by discarding it: the key leaves this function only as a raw
-    // pointer, handed straight back to the iterator that owns the slot, so no
-    // `RLookupKey` reference — nor any borrow its safe accessors hand out — is
-    // ever formed at that lifetime.
+    // Neither accessor can infer the key's borrow — both reach it through a
+    // type-erased header — and `bind_metric_request_key` leaves it free too, so
+    // nothing constrains the lifetime inferred here. It is discharged by
+    // discarding it: the key leaves this function only as a raw pointer, handed
+    // straight back to the iterator that owns the slot, so no `RLookupKey`
+    // reference — nor any borrow its safe accessors hand out — is ever formed at
+    // that lifetime.
     match iterator_type {
         IteratorType::Hybrid => {
-            // SAFETY: the discriminant says this is a hybrid iterator, and we
-            // hold it exclusively.
-            //
-            // The cast is C's view of the key — its header — widened back to
-            // the whole key the header is the first field of.
-            let own_key = unsafe { ffi::HybridIterator_GetOwnKeyRef(it.as_ptr()) }.cast();
+            // SAFETY: the discriminant says this is a vector top-k iterator, and
+            // we hold it exclusively.
+            let own_key = unsafe { vector_score_source::interop::own_key_ref(it) };
             // SAFETY: `id` was reserved by `add_metric_request` on this same
             // context; `own_key` points into the iterator, which outlives the
             // handle (it clears the handle's validity flag when freed).
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
-            // long as the AST. The cast is the same handle as C declares it.
-            unsafe { ffi::HybridIterator_SetKeyHandle(it.as_ptr(), handle.cast()) };
+            // long as the AST.
+            unsafe { vector_score_source::interop::set_key_handle(it, Some(handle)) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore
@@ -255,9 +268,9 @@ fn bind_metric_request(
             // than relied upon, as above.
             let own_key = unsafe { metric::own_key_ref(it) };
             // SAFETY: as above.
-            let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
+            let handle = unsafe { ctx.bind_metric_request_key(id, own_key.as_ptr()) };
             // SAFETY: as above.
-            unsafe { metric::set_key_handle(it, handle) };
+            unsafe { metric::set_key_handle(it, Some(handle)) };
         }
         // Every other type yields no metric to bind.
         _ => {}

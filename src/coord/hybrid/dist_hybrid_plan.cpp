@@ -40,9 +40,7 @@ static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
 // should make sure the product of AREQ_BuildPipeline would result in rpSorter only (can set up the aggplan to be a sorter only)
 int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
   // Create synchronization context for coordinating depleter processors
-  // We avoid taking the index lock since we are not directly accessing the index at all
-  // This avoids deadlocks with main thread while it is trying to access the index
-  StrongRef sync_ref = DepleterSync_New(req->nrequests, false);
+  StrongRef sync_ref = DepleterSync_New(req->nrequests);
 
   // Build individual pipelines for each search request
   for (size_t i = 0; i < req->nrequests; i++) {
@@ -69,7 +67,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
       // The depleter will feed results to the hybrid merger
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread,
-                                                     ConcurrentSearch_GetPool(req->poolId));
+                                                     ConcurrentSearch_GetPool());
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
         pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));

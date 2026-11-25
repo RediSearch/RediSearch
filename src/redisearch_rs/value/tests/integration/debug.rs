@@ -28,7 +28,6 @@ fn debug_undefined() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls FFI function `snprintf`")]
 fn debug_number() {
     assert_eq!(debug(&Value::Number(42.0)), "42");
 }

@@ -14,16 +14,27 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType, index::ExpirationBits,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::DocId;
-use smallvec::smallvec;
+use smallvec::SmallVec;
 use thin_vec::medium_thin_vec;
 
 use super::{Dummy, encode_ids};
+
+/// Pairs each block with an empty field-expiration bitset, as the repair of an index without
+/// field TTLs does.
+fn without_ttls<const N: usize>(
+    blocks: [IndexBlock; N],
+) -> SmallVec<[(IndexBlock, ExpirationBits); 3]> {
+    blocks
+        .into_iter()
+        .map(|b| (b, ExpirationBits::new()))
+        .collect()
+}
 
 #[test]
 fn index_block_repair_delete() {
@@ -33,7 +44,6 @@ fn index_block_repair_delete() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -43,6 +53,7 @@ fn index_block_repair_delete() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -65,7 +76,6 @@ fn index_block_repair_unchanged() {
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
-        expiration_bits: Default::default(),
     };
 
     fn cb(_doc_id: DocId) -> bool {
@@ -75,6 +85,7 @@ fn index_block_repair_unchanged() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -92,7 +103,6 @@ fn index_block_repair_some_deletions() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -102,6 +112,7 @@ fn index_block_repair_some_deletions() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -111,13 +122,12 @@ fn index_block_repair_some_deletions() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            blocks: smallvec![IndexBlock {
+            blocks: without_ttls([IndexBlock {
                 first_doc_id: 11,
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: encode_ids!(Dummy, 11),
-                expiration_bits: Default::default(),
-            }],
+            }]),
             n_unique_docs_removed: 2
         })
     );
@@ -204,7 +214,6 @@ fn index_block_repair_delta_too_big() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -214,6 +223,7 @@ fn index_block_repair_delta_too_big() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<SmallDeltaDummy>,
@@ -223,7 +233,7 @@ fn index_block_repair_delta_too_big() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            blocks: smallvec![
+            blocks: without_ttls([
                 IndexBlock {
                     buffer: {
                         let mut writer = Cursor::new(Vec::new());
@@ -239,7 +249,6 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 10,
                     last_doc_id: 10,
-                    expiration_bits: Default::default(),
                 },
                 IndexBlock {
                     buffer: {
@@ -256,9 +265,8 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 42,
                     last_doc_id: 42,
-                    expiration_bits: Default::default(),
                 }
-            ],
+            ]),
             n_unique_docs_removed: 1
         })
     );
@@ -277,28 +285,24 @@ fn ii_scan_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -318,28 +322,57 @@ fn ii_scan_gc() {
         GcScanDelta {
             last_block_idx: 3,
             last_block_num_entries: 1,
+            // No two neighbours before the last fit one block yet (see `Dummy`), so each
+            // block is repaired on its own; their survivors are compacted on the next cycle.
             deltas: vec![
                 BlockGcScanResult {
+                    span: 1,
                     index: 0,
                     repair: RepairType::Delete {
                         n_unique_docs_removed: 2
                     },
                 },
                 BlockGcScanResult {
+                    span: 1,
                     index: 1,
                     repair: RepairType::Replace {
-                        blocks: smallvec![IndexBlock {
+                        blocks: without_ttls([IndexBlock {
                             buffer: encode_ids!(Dummy, 21, 22),
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
-                            expiration_bits: Default::default(),
-                        }],
+                        }]),
                         n_unique_docs_removed: 1
                     },
                 },
             ]
         }
+    );
+
+    // That cycle leaves blocks of 2, 1 and 1 entries: the first two now fit one block, so
+    // the next cycle packs them, though nothing more is gone.
+    let mut ii = ii;
+    ii.apply_gc(gc_result);
+    assert!(ii.has_compactable_run());
+    let gc_result = ii
+        .scan_gc(cb, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        gc_result.deltas,
+        vec![BlockGcScanResult {
+            span: 2,
+            index: 0,
+            repair: RepairType::Replace {
+                blocks: without_ttls([IndexBlock {
+                    buffer: encode_ids!(Dummy, 21, 22, 30),
+                    num_entries: 3,
+                    first_doc_id: 21,
+                    last_doc_id: 30,
+                }]),
+                n_unique_docs_removed: 0
+            },
+        }]
     );
 }
 
@@ -352,14 +385,12 @@ fn ii_scan_gc_no_change() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -389,35 +420,31 @@ fn ii_apply_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
-            expiration_bits: Default::default(),
         },
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -428,43 +455,43 @@ fn ii_apply_gc() {
 
     let gc_result = vec![
         BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 3,
             repair: RepairType::Replace {
-                blocks: smallvec![
+                blocks: without_ttls([
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 40),
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
-                        expiration_bits: Default::default(),
                     },
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
-                        expiration_bits: Default::default(),
                     },
-                ],
+                ]),
                 n_unique_docs_removed: 1,
             },
         },
@@ -484,7 +511,7 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -502,28 +529,24 @@ fn ii_apply_gc() {
                 num_entries: 1,
                 first_doc_id: 21,
                 last_doc_id: 21,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 30),
                 num_entries: 1,
                 first_doc_id: 30,
                 last_doc_id: 30,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 40),
                 num_entries: 1,
                 first_doc_id: 40,
                 last_doc_id: 40,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 72),
                 num_entries: 1,
                 first_doc_id: 72,
                 last_doc_id: 72,
-                expiration_bits: Default::default(),
             },
         ]
     );
@@ -531,13 +554,14 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // The first, second and fourth block were removed.
-            bytes_freed: 208,
+            bytes_freed: 184,
             // The third and fifth block were split into new blocks.
-            bytes_allocated: 192,
+            bytes_allocated: 168,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
             ignored_last_block: false,
+            rescanned_last_block: false,
         }
     );
 }
@@ -551,14 +575,12 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -566,7 +588,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -575,21 +597,22 @@ fn ii_apply_gc_last_block_updated() {
 
     let gc_result = vec![
         BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
@@ -611,7 +634,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
+        32 // Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE // Size of the index blocks
         + 16 // Size of the buffer of the first index block
@@ -625,14 +648,13 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
             // Freed only the first block
-            bytes_freed: 64,
+            bytes_freed: 56,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -640,6 +662,7 @@ fn ii_apply_gc_last_block_updated() {
             block_count_delta: -1,
             // Ignored the last block
             ignored_last_block: true,
+            rescanned_last_block: false,
         }
     );
 }
@@ -657,14 +680,12 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -672,6 +693,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 
     // Delta only for block 0 — block 1 had no deleted entries during scan.
     let gc_result = vec![BlockGcScanResult {
+        span: 1,
         index: 0,
         repair: RepairType::Delete {
             n_unique_docs_removed: 2,
@@ -690,13 +712,14 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 64,
+            bytes_freed: 56,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
             // The key assertion: ignored_last_block must be true even without
             // a delta for the last block.
             ignored_last_block: true,
+            rescanned_last_block: false,
         }
     );
 
@@ -708,7 +731,6 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         }]
     );
 }
@@ -778,15 +800,15 @@ fn ii_apply_gc_entries_tracking_index() {
         last_block_idx: 0,
         last_block_num_entries: 4,
         deltas: vec![BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(AllowDupsDummy, 15, 15),
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 1,
             },
         }],
@@ -819,17 +841,17 @@ fn ii_apply_gc_entries_tracking_index() {
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
-            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 73,
-            bytes_allocated: 64,
+            bytes_freed: 65,
+            bytes_allocated: 56,
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,
+            rescanned_last_block: false,
         }
     );
 }
@@ -878,5 +900,670 @@ fn test_needs_revalidation_after_block_buffer_moved() {
     assert!(
         reader.needs_revalidation(),
         "a moved block buffer must be reported: the reader's cached pointer is now dangling"
+    );
+}
+
+/// A liveness source that knows exactly which IDs are gone, and so which ranges
+/// hold none, as the in-process GC's deleted set does.
+#[derive(Clone)]
+struct Gone(Vec<DocId>);
+
+impl crate::DocLiveness for Gone {
+    fn exists(&self, id: DocId) -> bool {
+        !self.0.contains(&id)
+    }
+
+    fn any_gone(&self, first: DocId, last: DocId) -> bool {
+        self.0.iter().any(|id| (first..=last).contains(id))
+    }
+}
+
+/// A block holding `ids`, encoded as [`encode_ids!`] does.
+fn block(ids: &[DocId]) -> IndexBlock {
+    let mut writer = Cursor::new(Vec::new());
+    let mut last = ids[0];
+    for &id in ids {
+        Dummy::encode(
+            &mut writer,
+            (id - last) as u32,
+            &RSIndexResult::build_virt().doc_id(id).build(),
+        )
+        .unwrap();
+        last = id;
+    }
+    IndexBlock {
+        buffer: writer.into_inner(),
+        num_entries: ids.len() as u16,
+        first_doc_id: ids[0],
+        last_doc_id: *ids.last().unwrap(),
+    }
+}
+
+/// Blocks 10..=12, 20..=22 and 30..=31: two full blocks (see `Dummy`) and a last one.
+fn three_blocks() -> InvertedIndex<Dummy> {
+    InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[10, 11, 12]), block(&[20, 21, 22]), block(&[30, 31])],
+    )
+}
+
+type NoRepair = fn(&RSIndexResult, &crate::RepairContext<'_>);
+
+use crate::{DocLiveness, GcSnapshotScope};
+
+/// A liveness source that can rule a range clean lets the scan skip its blocks, and
+/// rules nothing out while a repair callback has to see every surviving entry.
+#[test]
+fn a_range_aware_liveness_skips_the_blocks_it_rules_clean() {
+    let ii = three_blocks();
+
+    let delta = ii
+        .scan_gc(Gone(vec![21]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            span: 1,
+            index: 1,
+            repair: RepairType::Replace {
+                blocks: without_ttls([block(&[20, 22])]),
+                n_unique_docs_removed: 1,
+            },
+        }]
+    );
+    assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+
+    let mut seen = Vec::new();
+    ii.scan_gc(
+        Gone(vec![21]),
+        Some(|res: &RSIndexResult, _: &crate::RepairContext<'_>| seen.push(res.doc_id)),
+    )
+    .unwrap();
+    assert_eq!(seen, vec![10, 11, 12, 20, 22, 30, 31]);
+}
+
+/// A range-aware liveness source and a plain predicate produce the same delta,
+/// whichever way the gone counts compare with the blocks' entries.
+#[test]
+fn a_range_aware_liveness_scans_like_a_plain_predicate() {
+    let ii = three_blocks();
+    for gone in [vec![11, 21], vec![10, 11], vec![31], vec![]] {
+        let counting = Gone(gone.clone());
+        let one_pass = |id: DocId| !gone.contains(&id);
+        assert_eq!(
+            ii.scan_gc(counting, None::<NoRepair>).unwrap(),
+            ii.scan_gc(one_pass, None::<NoRepair>).unwrap(),
+            "gone: {gone:?}"
+        );
+    }
+}
+
+/// The entries before the first dead one keep the bytes they had: the replacement
+/// starts with the block's own prefix, and only what follows is encoded again.
+#[test]
+fn a_repair_copies_the_bytes_before_the_first_dead_entry() {
+    let original = block(&[10, 11, 13, 14]);
+    let prefix_len = block(&[10, 11]).buffer.len();
+
+    let repair = original
+        .repair(
+            0,
+            None,
+            |id| id != 13,
+            None::<NoRepair>,
+            PhantomData::<Dummy>,
+        )
+        .unwrap()
+        .unwrap();
+
+    let RepairType::Replace {
+        blocks,
+        n_unique_docs_removed,
+    } = repair
+    else {
+        panic!("a block with a survivor is replaced, not deleted");
+    };
+    assert_eq!(n_unique_docs_removed, 1);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(
+        &blocks[0].0.buffer[..prefix_len],
+        &original.buffer[..prefix_len]
+    );
+    // ...and the whole is what encoding the survivors from scratch gives.
+    assert_eq!(blocks[0].0, block(&[10, 11, 14]));
+}
+
+/// A snapshot carries the data of the blocks with a gone document only, and
+/// everything else a scan of it reads.
+#[test]
+fn a_snapshot_copies_only_the_blocks_with_a_gone_document() {
+    let ii = three_blocks();
+    ii.gc_marker_inc();
+
+    let snapshot = ii
+        .gc_snapshot(&Gone(vec![21]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+    let dataless = |b: &IndexBlock| IndexBlock {
+        buffer: Vec::new(),
+        num_entries: b.num_entries,
+        first_doc_id: b.first_doc_id,
+        last_doc_id: b.last_doc_id,
+    };
+    assert_eq!(
+        snapshot.blocks.to_vec(),
+        vec![
+            dataless(&ii.blocks[0]),
+            ii.blocks[1].clone(),
+            dataless(&ii.blocks[2])
+        ]
+    );
+    assert_eq!(snapshot.gc_marker(), ii.gc_marker());
+    assert_eq!(snapshot.unique_id(), ii.unique_id());
+    assert_eq!(snapshot.unique_docs(), ii.unique_docs());
+    assert_eq!(snapshot.doc_id_range(), Some(10..=31));
+    assert_eq!(snapshot.last_block_doc_id_range(), Some(30..=31));
+
+    let full = ii
+        .gc_snapshot(&Gone(vec![21]), GcSnapshotScope::AllBlocks)
+        .unwrap();
+    assert_eq!(full.blocks, ii.blocks);
+
+    assert!(
+        ii.gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+            .is_none()
+    );
+}
+
+/// A dataless block cannot be mistaken for one whose every entry is gone, even by
+/// a scan with a liveness source that finds its range dirty.
+#[test]
+fn a_dataless_block_is_never_repaired() {
+    let snapshot = three_blocks()
+        .gc_snapshot(&Gone(vec![21]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+
+    assert_eq!(
+        snapshot.blocks[0]
+            .repair(0, None, |_| false, None::<NoRepair>, PhantomData::<Dummy>)
+            .unwrap(),
+        None
+    );
+    let delta = snapshot
+        .scan_gc(|_| false, None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            span: 1,
+            index: 1,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 3
+            },
+        }]
+    );
+}
+
+/// With a liveness source, a last block that grew since the scan is rescanned as it
+/// is now instead of being denied: its dead entries go and the new ones stay.
+#[test]
+fn apply_gc_with_rescans_a_grown_last_block() {
+    let stale_delta = || GcScanDelta {
+        last_block_idx: 1,
+        // The scan saw two entries in the last block; a third was appended since.
+        last_block_num_entries: 2,
+        deltas: vec![
+            BlockGcScanResult {
+                span: 1,
+                index: 0,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: 2,
+                },
+            },
+            BlockGcScanResult {
+                span: 1,
+                index: 1,
+                repair: RepairType::Replace {
+                    blocks: without_ttls([block(&[20])]),
+                    n_unique_docs_removed: 1,
+                },
+            },
+        ],
+    };
+    let two_blocks = || {
+        InvertedIndex::<Dummy>::from_blocks(
+            IndexFlags_Index_DocIdsOnly,
+            medium_thin_vec![block(&[10, 11]), block(&[20, 21, 22])],
+        )
+    };
+
+    let mut ii = two_blocks();
+    let info = ii.apply_gc_with(stale_delta(), Some(&Gone(vec![10, 11, 21])));
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20, 22])]);
+    assert_eq!(ii.unique_docs(), 2);
+    assert!(!info.ignored_last_block);
+    assert_eq!(info.entries_removed, 3);
+
+    // Nothing of the grown block is gone after all: it stays as it is.
+    let mut ii = two_blocks();
+    let info = ii.apply_gc_with(stale_delta(), Some(&Gone(vec![10, 11])));
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20, 21, 22])]);
+    assert_eq!(ii.unique_docs(), 3);
+    assert!(!info.ignored_last_block);
+    assert_eq!(info.entries_removed, 2);
+
+    // Without a liveness source the grown block is denied, as `apply_gc` does.
+    let mut ii = two_blocks();
+    let info = ii.apply_gc_with(stale_delta(), None);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20, 21, 22])]);
+    assert!(info.ignored_last_block);
+}
+
+/// A grown last block the rescan cannot decode is denied rather than silently kept.
+#[test]
+fn apply_gc_with_denies_a_grown_last_block_it_cannot_decode() {
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![
+            block(&[10, 11]),
+            IndexBlock {
+                // Three entries claimed, three bytes present: the decoder needs four.
+                buffer: vec![0, 0, 0],
+                num_entries: 3,
+                first_doc_id: 20,
+                last_doc_id: 22,
+            }
+        ],
+    );
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        last_block_num_entries: 2,
+        deltas: vec![BlockGcScanResult {
+            span: 1,
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        }],
+    };
+
+    let info = ii.apply_gc_with(delta, Some(&Gone(vec![10, 11, 21])));
+
+    assert!(info.ignored_last_block);
+    assert_eq!(info.entries_removed, 2);
+    assert_eq!(ii.blocks.len(), 1);
+}
+
+/// A repaired block's replacement holds no slack: the GC frees memory, it should
+/// not leave the capacity the encoder grew along the way.
+#[test]
+fn a_repaired_block_has_no_spare_capacity() {
+    let RepairType::Replace { blocks, .. } = block(&[20, 21, 22, 23, 24, 25, 26, 27])
+        .repair(
+            0,
+            None,
+            |id| id != 21,
+            None::<NoRepair>,
+            PhantomData::<Dummy>,
+        )
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("a partially dead block is replaced");
+    };
+    for (b, _) in &blocks {
+        assert_eq!(b.buffer.capacity(), b.buffer.len());
+    }
+}
+
+/// A gone ID inside a block's range but absent from the block: the block is decoded,
+/// found clean, and never re-encoded.
+#[test]
+fn a_block_whose_range_only_seems_dirty_is_left_alone() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[10, 12]), block(&[20, 21])],
+    );
+    let gone = Gone(vec![11]);
+
+    assert_eq!(ii.scan_gc(gone.clone(), None::<NoRepair>).unwrap(), None);
+    assert_eq!(
+        ii.scan_gc(|id| gone.exists(id), None::<NoRepair>).unwrap(),
+        None
+    );
+}
+
+/// A grown last block whose new entries are gone too is deleted by the rescan,
+/// even when it is the index's only block.
+#[test]
+fn apply_gc_with_deletes_a_grown_last_block_that_is_all_gone() {
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[20, 21, 22])],
+    );
+    let delta = GcScanDelta {
+        last_block_idx: 0,
+        last_block_num_entries: 2,
+        deltas: vec![BlockGcScanResult {
+            span: 1,
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        }],
+    };
+
+    let info = ii.apply_gc_with(delta, Some(&Gone(vec![20, 21, 22])));
+
+    assert!(ii.blocks.is_empty());
+    assert_eq!(ii.unique_docs(), 0);
+    assert_eq!(info.entries_removed, 3);
+    assert_eq!(info.block_count_delta, -1);
+    assert!(!info.ignored_last_block);
+}
+
+/// Blocks appended after the scanned last block are left as they are: the rescan
+/// covers the block the scan knew as last, and the delta list stays in block order.
+#[test]
+fn apply_gc_with_leaves_blocks_appended_after_the_scanned_last_block_alone() {
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[10, 11]), block(&[20, 21, 22]), block(&[30, 31])],
+    );
+    // The scan saw two blocks, the second with two entries; a third entry and a whole
+    // block were appended since.
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        last_block_num_entries: 2,
+        deltas: vec![BlockGcScanResult {
+            span: 1,
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        }],
+    };
+
+    let info = ii.apply_gc_with(delta, Some(&Gone(vec![10, 11, 21, 30])));
+
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20, 22]), block(&[30, 31])]);
+    assert_eq!(info.entries_removed, 3);
+    assert!(!info.ignored_last_block);
+}
+
+/// Consecutive under-filled blocks before the last whose entries fit one block are
+/// re-encoded into one, even when nothing is gone: the snapshot copies them, the scan
+/// spans them in one delta, and the apply drops the originals.
+#[test]
+fn under_filled_runs_are_compacted_into_one_block() {
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[2]), block(&[5]), block(&[20])],
+    );
+    assert!(ii.has_compactable_run());
+
+    let snapshot = ii
+        .gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+    assert!(snapshot.blocks[..3].iter().all(|b| !b.buffer.is_empty()));
+    assert!(
+        snapshot.blocks[3].buffer.is_empty(),
+        "the last block is not copied"
+    );
+
+    let delta = snapshot
+        .scan_gc(Gone(vec![]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            span: 3,
+            index: 0,
+            repair: RepairType::Replace {
+                blocks: without_ttls([block(&[1, 2, 5])]),
+                n_unique_docs_removed: 0,
+            },
+        }]
+    );
+
+    let unique_docs = ii.unique_docs();
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[1, 2, 5]), block(&[20])]);
+    assert_eq!(info.entries_removed, 0);
+    assert_eq!(info.block_count_delta, -2);
+    assert_eq!(ii.unique_docs(), unique_docs);
+    assert!(!ii.has_compactable_run());
+}
+
+/// Blocks the codec's delta cannot span form no run, so a clean index is not copied or
+/// rescanned every cycle for a merge that would split back into the same blocks; a
+/// dirty block among them is still repaired on its own.
+#[test]
+fn blocks_the_delta_cannot_span_form_no_run() {
+    let far = 1 << 33;
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[far]), block(&[far + 1])],
+    );
+    assert!(!ii.has_compactable_run());
+    assert!(
+        ii.gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+            .is_none()
+    );
+    assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+
+    let delta = ii
+        .scan_gc(Gone(vec![1]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 1,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 1,
+            },
+        }]
+    );
+}
+
+/// The last block is the one writers append to and the one the apply checks for
+/// staleness by position, so it never joins a run.
+#[test]
+fn the_last_block_never_joins_a_run() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[2])],
+    );
+    assert!(!ii.has_compactable_run());
+    assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+    assert!(
+        ii.gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+            .is_none()
+    );
+}
+
+/// A run packed during the scan reaches the repair callback once per surviving entry,
+/// with no second pass over its blocks, and each with the block it was read from rather
+/// than the one it is packed into.
+#[test]
+fn a_packed_run_repairs_each_survivor_once() {
+    // The first block packs with neither neighbour (see `Dummy`), so the run starts at
+    // the second.
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![
+            block(&[1, 2]),
+            block(&[4, 5]),
+            block(&[10]),
+            block(&[20, 21])
+        ],
+    );
+    assert!(ii.has_compactable_run());
+
+    let mut seen = Vec::new();
+    let delta = ii
+        .scan_gc(
+            |id: DocId| id != 4,
+            Some(|res: &RSIndexResult, ctx: &crate::RepairContext<'_>| {
+                seen.push((res.doc_id, ctx.block_idx, ctx.block.first_doc_id))
+            }),
+        )
+        .unwrap()
+        .unwrap();
+
+    seen.sort_unstable();
+    assert_eq!(
+        seen,
+        vec![
+            (1, 0, 1),
+            (2, 0, 1),
+            (5, 1, 4),
+            (10, 2, 10),
+            (20, 3, 20),
+            (21, 3, 20)
+        ]
+    );
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 1,
+            span: 2,
+            repair: RepairType::Replace {
+                blocks: without_ttls([block(&[5, 10])]),
+                n_unique_docs_removed: 1,
+            },
+        }]
+    );
+}
+
+/// A run whose first block is all gone is replaced by the later blocks' survivors alone,
+/// and one with no survivor is deleted along with all its blocks.
+#[test]
+fn a_packed_run_whose_first_block_is_gone() {
+    let blocks = || medium_thin_vec![block(&[1, 2]), block(&[5]), block(&[20])];
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks());
+    let delta = ii
+        .scan_gc(Gone(vec![1, 2]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 2,
+            repair: RepairType::Replace {
+                blocks: without_ttls([block(&[5])]),
+                n_unique_docs_removed: 2,
+            },
+        }]
+    );
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[5]), block(&[20])]);
+    assert_eq!(info.entries_removed, 2);
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks());
+    let delta = ii
+        .scan_gc(Gone(vec![1, 2, 5]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 2,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 3,
+            },
+        }]
+    );
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[20])]);
+    assert_eq!(info.entries_removed, 3);
+    assert_eq!(info.block_count_delta, -2);
+}
+
+/// A packed run starts with its first block's entries before the first dead one, copied
+/// as they are; the rest are encoded again, and the whole is what encoding the survivors
+/// from scratch gives.
+#[test]
+fn a_packed_run_copies_its_first_blocks_clean_prefix() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1, 2]), block(&[5]), block(&[20])],
+    );
+    let prefix_len = block(&[1, 2]).buffer.len();
+
+    for (gone, packed) in [
+        (vec![], vec![1, 2, 5]),
+        (vec![2], vec![1, 5]),
+        (vec![5], vec![1, 2]),
+    ] {
+        let delta = ii
+            .scan_gc(Gone(gone.clone()), None::<NoRepair>)
+            .unwrap()
+            .unwrap();
+        let [
+            BlockGcScanResult {
+                index: 0,
+                span: 2,
+                repair: RepairType::Replace { blocks, .. },
+            },
+        ] = &delta.deltas[..]
+        else {
+            panic!("the run is packed into one block; gone: {gone:?}");
+        };
+        assert_eq!(blocks.len(), 1, "gone: {gone:?}");
+        assert_eq!(blocks[0].0, block(&packed), "gone: {gone:?}");
+        if gone.is_empty() {
+            assert_eq!(&blocks[0].0.buffer[..prefix_len], &ii.blocks[0].buffer[..]);
+        }
+    }
+}
+
+/// A snapshot copies only the runs the scan packs: a block too full to pack with either
+/// neighbour, or one that packs only with a block an earlier run took, stays without data
+/// when nothing in it is gone.
+#[test]
+fn a_snapshot_copies_only_the_runs_the_scan_packs() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![
+            block(&[1, 2]),
+            block(&[4, 5]),
+            block(&[8]),
+            block(&[9]),
+            block(&[20])
+        ],
+    );
+
+    let snapshot = ii
+        .gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+    let copied: Vec<bool> = snapshot
+        .blocks
+        .iter()
+        .map(|b| !b.buffer.is_empty())
+        .collect();
+    assert_eq!(copied, vec![false, true, true, false, false]);
+
+    let delta = snapshot
+        .scan_gc(
+            Gone(vec![]),
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
+        )
+        .unwrap()
+        .expect("the run is packed");
+    assert_eq!(
+        delta
+            .deltas
+            .iter()
+            .map(|d| (d.index, d.span))
+            .collect::<Vec<_>>(),
+        vec![(1, 2)]
     );
 }

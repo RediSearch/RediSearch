@@ -28,11 +28,11 @@
 #include "query.h"
 #include "query_eval_ffi.h"
 #include "extension.h"
-#include "fork_gc.h"
+#include "gc/index_gc.h"
 #include "iterators/iterator_api.h"
 #include "config.h"
 #include "doc_table.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "obfuscation/hidden.h"
 
 #include <float.h>
@@ -171,7 +171,7 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
 }
 
 struct RS_ApiIter {
-  QueryIterator* internal;
+  QueryIteratorTree* internal;
   RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
@@ -280,8 +280,9 @@ RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, RefManager* rm) {
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
   IndexSpec *sp = get_spec(rm);
-  while (iter->internal->Read(iter->internal) == ITERATOR_OK) {
-    iter->res = iter->internal->current;
+  QueryIterator* root = QueryIteratorTree_Root(iter->internal);
+  while (root->Read(root) == ITERATOR_OK) {
+    iter->res = root->current;
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
     if (md == NULL) {
       continue;
@@ -298,7 +299,7 @@ const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, siz
 
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
-    iter->internal->Free(iter->internal);
+    QueryIteratorTree_Free(iter->internal);
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);

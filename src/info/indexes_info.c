@@ -13,9 +13,10 @@
 #include <stdbool.h>
 
 #include "spec.h"
+#include "search_disk.h"
 #include "indexes.h"
 #include "field_spec_info.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "config.h"
 #include "info/vector_index_stats.h"
 #include "redismodule.h"
@@ -41,12 +42,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (!sp) {
       continue;
     }
-    // Lock for read
-    int rc = pthread_rwlock_rdlock(&sp->rwlock);
-    if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), rc, strerror(rc));
-      continue;
-    }
+    IndexSpec_LockRead(sp);
 
     // Vector indexes stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
@@ -55,7 +51,18 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
-    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, vec_info.memory);
+    SparseVectorIndexStats sparse_info = IndexSpec_GetSparseVectorIndexesStats(sp);
+    info.fields_stats.total_sparse_vector_idx_mem += sparse_info.memory;
+    info.fields_stats.total_sparse_vector_dimensions += sparse_info.num_dimensions;
+    info.fields_stats.total_sparse_vector_records += sparse_info.num_records;
+
+    bool cachedDisk = sp->diskSpec != NULL;
+    CachedIndexMetrics diskMetrics = {0};
+    if (cachedDisk) {
+      diskMetrics = SearchDisk_CollectInfoIndexMetrics(sp->diskSpec);
+      info.text_ram_metadata_bytes += IndexSpec_collect_text_overhead(sp);
+    }
+    size_t cur_mem = IndexSpec_TotalMemUsageForInfo(sp, vec_info.memory, diskMetrics.memory);
     size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 
@@ -77,7 +84,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
-    info.total_inverted_index_blocks += IndexSpec_TotalBlockCount(sp);
+    info.total_inverted_index_blocks += cachedDisk ? diskMetrics.blocks : IndexSpec_TotalBlockCount(sp);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
@@ -92,7 +99,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
     if (info.max_mem < total_index_mem) info.max_mem = total_index_mem;
 
-    pthread_rwlock_unlock(&sp->rwlock);
+    IndexSpec_Unlock(sp);
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found

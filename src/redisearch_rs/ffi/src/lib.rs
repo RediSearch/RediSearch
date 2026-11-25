@@ -49,6 +49,13 @@ use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;
 
+/// A C `pthread_rwlock_t`, behind an [`UnsafeCell`]: other threads take and release
+/// the lock through C while Rust holds shared references to the struct embedding it,
+/// such as an [`IndexSpec`] under its read lock.
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct pthread_rwlock_t(pub UnsafeCell<libc::pthread_rwlock_t>);
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {
@@ -63,6 +70,14 @@ pub struct QueryProcessingCtx {
     /// The minimal score applicable for a result. It can be used to optimize
     /// the scorers.
     pub minScore: f64,
+    /// The score a row must reach to enter the score sorter's full heap: its minimum. The row
+    /// source may skip candidates whose score bound is below it. Not positive means none.
+    ///
+    /// Written only by a score sorter whose upstream chain keeps every row's score from its own
+    /// candidate, so a skipped candidate could not have reached the heap, and ends at an
+    /// `RP_INDEX` whose root reports score bounds, the only reader. Both run on the pipeline's
+    /// thread. Unlike [`Self::minScore`], which SORTBY sorters also write, it is always a score.
+    pub minCompetitiveScore: f64,
     /// The total results found in the query, incremented by the root
     /// processors and decremented by others who might disqualify results.
     pub totalResults: u32,
@@ -71,10 +86,9 @@ pub struct QueryProcessingCtx {
     /// re-indexed between buffering and load. The reported total is
     /// `totalResults - skippedResults`.
     ///
-    /// Tracked separately rather than decrementing `totalResults` so the live
-    /// match count stays stable for the length prediction (`calc_results_len`),
-    /// and so a post-header re-accumulation cannot "resurrect" a row whose
-    /// decrement already shipped in the RESP2 header.
+    /// Tracked separately rather than decrementing `totalResults` so that a
+    /// post-header re-accumulation cannot "resurrect" a row whose decrement
+    /// already shipped in the RESP2 header.
     pub skippedResults: u32,
     /// The number of results we requested to return at the current chunk.
     /// This value is meant to be used by the RP to limit the number of results
@@ -109,6 +123,18 @@ pub struct QueryProcessingCtx {
     /// value, so any qctx that is zero-initialized outside the constructor
     /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
     pub skipIndexResultDeepCopy: bool,
+    /// The owning request's limits. Its memory stop is sticky for the request
+    /// and tells buffering processors their upstream stopped for memory rather
+    /// than a timeout. Null when the pipeline runs without memory checkpoints:
+    /// no owning request, or a hybrid pipeline.
+    pub limits: *mut QueryRequestLimits,
+    /// The owning request's ON_OOM policy, applied by buffering processors to
+    /// a stop for memory pressure.
+    pub oomPolicy: RSOomPolicy,
+    /// Set once a buffering processor keeps rows past a stop for memory
+    /// pressure: those rows can fill the reply before the processor reports
+    /// the stop.
+    pub oomCut: bool,
 }
 
 impl QueryProcessingCtx {
@@ -122,6 +148,7 @@ impl QueryProcessingCtx {
             },
             queryGILTime: 0,
             minScore: 0.0,
+            minCompetitiveScore: 0.0,
             totalResults: 0,
             skippedResults: 0,
             resultLimit: 0,
@@ -131,6 +158,9 @@ impl QueryProcessingCtx {
             timeoutPolicy: 0,
             canYieldPartialResults: false,
             skipIndexResultDeepCopy: false,
+            limits: ptr::null_mut(),
+            oomPolicy: RSOomPolicy_OomPolicy_Return,
+            oomCut: false,
         };
 
         Box::pin(ctx)

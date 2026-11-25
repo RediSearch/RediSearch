@@ -13,6 +13,7 @@ use crate::{FilterGeoReader, IndexReader, NumericFilter};
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::RS_INVALID_FIELD_INDEX;
 
 #[test]
 fn reading_filter_based_on_geo_filter() {
@@ -38,7 +39,7 @@ fn reading_filter_based_on_geo_filter() {
     ];
 
     let geo_filter = GeoFilter {
-        fieldSpec: ptr::null(),
+        fieldIndex: RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 20.0,
@@ -51,7 +52,6 @@ fn reading_filter_based_on_geo_filter() {
         max: 0.0,
         min_inclusive: false,
         max_inclusive: false,
-        field_spec: ptr::null(),
         geo_filter: &geo_filter as *const _ as *const _,
         ascending: true,
         ..Default::default()

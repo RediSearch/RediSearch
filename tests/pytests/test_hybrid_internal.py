@@ -627,3 +627,37 @@ def test_hybrid_internal_withcursor_with_load():
 
     vsim_cursor_results = read_cursor_completely(env, 'idx', vsim_cursor, protocol=getattr(env, 'protocol', None))
     env.assertEqual(vsim_cursor_results, ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def test_hybrid_internal_withcursor_params(env):
+    """Both subquery cursors resolve PARAMS from the shared request argv across reads"""
+    setup_hybrid_test_data(env)
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:$term',
+                     'VSIM', '@embedding', '$BLOB',
+                     'WITHCURSOR', 'PARAMS', '4', 'term', 'running', 'BLOB', query_vec.tobytes(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+    cursors = to_dict(remove_warnings(result))
+    protocol = getattr(env, 'protocol', None)
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['SEARCH'], protocol=protocol), ['doc:2', 'doc:3'])
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['VSIM'], protocol=protocol),
+                    ['doc:1', 'doc:2', 'doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def test_hybrid_internal_binary_param_name(env):
+    """A parameter name is matched by its full length, including bytes after a NUL"""
+    setup_hybrid_test_data(env)
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    name = b'blob\x00suffix'
+    # A parameter named like the prefix before the NUL, holding an unusable vector, must not
+    # collide with (or be picked instead of) the full-length name.
+    result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+                     'VSIM', '@embedding', b'$' + name,
+                     'WITHCURSOR', 'PARAMS', '4', b'blob', b'bad', name, query_vec.tobytes(),
+                     '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+    cursors = to_dict(remove_warnings(result))
+    env.assertContains('VSIM', cursors)
+    env.assertEqual(read_cursor_completely(env, 'idx', cursors['VSIM'], protocol=getattr(env, 'protocol', None)),
+                    ['doc:1', 'doc:2', 'doc:3', 'doc:4'])

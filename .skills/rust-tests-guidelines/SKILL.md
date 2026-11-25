@@ -12,11 +12,31 @@ Guidelines for writing new tests for Rust code.
 1. Test against the public API of the code under test.
 2. Test private APIs if and only if the private component is highly complex and difficult to test through the public API.
 3. Use `insta` whenever you are testing output that is difficult to predict or compare.
-4. Where appropriate, use `proptest` to add property-based tests for key invariants.
+4. Test a behavior that holds over a range of inputs, such as a conversion, a bound, an ordering
+   or a round trip, with a property test over generated inputs, not with a few hand-picked
+   values. Keep example tests for boundaries and regressions. One property holds for every type:
+   any value its constructors or parsers accept survives every method without panicking. A NaN
+   that passes validation is such a value.
 5. Testing code should be written with the same care reserved to production code.
    Avoid unnecessary duplication, introduce helpers to reduce boilerplate and ensure readability.
    The intent of a test should be obvious or, if not possible, clearly documented.
 6. Do not reference exact line numbers in comments, as they may change over time.
+7. Test each fact once. A test named for one behavior asserts that behavior, not a mix of
+   parsing, defaults and edge cases.
+8. For tables of cases, name each case: a slice of structs or `(name, input, expected)`
+   tuples, not parallel arrays, bare booleans, or `if` branches inside the shared loop.
+9. Test the code, not the language or its dependencies: not `thiserror`'s `Display`, enum
+   discriminants, or float casts.
+10. Do not pin a bug or a panic on user input with a test. Fix it, or leave it out and say so
+    in the PR.
+11. Name a test for the behavior it asserts (`nan_observations_are_ignored`), never for the
+    artifact it belongs to (`contract`, `boundary`, `compat`). Let the name and the code say
+    what is tested; add one short comment only where neither makes the behavior plain. A
+    test whose behavior needs more than a sentence to describe tests several things: split it.
+12. Do not write leak- or double-free-counting allocators or similar instrumentation for tests
+    Miri runs: it already catches leaks, double frees and use-after-free in them. Only a test
+    that cannot run under Miri, such as one calling into C, may count allocations to check
+    ownership across the boundary.
 
 ## Code organization
 
@@ -31,6 +51,8 @@ Guidelines for writing new tests for Rust code.
    `#[cfg(test)]` module. Integration tests cannot reach `pub(crate)` or private items,
    so this is the only option for them — but prefer exercising the behavior through the
    public API where you can, per guideline 2 above.
+3. Making an item `pub` solely so integration tests can reach it is acceptable. We own
+   both the crate and its callers, so visibility hygiene is not worth a review round.
 
 ## Dealing with extern C symbols
 

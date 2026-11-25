@@ -9,7 +9,12 @@
 
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
-use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    marker::PhantomData,
+    ops::{Bound, Deref},
+    ptr::NonNull,
+};
 
 use inverted_index::NumericFilter;
 use query_types::{QueryNodeOptions, QueryNodeType};
@@ -98,18 +103,21 @@ pub enum QueryNode<'a> {
     /// A filter by explicit document key names.
     Ids {
         /// The key names to match against: `RedisModuleString`s borrowed
-        /// from storage owned by the request (its held argv). Opaque to Rust.
+        /// from storage owned by the request (its held argv).
         keys: &'a [*mut redis_module::raw::RedisModuleString],
-        /// Document IDs resolved from [`keys`](Self::Ids::keys) on the main
-        /// thread during query construction.
+        /// IDs resolved from [`keys`](Self::Ids::keys) before evaluation, or
+        /// [`None`] when evaluation must resolve through the lookup map.
         doc_ids: Option<&'a [DocId]>,
     },
     /// Matches every document in the index (the `*` query).
     Wildcard,
     /// A tag-field exact-match node.
     Tag {
-        /// The [`ffi::FieldSpec`] of the tag field being queried.
-        fs: &'a ffi::FieldSpec,
+        /// Stable index of the tag field being queried, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this against the spec held at
+        /// evaluation time, rather than caching a pointer from parse time,
+        /// which may already be freed by then.
+        field_index: rqe_core::FieldIndex,
     },
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
@@ -117,6 +125,13 @@ pub enum QueryNode<'a> {
         tok: RSTokenRefNulTerminated<'a>,
         /// Maximum edit distance (1, 2, or 3).
         max_dist: i32,
+    },
+    /// A lexicographic range on a tag field.
+    LexRange {
+        /// Start of the range, or [`Bound::Unbounded`] for no lower limit.
+        begin: Bound<&'a CStr>,
+        /// End of the range, or [`Bound::Unbounded`] for no upper limit.
+        end: Bound<&'a CStr>,
     },
     /// A vector similarity search node.
     Vector {
@@ -133,8 +148,20 @@ pub enum QueryNode<'a> {
     /// An `ismissing(@field)` predicate — matches documents where the field
     /// has no value.
     Missing {
-        /// The [`ffi::FieldSpec`] of the field being tested.
-        field: &'a ffi::FieldSpec,
+        /// Stable index of the field being tested, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this against the spec held at
+        /// evaluation time, rather than caching a pointer from parse time,
+        /// which may already be freed by then.
+        field_index: rqe_core::FieldIndex,
+    },
+    /// A `@field:[SPARSE $q]` sparse vector query.
+    SparseVector {
+        /// Stable index of the sparse vector field, into `IndexSpec.fields`.
+        /// Re-derive the `FieldSpec` from this at evaluation time, as for
+        /// [`Missing`](Self::Missing).
+        field_index: rqe_core::FieldIndex,
+        /// The query vector in its binary encoding.
+        blob: &'a [u8],
     },
 }
 
@@ -329,12 +356,9 @@ impl QueryNodeRef {
             QueryNodeType::Wildcard => QueryNode::Wildcard,
             QueryNodeType::Tag => {
                 // SAFETY: `type_` is `Tag`, so the union holds a `QueryTagNode`.
-                // Invariant (1) of `new` guarantees `tag.fs` is a valid,
-                // non-null pointer.
                 let tag = unsafe { &*union_ptr.cast::<ffi::QueryTagNode>() };
                 QueryNode::Tag {
-                    // SAFETY: Invariant (1) of `new` guarantees `tag.fs` is valid and non-null.
-                    fs: unsafe { &*tag.fs },
+                    field_index: tag.fieldIndex,
                 }
             }
             QueryNodeType::Fuzzy => {
@@ -369,14 +393,40 @@ impl QueryNodeRef {
             }
             QueryNodeType::Null => QueryNode::Null,
             QueryNodeType::Missing => {
-                // SAFETY: `type_` is `Missing`, so the union holds a
-                // `QueryMissingNode`.  Invariant (1) of `new` guarantees
-                // `miss.field` is a valid, non-null pointer.
+                // SAFETY: `type_` is `Missing`, so the union holds a `QueryMissingNode`.
                 let miss = unsafe { &*union_ptr.cast::<ffi::QueryMissingNode>() };
                 QueryNode::Missing {
-                    // SAFETY: Invariant (1) of `new` guarantees `miss.field` is valid and non-null.
-                    field: unsafe { &*miss.field },
+                    field_index: miss.fieldIndex,
                 }
+            }
+            QueryNodeType::SparseVector => {
+                // SAFETY: `type_` is `SparseVector`, so the union holds a `QuerySparseVectorNode`.
+                let svn = unsafe { &*union_ptr.cast::<ffi::QuerySparseVectorNode>() };
+                QueryNode::SparseVector {
+                    field_index: svn.fieldIndex,
+                    blob: if svn.blob.is_null() {
+                        &[]
+                    } else {
+                        // SAFETY: a non-null `blob` is the resolved query
+                        // parameter, `blobLen` bytes long and borrowed from the
+                        // request's PARAMS, which outlive the AST and so this
+                        // node's borrow.
+                        unsafe { std::slice::from_raw_parts(svn.blob.cast::<u8>(), svn.blobLen) }
+                    },
+                }
+            }
+            QueryNodeType::LexRange => {
+                // SAFETY: `type_` is `LexRange`, so the union holds a `QueryLexRangeNode`.
+                let lxrng = unsafe { &*union_ptr.cast::<ffi::QueryLexRangeNode>() };
+                // Each bound is a NUL-terminated string written once when the node
+                // is built or its query parameter resolved, and never rewritten, so
+                // it stays valid for the node's borrow.
+                //
+                // SAFETY: per the paragraph above.
+                let begin = unsafe { char_ptr_to_bound(lxrng.begin, lxrng.includeBegin) };
+                // SAFETY: per the paragraph above.
+                let end = unsafe { char_ptr_to_bound(lxrng.end, lxrng.includeEnd) };
+                QueryNode::LexRange { begin, end }
             }
             QueryNodeType::Max => {
                 unreachable!("Max is a sentinel, not a real node type")
@@ -451,6 +501,14 @@ impl QueryNodeMut<'_> {
     ///    [`RSTokenMut::from_nul_terminated_ffi`]. Both shapes the parser produces
     ///    do: a query literal is copied into an explicitly terminated allocation,
     ///    and a query parameter into a zeroed one a byte longer than its value.
+    /// 5. Every token under a [`QueryNodeType::Tag`] node, [`QueryNodeType::Token`]
+    ///    ones included, must meet the same string requirements, and on a
+    ///    case-insensitive field those of [`RSTokenMut::normalize_tag`]. The
+    ///    parser allocates every token that way, and query expansion leaves tag
+    ///    subtrees alone.
+    /// 6. Every [`QueryNodeType::Ids`] node without pre-resolved document IDs
+    ///    must borrow non-null, live Redis strings in its key array. The request
+    ///    retains those strings for the entire evaluation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
@@ -479,7 +537,8 @@ impl QueryNodeMut<'_> {
     /// payload *is* a token: an expanded one may borrow a length-delimited string
     /// that is neither NUL-terminated nor writable, so it cannot satisfy invariant
     /// (4). That is also why [`QueryNode::Token`] alone carries an [`RSTokenRef`]
-    /// with no NUL-termination typestate.
+    /// with no NUL-termination typestate. A caller that can vouch for the string
+    /// uses [`token_node_mut`](Self::token_node_mut) instead.
     ///
     /// The check is not optional — the payload is a union, so handing out a token
     /// from a variant carrying none would reinterpret unrelated bytes as one, and
@@ -522,6 +581,30 @@ impl QueryNodeMut<'_> {
         // SAFETY: `tok` addresses the node's valid token, exclusively owned for the
         // returned handle's lifetime by the borrow of `*self`, and its string meets
         // the constructor's requirements per invariant (4).
+        Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
+    }
+
+    /// [`token_mut`](Self::token_mut) for the [`QueryNodeType::Token`] nodes it
+    /// declines, `None` for any other node type.
+    ///
+    /// # Safety
+    ///
+    /// A [`QueryNodeType::Token`] node's string must meet the requirements of
+    /// [`RSTokenMut::from_nul_terminated_ffi`].
+    pub unsafe fn token_node_mut(&mut self) -> Option<RSTokenMut<'_>> {
+        if self.as_ref().node_type() != QueryNodeType::Token {
+            return None;
+        }
+
+        // SAFETY: the node is valid, so a raw pointer to its payload union is in
+        // bounds.
+        let union_ptr = unsafe { &raw mut (*self.0.as_ptr()).__bindgen_anon_1 };
+        // `type_` is `Token`, so the union's active member is a `QueryTokenNode`,
+        // which is itself the token.
+        let token_node = union_ptr.cast::<ffi::QueryTokenNode>();
+        let tok: *mut ffi::RSToken = token_node;
+        // SAFETY: as in `token_mut`, with this method's contract in place of
+        // invariant (4).
         Some(unsafe { RSTokenMut::from_nul_terminated_ffi(tok) })
     }
 
@@ -638,4 +721,24 @@ fn child_ptr(node: &ffi::RSQueryNode, index: usize) -> NonNull<ffi::RSQueryNode>
     let child = unsafe { *slot };
     // SAFETY: all children in the AST are valid, non-null nodes.
     unsafe { NonNull::new_unchecked(child) }
+}
+
+/// Read one side of a lex range: a null pointer is an unbounded side, and a
+/// non-null one is a bound whose inclusivity `inclusive` carries.
+///
+/// # Safety
+///
+/// A non-null `ptr` must point to a NUL-terminated string that stays valid and
+/// unmutated for `'a`.
+const unsafe fn char_ptr_to_bound<'a>(ptr: *mut c_char, inclusive: bool) -> Bound<&'a CStr> {
+    if ptr.is_null() {
+        return Bound::Unbounded;
+    }
+    // SAFETY: guaranteed by the caller.
+    let s = unsafe { CStr::from_ptr(ptr) };
+    if inclusive {
+        Bound::Included(s)
+    } else {
+        Bound::Excluded(s)
+    }
 }

@@ -22,10 +22,12 @@
 #define QN_WILDCARD        QueryNodeType_Wildcard
 #define QN_TAG             QueryNodeType_Tag
 #define QN_FUZZY           QueryNodeType_Fuzzy
+#define QN_LEXRANGE        QueryNodeType_LexRange
 #define QN_VECTOR          QueryNodeType_Vector
 #define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
+#define QN_SPARSE_VECTOR   QueryNodeType_SparseVector
 #define QN_MAX             QueryNodeType_Max
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
@@ -184,11 +186,13 @@ enum QueryNodeType
   QueryNodeType_Wildcard = 11,
   QueryNodeType_Tag = 12,
   QueryNodeType_Fuzzy = 13,
-  QueryNodeType_Vector = 14,
-  QueryNodeType_WildcardQuery = 15,
-  QueryNodeType_Null = 16,
-  QueryNodeType_Missing = 17,
-  QueryNodeType_Max = 18,
+  QueryNodeType_LexRange = 14,
+  QueryNodeType_Vector = 15,
+  QueryNodeType_WildcardQuery = 16,
+  QueryNodeType_Null = 17,
+  QueryNodeType_Missing = 18,
+  QueryNodeType_SparseVector = 19,
+  QueryNodeType_Max = 20,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeType;
@@ -551,6 +555,12 @@ typedef struct QueryNodeOptions {
  * Phonetic-matching query expander (`PHONETIC`).
  */
 #define PHONETIC_EXPENDER_NAME "PHONETIC"
+
+/**
+ * Sparse-vector scorer (`SPARSE`): the sum of the scores the query's
+ * `SPARSEVECTOR` nodes yield. The default for a query that has such a node.
+ */
+#define SPARSE_SCORER_NAME "SPARSE"
 
 /**
  * Stemming query expander (`SBSTEM`).

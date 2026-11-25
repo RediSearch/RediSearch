@@ -10,20 +10,23 @@
 use std::ffi::c_void;
 
 use super::{
-    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ReseatIndex, ResumableReader,
+    SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
-use ffi::{FieldSpec, IndexFlags};
+use ffi::IndexFlags;
 use index_result::RSIndexResult;
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldIndex, RS_INVALID_FIELD_INDEX};
 
 /// Filter details to apply to numeric values
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 #[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
-    /// The field specification which this filter is acting on
-    pub field_spec: *const FieldSpec,
+    /// Stable index of the field this filter acts on, into `IndexSpec.fields`.
+    /// Re-derive the `FieldSpec` from this at evaluation time, rather than a
+    /// pointer captured when the filter was built, which could already be freed.
+    pub field_index: FieldIndex,
 
     /// Beginning of the range
     pub min: f64,
@@ -60,7 +63,7 @@ impl Default for NumericFilter {
             max: f64::MAX,
             min_inclusive: true,
             max_inclusive: true,
-            field_spec: std::ptr::null(),
+            field_index: RS_INVALID_FIELD_INDEX,
             geo_filter: std::ptr::null(),
             ascending: true,
             limit: 0,
@@ -139,6 +142,14 @@ impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
 /// proof there), given `IR`'s own layout compatibility.
 unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
     type Suspended = FilterNumericReader<IR::Suspended>;
+}
+
+/// Forwards the reseat to the inner reader, in either reader form.
+impl<I: ?Sized, IR: ReseatIndex<I>> ReseatIndex<I> for FilterNumericReader<IR> {
+    unsafe fn reseat(&mut self, index: std::ptr::NonNull<I>) {
+        // SAFETY: the caller upholds the trait's contract, which forwards as is.
+        unsafe { self.inner.reseat(index) }
+    }
 }
 
 /// Inverse of the above: `FilterNumericReader<RS>` resumes to

@@ -12,7 +12,7 @@
 //!
 //! These live in their **own test binary** (hence their own process) on
 //! purpose. They install a *process-global* VecSim timeout callback
-//! (`VecSim_SetTimeoutCallbackFunction`) set to always-timed-out, which any
+//! (`VecSim_SetStopCallbackFunction`) set to always-timed-out, which any
 //! concurrent VecSim query in the same process would observe. The rest of the
 //! suite (`tests/integration/*`) is full of VecSim query tests; keeping the
 //! timeout tests out of that binary means the global mutation can never reach a
@@ -26,7 +26,6 @@
 //! clear the always-timed-out callback another test is still asserting on.
 
 use std::{
-    ffi::c_void,
     num::NonZeroUsize,
     sync::{Mutex, MutexGuard, PoisonError},
 };
@@ -35,26 +34,12 @@ use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{ScoreSource as _, TopKIterator, TopKMode};
 use vector_score_source::new_vector_top_k_unfiltered;
-use vector_score_source::test_utils::{TestIndex, asc, make_child, uniform_blob};
+use vector_score_source::test_utils::{MockTimeout, TestIndex, asc, make_child, uniform_blob};
 
 // Provide stubs for C symbols that the linked C archive references but that
 // these tests never exercise (Redis module API surface).
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
-
-unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(
-        cb: Option<unsafe extern "C" fn(*mut c_void) -> std::ffi::c_int>,
-    );
-}
-
-unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    1
-}
-
-unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    0
-}
 
 /// Serializes the two timeout tests against each other: both install a
 /// process-global always-timed-out callback and restore the no-op on drop, so
@@ -72,23 +57,6 @@ fn serialize() -> MutexGuard<'static, ()> {
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Installs the always-timeout callback; restores the no-op on drop so a
-/// panicking assertion cannot leak timeout state to the sibling test.
-struct MockTimeout;
-impl MockTimeout {
-    fn enable() -> Self {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
-        MockTimeout
-    }
-}
-impl Drop for MockTimeout {
-    fn drop(&mut self) {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
-    }
-}
-
 /// From `test_vecsim.py::TestTimeoutReached` (KNN branch).
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
@@ -103,7 +71,7 @@ fn unfiltered_propagates_timeout() {
     let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 /// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
@@ -126,7 +94,7 @@ fn batches_propagates_timeout() {
         TopKMode::Batches,
     );
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 /// A timed-out unfiltered query must not consume the single-shot budget: the
@@ -147,7 +115,7 @@ fn unfiltered_timeout_does_not_mark_consumed() {
         let _mock = MockTimeout::enable();
         assert!(matches!(
             source.all_results_unfiltered_batch(),
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         ));
     }
 

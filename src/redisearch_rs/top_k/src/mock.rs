@@ -45,15 +45,15 @@ impl MockScoreBatch {
 }
 
 impl ScoreBatch for MockScoreBatch {
-    fn next(&mut self) -> Option<(DocId, f64)> {
+    fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         let item = self.items.get(self.pos).copied();
         if item.is_some() {
             self.pos += 1;
         }
-        item
+        Ok(item)
     }
 
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
+    fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
         self.next()
     }
@@ -83,6 +83,7 @@ pub struct MockScoreSource {
     batch_pos: usize,
     scores: HashMap<DocId, f64>,
     batch_strategy: Box<dyn FnMut(usize, usize) -> BatchStrategy>,
+    accept_candidate: Box<dyn FnMut(DocId, f64) -> Result<bool, RQEIteratorError>>,
     num_estimated: usize,
     /// Exact scores applied by [`ScoreSource::rerank`]. `None` disables
     /// reranking (the default); `Some` map rescores any retained doc it
@@ -98,6 +99,11 @@ pub struct MockScoreSource {
     timeout_once_at: Option<usize>,
     /// Count of [`ScoreSource::check_timeout`] calls so far.
     n_timeout_checks: usize,
+    /// Returned by [`ScoreSource::yields_child_record`]. `true` by default.
+    yields_child_record: bool,
+    /// Returned by [`ScoreSource::can_collect_after_lock_release`]. `false` by
+    /// default, the answer that is always safe.
+    can_collect_after_lock_release: bool,
 }
 
 impl MockScoreSource {
@@ -129,12 +135,15 @@ impl MockScoreSource {
             batch_pos: 0,
             scores: scores.into_iter().collect(),
             batch_strategy: Box::new(batch_strategy),
+            accept_candidate: Box::new(|_, _| Ok(true)),
             num_estimated,
             rerank_scores: None,
             expired: HashSet::new(),
             timeout_after_n_checks: None,
             timeout_once_at: None,
             n_timeout_checks: 0,
+            yields_child_record: true,
+            can_collect_after_lock_release: false,
         }
     }
 
@@ -156,6 +165,31 @@ impl MockScoreSource {
     /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
     pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
         self.expired = docs.into_iter().collect();
+        self
+    }
+
+    /// Override [`ScoreSource::accept_candidate`].
+    pub fn with_candidate_filter(
+        mut self,
+        accept: impl FnMut(DocId, f64) -> Result<bool, RQEIteratorError> + 'static,
+    ) -> Self {
+        self.accept_candidate = Box::new(accept);
+        self
+    }
+
+    /// Build every yielded result from the source, as a numeric `SORTBY` does,
+    /// instead of handing back the child's record (see
+    /// [`ScoreSource::yields_child_record`]).
+    pub fn without_child_records(mut self) -> Self {
+        self.yields_child_record = false;
+        self
+    }
+
+    /// Report that collection survives a lock release, as a source holding no
+    /// reshapeable index state does (see
+    /// [`ScoreSource::can_collect_after_lock_release`]).
+    pub fn collectable_after_lock_release(mut self) -> Self {
+        self.can_collect_after_lock_release = true;
         self
     }
 
@@ -192,6 +226,10 @@ impl ScoreSource for MockScoreSource {
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
         self.scores.get(&doc_id).copied()
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
+        (self.accept_candidate)(doc_id, score)
     }
 
     fn is_expired(&self, result: &RSIndexResult) -> bool {
@@ -232,7 +270,7 @@ impl ScoreSource for MockScoreSource {
                 .timeout_once_at
                 .is_some_and(|n| self.n_timeout_checks == n)
         {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(())
     }
@@ -257,6 +295,14 @@ impl ScoreSource for MockScoreSource {
     }
 
     fn yields_child_record(&self) -> bool {
-        true
+        self.yields_child_record
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        self.can_collect_after_lock_release
+    }
+
+    fn release_index_handles(&mut self) {
+        // In-memory batches and scores only; nothing borrows from an index.
     }
 }

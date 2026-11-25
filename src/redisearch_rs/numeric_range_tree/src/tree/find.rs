@@ -46,15 +46,33 @@ impl NumericRangeTree {
         filter: &NumericFilter,
         window: RangeWindow,
     ) -> Vec<&'a NumericRange> {
-        let mut ranges = Vec::with_capacity(8);
-        let mut cursor = WindowCursor::new(window);
-
-        Self::recursive_find_ranges(&mut ranges, &self.nodes, self.root, filter, &mut cursor);
+        let ranges: Vec<_> = self
+            .find_windowed_nodes(filter, window)
+            .into_iter()
+            .map(|idx| self.nodes[idx].range().expect("found nodes hold a range"))
+            .collect();
 
         #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         self.check_find_invariants(&ranges, filter, window);
 
         ranges
+    }
+
+    /// Like [`find_windowed`](Self::find_windowed), but returns the nodes holding
+    /// the ranges, so a caller can [resolve](Self::node) a range again later. A
+    /// [`NodeIndex`] keeps resolving to the same range for as long as the tree's
+    /// [`revision_id`](Self::revision_id) is unchanged.
+    pub fn find_windowed_nodes(
+        &self,
+        filter: &NumericFilter,
+        window: RangeWindow,
+    ) -> Vec<NodeIndex> {
+        let mut found = Vec::with_capacity(8);
+        let mut cursor = WindowCursor::new(window);
+
+        Self::recursive_find_ranges(&mut found, &self.nodes, self.root, filter, &mut cursor);
+
+        found
     }
 
     /// Recursively find ranges that match the filter.
@@ -73,9 +91,9 @@ impl NumericRangeTree {
     ///
     /// Children are visited in ascending or descending order based on `filter.ascending`.
     /// This ensures ranges are returned in the correct order for sorted iteration.
-    fn recursive_find_ranges<'a>(
-        ranges: &mut Vec<&'a NumericRange>,
-        nodes: &'a NodeArena,
+    fn recursive_find_ranges(
+        found: &mut Vec<NodeIndex>,
+        nodes: &NodeArena,
         node_idx: NodeIndex,
         filter: &NumericFilter,
         cursor: &mut WindowCursor,
@@ -100,7 +118,7 @@ impl NumericRangeTree {
             // If the range is completely contained in the search bounds, add it
             if contained {
                 if cursor.admit(num_docs as usize) {
-                    ranges.push(range);
+                    found.push(node_idx);
                 }
                 return;
             }
@@ -117,7 +135,7 @@ impl NumericRangeTree {
                     // Ascending: left first, then right
                     if min <= internal.value {
                         Self::recursive_find_ranges(
-                            ranges,
+                            found,
                             nodes,
                             internal.left_index(),
                             filter,
@@ -126,7 +144,7 @@ impl NumericRangeTree {
                     }
                     if max >= internal.value {
                         Self::recursive_find_ranges(
-                            ranges,
+                            found,
                             nodes,
                             internal.right_index(),
                             filter,
@@ -137,7 +155,7 @@ impl NumericRangeTree {
                     // Descending: right first, then left
                     if max >= internal.value {
                         Self::recursive_find_ranges(
-                            ranges,
+                            found,
                             nodes,
                             internal.right_index(),
                             filter,
@@ -146,7 +164,7 @@ impl NumericRangeTree {
                     }
                     if min <= internal.value {
                         Self::recursive_find_ranges(
-                            ranges,
+                            found,
                             nodes,
                             internal.left_index(),
                             filter,
@@ -167,7 +185,7 @@ impl NumericRangeTree {
                     leaf.range.num_docs() as usize
                 };
                 if cursor.admit(num_docs) {
-                    ranges.push(&leaf.range);
+                    found.push(node_idx);
                 }
             }
         }

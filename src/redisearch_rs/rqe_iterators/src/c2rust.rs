@@ -10,16 +10,21 @@
 //   this shim.
 
 use ffi::{
-    IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, ValidateStatus_VALIDATE_TIMEOUT,
+    IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
+    IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_STOPPED, QueryIterator,
+    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    interop::RQEIteratorWrapper,
+    intersection::Intersection,
+    profile_print,
     profile_print::ProfilePrint,
+    score_bound::{BlockBound, MinCompetitiveScore},
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -52,7 +57,7 @@ use std::{
 /// It is not a given that the underlying iterator is written in C!
 /// It might be a Rust iterator, wrapped to obey the C API, being passed into
 /// a Rust composite iterator.
-#[repr(transparent)]
+#[repr(C)]
 pub struct CRQEIterator {
     /// # Safety invariants
     ///
@@ -65,6 +70,12 @@ pub struct CRQEIterator {
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
+    /// The estimate taken by [`RQEIteratorBoxed::suspend`] and served by
+    /// [`CRQESuspendedIterator`]: once the read lock is released, the C `NumEstimated` callback
+    /// may read index memory that GC has freed.
+    ///
+    /// Unused while active; it lives here because both forms must have the same size.
+    num_estimated_snapshot: usize,
 }
 
 impl AsRef<QueryIterator> for CRQEIterator {
@@ -143,7 +154,10 @@ impl CRQEIterator {
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
-        let self_ = Self { header };
+        let self_ = Self {
+            header,
+            num_estimated_snapshot: 0,
+        };
         debug_assert!(
             self_.Free.is_some(),
             "The `Free` callback is a NULL function pointer"
@@ -178,8 +192,6 @@ impl CRQEIterator {
         I: RQEIterator<'index> + ProfilePrint + 'index,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
-        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-        let ptr = unsafe { NonNull::new_unchecked(ptr) };
         // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
         // required callbacks populated by `boxed_new`.
         unsafe { CRQEIterator::new(ptr) }
@@ -206,19 +218,16 @@ impl CRQEIterator {
     }
 }
 
-impl<'index> RQEIterator<'index> for CRQEIterator {
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
-        let callback = unsafe { self.Read.unwrap_unchecked() };
-        // SAFETY:
-        // - We have a unique handle over this iterator.
-        // - The C code must guarantee, by constructor, that callbacks
-        //   can be called on types that implement its C iterator API.
-        let status = unsafe { callback(self.header.as_ptr()) };
+impl CRQEIterator {
+    /// Map the status of a `Read` or `ReadWithThreshold` callback to the Rust result.
+    fn read_outcome<'index>(
+        &mut self,
+        status: IteratorStatus,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
-            IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
+            IteratorStatus_ITERATOR_STOPPED => Err(RQEIteratorError::Stopped),
             IteratorStatus_ITERATOR_OK => {
                 let data = self.current as *mut RSIndexResult;
                 // SAFETY:
@@ -239,6 +248,19 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             }
         }
     }
+}
+
+impl<'index> RQEIterator<'index> for CRQEIterator {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.Read.unwrap_unchecked() };
+        // SAFETY:
+        // - We have a unique handle over this iterator.
+        // - The C code must guarantee, by constructor, that callbacks
+        //   can be called on types that implement its C iterator API.
+        let status = unsafe { callback(self.header.as_ptr()) };
+        self.read_outcome(status)
+    }
 
     fn skip_to(
         &mut self,
@@ -255,7 +277,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
-            IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
+            IteratorStatus_ITERATOR_STOPPED => Err(RQEIteratorError::Stopped),
             IteratorStatus_ITERATOR_OK => {
                 let data = self.current as *mut RSIndexResult;
                 // SAFETY:
@@ -308,7 +330,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         let status = match status {
             // A timed-out child is reported the same way as one that timed out during a read or a
             // skip: as an error, which a Rust parent propagates to the root of the tree.
-            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::Stopped),
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
                 current: self.current(),
@@ -363,35 +385,41 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         match self.type_ {
             IteratorType::Intersect => {
-                let ptr = std::ptr::from_ref(self.as_ref());
                 // SAFETY:
-                // - `type_ == INTERSECT_ITERATOR` guarantees `ptr` was produced by
+                // - `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
                 //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
                 //   inner type (`NewIntersectionIterator` is the sole constructor of a C
                 //   wrapped intersection).
                 // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
                 //   rather than manual `size_of` arithmetic, making it immune to alignment
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                // - `as_raw` returns the owning pointer, whose provenance spans the whole
+                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
+                //   header and make the read of `inner` UB.
                 let n = unsafe {
-                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
-                        .inner
-                        .num_children()
+                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
+                        self.as_raw(),
+                    )
+                    .inner
+                    .num_children()
                 };
                 1.0 / n.max(1) as f64
             }
             IteratorType::Union if prioritize_union_children => {
-                let ptr = std::ptr::from_ref(self.as_ref());
                 // SAFETY:
-                // - `type_ == Union` guarantees `ptr` was produced by
+                // - `type_ == Union` guarantees `self` was produced by
                 //   `RQEIteratorWrapper::boxed_new_inner` with
                 //   `UnionOpaque<CRQEIterator>` as the inner type
                 //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
                 // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
                 //   rather than manual `size_of` arithmetic, making it immune to alignment
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                // - `as_raw` returns the owning pointer, whose provenance spans the whole
+                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
+                //   header and make the read of `inner` UB.
                 let n = unsafe {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        ptr,
+                        self.as_raw(),
                     )
                     .inner
                     .num_children_active()
@@ -421,8 +449,53 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Optimus => 1.0,
             IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
+            IteratorType::SparseVector => 1.0,
             IteratorType::Max => 1.0,
         }
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.ReportsScoreBounds.unwrap_unchecked() };
+        // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
+        // types that implement its C iterator API; this one only reads.
+        unsafe { callback(self.header.as_ptr()) }
+    }
+
+    fn current_max_score(&self) -> f64 {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.CurrentMaxScore.unwrap_unchecked() };
+        // SAFETY: As in `reports_score_bounds`.
+        unsafe { callback(self.header.as_ptr()) }
+    }
+
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.CurrentBlockBound.unwrap_unchecked() };
+        let mut block = BlockBound {
+            last_doc_id: 0,
+            max_score: f64::INFINITY,
+        };
+        // SAFETY: As in `reports_score_bounds`; the outputs point to a live local.
+        let reported = unsafe {
+            callback(
+                self.header.as_ptr(),
+                &raw mut block.last_doc_id,
+                &raw mut block.max_score,
+            )
+        };
+        reported.then_some(block)
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.ReadWithThreshold.unwrap_unchecked() };
+        // SAFETY: As in `read`.
+        let status = unsafe { callback(self.header.as_ptr(), min_competitive_score.get()) };
+        self.read_outcome(status)
     }
 }
 
@@ -474,7 +547,7 @@ impl CRQEIterator {
             // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
             // user today) across the outer `Profile` rebox.
             // SAFETY: `result` was just constructed above and has no other alias yet.
-            unsafe { crate::interop::patch_vtable(result.as_raw().as_ptr(), |h| h.SkipTo = None) };
+            unsafe { crate::interop::patch_vtable(result.as_raw(), |h| h.SkipTo = None) };
         }
         result
     }
@@ -513,10 +586,85 @@ impl profile_print::ProfilePrint for CRQEIterator {
         map: &mut redis_reply::MapBuilder<'_>,
         ctx: &mut profile_print::ProfilePrintCtx<'_>,
     ) {
-        let ptr = std::ptr::NonNull::from(self.as_ref());
-        // SAFETY: ptr is valid (owned by self) and its PrintProfile vtable
-        // entry was set at construction time by RQEIteratorWrapper::boxed_new
-        // or by the C iterator constructor.
-        unsafe { call_print_profile(ptr, map, ctx) };
+        // SAFETY: `as_raw` returns the owning pointer, live while `self` is, and
+        // its PrintProfile vtable entry was set at construction time by
+        // RQEIteratorWrapper::boxed_new or by the C iterator constructor. Its
+        // provenance spans the whole allocation, which a Rust-wrapped
+        // iterator's callback needs to read the wrapper's `inner`; a pointer
+        // derived from `&QueryIterator` would cover only the header.
+        unsafe { call_print_profile(self.as_raw(), map, ctx) };
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
+    type Suspended = CRQESuspendedIterator;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Snapshot while the read lock is still held, see the field.
+        self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
+        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
+        unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
+    }
+}
+
+/// The suspended form of a [`CRQEIterator`].
+///
+/// Exposes only the [`RQESuspendedIterator`] API, as every [`RQEIterator`] method calls into C
+/// callbacks that may read index memory.
+#[repr(transparent)]
+pub struct CRQESuspendedIterator(CRQEIterator);
+
+impl CRQESuspendedIterator {
+    /// Return the raw pointer to the underlying [`QueryIterator`] without consuming `self`.
+    ///
+    /// Ownership rules are those of [`CRQEIterator::as_raw`].
+    pub const fn as_raw(&self) -> NonNull<QueryIterator> {
+        self.0.as_raw()
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
+    type Resumed<'a>
+        = CRQEIterator
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
+        let it = unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQEIterator>()) };
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
+        let callback = unsafe { it.Revalidate.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `it`),
+        // the C-side callback is safe to call per invariant 4., and
+        // `spec.as_mut_ptr()` is valid for the duration of the call.
+        let status = unsafe { callback(it.header.as_ptr(), spec.as_mut_ptr()) };
+        // C leaves disposal to the owner, so an abort or a timeout drops `it` here, which runs
+        // `Free` once.
+        #[expect(non_upper_case_globals)]
+        Ok(match status {
+            // An error, as in `revalidate`, so the query reports a partial result set.
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::Stopped),
+            ValidateStatus_VALIDATE_ABORTED => ResumeOutcome::Aborted,
+            ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(it),
+            ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(it),
+            _ => unreachable!("`Revalidate` returned an unexpected status, {status}"),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // A field of the C iterator itself, not index memory.
+        self.0.lastDocId
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Not a call into C: see the field.
+        self.0.num_estimated_snapshot
     }
 }

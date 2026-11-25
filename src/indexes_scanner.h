@@ -28,7 +28,9 @@
 #include <stddef.h>
 
 #include "redismodule.h"
+#include "rqe_core.h"
 #include "util/redis_mem_info.h"
+#include "util/gil_gate.h"
 #include "util/references.h"
 
 #ifdef __cplusplus
@@ -62,6 +64,15 @@ extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 
+// Half-open [start, end) range of fields added by the ALTER that scheduled this scan.
+// Immutable for the scan's lifetime. An empty range means a full scan without the
+// per-document presence shortcut. A non-empty range also makes each reindexed document go
+// through IndexSpec_UpdateDocForAlter (see spec.h).
+typedef struct {
+  t_fieldIndex start;
+  t_fieldIndex end;
+} AddedFieldsRange;
+
 typedef struct IndexesScanner {
   bool global;
   // Cancellation latch, read by scan workers that may not hold the GIL. Access ONLY through
@@ -70,6 +81,10 @@ typedef struct IndexesScanner {
   bool cancelled;
   bool isDebug;
   bool scanFailedOnOOM;
+  // Recorded once, right after construction, by the private scheduler in indexes_scan.c;
+  // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
+  // indexes_scan.h) that was able to stay selective.
+  AddedFieldsRange addedFields;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
@@ -152,6 +167,11 @@ typedef enum {
 // does not consult indexingMemoryLimit: each budget is tested against itself.
 // GIL must be held before calling this function.
 BgIndexingMemVerdict AsyncBgIndexingMemVerdict(RedisModuleCtx *ctx);
+
+// GIL for reindex jobs, so ReindexPool_ThreadPoolDestroy can join them while holding it. Use
+// instead of RedisModule_ThreadSafeContextLock/Unlock on the reindex pool's threads.
+void ReindexPool_LockGIL(RedisModuleCtx *ctx);
+void ReindexPool_UnlockGIL(RedisModuleCtx *ctx);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

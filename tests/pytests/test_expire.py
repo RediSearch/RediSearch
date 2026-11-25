@@ -76,6 +76,88 @@ def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
 @skip(cluster=True, redis_less_than='8.0')
+def test_lazily_expired_field_notification(env: Env):
+    """Reading a field after its TTL lapses must not crash the server.
+
+    Lazy hash-field expiry hands the module a subkey that is a stack `robj` carrying
+    `OBJ_STATIC_REFCOUNT` (`t_hash.c`), unlike `HSET`/`HDEL`, which pass `c->argv[...]`
+    pointers. Keeping such a string with `RedisModule_RetainString` reaches `incrRefCount`,
+    which panics on a static refcount, so the subkey notification handler has to hold it with
+    `RedisModule_HoldString` and keep the pointer that returns.
+
+    Active expiry takes a different route again -- `createStringObject`, refcount 1 -- so it
+    would not have caught this. The read below is what forces the lazy path.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Active expiry has to be off for this to test anything. It allocates the subkey with
+    # `createStringObject` and is harmless, so if a cycle reaps the field first the read below
+    # simply finds it missing and never reaches the stack-allocated path -- a regression to
+    # `RedisModule_RetainString` would then crash in production while this test passed. Timing
+    # alone cannot rule that out on a slow host, so the cycle is disabled rather than outrun.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+        conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 't')
+        time.sleep(0.05)
+
+        # With no active cycle, this read is what expires the field, and it emits the hexpired
+        # notification carrying the stack-allocated subkey.
+        env.assertEqual(conn.execute_command('HGET', 'doc:1', 't'), None)
+
+        # Still answering, i.e. still alive -- the assertion this test exists for.
+        env.expect('PING').true()
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_unindexed_field_expiry_leaves_the_document(env: Env):
+    """A field the schema does not read expiring must not disturb the document.
+
+    Pins that the hexpired event carries a usable change set rather than merely not
+    crashing: `other` is outside the schema, so the document keeps its doc-id and stays
+    queryable on `t`.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'other')
+    time.sleep(0.05)
+    env.assertEqual(conn.execute_command('HGET', 'doc:1', 'other'), None)
+
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='an unindexed field expiring should not reindex the document')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_hdel_of_unindexed_field_is_skipped(env: Env):
+    """HDEL shares the reindex path with HSET but removes rather than writes.
+
+    Deleting a field outside the schema changes nothing the index holds, so the document
+    keeps its doc-id; deleting an indexed one must reindex.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'other', 'world')
+    first = env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1')
+
+    conn.execute_command('HDEL', 'doc:1', 'other')
+    env.assertEqual(env.cmd(debug_cmd(), 'docidtoid', 'idx', 'doc:1'), first,
+                    message='deleting an unindexed field should not reindex')
+
+    conn.execute_command('HDEL', 'doc:1', 't')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, redis_less_than='8.0')
 def test_doc_expiration_preserves_field_expiration(env: Env):
     # Regression: PEXPIRE/PERSIST on an indexed hash that also has HEXPIRE-
     # managed field TTLs must leave the per-field TTL state intact.
@@ -489,15 +571,12 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     expected_inverted_index = build_inverted_index_dict_for_documents(expected_results)
     # now allow active expiration to delete the expired fields
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
-    # Active expiration runs on Redis's background cycle, so a fixed sleep can be too
-    # short under CI load. Wait deterministically for the expected post-expiration
-    # state instead of assuming a fixed delay is always enough.
-    actual_results = {}
-    def check_expired():
-        nonlocal actual_results
-        actual_results = transform_document_list_to_dict(env.cmd('FT.SEARCH', 'idx', '*'))
-        return actual_results == expected_results, actual_results
-    wait_for_condition(check_expired, 'Timeout waiting for active expiration to reap expired fields', timeout=10)
+    # Wait without issuing Redis commands, then check the first search exactly once.
+    # If background field expiration leaves index updates pending, the first command
+    # can return stale sortable values and apply those updates only at its end.
+    # Retrying the search (or sending another command first) would hide that regression.
+    time.sleep(0.5)
+    env.expect('FT.SEARCH', 'idx', '*').apply(transform_document_list_to_dict).equal(expected_results)
     for field_name_and_value, expected_docs in expected_inverted_index.items():
         (env.expect('FT.SEARCH', 'idx', f'@{field_name_and_value}:{field_name_and_value}', 'NOCONTENT')
          .apply(sort_document_names).equal([len(expected_docs), *expected_docs]))
@@ -1169,7 +1248,7 @@ def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
     # already holds. SKIPINITIALSCAN leaves the pre-existing hash unindexed, so
     # that index attempt is the document's first DocIdMeta attach -- which goes
     # through RM_SetKeyMeta and needs a write-mode handle. With a read-only one it
-    # failed the publish assert in makeDocumentId and aborted the server.
+    # failed the publish assert in newDocumentId and aborted the server.
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'd1', 'x', 'val', 'y', 'yy')
     env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA',
@@ -1246,3 +1325,56 @@ def test_hexpire_on_second_field_is_respected_by_search(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     # `b` is still valid (long TTL), so a query on `b` still returns the doc.
     env.expect('FT.SEARCH', 'idx', 'world', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_field_expiration_survives_fork_gc():
+    """The fork GC rewrites inverted-index blocks, and each block's field-expiration bits must
+    move with it: a bit lost in the rewrite makes the reader skip the TTL check, so a document
+    whose field expired is returned again. Covers blocks the GC deletes outright, blocks it
+    re-encodes, and the blocks that shift down behind them, for text, tag and numeric postings
+    (their blocks hold 100 or 1000 entries)."""
+    env = Env(moduleArgs='GC_POLICY FORK')
+    conn = getConnectionByEnv(env)
+    # Expired fields must stay in the hash, so that only the TTL table hides them.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 't', 'TAG', 'n', 'NUMERIC').ok()
+
+        n_docs = 3000
+        # Not a multiple of 100, so every posting kind has a block the GC re-encodes.
+        n_deleted = 1250
+        expired = set()
+        for i in range(1, n_docs + 1):
+            doc = f'doc:{i}'
+            fields = ['FIELDS', 3, 'x', 'hello', 't', 'a', 'n', 1]
+            # HSETEX indexes each document once, with its TTLs already set, so the only postings
+            # the GC collects are those of the documents deleted below.
+            if i % 3 == 1:
+                conn.execute_command('HSETEX', doc, 'PX', 1, *fields)
+                expired.add(doc)
+            elif i % 3 == 2:
+                conn.execute_command('HSETEX', doc, 'PX', 10_000_000, *fields)
+            else:
+                conn.execute_command('HSET', doc, *fields[2:])
+        # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+        time.sleep(0.015)
+
+        deleted = {f'doc:{i}' for i in range(1, n_deleted + 1)}
+        for doc in deleted:
+            conn.execute_command('DEL', doc)
+        expected = {f'doc:{i}' for i in range(1, n_docs + 1)} - deleted - expired
+
+        def check(when):
+            for query in ['@x:hello', '@t:{a}', '@n:[1 1]']:
+                res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', 0, n_docs)
+                env.assertEqual(res[0], len(expected), message=f'{when}: {query}')
+                env.assertEqual(set(res[1:]), expected, message=f'{when}: {query}')
+
+        check('before GC')
+        forceInvokeGC(env)
+        gc_stats = to_dict(index_info(env)['gc_stats'])
+        env.assertGreater(int(gc_stats['bytes_collected']), 0, message=gc_stats)
+        check('after GC')
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')

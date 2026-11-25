@@ -11,6 +11,7 @@
 #include "result_processor.h"
 #include "iterators_ffi.h"
 #include "coord/rmr/rmr.h"
+#include "coord/rpnet.h"
 #include "hybrid/hybrid_request.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/expr/expression.h"
@@ -19,6 +20,7 @@
 #include "query_flags.h"
 #include "result_processor_ffi.h"
 #include "search_disk_api.h"
+#include "search_disk.h"
 
 static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
   if (rp == NULL) {
@@ -81,11 +83,31 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp));
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_DISK_ASYNC_LOADER) {
+    RedisModule_ReplyKV_Double(reply, "Async wait time",
+        rs_wall_clock_convert_ns_to_ms_d(SearchDisk_AsyncLoader_GetAsyncWaitTime(rp->upstream)));
+  }
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_INDEX) {
+    uint64_t waitTime;
+    if (RPQueryIterator_GetAsyncWaitTime(rp->upstream, &waitTime)) {
+      RedisModule_ReplyKV_Double(reply, "Async wait time", rs_wall_clock_convert_ns_to_ms_d(waitTime));
+    }
+  }
   // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
   // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
   if (printProfileClock && rp->upstream &&
       (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
     RPLoader_ReplyProfileFields(reply, rp->upstream);
+  }
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_NETWORK) {
+    RPNet_ReplyProfileBreakdown(reply, rp->upstream);
+  }
+  if (rp->upstream && rp->upstream->type == RP_INDEX) {
+    uint64_t discarded = 0;
+    uint64_t notDiscarded = 0;
+    RPQueryIterator_GetCandidateCounts(rp->upstream, &discarded, &notDiscarded);
+    RedisModule_ReplyKV_LongLong(reply, "Deleted candidates discarded", discarded);
+    RedisModule_ReplyKV_LongLong(reply, "Candidates not discarded", notDiscarded);
   }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
@@ -117,7 +139,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     case PROFILE_REQUEST_TYPE_AREQ:
       req = request->req;
       profileCtx = AREQ_ProfilePrinterCtx(req);
-      profile_verbose = req->reqConfig.printProfileClock;
+      profile_verbose = req->base.reqConfig.printProfileClock;
       clocks = &(req->profileClocks);
       qctx = AREQ_QueryProcessingCtx(req);
       reqFlags = AREQ_RequestFlags(req);
@@ -126,7 +148,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     case PROFILE_REQUEST_TYPE_HYBRID: {
       HybridRequest *hreq = request->hreq;
       profileCtx = &(hreq->profileCtx);
-      profile_verbose = hreq->reqConfig.printProfileClock;
+      profile_verbose = hreq->base.reqConfig.printProfileClock;
       clocks = &(hreq->profileClocks);
       qctx = &hreq->tailPipeline->qctx;
       reqFlags = (QEFlags)hreq->reqflags;
@@ -229,9 +251,8 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     Profile_PrintIterators(reply->ctx, root,
                            AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED,
                            profile_verbose);
-    // The Rust function emits directly through ctx, bypassing the reply
-    // wrapper's count tracking. Notify the wrapper about the emitted element.
-    RedisModule_Reply_TrackExternalElement(reply);
+    // The Rust function emits directly through ctx, bypassing the reply wrapper.
+    RedisModule_Reply_ExternalElement(reply);
   }
 
   // Call printbeforeRPSectionCB if provided (before printing main result processors)
@@ -276,11 +297,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintCommon(reply, &request, NULL, NULL);
 }
 
+// RESP3 nests the results under a "Results" key of the profile map; RESP2 wraps them in a flat array
+// together with the profile (and the cursor id when there is one), closed with RedisModule_Reply_ArrayEnd.
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
   if (reply->resp3) {
     RedisModule_ReplyKV_Map(reply, "Results");
   } else {
-    RedisModule_Reply_Map(reply);
+    RedisModule_Reply_Array(reply);
   }
 }
 

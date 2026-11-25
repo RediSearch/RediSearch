@@ -411,7 +411,7 @@ mod optional_iterator_timeout_tests {
 
         assert!(matches!(
             it.read(),
-            Err(rqe_iterators::RQEIteratorError::TimedOut)
+            Err(rqe_iterators::RQEIteratorError::Stopped)
         ));
     }
 
@@ -438,7 +438,7 @@ mod optional_iterator_timeout_tests {
 
         assert!(matches!(
             it.skip_to(50),
-            Err(rqe_iterators::RQEIteratorError::TimedOut)
+            Err(rqe_iterators::RQEIteratorError::Stopped)
         ));
     }
 
@@ -1489,7 +1489,7 @@ mod via_resume {
 
         let result = optional.suspend().resume(&mock_ctx.spec_read());
         assert!(
-            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            matches!(result, Err(rqe_iterators::RQEIteratorError::Stopped)),
             "an error from the re-read must propagate out of Optional::resume",
         );
     }
@@ -1565,7 +1565,7 @@ mod via_resume {
 
         let result = optional.suspend().resume(&mock_ctx.spec_read());
         assert!(
-            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            matches!(result, Err(rqe_iterators::RQEIteratorError::Stopped)),
             "a child resume error must propagate out of Optional::resume",
         );
     }

@@ -1,6 +1,12 @@
 on:
   workflow_call:
     inputs:
+      vecsim-suite:
+        type: string
+        default: 'benchmarks-default'
+      vecsim-only:
+        type: boolean
+        default: false
       architecture:
         required: true
         type: string
@@ -18,7 +24,6 @@ env:
       {"Key": "Environment",  "Value": "CI"},
       {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
       {"Key": "PR",           "Value": "${{ github.event.number }}"},
-      {"Key": "Owner",        "Value": "${{ github.actor }}"},
       {"Key": "Project",      "Value": "${{ github.repository }}"},
       {"Key": "Context",      "Value": "micro-benchmarks"}
     ]
@@ -31,6 +36,14 @@ jobs:
       runner_label: ${{ steps.start-ec2-runner.outputs.label }}
       ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
@@ -46,6 +59,30 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
+      - name: Prepare EC2 ownership tags
+        id: ec2-tags
+        # Keep the original workflow actor as owner, including on reruns.
+        env:
+          OWNER_HANDLE: ${{ github.actor }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+
+          owner = os.environ["OWNER_HANDLE"].lower()
+          owner = re.sub(r"[^a-z0-9_]", "_", owner)
+          owner = re.sub(r"_+", "_", owner)[:63].strip("_")
+          if not owner:
+              raise SystemExit("Cannot derive an EC2 owner tag from github.actor")
+
+          tags = json.loads(os.environ["TAGS"])
+          tags.extend([
+              {"Key": "owner", "Value": owner},
+              {"Key": "team", "Value": "rqe"},
+          ])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"tags={json.dumps(tags)}\n")
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@343a1b2ae682e681c3cec9a235d882da17ff04ef # v2.6.1
@@ -56,7 +93,7 @@ jobs:
           ec2-instance-type: ${{ inputs.instance-type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
-          aws-resource-tags: ${{ env.TAGS }}
+          aws-resource-tags: ${{ steps.ec2-tags.outputs.tags }}
 
   micro-benchmark:
     name: Run micro-benchmarks on runner
@@ -68,8 +105,16 @@ jobs:
     env:
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Pre checkout deps
-        run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
+        run:  sudo apt-get update && sudo apt-get -o DPkg::Lock::Timeout=600 -y --no-install-recommends install git
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -107,6 +152,7 @@ jobs:
           # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
           REDISEARCH_GENERATE_HEADERS: "0"
       - name: Run Micro Benchmark
+        if: ${{ !inputs.vecsim-only }}
         env:
           ARCH: ${{ inputs.architecture }}
           LTO: 1
@@ -118,6 +164,18 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
+      - name: Run VecSim microbenchmarks
+        timeout-minutes: 300
+        env:
+          VECSIM_SUITES: ${{ inputs.vecsim-suite }}
+        run: bash tests/benchmarks/vecsim/run.sh "$VECSIM_SUITES"
+      - name: Upload VecSim benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vecsim-benchmarks-${{ inputs.architecture }}-${{ inputs.vecsim-only && 'selected' || 'default' }}-${{ github.run_attempt }}
+          path: bin/vecsim/**/benchmark/*_results.json
+          if-no-files-found: warn
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
@@ -126,6 +184,7 @@ jobs:
         # into a shell command lets them inject arbitrary code.
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          VECSIM_ONLY: ${{ inputs.vecsim-only }}
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
@@ -165,7 +224,11 @@ jobs:
           echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
 
           # Find all JSON result files
-          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
+          RESULT_DIRS=(bin/vecsim)
+          if [[ "$VECSIM_ONLY" != "true" ]]; then
+            RESULT_DIRS+=("$BINDIR/micro-benchmarks")
+          fi
+          JSON_FILES=$(find "${RESULT_DIRS[@]}" -name "*_results.json")
 
           if [ -z "$JSON_FILES" ]; then
             echo "No benchmark result files found in $BINDIR/micro-benchmarks"
@@ -191,7 +254,7 @@ jobs:
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
-              --architecture $INPUT_ARCHITECTURE
+              --architecture "$INPUT_ARCHITECTURE"
           done
 
   stop-runner:
@@ -202,6 +265,14 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:

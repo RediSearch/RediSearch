@@ -19,11 +19,12 @@ use ffi::{
     VecSimIndex_AdhocBfCtx_Free, VecSimIndex_AdhocBfCtx_GetDistanceFrom,
     VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize,
-    VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
-    VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
-    VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
-    VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
+    VecSimIndex_RangeQuery, VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine,
+    VecSimParams_GetQueryBlobSize, VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks,
+    VecSimTieredIndex_ReleaseSharedLocks, VecSimType_VecSimType_BFLOAT16,
+    VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32, VecSimType_VecSimType_FLOAT64,
+    VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32, VecSimType_VecSimType_INT64,
+    VecSimType_VecSimType_UINT8,
 };
 use rqe_core::DocId;
 
@@ -176,7 +177,7 @@ impl<'index> IndexRef<'index> {
 
     /// Run a single-shot top-`k` query.
     ///
-    /// `params` is mutated by VecSim (e.g. it reads/writes `timeoutCtx`). See
+    /// `params` is mutated by VecSim (e.g. it reads/writes `stopCtx`). See
     /// [`QueryReply::from_raw_checked`] for the timeout/null handling contract.
     pub fn top_k_query(
         &self,
@@ -203,6 +204,53 @@ impl<'index> IndexRef<'index> {
         unsafe { QueryReply::from_raw_checked(raw, order) }
     }
 
+    /// Run a range query for every vector within `radius` of `query_vector`.
+    ///
+    /// See [`QueryReply::from_raw_checked`] for the timeout/null handling contract.
+    ///
+    /// # Safety
+    ///
+    /// The `stopCtx` referenced by `params` must be [valid] for this call:
+    /// VecSim passes it to the registered stop callback, which reads it as a
+    /// `QueryRequestLimits`.
+    ///
+    /// # Panics
+    ///
+    /// If `radius` is negative.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn range_query(
+        &self,
+        query_vector: &QueryVector<'index>,
+        radius: f64,
+        params: &mut VecSimQueryParams,
+        order: ReplyOrder,
+    ) -> Result<Option<QueryReply>, QueryError> {
+        // VecSim rejects a negative radius by throwing a C++ exception, which must not unwind
+        // into Rust. NaN is let through because VecSim's own `radius < 0` check accepts it.
+        assert!(
+            radius.is_nan() || radius >= 0.0,
+            "VecSim range query radius must not be negative"
+        );
+        // SAFETY:
+        // 1. `self.inner` upholds its invariant.
+        // 2. `query_vector`'s blob is sized to the index by the `QueryVector`
+        //    invariant, so the pointer is valid for the bytes VecSim reads.
+        // 3. `params` is exclusively borrowed for this call, and the caller keeps
+        //    its `stopCtx` valid for it.
+        let raw = unsafe {
+            VecSimIndex_RangeQuery(
+                self.inner.as_ptr(),
+                query_vector.as_bytes().as_ptr().cast::<c_void>(),
+                radius,
+                params,
+                order.as_raw(),
+            )
+        };
+        // SAFETY: `raw` is the freshly returned reply pointer from VecSim.
+        unsafe { QueryReply::from_raw_checked(raw, order) }
+    }
+
     /// Create a batch iterator, taking `params` as a raw pointer so the caller
     /// picks `'params`. Use this to store the iterator alongside the
     /// `VecSimQueryParams` it was built from.
@@ -210,7 +258,7 @@ impl<'index> IndexRef<'index> {
     /// # Safety
     ///
     /// - `params` must point to a valid `VecSimQueryParams` for this call.
-    /// - The `timeoutCtx` referenced by `*params` must remain valid for the
+    /// - The `stopCtx` referenced by `*params` must remain valid for the
     ///   whole of `'params`, since the iterator copies it and reads it on every
     ///   [`BatchIterator::next`] call.
     pub unsafe fn batch_iterator_unchecked<'params>(
@@ -235,7 +283,7 @@ impl<'index> IndexRef<'index> {
         // 1. `inner` invariant: `ptr` is non-null and freshly returned by
         //    `VecSimBatchIterator_New`.
         // 2. `'index` is bounded by the index lifetime.
-        // 3. `'params` is caller-chosen; the caller guarantees the `timeoutCtx`
+        // 3. `'params` is caller-chosen; the caller guarantees the `stopCtx`
         //    referent outlives it.
         Some(unsafe { BatchIterator::from_raw(ptr) })
     }

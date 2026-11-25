@@ -20,8 +20,11 @@ use std::{collections::HashSet, num::NonZeroUsize, ptr};
 
 use ffi::{RLookupKey, t_docId};
 use index_result::{RSIndexResult, RSResultKind};
-use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
-use rqe_iterators_test_utils::MockExpirationChecker;
+use rqe_iterators::{
+    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed,
+    RQESuspendedIterator, ResumeOutcome,
+};
+use rqe_iterators_test_utils::{MockContext, MockExpirationChecker};
 use top_k::{ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::test_utils::{TestIndex, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
@@ -367,6 +370,54 @@ fn filtered_adhoc_drops_expired_without_refill() {
     assert_eq!(ids, vec![99, 98]);
 }
 
+/// Runs a filtered top-3 over `90..=100` with the bound at 97 in `mode`. The
+/// three nearest documents are above the bound.
+fn filtered_ids_with_max_doc_id(mode: TopKMode) -> Vec<t_docId> {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let source = make_source(&index, n, k, child_ids.len()).with_max_doc_id(97);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(child_ids)),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        mode,
+    );
+    collect_ids(&mut it)
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_batches_refills_k_below_max_doc_id() {
+    assert_eq!(
+        filtered_ids_with_max_doc_id(TopKMode::ForcedBatches),
+        vec![97, 96, 95]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_refills_k_below_max_doc_id() {
+    assert_eq!(
+        filtered_ids_with_max_doc_id(TopKMode::AdhocBF),
+        vec![97, 96, 95]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_drops_above_max_doc_id_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    // VecSim picks the k results itself, so the ones above the bound are not replaced.
+    let source = make_source(&index, n, k, 0).with_max_doc_id(98);
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+    assert_eq!(collect_ids(&mut it), vec![98]);
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn index_size_reflects_added_vectors() {
@@ -387,7 +438,6 @@ const fn make_key() -> RLookupKey {
         path: ptr::null(),
         name: ptr::null(),
         name_len: 0,
-        next: ptr::null_mut(),
     }
 }
 
@@ -537,4 +587,79 @@ fn adhoc_trimmed_shared_metric_key_carries_vector_score() {
             (7, 36.0, Some(36.0))
         ]
     );
+}
+
+/// Doc id added while a top-k is suspended. Its vector sits between the two
+/// nearest neighbours of [`make_source`]'s query, so it can only show up in the
+/// results if collection reads the index as it is *after* the lock release.
+const LATE_DOC: t_docId = 1000;
+
+/// Add [`LATE_DOC`] at distance 1 from the `[n; DIM]` query: closer than doc
+/// `n - 1` (distance `DIM`), farther than doc `n` (distance 0).
+fn add_late_doc(index: &TestIndex, n: usize) {
+    index.add(LATE_DOC, &[n as f32 - 0.5; DIM]);
+}
+
+/// Resume `suspended` under a fresh read guard, expecting it to carry on.
+fn resume_ok<'index, I: RQESuspendedIterator<'index>>(
+    suspended: Box<I>,
+    ctx: &'index MockContext,
+) -> Box<I::Resumed<'index>> {
+    match suspended.resume(&ctx.spec_read()).expect("resume failed") {
+        ResumeOutcome::Ok(it) => it,
+        ResumeOutcome::Moved(_) => panic!("expected ResumeOutcome::Ok, got Moved"),
+        ResumeOutcome::Aborted => panic!("expected ResumeOutcome::Ok, got Aborted"),
+    }
+}
+
+/// The vector source can collect after a lock release, so a top-k suspended
+/// before its first read resumes rather than aborting, and its collection then
+/// queries the real index as it stands after the release — including a vector
+/// added meanwhile — through a batch iterator rebuilt from scratch.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_suspended_before_first_read_collects_after_resume() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let ctx = MockContext::new(0, 0);
+
+    let it = Box::new(TopKIterator::<_, Empty>::new_with_mode(
+        make_source(&index, n, k, n),
+        None,
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Unfiltered,
+    ));
+    let suspended = it.suspend();
+    add_late_doc(&index, n);
+    let mut it = resume_ok(suspended, &ctx);
+
+    assert_eq!(collect_ids(&mut *it), vec![100, LATE_DOC, 99]);
+}
+
+/// Same as [`unfiltered_suspended_before_first_read_collects_after_resume`] on
+/// the batched path, where suspension also passes through the child and the
+/// source's batch iterator is created lazily by the first collection.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn batches_suspended_before_first_read_collects_after_resume() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let ctx = MockContext::new(0, 0);
+
+    let child_ids: Vec<_> = (1..=n as t_docId).chain([LATE_DOC]).collect();
+    let it = Box::new(TopKIterator::new_with_mode(
+        make_source(&index, n, k, n),
+        Some(IdList::<true>::new(child_ids)),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::Batches,
+    ));
+    let suspended = it.suspend();
+    add_late_doc(&index, n);
+    let mut it = resume_ok(suspended, &ctx);
+
+    assert_eq!(collect_ids(&mut *it), vec![100, LATE_DOC, 99]);
 }

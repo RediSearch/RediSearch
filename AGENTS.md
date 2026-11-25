@@ -70,7 +70,8 @@ make fmt CHECK=1                          # Check formatting without changes
 (cd src/redisearch_rs && cargo license-fix) # Add missing license headers (subshell: custom subcommand, no --manifest-path)
 ```
 
-C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
+VecSim source and its relocated tests/benchmarks preserve their scoped four-space
+style with clang-format 18.1.8 (`make vecsim-format`). Other C code formatting is governed by `.clang-format` at the repo root (LLVM-derived, 100-column limit, 2-space indent). Apply with `clang-format -i <file>`.
 
 ## Running Expensive Commands
 
@@ -147,6 +148,8 @@ as production code.
   [/rust-tests-guidelines](.skills/rust-tests-guidelines/SKILL.md)
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
+- Encode state in types: an enum, not a `bool`, for a two-way choice (`SumMode`, not
+  `average: bool`); one `Option<Struct>`, not two `Option`s that must be `Some` together
 
 ### Python
 
@@ -175,7 +178,7 @@ as production code.
 - `src/query.c` — query execution entry point
 - `src/query_optimizer.c` — query plan optimization
 - `src/query_parser/v2/` — Ragel lexer (`lexer.rl`) + Lemon parser (`parser.y`), used by DIALECT 2 onwards (v1 is legacy)
-- `src/iterators/` — iterator implementations (hybrid_reader, optimizer_reader)
+- `src/iterators/` — the `QueryIterator` C ABI (`iterator_api.h`); iterators are implemented in Rust (`src/redisearch_rs/rqe_iterators/`, top-k in `src/redisearch_rs/top_k/`)
 - `src/result_processor.c` — result processing pipeline
 - `src/numeric_filter.c` — numeric range filter iterators
 - `src/cursor.c` — cursor-based result pagination
@@ -194,11 +197,12 @@ as production code.
 - `src/hybrid/hybrid_scoring.c` — combined scoring
 
 ### Garbage Collection
-- `src/fork_gc/fork_gc.c` — fork-based GC (main orchestrator, also triggers tiered vector index GC)
-- `src/fork_gc/terms.c`, `tags.c`, `numeric.c` — per-index-type GC for inverted indexes
-- `src/fork_gc/existing_docs.c`, `missing_docs.c` — document-level GC
-- `src/gc.c`, `src/gc.h` — GC interface and scheduling
-- Vector (tiered) indexes use VecSim's own GC, called from the fork GC cycle
+- `src/gc/gc.c`, `src/gc/gc.h` — GC interface and scheduling (timers, the GC thread pool, forced runs)
+- `src/gc/index_gc.c`, `src/gc/index_gc.h` — per-index GC context (`IndexGC`): counters, stats, the cycle entry point
+- `src/gc/fork_cycle.c` — the forking policy's cycle: fork a child, apply its deltas in the parent, reap it
+- `src/gc/disk_gc.c` — the disk-backed GC policy
+- The scanners (terms, tags, numeric, missing docs, existing docs) are Rust: `src/redisearch_rs/index_gc/src/scanners/`, with the fork-specific pipe and orchestration in `src/redisearch_rs/index_gc/src/fork/` and the C ABI in `c_entrypoint/index_gc_ffi`
+- Vector (tiered) indexes use VecSim's own GC, called from the GC cycle
 - Geometry indexes remove entries inline on document deletion (no deferred GC)
 
 ### Specialized Indexes
@@ -224,7 +228,8 @@ as production code.
 - `src/buffer/buffer.c` — Redis String DMA buffer implementation
 
 ### Key Dependencies
-- `deps/VectorSimilarity/` — vector index backends (HNSW, flat, etc.)
+- `src/vecsim/` — vector index backends (HNSW, flat, etc.)
+- `deps/ScalableVectorSearch/` — SVS dependency (git submodule)
 - `deps/snowball/` — stemming algorithms (git submodule)
 - `deps/friso/` — Chinese tokenization
 - `deps/phonetics/` — phonetic matching
@@ -235,7 +240,9 @@ as production code.
 - `tests/pytests/` — Python integration tests (RLTest framework)
 - `tests/cpptests/` — C++ unit tests (Google Test → `rstest` binary)
 - `tests/ctests/` — C unit tests (standalone binaries)
-- `tests/benchmarks/` — YAML-driven benchmark configs
+- `tests/cpptests/vecsim/` — VecSim units and shared test utilities (`make vecsim-tests`)
+- `tests/cpptests/micro-benchmarks/vecsim/` — VecSim C++ microbenchmarks
+- `tests/benchmarks/` — YAML-driven benchmark configs and VecSim dataset tooling
 
 ## Build System
 
@@ -249,7 +256,7 @@ as production code.
 ```
 src/                          # C source code
 ├── aggregate/                # FT.AGGREGATE pipeline
-├── fork_gc/                  # Fork-based garbage collection
+├── gc/                       # Garbage collection: scheduler, per-index context, fork cycle
 ├── hybrid/                   # Hybrid (vector+text) search
 ├── iterators/                # Query iterator implementations
 ├── info/                     # FT.INFO implementation
@@ -283,7 +290,7 @@ src/redisearch_rs/
     └── triemap_ffi/      # C-callable wrapper
 ```
 
-## Review guidelines
+## Code Review Rules
 
 When reviewing pull requests:
 
@@ -303,6 +310,17 @@ When reviewing pull requests:
 - If the review explicitly requests nits, style comments, or `--include-nits`, minor findings may be reported as non-blocking suggestions, but must still avoid duplicates and should be grouped by root cause.
 - State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead. A missing test needs no failing input: name the new or changed behavior and what an exercising test would assert, as [/rust-review](.skills/rust-review/SKILL.md) § *Test coverage* and [/adversarial-review](.skills/adversarial-review/SKILL.md) require.
 - Post findings as comments; do not request changes. A human maintainer's approval is the merge gate.
+
+### First-pass thoroughness
+
+The first review of a PR is the only pass that owes each line a full look: *Re-reviewing after a
+push* below restricts every later round to the delta, so a defect left unflagged in this pass
+typically goes unflagged for the life of the PR, not just for one round. Budget attention
+accordingly — a dense or unfamiliar function (a recursive traversal, a manual state machine, a
+routine juggling several invariants such as bounds, early-stop, and ownership together) usually
+hides more than one issue, and stopping at the first one found is how the rest surface piecemeal
+across later rounds instead of together in this one. Read such functions for all their edge
+cases before moving on, rather than skimming for the most obvious defect.
 
 ### Re-reviewing after a push
 
@@ -345,7 +363,7 @@ git worktree add --no-track -b <your-handle>-<feature> .worktree/<your-handle>-<
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
-The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace needs a git worktree attached to it in a specific order; getting that wrong silently breaks the submodules in every other checkout on the machine.
+The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace must be created as a git worktree (`jj workspace add --colocate`, jj ≥ 0.46); a hand-rolled `.git` pointer silently breaks the submodules in every other checkout on the machine.
 
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.
@@ -360,15 +378,20 @@ Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Ru
 Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 
 ### Benchmarking
+VecSim C++ microbenchmarks and dataset tooling are described in
+[the VecSim benchmark guide](docs/vecsim/benchmarks.md); use `make vecsim-benchmarks`.
+
 Invoke [/run-macro-benchmarks](.skills/run-macro-benchmarks/SKILL.md) to run an end-to-end macro benchmark (`tests/benchmarks/*.yml`) against a real redis-server.
 Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust micro-benchmarks and compare performance with the C implementation.
 
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
+Invoke [/report-bug](.skills/report-bug/SKILL.md) to report a product bug to Jira or add a new variant to an existing bug ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
+Invoke [/drive-redisearch](.skills/drive-redisearch/SKILL.md) to run the built module in a live redis-server (standalone or cluster), drive it with `FT.*` commands, and capture evidence.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in jj changes.

@@ -16,7 +16,6 @@ search_result.workspace = true
 inverted_index.workspace = true
 ffi.workspace = true
 
-unsafe-tools.workspace = true
 workspace_hack.workspace = true
 
 [build-dependencies]

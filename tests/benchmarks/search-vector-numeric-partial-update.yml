@@ -1,0 +1,47 @@
+version: 0.5
+name: "search-vector-numeric-partial-update"
+description: "
+             Update-only benchmark over documents that carry both a vector and a
+             numeric field, writing only the numeric one (MOD-17749).
+
+             Replacing a document re-indexes it under a fresh doc-id. When its vector
+             is unchanged the engine moves the existing entry onto the new doc-id
+             instead of deleting and re-adding it, so this workload should cost the
+             vector index no inserts, no deletes, and therefore no GC -- only moves.
+             The comparison that shows it is this benchmark against itself with
+             OPTIMIZE_PARTIAL_UPDATE off.
+
+             Shares the corpus with the vecsim-arxiv-titles-* read benchmarks, so the
+             vector index here is the same size and shape those measure.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+             "
+metadata:
+  component: "search"
+
+timeout_seconds: 1800
+setups:
+  - oss-standalone
+  - oss-standalone-threads-6
+
+dbconfig:
+  dataset_name: "arxiv-titles-384-angular-filters-m16-ef-128"
+  dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/arxiv-titles-384-angular-filters-m16-ef-128/arxiv-titles-384-angular-filters-m16-ef-128-dump.rdb"
+  dataset_load_timeout_secs: 1000
+  check:
+    keyspacelen: 100000
+
+clientconfig:
+  benchmark_type: "write-only"
+  tool: memtier_benchmark
+  # Four timestamps rather than one, spread across the range the dataset's own
+  # filters use: rewriting a field to the value it already holds would still
+  # replace the document, but it would leave the numeric index untouched and
+  # measure less than the workload it stands for.
+  # Keys are bare integers, and [125, 99999] is the corpus' one gap-free run -- 99875 of
+  # its 100000 documents. Every write therefore lands on a document that already exists:
+  # a range with gaps would create new ones, and an insert is exactly what this benchmark
+  # exists to show does not happen.
+  arguments: "--test-time 180 -c 16 -t 4 --hide-histogram --key-prefix '' --key-minimum 125 --key-maximum 99999 --command 'HSET __key__ update_date_ts 1400000000' --command-ratio 1 --command 'HSET __key__ update_date_ts 1420000000' --command-ratio 1 --command 'HSET __key__ update_date_ts 1450000000' --command-ratio 1 --command 'HSET __key__ update_date_ts 1480000000' --command-ratio 1"

@@ -76,13 +76,13 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
  * parameter semantics. */
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx,
-                          QueryRequestTimeout *timeout);
+                          QueryRequestLimits *timeout);
 
 /* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
  * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
 void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx,
-                          QueryRequestTimeout *timeout);
+                          QueryRequestLimits *timeout);
 
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
 size_t Trie_Size(const Trie *t);
@@ -93,6 +93,13 @@ size_t Trie_Size(const Trie *t);
  * same order, but the empty-prefix DFA filter pays per-node stack maintenance
  * for a filter that accepts everything. */
 TrieIterator *Trie_IterateAll(Trie *t);
+
+/* Visit, in lexicographic order, every key that sorts strictly after `after` (every key when
+ * `afterLen` is 0), until `visit` returns non-zero. Returns non-zero when `visit` stopped the walk.
+ * Nothing is held between calls, so a caller can resume from the last key it saw after the trie
+ * changed. Requires a Trie_Sort_Lex trie. */
+int Trie_VisitAfter(const Trie *t, const rune *after, size_t afterLen, TrieVisitCallback visit,
+                    void *ctx);
 
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {

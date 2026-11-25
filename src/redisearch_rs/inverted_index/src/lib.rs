@@ -23,12 +23,13 @@ pub use codec::*;
 pub use index::*;
 
 // Re-export GC types.
-pub use gc::{GcApplyInfo, GcScanDelta, RepairContext};
+pub use gc::{DocLiveness, GcApplyInfo, GcScanDelta, GcSnapshotScope, RepairContext};
 
 // Re-export reader types.
 pub use reader::{
     IndexReader, IndexReaderCore, NumericFilter, NumericReader, PointsToOpaqueIndex,
-    RawIndexReaderCore, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+    RawIndexReaderCore, RefreshOutcome, ReseatIndex, ResumableReader, SuspendableReader,
+    TermReader,
 };
 
 // Re-export filter types.

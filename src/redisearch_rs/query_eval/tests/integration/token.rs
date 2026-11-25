@@ -23,7 +23,9 @@ use ffi::{
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
 use query::mock::{MockQueryNode, TokenNodeType};
-use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{
+    Config, DocIdCoverage, EvalResult, QueryEvalContext, QueryIteratorTree, QueryNodeMut, eval_node,
+};
 use query_term::RSQueryTerm;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
@@ -136,4 +138,16 @@ fn eval_token_absent_term_yields_no_iterator() {
         fixture.eval().is_none(),
         "a term absent from the index must not build an iterator"
     );
+}
+
+#[test]
+fn eval_token_tree_covers_selective_doc_ids() {
+    let mut fixture = TokenFixture::new(INDEXED_TERM);
+    // SAFETY: `fixture.node` is a valid, live `RSQueryNode`, not accessed
+    // elsewhere while `node` is alive.
+    let node = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
+
+    let tree = QueryIteratorTree::new(&mut fixture.ctx, node, Config::default());
+    assert_eq!(tree.doc_id_coverage(), DocIdCoverage::Selective);
+    assert_eq!(tree.into_root().type_(), IteratorType::InvIdxTerm);
 }

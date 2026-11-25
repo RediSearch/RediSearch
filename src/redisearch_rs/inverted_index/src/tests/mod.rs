@@ -19,17 +19,16 @@ mod index;
 mod index_result;
 mod reader;
 
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut query_term::RSQueryTerm) {
-    panic!("No test created a term record");
-}
-
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 #[derive(Clone)]
 struct Dummy;
 
 impl Encoder for Dummy {
     type Delta = u32;
+
+    // Small enough that the few-entry fixtures are full blocks, so the GC does not compact
+    // them unless a test builds under-filled ones on purpose.
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 3;
 
     fn encode<W: std::io::Write + std::io::Seek>(
         mut writer: W,

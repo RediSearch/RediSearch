@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 c_trie.workspace = true
+deleted_docs.workspace = true
 dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
@@ -25,5 +26,6 @@ pretty_assertions.workspace = true
 
 # Crate required to invoke C symbols
 field_spec = { workspace = true, features = ["unittest"] }
+libc.workspace = true
 redisearch_rs.workspace = true
 redis_mock.workspace = true

@@ -112,7 +112,7 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
       .endpoint = (MREndpoint){
         .host = rm_strdup(ip),
         .port = port,
-        .isTls = (flags & REDISMODULE_NODE_PORT_TLS) != 0,
+        .tls = (flags & REDISMODULE_NODE_PORT_TLS) ? MREndpointTLS_On : MREndpointTLS_Off,
         .unixSock = NULL,
         .password = (auth && auth_len > 0) ? rm_strndup(auth, auth_len) : NULL,
       },

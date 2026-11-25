@@ -96,12 +96,16 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Tag";
     case QN_FUZZY:
       return "Fuzzy";
+    case QN_LEXRANGE:
+      return "LexRange";
     case QN_VECTOR:
       return "Vector";
     case QN_NULL:
       return "Null";
     case QN_MISSING:
       return "Missing";
+    case QN_SPARSE_VECTOR:
+      return "SparseVector";
     case QN_WILDCARD_QUERY:
       return "WildcardQuery";
   }

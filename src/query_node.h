@@ -42,7 +42,9 @@ typedef struct {
 } QueryNullNode;
 
 typedef struct {
-  const struct FieldSpec *fs;
+  t_fieldIndex fieldIndex;      // stable index of the tag field into IndexSpec.fields; re-derive
+                                 // the FieldSpec* from this at evaluation time - a pointer captured
+                                 // at parse time may already be freed by then
 } QueryTagNode;
 
 /* A token node is a terminal, single term/token node. An expansion of synonyms is represented by a
@@ -87,13 +89,33 @@ typedef struct {
   size_t len;
 } QueryIdFilterNode;
 
+/* Bounds are NUL-terminated, which is the whole of them: the indexer files a
+ * value under its up-to-NUL prefix, so a bound cannot usefully outlast one. */
+typedef struct {
+  char *begin;
+  bool includeBegin;
+  char *end;
+  bool includeEnd;
+} QueryLexRangeNode;
+
 typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
 
 typedef struct {
-  const struct FieldSpec *field;
+  t_fieldIndex fieldIndex;  // stable index of the field being tested into IndexSpec.fields;
+                            // re-derive the FieldSpec* from this at evaluation time - a
+                            // pointer captured at parse time may already be freed by then
 } QueryMissingNode;
+
+/* A `@field:[SPARSE $param]` node: the query vector of a sparse vector field. */
+typedef struct {
+  t_fieldIndex fieldIndex;  // stable index of the sparse vector field into IndexSpec.fields;
+                            // re-derive the FieldSpec* from this at evaluation time
+  const char *blob;         // the query vector, as the HASH value encoding; borrowed from the
+                            // request's PARAMS, which outlive the AST
+  size_t blobLen;
+} QuerySparseVectorNode;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
  * Currently supported are `weight`, `slop`, and `inorder`.
@@ -107,6 +129,7 @@ typedef struct {
 
 /* Define the attributes' names */
 #define YIELD_DISTANCE_ATTR "yield_distance_as"
+#define YIELD_SCORE_ATTR "yield_score_as"
 #define SLOP_ATTR "slop"
 #define INORDER_ATTR "inorder"
 #define WEIGHT_ATTR "weight"
@@ -133,8 +156,10 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryTagNode tag;
     QueryFuzzyNode fz;
+    QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
+    QuerySparseVectorNode svn;
   };
 
   /* The node type, for resolving the union access */

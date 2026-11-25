@@ -114,6 +114,10 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "Payload too large");
     goto end;
   }
+  if (unlikely(rc == TRIE_ERR_TOO_MANY_CHILDREN)) {
+    RedisModule_ReplyWithError(ctx, "Too many suggestions branch from a common prefix");
+    goto end;
+  }
 
   RedisModule_ReplyWithLongLong(ctx, Trie_Size(tree));
   RedisModule_ReplicateVerbatim(ctx);

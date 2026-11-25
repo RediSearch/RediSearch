@@ -19,3 +19,4 @@ pub mod obfuscation;
 pub mod runes;
 pub mod tag;
 pub mod unicode;
+pub mod utf8;

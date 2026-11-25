@@ -38,7 +38,7 @@
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
 #include "cursor.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "concurrent_ctx.h"
 #include "obfuscation/hidden_unicode.h"
@@ -67,7 +67,7 @@
 #include "util/references.h"
 #include "vector_index.h"
 
-struct ConcurrentCmdCtx;
+#include "coord/query_dispatch.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -182,7 +182,7 @@ static void executeAggregateDeferred(void *arg);  // forward declaration
 // iterCtx's deferred-execution fields. Runs only on the IO thread.
 static void dispatchDeferred(AggregateIteratorContext *iterCtx) {
   RS_ASSERT(iterCtx->bc);
-  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx, DIST_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(executeAggregateDeferred, iterCtx);
 }
 
 // Branch on the inbound command type: initial FT.AGGREGATE commands carry
@@ -216,7 +216,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
     iterCtx->numResponded++;
     bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+        QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -249,7 +249,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+  bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -275,10 +275,7 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 // fan-out (the caller dispatches via MR_StartIterator). Builds the per-iterator
 // context (optional WITHCOUNT barrier and optional KNN snapshot), wires the
 // abort-wake channel and FT.DEBUG handle, and points base.Next at rpnetNext.
-//
-// Returns RS_RESULT_OK on success, RS_RESULT_ERROR if the iterator could not be
-// created (in which case no callbacks are running and nc->it is left NULL).
-static int rpnetCreateIterator(RPNet *nc) {
+static void rpnetCreateIterator(RPNet *nc) {
   // Per-iterator context for privateData. Holds the WITHCOUNT running total and
   // an optional KNN snapshot.
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
@@ -314,21 +311,21 @@ static int rpnetCreateIterator(RPNet *nc) {
   MRIteratorCallback cb = nc->withCount ? withCountReplyCb : netCursorCallback;
   MRIteratorErrorCallback errCb = nc->withCount ? withCountErrorCb : NULL;
 
+  // The iterator takes the command's arguments; rpnet keeps reading only these reply-shape flags.
+  const MRCommand replyShape = {
+    .protocol = nc->cmd.protocol,
+    .forCursor = nc->cmd.forCursor,
+    .forProfiling = nc->cmd.forProfiling,
+  };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
+  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
     .errorCB = errCb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
   });
-
-  if (!it) {
-    // Iterator never created, so no callbacks are running and it did not take
-    // ownership of iterCtx; free it here.
-    aggregateIteratorContext_Free(iterCtx);
-    return RS_RESULT_ERROR;
-  }
+  nc->cmd = replyShape;
 
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
@@ -341,7 +338,6 @@ static int rpnetCreateIterator(RPNet *nc) {
   DebugBgIterator_Set(it);
 #endif
   nc->base.Next = rpnetNext;
-  return RS_RESULT_OK;
 }
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
@@ -353,18 +349,15 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 #endif
 
   // Check if the request timed out before starting the iterator
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
-    return RS_RESULT_TIMEDOUT;
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&nc->areq->base.limits)) {
+    return RS_RESULT_STOPPED;
   }
 
   // Lazy (non-deferred) path: create and immediately dispatch the iterator, then
   // pull the first reply. The async WITHCOUNT path creates the iterator eagerly
   // in RSExecDistAggregate before fanning out, so base.Next is already rpnetNext
   // by the time results are pulled and this function is never reached.
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(nc->base.parent->err, QUERY_ERROR_CODE_GENERIC);
-    return RS_RESULT_ERROR;
-  }
+  rpnetCreateIterator(nc);
   MR_StartIterator(nc->it, iterStartCb);
   return rpnetNext(rp, r);
 }
@@ -395,7 +388,7 @@ static void executeAggregateDeferred(void *arg) {
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
 
-  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout);
+  bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits);
 
   if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker, lent to sctx->redisCtx
@@ -407,11 +400,8 @@ static void executeAggregateDeferred(void *arg) {
     r->sctx->redisCtx = replyCtx;
 
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
-    QueryError status = QueryError_Default();
-    // Re-point the pipeline's err to this function's local status; the
-    // dispatcher's status went out of scope when it returned.
+    QueryError *status = &r->base.reply.err;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-    qctx->err = &status;
 
     // Copy the WITHCOUNT total (accumulated on the IO thread by withCountReplyCb)
     // into qctx so the result emitter picks it up.
@@ -422,19 +412,19 @@ static void executeAggregateDeferred(void *arg) {
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. Not routed through executePlan
-      // because we have no ConcurrentCmdCtx (the dispatcher already returned).
+      // because the initial dispatch job already returned.
       // Hand over the promoted spec ref so the cursor is counted against this
       // index's coordinator cursor budget (INDEX_CURSOR_LIMIT). Cursors_Reserve
       // demotes it to a weak ref; ownership of `spec_ref` stays here.
-      if (AREQ_StartCursor(r, reply, spec_ref, &status, true) != REDISMODULE_OK) {
-        AREQ_ReplyOrStoreError(r, replyCtx, &status);
+      if (AREQ_StartCursor(r, reply, spec_ref, status, true) != REDISMODULE_OK) {
+        AREQ_ReplyErrorOrDefer(r, replyCtx);
         // Cursor reservation failed before runCursor could return the loan.
         r->sctx->redisCtx = NULL;
       }
     } else {
       // Converge on the existing non-cursor path.
       // executePlan always returns REDISMODULE_OK in the non-cursor branch.
-      executePlan(r, spec_ref, reply, &status);
+      executePlan(r, spec_ref, reply, status);
     }
     RedisModule_EndReply(reply);
     RedisModule_FreeThreadSafeContext(replyCtx);
@@ -443,10 +433,8 @@ static void executeAggregateDeferred(void *arg) {
     // DROPPED_BACKGROUND and release the AREQ so rpnetFree drops the iterator's
     // reader ref.
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
-    QueryError status = QueryError_Default();
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(r, replyCtx, &status);
-    QueryError_ClearError(&status);
+    QueryError_SetCode(&r->base.reply.err, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    AREQ_ReplyErrorOrDefer(r, replyCtx);
     RedisModule_FreeThreadSafeContext(replyCtx);
   } else {
     // Timeout path skipped executePlan; the unblock below hands the request to
@@ -502,7 +490,8 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 
 // Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp,
+                           const RSSearchOptions *searchOpts) {
   // We need to prepend the array with the command, index, and query that
   // we want to use. Lengths ride along so binary-capable arguments (the query,
   // user-defined names) reach the shards without strlen truncation.
@@ -594,6 +583,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
     APPEND_LITERAL("VERBATIM");
   }
 
+  // Forwarded from the parsed options rather than an argv scan, which would
+  // also match an APPLY alias spelled SLOP or INORDER.
+  char *slop = NULL;
+  if (searchOpts->slop != -1) {
+    int slop_len = rm_asprintf(&slop, "%d", searchOpts->slop);
+    APPEND_LITERAL("SLOP");
+    APPEND_ARG(slop, (size_t)slop_len);
+  }
+  if (searchOpts->flags & Search_InOrder) {
+    APPEND_LITERAL("INORDER");
+  }
+
   for (size_t ii = 0; ii < array_len(us->serialized); ++ii) {
     APPEND_ARG(us->serialized[ii], strlen(us->serialized[ii]));
   }
@@ -638,6 +639,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   MRCommand_SetPrefix(xcmd, "_FT");
 
   rm_free(n_prefixes);
+  rm_free(slop);
   array_free(tmparr);
   array_free(tmplens);
 }
@@ -651,7 +653,12 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
+  // The dist plan is final: RPNet only appends unseen shard fields to this
+  // lookup at execution time; changing an existing key panics in the Rust core.
+  RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
@@ -704,18 +711,28 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   AREQ *req = ctx;
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
-  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
-  // which caused the call to getNextReply from RPNet to set cond->wait to true.
-  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
-
-  // Therefore, we loop to drain all remaining replies from the channel.
-  // Pending might be zero, but there might still be replies in the channel to read.
-  // We may have pulled all the replies from the channel and arrived here due to a timeout,
-  // and now we're waiting for the profile results.
+  // STRICT serializes on the main thread after the worker hands off the pipeline.
+  // Collect available profiles without waiting for shards that may need this thread.
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    rpnet->drainOnly = true;
+  }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    // Profile collection is outside the Network processor timer; retain its measured times.
+    const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
+    const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
+    const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
     do {
       MRReply_Free(rpnet->current.root);
+      RPNet_resetCurrent(rpnet);
+      // A memory stop, possibly requested mid-drain, aborts the pop on an empty channel with
+      // RS_RESULT_STOPPED forever. Take only what is queued, so the next call ends with EOF.
+      if (QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+        rpnet->drainOnly = true;
+      }
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
+    rpnet->breakdown.waitTime = waitTime;
+    rpnet->breakdown.convertTime = convertTime;
+    rpnet->breakdown.freeTime = freeTime;
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
@@ -756,7 +773,6 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
                                QueryError *status) {
-  AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
   rs_wall_clock_init(&r->profileClocks.initClock);
 
@@ -775,10 +791,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     }
   }
 
-  // Compile parses the held argv — this job's argv copies die with the job,
-  // the plan's borrows must not. The job argv mirrors the original, so the
-  // offset computed on it indexes the holds too, and this view's length must
-  // match the request's parse extent (the debug dispatcher trims both).
+  // Debug dispatch trims the parse extent while retaining its trailing arguments.
   RS_ASSERT((uint32_t)argc == r->base.args.parseArgc);
   rc = AREQ_Compile(r, ctx, ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
@@ -796,7 +809,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   r->profile = printAggProfile;
 
-  unsigned int dialect = r->reqConfig.dialectVersion;
+  unsigned int dialect = r->base.reqConfig.dialectVersion;
   specialCaseCtx *knnCtx = NULL;
 
   if(dialect >= 2) {
@@ -806,7 +819,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     const char *query = AREQ_Query(r, &queryLen);
     if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, r->searchopts.params, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -834,7 +847,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   AggregateKnnContext knnSnapshot;
   bool hasKnnSnapshot = false;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, &r->searchopts);
 
   if (knnCtx) {
     hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);
@@ -855,7 +868,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  r->sctx->timeout = &r->base.timeout;
+  r->sctx->limits = &r->base.limits;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
@@ -879,22 +892,18 @@ static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
   return REDISMODULE_OK;
 }
 
-static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
-                          StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
+static void DistAggregateCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *strong_ref,
+                                  specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply) {
 
   RS_ASSERT(r != NULL);  // the dispatcher allocates the request shell on the main thread
 
   // If timeout already occurred, the timeout callback already replied - don't reply again
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
-    if (QueryError_HasError(status)) {
-      QueryError_ClearError(status);
-    }
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
+    QueryError_ClearError(&r->base.reply.err);
     goto cleanup;
   }
 
-  RS_ASSERT(QueryError_HasError(status));
-
-  AREQ_ReplyOrStoreError(r, ctx, status);
+  AREQ_ReplyErrorOrDefer(r, ctx);
 
 cleanup:
   // Return the ctx loan on every error path — the cycle-owned request outlives
@@ -903,7 +912,7 @@ cleanup:
   if (r->sctx) {
     r->sctx->redisCtx = NULL;
   }
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
   }
@@ -922,33 +931,31 @@ cleanup:
 // the dispatcher's weak ref is transferred to iterCtx. On failure: status is
 // set and the caller cleans up via DistAggregateCleanups (which still owns r,
 // knnCtx, and the refs).
-static int dispatchAggregateDeferred(AREQ *r, struct ConcurrentCmdCtx *cmdCtx,
+static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
                                      specialCaseCtx *knnCtx, StrongRef strong_ref,
                                      RedisModule_Reply *reply, QueryError *status) {
   RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
 
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_GENERIC);
-    return REDISMODULE_ERR;
-  }
+  rpnetCreateIterator(nc);
   // Wire deferred-execution fields into the iterator's private data before
   // MR_StartIterator so the IO thread sees them when withCountReplyCb fires.
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIterator_GetPrivateData(nc->it);
-  iterCtx->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
+  iterCtx->bc = dispatch->bc;
   iterCtx->areq = r;
   // Transfer the dispatcher's WeakRef into iterCtx; executeAggregateDeferred
   // promotes it back to a StrongRef (or treats the spec as dropped).
-  iterCtx->spec_ref = ConcurrentCmdCtx_TakeWeakRef(cmdCtx);
+  iterCtx->spec_ref = dispatch->spec_ref;
+  dispatch->spec_ref = (WeakRef){0};
   iterCtx->knnSpecialCtx = knnCtx;
 
   // Drop the dispatcher's ctx alias; executeAggregateDeferred creates its own
   // thread-safe ctx on the worker thread.
   r->sctx->redisCtx = NULL;
   // Defer the unblock to executeAggregateDeferred.
-  ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
+  dispatch->bc = NULL;
   // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
   // shard first-replies are in.
   MR_StartIterator(nc->it, iterStartCb);
@@ -959,19 +966,18 @@ static int dispatchAggregateDeferred(AREQ *r, struct ConcurrentCmdCtx *cmdCtx,
   return REDISMODULE_OK;
 }
 
-void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx) {
+static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              DistQueryDispatchCtx *dispatch) {
 
   // The request shell was allocated on the main thread by the dispatcher and
   // installed as the blocked client's private data. This thread fills it in place.
-  QueryRequest *request =
-      RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  QueryRequest *request = dispatch->request;
   AREQ *r = QueryRequest_GetAREQ(request);
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied.
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+
     return;
   }
   // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -979,22 +985,20 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  QueryError status = QueryError_Default();
+  QueryError *status = &r->base.reply.err;
   specialCaseCtx *knnCtx = NULL;
 
-  // Store coordinator start time for dispatch time tracking
-  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-  size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  size_t numShards = dispatch->numShards;
 
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  StrongRef strong_ref = IndexSpecRef_Promote(dispatch->spec_ref);
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) !=
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, status) !=
       REDISMODULE_OK) {
     goto err;
   }
@@ -1004,26 +1008,26 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // collected, then converges on executePlan's non-cursor branch). Non-WITHCOUNT
   // requests stay on the synchronous executePlan path below.
   if (HasWithCount(r)) {
-    if (dispatchAggregateDeferred(r, cmdCtx, knnCtx, strong_ref, reply, &status)
-        != REDISMODULE_OK) {
+    if (dispatchAggregateDeferred(r, dispatch, knnCtx, strong_ref, reply, status) !=
+        REDISMODULE_OK) {
       goto err;
     }
     return;
   }
 
-  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, status) != REDISMODULE_OK) {
     goto err;
   }
 
   SpecialCaseCtx_Free(knnCtx);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
 // See if we can distribute the plan...
 err:
-  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
+  DistAggregateCleanups(ctx, sp, &strong_ref, knnCtx, r, reply);
   return;
 }
 
@@ -1047,7 +1051,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
@@ -1086,7 +1090,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
@@ -1112,7 +1116,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.rc = RS_RESULT_STOPPED;
   }
 
   // Harvest any shard replies that landed in the channel before the deadline.
@@ -1164,13 +1168,13 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
 // RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
 // check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
-// bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
+// bails are signaled via AREQ_ReplyErrorOrDefer. The timer waits and branches
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).
@@ -1197,11 +1201,11 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.rc = RS_RESULT_STOPPED;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Reachable on
+    // Pre-pipeline bail through AREQ_ReplyErrorOrDefer. Reachable on
     // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
     // cursorRead bails here when the index was dropped while the cursor idled.
     QueryError *err = &req->base.reply.err;
@@ -1213,20 +1217,19 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 }
 
 /* ======================= DEBUG ONLY ======================= */
-void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx) {
+static void DEBUG_execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                    DistQueryDispatchCtx *dispatch) {
 
   // The debug request shell (AREQ_Debug) was allocated on the main thread by
   // the dispatcher and installed as the blocked client's private data.
-  QueryRequest *request =
-      RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  QueryRequest *request = dispatch->request;
   AREQ *r = QueryRequest_GetAREQ(request);
   AREQ_Debug *debug_req = (AREQ_Debug *)r;
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied.
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+
     return;
   }
   // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
@@ -1243,23 +1246,21 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   size_t numShards = 0;
   RPNet *rpnet = NULL;
 
-  QueryError status = QueryError_Default();
+  QueryError *status = &r->base.reply.err;
 
-  // Store coordinator start time for dispatch time tracking
-  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-  numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+  numShards = dispatch->numShards;
   debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
-  strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  strong_ref = IndexSpecRef_Promote(dispatch->spec_ref);
   sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     goto err;
   }
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
-                          &status) != REDISMODULE_OK) {
+                          status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -1279,31 +1280,50 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     MRCommand_Append(cmd, arg, n);
   }
 
-  if (parseAndCompileDebug(debug_req, &status) != REDISMODULE_OK) {
+  if (parseAndCompileDebug(debug_req, status) != REDISMODULE_OK) {
     goto err;
   }
 
   // WITHCOUNT follows the same eager-async path as the non-debug entry point.
   if (HasWithCount(r)) {
-    if (dispatchAggregateDeferred(r, cmdCtx, knnCtx, strong_ref, reply, &status)
-        != REDISMODULE_OK) {
+    if (dispatchAggregateDeferred(r, dispatch, knnCtx, strong_ref, reply, status) !=
+        REDISMODULE_OK) {
       goto err;
     }
     return;
   }
 
-  if (executePlan(r, strong_ref, reply, &status) != REDISMODULE_OK) {
+  if (executePlan(r, strong_ref, reply, status) != REDISMODULE_OK) {
     goto err;
   }
 
   SpecialCaseCtx_Free(knnCtx);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
 // See if we can distribute the plan...
 err:
-  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
+  DistAggregateCleanups(ctx, sp, &strong_ref, knnCtx, r, reply);
   return;
+}
+
+static void runDistAggregate(DistQueryDispatchCtx *dispatch, bool isDebug) {
+  QueryRequest *request = dispatch->request;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(dispatch->bc);
+  if (isDebug) {
+    DEBUG_execDistAggregate(ctx, request->args.argv, request->args.argc, dispatch);
+  } else {
+    execDistAggregate(ctx, request->args.argv, request->args.argc, dispatch);
+  }
+  DistQueryDispatchCtx_Finish(dispatch, ctx);
+}
+
+void RSExecDistAggregate(void *arg) {
+  runDistAggregate(arg, false);
+}
+
+void DEBUG_RSExecDistAggregate(void *arg) {
+  runDistAggregate(arg, true);
 }

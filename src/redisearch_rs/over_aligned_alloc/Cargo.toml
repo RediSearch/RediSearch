@@ -1,0 +1,16 @@
+[package]
+name = "over_aligned_alloc"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+workspace_hack.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"

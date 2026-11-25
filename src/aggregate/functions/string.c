@@ -39,7 +39,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   const SearchResult *res = ctx->res;
 
   if (res && SearchResult_HasIndexResult(res)) {
-    RSQueryTerm *terms[maxTerms];
+    const RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(SearchResult_GetIndexResult(ctx->res), terms, maxTerms);
     if (n) {
       RSValue **arr = RSValue_NewArrayBuilder(n);
@@ -140,14 +140,9 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
+    case RSValueType_RedisString:
       RSValue_MakeReference(result, v);
       break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RSValue_StringPtrLen(v, &sz);
-      RSValue_SetConstString(result, str, sz);
-      break;
-    }
     case RSValueType_Number: {
       char tmpbuf[32];
       size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));

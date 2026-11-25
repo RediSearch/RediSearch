@@ -15,6 +15,7 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
+redis-module.workspace = true
 sorting_vector.workspace = true
 thin_vec.workspace = true
 value.workspace = true

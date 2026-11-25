@@ -24,7 +24,7 @@ fn init() -> Replier {
     // function pointers with mock implementations that record replies
     // without ever dereferencing the `RedisModuleCtx` pointer, so a
     // dangling non-null address is safe here.
-    unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) }
+    unsafe { Replier::new(std::ptr::NonNull::<RedisModuleCtx>::dangling()) }
 }
 
 /// Capture a single reply from a closure.
@@ -90,6 +90,24 @@ fn id_list_sorted() {
     let iter = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
+}
+
+/// A C-wrapped Rust iterator prints exactly as the iterator it wraps: printing
+/// dispatches through the header's `PrintProfile` callback, which reads the
+/// wrapper's `inner` through the pointer [`CRQEIterator`] hands it.
+///
+/// [`CRQEIterator`]: rqe_iterators::c2rust::CRQEIterator
+#[test]
+fn c_wrapped_rust_iterator() {
+    let mut replier = init();
+    let direct = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
+    let wrapped = rqe_iterators::c2rust::CRQEIterator::from_rust_leaf(
+        rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]),
+    );
+    assert_eq!(
+        print(&mut replier, &wrapped, false),
+        print(&mut replier, &direct, false)
+    );
 }
 
 #[test]
@@ -300,9 +318,29 @@ fn union_limited_geo_prints_full() {
 }
 
 #[test]
+fn union_limited_lexrange_collapses() {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+
+    let mut replier = init();
+    let children = vec![rqe_iterators::Empty];
+    let flat = UnionFullFlat::new(children);
+    let iter = UnionOpaque {
+        variant: UnionVariant::FlatFull(flat),
+        query_node_type: QueryNodeType::LexRange,
+        query_string: None,
+    };
+    let reply = capture_single_reply(|| {
+        let mut ctx = ProfilePrintCtx::new(true, false);
+        let mut map = replier.map();
+        iter.print_profile(&mut map, &mut ctx);
+    });
+    insta::assert_debug_snapshot!(reply);
+}
+
+#[test]
 fn union_with_query_string() {
     use query_types::QueryNodeType;
-    use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -312,7 +350,25 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
-        query_string: Some(SharedPtr::from_ref(query_str.as_c_str())),
+        query_string: Some(query_str.as_c_str()),
+    };
+    let reply = print(&mut replier, &iter, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
+#[test]
+fn union_lexrange_with_bound() {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+
+    let mut replier = init();
+    let children = vec![rqe_iterators::Empty];
+    let flat = UnionFullFlat::new(children);
+    let query_str = std::ffi::CString::new("bob").unwrap();
+    let iter = UnionOpaque {
+        variant: UnionVariant::FlatFull(flat),
+        query_node_type: QueryNodeType::LexRange,
+        query_string: Some(query_str.as_c_str()),
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -485,7 +541,7 @@ fn missing_with_field() {
     let ii = DocIdsOnly::from_opaque(ctx.missing_inverted_index());
     let field_index = ctx.field_spec().index;
     // SAFETY: ctx provides a valid RedisSearchCtx with a valid spec,
-    // missingFieldDict, and field_index.
+    // missing.indexes, and field_index.
     let iter = unsafe {
         rqe_iterators::inverted_index::Missing::new(
             ii.reader(),
@@ -518,14 +574,17 @@ fn make_numeric_variant<'a>(
             0,
         )
     };
-    rqe_iterators::NumericIteratorVariant::new(
-        idx.reader(),
-        filter,
-        checker,
-        None,
-        range_min,
-        range_max,
-    )
+    // SAFETY: nothing writes to the index while the iterator lives.
+    unsafe {
+        rqe_iterators::NumericIteratorVariant::new(
+            idx.reader(),
+            filter,
+            checker,
+            None,
+            range_min,
+            range_max,
+        )
+    }
 }
 
 #[test]
@@ -567,7 +626,7 @@ fn numeric_variant_geo() {
     let nw_score = nw_hash.bits as f64;
 
     let geo_filter = ffi::GeoFilter {
-        fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,

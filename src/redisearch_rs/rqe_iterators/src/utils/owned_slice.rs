@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 /// An owned slice of `T` which is allocated either in C (Redis) or Rust.
 pub struct OwnedSlice<T> {
     kind: SliceKind<T>,
@@ -29,11 +31,11 @@ impl<T> OwnedSlice<T> {
 
     /// # Safety
     ///
-    /// ptr must be non-null and point to `len` initialized elements
-    /// allocated via `RedisModule_Alloc`. [`OwnedSlice`] takes
-    /// ownership from ptr and should therefore no longer be freed by callee.
+    /// ptr must point to `len` initialized elements allocated via
+    /// `RedisModule_Alloc`. [`OwnedSlice`] takes ownership from ptr and should
+    /// therefore no longer be freed by callee.
     #[inline(always)]
-    pub const unsafe fn from_c(ptr: *mut T, len: usize) -> Self {
+    pub const unsafe fn from_c(ptr: NonNull<T>, len: usize) -> Self {
         Self {
             kind: SliceKind::C(
                 // Safety: contract upheld by callee
@@ -84,21 +86,18 @@ enum SliceKind<T> {
 /// This is useful for slices that were created from C,
 /// and we wish to use it as-is without having to re-allocate.
 struct RedisSlice<T> {
-    ptr: std::ptr::NonNull<T>,
+    ptr: NonNull<T>,
     len: usize,
 }
 
 impl<T> RedisSlice<T> {
     /// # Safety
     ///
-    /// ptr must be non-null and point to `len` initialized elements
-    /// allocated via `RedisModule_Alloc`. [`RedisSlice`] takes
-    /// ownership from ptr and should therefore no longer be freed by callee.
+    /// ptr must point to `len` initialized elements allocated via
+    /// `RedisModule_Alloc`. [`RedisSlice`] takes ownership from ptr and should
+    /// therefore no longer be freed by callee.
     #[inline(always)]
-    const unsafe fn from_raw(ptr: *mut T, len: usize) -> Self {
-        debug_assert!(!ptr.is_null());
-        // Safety: because of constructor contract
-        let ptr = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
+    const unsafe fn from_raw(ptr: NonNull<T>, len: usize) -> Self {
         Self { ptr, len }
     }
 }

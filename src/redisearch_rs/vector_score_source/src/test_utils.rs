@@ -13,15 +13,21 @@
 //! Index layout: doc `i` (1..=n) is `[i; dim]` under L2, so distance to query
 //! `[q; dim]` is `dim*(q-i)^2` and the nearest neighbours are the highest ids.
 
-use std::{cell::UnsafeCell, ffi::c_void, ptr, ptr::NonNull};
+use std::{
+    cell::UnsafeCell,
+    ffi::{c_int, c_void},
+    ptr,
+    ptr::NonNull,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 
 use ffi::{
-    AlgoParams, BFParams, HNSWParams, QueryRequestTimeout,
-    QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode, VecSearchMode_EMPTY_MODE,
-    VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
-    VecSimIndex_Free, VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine,
-    VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
-    t_docId,
+    AlgoParams, BFParams, HNSWParams, QueryMemory_ResetFakePressure, QueryMemory_SetForcedRatio,
+    QueryRequestLimits, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
+    VecSearchMode_EMPTY_MODE, VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex,
+    VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New, VecSimMetric,
+    VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2, VecSimParams,
+    VecSimQuantType_VecSimQuant_NONE, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
 use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use top_k::Ascending;
@@ -48,7 +54,7 @@ pub fn uniform_blob(value: f32, dim: usize) -> Vec<u8> {
 pub struct TestIndex {
     index: NonNull<VecSimIndex>,
     /// Standalone sources use request timeout state whose active source remains UNARMED.
-    timeout: Box<UnsafeCell<QueryRequestTimeout>>,
+    timeout: Box<UnsafeCell<QueryRequestLimits>>,
     /// Dimensionality every query blob for this index must match.
     dim: usize,
 }
@@ -76,11 +82,11 @@ impl TestIndex {
         // SAFETY: zero is a valid representation of the C timeout object. `UnsafeCell` permits
         // the C timeout API to access the storage without creating an aliased Rust reference.
         let timeout = Box::new(UnsafeCell::new(unsafe {
-            std::mem::zeroed::<QueryRequestTimeout>()
+            std::mem::zeroed::<QueryRequestLimits>()
         }));
         // Keep the intended state explicit rather than depending only on the enum's numeric value.
         unsafe {
-            (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+            (*timeout.get()).timeout.kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
         }
         Self {
             index,
@@ -105,6 +111,8 @@ impl TestIndex {
                     efConstruction: 100,
                     efRuntime: 0,
                     epsilon: 0.0,
+                    quantType: VecSimQuantType_VecSimQuant_NONE,
+                    quantParams: ptr::null(),
                 },
             },
             logCtx: ptr::null_mut(),
@@ -149,6 +157,36 @@ impl TestIndex {
     /// whose fixtures are all `FLOAT32`.
     fn expected_blob_len(&self) -> usize {
         self.dim * size_of::<f32>()
+    }
+
+    /// The request timeout every source built from this index is handed.
+    pub fn timeout_ptr(&self) -> *mut QueryRequestLimits {
+        self.timeout.get()
+    }
+
+    /// Add `values` as document `id`, as a write landing while a query is
+    /// suspended does.
+    ///
+    /// # Panics
+    ///
+    /// If `values` does not have the `dim` the index was built with.
+    pub fn add(&self, id: t_docId, values: &[f32]) {
+        assert_eq!(values.len(), self.dim, "vector does not match the index");
+        // SAFETY: `self.index` is a live index (freed only by `Drop`), and
+        // `values` holds `dim` f32 elements matching its type and
+        // dimensionality, valid for the duration of the call.
+        unsafe {
+            VecSimIndex_AddVector(
+                self.index.as_ptr(),
+                values.as_ptr() as *const c_void,
+                id as usize,
+            );
+        }
+    }
+
+    /// The index handle, for tests that build iterators through a C entry point.
+    pub const fn as_ptr(&self) -> *mut VecSimIndex {
+        self.index.as_ptr()
     }
 
     /// Build a [`VectorScoreSource`] over this index for the `query` blob, with
@@ -285,4 +323,72 @@ pub fn make_child<'index>(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'i
 /// Drain an iterator into the doc ids it yields, in read order.
 pub fn collect_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
     std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
+}
+
+unsafe extern "C" {
+    fn VecSim_SetStopCallbackFunction(cb: Option<unsafe extern "C" fn(*mut c_void) -> c_int>);
+}
+
+unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> c_int {
+    1
+}
+
+unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> c_int {
+    0
+}
+
+/// Makes every VecSim timeout check report expired until dropped, when it installs a callback
+/// that never times out.
+///
+/// The callback is process-global, so any VecSim query running concurrently in the same process
+/// observes it: tests that use this guard need a test binary of their own.
+#[must_use = "the mock timeout is removed when the guard is dropped"]
+pub struct MockTimeout(());
+
+impl MockTimeout {
+    /// Install the always-timed-out callback.
+    pub fn enable() -> Self {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetStopCallbackFunction(Some(always_timed_out)) };
+        MockTimeout(())
+    }
+}
+
+impl Drop for MockTimeout {
+    fn drop(&mut self) {
+        // SAFETY: the fn pointer is valid for the whole program.
+        unsafe { VecSim_SetStopCallbackFunction(Some(never_timed_out)) };
+    }
+}
+
+/// Serializes [`ForcedMemoryRatio`] guards within a test binary.
+static FORCED_MEMORY_RATIO_LOCK: Mutex<()> = Mutex::new(());
+
+/// Makes every memory checkpoint read the forced ratio until dropped, when the real read is
+/// restored.
+///
+/// The forced ratio is process-global, so tests that use this guard need a test binary of their
+/// own; within one binary the guards are serialized.
+#[must_use = "the forced ratio is removed when the guard is dropped"]
+pub struct ForcedMemoryRatio(
+    #[expect(dead_code, reason = "held to serialize the guards")] MutexGuard<'static, ()>,
+);
+
+impl ForcedMemoryRatio {
+    /// Force `ratio` as the used-memory ratio.
+    pub fn set(ratio: f32) -> Self {
+        let guard = FORCED_MEMORY_RATIO_LOCK
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // SAFETY: a plain store of process-global test state.
+        unsafe { QueryMemory_SetForcedRatio(ratio) };
+        ForcedMemoryRatio(guard)
+    }
+}
+
+impl Drop for ForcedMemoryRatio {
+    fn drop(&mut self) {
+        // SAFETY: a plain store of process-global test state.
+        unsafe { QueryMemory_ResetFakePressure() };
+    }
 }

@@ -325,4 +325,9 @@ static char *rm_normalize(const char *s, size_t len) {
 // Non-static wrapper around unicode_tolower for FFI testing.
 char *unicode_tolower_fn(char *encoded, size_t *inout_len);
 
+// Wrappers around the libnu UTF-8 codec for FFI testing: `nu_utf8_read` is
+// static inline, and both are only reachable from Rust through this header.
+const char *nu_utf8_read_fn(const char *utf8, uint32_t *unicode);
+char *nu_utf8_write_fn(uint32_t unicode, char *utf8);
+
 #endif

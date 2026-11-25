@@ -17,6 +17,16 @@ from test_blocked_client_timeout import wait_for_blocked_query_client
 # EnterpriseStandaloneEnvBase (not RLTest.Env) so this still gets enterprise
 # topology seeding (see common.py) when it defines its own Env subclass.
 class CrashingEnv(EnterpriseStandaloneEnvBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The crash report's memory test is Redis's, not what these tests
+        # assert on, and under ASan it produces sanitizer reports of its own:
+        # a stack-buffer-overflow from walking process memory maps, and an
+        # abort from joining the main thread when the crash is on another
+        # thread.
+        for conn in shardsConnections(self):
+            conn.execute_command('CONFIG', 'SET', 'crash-memcheck-enabled', 'no')
+
     def getEnvByName(self):
         env = super().getEnvByName()
         # In cluster mode only the first shard is crashed (the tests use it as
@@ -126,6 +136,17 @@ def scan_log_fragments(logFilePath, expected_fragments, crash_report_only=False)
     return results
 
 
+def assert_log_fragments(env, log_path, results):
+    found = [fragment for fragment, value in results.items() if value is not None]
+    complete = len(found) == len(results)
+    message = f"Expected fragments in order in {log_path}"
+    if not complete:
+        message += f"; log tail: {''.join(read_log_lines(log_path)[-10:])!r}"
+    for fragment in results:
+        env.assertContains(fragment, found, depth=1, message=message)
+    return complete
+
+
 def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_rust=False,
                                crash_report_only=False):
     """Crash a query thread mid-execution and scan the crash log."""
@@ -140,7 +161,18 @@ def extract_query_crash_output(env, expected_fragments, doc_count=10, crash_in_r
 @skip(cluster=True)
 def test_query_thread_crash():
     env = CrashingEnv(testName="test_query_thread_crash", freshEnv=True)
+    _test_query_thread_crash(env)
 
+
+@skip(cluster=True)
+def test_query_worker_crash():
+    """Crash reporting must not reacquire the interrupted worker's spec lock."""
+    env = CrashingEnv(testName="test_query_worker_crash", freshEnv=True,
+                      moduleArgs="WORKERS 2")
+    _test_query_thread_crash(env)
+
+
+def _test_query_thread_crash(env):
     doc_count = 10
     terms = ['hello', 'world']
     prepare_index(env, terms=terms, doc_count=doc_count)
@@ -161,9 +193,8 @@ def test_query_thread_crash():
         "search_index_failures:",
     ])
 
-    # Verify all fragments were found
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, log_path, results):
+        return
 
     env.assertEqual(results["search_number_of_docs:"], f"{doc_count}")
 
@@ -191,8 +222,8 @@ def test_query_thread_crash():
     # A C crash stashes no Rust panic, so the bug report must not carry
     # Rust-panic fields.
     report_lines = bug_report_span(read_log_lines(log_path))
-    for field in ("search_panic_payload", "search_panic_location",
-                  "search_panic_recorded_at"):
+    for field in ("search_rust_backtrace", "search_panic_payload",
+                  "search_panic_location", "search_panic_recorded_at"):
         env.assertFalse(
             any(field in line for line in report_lines),
             message=f"{field} found in the bug report of a C crash",
@@ -226,14 +257,14 @@ def test_query_thread_crash_with_rust_panic():
             "search_index_properties_in_mb:",
             # The backtrace
             "# search_rust_backtrace",
+            "search_backtrace:",
         ],
         crash_in_rust=True,
         crash_report_only=True,
     )
 
-    # Verify all fragments were found
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, log_path, results):
+        return
 
     # The panic details must be emitted as INFO fields inside the bug-report
     # span: the hook's tracing line is not enough, since it lands above the
@@ -291,6 +322,20 @@ def test_query_thread_crash_with_rust_panic():
 
     # Verify Rust backtrace section is present
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
+    env.assertTrue(
+        re.search(r"\d+:", results["search_backtrace:"]),
+        message="Rust panic backtrace is empty",
+    )
+
+
+def crash_main_thread(conn):
+    # DEBUG SEGFAULT raises SIGBUS on macOS 14 ARM64, where libunwind traps while
+    # collecting Rust backtraces. DEBUG PANIC still runs the module crash-report
+    # callbacks on the main thread, without unwinding that faulting signal frame.
+    try:
+        conn.execute_command('DEBUG', 'PANIC')
+    except redis.exceptions.ConnectionError:
+        pass
 
 
 def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
@@ -329,10 +374,7 @@ def crash_main_thread_with_blocked_queries(env, hide_user_data=False):
     wait_for_blocked_query_client(env, 'FT.SEARCH')
     wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
 
-    try:
-        env.cmd('DEBUG', 'SEGFAULT')  # crash the main thread
-    except Exception:
-        pass
+    crash_main_thread(env.getConnection())
 
     return logFilePath, cursor_id
 
@@ -353,8 +395,8 @@ def test_main_thread_crash_reports_blocked_queries():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index=idx,started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
     env.assertGreater(int(results['search_idx:started_at=']), 0)
 
 
@@ -378,8 +420,8 @@ def test_main_thread_crash_reports_blocked_queries_obfuscated():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index={obfuscated},started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
 
     # The raw index name must not leak into the blocked-query entries.
     with open(logFilePath) as logFile:
@@ -437,10 +479,7 @@ def test_main_thread_crash_reports_blocked_coordinator_queries():
     wait_for_blocked_query_client(env, 'FT.AGGREGATE')
     wait_for_blocked_query_client(env, 'FT.CURSOR|READ')
 
-    try:
-        coordinator.execute_command('DEBUG', 'SEGFAULT')  # crash the coordinator's main thread
-    except Exception:
-        pass
+    crash_main_thread(coordinator)
 
     results = scan_log_fragments(logFilePath, [
         '# search_blocked_queries',
@@ -448,6 +487,6 @@ def test_main_thread_crash_reports_blocked_coordinator_queries():
         '# search_blocked_cursors',
         f'search_{cursor_id}:index=idx,started_at=',
     ])
-    for fragment, value in results.items():
-        env.assertIsNotNone(value, message=f"Fragment '{fragment}' not found in crash log")
+    if not assert_log_fragments(env, logFilePath, results):
+        return
     env.assertGreater(int(results['search_idx:started_at=']), 0)

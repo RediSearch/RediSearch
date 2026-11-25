@@ -21,11 +21,24 @@ use std::{
     },
 };
 
+use dict::{Dict, MissingFieldDictType};
 use ffi::{IndexFlags, IndexFlags_Index_WideSchema};
+use hidden_string::HiddenString;
+use inverted_index::opaque::InvertedIndex;
 use rqe_core::{DocId, FieldMask};
 
 /// Global counter for generating unique index names across tests.
 static INDEX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// How the doc ids of the inverted index built by [`TestContext::tag_with_encoding`]
+/// are encoded.
+#[derive(Clone, Copy, Debug)]
+pub enum DocIdEncoding {
+    /// Variable-length deltas ([`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly)).
+    Varint,
+    /// Fixed-width ids ([`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)).
+    Raw,
+}
 
 /// Mutex to serialize TestContext creation and cleanup.
 ///
@@ -98,7 +111,7 @@ pub struct TestContext {
     pub spec: *mut ffi::IndexSpec,
 
     /// Owns the timeout installed into `sctx` by [`set_search_time`](Self::set_search_time).
-    timeout: Option<Box<ffi::QueryRequestTimeout>>,
+    timeout: Option<Box<ffi::QueryRequestLimits>>,
 
     /// Lazily-allocated [`QueryEvalCtx`](ffi::QueryEvalCtx) (plus the backing
     /// structs its pointer fields require), created on the first
@@ -693,7 +706,7 @@ impl TestContext {
             }
         }
 
-        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // Set spec.existingDocs so Wildcard's revalidation can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
         unsafe {
             (&mut *spec).existingDocs = ii_ptr.cast();
@@ -759,16 +772,25 @@ impl TestContext {
             }
         }
 
-        // Add the inverted index to the spec's missingFieldDict,
-        // keyed by the field's fieldName (a HiddenString pointer used as dict key).
+        // Add the inverted index to the spec's missing.indexes, keyed by the
+        // field's fieldName, through the safe `Dict` wrapper rather than the raw
+        // C API.
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
-            let rc = ffi::RS_dictAdd(
-                (&*spec).missingFieldDict,
-                field_name_key as *mut _,
-                ii_ptr as *mut _,
-            );
-            assert_eq!(rc, 0, "dictAdd failed"); // DICT_OK == 0
+            // SAFETY: field_name_key is the field spec's own live HiddenString.
+            let key = HiddenString::from_raw(field_name_key);
+            // SAFETY: ii_ptr was returned by NewInvertedIndex_Ex; missingFieldDictType's
+            // valDestructor already reconstructs a removed entry's value the same way
+            // (see MissingFieldDictType's safety comment), so this just makes that
+            // ownership explicit for the insert below instead of leaving it implicit
+            // in the raw pointer handed to `RS_dictAdd`.
+            let value = Box::from_raw(ii_ptr.cast::<InvertedIndex>());
+            // SAFETY: `spec`'s missing.indexes was created with missingFieldDictType,
+            // matching MissingFieldDictType, and nothing else accesses it concurrently
+            // (CONTEXT_MUTEX is held for the whole constructor).
+            let dict = Dict::<MissingFieldDictType>::from_raw_mut((&*spec).missing.indexes);
+            dict.try_insert(key, value)
+                .unwrap_or_else(|_| panic!("dict key should not already exist"));
         }
 
         Self {
@@ -792,6 +814,14 @@ impl TestContext {
     /// # Arguments
     /// * `doc_ids` - An iterator over the document IDs to be indexed.
     pub fn tag<I>(doc_ids: I) -> Self
+    where
+        I: Iterator<Item = u64>,
+    {
+        Self::tag_with_encoding(doc_ids, DocIdEncoding::Varint)
+    }
+
+    /// Like [`TestContext::tag`], with the tag's inverted index using `encoding`.
+    pub fn tag_with_encoding<I>(doc_ids: I, encoding: DocIdEncoding) -> Self
     where
         I: Iterator<Item = u64>,
     {
@@ -821,9 +851,18 @@ impl TestContext {
         let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
 
         // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
-        // (CREATE_INDEX = 1 creates a new DocIdsOnly inverted index in the TrieMap)
+        // (CREATE_INDEX = 1 creates a new doc-ids-only inverted index in the TrieMap).
+        // It takes the encoding from the global config, so that is set for this one
+        // call only; holding `CONTEXT_MUTEX` keeps other contexts from observing it.
         let tag_key = CString::new("test_tag").unwrap();
         let mut sz: usize = 0;
+        // SAFETY: `CONTEXT_MUTEX` serialises access to the C globals.
+        let default_raw_encoding = unsafe { ffi::RSGlobalConfig.invertedIndexRawDocidEncoding };
+        // SAFETY: as above.
+        unsafe {
+            ffi::RSGlobalConfig.invertedIndexRawDocidEncoding =
+                matches!(encoding, DocIdEncoding::Raw);
+        }
         let ii_ptr = unsafe {
             ffi::TagIndex_OpenIndex(
                 tag_index_raw,
@@ -833,8 +872,22 @@ impl TestContext {
                 &mut sz,
             )
         };
+        // SAFETY: as above.
+        unsafe { ffi::RSGlobalConfig.invertedIndexRawDocidEncoding = default_raw_encoding };
         assert!(!ii_ptr.is_null(), "TagIndex_OpenIndex returned null");
         let ii = ptr::NonNull::new(ii_ptr.cast()).expect("InvertedIndex should not be null");
+        // SAFETY: `TagIndex_OpenIndex` delegates to `NewInvertedIndex_Ex`, so the
+        // pointer is a valid opaque `InvertedIndex` owned by the tag index.
+        let created = unsafe { ii_ptr.cast::<InvertedIndex>().as_ref() }
+            .expect("InvertedIndex should not be null");
+        assert!(
+            matches!(
+                (encoding, created),
+                (DocIdEncoding::Varint, InvertedIndex::DocIdsOnly(_))
+                    | (DocIdEncoding::Raw, InvertedIndex::RawDocIdsOnly(_))
+            ),
+            "the tag index was not created with the {encoding:?} encoding"
+        );
 
         // Populate with virtual records for each document ID.
         // TagIndex_OpenIndex internally calls NewInvertedIndex_Ex, so the
@@ -943,6 +996,61 @@ impl TestContext {
             | TestContextInner::Prefix { field_spec, .. } => unsafe { field_spec.as_ref() },
             TestContextInner::Wildcard { .. } => panic!("Wildcard context has no field spec"),
         }
+    }
+
+    /// Adds a second field to this context's spec, named by the exact bytes in `name`
+    /// (which need not be valid UTF-8, NUL-free, or NUL-terminated - unlike
+    /// `IndexSpec_CreateField`'s own `name` parameter, sized by `strlen`). Growing the
+    /// spec's field array can relocate it (see MOD-18356), so this also refreshes this
+    /// context's own cached field-spec pointer - the field it already held, always at
+    /// index 0 since fields are only ever appended - before returning the newly added
+    /// one. Callers still need to set any type-specific fields (e.g. vector params) on
+    /// the returned `FieldSpec` themselves.
+    pub fn add_field(&mut self, name: &[u8]) -> ptr::NonNull<ffi::FieldSpec> {
+        // A short, valid placeholder: `IndexSpec_CreateField` needs a NUL-terminated C
+        // name to size its own internal `HiddenString`. Everything that name produces is
+        // overwritten below with `name`'s exact bytes via an explicit length instead of
+        // `strlen` - the two cases (an embedded NUL, or a name that isn't NUL-terminated
+        // at all) this method exists to support.
+        let placeholder = c"placeholder_field_name";
+        // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec` with a rule (every
+        // `TestContext` constructor sets one via `IndexSpec_ParseC`); `placeholder` is a
+        // valid, NUL-terminated C string; a null `path` gives the field no separate path.
+        let fs =
+            unsafe { ffi::IndexSpec_CreateField(self.spec, placeholder.as_ptr(), ptr::null()) };
+        let fs = ptr::NonNull::new(fs).expect("IndexSpec_CreateField should not return null");
+
+        // SAFETY: `IndexSpec_CreateField` always sets `fieldName` (and `fieldPath`, to the
+        // same pointer, since `path` was null above) to a fresh `HiddenString` it derived
+        // from `placeholder`; nothing else has observed or cloned it yet, so freeing it
+        // here is exclusive to this call.
+        unsafe { ffi::HiddenString_Free((*fs.as_ptr()).fieldName, true) };
+
+        // SAFETY: `name` is valid for `name.len()` bytes for the duration of this call.
+        // `takeOwnership = true` makes the `HiddenString` copy those bytes rather than
+        // borrow them, so it stays valid independent of `name`'s lifetime.
+        let hidden = unsafe { ffi::NewHiddenString(name.as_ptr().cast(), name.len(), true) };
+        // SAFETY: `fs` is the field this call just created and returns; nothing else can
+        // have taken a reference to it yet.
+        unsafe {
+            (*fs.as_ptr()).fieldName = hidden;
+            (*fs.as_ptr()).fieldPath = hidden;
+        }
+
+        // SAFETY: `self.spec` is valid, and just grew by one field via
+        // `IndexSpec_CreateField` above, which always keeps `fields` non-null.
+        let refreshed_first_field = unsafe { ptr::NonNull::new((*self.spec).fields).unwrap() };
+        match &mut self.inner {
+            TestContextInner::Numeric { field_spec, .. }
+            | TestContextInner::Term { field_spec, .. }
+            | TestContextInner::Missing { field_spec, .. }
+            | TestContextInner::Tag { field_spec, .. }
+            | TestContextInner::Geometry { field_spec, .. }
+            | TestContextInner::Prefix { field_spec, .. } => *field_spec = refreshed_first_field,
+            TestContextInner::Wildcard { .. } => {}
+        }
+
+        fs
     }
 
     /// Get the term inverted index for this context (non-wide schema).
@@ -1074,20 +1182,33 @@ impl TestContext {
         }
     }
 
+    /// The node holding the range [`Self::numeric_inverted_index`] returns.
+    fn numeric_leaf(&self) -> numeric_range_tree::NodeIndex {
+        self.numeric_range_tree_ref()
+            .indexed_iter()
+            .find_map(|(index, node)| (node.has_range() && node.is_leaf()).then_some(index))
+            .expect("There must be at least one leaf!")
+    }
+
     /// Get the ffi inverted index for this context.
     pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
-        let tree = self.numeric_range_tree_mut();
-        let index = tree
-            .indexed_iter()
-            .find_map(|(index, node)| {
-                if node.has_range() && node.is_leaf() {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .expect("There must be at least one leaf!");
-        tree.node_mut(index).range_mut().unwrap().entries_mut()
+        let index = self.numeric_leaf();
+        self.numeric_range_tree_mut()
+            .node_mut(index)
+            .range_mut()
+            .unwrap()
+            .entries_mut()
+    }
+
+    /// Locates [`Self::numeric_inverted_index`] in the context's tree, for an
+    /// iterator reading it to revalidate against: pair it only with a reader over
+    /// that index.
+    pub fn numeric_range_source(&self) -> rqe_iterators::RangeSource {
+        // SAFETY: the tree is owned by the context's field spec, which outlives
+        // the iterators tests build from it; the pointer is the one the context
+        // keeps, not one derived from a reference to the tree; and tests only
+        // write to the tree while those iterators are parked.
+        unsafe { rqe_iterators::RangeSource::new(self.numeric_range_tree(), self.numeric_leaf()) }
     }
 
     /// Initialize the TTL table if not already initialized.
@@ -1192,10 +1313,10 @@ impl TestContext {
         let request_timeout = self.timeout.get_or_insert_with(|| {
             // SAFETY: all-zero is the valid UNARMED representation. The active kind
             // and clock fields are initialized below before exposure through `sctx`.
-            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestTimeout>() })
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
         });
 
-        request_timeout.kind = if skip_checks {
+        request_timeout.timeout.kind = if skip_checks {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED
         } else {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
@@ -1206,10 +1327,35 @@ impl TestContext {
         // timeout remains at a stable address until after `sctx` is freed.
         unsafe {
             if !skip_checks {
-                request_timeout.source.clock.deadline = timeout;
-                request_timeout.source.clock.counter = 0;
+                request_timeout.timeout.source.clock.deadline = timeout;
+                request_timeout.timeout.source.clock.counter = 0;
             }
-            self.sctx.as_mut().timeout = request_timeout.as_mut();
+            self.sctx.as_mut().limits = request_timeout.as_mut();
+        }
+    }
+
+    /// Arm a blocked-client cycle whose cancellation marker is already
+    /// published, which is what `buildPipelineAndExecute` selects for a
+    /// background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT`.
+    ///
+    /// Such a cycle carries no deadline, so a reader of the clock deadline sees
+    /// nothing to enforce and only the marker says the client is gone.
+    pub fn set_blocked_client_cancelled(&mut self) {
+        let request_timeout = self.timeout.get_or_insert_with(|| {
+            // SAFETY: all-zero is the valid UNARMED representation. The active kind
+            // and the marker are initialized below before exposure through `sctx`.
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
+        });
+
+        request_timeout.timeout.kind =
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+
+        // SAFETY: `request_timeout` and `self.sctx` are exclusively owned by this
+        // context, and `kind` selects the union's marker member. The boxed limits
+        // remain at a stable address until after `sctx` is freed.
+        unsafe {
+            request_timeout.timeout.source.blockedClientTimedOut = true;
+            self.sctx.as_mut().limits = request_timeout.as_mut();
         }
     }
 

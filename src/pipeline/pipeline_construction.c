@@ -17,9 +17,10 @@
 #include "vector_normalization.h"
 #include "vector_index.h"
 #include "iterators_ffi.h"
+#include "query_eval_ffi.h"
 #include "util/misc.h"
 #include "search_disk.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/expr/expression.h"
 #include "config.h"
@@ -58,7 +59,11 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
-  const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
+  // The property count is client-controlled, so keep these off the stack.
+  const RLookupKey **srckeys = rm_malloc(2 * nproperties * sizeof(*srckeys));
+  const RLookupKey **dstkeys = srckeys + nproperties;
+  ResultProcessor *rp = NULL;
+  Grouper *grp = NULL;
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
@@ -67,37 +72,35 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       if (loadKeys) {
         // We failed to get the key for reading, so we know getting it for loading will succeed.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
-        *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
+      if (!srckeys[ii] || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
-        return NULL;
+        goto cleanup;
       }
+      *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
     }
     dstkeys[ii] = RLookup_GetKey_WriteEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", fldname);
-      return NULL;
+      goto cleanup;
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
+  grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
-  size_t nreducers = array_len(gstp->reducers);
-  for (size_t ii = 0; ii < nreducers; ++ii) {
+  for (size_t ii = 0, nreducers = array_len(gstp->reducers); ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
     const RLookupKey *input_key = NULL;
     if (pr->inputAlias) {
       input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
       if (!input_key) {
-        Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
                                       "Property not loaded nor in pipeline", ": `%s`",
                                       pr->inputAlias);
-        return NULL;
+        goto cleanup;
       }
     }
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err,
@@ -106,14 +109,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
-      Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_REDUCER, "No such reducer", ": %s", pr->name);
-      return NULL;
+      goto cleanup;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
-      Grouper_Free(grp);
-      return NULL;
+      goto cleanup;
     }
 
     // Set the destination key for the grouper!
@@ -122,13 +123,19 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
-      Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", pr->alias);
-      return NULL;
+      goto cleanup;
     }
   }
 
-  return Grouper_GetRP(grp);
+  rp = Grouper_GetRP(grp);
+
+cleanup:
+  if (!rp && grp) {
+    Grouper_Free(grp);
+  }
+  rm_free(srckeys);
+  return rp;
 }
 
 /** Pushes a processor up the stack. Returns the newly pushed processor
@@ -190,6 +197,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
+  // Reducers and implicit loaders have resolved their inputs. Later stages use
+  // the group's output lookup, so the input keys must now remain append-only.
+  RLookup_Seal(lookup);
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 
@@ -232,6 +242,17 @@ static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   result = IsHybrid(&params->common) ||
           (params->common.optimizer->type != Q_OPT_NO_SORTER);
   return result;
+}
+
+// The coordinator's RPNet preloads the shard-summed WITHCOUNT total, which a stopped depleter
+// rebases (see RPDepleter_SetTotalPreloaded).
+static ResultProcessor *newDepleter(const AggregationPipelineParams *params) {
+  ResultProcessor *rp = RPDepleter_New();
+  if (IsCoordinator(&params->common) && IsAggregate(&params->common) &&
+      HasWithCount(&params->common)) {
+    RPDepleter_SetTotalPreloaded(rp);
+  }
+  return rp;
 }
 
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
@@ -284,7 +305,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
+          if (!sortkey || !(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -313,14 +334,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
         scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
       }
-      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey, params->diskScoreSkippingQuery);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
 
   if (astp->offset || (astp->limit && !rp)) {
     if (HasDepleter(&params->common)) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }
@@ -336,7 +357,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   if (HasDepleter(&params->common)) { // We need to add a RPDepleter
     if (!RPDepleterAdded) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }
@@ -494,12 +515,19 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   pipeline->qctx.skipIndexResultDeepCopy =
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
-  params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
-  params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
+  RS_ASSERT(params->iteratorTree);
+  // A hybrid subquery that ends early is merged as empty and successful.
+  ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
+      params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
+      params->common.reqflags & QEXEC_F_PROFILE,
+      IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common));
+  // Ownership of the iterator tree and the slot ranges is now with the pipeline.
+  params->iteratorTree = NULL;
+  params->querySlots = NULL;
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
+  RPQueryIterator_ConfigureAsyncIO(rpUpstream);
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.

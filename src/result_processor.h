@@ -10,7 +10,7 @@
 #pragma once
 
 #include "redisearch.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
 #include "iterators/iterator_api.h"
@@ -94,6 +94,17 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
+/**
+ * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_STOPPED
+ * instead of reading, for the rest of the request. The row source does not
+ * read the stop on its own (a per-row read costs ~0.4% instructions), so every stage that requests
+ * a memory stop and keeps pulling rows (ON_OOM RETURN) must call this right
+ * after the request. Call it on the pipeline's thread, or before the pipeline
+ * is handed to that thread; stops requested from other threads are not ended
+ * at an RP_INDEX source. No-op for other roots (RPNet reads the stop itself).
+ */
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx);
+
 // Result count to report to the client: matches minus the rows a loader dropped
 // (deleted/re-indexed/expired mid-load). Saturates at zero.
 //
@@ -128,8 +139,8 @@ typedef enum {
   RS_RESULT_EOF,
   // Execution paused due to rate limiting (or manual pause from ext. thread??)
   RS_RESULT_PAUSED,
-  // Execution halted because of timeout
-  RS_RESULT_TIMEDOUT,
+  // Ends a read on a timeout or a requested stop; the request says which
+  RS_RESULT_STOPPED,
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
@@ -173,8 +184,30 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+/** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
+ * `itr` visits every docId in ascending order, which a profile wrapper hides.
+ * `failOnRevalidateAbort` makes a read fail with `SEARCH_SAFE_DEPLETER_FAILURE` when the index
+ * changed under `itr`, instead of ending as if the index were exhausted. */
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled,
+                                     bool denseAscendingScan, bool failOnRevalidateAbort);
+
+/** Read candidate counts from a profiled Index processor. */
+void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
+                                        uint64_t *notDiscarded);
+
+/**
+ * Enable async metadata reads when supported and configured; otherwise keep synchronous reads.
+ * Call once after attaching the processor to its query context, before execution.
+ */
+void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp);
+
+/**
+ * For profiled queries only: write accumulated metadata completion-wait time to out_ns in
+ * nanoseconds. Return false without writing when the processor has no async read pool.
+ */
+bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -200,8 +233,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ * @param scoreSkipping whether a full heap may publish its minimum as the pipeline's
+ * `minCompetitiveScore`: the request's `diskScoreSkippingQuery`, taken when the request was
+ * created.
  */
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey,
+                                     bool scoreSkipping);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -302,7 +339,7 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 
 /**
 * Resolve a safe depleter as timed out without scheduling its depletion job:
-* Next() yields RS_RESULT_TIMEDOUT and RPSafeDepleter_WaitForCompletion has
+* Next() yields RS_RESULT_STOPPED and RPSafeDepleter_WaitForCompletion has
 * nothing to wait for. The launcher's alternative to
 * RPSafeDepleter_StartDepletion for a query that already timed out.
 */
@@ -329,6 +366,8 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *rp);
 */
 ResultProcessor *RPDepleter_New();
 
+/** Marks a depleter whose pipeline root preloads the total (coordinator WITHCOUNT). */
+void RPDepleter_SetTotalPreloaded(ResultProcessor *base);
 
 /**
 * Consumes and buffers all upstream results without yielding any to the caller.
@@ -356,19 +395,14 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Launches all the safe depleters in the array and resolves the lock handshake, without waiting
-* for depletion to finish: on RS_RESULT_OK, depletion is still in flight, and each depleter's Next
-* waits for its own completion, so consumers observe results in completion order. A lock failure
-* returns RS_RESULT_ERROR — only after draining the group, so no background thread outlives the
-* error return.
+* Launches all the safe depleters in the array, without waiting for depletion to finish: on
+* RS_RESULT_OK, depletion is still in flight, and each depleter's Next waits for its own
+* completion, so consumers observe results in completion order.
 * @param safeDepleters Array of safe depleter processors
-* @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
-*                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
-*                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
-* @return RS_RESULT_OK if all safe depleters launched and locked successfully, otherwise an error code
+* @return RS_RESULT_OK if all safe depleters launched successfully, otherwise an error code
 */
-int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Blocks until every safe depleter's background job has finished (successfully or not); after it
@@ -383,16 +417,15 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 *         (errors take priority over timeouts)
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * safe depleters to coordinate their background threads and wake each other when depleting completes.
 * @param num_depleters Number of RPSafeDepleter processors that will share this sync object
-* @param take_index_lock Whether the safe depleters should participate in index locking coordination
 */
-StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
+StrongRef DepleterSync_New(unsigned int num_depleters);
 
 /*******************************************************************************************************************
  *  Hybrid Merger Result Processor
@@ -458,6 +491,24 @@ enum CrashLocation {
 };
 ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
+
+/**
+ * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
+ * with RS_RESULT_STOPPED. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
+ * RS_RESULT_STOPPED and keeps the rows buffering stages upstream already held. Always false for
+ * a pipeline without a timeout state.
+ */
+bool RP_FillShouldStop(ResultProcessor *rp);
+
+/**
+ * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
+ * with RS_RESULT_STOPPED, also under a RETURN stop policy. Rows it already emitted are kept, and
+ * rows a buffering stage upstream still holds are not drained through it. A stop that an upstream
+ * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
+ * held rows pass.
+ */
+bool RP_FillShouldCut(ResultProcessor *rp);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY

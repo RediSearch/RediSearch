@@ -86,9 +86,12 @@ impl QueryEvalContext {
     ///    `sctx` must additionally stay valid, and at a stable address, for the
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
-    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
-    ///    a clock-based timeout context reads the request-owned deadline back on every
-    ///    probe rather than capturing it.
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
+    ///    The request timeout reached through `sctx.limits` must also stay valid
+    ///    at a stable address for that lifetime: every probe reads its active
+    ///    timeout source. Timeout source changes and deadline writes may occur
+    ///    only between probes;
+    ///    only the blocked-client marker and the memory stop flag may change concurrently.
     ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
     ///    — must be valid and non-null: every path that creates an
     ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
@@ -111,6 +114,11 @@ impl QueryEvalContext {
     ///    reads back. A plain allocation holding one [`MetricRequest`] would
     ///    satisfy every other clause here and still make that safe method read
     ///    outside it.
+    ///    While evaluating deferred document keys, the caller must hold the
+    ///    index spec read lock to keep the key map, candidate document metadata,
+    ///    and their keys alive and unmodified.
+    ///    Evaluation of deferred INKEYS nodes also requires the GIL until the
+    ///    document key map is ready.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -370,7 +378,7 @@ impl QueryEvalContext {
         &mut self,
         id: MetricRequestId,
         key_ptr: *mut *mut RLookupKey<'a>,
-    ) -> *mut RLookupKeyHandle<'a> {
+    ) -> NonNull<RLookupKeyHandle<'a>> {
         debug_assert!(
             !key_ptr.is_null(),
             "a bound metric request must have a key slot"
@@ -410,13 +418,12 @@ impl QueryEvalContext {
         // SAFETY: the size is non-zero and well within `isize::MAX`.
         let handle = NonNull::new(unsafe { alloc(size_of::<RLookupKeyHandle<'a>>()) })
             .expect("RedisModule_Alloc returned NULL")
-            .cast::<RLookupKeyHandle<'a>>()
-            .as_ptr();
+            .cast::<RLookupKeyHandle<'a>>();
         // SAFETY: `handle` is a fresh, suitably aligned allocation of the right
         // size, so writing the whole value initialises it — both fields, since
         // the allocator does not zero.
         unsafe {
-            handle.write(RLookupKeyHandle {
+            handle.as_ptr().write(RLookupKeyHandle {
                 key_ptr,
                 is_valid: true,
             });
@@ -427,7 +434,7 @@ impl QueryEvalContext {
         let request = unsafe { head.add(idx) };
         // SAFETY: `request` points at that live, initialised element, which
         // nothing else aliases (invariant (3) of `new`).
-        unsafe { (*request).key_handle = handle };
+        unsafe { (*request).key_handle = handle.as_ptr() };
 
         handle
     }
@@ -535,24 +542,22 @@ impl QueryEvalContext {
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
     /// evaluation.
     ///
-    /// The active request-timeout kind reached through `sctx.timeout` selects
-    /// the Blocked Client Timeout, Clock Based Timeout, or [`NoTimeoutChecker`].
-    ///
-    /// The returned [`AnyTimeoutContext`] is `'static`: timeout variants hold raw
-    /// pointers rather than borrows, so their validity is a runtime precondition.
+    /// The returned [`AnyTimeoutContext`] reads the active request-timeout kind
+    /// through `sctx.limits` on each probe. It holds a raw pointer rather than
+    /// a borrow, so its validity is a runtime precondition.
     ///
     /// # Safety
     ///
     /// The returned context and any iterator built from it must not outlive
     /// `sctx` or its borrowed request timeout. No write to a request-owned
-    /// deadline may overlap a probe; see
+    /// deadline or change to the active timeout source may overlap a probe; see
     /// [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
-    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
         // SAFETY: invariant (2) of `new` guarantees `sctx` and its borrowed timeout stay valid
-        // for every derived iterator. Writes to a deadline never overlap a probe.
+        // for every derived iterator. Deadline writes and timeout source changes occur only
+        // between execution cycles, when no probe can run.
         unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
     }
 }

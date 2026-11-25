@@ -133,13 +133,12 @@ jobs:
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
       - name: Setup Dependencies
-        # Hoist setup-script into an env var and `eval` it from the loop body
-        # rather than interpolating ${{ inputs.setup-script }} directly into
-        # the run script — avoids ${{ }} expansion injecting shell metachars.
         if: inputs.image-built != 'true' && inputs.setup-script
         env:
           SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: eval "$SETUP_SCRIPT"
 
       - name: Post-setup
         if: inputs.post-setup-script
@@ -170,6 +169,11 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
@@ -214,7 +218,7 @@ jobs:
           RUST_TEST_ARCHIVE_PATH: ${{ github.workspace }}/nextest-archive.tar.zst
         run: make build TESTS=1
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |

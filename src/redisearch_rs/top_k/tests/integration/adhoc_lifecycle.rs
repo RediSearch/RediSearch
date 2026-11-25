@@ -41,6 +41,15 @@ struct CallCountingScoreSource {
 }
 
 impl ScoreSource for CallCountingScoreSource {
+    fn release_index_handles(&mut self) {
+        // Only call counters and flags; nothing borrows from an index.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -168,7 +177,7 @@ impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
             self.result.doc_id = 1;
             Ok(Some(&mut self.result))
         } else {
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         }
     }
 
@@ -221,7 +230,7 @@ fn end_adhoc_runs_when_child_errors_midscan() {
         Ascending,
         TopKMode::AdhocBF,
     );
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     let source = it.source();
     assert_eq!(source.begin_calls, 1);
@@ -268,7 +277,7 @@ fn rerank_skipped_on_timeout() {
         Ascending,
         TopKMode::AdhocBF,
     );
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     let source = it.source();
     assert_eq!(

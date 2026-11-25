@@ -39,6 +39,14 @@ jobs:
         with:
           ref: ${{ env.checkout_target }}
           fetch-depth: 0
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Get SHA
         id: get_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
@@ -71,9 +79,12 @@ jobs:
         shell: python
         run: |
           import os
+          import subprocess
           version_branch = os.environ["VERSION_BRANCH"]
+          def parse_version(lines):
+            return [int(l.rsplit(maxsplit=1)[-1]) for l in lines if l.startswith("#define REDISEARCH_VERSION_")]
           with open("src/version.h", "r") as fp:
-            major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
+            major, minor, patch = parse_version(fp)
             release_branch = f"{major}.{minor}"
             if version_branch == f"{major}.{minor+1}":
               release_branch = f"{major}.{minor+1}"
@@ -87,11 +98,24 @@ jobs:
           if os.environ["EVENT_NAME"] == 'push' and not valid_version_branch(version_branch):
             raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch})")
 
+          # Re-running a past release must not try to bump a branch that has already moved on.
+          should_bump = valid_version_branch(version_branch)
+          if should_bump:
+            branch_version_h = subprocess.run(
+              ["git", "show", f"origin/{release_branch}:src/version.h"],
+              check=True, capture_output=True, text=True,
+            ).stdout.splitlines()
+            branch_version = parse_version(branch_version_h)
+            if branch_version != [major, minor, patch]:
+              print(f"::notice title=Skipping version bump::{release_branch} is already at "
+                    f"{'.'.join(map(str, branch_version))}")
+              should_bump = False
+
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
-            print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
+            print(f"should_bump={str(should_bump).lower()}", file=fp)
             print(f"release_branch={release_branch}", file=fp)
 
   update-version:
@@ -100,7 +124,7 @@ jobs:
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     permissions:
-      contents: write      # push the bump-version branch with checkout's credentials
+      contents: read       # actions/checkout; the push uses the App token below
       pull-requests: write # `gh pr create --reviewer` below, via github.token
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
@@ -114,6 +138,19 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.validate-tag.outputs.release_branch }}
+          # The persisted GITHUB_TOKEN header would override the App token
+          # in the push URL below.
+          persist-credentials: false
+
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
@@ -121,18 +158,34 @@ jobs:
         # find the line with the patch version and replace it with the next patch version
         run: sed -i "s/^$PATCH_LINE_PREFIX [0-9]\+$/$PATCH_LINE_PREFIX $NEXT_PATCH/" src/version.h
 
+      # GITHUB_TOKEN can never hold `workflows` permission, so GitHub checks
+      # each of its pushes for workflow-file changes; that check intermittently
+      # times out and rejects the push (actions/checkout#2287). A token with
+      # `workflows: write` skips the check. Scoped to this push only.
+      - name: Generate GitHub App token for push
+        id: push-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Commit and push
         env:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           SENDER_ID: ${{ github.event.sender.id }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
         run: |
           git config --global user.name "$TRIGGERING_ACTOR"
           git config --global user.email "$SENDER_ID+$SENDER_LOGIN@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add src/version.h
           git commit -m "Bump version from $CUR_VERSION to $NEXT_VERSION"
-          git push origin "$BRANCH"
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH"
 
       - name: Create Pull Request
         env:
@@ -185,8 +238,10 @@ jobs:
     # Pure computation: no checkout, no API calls.
     permissions: {}
     uses: ./.github/workflows/generate-matrix.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
-      platform: all,!intel
+      platform: all
       architecture: all
 
   set-artifacts:
@@ -197,6 +252,14 @@ jobs:
       # never checks the repository out, so it needs nothing else.
       id-token: write
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
@@ -214,16 +277,21 @@ jobs:
         run: pip install boto3
       - name: Set Version Artifacts
         env:
-          SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
+          # Snapshots are named after the branch they were built from (event-deploy-snapshots.yml), never after a tag.
+          SOURCE: ${{ inputs.snapshot_of || needs.validate-tag.outputs.release_branch }}
           CUR_VERSION: ${{ needs.validate-tag.outputs.cur_version }}
           EXPECTED_SHA: ${{ needs.validate-tag.outputs.expected_sha }}
           EXPECTED_MATRIX: ${{ needs.generate-matrix.outputs.matrix }}
+          EXPECTED_PACKAGES: ${{ needs.generate-matrix.outputs.packages }}
         shell: python
         run: |
           import boto3
+          import hashlib
           import os
           import json
           import re
+          from collections import defaultdict
+          from botocore.exceptions import ClientError
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
@@ -232,44 +300,62 @@ jobs:
 
           expected_sha = os.environ["EXPECTED_SHA"]
           expected_short_sha = expected_sha[:7]
+          cur_version = os.environ["CUR_VERSION"]
 
           # Suffix pattern: .{SOURCE}.{TIMESTAMP}.{GIT_SHA}.zip
           # Example: .2.10.20231228.123456.abc1234.zip
           # Pattern matches: .+.{SOURCE}. followed by timestamp (YYYYMMDD.HHMMSS) and the expected git SHA (7 chars)
           suffix_pattern = re.compile(rf"(.+)\.{re.escape(os.environ['SOURCE'])}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$")
-          new_suffix = rf"\1.{os.environ['CUR_VERSION']}.zip"
+          new_suffix = rf"\1.{cur_version}.zip"
+
+          # Package file names from sbin/pack.sh: <package>.<package id>-<arch>.<version>.zip
+          release_name_pattern = re.compile(rf"^[^.]+\.(?P<id>.+)\.{re.escape(cur_version)}\.zip$")
 
           client = boto3.client("s3")
 
           ########################### Helper Functions ###########################
 
-          # List all file in `bucket`, matching suffix_pattern and the given prefix (path)
-          def list_files_by_branch(prefix):
+          # List all snapshot files in `bucket` under `prefix` matching suffix_pattern, with their ETags
+          def list_snapshots(prefix):
               paginator = client.get_paginator("list_objects_v2")
               for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                   for obj in page.get("Contents", []):
                       if suffix_pattern.search(obj["Key"]):
-                          yield obj["Key"]
+                          yield obj["Key"], obj["ETag"]
 
-          def list_snapshots_by_branch(dir):
-              return list_files_by_branch(f"{dir}/snapshots/")
+          def local_path(key):
+              return os.path.basename(key)
 
-          # Return the git sha from the module.json file in the zip file (build sha)
+          # Return the git sha from the module.json file in the zip file (build sha).
+          # The zip stays on disk at local_path(key) for content comparison below.
           def extract_sha(key):
-              zip_name = os.path.basename(key)
               c = boto3.client("s3")
-              c.download_file(bucket, key, zip_name)
-              with ZipFile(zip_name, "r") as z:
+              c.download_file(bucket, key, local_path(key))
+              with ZipFile(local_path(key), "r") as z:
                   with z.open("module.json") as f:
                       obj = json.load(f)
                       sha = str(obj["git_sha"]) # handle bytes, str, and bytes string representation
                       return sha[2:-1] if sha[:2] in ['b"', "b'"] else sha
+
+          def sha256_of(path):
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
 
           # new location is outside snapshots/ directory and with the new suffix
           # Remove snapshots/ directory and replace the suffix pattern with the new suffix
           def get_target_name(name):
               name_without_snapshots = name.replace("snapshots/", "", 1)
               return suffix_pattern.sub(new_suffix, name_without_snapshots)
+
+          # "<package id>-<arch>", e.g. "debug.Linux-ubuntu22.04-x86_64"
+          def artifact_id(dst):
+              m = release_name_pattern.match(os.path.basename(dst))
+              if not m:
+                  raise Exception(f"::error title=Unrecognized artifact name::{dst}")
+              return m["id"]
 
           def group_print(title, args):
               print(f"::group::{title} ({len(args)})")
@@ -278,51 +364,108 @@ jobs:
 
           ############################### Main Script ###############################
 
-          files = list(list_snapshots_by_branch(oss_dir))
+          listed = dict(list_snapshots(f"{oss_dir}/snapshots/"))
+          files = sorted(listed)
 
           group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:
               raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
-              sha_list = executor.map(extract_sha, files)
-          sha_list = list(sha_list)
+              sha_list = list(executor.map(extract_sha, files))
 
           # Include only files that match the expected SHA
           exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
-          include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
+          include_list = [f for f, sha in zip(files, sha_list) if sha == expected_sha]
 
-          if not include_list:
-              raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
-
-          # Verify artifact count matches expected matrix
-          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
-          expected_count = len(matrix.get("include", []))
-          # Each matrix entry produces 2 artifacts (release and debug)
-          expected_artifact_count = expected_count * 2
-          actual_artifact_count = len(include_list)
-
-          if actual_artifact_count != expected_artifact_count:
-              print(
-                  f"::warning title=Artifact count mismatch::"
-                  f"Expected {expected_artifact_count} artifacts ({expected_count} builds X 2), "
-                  f"but found {actual_artifact_count} artifacts"
-              )
-          else:
-              print(f"✓ Verified: Found {actual_artifact_count} artifacts matching {expected_count} matrix builds")
-
-          dest_files = [get_target_name(f) for f in include_list]
-
-          # Log files
           group_print("Excluded Files", exclude_list)
           group_print("Included Files", include_list)
           group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
 
-          # Copy included files to new location
-          for src, dst in zip(include_list, dest_files):
-              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+          if not include_list:
+              raise Exception(f"::error title=No artifacts found with expected SHA {expected_sha}!")
 
-          group_print("New Files", dest_files)
+          # Several snapshot runs of the same commit map to the same release name.
+          sources_by_dst = defaultdict(list)
+          for src in include_list:
+              sources_by_dst[get_target_name(src)].append(src)
+
+          # Completeness gate: every build in the matrix must have its snapshots before anything is published.
+          matrix = json.loads(os.environ["EXPECTED_MATRIX"])
+          packages = json.loads(os.environ["EXPECTED_PACKAGES"])
+          undeclared = sorted({e["platform"] for e in matrix.get("include", [])} - packages.keys())
+          if undeclared:
+              raise Exception(
+                  f"::error title=Undeclared package platform::Add {', '.join(undeclared)} to package_platforms in "
+                  "generate-matrix.yml. Nothing was published."
+              )
+          expected = {f"{pid}-{e['architecture']}" for e in matrix.get("include", []) for pid in packages[e["platform"]]}
+          found = {artifact_id(dst) for dst in sources_by_dst}
+
+          missing = sorted(expected - found)
+          if missing:
+              raise Exception(
+                  "::error title=Incomplete release::Missing snapshots for " + ", ".join(missing)
+                  + ". Nothing was published. Rebuild the missing platforms and re-run."
+              )
+          extra = sorted(found - expected)
+          if extra:
+              # Expected when dispatching from a ref whose matrix is narrower than the one that built the snapshots.
+              print("::warning title=Artifacts outside the matrix::" + ", ".join(extra))
+          else:
+              print(f"✓ Verified: {len(found)} artifacts match {len(matrix.get('include', []))} matrix builds")
+
+          # Idempotency: a release that already exists is fine if it is byte-identical to one of its snapshots,
+          # so a partially published release can be completed by re-running. Anything else fails before copying.
+          def plan(dst):
+              srcs = sources_by_dst[dst]
+              try:
+                  etag = client.head_object(Bucket=bucket, Key=dst)["ETag"]
+              except ClientError as e:
+                  if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
+                      return "copy", max(srcs)  # newest snapshot run (timestamp sorts lexicographically)
+                  raise
+              # Copy ETags are not always the source ETag (multipart uploads), so fall back to comparing content.
+              if any(listed[src] == etag for src in srcs):
+                  return "identical", None
+              published = f"{local_path(dst)}.published"
+              client.download_file(bucket, dst, published)
+              published_sha = sha256_of(published)
+              if any(sha256_of(local_path(src)) == published_sha for src in srcs):
+                  return "identical", None
+              return "conflict", None
+
+          with ThreadPoolExecutor() as executor:
+              plans = dict(zip(sources_by_dst, executor.map(plan, sources_by_dst)))
+
+          to_copy = sorted((src, dst) for dst, (action, src) in plans.items() if action == "copy")
+          identical = sorted(dst for dst, (action, _) in plans.items() if action == "identical")
+          conflicts = sorted(dst for dst, (action, _) in plans.items() if action == "conflict")
+
+          group_print("Already Published (identical)", identical)
+          if conflicts:
+              group_print("Conflicting Published Files", conflicts)
+              raise Exception(
+                  "::error title=Release artifact differs from its snapshot::Refusing to overwrite "
+                  + ", ".join(f"s3://{bucket}/{dst}" for dst in conflicts) + ". Nothing was published."
+              )
+
+          # IfNoneMatch="*" makes the copy a conditional write: S3 rejects it with PreconditionFailed
+          # if an object appeared at dst since the plan, instead of silently overwriting it.
+          for src, dst in to_copy:
+              try:
+                  client.copy_object(
+                      Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src},
+                      ACL="public-read", IfNoneMatch="*",
+                  )
+              except ClientError as e:
+                  if e.response["Error"]["Code"] == "PreconditionFailed":
+                      raise Exception(
+                          f"::error title=Release artifact already exists::Refusing to overwrite s3://{bucket}/{dst}"
+                      )
+                  raise
+
+          group_print("New Files", [dst for _, dst in to_copy])
 
           if len(exclude_list) > 0:
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "

@@ -11,11 +11,10 @@
 
 use std::fmt::Debug;
 
-use rqe_core::DocId;
-
 use crate::ii_dispatch;
 use crate::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as InvertedIndexInner,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, IndexUniqueId,
+    InvertedIndex as InvertedIndexInner,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -135,13 +134,19 @@ pub enum InvertedIndex {
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
+// MOD-20225: C allocates every inverted index as this enum. Its size, set by the 16-byte-aligned
+// field mask, absorbs `InvertedIndexInner::expiration`, so adding that field changed no
+// allocation size. Keep it that way: growing past this moves every index to a larger class.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<InvertedIndex>() == 64);
+
 impl InvertedIndex {
     /// Scan the index for blocks that can be garbage collected.
     ///
     /// This is a dispatch wrapper around the typed [`InvertedIndex::scan_gc`].
     pub fn scan_gc(
         &self,
-        doc_exist: impl Fn(DocId) -> bool,
+        doc_exist: impl crate::DocLiveness,
     ) -> std::io::Result<Option<crate::GcScanDelta>> {
         ii_dispatch!(
             self,
@@ -151,11 +156,70 @@ impl InvertedIndex {
         )
     }
 
+    /// A private copy of what a GC scan has to decode; see the typed
+    /// [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot).
+    pub fn gc_snapshot(
+        &self,
+        live: &impl crate::DocLiveness,
+        scope: crate::GcSnapshotScope,
+    ) -> Option<Self> {
+        match self {
+            Self::Full(ii) => ii.gc_snapshot(live, scope).map(Self::Full),
+            Self::FullWide(ii) => ii.gc_snapshot(live, scope).map(Self::FullWide),
+            Self::FreqsFields(ii) => ii.gc_snapshot(live, scope).map(Self::FreqsFields),
+            Self::FreqsFieldsWide(ii) => ii.gc_snapshot(live, scope).map(Self::FreqsFieldsWide),
+            Self::FreqsOnly(ii) => ii.gc_snapshot(live, scope).map(Self::FreqsOnly),
+            Self::FieldsOnly(ii) => ii.gc_snapshot(live, scope).map(Self::FieldsOnly),
+            Self::FieldsOnlyWide(ii) => ii.gc_snapshot(live, scope).map(Self::FieldsOnlyWide),
+            Self::FieldsOffsets(ii) => ii.gc_snapshot(live, scope).map(Self::FieldsOffsets),
+            Self::FieldsOffsetsWide(ii) => ii.gc_snapshot(live, scope).map(Self::FieldsOffsetsWide),
+            Self::OffsetsOnly(ii) => ii.gc_snapshot(live, scope).map(Self::OffsetsOnly),
+            Self::FreqsOffsets(ii) => ii.gc_snapshot(live, scope).map(Self::FreqsOffsets),
+            Self::DocIdsOnly(ii) => ii.gc_snapshot(live, scope).map(Self::DocIdsOnly),
+            Self::RawDocIdsOnly(ii) => ii.gc_snapshot(live, scope).map(Self::RawDocIdsOnly),
+            Self::Numeric(ii) => ii.gc_snapshot(live, scope).map(Self::Numeric),
+            Self::NumericFloatCompression(ii) => ii
+                .gc_snapshot(live, scope)
+                .map(Self::NumericFloatCompression),
+        }
+    }
+
+    /// The doc IDs the index spans; see the typed
+    /// [`InvertedIndex::doc_id_range`](crate::InvertedIndex::doc_id_range).
+    pub fn doc_id_range(&self) -> Option<std::ops::RangeInclusive<crate::DocId>> {
+        ii_dispatch!(self, doc_id_range)
+    }
+
+    /// The doc IDs the last block spans; see the typed
+    /// [`InvertedIndex::last_block_doc_id_range`](crate::InvertedIndex::last_block_doc_id_range).
+    pub fn last_block_doc_id_range(&self) -> Option<std::ops::RangeInclusive<crate::DocId>> {
+        ii_dispatch!(self, last_block_doc_id_range)
+    }
+
+    /// Apply a GC delta, rescanning a grown last block with `live`; see the typed
+    /// [`InvertedIndex::apply_gc_with`](crate::InvertedIndex::apply_gc_with).
+    pub fn apply_gc_with(
+        &mut self,
+        delta: crate::GcScanDelta,
+        live: Option<&dyn crate::DocLiveness>,
+    ) -> crate::GcApplyInfo {
+        ii_dispatch!(self, apply_gc_with, delta, live)
+    }
+
     /// Apply the deltas of a garbage collection scan to the index.
     ///
     /// This is a dispatch wrapper around the typed [`InvertedIndex::apply_gc`].
     pub fn apply_gc(&mut self, delta: crate::GcScanDelta) -> crate::GcApplyInfo {
         ii_dispatch!(self, apply_gc, delta)
+    }
+
+    /// Return the unique ID assigned when this inverted index was created.
+    ///
+    /// This is a dispatch wrapper around the typed
+    /// [`crate::InvertedIndex::unique_id`] and distinguishes a replacement
+    /// index from one that reused its address.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        ii_dispatch!(self, unique_id)
     }
 
     /// Return the number of unique documents in the index.

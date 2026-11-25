@@ -11,8 +11,11 @@ try:
 except ImportError:
     from collections import Iterable
 import time
+from contextlib import contextmanager
 from packaging import version
+from contextlib import contextmanager
 from functools import wraps
+import functools
 import signal
 import platform
 import itertools
@@ -23,6 +26,12 @@ import RLTest
 from typing import Any, Callable, List, Dict
 from RLTest import Env, env_spec
 from RLTest.env import Query
+
+# RLTest reuses a running server for an Env whose parameters match it, but does not count the
+# startup config file among them, so an Env asking for other startup settings would get a server
+# that never loaded them.
+if 'redisConfigFile' not in Env.EnvCompareParams:
+    Env.EnvCompareParams = Env.EnvCompareParams + ['redisConfigFile']
 import numpy as np
 from scipy import spatial
 from pprint import pprint as pp
@@ -32,11 +41,16 @@ from unittest import SkipTest
 import inspect
 import math
 import tempfile
+import hashlib
 import faker
 import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
-REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
+# Other checkouts must not replace a fixture before Redis opens it.
+REDISEARCH_CACHE_DIR = os.path.join(
+    tempfile.gettempdir(), 'redisearch-rdbs',
+    hashlib.sha256(os.fsencode(os.path.realpath(TEST_RDBS_DIR))).hexdigest(),
+)
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -353,10 +367,58 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def redis_config_file(settings):
+    """Path of a config file that gives Redis CONFIG settings their values at startup, for
+    Env(redisConfigFile=...): the way to set a config that has no module argument before any
+    index exists. The same settings give the same path, so envs that ask for them can share a
+    server."""
+    return _redis_config_file(tuple(sorted(settings.items())))
+
+@functools.lru_cache(maxsize=None)
+def _redis_config_file(settings):
+    fd, path = tempfile.mkstemp(prefix='search-', suffix='.conf')
+    with os.fdopen(fd, 'w') as f:
+        for name, value in settings:
+            f.write(f'{name} {value}\n')
+    return path
+
+def min_maintenance_workers_conf(workers):
+    """A config file setting search-min-maintenance-workers; see redis_config_file."""
+    return redis_config_file({'search-min-maintenance-workers': workers})
+
+def thread_gc_settings(run_interval=None, clean_threshold=None):
+    """The THREAD GC's CONFIG settings among the given ones, for redis_config_file."""
+    return {name: value for name, value in (('search-thread-gc-run-interval', run_interval),
+                                            ('search-thread-gc-clean-threshold', clean_threshold))
+            if value is not None}
+
+def thread_gc_conf(run_interval=None, clean_threshold=None):
+    """A config file setting the THREAD GC's run interval and clean threshold; see
+    redis_config_file."""
+    return redis_config_file(thread_gc_settings(run_interval, clean_threshold))
+
 def set_workers(env, workers):
-    """Set the worker thread count and verify that the change took effect."""
+    """Set the worker thread count and verify that the change took effect. The pool never shrinks
+    below search-min-maintenance-workers."""
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
-    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
+    res = env.cmd('CONFIG', 'GET', 'search-min-maintenance-workers')
+    floor = int(res['search-min-maintenance-workers'] if isinstance(res, dict) else res[1])
+    expected = [max(int(workers), floor)] * env.shardsCount
+    # A shrink to the floor waits for the queued jobs, so it may land a little later.
+    with TimeLimit(30, 'workers pool did not reach its size'):
+        while getWorkersThpoolNumThreadsFromAllShards(env) != expected:
+            time.sleep(0.05)
+
+@contextmanager
+def paused_workers(env):
+    """Pause the worker thread pool for the duration of the block, so that jobs it schedules are
+    queued but cannot run yet. Resumed on the way out even if the block fails: the pool state
+    outlives the test, and a pool left paused fails the next test's WORKERS DRAIN."""
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+    try:
+        yield
+    finally:
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
@@ -612,6 +674,67 @@ def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
 
+def set_thread_gc_config(env, run_interval=None, clean_threshold=None):
+    """Change the THREAD GC's settings on a running server. An index takes the run interval when
+    its GC is created, so one set after FT.CREATE applies from that index's next cycle."""
+    for name, value in thread_gc_settings(run_interval, clean_threshold).items():
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', name, value)
+
+def drain_workers(env):
+    """Wait on every shard until queued worker jobs are done. Vector writes are asynchronous
+    whenever the workers pool is not empty, which includes WORKERS 0 by default
+    (search-min-maintenance-workers), so call this before asserting on HNSW-side state."""
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+
+def create_diverged_index(env, idx='idx'):
+    """Create `idx` on every shard with a schema no other shard has, and return the
+    shard connections used, in shard order.
+
+    Internal `_FT.CREATE` does not fan out, so per-shard creates from an internal
+    client are the only way to build a deliberately inconsistent cluster. Shard `i`
+    gets `i` fields, so the cluster ends up with `env.shardsCount` distinct schemas.
+    The connections are returned because MARK-INTERNAL-CLIENT marks the connection,
+    not the shard.
+    """
+    assert env.shardsCount > 1, 'divergence needs at least two shards'
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        con = env.getConnection(shardId)
+        con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        schema = []
+        for field in range(shardId):
+            schema.extend([f'f{field}', 'TEXT'])
+        con.execute_command('_FT.CREATE', idx, 'SCHEMA', *schema)
+        conns.append(con)
+    return conns
+
+@contextmanager
+def stopped_shard(env, shardId):
+    """Stop shard `shardId` (1-based, as in `env.getConnection`) for the body of the
+    `with`, then restart it and wait for it to rejoin the cluster.
+
+    Without the restart and the wait, teardown and any later test reusing this env
+    run against a broken cluster.
+    """
+    shard = env.envRunner.shards[shardId - 1]
+
+    def rejoined():
+        # The port is dead until the restart completes, so a connection error is the
+        # expected state here rather than a failure. Anything else propagates.
+        try:
+            info = env.getConnection(shardId).execute_command('CLUSTER', 'INFO')
+        except redis_exceptions.RedisError as e:
+            return False, {'error': str(e)}
+        return 'cluster_state:ok' in info, {'cluster_info': info}
+
+    shard.stopEnv()
+    try:
+        yield shard
+    finally:
+        shard.startEnv()
+        wait_for_condition(rejoined, f'restarted shard {shardId} did not rejoin the cluster',
+                           timeout=30)
+
 def _cluster_bus_ports(env):
     """`{client port: cluster-bus port}` for every shard, from one `CLUSTER NODES` read.
 
@@ -681,17 +804,30 @@ def shard_set_info_on_zero_indexes(env, enabled: bool):
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
+GC_RUN_IN_PROGRESS = 'another GC run of this index is in progress'
+
+def _retryWhileGCBusy(env, *args):
+    # A forced run fails instead of waiting when the index's scheduled run is in flight.
+    deadline = time.time() + 30
+    while True:
+        try:
+            return env.cmd(*args)
+        except Exception as e:
+            if GC_RUN_IN_PROGRESS not in str(e) or time.time() > deadline:
+                raise
+            time.sleep(0.01)
+
 def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
         # Note: timeout==0 means infinite (no timeout)
-        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
+        _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
-        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
+        _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEINVOKE', idx)
 
 def forceBGInvokeGC(env, idx='idx'):
     waitForRdbSaveToFinish(env)
-    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
+    _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEBGINVOKE', idx)
 
 def no_msan(f):
     @wraps(f)
@@ -771,9 +907,56 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
+binary_commands = None
+def binary_has_command(name):
+    """True if `Defaults.binary` provides command `name`.
+
+    Version alone cannot answer this: a server may report a version that carries a
+    command and still be built without it, which is how the guarded test then fails.
+
+    Asks the binary the same way `server_version_is_at_least` asks it for a version,
+    so a @skip can be decided before any test env exists. `--version` cannot answer
+    this one, so this starts a throwaway server on a private unix socket — no port to
+    collide over — and asks it, caching the answer for the rest of the session.
+
+    Only the binary's own commands are visible; no module is loaded, so this cannot
+    speak for `FT.*`.
+    """
+    global binary_commands
+    if binary_commands is None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = os.path.join(directory, 'command-probe.sock')
+            server = subprocess.Popen(
+                [Defaults.binary, '--port', '0', '--unixsocket', socket_path,
+                 '--save', '', '--appendonly', 'no'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                conn = redis.Redis(unix_socket_path=socket_path, decode_responses=True)
+                # `COMMAND LIST` is a flat array of names, but redis-py parses every
+                # `COMMAND` reply as though it were `COMMAND INFO` and mangles it. This
+                # client is private to the probe, so the callback can just be dropped.
+                conn.set_response_callback('COMMAND', lambda reply: reply)
+                deadline = time.time() + 10
+                while True:
+                    try:
+                        conn.ping()
+                        break
+                    except redis.exceptions.RedisError:
+                        if time.time() > deadline or server.poll() is not None:
+                            raise
+                        time.sleep(0.05)
+                binary_commands = {str(c).lower()
+                                   for c in conn.execute_command('COMMAND', 'LIST')}
+            finally:
+                server.terminate()
+                server.wait()
+    return name.lower() in binary_commands
+
+
 def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
-                            redis_greater_equal, min_shards, arch, gc_no_fork,
-                            no_json, enterprise):
+                            redis_greater_equal, min_shards, arch,
+                            no_json, enterprise, missing_redis_command):
     """True if the caller provided at least one skip condition.
 
     With no conditions, @skip's legacy behaviour is to always skip — used as a
@@ -781,13 +964,15 @@ def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than
     """
     return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json or (enterprise is not None))
+            or no_json or (enterprise is not None)
+            or (missing_redis_command is not None))
 
 
-def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise):
+def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise,
+                           missing_redis_command):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
-    Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
+    Excludes redis_less_than/redis_greater_equal — those genuinely
     need a running env, so they can't decide at module-load time.
     """
     if cluster is not None and cluster == CLUSTER:
@@ -808,30 +993,29 @@ def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch
         return True
     if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
         return True
+    if missing_redis_command and not binary_has_command(missing_redis_command):
+        return True
     return False
 
 
-def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
+def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal):
     """Evaluate the @skip predicates that need a live Redis.
 
-    Spawns a transient Env for gc_no_fork; the version helpers maintain their
-    own connection.
+    The version helpers maintain their own connection.
     """
     if redis_less_than and server_version_is_less_than(redis_less_than):
         return True
     if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
         return True
-    if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
-        return True
     return False
 
 
-def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, no_json=False, enterprise=None, missing_redis_command=None):
     static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise)
+                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise,
+                         missing_redis_command=missing_redis_command)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
-                          redis_greater_equal=redis_greater_equal,
-                          gc_no_fork=gc_no_fork)
+                          redis_greater_equal=redis_greater_equal)
     any_condition = _any_skip_condition_set(
         **static_kwargs, **runtime_kwargs,
     )
@@ -845,10 +1029,10 @@ def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_le
             # fires, strip the @env_spec marker (so no env is built) and
             # replace __init__ with one that raises SkipTest the moment
             # RLTest tries to instantiate the class.
-            if redis_less_than or redis_greater_equal or gc_no_fork:
+            if redis_less_than or redis_greater_equal:
                 raise TypeError(
                     "@skip on a class cannot use redis_less_than, "
-                    "redis_greater_equal, or gc_no_fork because those need a "
+                    "redis_greater_equal because those need a "
                     "live Redis and would defeat the purpose of skipping "
                     "before env provisioning. Use skipTest() inside a method "
                     "instead, or apply @skip to individual functions."
@@ -902,6 +1086,12 @@ def to_dict(res):
         raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
+
+def get_internal_id(env, key, idx='idx'):
+    """Returns the internal doc id of `key` in `idx`. A full reindex goes through the REPLACE
+    path, which deletes the old doc-table entry and assigns a new, larger id, so a changed id
+    shows that the document was reindexed."""
+    return to_dict(env.cmd(debug_cmd(), 'DOCINFO', idx, key, 'REVEAL'))['internal_id']
 
 def to_list(input_dict: dict):
     return [item for pair in input_dict.items() for item in pair]
@@ -1048,7 +1238,8 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32',
+                          ids_offset=0, seed=10, *, field_name='vector'):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
     p = conn.pipeline(transaction=False)
@@ -1057,7 +1248,7 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, field_name, vector.tobytes())
     p.execute()
     return query_vec
 
@@ -1214,7 +1405,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            inverted_index_size = 24
+            inverted_index_size = 32
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue
@@ -1281,13 +1472,9 @@ def access_nested_list(lst, index):
     return result
 
 def getRDBFile(env, file_name, depth=0):
-    # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
-    # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
-    # target file already exists with non-zero size we skip re-extracting.
+    # Refresh from the bundled ZIP: an existing copy may belong to another revision.
     src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
     dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    if os.path.exists(dst) and os.path.getsize(dst) > 0:
-        return True
     if not os.path.exists(src):
         env.assertTrue(
             False,
@@ -1296,10 +1483,12 @@ def getRDBFile(env, file_name, depth=0):
         )
         return False
     import zipfile
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
     try:
-        with zipfile.ZipFile(src, 'r') as z:
-            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with zipfile.ZipFile(src, 'r') as z, tempfile.TemporaryDirectory(dir=os.path.dirname(dst)) as tmp:
+            extracted = z.extract(os.path.basename(file_name), tmp)
+            # Publish only complete files, including when test processes run in parallel.
+            os.replace(extracted, dst)
     except (zipfile.BadZipFile, KeyError, OSError) as e:
         env.assertTrue(
             False,

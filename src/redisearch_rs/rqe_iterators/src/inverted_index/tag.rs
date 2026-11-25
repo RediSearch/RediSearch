@@ -77,16 +77,18 @@ where
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     L: TagLookup<E>,
 {
-    /// Check if the iterator should abort revalidation.
+    /// The inverted index currently stored for this iterator's tag value,
+    /// freshly resolved, or `None` when the iterator must
+    /// [`abort`](RQEValidateStatus::Aborted) — the garbage collector removed all
+    /// the tag's documents, or replaced its inverted index with a new allocation.
     ///
-    /// The garbage collector may remove all documents from a tag value's
-    /// inverted index or replace it with a new allocation. In both cases the
-    /// reader's pointer is stale and the iterator must
-    /// [`abort`](RQEValidateStatus::Aborted).
+    /// Hands back the resolution so the caller can
+    /// [reseat](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     ///
     /// Defined on the `Rf`-generic [`RawTag`] so the suspended form can run it
     /// from [`RQESuspendedIterator::resume`] before promoting to [`Active`].
-    fn should_abort(&self) -> bool {
+    fn resolve_live_index(&self) -> Option<NonNull<inverted_index::InvertedIndex<E>>> {
         let term = self
             .it
             .result
@@ -99,12 +101,13 @@ where
             .as_bytes()
             .expect("Tag iterator query term should have a non-null string");
 
-        match self.lookup.find(term_bytes) {
-            // The inverted index was collected entirely by GC, or the
-            // value is a null sentinel (disk mode).
-            None => true,
-            Some(ii) => !self.it.reader.points_to_ii(ii),
-        }
+        // `None`: the inverted index was collected entirely by GC, or the value is
+        // a null sentinel (disk mode).
+        let ii = self.lookup.find(term_bytes)?;
+
+        // A raw pointer ends the `&self` borrow, freeing the caller to take the
+        // `&mut` the reseat needs, and keeps `ii`'s provenance.
+        self.it.reader.points_to_ii(ii).then(|| NonNull::from(ii))
     }
 }
 
@@ -231,9 +234,16 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
+        let Some(ii) = self.resolve_live_index() else {
             return Ok(RQEValidateStatus::Aborted);
-        }
+        };
+
+        // `revalidate` reads the index's GC marker through the reader's pointer,
+        // which may not have survived a write to the index.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
+        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         self.it.revalidate(spec)
     }
@@ -310,9 +320,16 @@ where
         // Step 1: identity check on the suspended form. On abort we drop the
         // suspended iterator without promoting it to Active — nothing is
         // materialized.
-        if self.should_abort() {
+        let Some(ii) = self.resolve_live_index() else {
             return Ok(ResumeOutcome::Aborted);
-        }
+        };
+
+        // `resume_in_place` first reads the index's GC marker through the reader's
+        // pointer, which may not have survived a write while suspended.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was resolved just now, under the
+        // read lock `guard` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         // Step 2: run the shared in-place resume transition on the inner
         // core iterator (refresh pointers, reset stale offsets, promote the

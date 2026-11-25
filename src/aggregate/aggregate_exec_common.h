@@ -15,7 +15,7 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
-struct QueryRequestTimeout;
+struct QueryRequestLimits;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -25,6 +25,23 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
+/**
+ * Turns a pipeline that stopped for memory pressure, a RS_RESULT_STOPPED rc
+ * with the memory stop requested, into the outcome `oomPolicy` asks
+ * for, and returns any other rc unchanged:
+ *
+ * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and RS_RESULT_ERROR.
+ *   Only buffering stages can still reply with an error, which is why
+ *   startPipelineCommon buffers under FAIL.
+ * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
+ *   produced so far are the final, partial result instead of a timeout.
+ *   If the request's timeout also fired (QueryRequestLimits_IsTimedOutExact),
+ *   RS_RESULT_STOPPED is returned instead, so the timeout outcome is kept: an
+ *   error under ON_TIMEOUT FAIL, a warning beside the OOM one otherwise.
+ */
+int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                 QueryError *err, int rc);
+
 void destroyResults(SearchResult **results);
 
 // TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
@@ -33,7 +50,7 @@ void destroyResults(SearchResult **results);
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
-  const struct QueryRequestTimeout *timeout;
+  const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; consulted by AggregateResults (and

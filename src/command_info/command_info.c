@@ -953,7 +953,19 @@ int SetFt_ListInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns a list of all existing indexes",
-    .complexity = "O(1)",
+    .complexity = "Without WITHCLUSTERSTATE: O(N), where N is the number of local indexes. With WITHCLUSTERSTATE: O(B + (I + 1) * S^2) total work, where S is the shard count, I is the number of distinct indexes, and B is the total schema content processed across shards, including index names, fields, stopwords, and synonym memberships. Each shard hashes its local schema content on its Redis thread; the coordinator compares shard reports.",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "withclusterstate",
+        .token = "WITHCLUSTERSTATE",
+        .summary = "Reports each index's cross-shard consistency state",
+        .since = "8.12.0",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {0}
+    },
+    .arity = -1,
     .since = "2.0.0",
     .tips = "dont_cache",
   };
@@ -2532,6 +2544,14 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {
+                    .name = "rerank",
+                    .token = "RERANK",
+                    .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    .since = "8.8.7",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
                     .name = "shard_k_ratio",
                     .token = "SHARD_K_RATIO",
                     .since = "8.6.1",
@@ -2569,6 +2589,14 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .name = "epsilon",
                     .token = "EPSILON",
                     .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "rerank",
+                    .token = "RERANK",
+                    .summary = "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    .since = "8.8.7",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {
@@ -3524,6 +3552,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
     .since = "8.4.0",
     .history = (RedisModuleCommandHistoryEntry[]){
       {"8.4.3", "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"},
+      {"8.8.7", "Added `RERANK` to the `VSIM` `KNN` and `RANGE` clauses for disk-based HNSW indexes"},
       {0}
     },
     .tips = "dont_cache",

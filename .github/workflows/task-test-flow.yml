@@ -28,7 +28,7 @@ on:
       redis-ref:
         description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
+        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -129,7 +129,7 @@ env:
 jobs:
   common-flow:
     name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
-    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.coverage && endsWith(inputs.env, '-u-x64-medium') && fromJSON(format('["{0}","ghr-ec2-instance-type:m6i.xlarge"]', inputs.env))) || inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     # Runner-local env is unavailable while GitHub creates the job container.
     # Use the resolved runner label as the pre-container signal for GitHub-hosted
     # mounts; runner-local env is not available yet.
@@ -165,7 +165,9 @@ jobs:
         if: inputs.image-built != 'true' && inputs.setup-script
         env:
           SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: eval "$SETUP_SCRIPT"
 
       - name: Post-setup
         if: inputs.post-setup-script
@@ -196,6 +198,11 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
 
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -203,6 +210,8 @@ jobs:
           image-built: ${{ inputs.image-built }}
           san: ${{ inputs.san }}
           install-script: 'true'
+          rust-test-deps: ${{ inputs.coverage }}
+          github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
@@ -210,6 +219,10 @@ jobs:
           # No compilation happens in this job, Redis included: the Redis build
           # job ships its install tree as an artifact and we unpack it below.
           build-redis: 'false'
+
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
 
       - name: Set Artifact Names
         id: artifact-names
@@ -308,6 +321,20 @@ jobs:
             exit 1
           }
 
+      - name: Require an Intel CPU
+        # Coverage is the lane that exercises the BUILD_INTEL_SVS_OPT code paths (LVQ,
+        # LeanVec), which run only on Intel CPUs; elsewhere test_vecsim_svs quietly
+        # tests the generic fallback. Its runner is pinned to an Intel instance type,
+        # so fail rather than lose that coverage if the pin stops holding.
+        if: inputs.coverage && runner.os == 'Linux' && runner.arch == 'X64' && env.BUILD_INTEL_SVS_OPT == 'yes' && vars.RUNS_ON_X64_MEDIUM != ''
+        shell: sh
+        run: |
+          vendor=$(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo)
+          echo "CPU vendor: $vendor"
+          if [ "$vendor" != "GenuineIntel" ]; then
+            echo "::error::Expected an Intel CPU on this x86_64 runner, got '$vendor'"
+            exit 1
+          fi
       # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
       # spec per line). Needed to shard and as the input to flaky filtering.
       # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a
@@ -564,6 +591,16 @@ jobs:
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
           exit 1
+
+      - name: Summarize branch coverage
+        if: inputs.coverage
+        env:
+          TEST_MODE: ${{ inputs.test-mode }}
+        run: |
+          python3 .github/scripts/coverage_summary.py \
+            --lcov "C ${TEST_MODE} flow" "bin/flow_${TEST_MODE}.info" \
+            --lcov "Rust ${TEST_MODE} flow" "bin/rust_flow_${TEST_MODE}.info"
+
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
@@ -571,7 +608,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'standalone'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -580,7 +617,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'coordinator'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

@@ -140,8 +140,8 @@ def testGeoDistanceFile(env):
 # causes server crash before MOD-5646 fix
 @skip(cluster=True)
 def testGeoOnReopen(env:Env):
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 1000).ok()
+  set_thread_gc_config(env, clean_threshold=0)
+  set_thread_gc_config(env, run_interval=1000)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT', 'location', 'GEO').ok()
   conn = getConnectionByEnv(env)
 
@@ -241,3 +241,23 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+
+@skip(cluster=True)
+def testDialect1GeoQueryOnANonGeoFieldMatchesNothing(env):
+    # DIALECT 2 rejects a geo filter on a non-GEO field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection. A NUMERIC field's range tree holds plain numbers, which
+    # the filter's geohash ranges used to be matched against.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'loc', 'GEO').ok()
+    # `n` holds the geohash score of the query center, so matching the filter's geohash ranges
+    # against the numeric tree would find the document.
+    conn.execute_command('GEOADD', 'geohash_probe', 1, 1, 'p')
+    center_score = conn.execute_command('ZSCORE', 'geohash_probe', 'p')
+    conn.execute_command('DEL', 'geohash_probe')
+    conn.execute_command('HSET', 'doc:1', 'n', center_score, 't', 'red', 'loc', '1,1')
+    for field in ['n', 't']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km]', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:[1 1 10 km] @loc:[1 1 10 km]',
+                   'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@loc:[1 1 10 km]', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])

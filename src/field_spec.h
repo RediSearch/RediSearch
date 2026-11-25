@@ -11,13 +11,16 @@
 
 #include "redisearch.h"
 #include "query_error_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rejson_api.h"
+#include "sparse_vector_index.h"
 
 struct TagIndex;
 struct NumericRangeTree;
+struct SparseVectorIndex;
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -36,19 +39,21 @@ typedef enum {
   INDEXFLD_T_TAG = 0x08,
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
+  INDEXFLD_T_SPARSE_VECTOR = 0x40,
 } FieldType;
 
-#define INDEXFLD_NUM_TYPES 6
+#define INDEXFLD_NUM_TYPES 7
 
 // clang-format off
 // otherwise, it looks h o r r i b l e
-#define INDEXTYPE_TO_POS(T)         \
-  (T == INDEXFLD_T_FULLTEXT   ? 0 : \
-  (T == INDEXFLD_T_NUMERIC    ? 1 : \
-  (T == INDEXFLD_T_GEO        ? 2 : \
-  (T == INDEXFLD_T_TAG        ? 3 : \
-  (T == INDEXFLD_T_VECTOR     ? 4 : \
-  (T == INDEXFLD_T_GEOMETRY   ? 5 : -1))))))
+#define INDEXTYPE_TO_POS(T)              \
+  (T == INDEXFLD_T_FULLTEXT       ? 0 :  \
+  (T == INDEXFLD_T_NUMERIC        ? 1 :  \
+  (T == INDEXFLD_T_GEO            ? 2 :  \
+  (T == INDEXFLD_T_TAG            ? 3 :  \
+  (T == INDEXFLD_T_VECTOR         ? 4 :  \
+  (T == INDEXFLD_T_GEOMETRY       ? 5 :  \
+  (T == INDEXFLD_T_SPARSE_VECTOR  ? 6 : -1)))))))
 
 #define INDEXTYPE_FROM_POS(P) (1<<(P))
 // clang-format on
@@ -59,8 +64,10 @@ typedef enum {
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 #define IXFLDPOS_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)
 #define IXFLDPOS_GEOMETRY INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)
+#define IXFLDPOS_SPARSE_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_SPARSE_VECTOR)
 
 RS_ENUM_BITWISE_HELPER(FieldType)
+
 
 typedef enum {
   FieldSpec_Sortable = 0x01,
@@ -119,12 +126,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params. diskCtx.indexName is non-NULL exactly when the
-      // field is disk-backed; diskCtx.storage is non-NULL only once the
-      // index spec is open and PopulateVectorDiskParams has run. During
-      // SST replication load, FieldSpec_RdbLoad populates indexName early
-      // (before sp->diskSpec exists) so the disk teardown path is selected
-      // even if the load aborts before storage is bound.
+      // Disk index params. A non-NULL diskCtx.indexName means the field is
+      // disk-backed; it is set once the field's storage is opened, or
+      // earlier by FieldSpec_RdbLoad so that the disk teardown path is
+      // selected even if the load aborts before storage is bound. While a
+      // new field is still being parsed it is NULL even on a disk index.
+      // diskCtx.storage is non-NULL only once the field's storage is open.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
@@ -132,6 +139,14 @@ typedef struct FieldSpec {
       GEOMETRY_COORDS geometryCoords;
       GeometryIndex *geometryIndex;
     } geometryOpts;
+    struct {
+      // Size of the dimension space; valid dimension IDs are 0 .. dim-1.
+      uint64_t dim;
+      // Fixed at creation.
+      SparseMetric metric;
+      // The field's posting lists, created on the first write. Opaque Rust object.
+      struct SparseVectorIndex *sparseVecIndex;
+    } sparseVecOpts;
   };
 
   // TODO: Move into union above when we stop supporting multi-type fields
@@ -143,6 +158,9 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+
+  // Owned indexing path; NULL for HASH, invalid paths, and snapshots.
+  JSONPath compiledPath;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))
@@ -165,6 +183,10 @@ typedef struct FieldSpec {
 
 void FieldSpec_SetSortable(FieldSpec* fs);
 void FieldSpec_Cleanup(FieldSpec* fs);
+
+/* The sparse vector field's index, created first if `create_if_missing` and there is none.
+ * Returns NULL only when the index does not exist and `create_if_missing` is false. */
+struct SparseVectorIndex *FieldSpec_OpenSparseVectorIndex(FieldSpec *fs, bool create_if_missing);
 /**
  * Convert field type given by integer to the name type in string form.
  */
@@ -172,6 +194,24 @@ const char *FieldSpec_GetTypeNames(int idx);
 
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
+
+/**
+ * True iff `name` is the document field this FieldSpec is fed from.
+ *
+ * Compares against `fieldPath`, not `fieldName`: a changed field is the hash field the command
+ * wrote, which is the path. `fieldName` is the `AS` alias, so comparing that would find no
+ * match on an aliased schema. `IndexSpec_CreateField` points `fieldPath` at `fieldName` when
+ * `AS` is absent, so unaliased schemas are unaffected.
+ */
+static inline bool FieldSpec_PathEquals(const FieldSpec *fs, const char *name, size_t len) {
+  return HiddenString_CompareC(fs->fieldPath, name, len) == 0;
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

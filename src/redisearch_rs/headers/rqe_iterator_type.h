@@ -77,7 +77,8 @@ enum IteratorType
    * Used only in tests.
    */
   IteratorType_Mock = 23,
-  IteratorType_Max = 24,
+  IteratorType_SparseVector = 24,
+  IteratorType_Max = 25,
 };
 #ifndef __cplusplus
 typedef uint32_t IteratorType;

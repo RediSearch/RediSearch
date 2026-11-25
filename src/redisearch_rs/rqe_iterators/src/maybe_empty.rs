@@ -9,6 +9,8 @@
 
 //! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
 
+use std::ptr::NonNull;
+
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
@@ -208,6 +210,37 @@ where
             MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.reports_score_bounds(),
+            MaybeEmptyOption::Some(it) => it.reports_score_bounds(),
+        }
+    }
+
+    fn current_max_score(&self) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.current_max_score(),
+            MaybeEmptyOption::Some(it) => it.current_max_score(),
+        }
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.current_block_bound(),
+            MaybeEmptyOption::Some(it) => it.current_block_bound(),
+        }
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        match &mut self.0 {
+            MaybeEmptyOption::None(empty) => empty.read_with_threshold(min_competitive_score),
+            MaybeEmptyOption::Some(it) => it.read_with_threshold(min_competitive_score),
+        }
+    }
 }
 
 impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
@@ -228,7 +261,7 @@ where
         if let MaybeEmptyOption::Some(it) = inner {
             // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
             // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+            unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) };
         }
         // SAFETY: the `Some` child (if any) now holds `I::Suspended` and
         // `None(Empty)` is `I`-free, so the allocation is a valid
@@ -286,7 +319,7 @@ where
                 // payload. On Unchanged/Moved the helper rewrites the slot as a
                 // valid `S::Resumed<'a>`; on Aborted/Err it consumes the child,
                 // leaving the payload uninitialised (handled below).
-                match unsafe { resume_child_slot_in_place(child as *mut S, guard) } {
+                match unsafe { resume_child_slot_in_place(NonNull::from(child), guard) } {
                     Ok(ResumeSlotOutcome::Unchanged) => ChildResume::Active { moved: false },
                     Ok(ResumeSlotOutcome::Moved) => ChildResume::Active { moved: true },
                     Ok(ResumeSlotOutcome::Aborted) => ChildResume::Aborted,

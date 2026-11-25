@@ -14,6 +14,7 @@ use std::ptr::NonNull;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
+use rqe_core::RS_INVALID_FIELD_INDEX;
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
@@ -32,15 +33,32 @@ pub(crate) fn eval<'index>(
     nf: &NumericFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    // The numeric node always carries a field spec; the filter targets that
+    // The numeric node always carries a field index; the filter targets that
     // single field by index.
-    assert!(
-        !nf.field_spec.is_null(),
-        "numeric node must have a non-null field spec"
+    assert_ne!(
+        nf.field_index, RS_INVALID_FIELD_INDEX,
+        "numeric node must have a resolved field index"
     );
-    // SAFETY: a well-formed numeric node has a valid, non-null `field_spec`,
-    // so reading its `index` is sound.
-    let field_index = unsafe { (*nf.field_spec).index };
+    let field_index = nf.field_index;
+    if cfg!(debug_assertions) {
+        let spec = ctx.spec();
+        assert!(
+            field_index < spec.numFields,
+            "field_index must be within the spec's current field count"
+        );
+        // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
+        // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+        // SAFETY: `field_ptr` points into the live spec's field array, which the
+        // query's spec read lock keeps alive and unmodified throughout evaluation.
+        let field = unsafe { &*field_ptr };
+        // Both query parsers and the legacy `FILTER` argument build a numeric node only on a
+        // NUMERIC field.
+        assert!(
+            field.types() & ffi::FieldType_INDEXFLD_T_NUMERIC != 0,
+            "a numeric node must reference a numeric field"
+        );
+    }
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
@@ -51,14 +69,14 @@ pub(crate) fn eval<'index>(
     // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
     // for the null (in-memory) case.
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
-        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-            .expect("query.sctx.diskSnapshot is null for a disk-backed numeric query");
+        let view = NonNull::new(ctx.sctx().diskQueryView)
+            .expect("query.sctx.diskQueryView is null for a disk-backed numeric query");
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
         // a disk index is in use; `field_index` belongs to the numeric node's
-        // field spec; `snapshot` is the disk snapshot taken at query start.
-        return match unsafe { disk.new_numeric_iterator(nf, field_index, snapshot) } {
+        // field spec; `view` is the disk read view taken at query start.
+        return match unsafe { disk.new_numeric_iterator(nf, field_index, view) } {
             Ok(it) => Some(Evaluated::RustLeaf(it)),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
@@ -79,18 +97,11 @@ pub(crate) fn eval<'index>(
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
-    // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
-    //    (well-formed numeric node).
+    // 2. `nf.field_index` is within `sctx.spec`'s current field count (asserted
+    //    above).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
-    let iter = unsafe {
-        build_numeric_filter_iterator(
-            ctx.sctx(),
-            nf,
-            min_union_iter_heap,
-            &field_ctx,
-            config.numeric_compress,
-        )
-    };
+    let iter =
+        unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
     iter.map(Evaluated::RustCompound)
 }

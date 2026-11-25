@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "redismodule.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
@@ -22,6 +23,8 @@ typedef enum tm_iter_mode {
   TM_SUFFIX_MODE = 2,
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
+
+typedef struct RedisModuleIO RedisModuleIO;
 
 /**
  * Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
@@ -59,11 +62,6 @@ typedef struct ThinVec_c_void__u16 {
  */
 typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 #endif /* SMALLTHINVEC_C_VOID_DEFINED */
-
-/**
- * Callback type for passing to [`TrieMap_IterateRange`].
- */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 /**
  * Callback type for passing to [`TrieMap_Add`].
@@ -269,32 +267,6 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
 struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
 
 /**
- * Iterate the trie within the specified key range.
- *
- * If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
- * If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
- * `includeMin` and `includeMax` determine whether the min and max values are included in the iteration.
- *
- * The passed [`TrieMapRangeCallback`] function is called for each key found,
- * passing the key and its length, the value, and the `ctx` pointer passed to this
- * function.
- *
- * Panics in case the passed callback is NULL.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
- * - `minlen` can be 0. If so, `min` is regarded as an empty string.
- * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
- * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
- *
- * [`NewTrieMap`]: crate::NewTrieMap
- */
-void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
-
-/**
  * Iterate over the trie entries that match the given predicate.
  *
  * Depending on `iter_mode`, they can either be:
@@ -313,6 +285,8 @@ void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minle
  * - `t` must not be freed while the iterator lives.
  * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ * - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
+ *   suffix and wildcard modes keep reading it while iterating.
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
@@ -346,6 +320,33 @@ size_t TrieMap_NNodes(const struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
+
+/**
+ * Load a disk TAG dictionary, returning null on a read or validation error.
+ *
+ * The caller owns the result. Free it through [`crate::TrieMap_Free`] with a
+ * callback that leaves count values alone. See [`load`] for validation rules.
+ *
+ * # Safety
+ *
+ * 1. `io` must be a [valid], exclusively accessible Redis RDB reader.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct TrieMap *TrieMap_RdbLoad(struct RedisModuleIO *io);
+
+/**
+ * Save a disk TAG dictionary containing document counts, as described by [`save`].
+ *
+ * # Safety
+ *
+ * 1. `io` must be a [valid], exclusively accessible Redis RDB writer.
+ * 2. `map` must point to a [valid] [`TrieMap`], immutably borrowed for this call,
+ *    whose values encode positive counts rather than allocated objects.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TrieMap_RdbSave(struct RedisModuleIO *io, const struct TrieMap *map);
 
 #ifdef __cplusplus
 }  // extern "C"

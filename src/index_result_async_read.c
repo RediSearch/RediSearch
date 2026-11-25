@@ -29,7 +29,7 @@ void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSi
   state->queueSize = queueSize;
   state->iteratorResultCount = 0;
   state->readyResults = NULL;
-  state->failedUserData = NULL;
+  state->failedReads = NULL;
   state->asyncPool = NULL;
   state->readyResultsIndex = 0;
   state->lastReturnedIndexResult = NULL;
@@ -43,7 +43,7 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 
   // Allocate async I/O buffers with capacity for poll results (len=0 initially)
   state->readyResults = array_new(AsyncReadResult, state->poolSize);
-  state->failedUserData = array_new(uint64_t, state->poolSize);
+  state->failedReads = array_new(AsyncReadFailure, state->poolSize);
 }
 
 // Timeout (ms) for each blocking poll while draining in-flight reads at teardown.
@@ -65,13 +65,11 @@ static void IndexResultAsyncRead_DiscardReadyResults(IndexResultAsyncReadState *
 
 // Wait for every in-flight async read to complete and discard its result.
 //
-// The disk-side pool does NOT cancel or wait for pending reads when freed (see
-// `IndexDiskAPI.createAsyncReadPool`): each in-flight read borrows the query
-// snapshot and dereferences it on I/O completion, so the snapshot must outlive
-// them. Releasing the pool (and, shortly after, the snapshot in SearchCtx_CleanUp)
-// while reads are still pending is a use-after-free. Draining to `pending == 0`
-// here upholds that contract; on the normal EOF path `pending` is already 0 so
-// this returns immediately.
+// The disk-side pool does NOT cancel or wait for pending reads when freed, and
+// `IndexDiskAPI.createAsyncReadPool` requires the query's read view to outlive every
+// in-flight read. Draining to `pending == 0` here, before the pool is freed and the
+// view is released in SearchCtx_CleanUp, upholds that contract; on the normal EOF
+// path `pending` is already 0 so this returns immediately.
 static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
   // Value is irrelevant: drained results are discarded regardless of expiration.
   const t_expirationTimePoint expiration = {0};
@@ -90,8 +88,8 @@ static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
 void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
   if (!state) return;
 
-  // Drain in-flight reads before freeing the pool: they borrow the query
-  // snapshot and deref it on completion, and the pool does not wait on free.
+  // Drain in-flight reads before freeing the pool: the pool contract requires it
+  // (see `IndexDiskAPI.createAsyncReadPool`), and the pool does not wait on free.
   if (state->asyncPool) {
     IndexResultAsyncRead_Drain(state);
     SearchDisk_FreeAsyncReadPool(state->asyncPool);
@@ -128,9 +126,9 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
     state->readyResults = NULL;
   }
 
-  if (state->failedUserData) {
-    array_free(state->failedUserData);
-    state->failedUserData = NULL;
+  if (state->failedReads) {
+    array_free(state->failedReads);
+    state->failedReads = NULL;
   }
 
   // Free the last returned deep-copied IndexResult if any
@@ -170,9 +168,10 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
 }
 
 static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
-  RS_ASSERT(array_len(state->failedUserData) <= state->poolSize);
-  for (uint16_t i = 0; i < array_len(state->failedUserData); i++) {
-    IndexResultNode *node = (IndexResultNode *)state->failedUserData[i];
+  RS_ASSERT(array_len(state->failedReads) <= state->poolSize);
+  for (uint16_t i = 0; i < array_len(state->failedReads); i++) {
+    const AsyncReadFailure *failure = &state->failedReads[i];
+    IndexResultNode *node = (IndexResultNode *)failure->user_data;
 
     // Remove node from pendingResults list
     dllist_delete(&node->node);
@@ -191,12 +190,12 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t time
                                  const t_expirationTimePoint *expiration_point) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
-      state->asyncPool, timeout_ms, state->readyResults, state->failedUserData, expiration_point);
+      state->asyncPool, timeout_ms, state->readyResults, state->failedReads, expiration_point);
 
   // Reset index to start consuming from the beginning of readyResults
   state->readyResultsIndex = 0;
 
-  // Clean up nodes for failed reads (not found/error)
+  // Release failed requests, including metadata excluded by deletion.
   IndexResultAsyncRead_CleanupFailedReads(state);
 
   return pendingCount;

@@ -83,5 +83,7 @@ and check the one you pick reaches the code path under test.
 ## Test structure
 
 - Include a docstring explaining what code path or behavior the test exercises.
+- Name the test for that behavior (`testQuantileIgnoresNaN`), never for the artifact it belongs
+  to (`testQuantileContract`).
 - Keep tests focused — one test per code path or behavior.
 - Restore global config changes (e.g., `MAXPREFIXEXPANSIONS`) at the end of the test — tests in a file share one server.

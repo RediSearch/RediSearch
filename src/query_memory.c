@@ -1,0 +1,132 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+#include "query_memory.h"
+
+#include <math.h>
+#include <stdatomic.h>
+
+#include "config.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "util/redis_mem_info.h"
+
+RS_Atomic(uint32_t) QueryMemory_ratioReadInterval = QUERY_MEMORY_RATIO_READ_INTERVAL;
+RS_Atomic(uint32_t) QueryMemory_pressureArmed = 0;
+static _Atomic(float) forcedRatio = -1;
+static _Atomic(uint64_t) pressureAtCall = 0;
+static _Atomic(uint64_t) checkpointCalls = 0;
+
+void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval) {
+  atomic_store_explicit(&QueryMemory_ratioReadInterval, interval, memory_order_relaxed);
+}
+
+uint32_t QueryMemory_GetRatioReadInterval(void) {
+  return atomic_load_explicit(&QueryMemory_ratioReadInterval, memory_order_relaxed);
+}
+
+void QueryMemory_SetForcedRatio(float ratio) {
+  atomic_store_explicit(&forcedRatio, ratio, memory_order_relaxed);
+}
+
+float QueryMemory_GetForcedRatio(void) {
+  return atomic_load_explicit(&forcedRatio, memory_order_relaxed);
+}
+
+void QueryMemory_SetPressureAtCall(uint64_t n) {
+  atomic_store_explicit(&pressureAtCall, 0, memory_order_relaxed);
+  atomic_store_explicit(&checkpointCalls, 0, memory_order_relaxed);
+  atomic_store_explicit(&pressureAtCall, n, memory_order_relaxed);
+  atomic_store_explicit(&QueryMemory_pressureArmed, n != 0, memory_order_relaxed);
+}
+
+uint64_t QueryMemory_GetPressureAtCall(void) {
+  return atomic_load_explicit(&pressureAtCall, memory_order_relaxed);
+}
+
+uint64_t QueryMemory_GetCheckpointCalls(void) {
+  return atomic_load_explicit(&checkpointCalls, memory_order_relaxed);
+}
+
+void QueryMemory_ResetFakePressure(void) {
+  QueryMemory_SetForcedRatio(-1);
+  atomic_store_explicit(&pressureAtCall, 0, memory_order_relaxed);
+  atomic_store_explicit(&QueryMemory_pressureArmed, 0, memory_order_relaxed);
+  atomic_store_explicit(&checkpointCalls, 0, memory_order_relaxed);
+  QueryMemoryDebug_SetRatioReadInterval(QUERY_MEMORY_RATIO_READ_INTERVAL);
+}
+
+// Counts the call only while positional pressure is armed, so production pays one relaxed load.
+static bool isPressureAtThisCall(void) {
+  const uint64_t at = atomic_load_explicit(&pressureAtCall, memory_order_relaxed);
+  if (!at) {
+    return false;
+  }
+  return atomic_fetch_add_explicit(&checkpointCalls, 1, memory_order_relaxed) + 1 == at;
+}
+
+static float readRatio(void) {
+  const float forced = QueryMemory_GetForcedRatio();
+  return forced >= 0 ? forced : RedisMemory_GetUsedMemoryRatioEstimate();
+}
+
+static bool oomPolicyIsIgnore(void) {
+  // Global like QueryMemoryGuard's, not the request's snapshot. Atomic because this runs on any
+  // thread while CONFIG SET writes the policy on the main thread.
+  return __atomic_load_n(&RSGlobalConfig.requestConfigParams.oomPolicy, __ATOMIC_RELAXED) ==
+         OomPolicy_Ignore;
+}
+
+// The memory read of a checkpoint: requests the memory stop under pressure.
+static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
+  if (oomPolicyIsIgnore() || !(forcedPressure || readRatio() >= REDIS_MEMORY_OOM_RATIO)) {
+    return false;
+  }
+  if (limits) {
+    QueryRequestLimits_RequestMemoryStop(limits);
+  }
+  return true;
+}
+
+bool QueryMemory_CheckpointSlow(QueryRequestLimits *limits) {
+  if (QueryRequestLimits_IsMemoryStopped(limits)) {
+    return true;
+  }
+  const bool forcedPressure = isPressureAtThisCall();
+  if (!QueryMemory_CountCall(limits) && !forcedPressure) {
+    return false;
+  }
+  return QueryMemory_ReadAndReset(limits, forcedPressure);
+}
+
+bool QueryMemory_CheckpointExtern(QueryRequestLimits *limits) {
+  return QueryMemory_Checkpoint(limits);
+}
+
+bool QueryMemory_ReadAndReset(QueryRequestLimits *limits, bool forcedPressure) {
+  atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
+  return memoryStops(limits, forcedPressure);
+}
+
+bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
+    return true;
+  }
+  return memoryStops(limits, isPressureAtThisCall());
+}
+
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
+                                     QueryError *err) {
+  RS_ASSERT(timeout);
+  if (!QueryMemory_CheckpointExact(timeout) || oomPolicy != OomPolicy_Fail ||
+      !QueryRequestLimits_IsMemoryStopped(timeout)) {
+    return REDISMODULE_OK;
+  }
+  QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  return REDISMODULE_ERR;
+}

@@ -110,13 +110,13 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
 
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
                           TrieRangeCallback callback, void *ctx,
-                          QueryRequestTimeout *timeout) {
+                          QueryRequestLimits *timeout) {
   TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout);
 }
 
 void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx,
-                          QueryRequestTimeout *timeout) {
+                          QueryRequestLimits *timeout) {
   TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout);
 }
 
@@ -204,6 +204,11 @@ TrieIterator *Trie_IterateAll(Trie *t) {
   return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
+int Trie_VisitAfter(const Trie *t, const rune *after, size_t afterLen, TrieVisitCallback visit,
+                    void *ctx) {
+  return TrieNode_VisitAfter(t->root, after, afterLen, visit, ctx);
+}
+
 TrieIterator *Trie_IterateFuzzy(Trie *t, const char *str, size_t len, int maxDist,
                                 TrieMatchMode mode) {
   size_t rlen;
@@ -236,8 +241,13 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
     return NULL;
   }
 
-  heap_t *pq = rm_malloc(heap_sizeof(num));
-  heap_init(pq, cmpEntries, NULL, num);
+  // `num` comes straight from FT.SUGGET's MAX. The heap never holds more than
+  // the trie's entries, and heap_size() reports its capacity as an int, so
+  // bound the capacity by both. At least one slot keeps the fill-then-evict
+  // loop below from polling an empty heap.
+  size_t capacity = MIN(num, MIN(MAX(t->size, 1), (size_t)INT_MAX));
+  heap_t *pq = rm_malloc(heap_sizeof(capacity));
+  heap_init(pq, cmpEntries, NULL, capacity);
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
@@ -402,6 +412,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
       RedisModule_LogIOError(
           rdb, "warning",
           "RDB Load: Failed to insert trie entry (payload overflow)");
+      goto cleanup;
+    }
+    if (rc == TRIE_ERR_TOO_MANY_CHILDREN) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "RDB Load: Failed to insert trie entry (too many children)");
       goto cleanup;
     }
   }

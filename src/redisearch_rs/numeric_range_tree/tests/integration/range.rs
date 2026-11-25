@@ -11,6 +11,7 @@
 
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
+use inverted_index::ReseatIndex as _;
 use inverted_index::numeric::PreparedValue;
 use numeric_range_tree::{NumericIndex, NumericRange};
 use rstest::rstest;
@@ -371,4 +372,21 @@ fn test_compressed_signed_zero_collapse_counts_once() {
         1,
         "stored values that compare equal must count once"
     );
+}
+
+/// A numeric reader decodes one encoding only, so reseating it on an index of
+/// the other encoding must fail loudly rather than misread the blocks.
+#[rstest]
+#[case::uncompressed_reader_on_compressed_index(false)]
+#[case::compressed_reader_on_uncompressed_index(true)]
+#[should_panic(expected = "cannot read")]
+fn test_reseat_on_the_other_encoding_panics(#[case] reader_compressed: bool) {
+    let read = NumericRange::new(reader_compressed);
+    let other = NumericRange::new(!reader_compressed);
+    let mut reader = read.reader();
+
+    // SAFETY: violates the trait's requirement 1 on purpose: the encoding is
+    // checked before anything is installed, and `other` is valid and not mutably
+    // aliased.
+    unsafe { reader.reseat(std::ptr::NonNull::from(other.entries())) };
 }

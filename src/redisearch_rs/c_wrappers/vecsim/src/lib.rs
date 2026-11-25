@@ -7,14 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Safe wrappers around the `VecSim*` C API exposed by `deps/VectorSimilarity`.
+//! Safe wrappers around the `VecSim*` C API exposed by `src/vecsim`.
 //!
-//! The wrappers cover the surface needed by the top-K hybrid query source:
-//! single-shot top-K queries, batch iteration, and the two adhoc-BF execution
-//! paths (RAM with tiered-index shared locks, disk with a preprocessed
-//! `VecSimAdhocBfCtx`). Each owned VecSim handle becomes a Rust struct that
-//! frees the handle in `Drop`, and the lock ordering between a
-//! `VecSimQueryReply` and its iterator is encoded in [`ReplyResults`].
+//! The wrappers cover the surface needed by the top-K hybrid query source and
+//! the lazy range iterator: single-shot top-K and range queries, batch
+//! iteration, and the two adhoc-BF execution paths (RAM with tiered-index
+//! shared locks, disk with a preprocessed `VecSimAdhocBfCtx`). Each owned
+//! VecSim handle becomes a Rust struct that frees the handle in `Drop`, and
+//! the lock ordering between a `VecSimQueryReply` and its iterator is encoded
+//! in [`ReplyResults`].
 //!
 //! The non-owning [`IndexRef`] is the entry point; everything else is
 //! produced from it.

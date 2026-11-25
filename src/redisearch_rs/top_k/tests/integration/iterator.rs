@@ -13,29 +13,146 @@ use std::num::NonZeroUsize;
 
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm, RSTermRecord};
+use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
+    IdList, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
+    interop::ProfileChildren, union::Union,
 };
 use rqe_iterators_test_utils::ContractChecker;
 use top_k::Ascending;
 use top_k::{
-    BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
+    BatchStrategy, ScoreBatch, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch,
+    mock::MockScoreSource,
 };
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
 
-/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`].
+struct InterruptibleBatch {
+    inner: MockScoreBatch,
+    remaining: Option<usize>,
+}
+
+impl ScoreBatch for InterruptibleBatch {
+    fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        if let Some(remaining) = &mut self.remaining {
+            if *remaining == 0 {
+                return Err(RQEIteratorError::Stopped);
+            }
+            *remaining -= 1;
+        }
+        self.inner.next()
+    }
+
+    fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        while let Some(pair) = self.next()? {
+            if pair.0 >= target {
+                return Ok(Some(pair));
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// [`ScoreSource`] that serves one batch and then fails, so a collection abort
+/// leaves entries already in the heap.
+#[derive(Default)]
+struct PartialThenTimingOutSource {
+    batches_served: usize,
+    batch_error_after: Option<usize>,
+}
+
+impl ScoreSource for PartialThenTimingOutSource {
+    fn release_index_handles(&mut self) {
+        // Only a call counter; its batches are built in memory.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
+    type Batch = InterruptibleBatch;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        if self.batches_served == 0 {
+            self.batches_served += 1;
+            return Ok(Some(InterruptibleBatch {
+                inner: MockScoreBatch::new(vec![(1, 0.5), (2, 0.25)]),
+                remaining: self.batch_error_after,
+            }));
+        }
+        Err(RQEIteratorError::Stopped)
+    }
+
+    fn lookup_score(&mut self, _: DocId) -> Option<f64> {
+        None
+    }
+
+    fn num_estimated(&self) -> usize {
+        2
+    }
+
+    fn rewind(&mut self) {
+        self.batches_served = 0;
+    }
+
+    fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
+    where
+        Self: 'r,
+    {
+        RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
+    }
+
+    fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+        BatchStrategy::Continue
+    }
+
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
+        rqe_iterator_type::IteratorType::Mock
+    }
+}
+
+/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::Stopped`],
+/// counting how many times it was driven.
 ///
-/// Used to verify that timeout errors propagate correctly through [`TopKIterator`].
-struct TimingOutSource;
+/// Used to verify that timeout errors propagate correctly through [`TopKIterator`],
+/// and that a scan the iterator abandons is not silently restarted.
+#[derive(Default)]
+struct TimingOutSource {
+    next_batch_calls: usize,
+}
 
 impl ScoreSource for TimingOutSource {
+    fn release_index_handles(&mut self) {
+        // Only a call counter; its batches are built in memory.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        Err(RQEIteratorError::TimedOut)
+        self.next_batch_calls += 1;
+        Err(RQEIteratorError::Stopped)
     }
 
     fn lookup_score(&mut self, _: DocId) -> Option<f64> {
@@ -105,6 +222,107 @@ fn drain_scoring_fields<'a>(it: &mut impl RQEIterator<'a>) -> Vec<(DocId, u32, F
     emitted
 }
 
+/// Child yielding, for each id of an [`IdList`], a term record owning its query
+/// term, as an inverted index reader does.
+struct TermLeaf<'index> {
+    ids: IdList<'index, true>,
+    result: RSIndexResult<'index>,
+    abort_on_revalidate: bool,
+}
+
+impl TermLeaf<'_> {
+    const OFFSETS: &'static [u8] = &[1, 2, 3];
+
+    fn new(ids: Vec<DocId>, term: &str) -> Self {
+        Self {
+            ids: IdList::new(ids),
+            result: RSIndexResult::build_term()
+                .borrowed_record(
+                    Some(RSQueryTerm::new(term, 1, 0)),
+                    RSOffsetSlice::from_slice(Self::OFFSETS),
+                )
+                .build(),
+            abort_on_revalidate: false,
+        }
+    }
+
+    /// Make [`RQEIterator::revalidate`] report [`RQEValidateStatus::Aborted`], as a leaf
+    /// whose index changed under it does.
+    fn aborting_on_revalidate(mut self) -> Self {
+        self.abort_on_revalidate = true;
+        self
+    }
+}
+
+impl<'index> RQEIterator<'index> for TermLeaf<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.ids.current()?;
+        Some(&mut self.result)
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let Some(r) = self.ids.read()? else {
+            return Ok(None);
+        };
+        self.result.doc_id = r.doc_id;
+        Ok(Some(&mut self.result))
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        let Some(outcome) = self.ids.skip_to(doc_id)? else {
+            return Ok(None);
+        };
+        let (found, doc_id) = match outcome {
+            SkipToOutcome::Found(r) => (true, r.doc_id),
+            SkipToOutcome::NotFound(r) => (false, r.doc_id),
+        };
+        self.result.doc_id = doc_id;
+        Ok(Some(if found {
+            SkipToOutcome::Found(&mut self.result)
+        } else {
+            SkipToOutcome::NotFound(&mut self.result)
+        }))
+    }
+
+    fn revalidate(
+        &mut self,
+        _: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(if self.abort_on_revalidate {
+            RQEValidateStatus::Aborted
+        } else {
+            RQEValidateStatus::Ok
+        })
+    }
+
+    fn rewind(&mut self) {
+        self.ids.rewind();
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.ids.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.ids.at_eof()
+    }
+
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _: bool) -> f64 {
+        1.0
+    }
+}
+
 /// Build an [`IdList`] from `ids` and wrap it in a [`CRQEIterator`] so the
 /// typed-child `TopKIterator` variant (which supports [`ProfileChildren`]) can
 /// be exercised in tests.
@@ -113,6 +331,58 @@ fn make_crqe_child(ids: Vec<DocId>) -> CRQEIterator {
 }
 
 // ── State machine ─────────────────────────────────────────────────────────────
+
+#[test]
+fn candidate_rejection_uses_the_score_in_every_collection_mode() {
+    for (name, mode, ids) in [
+        ("filtered", TopKMode::Batches, Some(vec![1, 2, 3])),
+        ("unfiltered", TopKMode::Batches, None),
+        ("adhoc", TopKMode::AdhocBF, Some(vec![1, 2, 3])),
+        ("direct", TopKMode::Unfiltered, None),
+    ] {
+        let scores = vec![(1, 1.0), (2, 2.0), (3, 3.0)];
+        let source =
+            MockScoreSource::new(vec![scores.clone()], scores, |_, _| BatchStrategy::Continue)
+                .with_candidate_filter(|_, score| Ok(score > 1.0));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            ids.map(IdList::<true>::new),
+            NonZeroUsize::new(3).unwrap(),
+            Ascending,
+            mode,
+        );
+        let mut ids = Vec::new();
+        while let Some(result) = it.read().unwrap() {
+            ids.push(result.doc_id);
+        }
+        assert_eq!(ids, vec![2, 3], "{name}");
+    }
+}
+
+#[test]
+fn candidate_errors_propagate_with_a_child_and_in_direct_mode() {
+    for (mode, child) in [
+        (TopKMode::Batches, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::AdhocBF, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::Unfiltered, None),
+    ] {
+        let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![(1, 1.0)], |_, _| {
+            BatchStrategy::Continue
+        })
+        .with_candidate_filter(|_, _| Err(RQEIteratorError::Stopped));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            child,
+            NonZeroUsize::new(1).unwrap(),
+            Ascending,
+            mode,
+        );
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
+            "{mode:?}"
+        );
+    }
+}
 
 #[test]
 fn read_triggers_collection_on_first_call() {
@@ -286,14 +556,113 @@ fn unfiltered_empty_source_is_immediate_eof() {
 #[test]
 fn unfiltered_timeout_propagated() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
-        TimingOutSource,
+        TimingOutSource::default(),
         NonZeroUsize::new(5).unwrap(),
         Ascending,
     ));
     assert!(matches!(
         it.read().unwrap_err(),
-        rqe_iterators::RQEIteratorError::TimedOut
+        rqe_iterators::RQEIteratorError::Stopped
     ));
+}
+
+/// Collection work must stay bounded across repeated reads of an iterator whose
+/// collection keeps failing. A caller that reads again after a timeout — an
+/// `FT.CURSOR READ`, which arrives with a fresh deadline — otherwise drives a
+/// full scan every time and the query never terminates.
+#[test]
+fn failed_collection_is_not_restarted_on_every_read() {
+    const READS: usize = 5;
+
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+    for _ in 0..READS {
+        // Reporting the timeout again, or EOF, is fine; re-scanning is not.
+        let _ = it.read();
+    }
+
+    assert_eq!(
+        it.source().next_batch_calls,
+        1,
+        "each read restarted collection, so retrying is unbounded work"
+    );
+}
+
+/// What an aborted scan already collected is still served: under `ON_TIMEOUT
+/// RETURN` those rows are the partial answer the caller asked for, and serving
+/// them is what carries the iterator to EOF.
+#[test]
+fn failed_collection_yields_what_it_collected() {
+    let mut it = TopKIterator::new_with_mode(
+        PartialThenTimingOutSource::default(),
+        None::<Box<dyn RQEIterator<'_>>>,
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+        TopKMode::Batches,
+    );
+
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push(r.doc_id);
+    }
+    assert_eq!(emitted, vec![2, 1], "best score first");
+    assert!(it.at_eof(), "the spent iterator must report EOF");
+}
+
+#[test]
+fn batch_read_errors_preserve_already_collected_hits() {
+    for (name, child_ids, batch_error_after) in [
+        ("unfiltered next", None, 1),
+        ("filtered next", Some(vec![1, 2]), 1),
+        ("filtered skip", Some(vec![1, 4]), 2),
+    ] {
+        let source = PartialThenTimingOutSource {
+            batch_error_after: Some(batch_error_after),
+            ..Default::default()
+        };
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            child_ids.map(IdList::<true>::new),
+            NonZeroUsize::new(5).unwrap(),
+            Ascending,
+            TopKMode::Batches,
+        );
+
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
+            "{name}"
+        );
+        let emitted: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+        assert_eq!(emitted, vec![1], "{name}");
+        assert!(it.at_eof(), "{name}");
+    }
+}
+
+/// Only an explicit rewind starts a new scan, so a failed collection does not
+/// leave the iterator permanently spent.
+#[test]
+fn rewind_after_failed_collection_recollects() {
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+
+    assert!(it.read().is_err());
+    assert_eq!(it.source().next_batch_calls, 1);
+
+    it.rewind();
+    assert!(it.read().is_err());
+    assert_eq!(
+        it.source().next_batch_calls,
+        2,
+        "rewind must drive a fresh scan"
+    );
 }
 
 // ── Batches intersection ──────────────────────────────────────────────────
@@ -395,6 +764,22 @@ fn batches_no_child_keeps_top_k() {
 }
 
 #[test]
+fn batches_no_child_keeps_top_k_across_chunks() {
+    for (name, docs) in [("full chunk", 64), ("partial final chunk", 200)] {
+        let score = |id: DocId| ((id * 37) % 211) as f64;
+        let batch: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, score(id))).collect();
+        let k = 70;
+        let mut expected: Vec<DocId> = (1..=docs).collect();
+        expected.sort_by(|&a, &b| score(a).total_cmp(&score(b)));
+        expected.truncate(k);
+
+        let mut it = batches_no_child(vec![batch], k);
+        let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+        assert_eq!(doc_ids, expected, "{name}");
+    }
+}
+
+#[test]
 fn batches_no_child_fewer_than_k_yields_all() {
     let mut it = batches_no_child(vec![vec![(1, 3.0), (2, 1.0)]], 5);
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -471,7 +856,7 @@ fn unfiltered_timeout_polled_while_skipping_expired() {
         NonZeroUsize::new(3).unwrap(),
         Ascending,
     ));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -491,7 +876,7 @@ fn yield_timeout_polled_while_skipping_expired() {
         NonZeroUsize::new(3).unwrap(),
         Ascending,
     ));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -509,7 +894,7 @@ fn unfiltered_timeout_polled_before_yielding_valid() {
         Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -529,17 +914,17 @@ fn yield_timeout_polled_before_yielding_valid() {
         Ascending,
     ));
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
-fn retry_after_timeout_discards_partial_collection() {
-    // A scan that times out after collecting some hits, then is re-driven via
-    // read(), must re-collect from scratch. The collection paths append to the
-    // heap without de-duping against leftovers, so a retained partial hit would
-    // resurface as a duplicate doc id. The one-shot deadline fires on the second
-    // adhoc poll (mid-collection, with doc 1 already in the heap) and clears, so
-    // the retry runs clean and must yield each doc exactly once.
+fn timed_out_collection_serves_its_hits_even_if_the_deadline_clears() {
+    // A scan that times out after collecting some hits serves exactly those hits
+    // and then reports EOF, even though the one-shot deadline clears before the
+    // next read. Re-collecting instead would be unbounded, because every read can
+    // arrive with a fresh deadline. The documents the aborted scan never reached
+    // are lost rather than duplicated: the collection paths append to the heap
+    // without de-duping, so a second pass would resurface doc 1.
     let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
         BatchStrategy::Continue
     })
@@ -552,10 +937,14 @@ fn retry_after_timeout_discards_partial_collection() {
         TopKMode::AdhocBF,
     ));
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
-    assert_eq!(doc_ids, vec![1, 2, 3]);
+    assert_eq!(
+        doc_ids,
+        vec![1],
+        "only the hit the aborted scan had already made"
+    );
     assert!(it.at_eof());
 }
 
@@ -593,6 +982,15 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     }
 
     impl ScoreSource for OnceErrorSource {
+        fn release_index_handles(&mut self) {
+            // Only call counters; its batches are built in memory.
+        }
+
+        fn can_collect_after_lock_release(&self) -> bool {
+            // Never crosses a lock release in these tests; `false` is the safe answer.
+            false
+        }
+
         type Batch = MockScoreBatch;
 
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -602,7 +1000,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
                 // Session 1: return one batch then error, leaving the heap dirty.
                 match n {
                     0 => Ok(Some(MockScoreBatch::new(vec![(1, 1.0), (3, 3.0)]))),
-                    _ => Err(RQEIteratorError::TimedOut),
+                    _ => Err(RQEIteratorError::Stopped),
                 }
             } else {
                 // Session 2 (after rewind): return the same batch then stop cleanly.
@@ -669,7 +1067,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
 
     // Session 1: the source returns one batch (doc 1, doc 3 land in the heap)
     // then errors before finalize_collection() can drain it.
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     it.rewind();
 
@@ -833,15 +1231,24 @@ fn adhoc_empty_child_is_eof() {
 }
 
 /// An adhoc scan that hits the query deadline mid-walk must abort with
-/// [`RQEIteratorError::TimedOut`], not return a truncated top-k.
+/// [`RQEIteratorError::Stopped`], not return a truncated top-k.
 #[test]
 fn adhoc_timeout_propagated() {
-    // Returns `TimedOut` from the second `adhoc_strategy` call, simulating the
+    // Returns `Stopped` from the second `check_timeout` call, simulating the
     // deadline firing after one document has been scored.
     struct TimingOutAdhocSource {
         adhoc_calls: u32,
     }
     impl ScoreSource for TimingOutAdhocSource {
+        fn release_index_handles(&mut self) {
+            // Only a call counter; its batches are built in memory.
+        }
+
+        fn can_collect_after_lock_release(&self) -> bool {
+            // Never crosses a lock release in these tests; `false` is the safe answer.
+            false
+        }
+
         type Batch = MockScoreBatch;
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
             Ok(None)
@@ -875,7 +1282,7 @@ fn adhoc_timeout_propagated() {
         fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
             self.adhoc_calls += 1;
             if self.adhoc_calls >= 2 {
-                Err(RQEIteratorError::TimedOut)
+                Err(RQEIteratorError::Stopped)
             } else {
                 Ok(())
             }
@@ -892,7 +1299,7 @@ fn adhoc_timeout_propagated() {
         Ascending,
         TopKMode::AdhocBF,
     ));
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 }
 
 // ── ProfileChildren ───────────────────────────────────────────────────────────
@@ -973,6 +1380,99 @@ fn batches_preserves_child_scoring_fields() {
     // Best-first ASC order, each result carrying the child's scoring fields
     // rather than a freshly rebuilt record.
     assert_eq!(emitted, vec![(2, 7, 0xABC), (1, 7, 0xABC)]);
+}
+
+/// Without trimming, each match yields a copy of the child's full term record,
+/// query term and offsets included, rather than a metric-only result.
+///
+/// The child outlives every read here, so this does not check that the copy
+/// survives the child's terms; see
+/// [`batches_captured_terms_survive_a_union_dropping_an_aborted_child`].
+#[test]
+fn batches_yield_a_copy_of_the_child_term_record() {
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        Box::new(TermLeaf::new(vec![1, 2], "foo")) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        Ascending,
+    ));
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        let record = r.as_term().expect("the child's term record is yielded");
+        assert!(
+            matches!(record, RSTermRecord::Owned { .. }),
+            "the yielded record is a copy of the child's",
+        );
+        let term = record.query_term().and_then(RSQueryTerm::as_bytes);
+        emitted.push((
+            r.doc_id,
+            term.map(<[u8]>::to_vec),
+            record.offsets().to_vec(),
+        ));
+    }
+
+    let foo = Some(b"foo".to_vec());
+    let offsets = TermLeaf::OFFSETS.to_vec();
+    assert_eq!(
+        emitted,
+        vec![(2, foo.clone(), offsets.clone()), (1, foo, offsets)]
+    );
+}
+
+/// A union in the filter drops an aborted child during revalidation, and with it the query
+/// term that child's leaf owns, while the top-k still holds the records it captured from that
+/// leaf. Reading their terms afterwards must not touch the freed term; run under miri to
+/// check, since outside it a freed term usually still reads back its old values.
+#[test]
+fn batches_captured_terms_survive_a_union_dropping_an_aborted_child() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    // `bar` matches past the batch, so the union is not at EOF when revalidated: a union at
+    // EOF skips revalidating its children.
+    let foo = TermLeaf::new(vec![1, 2], "foo").aborting_on_revalidate();
+    let bar = TermLeaf::new(vec![100], "bar");
+    let child = Union::new(vec![
+        Box::new(foo) as Box<dyn RQEIterator<'_> + '_>,
+        Box::new(bar),
+    ]);
+
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        Ascending,
+    ));
+
+    let mut emitted = Vec::new();
+    let mut read_term = |r: &RSIndexResult<'_>| {
+        let record = r
+            .get(0)
+            .and_then(RSIndexResult::as_term)
+            .expect("the union's term child is yielded");
+        let term = record.query_term().and_then(RSQueryTerm::as_bytes);
+        emitted.push((r.doc_id, term.map(<[u8]>::to_vec)));
+    };
+
+    // The first read collects every match, capturing `foo`'s records.
+    read_term(it.read().unwrap().expect("a first match"));
+    assert_eq!(
+        it.revalidate(&mock_ctx.spec_read()).unwrap(),
+        RQEValidateStatus::Ok,
+        "the union survives on `bar`, so the top-k carries on",
+    );
+    while let Some(r) = it.read().unwrap() {
+        read_term(r);
+    }
+
+    let foo = Some(b"foo".to_vec());
+    assert_eq!(emitted, vec![(2, foo.clone()), (1, foo)]);
 }
 
 /// Same setup as [`batches_preserves_child_scoring_fields`], with deep-result

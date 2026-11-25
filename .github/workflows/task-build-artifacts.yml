@@ -11,6 +11,9 @@ on:
         description: 'Architecture (x86_64, aarch64)'
         type: string
         required: true
+      packages:
+        type: string
+        description: 'Space-separated package ids this build must produce (generate-matrix.yml `packages`). Empty skips the check.'
       ref:
         type: string
         description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
@@ -40,6 +43,8 @@ jobs:
   get-config:
     permissions: {} # task-get-config.yml only resolves config values
     uses: ./.github/workflows/task-get-config.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
@@ -52,6 +57,8 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON_X64_MEDIUM || vars.RUNS_ON || 'ubuntu-latest' }}
@@ -127,7 +134,9 @@ jobs:
           echo "HOME=$h" >> "$GITHUB_ENV"
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: ${{ needs.get-config.outputs.setup_script }}
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -137,6 +146,12 @@ jobs:
         with:
           submodules: recursive
           ref: ${{ env.REF }}
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+
       - name: Setup sccache
         if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
@@ -147,24 +162,24 @@ jobs:
           s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Install aws cli
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
         # github_token (scoped to this step) lets cargo-binstall, invoked via
         # common_installations.sh, use authenticated GitHub API calls
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
           github_token: ${{ github.token }}
       - name: install build artifacts req
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: uv pip install -q -r .install/build_package_requirements.txt
 
@@ -181,12 +196,40 @@ jobs:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
 
+      - name: Verify packages match generate-matrix.yml
+        if: inputs.packages != ''
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          ARCH: ${{ inputs.architecture }}
+        run: |
+          cd bin/artifacts/snapshots
+          shopt -s nullglob
+          all=(redisearch-community.*.zip)
+          printf '%s\n' "${all[@]}"
+          failed=0
+          for id in $PACKAGES; do
+            files=("redisearch-community.$id-$ARCH."*.zip)
+            if (( ${#files[@]} != 1 )); then
+              echo "::error title=Unexpected package name::Expected one redisearch-community.$id-$ARCH.*.zip, found ${#files[@]}. Either packing skipped it, or sbin/get-platform names this platform differently and package_platforms in generate-matrix.yml needs updating."
+              failed=1
+            fi
+          done
+          expected=$(wc -w <<< "$PACKAGES")
+          if (( ${#all[@]} != expected )); then
+            echo "::error title=Unexpected packages::Expected $expected packages, found ${#all[@]}"
+            failed=1
+          fi
+          exit $failed
+
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/validate-glibc-version
+      - name: Validate OpenSSL linkage
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/validate-openssl-linkage
 
       # Upload
       - name: Configure AWS Credentials

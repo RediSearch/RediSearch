@@ -21,14 +21,11 @@
 //!
 //! [`TagValueReader`] reads the postings (document ids) of a single tag value.
 
-use std::time::Instant;
-
 use ffi::timespec;
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader, IndexReaderCore, InvertedIndex, doc_ids_only::DocIdsOnly};
 use lending_iterator::LendingIterator as _;
-use rqe_wildcard::WildcardPattern;
-use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardLendingIter, filter::VisitAll};
+use trie_rs::iter::{LendingIter, PatternLendingIter, filter::VisitAll};
 
 use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
 
@@ -38,46 +35,8 @@ use crate::{InMemoryMode, SuffixData, Tag, TagIndex, TagIndexMode};
 type BoxedInvertedIndex = Box<InvertedIndex<DocIdsOnly>>;
 
 /// Which subset of tag values a [filtered iterator](TagIndex::value_iter_filtered)
-/// walks. A tag matches when it starts with (`Prefix`), ends with (`Suffix`),
-/// contains (`Contains`), or wildcard-matches (`Wildcard`) the pattern.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IterMode {
-    /// Tags starting with the pattern.
-    Prefix,
-    /// Tags containing the pattern.
-    Contains,
-    /// Tags ending with the pattern.
-    Suffix,
-    /// Tags matching the wildcard pattern (`*` and `?` metacharacters).
-    Wildcard,
-}
-
-/// The concrete tag-value iterator, one variant per underlying `trie_rs` iterator
-/// shape.
-enum TagIndexIteratorImpl<'ti, Value> {
-    /// Full iteration or prefix filter.
-    All(LendingIter<'ti, Value, VisitAll>),
-    /// Entries whose key contains a fragment.
-    Contains(ContainsLendingIter<'ti, 'ti, Value>),
-    /// Entries whose key matches a wildcard pattern.
-    Wildcard(WildcardLendingIter<'ti, 'ti, Value>),
-    /// Entries whose key ends with a suffix — the brute-force path a `*foo` query
-    /// takes when the field was created without `WITHSUFFIXTRIE`, so there is no
-    /// suffix trie to turn it into a prefix lookup.
-    Suffix(LendingIter<'ti, Value, VisitAll>, Tag<'ti>),
-}
-
-impl<Value> TagIndexIteratorImpl<'_, Value> {
-    /// Forward deadline to the behind iterator.
-    fn set_timeout(&mut self, deadline: Option<Instant>) {
-        match self {
-            Self::All(it) => it.set_timeout(deadline),
-            Self::Contains(it) => it.set_timeout(deadline),
-            Self::Wildcard(it) => it.set_timeout(deadline),
-            Self::Suffix(it, _) => it.set_timeout(deadline),
-        }
-    }
-}
+/// walks.
+pub use trie_rs::iter::PatternMode as IterMode;
 
 /// An iterator over the values (tags) stored in a [`TagIndex`], returned by
 /// [`TagIndex::value_iter`] and [`TagIndex::value_iter_filtered`].
@@ -90,7 +49,7 @@ impl<Value> TagIndexIteratorImpl<'_, Value> {
 /// passed. The tag it yields is borrowed from trie-internal storage, and is
 /// invalidated by the next call.
 pub struct TagIndexIterator<'ti, Value> {
-    iter: TagIndexIteratorImpl<'ti, Value>,
+    iter: PatternLendingIter<'ti, 'ti, Value>,
 }
 
 /// A [`TagIndexIterator`] over a memory-mode index, yielding each tag's postings
@@ -107,15 +66,7 @@ impl<'ti, Value> TagIndexIterator<'ti, Value> {
     ///
     /// The tag borrows from this call, not from the trie itself. It is invalidated by the next call.
     fn next_entry(&mut self) -> Option<(Tag<'_>, &Value)> {
-        let (k, v) = match &mut self.iter {
-            TagIndexIteratorImpl::All(it) => it.next(),
-            TagIndexIteratorImpl::Contains(it) => it.next(),
-            TagIndexIteratorImpl::Wildcard(it) => it.next(),
-            TagIndexIteratorImpl::Suffix(it, suffix) => {
-                let suffix = *suffix;
-                it.find(move |(k, _)| k.ends_with(suffix.as_bytes()))
-            }
-        }?;
+        let (k, v) = self.iter.next()?;
         // SAFETY: this walks a `TagIndex` values trie, which is only ever
         // populated through `Tag`-typed keys (see `TagIndex::index`), so every
         // key it yields satisfies `Tag`'s NUL-free invariant.
@@ -155,7 +106,7 @@ impl TagIndex<InMemoryMode> {
     /// of the tag.
     pub fn value_iter(&self) -> MemTagIndexIterator<'_> {
         TagIndexIterator {
-            iter: TagIndexIteratorImpl::All(self.mode.values.lending_iter()),
+            iter: self.mode.values.lending_iter().into(),
         }
     }
 
@@ -168,25 +119,10 @@ impl TagIndex<InMemoryMode> {
         pattern: Tag<'a>,
         iter_mode: IterMode,
     ) -> MemTagIndexIterator<'a> {
-        let bytes = pattern.as_bytes();
-        let iter = match iter_mode {
-            IterMode::Prefix => {
-                TagIndexIteratorImpl::All(self.mode.values.prefixed_lending_iter(bytes))
-            }
-            IterMode::Contains => {
-                TagIndexIteratorImpl::Contains(self.mode.values.contains_iter(bytes).into())
-            }
-            // The walk carries the pattern itself; `next_entry` does the matching.
-            IterMode::Suffix => {
-                TagIndexIteratorImpl::Suffix(self.mode.values.lending_iter(), pattern)
-            }
-            IterMode::Wildcard => TagIndexIteratorImpl::Wildcard(
-                self.mode
-                    .values
-                    .wildcard_iter(WildcardPattern::parse(bytes))
-                    .into(),
-            ),
-        };
+        let iter = self
+            .mode
+            .values
+            .pattern_lending_iter(pattern.as_bytes(), iter_mode);
 
         TagIndexIterator { iter }
     }

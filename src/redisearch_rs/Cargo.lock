@@ -183,6 +183,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "bytes"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -358,6 +370,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ddb117e43bbf7dacf0a4190fef4d345b9bad68dfc649cb349e7d17d28428e51"
 dependencies = [
  "clap_builder",
+ "clap_derive",
 ]
 
 [[package]]
@@ -368,6 +381,18 @@ checksum = "714a53001bf66416adb0e2ef5ac857140e7dc3a0c48fb28b2f10762fc4b5069f"
 dependencies = [
  "anstyle",
  "clap_lex",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ce8604710f6733aa641a2b3731eaa1e8b3d9973d5e3565da11800813f997a9"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote 1.0.46",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -507,6 +532,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "deleted_docs"
+version = "0.0.1"
+dependencies = [
+ "roaring",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "deleted_docs_ffi"
+version = "0.0.1"
+dependencies = [
+ "deleted_docs",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "dict"
 version = "0.0.1"
 dependencies = [
@@ -534,12 +577,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc_key_map_ffi"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "hashbrown",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "document"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
  "strum",
- "thiserror",
  "workspace_hack",
 ]
 
@@ -647,6 +699,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
+name = "fat_array"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "fat_array",
+ "ffi",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "ffi"
 version = "0.0.1"
 dependencies = [
@@ -655,6 +719,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "libc",
  "query_term",
  "query_types",
  "redis-module",
@@ -680,7 +745,6 @@ name = "field"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "ffi",
  "rqe_core",
  "workspace_hack",
 ]
@@ -729,53 +793,6 @@ name = "fnv_ffi"
 version = "0.0.1"
 dependencies = [
  "fnv",
- "workspace_hack",
-]
-
-[[package]]
-name = "fork_gc"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "c_trie",
- "dict",
- "ffi",
- "field_spec",
- "fork_gc",
- "global_config",
- "hidden_string",
- "index_result",
- "index_spec",
- "inverted_index",
- "libc",
- "nix",
- "nul_terminated_bytes",
- "numeric_range_tree",
- "proptest",
- "redis-module",
- "redis_mock",
- "redisearch_rs",
- "rmp-serde",
- "rqe_core",
- "serde",
- "string_utils",
- "thiserror",
- "tracing",
- "workspace_hack",
-]
-
-[[package]]
-name = "fork_gc_ffi"
-version = "0.0.1"
-dependencies = [
- "cheadergen",
- "ffi",
- "fork_gc",
- "index_spec",
- "nul_terminated_bytes",
- "redis-module",
- "tracing",
- "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -1076,11 +1093,55 @@ dependencies = [
 ]
 
 [[package]]
-name = "idf_ffi"
+name = "index_gc"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "idf",
+ "c_trie",
+ "criterion",
+ "deleted_docs",
+ "dict",
+ "document",
+ "ffi",
+ "field_spec",
+ "global_config",
+ "hidden_string",
+ "index_gc",
+ "index_result",
+ "index_spec",
+ "inverted_index",
+ "lending-iterator",
+ "libc",
+ "nix",
+ "nul_terminated_bytes",
+ "numeric_range_tree",
+ "proptest",
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "rmp-serde",
+ "roaring",
+ "rqe_core",
+ "serde",
+ "serde_bytes",
+ "sparse_vector_index",
+ "string_utils",
+ "thiserror",
+ "tracing",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_gc_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "index_gc",
+ "index_spec",
+ "tracing",
+ "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -1104,12 +1165,14 @@ name = "index_spec"
 version = "0.0.1"
 dependencies = [
  "c_trie",
+ "deleted_docs",
  "dict",
  "document",
  "ffi",
  "field_spec",
  "hidden_string",
  "inverted_index",
+ "libc",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -1160,7 +1223,6 @@ dependencies = [
  "cheadergen",
  "enumflags2",
  "ffi",
- "field",
  "index_result",
  "pretty_assertions",
  "proptest",
@@ -1168,6 +1230,7 @@ dependencies = [
  "query_term",
  "redis_reply",
  "ref_mode",
+ "rmp-serde",
  "rqe_core",
  "serde",
  "smallvec",
@@ -1180,7 +1243,6 @@ dependencies = [
 name = "inverted_index_bencher"
 version = "0.0.1"
 dependencies = [
- "buffer",
  "criterion",
  "ffi",
  "index_result",
@@ -1222,14 +1284,20 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis-module",
+ "redis_mock",
  "redis_reply",
+ "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "rstest",
  "top_k",
  "trie_rs",
+ "vecsim",
  "vector_score_source",
  "workspace_hack",
 ]
@@ -1267,6 +1335,24 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "language"
+version = "0.0.1"
+dependencies = [
+ "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "language_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "language",
+ "strum",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -1398,8 +1484,18 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "index_result",
- "inverted_index",
  "workspace_hack",
+]
+
+[[package]]
+name = "migration_stats"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "plotters",
+ "proc-macro2",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1531,7 +1627,6 @@ dependencies = [
  "insta",
  "inverted_index",
  "numeric_range_tree",
- "pretty_assertions",
  "proptest",
  "redis_mock",
  "redis_reply",
@@ -1539,6 +1634,8 @@ dependencies = [
  "ref_mode",
  "rqe_core",
  "rstest",
+ "serde",
+ "serde_bytes",
  "tracing",
  "workspace_hack",
 ]
@@ -1547,19 +1644,10 @@ dependencies = [
 name = "numeric_range_tree_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
- "generational_slab",
- "hyperloglog",
- "index_result",
- "inverted_index",
- "inverted_index_ffi",
  "numeric_range_tree",
  "redis-module",
  "redis_mock",
- "rmp-serde",
  "rqe_core",
- "serde",
- "tracing",
  "workspace_hack",
 ]
 
@@ -1568,16 +1656,19 @@ name = "numeric_score_source"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "cheadergen",
  "index_result",
  "inverted_index",
  "itertools 0.15.0",
  "numeric_range_tree",
  "numeric_score_source",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "workspace_hack",
 ]
@@ -1622,6 +1713,13 @@ name = "oorandom"
 version = "11.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+
+[[package]]
+name = "over_aligned_alloc"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
 
 [[package]]
 name = "page_size"
@@ -1704,6 +1802,22 @@ name = "polonius-the-crab"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a69ee997a6282f8462abf1e0d8c38c965e968799e912b3bed8c9e8a28c2f9f"
+
+[[package]]
+name = "port_graph"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "clap",
+ "serde_json",
+ "toml",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-cpp",
+ "tree-sitter-rust",
+ "walkdir",
+]
 
 [[package]]
 name = "potential_utf"
@@ -1797,7 +1911,6 @@ version = "0.0.1"
 dependencies = [
  "criterion",
  "proptest",
- "proptest-derive",
  "rand 0.10.1",
  "workspace_hack",
 ]
@@ -1851,6 +1964,9 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "c_trie",
+ "dict",
+ "doc_key_map_ffi",
+ "fat_array",
  "ffi",
  "field",
  "geo",
@@ -1858,7 +1974,7 @@ dependencies = [
  "index_result",
  "inverted_index",
  "inverted_index_ffi",
- "proptest",
+ "lending-iterator",
  "query",
  "query_error",
  "query_eval",
@@ -1874,8 +1990,11 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rs_token",
  "search_disk",
+ "sparse_vector_index",
  "string_utils",
  "thiserror",
+ "trie_rs",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -1886,8 +2005,8 @@ dependencies = [
  "ffi",
  "global_config",
  "query_eval",
- "query_types",
  "rqe_iterators",
+ "slots_tracker",
  "workspace_hack",
 ]
 
@@ -2074,7 +2193,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "backtrace",
  "bindgen",
@@ -2097,7 +2216,7 @@ dependencies = [
 [[package]]
 name = "redis-module-common"
 version = "0.1.1"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "serde",
 ]
@@ -2105,7 +2224,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "2.0.8"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=f4d68b97520aafc9baa2a946d42652415c4df002#f4d68b97520aafc9baa2a946d42652415c4df002"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=a808377ffde496d2cb8bcf26ee76a52080da9d89#a808377ffde496d2cb8bcf26ee76a52080da9d89"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2129,6 +2248,7 @@ dependencies = [
 name = "redis_mock"
 version = "0.0.1"
 dependencies = [
+ "cc",
  "ffi",
  "global_config",
  "libc",
@@ -2153,16 +2273,18 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
- "build_utils",
+ "deleted_docs_ffi",
+ "doc_key_map_ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
- "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
+ "over_aligned_alloc",
  "query_error_ffi",
  "query_eval_ffi",
  "query_term_ffi",
@@ -2174,7 +2296,9 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "sparse_vector_index_ffi",
  "spellcheck_dictionary_ffi",
+ "string_utils_ffi",
  "syn 2.0.118",
  "term_dictionary_ffi",
  "term_suffix_index_ffi",
@@ -2197,16 +2321,18 @@ dependencies = [
  "bumpalo",
  "ffi",
  "global_config",
+ "hyperloglog",
  "indexmap",
  "itertools 0.15.0",
+ "libc",
  "min-max-heap",
  "priority-queue",
- "query_error",
  "redis_mock",
  "redisearch_rs",
  "reducers",
  "rlookup",
  "rqe_core",
+ "rustc-hash",
  "tracing",
  "tracing_assert",
  "value",
@@ -2313,6 +2439,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "build_utils",
  "c_ffi_utils",
  "cheadergen",
@@ -2321,13 +2448,13 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field_spec",
+ "hashbrown",
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",
  "lending-iterator",
  "libc",
  "pin-project",
- "pretty_assertions",
  "proptest",
  "query_error",
  "redis-module",
@@ -2399,6 +2526,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "roaring"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18bd8a37d17a58532776dcdf6041ce64929adca78e8489d5cacbafe99229d3e1"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+]
+
+[[package]]
 name = "rqe_core"
 version = "0.0.1"
 dependencies = [
@@ -2432,7 +2569,6 @@ dependencies = [
  "iterators_ffi",
  "libc",
  "numeric_range_tree",
- "pretty_assertions",
  "proptest",
  "query_error",
  "query_term",
@@ -2491,17 +2627,18 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field",
  "geo",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
- "numeric_range_tree_ffi",
  "query_error",
  "redis-module",
  "redis_mock",
@@ -2519,13 +2656,15 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "deleted_docs_ffi",
+ "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
- "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "language_ffi",
  "memchr",
  "metrics_ffi",
  "module_init_ffi",
@@ -2542,6 +2681,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "sparse_vector_index_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -2640,9 +2780,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.41"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b92b125634d9b795e7beca796cc790df15a7fb38323bf3196fda83292d06b1f"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -2664,9 +2804,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2759,7 +2899,6 @@ dependencies = [
  "ffi",
  "inverted_index",
  "search_result",
- "unsafe-tools",
  "workspace_hack",
 ]
 
@@ -2781,6 +2920,16 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -2809,6 +2958,7 @@ version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -2896,6 +3046,8 @@ dependencies = [
  "build_utils",
  "ffi",
  "icu_casemap",
+ "proptest",
+ "rdb_io",
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
@@ -2912,10 +3064,46 @@ dependencies = [
  "ffi",
  "libc",
  "query_error",
+ "redis-module",
  "sorting_vector",
  "thin_vec",
  "value",
  "value_ffi",
+ "workspace_hack",
+]
+
+[[package]]
+name = "sparse_vector_index"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "ffi",
+ "index_result",
+ "index_spec",
+ "inverted_index",
+ "proptest",
+ "redis_mock",
+ "redis_reply",
+ "redisearch_rs",
+ "ref_mode",
+ "rlookup",
+ "rqe_core",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "rstest",
+ "rustc-hash",
+ "sparse_vector_index",
+ "workspace_hack",
+]
+
+[[package]]
+name = "sparse_vector_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis_reply",
+ "sparse_vector_index",
  "workspace_hack",
 ]
 
@@ -2948,6 +3136,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
+
+[[package]]
 name = "string_utils"
 version = "0.0.1"
 dependencies = [
@@ -2961,6 +3155,14 @@ dependencies = [
  "rstest",
  "string_utils",
  "thiserror",
+ "workspace_hack",
+]
+
+[[package]]
+name = "string_utils_ffi"
+version = "0.0.1"
+dependencies = [
+ "string_utils",
  "workspace_hack",
 ]
 
@@ -3117,6 +3319,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cheadergen",
+ "ffi",
  "redis_mock",
  "redisearch_rs",
  "term_dictionary",
@@ -3256,6 +3459,7 @@ name = "top_k"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "ffi",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -3263,6 +3467,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
@@ -3278,9 +3483,13 @@ dependencies = [
  "bindgen",
  "build_utils",
  "criterion",
+ "index_result",
+ "index_spec",
  "rand 0.10.1",
  "redis_mock",
  "redisearch_rs",
+ "rqe_core",
+ "rqe_iterator_type",
  "rqe_iterators",
  "top_k",
  "workspace_hack",
@@ -3364,6 +3573,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37b2bed8f39a73439f3b0b7ed8f452be5d2911b5e9da69d352ef113bb7448fb8"
+dependencies = [
+ "cc",
+ "regex",
+ "serde_json",
+ "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-c"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9b2eb57a55fed6b00812912e730b7a275cf4fe98bfd6a5d76263d4438371728"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-cpp"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df2196ea9d47b4ab4a31b9297eaa5a5d19a0b121dceb9f118f6790ad0ab94743"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
+
+[[package]]
+name = "tree-sitter-rust"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "trie_bencher"
 version = "0.0.1"
 dependencies = [
@@ -3408,8 +3666,6 @@ name = "trie_rs"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "ffi",
- "fs-err",
  "insta",
  "lending-iterator",
  "libc",
@@ -3429,10 +3685,12 @@ version = "0.0.1"
 dependencies = [
  "lending-iterator",
  "libc",
+ "proptest",
+ "rdb_io",
  "redis-module",
  "redis_mock",
- "rqe_wildcard",
  "thin_vec",
+ "trie_rdb",
  "trie_rs",
  "workspace_hack",
 ]
@@ -3496,7 +3754,6 @@ name = "types_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "field",
  "index_result",
  "inverted_index",
  "ref_mode",
@@ -3520,28 +3777,6 @@ name = "unicode-xid"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"
-
-[[package]]
-name = "unsafe-tools"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ae4406a7eaa72970d80d69c25ed0df481ff68c21eae62cb09ca13e27ec2da3a"
-dependencies = [
- "unsafe-tools-canary",
- "unsafe-tools-mimic",
-]
-
-[[package]]
-name = "unsafe-tools-canary"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08dbed46104a79e4e32531f87299df16b53214daaffde2a3c488ac3f502f4e4e"
-
-[[package]]
-name = "unsafe-tools-mimic"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c925fa852969cb33845bcb97736763d404ec5cd9210c58ebf3cefe39abbed80a"
 
 [[package]]
 name = "untrusted"
@@ -3607,9 +3842,11 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "c_ffi_utils",
  "cheadergen",
  "ffi",
+ "itoa",
  "libc",
  "nul_terminated_bytes",
  "query_error",
@@ -3621,6 +3858,7 @@ dependencies = [
  "tracing",
  "tracing_assert",
  "triomphe",
+ "value",
  "workspace_hack",
 ]
 
@@ -3645,7 +3883,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "proptest",
- "proptest-derive",
  "workspace_hack",
 ]
 
@@ -3684,13 +3921,13 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "field",
  "index_result",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
  "rlookup",
  "rqe_core",
- "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",
@@ -3813,9 +4050,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.8"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf85cb06032201fa7c6f829d7db5a7e5aa45bcc0655327713065f6f0576731bf"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -3975,6 +4212,7 @@ dependencies = [
  "clang-sys",
  "either",
  "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "insta",
  "itertools 0.13.0",
@@ -3983,6 +4221,7 @@ dependencies = [
  "miniz_oxide",
  "nix",
  "num-traits 0.2.19",
+ "once_cell",
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.46",

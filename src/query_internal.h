@@ -41,6 +41,10 @@ extern "C" {
 
   QueryError *status;
 
+  // Unescaped copies of escaped field names (an array), so the parser never writes into `raw`.
+  // They stay valid until QueryParseCtx_Cleanup.
+  char **unescapedNames;
+
   #ifdef PARSER_DEBUG
   FILE *trace_log;
   #endif
@@ -48,6 +52,9 @@ extern "C" {
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
+
+// Release what the parse allocated for its own use; the resulting AST does not depend on it.
+void QueryParseCtx_Cleanup(QueryParseCtx *q);
 
 struct QueryAST;
 struct NumericFilter;
@@ -77,6 +84,17 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 QueryNode *NewTagNode(const FieldSpec *fs);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
+QueryNode *NewSparseVectorNode_WithParams(QueryParseCtx *q, const FieldSpec *field,
+                                          QueryToken *vec);
+
+/* Build a `QN_LEXRANGE` node bounded on exactly one side.
+ *
+ * `lower` selects which side `bound` bounds - the range's beginning when true,
+ * its end when false - and `inclusive` whether the bound itself is in range.
+ * `bound` may be a literal or a query parameter (`QT_PARAM_TERM_CASE`), in which
+ * case the node carries a parameter resolved before evaluation. */
+QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
+                                      bool inclusive);
 
 QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 void QueryNode_InitParams(QueryNode *n, size_t num);

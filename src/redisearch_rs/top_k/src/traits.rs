@@ -23,17 +23,31 @@ use crate::heap::ScoredResult;
 /// [`TopKIterator`]'s intersection engine.  Doc IDs within a batch must be
 /// **strictly increasing**.
 ///
+/// A batch that returns `Err` is spent: it may have consumed entries it did not
+/// yield, so it must be dropped rather than read again.
+///
+/// # Obligation: independent of the index on the Unfiltered path
+///
+/// A batch from [`all_results_unfiltered_batch`](ScoreSource::all_results_unfiltered_batch)
+/// must own everything it yields and hold no reference or pointer into the
+/// index, neither for [`next`](Self::next) nor for its own `Drop`. On the
+/// [`Unfiltered`](crate::TopKMode::Unfiltered) path the [`TopKIterator`] keeps
+/// its in-progress batch across a suspend/resume cycle, while the index lock is
+/// released, and nothing at either boundary inspects or rebuilds it. A batch
+/// from [`next_batch`](ScoreSource::next_batch) is consumed within a single
+/// collection, so it may read the index.
+///
 /// [`TopKIterator`]: crate::TopKIterator
 pub trait ScoreBatch {
     /// Advance to the next `(doc_id, score)` pair.
     ///
-    /// Returns `None` when the batch is exhausted.
-    fn next(&mut self) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` when the batch is exhausted.
+    fn next(&mut self) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 
     /// Skip forward to the first pair whose `doc_id >= target`.
     ///
-    /// Returns `None` if no such pair exists in this batch.
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` if no such pair exists in this batch.
+    fn skip_to(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 }
 
 /// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
@@ -97,7 +111,7 @@ pub trait ScoreSource {
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
-    /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
+    /// - `Err(RQEIteratorError::Stopped)`: the query ended early on a timeout or memory pressure.
     ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     /// [`TopKIterator`]: crate::TopKIterator
@@ -120,6 +134,19 @@ pub trait ScoreSource {
     ///
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
+
+    /// Whether a candidate may take a heap slot.
+    ///
+    /// Called before every heap insertion, after the candidate matched the
+    /// child if there is one, so a rejected candidate never displaces a valid
+    /// one from the bounded heap. Errors propagate to the caller. The default
+    /// admits everything.
+    fn accept_candidate(&mut self, _doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
+        Ok(true)
+    }
+
+    /// Called when an accepted candidate takes a heap slot, evicting `evicted`.
+    fn admitted(&mut self, _doc_id: DocId, _evicted: Option<DocId>) {}
 
     /// Whether `result` is no longer valid and must not be surfaced
     /// (e.g. its field has expired).
@@ -190,6 +217,15 @@ pub trait ScoreSource {
     /// can produce.
     fn num_estimated(&self) -> usize;
 
+    /// Release scan resources after results have been collected into the iterator's buffer.
+    ///
+    /// Called by [`TopKIterator`] before yielding buffered results, including partial results
+    /// after an error. Must preserve state needed to yield those results and profile counters.
+    /// The default is a no-op.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn finish_collection(&mut self) {}
+
     /// Rewind the source to its initial state so batch iteration can restart.
     fn rewind(&mut self);
 
@@ -211,7 +247,27 @@ pub trait ScoreSource {
     /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
     /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
+    /// # Obligation: no index-backed payload
+    ///
+    /// The returned record must carry **no index-backed payload**: no borrowed
+    /// term-offset slice, no borrowed aggregate entries, and a null
+    /// [`dmd`](RSIndexResult::dmd), which points into the document table. Build
+    /// them owned instead (a metric-only result, or a term record whose offsets
+    /// were copied — see [`RSIndexResult::to_owned`]).
+    ///
+    /// [`TopKIterator`] parks the record it yields in a buffer that survives a
+    /// suspend/resume cycle, across which the index lock is released and any
+    /// index-backed bytes may be freed underneath it. This obligation is what
+    /// makes those buffers safe to keep (invariant 2 on
+    /// [`RawTopK`](crate::iterator::RawTopK)).
+    ///
+    /// It cannot be enforced statically, so it is checked at the resume
+    /// boundary: a violating record makes the whole iterator abort
+    /// ([`ResumeOutcome::Aborted`]) rather than re-narrow pointers into freed
+    /// index memory — the query loses its results, but stays sound.
+    ///
     /// [`TopKIterator`]: crate::TopKIterator
+    /// [`ResumeOutcome::Aborted`]: rqe_iterators::ResumeOutcome::Aborted
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
@@ -258,12 +314,67 @@ pub trait ScoreSource {
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
-    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// Poll the query deadline, returning [`RQEIteratorError::Stopped`] once
     /// it has been reached.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
+
+    /// Amortized memory checkpoint, polled once per document of the adhoc-BF
+    /// scan next to [`check_timeout`](Self::check_timeout).
+    ///
+    /// Kept apart from the timeout poll so the cheap deadline check keeps its
+    /// own cadence while the costlier memory read is amortized by the
+    /// request's checkpoint. Returns [`RQEIteratorError::Stopped`] when memory
+    /// is under pressure; the request's memory stop, which is sticky, tells it
+    /// from a timeout. The default never stops.
+    fn check_memory(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    /// Unamortized [`check_memory`](Self::check_memory), called once when the
+    /// adhoc-BF scan ends, because rerank and finalization copy the heap and
+    /// a scan shorter than the amortization interval would otherwise never
+    /// read memory. The default never stops.
+    fn check_memory_now(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn iterator_type(&self) -> IteratorType;
+
+    /// Release any state this source borrows from the index, so it can survive
+    /// a release of the index spec read lock.
+    ///
+    /// A source is carried across a suspend/resume cycle untouched — it is not
+    /// [`Ref`](ref_mode::Ref)-mode parametrised, so nothing about the transition
+    /// weakens what it holds. Anything index-backed inside it therefore outlives
+    /// the guarantee it was created under, and a concurrent writer or a dropped
+    /// index leaves it dangling — including on the `Drop` path, which is the
+    /// part that bites: a VecSim batch iterator dereferences its index pointer
+    /// when freed, so merely *discarding* a suspended top-k would fault.
+    ///
+    /// Called by [`TopKIterator`]'s [`suspend`] before the lock is released.
+    /// Only reachable with collection finished or not yet started — collection
+    /// never outlives a single `read` — so a source may drop such state outright
+    /// rather than trying to preserve it; there is no batch sequence left to
+    /// continue.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    /// [`suspend`]: rqe_iterators::RQEIteratorBoxed::suspend
+    fn release_index_handles(&mut self);
+
+    /// Whether this source can still collect after the index spec read lock
+    /// was released and re-acquired, once
+    /// [`release_index_handles`](Self::release_index_handles) has run.
+    ///
+    /// `true` only if everything a collection reads is either rebuilt lazily
+    /// or valid for as long as the index spec itself. A source that keeps
+    /// pointers into a structure a concurrent writer or GC can reshape (such
+    /// as a range stream into a numeric tree) must return `false`; the
+    /// [`TopKIterator`] then refuses to collect through it after a lock
+    /// release.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn can_collect_after_lock_release(&self) -> bool;
 }

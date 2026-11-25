@@ -32,15 +32,17 @@ typedef enum {
 #define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
 #define SUMMARIZE_DEFAULT_SEPARATOR "... "
 
+// The strings in SummarizeSettings and HighlightSettings are borrowed: static defaults or the
+// request's held argv.
 typedef struct {
   uint32_t contextLen;
   uint16_t numFrags;
-  char *separator;
+  const char *separator;
 } SummarizeSettings;
 
 typedef struct {
-  char *openTag;
-  char *closeTag;
+  const char *openTag;
+  const char *closeTag;
 } HighlightSettings;
 
 typedef struct {

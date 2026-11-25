@@ -34,5 +34,20 @@ Standards to follow when writing Rust documentation.
   a function/method body.
 - Focus on why, not how.
   In particular, avoid explaining trivial implementation details in line comments.
+- A `// SAFETY:` comment justifies the operation it precedes; it does not restate the
+  precondition. Say why it holds *here*:
+  ```rust
+  // SAFETY: caller guarantees (1).                                     // restates
+  // SAFETY: 1. `filter` came from `NewGeoFilter`, which allocated it.  // justifies
+  ```
+  Name the number of each pre-condition it discharges, as
+  [`/rust-review`](../rust-review/SKILL.md) § 3b requires. Write one `unsafe` block, and one
+  comment, per unsafe operation: `clippy::multiple_unsafe_ops_per_block` rejects a block holding
+  several.
+- Document what an item guarantees today, not its history: leave out how the C did it, and
+  narration ("This ensures…", "Now we…"). When the code deliberately differs from what a reader
+  would expect, one sentence saying why is enough.
+- State facts plainly. Do not hedge ("should", "generally", "it is worth noting"), and do not
+  list caveats about what the docs do not imply.
 - Refer to constants using intra-documentation links. Don't hard-code their values in the documentation of other items.
 - Intra-documentation links to private items are preferable to duplication. Add `#[allow(rustdoc::private_intra_doc_links)]` where relevant.

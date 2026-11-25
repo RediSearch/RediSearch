@@ -87,7 +87,6 @@ pub enum QueryErrorCode {
     VectorNotAllowed,
     OutOfMemory,
     UnavailableSlots,
-    FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
@@ -411,11 +410,6 @@ impl QueryErrorCode {
                 default_msg: c"Query requires unavailable slots",
                 default_full_msg: c"SEARCH_SLOTS_UNAVAIL Query requires unavailable slots",
             },
-            Self::FlexLimitNumberOfIndexes => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES ",
-                default_msg: c"Flex index limit was reached",
-                default_full_msg: c"SEARCH_FLEX_LIMIT_NUMBER_OF_INDEXES Flex index limit was reached",
-            },
             Self::FlexUnsupportedField => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD ",
                 default_msg: c"Unsupported field for Flex index",
@@ -483,8 +477,8 @@ impl QueryErrorCode {
             },
             Self::SafeDepleterFailure => ErrorCodeStrings {
                 prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
-                default_msg: c"Failed to acquire index lock for background depletion",
-                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock for background depletion",
+                default_msg: c"Background depletion failed",
+                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Background depletion failed",
             },
             Self::FlexUnsupportedQuery => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
@@ -641,6 +635,11 @@ impl QueryError {
         self.private_message = None;
         self.public_message = None;
     }
+
+    /// Clears the warnings, leaving the error code and messages untouched.
+    pub fn clear_warnings(&mut self) {
+        self.warnings = Warnings::default();
+    }
 }
 
 // Enum for query warnings
@@ -730,6 +729,27 @@ pub mod opaque {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `clear` and `clear_warnings` are complements: each resets its half of the state and
+    /// leaves the other untouched, so a caller can end a cycle with both or demote an error to a
+    /// warning with the first alone.
+    #[test]
+    fn clear_and_clear_warnings_are_complements() {
+        let mut err = QueryError::default();
+        err.set_code_and_message(QueryErrorCode::Generic, None);
+        err.warnings_mut().set_reached_max_prefix_expansions();
+        err.warnings_mut().set_out_of_memory();
+
+        err.clear_warnings();
+        assert!(!err.warnings().reached_max_prefix_expansions());
+        assert!(!err.warnings().out_of_memory());
+        assert_eq!(err.code(), QueryErrorCode::Generic);
+
+        err.warnings_mut().set_out_of_memory();
+        err.clear();
+        assert_eq!(err.code(), QueryErrorCode::default());
+        assert!(err.warnings().out_of_memory());
+    }
 
     /// Verify that `default_full_msg` equals `prefix + default_msg` for every variant.
     /// This catches any drift when a prefix or message is updated without updating the full string.

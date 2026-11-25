@@ -64,6 +64,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
       - name: Compute effective benchmark filter
         id: benchmark-filter
         working-directory: tests/benchmarks
@@ -101,7 +111,7 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: ./.github/actions/retry-command
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:
           command: .install/test_deps/common_installations.sh sudo
           github_token: ${{ github.token }}
@@ -184,7 +194,11 @@ jobs:
           TF_VAR_parca_agent_project_id: ${{ secrets.PERFORMANCE_PARCA_AGENT_PROJECT_ID }}
           TF_VAR_parca_agent_snap_channel: edge
           # Inputs
+          # redisbench-admin's --test-glob defaults to $BENCHMARK_GLOB -- keep runtime-narrowed.
           BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
+          # Job-stable family id for the state suffix below (BENCHMARK_GLOB isn't: a
+          # workflow_dispatch benchmark_filter can narrow it to the same value for every job).
+          BENCHMARK_GLOB_FAMILY: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
           SEARCH_MEMORY_ENABLED: 1
@@ -208,10 +222,14 @@ jobs:
           # github.sha on push events (where it already is the head).
           GITHUB_SHA_RESOLVED: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          # Distinguishes concurrent workflow_dispatch runs of the same commit (no concurrency group exists).
+          GITHUB_RUN_ID: ${{ github.run_id }}
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
         run: |
+          # Unique per concurrent shard, else they'd share one unlocked terraform state.
+          SETUP_NAME_SUFIX="${ARCH}-${ALLOWED_SETUPS}-${BENCHMARK_GLOB_FAMILY%%\**}-m${BENCHMARK_RUNNER_GROUP_M_ID}-r${GITHUB_RUN_ID}"
           redisbench-admin run-remote \
               --module_path "../../$MODULE_PATH" \
               --required-module search \
@@ -228,6 +246,7 @@ jobs:
               --triggering_env "$TRIGGERING_ENV" \
               --allowed-envs "$ALLOWED_ENVS" \
               --allowed-setups "$ALLOWED_SETUPS" \
+              --setup_name_sufix "$SETUP_NAME_SUFIX" \
               --push_results_redistimeseries \
               --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
               --redistimeseries_port "$PERFORMANCE_RTS_PORT" \

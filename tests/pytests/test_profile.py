@@ -12,6 +12,68 @@ from common import *
 from time import sleep
 from RLTest import Env
 
+def _candidate_profile_index(env):
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+  return getConnectionByEnv(env)
+
+
+def _assert_candidate_counts(env, conn, discarded, not_discarded, keys):
+  reply = conn.execute_command(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello', 'NOCONTENT', 'LIMIT', 0, 100)
+  shard = get_shards_profile(env, reply)[0]
+  processors = shard['Result processors profile']
+  if env.protocol == 2:
+    processors = [to_dict(processor) for processor in processors]
+  index = next(processor for processor in processors if processor['Type'] == 'Index')
+  env.assertEqual(index['Deleted candidates discarded'], discarded)
+  env.assertEqual(index['Candidates not discarded'], not_discarded)
+  if env.protocol == 3:
+    env.assertEqual(reply['Results']['total_results'], len(keys))
+    env.assertEqual(sorted(row['id'] for row in reply['Results']['results']), sorted(keys))
+  else:
+    env.assertEqual(reply[0][0], len(keys))
+    env.assertEqual(sorted(reply[0][1:]), sorted(keys))
+
+
+@skip(cluster=True)
+def testProfileCandidatesEmpty(env):
+  conn = _candidate_profile_index(env)
+  _assert_candidate_counts(env, conn, 0, 0, [])
+
+
+@skip(cluster=True)
+def testProfileCandidatesLive(env):
+  conn = _candidate_profile_index(env)
+  keys = ['doc:1', 'doc:2', 'doc:3']
+  for key in keys:
+    conn.execute_command('HSET', key, 't', 'hello')
+  _assert_candidate_counts(env, conn, 0, 3, keys)
+
+
+@skip(cluster=True)
+def testProfileCandidatesDeletedAndSuperseded(env):
+  conn = _candidate_profile_index(env)
+  for i in range(1, 5):
+    conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+  conn.execute_command('DEL', 'doc:1')
+  conn.execute_command('HSET', 'doc:2', 't', 'goodbye')
+  for _ in range(2):
+    _assert_candidate_counts(env, conn, 2, 2, ['doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def testProfileCandidatesAllDeleted(env):
+  conn = _candidate_profile_index(env)
+  # Keep a live nonmatching document so query planning still visits the stale postings.
+  conn.execute_command('HSET', 'doc:other', 't', 'goodbye')
+  for i in range(1, 4):
+    conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+  conn.execute_command('DEL', 'doc:1', 'doc:2', 'doc:3')
+  _assert_candidate_counts(env, conn, 3, 0, [])
+
+
 @skip(cluster=True)
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
@@ -149,7 +211,8 @@ def testProfileAggregate(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  expected_res = [['Type', 'Index', 'Results processed', 1],
+  expected_res = [['Type', 'Index', 'Results processed', 1,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 1],
                   ['Type', 'Loader', 'Results processed', 1],
                   ['Type', 'Grouper', 'Results processed', 1]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
@@ -157,7 +220,8 @@ def testProfileAggregate(env):
                                     'REDUCE', 'count', '0', 'as', 'sum')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Function startswith', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -165,7 +229,8 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix') # codespell:ignore hel
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Literal banana', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -173,7 +238,8 @@ def testProfileAggregate(env):
                 'apply', '"banana"', 'as', 'prefix')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Sorter', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2]]
@@ -410,9 +476,9 @@ def testProfileVector(env):
                                     'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'nocontent')
   env.assertEqual(actual_res[0], [3, '4', '6', '7'])
   expected_iterators_res = ['Type', 'VECTOR', 'Number of reading operations', 3, 'Vector search mode', 'HYBRID_BATCHES', 'Batches number', 2, 'Largest batch size', 4, 'Largest batch iteration (zero based)', 0, 'Child iterator',
-                            ['Type', 'INTERSECT', 'Number of reading operations', 8, 'Child iterators', [
-                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 8, 'Estimated number of matches', 9997],
-                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 8, 'Estimated number of matches', 10000]]]]
+                            ['Type', 'INTERSECT', 'Number of reading operations', 6, 'Child iterators', [
+                              ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 6, 'Estimated number of matches', 9997],
+                              ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 6, 'Estimated number of matches', 10000]]]]
   expected_vecsim_rp_res = ['Type', 'Metrics Applier', 'Results processed', 3]
   actual_profile = to_dict(actual_res[1][1][0])
   env.assertEqual(actual_profile['Iterators profile'], expected_iterators_res)
@@ -476,9 +542,9 @@ def testProfileVector(env):
 
 @skip(cluster=True)
 def testProfileVectorZeroK(env):
-  """`KNN 0` is not short-circuited: it builds a vector iterator, attaches any
-  filter child without ever reading it, and issues an index query that returns
-  no neighbours but still sets the index's last search mode.
+  """`KNN 0` is reduced to an empty iterator before the vector index is reached:
+  any filter child is freed unread, no index query is issued, and the index's
+  last search mode is left as the previous query set it.
   """
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -489,34 +555,30 @@ def testProfileVectorZeroK(env):
   conn.execute_command('hset', '2', 'v', 'babababa', 't', 'hello')
 
   def prime_search_mode():
-    # Leave the index in a mode no zero-K query can produce, so the search-mode
-    # assertion tells a fresh query apart from a mode left by an earlier one.
+    # Leave the index in a mode no KNN query can produce, so a mode surviving the
+    # zero-K query below is proof the index was never queried.
     conn.execute_command('ft.profile', 'idx', 'search', 'query',
                          '@v:[VECTOR_RANGE 3e36 $vec]=>{$yield_distance_as:dist}',
                          'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
     env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
                     'RANGE_QUERY')
 
-  knn_profile = ['Type', 'VECTOR', 'Number of reading operations', 0,
-                 'Vector search mode', 'STANDARD_KNN']
-  # A filter child is built and attached to the iterator, then never read.
-  filtered_profile = knn_profile + [
-      'Child iterator',
-      ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 0,
-       'Estimated number of matches', 2]]
+  # The reduction happens ahead of the child reduction, so the filtered shape
+  # yields the same entry as the bare one rather than an elided subtree.
+  empty_profile = ['Type', 'EMPTY', 'Number of reading operations', 0]
 
   # Bare, filtered, and distance-yielding zero-K queries.
-  for query, expected_profile in [('*=>[KNN 0 @v $vec]', knn_profile),
-                                  ('(@t:hello)=>[KNN 0 @v $vec]', filtered_profile),
-                                  ('*=>[KNN 0 @v $vec AS dist]', knn_profile)]:
+  for query in ('*=>[KNN 0 @v $vec]',
+                '(@t:hello)=>[KNN 0 @v $vec]',
+                '*=>[KNN 0 @v $vec AS dist]'):
     prime_search_mode()
     actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', query,
                                       'PARAMS', '2', 'vec', 'aaaaaaaa', 'DIALECT', '2', 'nocontent')
     env.assertEqual(actual_res[0], [0], message=query)
     actual_profile = to_dict(actual_res[1][1][0])
-    env.assertEqual(actual_profile['Iterators profile'], expected_profile, message=query)
+    env.assertEqual(actual_profile['Iterators profile'], empty_profile, message=query)
     env.assertEqual(to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))['LAST_SEARCH_MODE'],
-                    'STANDARD_KNN', message=query)
+                    'RANGE_QUERY', message=query)
 
 @skip(cluster=True)
 def testProfileVectorBatchSizeAfterSparseBatch(env):
@@ -614,7 +676,8 @@ def testResultProcessorCounter(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
   env.assertEqual(actual_res[0], [2])
   # The counter swallows every result it is given and yields none of its own, so it reports zero.
-  res = [['Type', 'Index', 'Results processed', 2],
+  res = [['Type', 'Index', 'Results processed', 2,
+          'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
          ['Type', 'Counter', 'Results processed', 0]]
   env.assertEqual(actual_res[1][1][0][5], res)
 
@@ -634,7 +697,8 @@ def testNotIterator(env):
             'Iterators profile', # Static query optimization: foo && -@t:baz => foo && -(EMPTY) => foo && ALL => foo
             ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1],
             'Result processors profile',
-             [['Type', 'Index',  'Results processed', 1],
+             [['Type', 'Index',  'Results processed', 1,
+               'Deleted candidates discarded', 0, 'Candidates not discarded', 1],
               ['Type', 'Scorer', 'Results processed', 1],
               ['Type', 'Sorter', 'Results processed', 1],
               ['Type', 'Loader', 'Results processed', 1]]
@@ -674,7 +738,8 @@ def TimeoutWarningInProfile(env):
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
-         [['Type', 'Index',  'Time', ANY, 'Results processed', ANY],
+         [['Type', 'Index',  'Time', ANY, 'Results processed', ANY,
+           'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
           ['Type', 'Scorer', 'Time', ANY, 'Results processed', ANY],
           ['Type', 'Sorter', 'Time', ANY, 'Results processed', ANY],
           ['Type', 'Loader', 'Time', ANY, 'Results processed', ANY],
@@ -695,7 +760,8 @@ def TimeoutWarningInProfile(env):
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
-        [['Type', 'Index', 'Time', ANY, 'Results processed', ANY],
+        [['Type', 'Index', 'Time', ANY, 'Results processed', ANY,
+          'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
          ['Type', 'Pager/Limiter', 'Time', ANY, 'Results processed', ANY]]
       ]],
      'Coordinator', []]
@@ -1670,7 +1736,7 @@ def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=1
     env: Test environment
     pause_cmd: Command to pause the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'PAUSE'])
     resume_cmd: Command to resume the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'RESUME'])
-    pause_duration_ms: How long to keep the pool paused (in milliseconds)
+    pause_duration_ms: How long the queued query waits in the paused pool (in milliseconds)
 
   Returns:
     The FT.PROFILE result
@@ -1684,21 +1750,30 @@ def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=1
     except Exception as e:
       error[0] = e
 
-  # Pause the pool
-  env.cmd(*pause_cmd)
-
-  # Start the profile command in a background thread
   profile_thread = threading.Thread(target=run_profile)
-  profile_thread.start()
+  stats_cmd = [*pause_cmd[:-1], 'STATS']
+  env.cmd(*pause_cmd)
+  try:
+    pending_before = to_dict(env.cmd(*stats_cmd))['totalPendingJobs']
+    profile_thread.start()
 
-  # Wait for the pause duration
-  time.sleep(pause_duration_ms / 1000.0)
+    def profile_is_queued():
+      if error[0]:
+        raise error[0]
+      stats = to_dict(env.cmd(*stats_cmd))
+      return stats['totalPendingJobs'] > pending_before, stats
 
-  # Resume the pool
-  env.cmd(*resume_cmd)
+    # Thread startup and connection setup must not consume the measured queue wait.
+    wait_for_condition(profile_is_queued, 'FT.PROFILE did not enter the paused pool', timeout=10)
+    time.sleep(pause_duration_ms / 1000.0)
+  finally:
+    try:
+      env.cmd(*resume_cmd)
+    finally:
+      if profile_thread.ident is not None:
+        profile_thread.join(timeout=10)
 
-  # Wait for the profile command to complete
-  profile_thread.join(timeout=10)
+  env.assertFalse(profile_thread.is_alive(), message='FT.PROFILE did not finish after resuming the pool')
 
   if error[0]:
     raise error[0]
@@ -1831,3 +1906,155 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+
+def _test_distributed_profile_return_strict(protocol):
+  """STRICT profiles finish without waiting on the main thread for shard profiles."""
+  # Workers ensure the shards exercise STRICT as well as the coordinator.
+  env = Env(protocol=protocol, moduleArgs='ON_TIMEOUT RETURN-STRICT TIMEOUT 0 WORKERS 2')
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+  for i in range(12):
+    conn.execute_command('HSET', f'doc:{{{i}}}', 'n', i)
+
+  # Bound the test's client reads independently of the query timeout.
+  clients = []
+  for shard in shardsConnections(env):
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=5, socket_connect_timeout=5,
+                  retry=redis.retry.Retry(redis.backoff.NoBackoff(), 0))
+    clients.append(redis.Redis(**kwargs))
+  try:
+    before = [[c.execute_command(config_cmd(), 'GET', name)
+               for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    for timeout in (0, 100000):
+      for mode in ([], ['LIMITED']):
+        # Check result and envelope compatibility for buffering pipelines.
+        for tail, total, expected in [
+            (['SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, 1], 12, [['n', '0']]),
+            (['GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'count'], 1, [['count', '12']])]:
+          res = clients[0].execute_command(
+            'FT.PROFILE', 'idx', 'AGGREGATE', *mode, 'QUERY', '*',
+            *tail, 'TIMEOUT', timeout)
+          if protocol == 2:
+            env.assertEqual(res[0], [total, *expected])
+          else:
+            env.assertEqual(res['Results']['results'], [
+              {'extra_attributes': dict(zip(row[::2], row[1::2])), 'values': []}
+              for row in expected])
+            env.assertEqual(res['Results']['warning'], [])
+          # Profile collection is best-effort under STRICT, including with TIMEOUT 0.
+          env.assertLessEqual(len(get_shards_profile(env, res)), env.shardsCount, message=res)
+          for c in clients:
+            env.assertTrue(c.ping())
+    after = [[c.execute_command(config_cmd(), 'GET', name)
+              for name in ('ON_TIMEOUT', 'TIMEOUT')] for c in clients]
+    env.assertEqual(after, before)
+  finally:
+    for c in clients:
+      c.close()
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp2():
+  _test_distributed_profile_return_strict(2)
+
+
+@skip(cluster=False, min_shards=2)
+def test_distributed_profile_return_strict_resp3():
+  _test_distributed_profile_return_strict(3)
+
+
+def _test_strict_profile_pending_shards(protocol, paused_count):
+  """Drain buffered profiles, then reply while other shards are still paused."""
+  # Three shards distinguish an empty channel from one buffered terminal reply.
+  env = Env(protocol=protocol, shardsCount=3,
+            moduleArgs='ON_TIMEOUT RETURN-STRICT TIMEOUT 0 WORKERS 2')
+  skipIfNoEnableAssert(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+  conn = getConnectionByEnv(env)
+  for i in range(120):
+    conn.execute_command('HSET', f'doc:{{{i}}}', 'n', 1)
+  clients = []
+  for shard in shardsConnections(env):
+    kwargs = dict(shard.connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=5, socket_connect_timeout=5,
+                  retry=redis.retry.Retry(redis.backoff.NoBackoff(), 0))
+    clients.append(redis.Redis(**kwargs))
+  coord = clients[0]
+  try:
+    for c in clients:
+      env.assertGreater(c.dbsize(), 0)
+    paused = clients[1:1 + paused_count]
+    result = []
+    def query():
+      try:
+        result.append(coord.execute_command(
+          'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT',
+          'LOAD', 1, '@n', 'LIMIT', 0, 1, 'TIMEOUT', 0))
+      except Exception as e:
+        result.append(e)
+    thread = threading.Thread(target=query, daemon=True)
+    try:
+      for c in paused:
+        c.execute_command(debug_cmd(), 'WORKERS', 'pause')
+      coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                            'SET_PAUSE_BEFORE_STORE_RESULTS', 'true', 'NON_INTERNAL_ONLY')
+      thread.start()
+      wait_for_condition(lambda: (coord.execute_command(
+        debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED') == 1, {}),
+        'Coordinator did not reach result handoff', timeout=5)
+      # Every responsive shard has queued its terminal/profile reply. The worker
+      # consumed one to satisfy LIMIT; any others remain for printAggProfile.
+      wait_for_condition(lambda: (coord.execute_command(
+        debug_cmd(), 'BG_PENDING_REPLIES') == paused_count, {}),
+        'Responsive shards did not finish', timeout=5)
+      coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+      thread.join(timeout=5)
+      env.assertFalse(thread.is_alive(), message='Profile waited for paused shards')
+      env.assertEqual(len(result), 1, message=result)
+      env.assertFalse(isinstance(result[0], Exception), message=result)
+      res = result[0]
+      if protocol == 2:
+        env.assertEqual(res[0], [1, ['n', '1']])
+      else:
+        env.assertEqual(res['Results']['results'], [
+          {'extra_attributes': {'n': '1'}, 'values': []}])
+        env.assertEqual(res['Results']['warning'], [])
+      env.assertEqual(len(get_shards_profile(env, res)), 3 - paused_count, message=res)
+      for c in clients:
+        env.assertTrue(c.ping())
+    finally:
+      try:
+        coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                              'SET_PAUSE_BEFORE_STORE_RESULTS', 'false')
+        if coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                 'GET_IS_STORE_RESULTS_PAUSED') == 1:
+          coord.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+      finally:
+        for c in paused:
+          c.execute_command(debug_cmd(), 'WORKERS', 'resume')
+        thread.join(timeout=5)
+  finally:
+    for c in clients:
+      c.close()
+
+
+@skip(cluster=False)
+def test_strict_profile_pending_shards_resp2():
+  _test_strict_profile_pending_shards(2, 1)
+
+
+@skip(cluster=False)
+def test_strict_profile_pending_shards_resp3():
+  _test_strict_profile_pending_shards(3, 1)
+
+
+@skip(cluster=False)
+def test_strict_profile_empty_channel_resp2():
+  _test_strict_profile_pending_shards(2, 2)
+
+
+@skip(cluster=False)
+def test_strict_profile_empty_channel_resp3():
+  _test_strict_profile_pending_shards(3, 2)

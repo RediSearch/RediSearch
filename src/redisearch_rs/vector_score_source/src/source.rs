@@ -16,11 +16,11 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RLookupKeyHandle, RS_VecSimCheckTimeout, VecSearchMode,
-    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
+    QueryRequestLimits, RS_VecSimCheckMemory, RS_VecSimCheckMemoryEvery, RS_VecSimCheckTimeout,
+    VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
-use rlookup::RLookupKey;
+use rlookup::{KeyHandleSlot, RLookupKey};
 use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -71,7 +71,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     ///
     /// Its validity is guaranteed by [`VectorScoreSource::new`]. Keeping it as a raw-pointer
     /// wrapper avoids creating a Rust reference while C may atomically publish a timeout.
-    timeout: NonNull<QueryRequestTimeout>,
+    timeout: NonNull<QueryRequestLimits>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
     /// Whether the disk adhoc-BF scan should rescore its top-k with exact
@@ -90,7 +90,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// on rewind.
     ///
     /// Both lifetime slots are `'index`: the iterator borrows the index and may read the
-    /// request-owned timeout referenced by [`VecSimQueryParams::timeoutCtx`]. The
+    /// request-owned timeout referenced by [`VecSimQueryParams::stopCtx`]. The
     /// [`VectorScoreSource::new`] contract guarantees that both outlive this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed over the whole evaluation.
@@ -118,33 +118,30 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// the timeout context and could spuriously fail). A timed-out query
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
+    /// Highest doc id a candidate may have to take a heap slot. Set by
+    /// [`with_max_doc_id`](Self::with_max_doc_id).
+    max_doc_id: DocId,
 
-    /// Score key for this iterator's metric output. The C metrics loader writes
-    /// through the address returned by the own-key accessor. Boxed so that
+    /// Score key for this iterator's metric output. The metrics loader writes
+    /// through the address returned by [`interop::own_key_ref`]. Boxed so that
     /// address stays stable across iterator moves (e.g. the rebox performed
-    /// during `FT.PROFILE`), keeping the C-side key handle valid. Holds a null
-    /// pointer until the loader sets it.
+    /// during `FT.PROFILE`), keeping the key handle valid. Holds a null pointer
+    /// until the loader sets it.
+    ///
+    /// [`interop::own_key_ref`]: crate::interop::own_key_ref
     pub own_key: Box<*mut RLookupKey<'index>>,
-    /// Back-reference to the handle that points to [`own_key`](Self::own_key).
-    /// Set by the C side alongside `own_key`; null until then.
-    pub key_handle: *mut RLookupKeyHandle,
-}
-
-impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
-    fn drop(&mut self) {
-        if !self.key_handle.is_null() {
-            // SAFETY: key_handle is non-null only when VectorTopK_SetKeyHandle
-            // stored a valid, live RLookupKeyHandle pointer here.
-            unsafe {
-                (*self.key_handle).is_valid = false;
-            }
-        }
-    }
+    /// Back-reference to the handle that points to [`own_key`](Self::own_key),
+    /// so dropping this source, or replacing the handle, marks the key slot
+    /// dead. Empty until [`interop::set_key_handle`] installs one.
+    ///
+    /// [`interop::set_key_handle`]: crate::interop::set_key_handle
+    pub key_handle: KeyHandleSlot<'index>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` and `timeout` pointers are non-owning; the constructor contract requires
-// both to outlive the source. Everything else is owned and managed by the struct itself.
+// thread). The `index`, `timeout`, `own_key` and `key_handle` pointers are non-owning; the
+// constructor contract requires the first two to outlive the source, and the caller keeps the
+// key pointers valid for as long. Everything else is owned and managed by the struct itself.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -164,14 +161,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 3. `timeout` must remain valid for the returned source's lifetime. Its active source may
     ///    change only while no operation on the returned source is running. Operations on one
     ///    source must remain serialized because clock checks mutate the request-owned counter;
-    ///    only the C atomic blocked-client marker may be changed concurrently.
+    ///    only the C atomic blocked-client marker and the memory stop flag may be changed
+    ///    concurrently.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: NonNull<QueryRequestTimeout>,
+        timeout: NonNull<QueryRequestLimits>,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -209,13 +207,21 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
+            max_doc_id: DocId::MAX,
             own_key: Box::new(ptr::null_mut()),
-            key_handle: ptr::null_mut(),
+            key_handle: KeyHandleSlot::new(),
         }
     }
 
+    /// Reject candidates above `max_doc_id`, so documents added after the
+    /// caller's view of the index cannot take one of the k places.
+    pub fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.max_doc_id = max_doc_id;
+        self
+    }
+
     /// Return the request-owned timeout as the opaque context expected by VecSim.
-    fn timeout_ctx_ptr(&self) -> *mut c_void {
+    fn stop_ctx_ptr(&self) -> *mut c_void {
         self.timeout.as_ptr().cast()
     }
 
@@ -265,7 +271,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         if self.unfiltered_consumed {
             return Ok(None);
         }
-        self.query_params.timeoutCtx = self.timeout_ctx_ptr();
+        self.query_params.stopCtx = self.stop_ctx_ptr();
         let reply = self
             .index
             .top_k_query(
@@ -274,7 +280,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 &mut self.query_params,
                 ReplyOrder::ByScore,
             )
-            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+            .map_err(|QueryError::Stopped| RQEIteratorError::Stopped)?;
         // Mark consumed only after the query succeeds: a timeout above propagates
         // with the flag still clear, so a retry re-issues the query instead of
         // taking the fast path and returning EOF.
@@ -285,16 +291,17 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // Timeout is propagated via self.query_params.timeoutCtx. VecSim checks it
-        // internally and returns VecSim_QueryReply_TimedOut from Next/New.
+        // The stop context is propagated via self.query_params.stopCtx. VecSim checks it
+        // internally and returns VecSim_QueryReply_Stopped from Next/New.
 
+        let further_batch = self.batch_iter.is_some();
         // Lazily create the batch iterator on first call.
         if self.batch_iter.is_none() {
             if self.initial_child_num_estimated == 0 {
                 return Ok(None);
             }
-            // Pass timeout context via query params so VecSim handles it.
-            self.query_params.timeoutCtx = self.timeout_ctx_ptr();
+            // Pass the stop context via query params so VecSim handles it.
+            self.query_params.stopCtx = self.stop_ctx_ptr();
             // Raw pointer rather than `&mut self.query_params`: the iterator is
             // stored back into `self`, so a `'params` borrow of our own field
             // would be self-referential. `batch_iterator_unchecked` lets us pick
@@ -303,7 +310,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             // SAFETY:
             // - `params` points to `self.query_params`, valid for this call.
             // - The returned iterator's `'params` is unified with `'index`. The constructor
-            //   contract guarantees that the request-owned timeout referenced by `timeoutCtx`
+            //   contract guarantees that the request-owned timeout referenced by `stopCtx`
             //   outlives the iterator despite the widened `'index`.
             self.batch_iter = unsafe {
                 self.index
@@ -327,6 +334,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return Ok(None);
         }
 
+        // A further batch of this scan is more VecSim work, and what the batch iterator retains
+        // across batches can reach the index size under a weak filter.
+        // SAFETY: the constructor contract keeps the request timeout valid; the callee reads its
+        // flags, may request a stop atomically, and does not retain the pointer.
+        if further_batch && unsafe { RS_VecSimCheckMemory(self.timeout.as_ptr()) } != 0 {
+            return Err(RQEIteratorError::Stopped);
+        }
+
         let batch_size = self.compute_next_batch_size();
         self.num_iterations += 1;
 
@@ -341,10 +356,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
         let reply = batch_iter
             .next(batch_size, ReplyOrder::ById)
-            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+            .map_err(|QueryError::Stopped| RQEIteratorError::Stopped)?;
         Ok(reply
             .and_then(|r| r.into_results())
             .map(VecSimScoreBatch::new))
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
+        Ok(doc_id <= self.max_doc_id)
     }
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
@@ -448,6 +467,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         self.k.min(self.index_size())
     }
 
+    fn finish_collection(&mut self) {
+        // A cursor can retain the buffered results between commands. VecSim's traversal and
+        // its index locks are no longer needed once collection is complete.
+        self.batch_iter = None;
+    }
+
     /// Restarts the scan from the beginning. The profile counters are
     /// evaluation-scoped and left untouched: this also runs when the iterator
     /// discards a partially collected scan, whose profile still has to report
@@ -515,7 +540,26 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // retain the pointer.
         let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout.as_ptr()) };
         if timeout != 0 {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
+        }
+        Ok(())
+    }
+
+    fn check_memory(&mut self) -> Result<(), RQEIteratorError> {
+        // SAFETY: the constructor contract keeps the request timeout valid; the callee reads its
+        // flags, updates its relaxed atomic call counter, may request a stop atomically, and does
+        // not retain the pointer.
+        let stop = unsafe { RS_VecSimCheckMemoryEvery(self.timeout.as_ptr()) };
+        if stop != 0 {
+            return Err(RQEIteratorError::Stopped);
+        }
+        Ok(())
+    }
+
+    fn check_memory_now(&mut self) -> Result<(), RQEIteratorError> {
+        // SAFETY: as in `check_memory`; this variant has no counter.
+        if unsafe { RS_VecSimCheckMemory(self.timeout.as_ptr()) } != 0 {
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(())
     }
@@ -559,6 +603,37 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             BatchStrategy::Continue
         }
     }
+    fn can_collect_after_lock_release(&self) -> bool {
+        // `release_index_handles` dropped the batch iterator, which the next
+        // collection rebuilds lazily; the VecSim index itself lives as long
+        // as the index spec, and the query vector is owned by the query.
+        true
+    }
+
+    fn release_index_handles(&mut self) {
+        // The batch iterator is the one thing here that outlives its guarantee:
+        // it stores a raw VecSim index pointer and dereferences it on `next`
+        // *and* on `Drop`, so carrying it across a lock release makes even
+        // discarding the suspended top-k a use-after-free if the index went
+        // away. Dropping it costs nothing at this point — a suspend can only
+        // happen with collection finished or not yet started, so there is no
+        // batch sequence left to continue, and `rewind` would clear it anyway.
+        self.batch_iter = None;
+
+        // The adhoc paths hold index state too — tiered-index shared locks, or a
+        // one-shot disk context — but only between `begin_adhoc` and
+        // `end_adhoc`, both of which run inside a single collection call. If one
+        // is live here, collection did not finish and the caller suspended from
+        // a state that should not exist.
+        debug_assert!(
+            match &self.adhoc_state {
+                AdhocPathState::Ram { guard } => guard.is_none(),
+                AdhocPathState::Disk { ctx } => ctx.is_none(),
+            },
+            "adhoc index state is live at a suspend boundary: collection left it \
+             un-ended",
+        );
+    }
 }
 
 /// Smoothed update of the child-results estimate, averaging the previous
@@ -579,6 +654,8 @@ fn refine_child_estimated(
 mod tests {
     use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
+
+    use ffi::QueryRequestLimits;
 
     use super::refine_child_estimated;
     use crate::{
@@ -635,6 +712,67 @@ mod tests {
             "begin_adhoc must drop the batch iterator before taking adhoc locks"
         );
         source.end_adhoc();
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn filtered_collection_releases_batch_iterator_before_yielding() {
+        use std::num::NonZeroUsize;
+
+        use rqe_iterators::{IdList, RQEIterator};
+        use top_k::{Ascending, TopKIterator, TopKMode};
+
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
+        source.fixed_batch_size = 2;
+        source.query_params.searchMode = ffi::VecSearchMode_HYBRID_BATCHES;
+        let child = IdList::<true>::new((1..=20).collect::<Vec<_>>());
+        let mut iterator = TopKIterator::new_with_mode(
+            source,
+            Some(child),
+            NonZeroUsize::new(3).unwrap(),
+            Ascending,
+            TopKMode::ForcedBatches,
+        );
+
+        // The first read collects through multiple VecSim batches, then serves buffered rows.
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 1);
+        assert_eq!(iterator.source().num_iterations, 2);
+        assert!(iterator.source().batch_iter.is_none());
+        assert!(!iterator.at_eof());
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 2);
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 3);
+        assert!(iterator.read().unwrap().is_none());
+        assert_eq!(iterator.source().num_iterations, 2);
+
+        // A later rewind must still start a fresh scan and release its iterator at completion.
+        iterator.rewind();
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 1);
+        assert!(iterator.source().batch_iter.is_none());
+    }
+
+    /// A suspended top-k must not keep the batch iterator: it dereferences its
+    /// index on drop, and the index may be gone by then. A later collection
+    /// rebuilds it lazily.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn release_index_handles_drops_batch_iterator() {
+        let index = TestIndex::flat(3, 1);
+        let mut source = flat_source(&index, 3, 3);
+
+        source.next_batch().unwrap();
+        assert!(source.batch_iter.is_some(), "batch iterator should be live");
+
+        source.release_index_handles();
+        assert!(
+            source.batch_iter.is_none(),
+            "release_index_handles must drop the batch iterator"
+        );
+
+        source.rewind();
+        let batch = source.next_batch().unwrap();
+        assert!(batch.is_some(), "a new collection rebuilds the iterator");
+        assert!(source.batch_iter.is_some());
     }
 
     /// `NumEstimated(child)` is an upper bound that can exceed the index size;
@@ -698,6 +836,55 @@ mod tests {
         source.next_batch().unwrap();
         assert_eq!(source.max_batch_size, grown_size, "re-seed only raises");
         assert_eq!(source.num_iterations, 3, "batches keep accumulating");
+    }
+
+    /// The source borrows the request-owned timeout rather than copying it, and
+    /// hands VecSim that same storage — so a later change to the request's
+    /// timeout state is observed by work already in flight.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn borrows_the_request_timeout() {
+        let index = TestIndex::flat(3, 1);
+        let mut source = flat_source(&index, 3, 3);
+
+        assert_eq!(
+            source.timeout.as_ptr(),
+            index.timeout_ptr(),
+            "the source must hold the caller's timeout, not a copy"
+        );
+
+        source.next_batch().unwrap();
+        assert_eq!(
+            source.query_params.stopCtx.cast::<QueryRequestLimits>(),
+            index.timeout_ptr(),
+            "VecSim must be handed the same timeout storage"
+        );
+    }
+
+    /// A pinned `BATCH_SIZE` overrides the dynamic estimate: every batch
+    /// requests exactly that size, whatever the child estimate does, and the
+    /// profile metrics report it at the first iteration.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn pinned_batch_size_overrides_estimate() {
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
+        let dynamic = source.compute_next_batch_size().get();
+        source.fixed_batch_size = 7;
+
+        source.next_batch().unwrap();
+        let first = source.compute_next_batch_size().get();
+        // A shrinking child estimate would grow a dynamic size; a pinned one holds.
+        source.child_num_estimated = 1;
+        source.next_batch().unwrap();
+
+        assert_ne!(dynamic, 7, "fixture must not coincide with the pinned size");
+        assert_eq!((first, source.compute_next_batch_size().get()), (7, 7));
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (7, 0),
+            "a constant size is its own maximum, recorded at the first iteration"
+        );
     }
 
     /// A zero seeded child estimate means no doc can match: `next_batch` must

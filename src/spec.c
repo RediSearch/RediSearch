@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "util/gil_gate.h"
 
 #include <math.h>
 #include <limits.h>
@@ -53,13 +54,14 @@
 #include "debug_commands.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "util/hash/hash.h"
+#include "util/misc.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "geometry_index.h"
 #include "json.h"
@@ -108,6 +110,7 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
+static GilGate cleanPoolGilGate = GIL_GATE_INIT;
 
 extern DebugCTX globalDebugCtx;
 
@@ -258,6 +261,7 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 // Forward declaration
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac_in, QueryError *status);
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp);
 
 /*
 * Parse an index spec from redis command arguments.
@@ -333,7 +337,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -416,16 +420,18 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
-  size_t vector_overhead) {
+static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, bool info, size_t disk_memory) {
   size_t res = 0;
 
   // For disk indexes, add storage + in-memory components.
   if (sp->diskSpec) {
-    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    res += info ? disk_memory : SearchDisk_CollectIndexMetrics(sp->diskSpec);
   }
 
   res += sp->docs.memsize;
+  res += DocTable_DeletedDocsMemoryUsage(&sp->docs);
+  res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
@@ -435,6 +441,15 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
   res += sp->stats.termsSize;
   res += vector_overhead;
   return res;
+}
+
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                               size_t vector_overhead) {
+  return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, false, 0);
+}
+
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory) {
+  return indexSpecTotalMemUsage(sp, 0, 0, vector_overhead, true, disk_memory);
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
@@ -564,6 +579,21 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+static int parseVectorField_GetHnswQuantType(ArgsCursor *ac, VecSimQuantType *quantType) {
+  const char *quantTypeStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &quantTypeStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(quantTypeStr, len, VECSIM_SQ8)) {
+    *quantType = VecSimQuant_SQ8;
+  } else {
+    return AC_ERR_ENOENT;
+  }
+  return AC_OK;
+}
+
 // Parsing for Quantization parameter in SVS algorithm
 static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *quantBits) {
   const char *quantBitsStr;
@@ -594,26 +624,45 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
-  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
-  size_t elementSize = VecSimIndex_EstimateElementSize(params);
-  // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
-  params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  if (params->algoParams.hnswParams.blockSize == 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
-      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
+  VecSimParams *primaryParams = params->algo == VecSimAlgo_TIERED
+                                    ? params->algoParams.tieredParams.primaryIndexParams
+                                    : params;
+  HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &blobSize, status)) {
     return 0;
   }
-  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  index_size_estimation += elementSize * params->algoParams.hnswParams.blockSize;
+  const VecSimParams *estimateParams = primaryParams;
+  if (hnswParams->quantType == VecSimQuant_SQ8) {
+    estimateParams = params;
+  }
+  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
+  size_t elementSize = VecSimIndex_EstimateElementSize(estimateParams);
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  hnswParams->blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (hnswParams->blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Vector index element size",
+                                  " %zu exceeded maximum size allowed by server limit which is %zu",
+                                  elementSize, BLOCK_MEMORY_LIMIT);
+    return 0;
+  }
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(estimateParams);
+  index_size_estimation += elementSize * hnswParams->blockSize;
 
-  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
-    "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
-    params->algoParams.hnswParams.blockSize,  index_size_estimation);
+  RedisModule_Log(
+      RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+      "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
+      hnswParams->blockSize, index_size_estimation);
   return 1;
 }
 
 static int parseVectorField_validate_flat(VecSimParams *params, QueryError *status) {
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(params->algoParams.bfParams.dim, params->algoParams.bfParams.type,
+                               &blobSize, status)) {
+    return 0;
+  }
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
@@ -635,6 +684,11 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
 }
 
 static int parseVectorField_validate_svs(VecSimParams *params, QueryError *status) {
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(params->algoParams.svsParams.dim, params->algoParams.svsParams.type,
+                               &blobSize, status)) {
+    return 0;
+  }
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
@@ -665,15 +719,23 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
   } else if (VecSimAlgo_SVS == params->algo) {
     valid = parseVectorField_validate_svs(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
-    return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
+    if (params->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+      valid = parseVectorField_validate_hnsw(params, status);
+    } else {
+      return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams,
+                                         status);
+    }
   }
   return valid ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 #define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
 
-static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status, bool *rerank) {
+static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status,
+                                 bool *rerank) {
   int rc;
+  TieredIndexParams *tieredParams = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+  HNSWParams *hnswParams = &tieredParams->primaryIndexParams->algoParams.hnswParams;
 
   // HNSW mandatory params.
   bool mandtype = false;
@@ -684,6 +746,7 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   bool mandEfConstruction = false;
   bool mandEfRuntime = false;
   bool rerank_seen = false;
+  bool trainingThresholdSet = false;
 
   // Get number of parameters and create a sub-cursor for them
   size_t expNumParam;
@@ -700,51 +763,71 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
 
   while (!AC_IsAtEnd(&subAc)) {
     if (AC_AdvanceIfMatch(&subAc, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(&subAc, &params->algoParams.hnswParams.type)) != AC_OK) {
+      if ((rc = parseVectorField_GetType(&subAc, &hnswParams->type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(&subAc, &params->algoParams.hnswParams.metric)) != AC_OK) {
+      if ((rc = parseVectorField_GetMetric(&subAc, &hnswParams->metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_M)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
       mandM = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
       mandEfConstruction = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      if ((rc = AC_GetSize(&subAc, &hnswParams->efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
       mandEfRuntime = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(&subAc, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      if ((rc = AC_GetDouble(&subAc, &hnswParams->epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_COMPRESSION)) {
+      if ((rc = parseVectorField_GetHnswQuantType(&subAc, &hnswParams->quantType)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_COMPRESSION),
+                          rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_TRAINING_THRESHOLD)) {
+      size_t *threshold = &tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      if ((rc = AC_GetSize(&subAc, threshold, 0)) != AC_OK) {
+        QERR_MKBADARGS_AC(
+            status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TRAINING_THRESHOLD), rc);
+        return 0;
+      }
+      if (*threshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                         "TRAINING_THRESHOLD cannot exceed %d",
+                                         HNSW_QUANT_MAX_TRAINING_THRESHOLD);
+        return 0;
+      }
+      trainingThresholdSet = true;
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
       if (!isSpecOnDiskForValidation(sp)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -790,16 +873,37 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
     return 0;
   }
 
+  if (hnswParams->quantType != VecSimQuant_NONE && hnswParams->type != VecSimType_FLOAT32 &&
+      hnswParams->type != VecSimType_FLOAT16) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "COMPRESSION is only supported for FLOAT32 and FLOAT16 vector types");
+    return 0;
+  }
+  if (hnswParams->quantType == VecSimQuant_NONE && trainingThresholdSet) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "TRAINING_THRESHOLD is irrelevant when compression was not requested");
+    return 0;
+  }
+  if (hnswParams->quantType != VecSimQuant_NONE && !trainingThresholdSet) {
+    tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize =
+        HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD;
+  }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
-    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
-        params->algoParams.hnswParams.type != VecSimType_FLOAT16) {
-      const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
+    // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                          "only after all nodes have upgraded");
+      return 0;
+    }
+    if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
+      const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support %s vector type", typeName);
       return 0;
     }
-    if (params->algoParams.hnswParams.multi) {
+    if (hnswParams->multi) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support multi-value vectors");
       return 0;
@@ -827,9 +931,12 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
   }
 
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
+  if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &fs->vectorOpts.expBlobSize,
+                               status)) {
+    return 0;
+  }
 
-  return parseVectorField_validate_hnsw(params, status);
+  return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
 
 static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
@@ -904,7 +1011,10 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.bfParams.dim * VecSimType_sizeof(params->algoParams.bfParams.type);
+  if (!VectorIndex_GetBlobSize(params->algoParams.bfParams.dim, params->algoParams.bfParams.type,
+                               &fs->vectorOpts.expBlobSize, status)) {
+    return 0;
+  }
 
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
@@ -1023,24 +1133,27 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.svsParams.dim * VecSimType_sizeof(params->algoParams.svsParams.type);
+  if (!VectorIndex_GetBlobSize(params->algoParams.svsParams.dim, params->algoParams.svsParams.type,
+                               &fs->vectorOpts.expBlobSize, status)) {
+    return 0;
+  }
 
   return parseVectorField_validate_svs(params, status);
 }
 
-// Parse the arguments of a TEXT field
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TEXT-specific options, stopping at the first argument that is not one
+static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
-  fs->types |= INDEXFLD_T_FULLTEXT;
-
-  // this is a text field
-  // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
       fs->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_WEIGHT_STR " requires an argument");
+        return 0;
+      }
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
@@ -1087,11 +1200,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-// Parse the arguments of a TAG field
-static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TAG-specific options, stopping at the first argument that is not one
+static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
-    fs->types |= INDEXFLD_T_TAG;
-
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
@@ -1126,7 +1237,50 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return rc;
 }
 
-static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the options specific to the field's type, stopping at the first argument that is not one
+static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    return parseTextFieldOptions(fs, ac, status);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    return parseTagFieldOptions(fs, ac, status);
+  }
+  // NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is not an option of the field
+  if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+    fs->options |= FieldSpec_IndexMissing;
+  }
+  return 1;
+}
+
+// Whether the current argument would start a valid field definition (`name [AS alias] type`),
+// judged by the argument after it.
+static bool startsFieldDefinition(const ArgsCursor *ac) {
+  if (AC_NumRemaining(ac) < 2) {
+    return false;
+  }
+  const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
+  static const char *const starts[] = {SPEC_AS_STR,      SPEC_TEXT_STR,         SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR, SPEC_GEO_STR,          SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR,  SPEC_SPARSE_VECTOR_STR};
+  for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
+    if (!strcasecmp(next, starts[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Field creation already parsed the path; validation only checks its result.
+static bool validateJsonFieldPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  if (fs->compiledPath) {
+    return true;
+  }
+  JSONParse_error(status, fs->fieldPath, fs->fieldName, sp->specName);
+  return false;
+}
+
+static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac,
+                            QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
@@ -1139,16 +1293,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
   if (isSpecJson(sp)) {
-    RedisModuleString *err_msg;
-    JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-    if (!jsonPath) {
-      if (err_msg) {
-        JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-      }
+    if (!validateJsonFieldPath(sp, fs, status)) {
       return 0;
     }
-    multi = !(japi->pathIsSingle(jsonPath));
-    japi->pathFree(jsonPath);
+    multi = !japi->pathIsSingle(fs->compiledPath);
   }
 
   // parse algorithm
@@ -1180,10 +1328,12 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
-    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
+    TieredIndexParams *tieredParams = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    VecSim_TieredParams_Init(tieredParams, sp_ref);
+    tieredParams->specificParams.tieredHnswParams.swapJobThreshold =
+        0;  // Will be set to default value.
 
-    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    VecSimParams *params = tieredParams->primaryIndexParams;
     params->algo = VecSimAlgo_HNSWLIB;
     params->algoParams.hnswParams.initialCapacity = SIZE_MAX;
     params->algoParams.hnswParams.blockSize = 0;
@@ -1191,24 +1341,14 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.efConstruction = HNSW_DEFAULT_EF_C;
     params->algoParams.hnswParams.efRuntime = HNSW_DEFAULT_EF_RT;
     params->algoParams.hnswParams.multi = multi;
+    params->algoParams.hnswParams.quantType = VecSimQuant_NONE;
+    params->algoParams.hnswParams.quantParams = NULL;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     bool rerank = false;
-    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
-    // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
-      size_t nameLen;
-      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        // The disk storage layer keys this field's data by the value it finds
-        // here, so it has to stay stable for the life of the index.
-        .userData = fs->index,
-        .rerank = rerank,
-      };
-    }
+    result = parseVectorField_hnsw(sp, fs, ac, status, &rerank);
+    // The rest of diskCtx is filled in when the field's storage is opened.
+    fs->vectorOpts.diskCtx.rerank = rerank;
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
     if (isSpecOnDiskForValidation(sp)) {
@@ -1262,6 +1402,92 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 }
 
+// The largest DIM: dimension IDs are u32, so 2^32 of them.
+#define SPARSE_VECTOR_MAX_DIM (1ULL << 32)
+
+/* Parse `SPARSEVECTOR <nargs> DIM <n> DISTANCE_METRIC <IP|COSINE> [TYPE FLOAT32]`.
+ * Returns 1 on success, 0 on error. */
+static int parseSparseVectorField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac,
+                                  QueryError *status) {
+  fs->types |= INDEXFLD_T_SPARSE_VECTOR;
+  sp->flags |= Index_HasSparseVec;
+  fs->sparseVecOpts.dim = 0;
+  fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
+  fs->sparseVecOpts.sparseVecIndex = NULL;
+
+  if (isSpecJson(sp) && !validateJsonFieldPath(sp, fs, status)) {
+    return 0;
+  }
+
+  ArgsCursor attrs = {0};
+  int rc = AC_GetVarArgs(ac, &attrs);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments",
+                                  " for sparse vector attributes: %s", AC_Strerror(rc));
+    return 0;
+  }
+  if (attrs.argc % 2) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Bad number of arguments for sparse vector attributes: expected "
+                        "attribute-value pairs");
+    return 0;
+  }
+
+  bool hasDim = false, hasMetric = false;
+  while (!AC_IsAtEnd(&attrs)) {
+    if (AC_AdvanceIfMatch(&attrs, VECSIM_DIM)) {
+      unsigned long long dim;
+      if (AC_GetUnsignedLongLong(&attrs, &dim, 0) != AC_OK || dim == 0 ||
+          dim > SPARSE_VECTOR_MAX_DIM) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DIM: expected an integer between 1 "
+                            "and 4294967296");
+        return 0;
+      }
+      fs->sparseVecOpts.dim = dim;
+      hasDim = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_DISTANCE_METRIC)) {
+      if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_IP)) {
+        fs->sparseVecOpts.metric = SparseMetric_InnerProduct;
+      } else if (AC_AdvanceIfMatch(&attrs, VECSIM_METRIC_COSINE)) {
+        fs->sparseVecOpts.metric = SparseMetric_Cosine;
+      } else {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector DISTANCE_METRIC: expected IP or "
+                            "COSINE");
+        return 0;
+      }
+      hasMetric = true;
+    } else if (AC_AdvanceIfMatch(&attrs, VECSIM_TYPE)) {
+      if (!AC_AdvanceIfMatch(&attrs, VECSIM_TYPE_FLOAT32)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "Bad arguments for sparse vector TYPE: expected FLOAT32");
+        return 0;
+      }
+    } else {
+      const char *attr = AC_StringArg(&attrs, attrs.offset, NULL);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                    "Bad arguments for sparse vector", ": unknown attribute `%s`",
+                                    attr);
+      return 0;
+    }
+  }
+
+  if (!hasDim) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DIM");
+    return 0;
+  }
+  if (!hasMetric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "Missing mandatory parameter: cannot create SPARSEVECTOR index without "
+                        "specifying DISTANCE_METRIC");
+    return 0;
+  }
+  return 1;
+}
+
 static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   fs->types |= INDEXFLD_T_GEOMETRY;
   sp->flags |= Index_HasGeometry;
@@ -1272,10 +1498,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     } else {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
-    }
-
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
     }
 
   return 1;
@@ -1290,15 +1512,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    if (!parseTextField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_FULLTEXT;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!parseTagField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_TAG;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
@@ -1306,36 +1522,54 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     if (!parseVectorField(sp, sp_ref, fs, ac, status)) goto error;
     // Skip SORTABLE and NOINDEX options
     return 1;
+  } else if (AC_AdvanceIfMatch(ac, SPEC_SPARSE_VECTOR_STR)) {  // sparse vector field
+    // FT.CREATE and FT.ALTER both parse fields here; RDB load does not.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPARSE_VECTOR_UNSTABLE_ERR);
+      goto error;
+    }
+    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_SPARSE_VECTOR_STR, fs, status))
+      goto error;
+    if (!parseSparseVectorField(sp, fs, ac, status)) goto error;
+    // Like dense vectors, sparse vectors take no SORTABLE or NOINDEX options.
+    return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
+  if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+  // Type-specific options may also come between or after SORTABLE and NOINDEX. An argument that
+  // can start a field definition (followed by AS or a field type) ends this field instead, so a
+  // field may be named after an option keyword.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
         fs->options |= FieldSpec_UNF;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
-      continue;
-    } else {
+    } else if (startsFieldDefinition(ac)) {
       break;
+    } else {
+      size_t offset = ac->offset;
+      if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+      if (ac->offset == offset) break;
     }
+  }
+  // Numeric fields and case-sensitive tags are never normalized, so sorting them is implicitly
+  // UNF. Decided after all options are parsed, since CASESENSITIVE may follow SORTABLE.
+  if (FieldSpec_IsSortable(fs) &&
+      (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || TAG_FIELD_IS(fs, TagField_CaseSensitive))) {
+    fs->options |= FieldSpec_UNF;
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG) && !FieldSpec_IndexesEmpty(fs)) {
+    sp->flags |= Index_HasNonEmpty;
   }
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
@@ -1366,26 +1600,28 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
- * Validate that a disk-backed JSON field uses a single-value JSONPath.
- * Returns `true` when the validation does not apply or the field path is valid.
+ * Validate the JSONPath of a disk-backed JSON field: it must parse, and it must
+ * be single-value unless `SearchDisk_SupportsMultiValue` accepts the field's type.
+ * Call after `parseFieldSpec`, which sets the type, and only for a disk index.
+ * Returns `true` when the index is not JSON or the field path is valid.
  * On failure, sets `status` with the validation error and returns `false`.
  */
-static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
-  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  RS_ASSERT(fs->types);
+  RS_ASSERT(isSpecOnDiskForValidation(sp));
+  if (!isSpecJson(sp)) {
     return true;
   }
 
-  RedisModuleString *err_msg = NULL;
-  JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-  if (!jsonPath) {
-    if (err_msg) {
-      JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-    }
+  if (!validateJsonFieldPath(sp, fs, status)) {
     return false;
   }
 
-  bool isSingle = japi->pathIsSingle(jsonPath);
-  japi->pathFree(jsonPath);
+  if (SearchDisk_SupportsMultiValue(fs->types)) {
+    return true;
+  }
+
+  bool isSingle = japi->pathIsSingle(fs->compiledPath);
   if (!isSingle) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                      "Disk JSON index supports only single-value JSONPath fields");
@@ -1421,6 +1657,14 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
     if (!sp->suffix) {
       sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
     }
+  }
+}
+
+// Records `fs` in IndexSpec.missing.fields. Call once per field, after its
+// options are final and the field is guaranteed to stay in the schema.
+static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs) {
+  if (FieldSpec_IndexesMissing(fs)) {
+    array_append(sp->missing.fields, fs->index);
   }
 }
 
@@ -1481,15 +1725,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
                              sp->numFields);
       goto reset;
     }
-    if (!validateDiskJsonSinglePath(sp, fs, status)) {
-      goto reset;
-    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
     if (isSpecOnDiskForValidation(sp))
     {
+      if (!validateDiskJsonPath(sp, fs, status)) {
+        goto reset;
+      }
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC/GEO fields");
         goto reset;
@@ -1500,10 +1744,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       }
       if (fs->options & FieldSpec_Sortable) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support SORTABLE fields");
-        goto reset;
-      }
-      if (fs->options & FieldSpec_IndexMissing) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support INDEXMISSING fields");
         goto reset;
       }
     }
@@ -1530,29 +1770,17 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         }
       }
       fs->ftId = textId;
-      if isSpecJson(sp) {
+      if isSpecJson (sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
-          RedisModuleString *err_msg;
-          JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-          if (jsonPath && japi->pathHasDefinedOrder(jsonPath)) {
-            // Ordering is well defined
+          if (!validateJsonFieldPath(sp, fs, status)) {
+            goto reset;
+          }
+          if (japi->pathHasDefinedOrder(fs->compiledPath)) {
             fs->options &= ~FieldSpec_UndefinedOrder;
           } else {
-            // Mark FieldSpec
             fs->options |= FieldSpec_UndefinedOrder;
-            // Mark IndexSpec
             sp->flags |= Index_HasUndefinedOrder;
           }
-          if (jsonPath) {
-            japi->pathFree(jsonPath);
-          } else if (err_msg) {
-            JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-            goto reset;
-          } /* else {
-            RedisModule_Log(RSDummyContext, "notice",
-                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
-                            fs->path, fs->name, sp->name);
-          } */
         }
       }
     }
@@ -1590,6 +1818,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     FieldsGlobalStats_UpdateStats(sp->fields + ii, 1);
+    IndexSpec_TrackIndexMissingField(sp, sp->fields + ii);
   }
 
   return 1;
@@ -1657,29 +1886,91 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (isSpecOnDiskForValidation(spec)) {
-    bool isKnownArg = false;
-    for (int i = 0; non_flex_argopts[i].name; i++) {
-      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
-        isKnownArg = true;
-        break;
-      }
+static bool containsArgument(const char *arg, const ACArgSpec *argopts) {
+  for (int i = 0; argopts[i].name; ++i) {
+    if (strcasecmp(arg, argopts[i].name) == 0) {
+      return true;
     }
-    if (isKnownArg) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-    }
+  }
+  return false;
+}
+
+static void handleBadArguments(const char *badarg, bool unsupportedOption, QueryError *status) {
+  if (unsupportedOption) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                  "Unsupported argument for Flex index:", " `%s`", badarg);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument",
+                                  " `%s`", badarg);
   }
 }
 
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
+int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
+                           QueryError *status) {
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1};
+  int dummy;
+  size_t dummy2;
+  int rc = AC_OK;
+  ACArgSpec *errarg = NULL;
+  ACArgSpec flex_argopts[] = {
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "PREFIX", .target = &options->prefixes, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "FILTER", .target = &options->rule.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE", .target = &options->rule.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE_FIELD", .target = &options->rule.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE", .target = &options->rule.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE_FIELD", .target = &options->rule.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+    {.name = NULL}
+  };
+  ACArgSpec non_flex_argopts[] = {
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
+    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
+    {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+
+    // For compatibility
+    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&options->rule, &options->prefixes)
+    {.name = SPEC_TEMPORARY_STR, .target = &options->timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
+  ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
+  rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  if (rc == AC_ERR_ENOENT && flex) {
+    const char *arg;
+    AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
+    options->unsupportedOption = containsArgument(arg, non_flex_argopts);
+  }
+  if (rc != AC_OK) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
+      return REDISMODULE_ERR;
+    }
+  }
+  if ((options->flags & Index_WideSchema) && !(options->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    return REDISMODULE_ERR;
+  }
+
+  if (options->timeout != -1) {
+    options->flags |= Index_Temporary;
+  }
+  options->timeout *= 1000;  // convert to ms
+
+  return REDISMODULE_OK;
+}
 
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac, QueryError *status) {
@@ -1689,104 +1980,44 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor acStopwords = {0};
-
-  long long timeout = -1;
-  int dummy;
-  size_t dummy2;
-  SchemaRuleArgs rule_args = {0};
-  ArgsCursor rule_prefixes = {0};
-  int rc = AC_OK;
-  ACArgSpec *errarg = NULL;
-  ACArgSpec flex_argopts[] = {
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-    {.name = NULL}
-  };
-  ACArgSpec non_flex_argopts[] = {
-    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                Index_StoreTermOffsets | Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-    {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-
-    // For compatibility
-    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {.name = NULL}
-  };
-  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(ac, argopts, &errarg);
-  if (rc != AC_OK) {
-    if (rc != AC_ERR_ENOENT) {
-      QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
-    }
-  }
-  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+  IndexSpecOptions options;
+  int rc = IndexSpec_ParseOptions(ac, isSpecOnDiskForValidation(spec), &options, status);
+  spec->flags = options.flags;
+  SchemaRuleArgs *rule_args = &options.rule;
+  ArgsCursor *rule_prefixes = &options.prefixes;
+  ArgsCursor *acStopwords = &options.stopwords;
+  if (rc != REDISMODULE_OK) {
     goto failure;
   }
-
-  if (timeout != -1) {
-    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
+  if (spec->flags & Index_Temporary) {
     RS_ASSERT(!SearchDisk_IsEnabled());
-    spec->flags |= Index_Temporary;
   }
-  spec->timeout = timeout * 1000;  // convert to ms
+  spec->timeout = options.timeout;
 
-  if (rule_prefixes.argc > 0) {
-    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
+  if (rule_prefixes->argc > 0) {
+    spec->rule = SchemaRule_CreateWithPrefixesAC(rule_args, rule_prefixes, spec_ref, status);
   } else {
-    rule_args.nprefixes = 1;
+    rule_args->nprefixes = 1;
     static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
-    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
+    rule_args->prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(rule_args, spec_ref, status);
   }
   if (!spec->rule) {
     goto failure;
   }
 
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, true, spec);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
-    if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
-
-  if (AC_IsInitialized(&acStopwords)) {
+  if (AC_IsInitialized(acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListAC(&acStopwords);
+    spec->stopwords = NewStopWordListAC(acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
   if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(ac)) {
       const char *badarg = AC_GetStringNC(ac, NULL);
-      handleBadArguments(spec, badarg, status, non_flex_argopts);
+      handleBadArguments(badarg, options.unsupportedOption, status);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
@@ -1795,6 +2026,27 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
+  }
+
+  // Store on disk if we're on Flex.
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    if (!SearchDisk_CanCreateIndex(status)) {
+      goto failure;
+    }
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
+                                          spec->rule->type, true, spec, status);
+    if (!spec->diskSpec) {
+      SearchDisk_ReleaseCreateFailure();
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
+      goto failure;
+    }
+  }
+
+  if (spec->diskSpec) {
+    IndexSpec_BindFieldsStorage(spec);
   }
 
   if (spec->rule->filter_exp) {
@@ -1839,7 +2091,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
 }
 
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp) {
   return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
@@ -1901,6 +2153,9 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
+    // The live field owns its compiled path for indexing and keeps it across snapshot rebuilds.
+    // Query loaders own their compiled paths, so this snapshot needs no indexing handle.
+    field->compiledPath = NULL;
     field->fieldName = HiddenString_Duplicate(fs->fieldName);
     // if name & path are pointing to the same string, copy only pointer
     if (fs->fieldName != fs->fieldPath) {
@@ -1928,16 +2183,17 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
+    GilGate_Reset(&cleanPoolGilGate);
+    // Single-threaded: DiskSlotCleanup_Run relies on it. More threads need a per-index guard there.
     cleanPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "cleanPool");
   }
 }
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    GilGate_BeginJoin(&cleanPoolGilGate);
     redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
@@ -1951,6 +2207,28 @@ void addPendingIndexDrop() {
 
 void removePendingIndexDrop() {
   __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+}
+
+int CleanPool_AddWork(void (*work)(void *), void *arg) {
+  return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
+}
+
+void CleanPool_Pause(void) {
+  if (cleanPool) redisearch_thpool_pause_threads(cleanPool);
+}
+
+void CleanPool_Resume(void) {
+  if (cleanPool && redisearch_thpool_paused(cleanPool)) {
+    redisearch_thpool_resume_threads(cleanPool);
+  }
+}
+
+bool CleanPool_IsPaused(void) {
+  return cleanPool && redisearch_thpool_paused(cleanPool);
+}
+
+void CleanPool_Wait() {
+  if (cleanPool) redisearch_thpool_wait(cleanPool);
 }
 
 size_t CleanInProgressOrPending() {
@@ -2001,9 +2279,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   if (spec->keysDict) {
     dictRelease(spec->keysDict);
   }
-  // Free missingFieldDict
-  if (spec->missingFieldDict) {
-    dictRelease(spec->missingFieldDict);
+  if (spec->missing.indexes) {
+    dictRelease(spec->missing.indexes);
   }
   // Free existing docs inverted index
   if (spec->existingDocs) {
@@ -2024,6 +2301,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   array_free(spec->fieldIdToIndex);
   spec->fieldIdToIndex = NULL;
+  array_free(spec->missing.fields);
+  spec->missing.fields = NULL;
 
   // Free suffix trie
   if (spec->suffix) {
@@ -2061,7 +2340,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
   }
 
   if (lockGil) {
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&cleanPoolGilGate, ctx);
   }
   for (size_t i = 0; i < len; ++i) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
@@ -2069,7 +2348,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
     RedisModule_FreeString(ctx, keyName);
   }
   if (lockGil) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&cleanPoolGilGate, ctx);
   }
 
   for (size_t i = 0; i < len; ++i) {
@@ -2345,6 +2624,23 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
   fs->indexError = IndexError_Init();
 }
 
+// An SST load keeps each key's DocIdMeta, whose entries are keyed by the specIds of
+// the process that saved them. The loaded spec must therefore keep its saved specId,
+// or its keys' entries would not be found. Moving the counter past the adopted id
+// keeps the ids of indexes created later unique.
+// Returns false for an id no real save produces: 0 is never assigned, and a counter
+// never gets near INT64_MAX. Rejecting larger ids also keeps the counter from wrapping.
+static bool adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+  if (savedSpecId == 0 || savedSpecId > INT64_MAX) {
+    return false;
+  }
+  sp->specId = savedSpecId;
+  if (nextSpecId_g <= savedSpecId) {
+    nextSpecId_g = savedSpecId + 1;
+  }
+  return true;
+}
+
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
@@ -2356,8 +2652,8 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
   // an index is dropped and recreated with the same name, the new incarnation
-  // has a different ID. The specId is not persisted — on RDB load, each spec
-  // gets a fresh sequential ID.
+  // has a different ID. An SST load replaces it with the saved one (see
+  // adoptSavedSpecId).
   sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
@@ -2384,6 +2680,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->stats.indexError = IndexError_Init();
 
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
+  sp->missing.fields = array_new(t_fieldIndex, 0);
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
 
   IndexSpec_InitLock(sp);
@@ -2420,43 +2717,17 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
   switch (sp->rule->type) {
     case DocumentType_Hash:
-      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
+      break;
     case DocumentType_Json:
-      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP;
+      break;
     case DocumentType_Unsupported:
       RS_ABORT("shouldn't get here");
       break;
   }
   return fs;
-}
-
-uint64_t CharBuf_HashFunction(const void *key) {
-  const CharBuf *cb = key;
-  return RS_dictGenHashFunction(cb->buf, cb->len);
-}
-
-void *CharBuf_KeyDup(void *privdata, const void *key) {
-  const CharBuf *cb = key;
-  CharBuf *newcb = rm_malloc(sizeof(*newcb));
-  newcb->len = cb->len;
-  newcb->buf = rm_malloc(cb->len);
-  memcpy(newcb->buf, cb->buf, cb->len);
-  return newcb;
-}
-
-int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2) {
-  const CharBuf *cb1 = key1;
-  const CharBuf *cb2 = key2;
-  if (cb1->len != cb2->len) {
-    return 0;
-  }
-  return (memcmp(cb1->buf, cb2->buf, cb1->len) == 0);
-}
-
-void CharBuf_KeyDestructor(void *privdata, void *key) {
-  CharBuf *cb = key;
-  rm_free(cb->buf);
-  rm_free(cb);
 }
 
 void InvIndFreeCb(void *privdata, void *val) {
@@ -2485,7 +2756,7 @@ dictType missingFieldDictType = {
 // Only used on new specs so it's thread safe
 void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->keysDict = dictCreate(&invIdxDictType, NULL);
-  sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
+  sp->missing.indexes = dictCreate(&missingFieldDictType, NULL);
 }
 
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
@@ -2497,10 +2768,17 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
     sp->gc = GCContext_CreateGC(global, gcPolicy);
     GCContext_Start(sp->gc);
+    if (gcPolicy == GCPolicy_Disk) {
+      // The disk GC does not collect from the deleted set either.
+      DocTable_StopTrackingDeleted(&sp->docs);
+    }
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);
     RedisModule_Log(RSDummyContext, "debug", "Starting GC %p for %s", sp->gc, name);
+  } else {
+    // No cycle will ever prune what it records.
+    DocTable_StopTrackingDeleted(&sp->docs);
   }
 }
 
@@ -2521,7 +2799,9 @@ static int FieldSpec_RdbLoadCompat8(RedisModuleIO *rdb, FieldSpec *f, int encver
   char* name = NULL;
   size_t len = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
-  f->fieldName = NewHiddenString(name, len, true);
+  f->fieldName = NewHiddenString(name, len, false);
+  // These encodings predate field paths; a field without one uses its name, as elsewhere.
+  f->fieldPath = f->fieldName;
   // the old versions encoded the bit id of the field directly
   // we convert that to a power of 2
   if (encver < INDEX_MIN_WIDESCHEMA_VERSION) {
@@ -2545,7 +2825,7 @@ fail:
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
-                              bool takeLocks) {
+                              bool saveTagDictionary, bool takeLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2597,6 +2877,14 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   }
+  if (saveTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
+    TagIndex_RdbSave(rdb, TagIndex_Open(f));
+  }
+  // Only the attributes: the posting lists are rebuilt from the keyspace on load.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.dim);
+    RedisModule_SaveUnsigned(rdb, f->sparseVecOpts.metric);
+  }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2605,7 +2893,8 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
                                          [IDXFLD_LEGACY_TAG] = INDEXFLD_T_TAG};
                                          // CHECKED: Not related to new data types - legacy code
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver, bool useSst) {
+static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver,
+                             bool useSst, bool loadTagDictionary) {
 
   f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
@@ -2615,6 +2904,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   char* name = NULL;
   size_t len = 0;
+  uint64_t types = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
   if (memchr(name, '\0', len)) {
     rm_free(name);
@@ -2633,12 +2923,15 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     }
   }
 
-  f->types = LoadUnsigned_IOError(rdb, goto fail);
+  types = LoadUnsigned_IOError(rdb, goto fail);
+  if (encver < INDEX_MIN_MULTITYPE_VERSION && types > IDXFLD_LEGACY_MAX) {
+    goto fail;
+  }
+  f->types = types;
   f->options = LoadUnsigned_IOError(rdb, goto fail);
   f->sortIdx = LoadSigned_IOError(rdb, goto fail);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
-    RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
     f->types = fieldTypeMap[f->types];
   }
 
@@ -2662,7 +2955,12 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
+    if (encver >= INDEX_HNSW_QUANT_VERSION) {
+      if (VecSim_RdbLoad_v5(rdb, &f->vectorOpts.vecSimParams, sp_ref,
+                            HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
       if (VecSim_RdbLoad_v4(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
@@ -2767,11 +3065,43 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   // Load geometry specific options
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     if (encver >= INDEX_GEOMETRY_VERSION) {
-      f->geometryOpts.geometryCoords = LoadUnsigned_IOError(rdb, goto fail);
+      uint64_t coords = LoadUnsigned_IOError(rdb, goto fail);
+      if (coords >= GEOMETRY_COORDS__NUM) {
+        RedisModule_LogIOError(rdb, "warning", "Invalid geometry coordinate system %llu",
+                               (unsigned long long)coords);
+        goto fail;
+      }
+      f->geometryOpts.geometryCoords = (GEOMETRY_COORDS)coords;
     } else {
       // In RedisSearch RC (2.8.1 - 2.8.3) we supported default coordinate system which was not written to RDB
       f->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     }
+  }
+  if (loadTagDictionary && FIELD_IS(f, INDEXFLD_T_TAG)) {
+    f->tagOpts.tagIndex = TagIndex_RdbLoad(rdb, f->index, FieldSpec_HasSuffixTrie(f));
+    if (!f->tagOpts.tagIndex) goto fail;
+  }
+
+  // Load sparse vector attributes.
+  if (FIELD_IS(f, INDEXFLD_T_SPARSE_VECTOR)) {
+    // No build writes the type bit at an older encoding, so this fires only on a corrupt or
+    // foreign file. Rejecting it here beats reading attributes that were never written.
+    if (encver < INDEX_SPARSE_VECTOR_VERSION) {
+      RedisModule_LogIOError(rdb, "warning", "Sparse vector field in encoding version %d", encver);
+      goto fail;
+    }
+    uint64_t dim = LoadUnsigned_IOError(rdb, goto fail);
+    uint64_t metric = LoadUnsigned_IOError(rdb, goto fail);
+    if (dim == 0 || dim > (1ULL << 32) ||
+        (metric != SparseMetric_InnerProduct && metric != SparseMetric_Cosine)) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "Invalid sparse vector attributes: dim %llu, metric %llu",
+                             (unsigned long long)dim, (unsigned long long)metric);
+      goto fail;
+    }
+    f->sparseVecOpts.dim = dim;
+    f->sparseVecOpts.metric = (SparseMetric)metric;
+    f->sparseVecOpts.sparseVecIndex = NULL;
   }
 
   return REDISMODULE_OK;
@@ -2932,6 +3262,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
     sp->docs.memsize;
+  if (!isDisk && !skip_unsafe_ops) {
+    // A crash can interrupt a change to the deleted set; inspecting it would reenter Rust.
+    doc_table_size += DocTable_DeletedDocsMemoryUsage(&sp->docs);
+  }
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
@@ -2948,10 +3282,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
-  // for backward compatibility.
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
+    // A crash can interrupt a map mutation; inspecting its allocation would reenter Rust.
+    RedisModule_InfoAddFieldDouble(ctx, "key_table_size", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
     RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
@@ -3001,54 +3334,51 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Point a disk-backed vector field's diskCtx at the open sp->diskSpec.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
+  // Only HNSW indexes support disk mode (tiered with HNSW primary)
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  RS_ASSERT(params->algo == VecSimAlgo_TIERED);
 
-// Populate diskCtx for all HNSW vector fields in the spec.
-// This must be called after sp->diskSpec is set.
-static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
+  VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
+  RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+  size_t nameLen;
+  const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
-    // Only HNSW indexes support disk mode (tiered with HNSW primary)
-    VecSimParams *params = &fs->vectorOpts.vecSimParams;
-    RS_ASSERT(params->algo == VecSimAlgo_TIERED);
+  // Free any existing indexName to avoid memory leak
+  if (fs->vectorOpts.diskCtx.indexName) {
+    rm_free((void *)fs->vectorOpts.diskCtx.indexName);
+  }
 
-    VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
-    RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
-
-    size_t nameLen;
-    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-
-    // Free any existing indexName to avoid memory leak
-    if (fs->vectorOpts.diskCtx.indexName) {
-      rm_free((void*)fs->vectorOpts.diskCtx.indexName);
-    }
-
-    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
-    // are repopulated from the freshly opened disk handle.
-    const bool rerank = fs->vectorOpts.diskCtx.rerank;
-    fs->vectorOpts.diskCtx = (VecSimDiskContext){
+  // Preserve rerank set by parseVectorField or FieldSpec_RdbLoad — runtime
+  // fields below are repopulated from the freshly opened disk handle.
+  const bool rerank = fs->vectorOpts.diskCtx.rerank;
+  fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      // The disk storage layer keys this field's data by the value it finds
+      // here, so it has to stay stable for the life of the index.
       .userData = fs->index,
       .rerank = rerank,
-    };
-  }
+  };
 }
 
-// Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
-// is opened.
-static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
-
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+// Point each field's in-memory handle (vector diskCtx, TAG disk index) at the
+// storage the disk layer opened for it. Call after every sp->diskSpec open.
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp) {
+  RS_ASSERT(sp->diskSpec);
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      IndexSpec_PopulateVectorDiskParams(sp, fs);
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+    }
   }
+  IndexSpec_RefreshSpecCache(sp);
 }
 
 // Opens sp->diskSpec from
@@ -3056,8 +3386,9 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
 // and replays the in-memory blob stashed on the matching FieldSpec.
 //
 // Returns true on success (sp->diskSpec is set and ready to register).
-// Returns false if SearchDisk_OpenIndexWithRdbState fails, or if any
-// disk-backed vector field cannot be eagerly created. Note that the
+// Returns false if SearchDisk_OpenIndexWithRdbState fails, if a field's
+// storage cannot be opened, or if any disk-backed vector field cannot be
+// eagerly created. Note that the
 // state (sp->pendingDiskRdbState) is consumed by SearchDisk_OpenIndexWithRdbState
 // on both success and failure — we null the pointer here unconditionally.
 // On the failure path, sp->diskSpec (if already created) is closed by the
@@ -3076,10 +3407,7 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  // Populate diskCtx for every HNSW-disk-backed vector field so we have the
-  // storage context needed for both eager creation (cold fields) and the
-  // bind-storage step on pending indexes (loaded inline from RDB).
-  IndexSpec_PopulateVectorDiskParams(sp);
+  IndexSpec_BindFieldsStorage(sp);
 
   // Materialize each disk-backed VecSimIndex up front so the HNSW graph
   // metadata + SQ8 vectors are available to readers immediately after RDB
@@ -3116,28 +3444,24 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     }
   }
 
-  // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
-  // in the first document insertion
-  IndexSpec_EnsureTagDiskIndexes(sp);
-
   return true;
 }
 
+// A new top-level schema-defining member saved here must be mirrored in
+// schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
-  // read lock before serializing any field state. FieldSpec_RdbSave
-  // serializes the in-memory VecSimIndex of disk-backed vector fields (gated
-  // by REDISMODULE_CTX_FLAGS_SST_RDB), and background tiered-index threads
-  // can mutate that index concurrently. The same lock also guards the
-  // spec-level SST block below (terms trie, scoring stats, disk metadata).
+  // read lock before serializing field state that background workers can mutate.
+  // The same lock guards the spec-level disk metadata below.
   // In a forked child the memory is a snapshot and no lock is needed.
   const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
+  const bool saveDiskSpec = sp->diskSpec && storeDiskRdbData;
   const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
-  const bool needLock = sp->diskSpec && storeDiskRdbData && inMainProcess;
+  const bool needLock = saveDiskSpec && inMainProcess;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   if (needLock) {
-    RedisSearchCtx_LockSpecRead(&sctx);
+    IndexSpec_LockRead(sctx.spec);
   }
 
   // Save the name plus the null terminator
@@ -3145,7 +3469,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, saveDiskSpec, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3177,7 +3501,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   //
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
-  if (sp->diskSpec && storeDiskRdbData) {
+  if (saveDiskSpec) {
+    RedisModule_SaveUnsigned(rdb, sp->specId);
     // Persist whether the source node was mid background-indexing, so the
     // loading node (replica / hot-restart) can restart the async scan and
     // finish a partially populated index. A scan actively in progress or a
@@ -3191,7 +3516,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   }
 
   if (needLock) {
-    RedisSearchCtx_UnlockSpec(&sctx);
+    IndexSpec_Unlock(sctx.spec);
   }
 }
 
@@ -3200,6 +3525,23 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
     *flags &= ~Index_WideSchema;
     RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
                     SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
+  }
+}
+
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
+  StrongRef_Release(spec_ref);
+}
+
+// RDB stores path strings, so recreate runtime handles after the rule identifies JSON fields.
+static void compileLoadedJsonPaths(IndexSpec *sp) {
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = &sp->fields[i];
+    fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
   }
 }
 
@@ -3214,40 +3556,53 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   size_t len = 0;
   HiddenString* specName = NULL;
   RedisModuleCtx* ctx = RedisModule_GetContextFromIO(rdb);
+  bool loadDiskSpec = false;
+  bool loadTagDictionaries = false;
 
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
   specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  sp = rm_calloc(1, sizeof(IndexSpec));
-  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
-  sp->own_ref = spec_ref;
-
-  // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
-  // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
+  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
+  if (flags & Index_StoreNumeric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid index storage flags");
+    goto cleanup_name;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup_name);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
                            "RDB Load: Schema is limited to %d fields",
                            SPEC_MAX_FIELDS);
-    goto cleanup;
+    goto cleanup_name;
   }
 
+  // Allocate only once the spec can be fully initialised: IndexSpec_Free relies
+  // on the IndexError members that initializeIndexSpec sets up.
+  sp = rm_calloc(1, sizeof(IndexSpec));
+  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp->own_ref = spec_ref;
   initializeIndexSpec(sp, specName, flags, numFields_u64);
 
   IndexSpec_MakeKeyless(sp);
   RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
+  loadDiskSpec = isSpecOnDisk(sp) && useSst;
+  loadTagDictionaries = loadDiskSpec && encver >= INDEX_SST_TAG_VALUES_VERSION;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst) != REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst, loadTagDictionaries) !=
+        REDISMODULE_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load index field", " %d", i);
+      goto cleanup;
+    }
+    if (loadDiskSpec && FIELD_IS(fs, INDEXFLD_T_TAG) && !loadTagDictionaries) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "SST RDB is missing the TAG dictionary for a disk index");
       goto cleanup;
     }
     if (fs->ftId != RS_INVALID_FIELD_ID) {
@@ -3257,6 +3612,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
+    IndexSpec_TrackIndexMissingField(sp, fs);
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
   // After loading all the fields, we can build the spec cache
@@ -3265,6 +3621,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
+  }
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
   }
   // The cache was built before the rule loaded; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
@@ -3287,7 +3646,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
   narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
-    QueryError _status;
+    // Aux data replayed from several source shards loads the same index repeatedly, and each
+    // repeat finds its aliases already registered, so this error path is routine.
+    QueryError _status = QueryError_Default();
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     HiddenString* alias = NewHiddenString(s, strlen(s), false);
     int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
@@ -3296,13 +3657,14 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
+    QueryError_ClearError(&_status);
   }
 
   // NOTE: duplicate detection (a specDict_g read) and the non-SST on-disk index
   // open that depends on it are handled by the registry layer after this returns
   // (see IndexSpec_RdbLoadOpenDisk + the loaders in indexes.c). The SST branch
   // below must run here regardless, since it consumes RDB stream data.
-  if (isSpecOnDisk(sp) && useSst) {
+  if (loadDiskSpec) {
     // Load the disk-related index data if we are on disk and the save flow used
     // sst-files. We load it into a temporary in-memory object first, then use it
     // to open the index with the RDB state applied.
@@ -3310,6 +3672,23 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    if (encver >= INDEX_SST_SPEC_ID_VERSION) {
+      if (!adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup))) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid saved index id");
+        goto cleanup;
+      }
+    } else {
+      // Not fatal: the index keeps a fresh id, as before encver 29. The keys' DocIdMeta
+      // may then name another index, which a recreated index can still hit if the saving
+      // process used its new id, hence the hint to check the count and retry.
+      RedisModule_Log(RSDummyContext, "warning",
+                      "Index '%s' was loaded from an RDB without its saved index id (encver %d). "
+                      "Updates to documents indexed before the load may be counted as new "
+                      "documents, and queries that load fields may skip them. To recover, drop "
+                      "the index without DD and recreate it. Once it finishes indexing, if "
+                      "num_docs is below the number of matching keys, repeat.",
+                      IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), encver);
+    }
     // Symmetric with IndexSpec_RdbSave: whether the source node was mid
     // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
     // the async scan and backfill the remaining documents.
@@ -3319,7 +3698,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       TrieType_Free(sp->terms);
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
-    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
+    if (!sp->terms) {
+      goto cleanup;
+    }
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
     // here directly; consumed at LOADING_ENDED (SST flow) or freed by
@@ -3333,11 +3714,15 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   return sp;
 
 cleanup:
-  if (sp && sp->diskSpec) {
+  if (sp->diskSpec) {
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
-  StrongRef_Release(spec_ref);
+  IndexSpec_RdbLoadDiscard(spec_ref);
+  goto cleanup_no_index;
+cleanup_name:
+  // specName is handed to the spec only in initializeIndexSpec.
+  HiddenString_Free(specName, true);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
@@ -3350,34 +3735,59 @@ cleanup_no_index:
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
   if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
     // If the regular RDB method is used, just open an Index without any populated data. (Enforce no populated data, restart may come with dirty disk data)
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, !useSst, sp);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, true,
+                                        sp, status);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      if (!QueryError_HasError(status)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      }
       return REDISMODULE_ERR;
     }
-    IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_EnsureTagDiskIndexes(sp);
+    IndexSpec_BindFieldsStorage(sp);
   }
   return REDISMODULE_OK;
 }
 
 
+// The legacy upgrade deletes each spec's key by the name it was saved under, INDEX_SPEC_KEY_FMT in
+// db 0. A spec loaded from any other key would stay in the keyspace after the upgrade, holding a
+// value that the type's save callback cannot write.
+static bool legacySpecKeyIsExpected(RedisModuleIO *rdb, const char *specName) {
+  const RedisModuleString *key = RedisModule_GetKeyNameFromIO(rdb);
+  if (!key) {
+    // Not loaded into the keyspace, so nothing is left behind.
+    return true;
+  }
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  const size_t prefixLen = strlen(INDEX_SPEC_KEY_PREFIX);
+  const size_t nameLen = strlen(specName);
+  return RedisModule_GetDbIdFromIO(rdb) == 0 && keyLen == prefixLen + nameLen &&
+         !memcmp(keyStr, INDEX_SPEC_KEY_PREFIX, prefixLen) &&
+         !memcmp(keyStr + prefixLen, specName, nameLen);
+}
+
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
-  // Upgrading a legacy spec only makes sense while an RDB load is in progress. Both the UPGRADE_INDEX
-  // rules and the registry of legacy specs are built for the duration of a load and released at the end
-  // of it, so outside one - a RESTORE of a legacy payload on a running server, say - they are NULL and
-  // the lookups below would dereference NULL. Refuse instead: the caller sees a load failure, which for
-  // RESTORE surfaces as a command error.
-  if (legacySpecRules == NULL || legacySpecDict == NULL) {
+  // Upgrading a legacy spec only makes sense while an RDB load is in progress: the upgrade sweep that
+  // publishes it runs when the load ends. Outside one - a RESTORE of a legacy payload on a running
+  // server, say - refuse, so the caller sees a load failure, which for RESTORE is a command error.
+  // The globals alone are not enough: a failed load leaves both allocated.
+  if (!g_isLoading || legacySpecRules == NULL || legacySpecDict == NULL) {
     RedisModule_LogIOError(rdb, "warning",
                            "Refusing to load a legacy index outside of an RDB load");
     return NULL;
   }
   RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
+  if (!legacySpecKeyIsExpected(rdb, legacyName)) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Refusing a legacy index that is not stored under its index key in db 0");
+    RedisModule_Free(legacyName);
+    return NULL;
+  }
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
@@ -3386,14 +3796,22 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(sp);
+  sp->missing.fields = array_new(t_fieldIndex, 0);
   sp->numSortableFields = 0;
   sp->terms = NULL;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+  // IndexSpec_Free clears it, so it must be valid before the first failed read below.
+  sp->stats.indexError = IndexError_Init();
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  if (sp->flags & Index_StoreNumeric) {
+    RedisModule_LogIOError(rdb, "warning", "RDB Load: Invalid index storage flags");
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
@@ -3415,13 +3833,14 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     initializeFieldSpec(fs, i);
-    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false) != REDISMODULE_OK) {
+    if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, false, false) != REDISMODULE_OK) {
       StrongRef_Release(spec_ref);
       return NULL;
     }
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
+    IndexSpec_TrackIndexMissingField(sp, fs);
   }
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -3470,7 +3889,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver >= INDEX_MIN_ALIAS_VERSION) {
     size_t narr = RedisModule_LoadUnsigned(rdb);
     for (size_t ii = 0; ii < narr; ++ii) {
-      QueryError status;
+      QueryError status = QueryError_Default();
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       HiddenString* alias = NewHiddenString(s, strlen(s), false);
@@ -3478,6 +3897,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       HiddenString_Free(alias, false);
       RedisModule_Free(s);
       RS_ASSERT(rc == REDISMODULE_OK);
+      QueryError_ClearError(&status);
     }
   }
 
@@ -3486,11 +3906,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", formattedIndexName);
-    StrongRef_Release(spec_ref);
+    IndexSpec_RdbLoadDiscard(spec_ref);
     return NULL;
   }
 
-  QueryError status;
+  QueryError status = QueryError_Default();
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
 
   dictDelete(legacySpecRules, sp->specName);
@@ -3499,8 +3919,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
                            formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
-    StrongRef_Release(spec_ref);
+    QueryError_ClearError(&status);
+    IndexSpec_RdbLoadDiscard(spec_ref);
     return NULL;
+  }
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
   }
   // The cache was built before the rule was created; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
@@ -3525,6 +3949,142 @@ void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const int contextFlags = RedisModule_GetContextFlags(ctx);
   IndexSpec_RdbSave(rdb, value, contextFlags);
+}
+
+static void fingerprintHiddenString(Sha1Context *hash, const HiddenString *value) {
+  Sha1_UpdateU64(hash, value != NULL);
+  if (value) {
+    size_t len;
+    const char *bytes = HiddenString_GetUnsafe(value, &len);
+    Sha1_UpdateBuffer(hash, bytes, len);
+  }
+}
+
+static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *params) {
+  Sha1_UpdateU64(hash, params->algo);
+  switch (params->algo) {
+    case VecSimAlgo_BF: {
+      const BFParams *p = &params->algoParams.bfParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      break;
+    }
+    case VecSimAlgo_TIERED: {
+      const TieredIndexParams *p = &params->algoParams.tieredParams;
+      RS_ASSERT(p->primaryIndexParams);
+      if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.QuantNormalizationSetSize);
+      } else {
+        RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
+        Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
+      }
+      fingerprintVectorParams(hash, p->primaryIndexParams);
+      break;
+    }
+    case VecSimAlgo_HNSWLIB: {
+      const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->quantType);
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->M);
+      Sha1_UpdateU64(hash, p->efConstruction);
+      Sha1_UpdateU64(hash, p->efRuntime);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+    case VecSimAlgo_SVS: {
+      const SVSParams *p = &params->algoParams.svsParams;
+      Sha1_UpdateU64(hash, p->type);
+      Sha1_UpdateU64(hash, p->dim);
+      Sha1_UpdateU64(hash, p->metric);
+      Sha1_UpdateU64(hash, p->multi);
+      Sha1_UpdateU64(hash, p->quantBits);
+      Sha1_UpdateU64(hash, p->graph_max_degree);
+      Sha1_UpdateU64(hash, p->construction_window_size);
+      Sha1_UpdateU64(hash, p->leanvec_dim);
+      Sha1_UpdateU64(hash, p->search_window_size);
+      Sha1_UpdateDouble(hash, p->epsilon);
+      break;
+    }
+  }
+}
+
+static void fingerprintField(Sha1Context *hash, const FieldSpec *field, bool isDisk) {
+  fingerprintHiddenString(hash, field->fieldName);
+  fingerprintHiddenString(hash, field->fieldPath ? field->fieldPath : field->fieldName);
+  Sha1_UpdateU64(hash, field->types);
+  Sha1_UpdateU64(hash, field->options);
+  Sha1_UpdateU64(hash, (uint64_t)(int64_t)field->sortIdx);
+  if (FIELD_IS(field, INDEXFLD_T_FULLTEXT) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->ftId);
+    Sha1_UpdateDouble(hash, field->ftWeight);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_TAG) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->tagOpts.tagFlags);
+    Sha1_UpdateU64(hash, (unsigned char)field->tagOpts.tagSep);
+  }
+  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
+    Sha1_UpdateU64(hash, field->vectorOpts.expBlobSize);
+    fingerprintVectorParams(hash, &field->vectorOpts.vecSimParams);
+    if (isDisk && field->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
+        field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo ==
+            VecSimAlgo_HNSWLIB) {
+      Sha1_UpdateU64(hash, field->vectorOpts.diskCtx.rerank);
+    }
+  }
+  if (FIELD_IS(field, INDEXFLD_T_GEOMETRY) || (field->options & FieldSpec_Dynamic)) {
+    Sha1_UpdateU64(hash, field->geometryOpts.geometryCoords);
+  }
+  // Both decide how a query vector is validated and scored, so shards must agree on them.
+  if (FIELD_IS(field, INDEXFLD_T_SPARSE_VECTOR)) {
+    Sha1_UpdateU64(hash, field->sparseVecOpts.dim);
+    Sha1_UpdateU64(hash, field->sparseVecOpts.metric);
+  }
+}
+
+static void fingerprintRule(Sha1Context *hash, const SchemaRule *rule) {
+  Sha1_UpdateU64(hash, rule->type);
+  Sha1_UpdateU64(hash, array_len(rule->prefixes));
+  for (uint32_t i = 0; i < array_len(rule->prefixes); ++i) {
+    size_t len;
+    const char *prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], &len);
+    Sha1_UpdateBuffer(hash, prefix, len);
+  }
+  fingerprintHiddenString(hash, rule->filter_exp_str);
+  Sha1_UpdateCString(hash, rule->lang_field);
+  Sha1_UpdateCString(hash, rule->score_field);
+  Sha1_UpdateCString(hash, rule->payload_field);
+  Sha1_UpdateDouble(hash, rule->score_default);
+  Sha1_UpdateU64(hash, rule->lang_default);
+  Sha1_UpdateU64(hash, rule->index_all);
+}
+
+// Hash values individually: raw structs contain padding, pointers, and live index state.
+static void schemaFingerprint(Sha1Context *hash, const void *value) {
+  const IndexSpec *sp = value;
+  Sha1_UpdateU64(hash, SCHEMA_FINGERPRINT_VERSION);
+  Sha1_UpdateU64(hash, sp->flags & ~Index_HasSmap);
+  Sha1_UpdateU64(hash, sp->numFields);
+  for (int i = 0; i < sp->numFields; ++i) {
+    fingerprintField(hash, &sp->fields[i], sp->diskSpec != NULL);
+  }
+  fingerprintRule(hash, sp->rule);
+  if (sp->flags & Index_HasCustomStopwords) {
+    Sha1_UpdateU64(hash, StopWordList_Fingerprint(sp->stopwords));
+  }
+  Sha1_UpdateU64(hash, sp->smap ? SynonymMap_Fingerprint(sp->smap) : 0);
+  if (sp->flags & Index_Temporary) {
+    Sha1_UpdateU64(hash, sp->timeout);
+  }
+}
+
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp) {
+  return Sha1_ComputeValue(schemaFingerprint, sp);
 }
 
 /**
@@ -3566,8 +4126,57 @@ int CompareVersions(Version v1, Version v2) {
 }
 
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey) {
+/**
+ * Mark each VECTOR or GEOSHAPE field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and re-adding it.
+ * GEOSHAPE fields are marked only on an FT.ALTER backfill. `alterAddedFieldsStart` is
+ * `RS_INVALID_FIELD_INDEX` except for `IndexSpec_UpdateDocForAlter`.
+ */
+static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                          RedisModuleString **changedFields,
+                                          size_t numChangedFields,
+                                          t_fieldIndex alterAddedFieldsStart) {
+  if (!RSGlobalConfig.optimizePartialUpdate) {
+    return;
+  }
+  if (!(spec->flags & (Index_HasVecSim | Index_HasGeometry))) {
+    return;
+  }
+
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    const FieldType as = doc->fields[ii].indexAs;
+    const bool alterGeometry =
+        (as & INDEXFLD_T_GEOMETRY) && alterAddedFieldsStart != RS_INVALID_FIELD_INDEX;
+    if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
+        !((as & INDEXFLD_T_VECTOR) || alterGeometry)) {
+      continue;
+    }
+    ChangedFieldInd mark = ChangedFieldInd_Unverified;
+    if (alterAddedFieldsStart != RS_INVALID_FIELD_INDEX && fs->index >= alterAddedFieldsStart) {
+      // Added by the ALTER, so the old doc-id normally holds no entry to compare or move: insert
+      // directly. A write during the scan may have left one there; it is deleted and re-added.
+      mark = ChangedFieldInd_VerifiedYes;
+    } else if (changedFields) {
+      mark = FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)
+                 ? ChangedFieldInd_VerifiedYes  // named in the change set: the value was written
+                 : ChangedFieldInd_VerifiedNo;
+    }
+    if (mark == ChangedFieldInd_VerifiedYes) {
+      continue;  // nothing to record: an unmarked field already reads this way
+    }
+    if (!aCtx->fieldChanges) {
+      aCtx->fieldChanges = rm_calloc(spec->numFields, sizeof(*aCtx->fieldChanges));
+    }
+    aCtx->fieldChanges[fs->index] = mark;
+  }
+}
+
+static int indexSpecUpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                              DocumentType type, RedisModuleKey *openKey,
+                              RedisModuleString **changedFields, size_t numChangedFields,
+                              t_fieldIndex alterAddedFieldsStart) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3620,25 +4229,40 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
   IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   IndexSpec_IncrActiveWrites(spec);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
   // Reuse the caller's open key handle for the DocIdMeta update, if provided.
   aCtx->disk.openKey = openKey;
+  AddDocumentCtx_MarkForRelabel(aCtx, spec, changedFields, numChangedFields, alterAddedFieldsStart);
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
 
   spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
   return REDISMODULE_OK;
 }
 
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields) {
+  return indexSpecUpdateDoc(spec, ctx, key, type, openKey, changedFields, numChangedFields,
+                            RS_INVALID_FIELD_INDEX);
+}
+
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart) {
+  RS_LOG_ASSERT(addedFieldsStart < spec->numFields, "an ALTER adds at least one field");
+  return indexSpecUpdateDoc(spec, ctx, key, type, NULL, NULL, 0, addedFieldsStart);
+}
+
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock.
+// Caller must hold the spec write lock, and notifies the GC itself (see
+// IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
@@ -3646,17 +4270,16 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
 
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
+  IndexSpec_RemoveDocFromMemoryIndexes(spec, docId);
+}
 
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
+        if (!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, docId);
       }
     }
@@ -3675,15 +4298,32 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
 // (`actxDocIdMetaGet` / `actxDocIdMetaSet`) so both paths treat the same key
 // consistently.
 static int lookupDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
-                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId) {
-  return openKey ? DocIdMeta_GetWithOpenKey(openKey, specId, docId)
-                 : DocIdMeta_Get(ctx, key, specId, docId);
+                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId,
+                           uint32_t *docLen) {
+  return openKey ? DocIdMeta_GetEntryWithOpenKey(openKey, specId, docId, docLen)
+                 : DocIdMeta_GetEntry(ctx, key, specId, docId, docLen);
 }
 
 static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                          RedisModuleKey *openKey, uint64_t specId) {
   return openKey ? DocIdMeta_DeleteWithOpenKey(openKey, specId)
                  : DocIdMeta_Delete(ctx, key, specId);
+}
+
+// Disk-mode delete. `docLen` is the DocIdMeta length, filled from the row when the metadata
+// recorded none; false when nothing was deleted, so nothing is accounted for.
+static bool deleteDiskDocument(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                               uint32_t *docLen) {
+  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+  RS_LOG_ASSERT(key, "the disk delete needs the key to tell a trimmed document from a live one");
+  if (*docLen == DOCID_META_DOCLEN_UNKNOWN &&
+      !SearchDisk_GetDocumentLength(spec->diskSpec, docId, docLen)) {
+    // Stale mapping: the row is gone and was accounted for when it went.
+    return false;
+  }
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  return SearchDisk_DeleteDocumentById(spec->diskSpec, docId, keyStr, keyLen);
 }
 
 // Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
@@ -3712,18 +4352,18 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
-  // Look up docId from the key metadata.
+  // Look up the docId and length from the key metadata.
   uint64_t docId = 0;
-  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+  uint32_t docLen = DOCID_META_DOCLEN_UNKNOWN;
+  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId, &docLen) != REDISMODULE_OK ||
+      docId == 0) {
     // Nothing to delete
     return;
   }
 
-  uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Failed to delete
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed, or failed to delete
       return;
     }
   } else {
@@ -3741,6 +4381,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   dropDocIdMeta(ctx, key, openKey, spec->specId);
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -3748,47 +4391,46 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   IndexSpec_IncrActiveWrites(spec);
-  RedisSearchCtx_LockSpecWrite(&sctx);
+  IndexSpec_LockWrite(sctx.spec);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, openKey);
   IndexSpec_DecrActiveWrites(spec);
-  RedisSearchCtx_UnlockSpec(&sctx);
+  IndexSpec_Unlock(sctx.spec);
 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. The de-indexing entry point driven by
-// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
-// the spec write lock; no-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  IndexSpec_IncrActiveWrites(spec);
-  pthread_rwlock_wrlock(&spec->rwlock);
-
-  uint32_t docLen = 0;
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                                    uint32_t docLen) {
   if (SearchDisk_IsEnabled()) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
-      return;
+    if (!deleteDiskDocument(spec, key, docId, &docLen)) {
+      // Already removed by a slot trim or an earlier delete, or a storage error
+      return false;
     }
   } else {
     RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
     if (!md) {
       // Document not found in the in-memory table
-      IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
-      return;
+      return false;
     }
     docLen = md->docLen;
     DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  return true;
+}
 
+// The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
+// (both modes).
+void IndexSpec_DeleteDocById(IndexSpec *spec, const RedisModuleString *key, t_docId docId,
+                             uint32_t docLen) {
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  if (IndexSpec_DeleteDocById_Unsafe(spec, key, docId, docLen) && spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
   IndexSpec_DecrActiveWrites(spec);
-  pthread_rwlock_unlock(&spec->rwlock);
+  IndexSpec_Unlock(spec);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -3822,19 +4464,108 @@ void IndexSpecRef_Release(StrongRef ref) {
   StrongRef_Release(ref);
 }
 
+// =============================================================================
+// Per-thread spec lock ownership
+// =============================================================================
 
-// =============================================================================
-// Compaction FFI Functions (called by Rust during GC)
-// =============================================================================
+typedef enum {
+  SPEC_LOCK_UNSET,
+  SPEC_LOCK_READ,
+  SPEC_LOCK_WRITE,
+} SpecLockState;
+
+// pthread rwlock ownership never follows a request onto another worker.
+static _Thread_local struct {
+  IndexSpec *spec;
+  SpecLockState state;
+  bool unlock_suppressed;
+} lock_state;
+
+bool IndexSpec_IsLocked(const IndexSpec *sp) {
+  return lock_state.spec == sp && lock_state.state != SPEC_LOCK_UNSET;
+}
+
+bool IndexSpec_IsReadLocked(const IndexSpec *sp) {
+  return lock_state.spec == sp && lock_state.state == SPEC_LOCK_READ;
+}
+
+void IndexSpec_AssertLockNotHeld(void) {
+  RS_LOG_ASSERT(lock_state.state == SPEC_LOCK_UNSET, "spec lock must not be held");
+}
+
+void IndexSpec_LockRead(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+  const int rc = pthread_rwlock_rdlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
+  const bool rehashPaused = dictPauseRehashing(sp->keysDict);
+  RS_ASSERT_ALWAYS(rehashPaused);
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_READ;
+}
+
+int IndexSpec_TryLockRead(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+  if (pthread_rwlock_tryrdlock(&sp->rwlock) != 0) {
+    return REDISMODULE_ERR;
+  }
+  const bool rehashPaused = dictPauseRehashing(sp->keysDict);
+  RS_ASSERT_ALWAYS(rehashPaused);
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_READ;
+  return REDISMODULE_OK;
+}
+
+void IndexSpec_LockWrite(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(sp && lock_state.state == SPEC_LOCK_UNSET);
+#ifdef ENABLE_ASSERT
+  // Publish before blocking so a worker's sync point can observe a queued writer.
+  PendingSpecWriters_Incr();
+#endif
+  const int rc = pthread_rwlock_wrlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
+#ifdef ENABLE_ASSERT
+  PendingSpecWriters_Decr();
+#endif
+  lock_state.spec = sp;
+  lock_state.state = SPEC_LOCK_WRITE;
+}
+
+void IndexSpec_SuppressUnlock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && !lock_state.unlock_suppressed);
+  lock_state.unlock_suppressed = true;
+}
+
+void IndexSpec_AllowUnlock(IndexSpec *sp) {
+  RS_ASSERT_ALWAYS(IndexSpec_IsReadLocked(sp) && lock_state.unlock_suppressed);
+  lock_state.unlock_suppressed = false;
+}
+
+void IndexSpec_Unlock(IndexSpec *sp) {
+  if (lock_state.state == SPEC_LOCK_UNSET) {
+    return;
+  }
+  RS_ASSERT_ALWAYS(lock_state.spec == sp);
+  if (lock_state.unlock_suppressed) {
+    return;
+  }
+  if (lock_state.state == SPEC_LOCK_READ) {
+    const bool rehashResumed = dictResumeRehashing(sp->keysDict);
+    RS_ASSERT_ALWAYS(rehashResumed);
+  }
+  const int rc = pthread_rwlock_unlock(&sp->rwlock);
+  RS_ASSERT_ALWAYS(rc == 0);
+  lock_state.spec = NULL;
+  lock_state.state = SPEC_LOCK_UNSET;
+}
 
 // Acquire IndexSpec write lock
 void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
-  pthread_rwlock_wrlock(&sp->rwlock);
+  IndexSpec_LockWrite(sp);
 }
 
 // Release IndexSpec write lock
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
-  pthread_rwlock_unlock(&sp->rwlock);
+  IndexSpec_Unlock(sp);
 }
 
 
@@ -3849,8 +4580,13 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  // Only a missing representable term is fatal; UNSUPPORTED (never insertable) is a no-op.
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  // Not fatal: a term refused at a full trie node is indexed but was never in the trie, and nothing
+  // left in the trie can tell it apart from a term that went missing.
+  if (result == TRIE_DECR_NOT_FOUND) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk compaction: a term of index '%s' is missing from the terms trie",
+                    IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+  }
   return result == TRIE_DECR_DELETED;
 }
 

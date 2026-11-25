@@ -56,6 +56,8 @@ jobs:
     permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
@@ -104,7 +106,9 @@ jobs:
 
       - name: Setup platform dependencies
         if: needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: ${{ needs.get-config.outputs.setup_script }}
 
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
@@ -114,6 +118,11 @@ jobs:
 
       - name: Checkout RediSearch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Free up disk space
         uses: ./.github/actions/github-hosted-runner-cleanup
@@ -237,14 +246,14 @@ jobs:
       # Keep build in a later step so those updates are visible.
       - name: Run make bootstrap redisearch
         timeout-minutes: ${{ inputs.test-timeout }}
-        working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
         # Bootstrap installs every dependency over the network, and
         # install_script.sh is re-runnable, so retry it as a whole.
-        run: |
-          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
-          ${{ format(env.SETUP_RETRY_LOOP, 'make bootstrap redisearch') }}
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          working_directory: redis
+          command: PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH" make bootstrap redisearch
 
       - name: Run make build redisearch
         timeout-minutes: ${{ inputs.test-timeout }}

@@ -13,6 +13,8 @@
 //! (read/skip counts and wall-clock time) from a child iterator without
 //! modifying its behavior.
 
+use std::ptr::NonNull;
+
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -227,6 +229,33 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child
             .intersection_sort_weight(prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.child.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.child.current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.child.current_block_bound()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let start = Instant::now();
+        let result = self.child.read_with_threshold(min_competitive_score);
+        self.wall_time += start.elapsed();
+
+        self.counters.read += 1;
+        if matches!(&result, Ok(None)) {
+            self.counters.eof = true;
+        }
+        result
+    }
 }
 
 use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
@@ -266,6 +295,8 @@ where
         // initialised, exclusively owned). `&raw mut` forms a field pointer to
         // the `child` slot without creating a reference.
         let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
         // SAFETY: `child_slot` points at the valid, exclusively-owned active
         // child. `suspend_child_slot_in_place` drives the child's own `suspend`
         // and reinitialises the slot as a valid `I::Suspended` in place.
@@ -339,6 +370,8 @@ where
         // initialised, exclusively owned). `&raw mut` forms a field pointer to
         // the `child` slot without creating a reference.
         let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
         // SAFETY: `child_slot` points at the valid, exclusively-owned suspended
         // child. On `Unchanged`/`Moved` the helper reinitialises the slot as
         // `S::Resumed<'a>`; on `Aborted`/`Err` the child is consumed and the slot

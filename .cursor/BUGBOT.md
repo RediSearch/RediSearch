@@ -1,6 +1,6 @@
 # PR Review Guidelines
 
-Follow `AGENTS.md` § *Review guidelines* — what is in scope, what a finding has to state, and how to
+Follow `AGENTS.md` § *Code Review Rules* — what is in scope, what a finding has to state, and how to
 re-review after a push. It is the single source for those rules; this file adds only the
 release-notes guidance below, which is specific to Bugbot.
 

@@ -10,7 +10,7 @@
 //! A fixed-capacity heap that retains the top-k scored documents.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, TryReserveError};
 use std::num::NonZeroUsize;
 
 use index_result::RSIndexResult;
@@ -25,6 +25,13 @@ pub struct ScoredResult {
     pub doc_id: DocId,
     /// Score for the document (lower or higher is "better" depending on the comparator).
     pub score: f64,
+}
+
+/// Outcome of [`TopKHeap::push_with_record_lazy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Offer {
+    Rejected,
+    Inserted { evicted: Option<DocId> },
 }
 
 /// A drained heap element: the [`ScoredResult`] used for ordering plus the
@@ -116,7 +123,7 @@ impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
 /// `compare = |a, b| b.partial_cmp(&a).unwrap_or(Ordering::Equal)`
 pub struct TopKHeap<'index, O: ScoreOrdering = Ascending> {
     inner: BinaryHeap<HeapEntry<'index, O>>,
-    capacity: usize,
+    capacity: NonZeroUsize,
     order: O,
 }
 
@@ -124,12 +131,33 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using `order` to determine which score is better.
     pub fn new(capacity: NonZeroUsize, order: O) -> Self {
-        let capacity = capacity.into();
         Self {
-            inner: BinaryHeap::with_capacity(capacity),
+            inner: BinaryHeap::with_capacity(capacity.get()),
             capacity,
             order,
         }
+    }
+
+    /// Like [`new`](Self::new), but returns an error instead of panicking
+    /// when the storage for `capacity` elements cannot be reserved.
+    pub fn try_new(capacity: NonZeroUsize, order: O) -> Result<Self, TryReserveError> {
+        let mut inner = BinaryHeap::new();
+        inner.try_reserve_exact(capacity.get())?;
+        Ok(Self {
+            inner,
+            capacity,
+            order,
+        })
+    }
+
+    /// Returns the maximum number of elements the heap retains.
+    pub const fn capacity(&self) -> NonZeroUsize {
+        self.capacity
+    }
+
+    /// Returns the ordering that ranks the heap's scores.
+    pub const fn order(&self) -> O {
+        self.order
     }
 
     /// Returns the number of elements currently in the heap.
@@ -144,7 +172,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
 
     /// Returns `true` if the heap has reached its capacity.
     pub fn is_full(&self) -> bool {
-        self.inner.len() >= self.capacity
+        self.inner.len() >= self.capacity.get()
     }
 
     /// Returns the worst element currently retained (the one that would be evicted next),
@@ -177,7 +205,10 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         score: f64,
         record: Option<RSIndexResult<'index>>,
     ) -> bool {
-        self.push_with_record_lazy(doc_id, score, move || record)
+        matches!(
+            self.push_with_record_lazy(doc_id, score, move || record),
+            Offer::Inserted { .. }
+        )
     }
 
     /// Like [`push_with_record`](Self::push_with_record), but the record is
@@ -186,37 +217,68 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Use this when building the record is expensive (e.g. a deep copy): the
     /// closure is not called for an element the heap discards, so a rejected
     /// candidate costs only the score comparison.
+    #[inline]
     pub fn push_with_record_lazy(
         &mut self,
         doc_id: DocId,
         score: f64,
         make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
-    ) -> bool {
-        // The record never participates in ordering, so a record-less probe
-        // decides retention; the record is attached only on the accept branches.
-        let mut entry = HeapEntry {
-            result: ScoredResult { doc_id, score },
+    ) -> Offer {
+        let result = ScoredResult { doc_id, score };
+        if self.is_full()
+            && self
+                .inner
+                .peek()
+                .is_some_and(|worst| !self.is_better(result, worst))
+        {
+            return Offer::Rejected;
+        }
+        Offer::Inserted {
+            evicted: self.insert_retained(result, make_record),
+        }
+    }
+
+    /// Whether `candidate` outranks `worst` under [`HeapEntry`]'s ordering, and
+    /// so displaces it from a full heap.
+    ///
+    /// An exact match (same score and doc id) does not outrank it, so the heap
+    /// never holds a duplicate.
+    fn is_better(&self, candidate: ScoredResult, worst: &HeapEntry<'index, O>) -> bool {
+        let probe = HeapEntry {
+            result: candidate,
             record: None,
             order: self.order,
         };
+        probe < *worst
+    }
 
-        if !self.is_full() {
-            entry.record = make_record();
-            self.inner.push(entry);
-            true
-        }
-        // The heap is full. Only insert if the new element is strictly better than the
-        // current worst (root). `entry > worst` means entry is worse → discard.
-        // `entry < worst` means entry is better → evict worst, insert entry.
-        // Equal (same score AND same doc_id) → discard to avoid duplicates.
-        else if let Some(mut worst) = self.inner.peek_mut()
-            && entry < *worst
-        {
-            entry.record = make_record();
+    /// Inserts `result`, which [`push_with_record_lazy`](Self::push_with_record_lazy)
+    /// accepted, evicting and returning the worst element's doc id when the heap
+    /// is full.
+    ///
+    /// Kept out of line so the rejection test inlines into scan loops on its own.
+    #[inline(never)]
+    fn insert_retained(
+        &mut self,
+        result: ScoredResult,
+        make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
+    ) -> Option<DocId> {
+        let entry = HeapEntry {
+            result,
+            record: make_record(),
+            order: self.order,
+        };
+        if self.is_full() {
+            let mut worst = self
+                .inner
+                .peek_mut()
+                .expect("a full heap has capacity > 0 and so holds a worst element");
+            let evicted = worst.result.doc_id;
             *worst = entry;
-            true
+            Some(evicted)
         } else {
-            false
+            self.inner.push(entry);
+            None
         }
     }
 
@@ -240,7 +302,36 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 order,
             })
             .collect();
-        debug_assert!(self.inner.len() <= self.capacity);
+        debug_assert!(self.inner.len() <= self.capacity.get());
+    }
+
+    /// Recomputes the scores of all retained elements through `rescore` and
+    /// restores heap order, reusing the heap's storage.
+    ///
+    /// `rescore` sees the elements in unspecified order and may overwrite
+    /// their scores freely; doc ids it changes are ignored.
+    pub fn rescore(&mut self, rescore: impl FnOnce(&mut [ScoredResult])) {
+        let mut entries = std::mem::take(&mut self.inner).into_vec();
+        let mut scored: Vec<ScoredResult> = entries.iter().map(|e| e.result).collect();
+        rescore(&mut scored);
+        // `rescore` only rewrites scores in place (doc ids stay put), so the
+        // scored slice stays index-aligned with `entries` and each stored
+        // record can be re-paired with its updated score below.
+        for (entry, scored) in entries.iter_mut().zip(scored) {
+            entry.result.score = scored.score;
+        }
+        // Restore heap order under the (possibly) new scores, carrying each
+        // entry's captured record along. The count never exceeded k, so
+        // every entry is retained and a bulk rebuild needs no eviction.
+        self.inner = BinaryHeap::from(entries);
+    }
+
+    /// Removes all elements, keeping the storage for [`capacity`](Self::capacity)
+    /// elements or reserving it again if [`drain_sorted`](Self::drain_sorted)
+    /// took it.
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.inner.reserve_exact(self.capacity.get());
     }
 
     /// Drains all elements in unspecified order, leaving the heap empty but reusable.
@@ -255,11 +346,12 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
 
     /// Drains all elements and returns them sorted best-first.
     ///
-    /// Consumes the heap.
-    pub fn drain_sorted(self) -> Vec<HeapResult<'index>> {
+    /// The returned vector takes over the heap's storage, so the heap is left
+    /// empty without storage until [`clear`](Self::clear) reserves it again.
+    pub fn drain_sorted(&mut self) -> Vec<HeapResult<'index>> {
         // BinaryHeap::into_sorted_vec() returns elements in ascending Ord order.
         // In our Ord impl "better" == "Less", so ascending == best-first already.
-        self.inner
+        std::mem::take(&mut self.inner)
             .into_sorted_vec()
             .into_iter()
             .map(HeapResult::from)
@@ -322,6 +414,14 @@ mod tests {
             .collect_vec();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn push_reports_the_evicted_doc() {
+        let mut heap = TopKHeap::new(non_zero_capacity(1), Ascending);
+        heap.push(1, 5.0);
+        let offer = heap.push_with_record_lazy(2, 3.0, || None);
+        assert_eq!(offer, Offer::Inserted { evicted: Some(1) });
     }
 
     #[test]
@@ -441,6 +541,7 @@ mod tests {
         assert!(!ids.contains(&10));
         assert!(ids.contains(&3));
     }
+
     #[test]
     fn heap_tiebreak_asc_evicts_higher_doc_id() {
         let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
@@ -558,17 +659,55 @@ mod tests {
     }
 
     #[test]
+    fn rescore_reorders_by_new_scores_and_keeps_doc_ids() {
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        heap.push(1, 1.0);
+        heap.push(2, 2.0);
+        heap.push(3, 3.0);
+
+        heap.rescore(|scored| {
+            for r in scored {
+                r.score = 10.0 - r.score;
+                r.doc_id += 100;
+            }
+        });
+
+        let sorted: Vec<(DocId, f64)> = heap
+            .drain_sorted()
+            .iter()
+            .map(|r| (r.scored.doc_id, r.scored.score))
+            .collect();
+        assert_eq!(sorted, vec![(3, 7.0), (2, 8.0), (1, 9.0)]);
+    }
+
+    #[test]
+    fn drain_sorted_then_clear_reuses_heap() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        heap.push(1, 2.0);
+        heap.push(2, 1.0);
+        assert_eq!(heap.drain_sorted().len(), 2);
+        assert!(heap.is_empty());
+
+        heap.clear();
+        heap.push(3, 4.0);
+        heap.push(4, 3.0);
+        heap.push(5, 5.0);
+        let ids: Vec<DocId> = heap
+            .drain_sorted()
+            .iter()
+            .map(|r| r.scored.doc_id)
+            .collect();
+        assert_eq!(ids, vec![4, 3]);
+    }
+
+    #[test]
     fn drain_unsorted_empties_heap_and_returns_all() {
         let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
 
-        let mut drained: Vec<ScoredResult> = heap
-            .drain_unsorted()
-            .into_iter()
-            .map(|r| r.scored)
-            .collect();
+        let mut drained: Vec<ScoredResult> = heap.drain_unsorted().map(|r| r.scored).collect();
         assert_eq!(drained.len(), 3);
         assert!(heap.is_empty(), "drain_unsorted must leave the heap empty");
 

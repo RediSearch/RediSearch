@@ -35,6 +35,47 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000').equal('DONE')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000', '30000').error().contains(
+            'wrong number of arguments')
+
+    def testGcForceInvokeCompactAllNeedsDiskIndex(self):
+        """COMPACT_ALL compacts disk storage, so on a RAM index it is an error."""
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'COMPACT_ALL').error().contains(
+            'COMPACT_ALL requires a disk index')
+
+    def testHashSubkeyNotifications(self):
+        """The probe answers whether this server can name the fields a hash command wrote.
+
+        Which decides whether a write reaching no indexed field can skip the reindex, so a
+        test asserting change-set-driven behavior has to be able to ask. Only the shape is
+        checked here: the answer depends on the Redis under test, and pinning either value
+        would make this fail on the other.
+        """
+        res = self.env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS')
+        self.env.assertIn(res, (0, 1, True, False),
+                          message=f'expected a boolean, got {res!r}')
+
+    def testDiskLiveQueryViewsIsZeroWithoutDisk(self):
+        """No disk query view is ever opened on a RAM index, so the counter stays at zero.
+
+        The former subcommand name stays registered as an alias.
+        """
+        self.env.expect(debug_cmd(), 'DISK_LIVE_QUERY_VIEWS').equal(0)
+        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS').equal(0)
+        self.env.expect(debug_cmd(), 'DISK_LIVE_QUERY_VIEWS', 'extra').error().contains(
+            'wrong number of arguments')
+
+    def testDiskStatsRequiresDiskIndex(self):
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'verbose').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected VERBOSE')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'invalid_idx').error().contains(
+            'Can not create a search ctx')
+        self.env.expect(debug_cmd(), 'DISK_STATS').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'VERBOSE', 'extra').error().contains(
+            'wrong number of arguments')
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
@@ -44,6 +85,8 @@ class TestDebugCommands(object):
             "DUMP_NUMIDXTREE",
             "DUMP_TAGIDX",
             "INFO_TAGIDX",
+            "INFO_SPARSEIDX",
+            "DUMP_SPARSEIDX",
             "DUMP_GEOMIDX",
             "DUMP_PREFIX_TRIE",
             "IDTODOCID",
@@ -59,17 +102,21 @@ class TestDebugCommands(object):
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
             "DISK_FLUSH_NOWAIT",
+            "DISK_LIVE_QUERY_VIEWS",
+            "DISK_LIVE_SNAPSHOTS",
             "DISK_PAUSE_BG_WORK",
             "DISK_RESUME_BG_WORK",
             "GC_CLEAN_NUMERIC",
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
             "GC_WAIT_FOR_JOBS",
+            "GC_THREADS_ALIVE",
             "GIT_SHA",
             "TTL",
             "TTL_PAUSE",
             "TTL_EXPIRE",
             "VECSIM_INFO",
+            "VECSIM_RELABEL_SUPPORTED",
             "DELETE_LOCAL_CURSORS",
             "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",
@@ -80,16 +127,20 @@ class TestDebugCommands(object):
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
+            'HASH_SUBKEY_NOTIFICATIONS',
+            'FORCE_PLAIN_HASH_NOTIFICATIONS',
             'YIELDS_COUNTER',
             'GC_TIMER_ARMS',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'MEMORY_PRESSURE',
             'MOCK_REVALIDATE_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
             'NUMERIC_BUCKET_MAP',
+            'DISK_STATS',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
             'SET_MAX_INDEXES',
@@ -114,9 +165,10 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'GC_THREADS_ALIVE', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_QUERY_VIEWS', 'DISK_LIVE_SNAPSHOTS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
@@ -218,6 +270,15 @@ class TestDebugCommands(object):
     def testDumpPhoneticHash(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash', 'test').equal(['<TST', '<TST'])
         self.env.expect(debug_cmd(), 'DUMP_PHONETIC_HASH', 'test').equal(['<TST', '<TST'])
+
+    def testDumpPhoneticHashWithoutPhoneticCode(self):
+        # Digits have no phonetic code, so neither the primary nor the secondary one is produced.
+        try:
+            res = self.env.cmd(debug_cmd(), 'DUMP_PHONETIC_HASH', '04')
+        except Exception as e:
+            self.env.assertTrue(False, message=f'DUMP_PHONETIC_HASH failed on a term without a phonetic code: {e}')
+            return
+        self.env.assertEqual(res, [None, None])
 
     def testDumpPhoneticHashWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_phonetic_hash').error()
@@ -476,9 +537,9 @@ def testSpecIndexesInfo(env: Env):
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
 
-    # adding the document will create a new index block (56 bytes) with 1 byte of buffer capacity
+    # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
     # and 8 bytes of header for the block thin vector
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 56 + 1 + 8
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 48 + 1 + 8
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 
@@ -1417,7 +1478,14 @@ def test_query_controller_set_cursor_read_size():
     # restoring it works.
     prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
     env.assertGreater(int(prev), 0)
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+    try:
+        previous = 7
+        for value in [(1 << 32) - 1, 1 << 32, (1 << 63) - 1]:
+            env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', value).equal(previous)
+            previous = min(value, (1 << 32) - 1)
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1 << 63).error()
+    finally:
+        env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(previous)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():
@@ -1812,8 +1880,8 @@ def test_max_doc_id(env):
 
 @skip(cluster=True)
 def test_dump_deleted_ids(env):
-    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids.
-    On RAM we have no such notion, so it should always be empty"""
+    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids: under the default
+    THREAD GC policy a RAM index tracks the IDs it deleted until a GC cycle collects them."""
 
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
@@ -1831,8 +1899,7 @@ def test_dump_deleted_ids(env):
     # Delete some documents
     env.cmd('DEL', 'doc2', 'doc5', 'doc7')
 
-    # For in-memory indexes, we don't track deleted IDs, so should still be empty
-    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([3, 6, 8])
 
     # Test error handling - wrong arity
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS').error().contains('wrong number of arguments')

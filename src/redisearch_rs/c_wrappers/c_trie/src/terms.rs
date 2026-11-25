@@ -16,12 +16,9 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use string_utils::{
-    libnu::{NU_MAX_READAHEAD, tail_may_overread},
-    runes::runes_to_bytes,
-};
+use string_utils::runes::runes_to_bytes_into;
 
-use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
+use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm, TrieTermRef};
 
 /// Adapts a [`ffi::TrieRangeCallback`] to a Rust closure handed back through
 /// the opaque `ctx` pointer for every matching term.
@@ -61,6 +58,33 @@ where
 
     match callback(runes, num_docs) {
         // 0 continues the walk; any other value stops it.
+        ControlFlow::Continue(()) => 0,
+        ControlFlow::Break(()) => 1,
+    }
+}
+
+/// C trampoline for [`TermsTrie::visit_after`]: forwards each key to the
+/// `F` behind `ctx`.
+///
+/// # Safety
+///
+/// 1. `ctx` must be a valid `*mut F` for the duration of the call.
+/// 2. `runes` must point to `len` valid runes.
+///
+/// Both hold when the trie invokes this through [`TermsTrie::visit_after`].
+unsafe extern "C" fn visit_trampoline<F>(
+    runes: *const ffi::rune,
+    len: usize,
+    ctx: *mut c_void,
+) -> c_int
+where
+    F: FnMut(&[ffi::rune]) -> ControlFlow<()>,
+{
+    // SAFETY: (1): `ctx` is the `&mut F` forwarded unchanged by the trie.
+    let visit = unsafe { &mut *(ctx as *mut F) };
+    // SAFETY: (2): the walk only visits non-empty keys, held in its own buffer.
+    let runes = unsafe { std::slice::from_raw_parts(runes, len) };
+    match visit(runes) {
         ControlFlow::Continue(()) => 0,
         ControlFlow::Break(()) => 1,
     }
@@ -215,10 +239,8 @@ impl TermsTrie {
             return 0;
         }
 
-        // The rune conversion decodes UTF-8 without bounds-checking multibyte
-        // sequences against the slice end, so a truncated or invalid sequence
-        // could read past `term`. Reject non-UTF-8 input up front; such a term
-        // cannot match a stored (rune-decoded) term anyway.
+        // Reject non-UTF-8 input up front; such a term cannot match a stored
+        // (rune-decoded) term.
         if std::str::from_utf8(term).is_err() {
             return 0;
         }
@@ -227,8 +249,8 @@ impl TermsTrie {
         // cannot truncate and `rlen` below indexes within `runes`. The extra
         // slot keeps the pointer non-dangling for an empty term.
         let mut runes = vec![0 as ffi::rune; term.len() + 1];
-        // SAFETY: `term` is valid UTF-8 of `term.len()` bytes, so the decode
-        // stays within the slice, and `runes.len()` bounds the write.
+        // SAFETY: `term` is a live slice of `term.len()` bytes, which the decode
+        // reads no further than, and `runes.len()` bounds the write.
         let rlen = unsafe {
             ffi::strToRunes(
                 term.as_ptr() as *const c_char,
@@ -282,7 +304,7 @@ impl TermsTrie {
         pattern: &[ffi::rune],
         prefix: bool,
         suffix: bool,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -297,7 +319,7 @@ impl TermsTrie {
         if suffix && pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestLimitsHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
@@ -367,31 +389,19 @@ impl TermsTrie {
             return Err(InvalidFuzzyDistance(max_dist));
         }
 
-        // Reject an over-long pattern before copying it. This bounds the padded
-        // copy below, which would otherwise duplicate the whole token before C
-        // had looked at its length.
+        // Reject an over-long pattern on its byte length alone, before C decodes
+        // it. The widest UTF-8 sequence is four bytes, so every pattern of up to
+        // `TRIE_MAX_PREFIX` characters fits within this bound.
+        //
+        // This is not redundant with C's own rune-length check: C stops decoding
+        // at the first codepoint 0, so a pattern that holds an overlong-encoded
+        // NUL (`C0 80`) early and runs past this bound would otherwise be walked
+        // as its short prefix. Dropping the check changes which patterns match.
         const MAX_UTF8_SEQUENCE_LEN: usize = 4;
         if pattern.len() > ffi::TRIE_MAX_PREFIX as usize * MAX_UTF8_SEQUENCE_LEN {
             return Ok(FuzzyWalk::PatternRejected);
         }
 
-        // The trie lowercases the pattern with `strToLowerRunes`, whose decoder
-        // (`nu_utf8_read`) reads a fixed 2–4 bytes from a multibyte lead byte
-        // with no bounds check — so a pattern ending in a truncated sequence
-        // (e.g. a lone `0xF0`) would read past the end. A token is a byte string
-        // that nothing validates as UTF-8, so that is reachable input. Where it
-        // can happen, hand C a private copy padded with `NU_MAX_READAHEAD`
-        // trailing zero bytes instead; the length passed stays the pattern's own,
-        // so the decode, and with it the rune-length threshold, is unchanged.
-        //
-        // The common case needs no copy: `tail_may_overread` is exact, so every
-        // well-formed pattern is decoded in place.
-        let padded = tail_may_overread(pattern).then(|| {
-            let mut buf = Vec::with_capacity(pattern.len() + NU_MAX_READAHEAD);
-            buf.extend_from_slice(pattern);
-            buf.resize(pattern.len() + NU_MAX_READAHEAD, 0);
-            buf
-        });
         // An empty slice carries no allocation, so its pointer is a well-aligned
         // dangling address rather than one into an object. C forms `str + len`
         // to bound its decode loops before testing that the loop is empty, and
@@ -402,17 +412,15 @@ impl TermsTrie {
         let pattern_ptr = if pattern.is_empty() {
             EMPTY_PATTERN.as_ptr()
         } else {
-            padded.as_deref().unwrap_or(pattern).as_ptr()
+            pattern.as_ptr()
         };
 
         // SAFETY: `self` borrows a valid `ffi::Trie` and
         // `pattern_ptr`/`pattern.len()` describe a live byte slice, which the
-        // call only reads (it decodes it into an owned filter). Its decoder can
-        // read up to `NU_MAX_READAHEAD` bytes past a truncated trailing sequence,
-        // which the padding above put inside the allocation. The returned
-        // iterator is owned by us and freed below. `Trie_IterateFuzzy` takes a
-        // non-const `Trie *` but only traverses it, so nothing is written
-        // through the shared pointer.
+        // call only reads, no further than `pattern.len()` bytes (it decodes it
+        // into an owned filter). The returned iterator is owned by us and freed
+        // below. `Trie_IterateFuzzy` takes a non-const `Trie *` but only
+        // traverses it, so nothing is written through the shared pointer.
         let it = unsafe {
             ffi::Trie_IterateFuzzy(
                 self.as_ptr().cast_mut(),
@@ -422,9 +430,6 @@ impl TermsTrie {
                 ffi::TrieMatchMode_TRIE_MATCH_EDIT_DISTANCE,
             )
         };
-        // The pattern is decoded into the filter during the call above and not
-        // referenced afterwards, so the copy has served its purpose here.
-        drop(padded);
         let Some(it) = NonNull::new(it) else {
             return Ok(FuzzyWalk::PatternRejected);
         };
@@ -510,7 +515,7 @@ impl TermsTrie {
     pub fn iterate_wildcard<F>(
         &self,
         pattern: &LoweredPattern,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -521,7 +526,7 @@ impl TermsTrie {
         if pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestLimitsHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
@@ -535,6 +540,43 @@ impl TermsTrie {
                 Some(range_trampoline::<F>),
                 std::ptr::from_mut(&mut callback).cast(),
                 timeout,
+            );
+        }
+    }
+
+    /// Visit, in lexicographic rune order, every term that sorts strictly
+    /// after `after`, or every term when `after` is empty, until `visit`
+    /// breaks.
+    ///
+    /// `visit` gets each term's rune key, to resume after, and the term itself,
+    /// encoded into `key`, which a caller walking in steps keeps across calls.
+    ///
+    /// Nothing is held between calls, so a caller can stop, let the trie be
+    /// modified, and resume from the last term it saw. Terms added before that
+    /// point in the meantime are not revisited.
+    pub fn visit_after<F>(&self, after: &[ffi::rune], key: &mut Vec<u8>, mut visit: F)
+    where
+        F: FnMut(&[ffi::rune], TrieTermRef<'_>) -> ControlFlow<()>,
+    {
+        self.visit_keys_after(after, |runes| visit(runes, encode_key(runes, key)));
+    }
+
+    /// [`Self::visit_after`], with each term's rune key only.
+    fn visit_keys_after<F>(&self, after: &[ffi::rune], mut visit: F)
+    where
+        F: FnMut(&[ffi::rune]) -> ControlFlow<()>,
+    {
+        // SAFETY: `self` borrows a valid, lexicographically sorted `ffi::Trie`
+        // (terms tries are created with `Trie_Sort_Lex`); `after` points to
+        // `after.len()` runes; and `&mut visit` outlives the call, which is
+        // what the trampoline reconstitutes from `ctx`.
+        unsafe {
+            ffi::Trie_VisitAfter(
+                self.as_ptr(),
+                after.as_ptr(),
+                after.len(),
+                Some(visit_trampoline::<F>),
+                std::ptr::from_mut(&mut visit).cast(),
             );
         }
     }
@@ -564,11 +606,26 @@ impl TermsTrie {
     }
 }
 
+/// Encode a terms trie key into `buf`, as the term it stores.
+fn encode_key<'b>(runes: &[ffi::rune], buf: &'b mut Vec<u8>) -> TrieTermRef<'b> {
+    // Terms trie insertion caps a key at `TRIE_INITIAL_STRING_LEN` runes, well
+    // inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes_into` requires.
+    runes_to_bytes_into(runes, buf).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
+    // SAFETY:
+    // 1. The trie only stores non-empty keys.
+    // 2. `runes_to_bytes_into` emits a complete encoding of every rune, and a
+    //    stored key has no zero rune.
+    // 3. The key came out of the trie, so it fits it.
+    unsafe { TrieTermRef::from_bytes_unchecked(buf) }
+}
+
 /// Iterator over every term in a trie.
 ///
 /// Reached through [`TermsTrie::iterate_all`], the public entry point.
 pub struct TermsTrieAllIterator<'a> {
     ptr: NonNull<ffi::TrieIterator>,
+    /// Where each key is encoded before it is copied out as an exact-size term.
+    buf: Vec<u8>,
     _borrow: PhantomData<&'a TermsTrie>,
 }
 
@@ -582,6 +639,7 @@ impl<'a> TermsTrieAllIterator<'a> {
             // `Trie_IterateAll` allocates via `rm_calloc`, which aborts the
             // process on allocation failure rather than returning null.
             ptr: NonNull::new(ptr).expect("Trie_IterateAll returned null"),
+            buf: Vec::new(),
             _borrow: PhantomData,
         }
     }
@@ -624,15 +682,10 @@ impl Iterator for TermsTrieAllIterator<'_> {
     type Item = TrieTerm;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let runes = self.advance()?;
-        // terms trie insertion caps a trie key at `TRIE_INITIAL_STRING_LEN`
-        // runes, well inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes`
-        // requires, so every key this iterator yields converts.
-        let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
-        // SAFETY: the iterator only yields non-empty keys accepted by the terms
-        // trie. `runes_to_bytes` emits a complete encoding of every rune, with
-        // no zero rune, and the key is shorter than `TRIE_INITIAL_STRING_LEN`.
-        Some(unsafe { TrieTerm::from_bytes_unchecked(bytes.into_boxed_slice()) })
+        let mut buf = std::mem::take(&mut self.buf);
+        let term = encode_key(self.advance()?, &mut buf).to_term();
+        self.buf = buf;
+        Some(term)
     }
 }
 

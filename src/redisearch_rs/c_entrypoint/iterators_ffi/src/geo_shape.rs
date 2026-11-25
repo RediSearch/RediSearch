@@ -21,8 +21,7 @@ use rqe_iterators::{
     utils::{AnyTimeoutContext, OwnedSlice},
 };
 
-/// Probe the query deadline once every this many candidate documents.
-const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
+use crate::TIMEOUT_CHECK_GRANULARITY;
 
 /// A [`MemTracker`] that adjusts an externally-owned `usize` counter through a
 /// raw pointer — the geometry index's allocation counter, shared from C across
@@ -81,8 +80,10 @@ impl MemTracker for ExternalCounter {
 /// 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
 ///    returned iterator, and `sctx` must stay at a stable address for that
-///    whole window: the iterator reads the request-owned deadline back on every
-///    timeout probe. No write to that deadline may overlap a probe.
+///    whole window. The request timeout reached through `sctx.limits` must also remain valid
+///    at a stable address until the iterator is dropped. Timeout source changes and deadline
+///    writes may happen only between probes;
+///    only the blocked-client marker and the memory stop flag may change concurrently.
 /// 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
 /// 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
 ///    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -113,12 +114,11 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
     // SAFETY: precondition 1 guarantees `sctx` and `sctx.spec` are valid and outlive the returned iterator.
     let expiration_checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter, 0) };
 
-    // SAFETY: precondition 1 guarantees `sctx` is valid and outlives the returned iterator, which
-    // is what `from_sctx` requires in order to read the deadline back on each probe. Writes to the
-    // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+    // SAFETY: precondition 1 keeps `sctx` and its request timeout valid until the iterator is
+    // dropped, and excludes source changes and deadline writes during probes.
     let timeout_ctx = unsafe { AnyTimeoutContext::from_sctx(sctx_nn, TIMEOUT_CHECK_GRANULARITY) };
 
-    let ids_list = if !ids.is_null() {
+    let ids_list = if let Some(ids) = NonNull::new(ids) {
         // SAFETY: precondition 3.
         unsafe { OwnedSlice::from_c(ids, num) }
     } else {
@@ -138,12 +138,14 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
                 expiration_checker,
                 mem_tracker,
             ))
+            .as_ptr()
         }
         None => RQEIteratorWrapper::boxed_new(GeoShape::new(
             ids_list,
             timeout_ctx,
             expiration_checker,
             NoTracker,
-        )),
+        ))
+        .as_ptr(),
     }
 }

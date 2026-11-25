@@ -7,47 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Child short-circuit reduction and construction dispatch for vector top-k,
-//! keeping this decision logic out of the FFI boundary.
+//! Construction dispatch for vector top-k, keeping this decision logic out of
+//! the FFI boundary.
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryRequestTimeout, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
-use rqe_iterator_type::IteratorType;
+use ffi::{QueryRequestLimits, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
+use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
-use top_k::TopKIterator;
+use top_k::{ChildReduction, TopKIterator, reduce_child};
 
 use crate::{
     VectorScoreSource, VectorTopKIterator, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
 };
-
-/// Outcome of reducing a filter child before constructing the iterator.
-enum VectorChildReduction<C> {
-    /// The child can never yield a match, so the whole query is empty.
-    Empty,
-    /// There is no filter (no child, or a wildcard that matches everything):
-    /// run as a pure KNN query.
-    Unfiltered,
-    /// A real filter child to intersect the KNN results against.
-    Filtered(C),
-}
-
-/// Classify a filter child into the reduction that applies to it.
-///
-/// A reduced-away child is dropped, freeing the underlying iterator.
-fn vector_child_reducer<'index, C>(child: Option<C>) -> VectorChildReduction<C>
-where
-    C: RQEIterator<'index> + 'index,
-{
-    let Some(child) = child else {
-        return VectorChildReduction::Unfiltered;
-    };
-    match child.type_() {
-        IteratorType::Empty => VectorChildReduction::Empty,
-        IteratorType::Wildcard | IteratorType::InvIdxWildcard => VectorChildReduction::Unfiltered,
-        _ => VectorChildReduction::Filtered(child),
-    }
-}
 
 /// Result of [`new_vector_top_k`]: the iterator to expose, already reduced to
 /// the right variant.
@@ -63,6 +35,8 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 /// Build the vector top-k iterator for the given query, applying the child
 /// reduction and choosing the unfiltered or filtered construction accordingly.
 ///
+/// `max_doc_id` is passed to [`VectorScoreSource::with_max_doc_id`].
+///
 /// # Safety
 ///
 /// 1. `index` must be valid for `'index`, which outlives the returned iterator.
@@ -76,10 +50,11 @@ pub unsafe fn new_vector_top_k<'index, E>(
     query_vector: Vec<u8>,
     query_params: VecSimQueryParams,
     k: usize,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,
+    max_doc_id: DocId,
 ) -> NewVectorTopK<'index, E>
 where
     E: ExpirationChecker + 'index,
@@ -89,9 +64,9 @@ where
         return NewVectorTopK::ReducedEmpty;
     };
 
-    match vector_child_reducer(child) {
-        VectorChildReduction::Empty => NewVectorTopK::ReducedEmpty,
-        VectorChildReduction::Unfiltered => {
+    match reduce_child(child) {
+        ChildReduction::Empty => NewVectorTopK::ReducedEmpty,
+        ChildReduction::Unfiltered => {
             // A caller-supplied hybrid policy must not reach the single-shot KNN call.
             let query_params = VecSimQueryParams {
                 searchMode: VecSearchMode_STANDARD_KNN,
@@ -109,10 +84,11 @@ where
                     0, // dynamic batch size
                     expiration,
                 )
-            };
+            }
+            .with_max_doc_id(max_doc_id);
             NewVectorTopK::Unfiltered(new_vector_top_k_unfiltered(source, k))
         }
-        VectorChildReduction::Filtered(child) => {
+        ChildReduction::Filtered(child) => {
             let child_est = child.num_estimated();
             // SAFETY: guaranteed by invariants 1 and 2 of this function's contract.
             let source = unsafe {
@@ -127,7 +103,8 @@ where
                     query_params.batchSize,
                     expiration,
                 )
-            };
+            }
+            .with_max_doc_id(max_doc_id);
             NewVectorTopK::Filtered(new_vector_top_k_filtered(
                 source,
                 child,
@@ -135,37 +112,5 @@ where
                 can_trim_deep_results,
             ))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use rqe_iterators::{Empty, IdList, Wildcard};
-
-    use super::{VectorChildReduction, vector_child_reducer};
-
-    #[test]
-    fn no_child_is_unfiltered() {
-        let reduction = vector_child_reducer(None::<Empty>);
-        assert!(matches!(reduction, VectorChildReduction::Unfiltered));
-    }
-
-    #[test]
-    fn empty_child_reduces_to_empty() {
-        let reduction = vector_child_reducer(Some(Empty));
-        assert!(matches!(reduction, VectorChildReduction::Empty));
-    }
-
-    #[test]
-    fn wildcard_child_is_unfiltered() {
-        let reduction = vector_child_reducer(Some(Wildcard::new(10, 1.0)));
-        assert!(matches!(reduction, VectorChildReduction::Unfiltered));
-    }
-
-    #[test]
-    fn real_child_is_kept_as_filter() {
-        let child = IdList::<true>::new(vec![1, 2, 3]);
-        let reduction = vector_child_reducer(Some(child));
-        assert!(matches!(reduction, VectorChildReduction::Filtered(_)));
     }
 }

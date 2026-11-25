@@ -56,7 +56,7 @@ typedef struct {
   bool stop;
 
   // timeout
-  QueryRequestTimeout *timeout;
+  QueryRequestLimits *limits;
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
@@ -338,6 +338,9 @@ static TrieAddChildResult __trieNode_addChild_lex(
       break;
     }
   }
+  if (n->numChildren == UINT16_MAX) {
+    return (TrieAddChildResult){.node = n, .rc = TRIE_ERR_TOO_MANY_CHILDREN};
+  }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
   updateScore(n, score);
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
@@ -399,6 +402,9 @@ static TrieAddChildResult __trieNode_addChild_score(
   if (scoreIdx != REDISEARCH_UNINITIALIZED) {
     idx = scoreIdx;
   }
+  if (n->numChildren == UINT16_MAX) {
+    return (TrieAddChildResult){.node = n, .rc = TRIE_ERR_TOO_MANY_CHILDREN};
+  }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
   updateScore(n, score);
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
@@ -446,7 +452,13 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       updateScore(n, n->score);
     } else {
       // a node after a split has a single child, created with the full `score`
-      int idx = str[offset] > __trieNode_LoadChildKey(n, 0) ? 1 : 0;
+      int idx;
+      if (n->sortMode == Trie_Sort_Lex) {
+        idx = str[offset] > __trieNode_LoadChildKey(n, 0) ? 1 : 0;
+      } else {
+        // a tie keeps the existing child first, as __trieNode_rotateChildIntoPlace does
+        idx = score > TrieNode_Children(n)[0]->subtreeMaxScore ? 0 : 1;
+      }
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
       updateScore(n, score);
     }
@@ -579,6 +591,33 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
   return NULL;
 }
 
+/* Remove children[idx], compacting the key cache and the child array in place. The
+ * allocation is not shrunk because TrieNode_Delete holds raw pointers to every node on
+ * its path while unwinding. */
+static void __trieNode_removeChild(TrieNode *n, t_len idx) {
+  TrieNode **nodes = TrieNode_Children(n);
+  t_len tail = n->numChildren - 1 - idx;
+  memmove(__trieNode_MutableChildKey(n, idx), __trieNode_ChildKey(n, idx + 1), tail * sizeof(rune));
+  memmove(&nodes[idx], &nodes[idx + 1], tail * sizeof(TrieNode *));
+  size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+  n->numChildren--;
+  size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+  memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+          sizeof(TrieNode *) * n->numChildren);
+}
+
+/* Fix up children[idx] after a delete beneath it: free it if it became a childless
+ * tombstone, or merge it with its only child. */
+static void __trieNode_optimizeChild(TrieNode *n, t_len idx, TrieFreeCallback freecb) {
+  TrieNode *ch = TrieNode_Children(n)[idx];
+  if (ch->numChildren == 0 && __trieNode_isDeleted(ch)) {
+    TrieNode_Free(ch, freecb);
+    __trieNode_removeChild(n, idx);
+  } else if (ch->numChildren == 1) {
+    TrieNode_Children(n)[idx] = __trieNode_MergeWithSingleChild(ch, freecb);
+  }
+}
+
 /* Optimize the node and its children:
  *   1. If a child should be deleted - delete it and reduce the child count
  *   2. If a child has a single child - merge them
@@ -595,24 +634,14 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
     // if this is a deleted node with no children - remove it
     if (nodes[i]->numChildren == 0 && __trieNode_isDeleted(nodes[i])) {
       TrieNode_Free(nodes[i], freecb);
-
-      nodes[i] = NULL;
-      // just "fill" the hole with the next node up
-      while (i < n->numChildren - 1) {
-        nodes[i] = nodes[i + 1];
-        __trieNode_StoreChildKey(n, i, __trieNode_LoadChildKey(n, i + 1));
-        updateScore(n, nodes[i]->subtreeMaxScore);
-        i++;
-      }
-      // reduce child count. Delete compacts the arrays in-place but does not shrink
-      // the node allocation because callers keep raw TrieNode pointers while unwinding.
-      size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
-      n->numChildren--;
-      size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
-      memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
-              sizeof(TrieNode *) * n->numChildren);
+      __trieNode_removeChild(n, i);
       nodes = TrieNode_Children(n);
+      // a delete leaves at most one child to remove, so fold the remaining bounds and stop
+      for (; i < n->numChildren; i++) {
+        updateScore(n, nodes[i]->subtreeMaxScore);
+      }
       rc++;
+      break;
     } else {
 
       // this node is ok!
@@ -633,10 +662,19 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   return rc;
 }
 
+typedef struct {
+  TrieNode *node;
+  // the child the descent continued into; unset on the deepest frame
+  t_len childIdx;
+} TrieDeleteFrame;
+
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
+  if (!n) return 0;
+  // uniform across the trie; cached for the same reason as in TrieNode_Get
+  const TrieSortMode mode = n->sortMode;
   t_len offset = 0;
-  TrieNode *localStack[TRIE_INITIAL_STRING_LEN];
-  TrieNode **stack = localStack;
+  TrieDeleteFrame localStack[TRIE_INITIAL_STRING_LEN];
+  TrieDeleteFrame *stack = localStack;
   size_t stackCap = TRIE_INITIAL_STRING_LEN;
   size_t stackPos = 0;
   int rc = 0;
@@ -644,7 +682,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
   while (n && offset < len) {
     if (unlikely(stackPos == stackCap)) {
       size_t newStackCap = stackCap * 2;
-      TrieNode **newStack;
+      TrieDeleteFrame *newStack;
       if (likely(stack == localStack)) {
         newStack = rm_malloc(newStackCap * sizeof(*newStack));
         memcpy(newStack, stack, stackPos * sizeof(*stack));
@@ -654,7 +692,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       stack = newStack;
       stackCap = newStackCap;
     }
-    stack[stackPos++] = n;
+    stack[stackPos++] = (TrieDeleteFrame){.node = n};
     t_len localOffset = 0;
     for (; offset < len && localOffset < n->len; offset++, localOffset++) {
       if (str[offset] != n->str[localOffset]) {
@@ -685,7 +723,11 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       for (; i < n->numChildren; i++) {
         rune ckey = __trieNode_LoadChildKey(n, i);
         if (str[offset] == ckey) {
-          nextChild = TrieNode_Children(n)[i];;
+          nextChild = TrieNode_Children(n)[i];
+          stack[stackPos - 1].childIdx = i;
+          break;
+        }
+        if (mode == Trie_Sort_Lex && str[offset] < ckey) {
           break;
         }
       }
@@ -698,11 +740,19 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
     }
   }
 
-end:
-
+end:;
+  // A delete can only leave the child on its own path to be freed or merged, so a lex
+  // node fixes up that one child. Score-sorted nodes rescan every child, since their
+  // bound and child order depend on all siblings.
+  const size_t depth = stackPos;
   while (stackPos) {
     --stackPos;
-    __trieNode_optimizeChildren(stack[stackPos], freecb);
+    TrieNode *node = stack[stackPos].node;
+    if (mode == Trie_Sort_Score) {
+      __trieNode_optimizeChildren(node, freecb);
+    } else if (stackPos + 1 < depth) {
+      __trieNode_optimizeChild(node, stack[stackPos].childIdx, freecb);
+    }
   }
   if (stack != localStack) {
     rm_free(stack);
@@ -883,6 +933,98 @@ next:
   return __STEP_CONT;
 }
 
+typedef struct {
+  rune *buf;
+  size_t cap;
+  const rune *after;
+  size_t afterLen;
+  TrieVisitCallback visit;
+  void *ctx;
+  // `buf` starts on `stackBuf` and moves to the heap only for a path longer than it: not every
+  // insert path caps a key's length. Last, so the fields every visit reads share a cache line
+  // with the start of the path.
+  rune stackBuf[TRIE_INITIAL_STRING_LEN + 1];
+} visitAfterCtx;
+
+// The first child of a lex-sorted `n` whose first rune is not below `key`.
+static t_len lexLowerBound(const TrieNode *n, rune key) {
+  t_len lo = 0, hi = n->numChildren;
+  while (lo < hi) {
+    t_len mid = lo + (hi - lo) / 2;
+    if (__trieNode_LoadChildKey(n, mid) < key) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+// `bounded` means the path to `n` equals the first `depth` runes of `after`, so `n`'s subtree may
+// still hold keys that do not sort after it.
+static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterCtx *v) {
+  bool include_self = true;
+  if (bounded) {
+    for (t_len i = 0; i < n->len; ++i) {
+      size_t at = depth + i;
+      if (at >= v->afterLen || n->str[i] > v->after[at]) {
+        bounded = false;  // the path already sorts after `after`
+        break;
+      }
+      if (n->str[i] < v->after[at]) {
+        return 0;  // the whole subtree sorts before `after`
+      }
+    }
+    if (bounded) {
+      // The path is a prefix of `after` (or equal to it): its own key is not after `after`, and
+      // once it is equal every child extends it and sorts after.
+      include_self = false;
+      bounded = depth + n->len < v->afterLen;
+    }
+  }
+
+  size_t len = depth + n->len;
+  if (len > v->cap) {
+    size_t cap = MAX(len, 2 * v->cap);
+    if (v->buf == v->stackBuf) {
+      v->buf = rm_malloc(cap * sizeof(rune));
+      memcpy(v->buf, v->stackBuf, depth * sizeof(rune));
+    } else {
+      v->buf = rm_realloc(v->buf, cap * sizeof(rune));
+    }
+    v->cap = cap;
+  }
+  memcpy(v->buf + depth, n->str, n->len * sizeof(rune));
+  if (include_self && len > 0 && TrieNode_IsTerminal(n) && !__trieNode_isDeleted(n)) {
+    if (v->visit(v->buf, len, v->ctx)) {
+      return 1;
+    }
+  }
+
+  // While bounded, children whose first rune is below `after`'s next one sort before it whole; a
+  // resumed walk skips them by search rather than entering each.
+  t_len i = bounded ? lexLowerBound(n, v->after[len]) : 0;
+  for (; i < n->numChildren; ++i) {
+    if (visitAfter(TrieNode_Children(n)[i], len, bounded, v)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
+                        TrieVisitCallback visit, void *ctx) {
+  RS_ASSERT(n->sortMode == Trie_Sort_Lex);
+  visitAfterCtx v = {.after = after, .afterLen = afterLen, .visit = visit, .ctx = ctx};
+  v.buf = v.stackBuf;
+  v.cap = sizeof(v.stackBuf) / sizeof(rune);
+  int rc = visitAfter(n, 0, afterLen > 0, &v);
+  if (v.buf != v.stackBuf) {
+    rm_free(v.buf);
+  }
+  return rc;
+}
+
 TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
   TrieIterator *it = rm_calloc(1, sizeof(TrieIterator));
   it->filter = f;
@@ -937,7 +1079,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
-  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
     return REDISEARCH_ERR;
   }
@@ -968,7 +1110,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
                               TrieRangeCallback callback, void *ctx,
-                              QueryRequestTimeout *timeout) {
+                              QueryRequestLimits *timeout) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
@@ -981,7 +1123,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout,
+      .limits = timeout,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1035,7 +1177,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
     return;
   }
 
-  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
     return;
   }
@@ -1079,7 +1221,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 
 static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
   // timeout check
-  if (r->timeout && QueryRequestTimeout_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
   }
   if (r->stop) {
@@ -1123,7 +1265,7 @@ static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
 
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx,
-                              QueryRequestTimeout *timeout) {
+                              QueryRequestLimits *timeout) {
   // An empty pattern matches no term, and the initializer below reads str[nstr - 1]
   if (nstr <= 0) {
     return;
@@ -1131,7 +1273,7 @@ void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout,
+      .limits = timeout,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

@@ -55,6 +55,22 @@ impl<Data> Node<Data> {
         unsafe { Self::new_unchecked(label, [], value) }
     }
 
+    /// Creates a path for `key`, with data at its terminal node.
+    ///
+    /// Returns the root and the memory used by all nodes in the path. Each
+    /// label fits [`u16::MAX`], even when the complete key does not.
+    pub(crate) fn new_path(key: &[u8], value: Option<Data>) -> (Self, usize) {
+        let last_chunk = key.len().saturating_sub(1) / u16::MAX as usize * u16::MAX as usize;
+        let mut root = Self::new_leaf(&key[last_chunk..], value);
+        let mut memory_usage = root.mem_usage();
+        for label in key[..last_chunk].rchunks(u16::MAX as usize) {
+            // SAFETY: Every nonterminal chunk and its sole child have nonempty labels.
+            root = unsafe { Self::new_unchecked(label, [root], None) };
+            memory_usage += root.mem_usage();
+        }
+        (root, memory_usage)
+    }
+
     /// # Requirements
     ///
     /// To guarantee `Node`'s invariants, the caller must ensure that:

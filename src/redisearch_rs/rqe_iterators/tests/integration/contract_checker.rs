@@ -22,6 +22,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
+    score_bound::{MinCompetitiveScore, can_drop},
 };
 use rqe_iterators_test_utils::{
     ContractChecker, MockContext, assert_current_contract, assert_current_contract_via_skip_to,
@@ -174,9 +175,15 @@ enum Fault {
     /// `revalidate` reports `Moved` onto a document *behind* the position the
     /// iterator held.
     MovesBackwardsOnRevalidate,
+    /// `read_with_threshold` is a plain `read`, yielding documents whose bound
+    /// cannot reach the threshold.
+    IgnoresThreshold,
 }
 
 /// A minimal sorted-id-list iterator committing exactly one [`Fault`].
+///
+/// It reports score bounds, each document bounded by its own id, so that
+/// `read_with_threshold` has something to check.
 ///
 /// Position is encoded like `IdList`'s: `offset` is the index of the next id
 /// to yield, so `offset == ids.len()` is still a live position (on the last
@@ -235,7 +242,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         if self.past_end() {
             if self.fault == Fault::YieldsAfterExhaustion {
@@ -259,11 +266,11 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         if self.fault == Fault::ClaimsProbedIdOnTimeout {
             self.result.doc_id = doc_id;
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         while let Some(&id) = self.ids.get(self.offset) {
             self.offset += 1;
@@ -290,7 +297,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.fault == Fault::TimesOut {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(match self.fault {
             Fault::AbortsOnRevalidate => RQEValidateStatus::Aborted,
@@ -361,6 +368,32 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        true
+    }
+
+    fn current_max_score(&self) -> f64 {
+        if self.offset == 0 || self.past_end() {
+            return f64::INFINITY;
+        }
+        self.result.doc_id as f64
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.fault == Fault::IgnoresThreshold {
+            return self.read();
+        }
+        while self.read()?.is_some() {
+            if !can_drop(self.current_max_score(), min_competitive_score) {
+                return Ok(Some(&mut self.result));
+            }
+        }
+        Ok(None)
+    }
 }
 
 /// Wrap a [`Misbehaving`] iterator and drain it through the checker.
@@ -426,11 +459,11 @@ fn errors_are_handed_back_untouched() {
 
     // A failed operation is not a contract violation: the checker forwards the
     // error and leaves its record of the position alone.
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-    assert!(matches!(it.skip_to(5), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
+    assert!(matches!(it.skip_to(5), Err(RQEIteratorError::Stopped)));
     assert!(matches!(
         it.revalidate(&*mock_ctx.spec_read()),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 
@@ -682,4 +715,27 @@ fn catches_num_estimated_after_abort() {
     assert!(matches!(status, RQEValidateStatus::Aborted));
     // A planning-time accessor is no exception: the iterator is gone.
     let _ = it.num_estimated();
+}
+
+fn min_score(value: f64) -> MinCompetitiveScore {
+    MinCompetitiveScore::new(value).expect("a positive threshold")
+}
+
+#[test]
+fn threshold_read_passes_competitive_results_and_eof() {
+    // `MovedOnRevalidate` is benign for reads, so this is the well-behaved iterator.
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2, 3, 4], Fault::MovedOnRevalidate));
+    let mut yielded = Vec::new();
+    while let Some(r) = it.read_with_threshold(min_score(3.0)).unwrap() {
+        yielded.push(r.doc_id);
+    }
+    assert_eq!(yielded, [3, 4]);
+    assert!(it.read_with_threshold(min_score(3.0)).unwrap().is_none());
+}
+
+#[test]
+#[should_panic(expected = "read_with_threshold: yielded doc 1 whose bound 1 cannot reach")]
+fn catches_threshold_read_yielding_below_the_threshold() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::IgnoresThreshold));
+    let _ = it.read_with_threshold(min_score(2.0));
 }

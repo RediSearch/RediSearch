@@ -24,11 +24,15 @@ jobs:
   get-latest-redis-tag:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   check-what-changed:
     permissions: # actions/checkout
       contents: read
     uses: ./.github/workflows/task-check-changes.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   lint:
     needs: check-what-changed
@@ -56,6 +60,8 @@ jobs:
     permissions:
       contents: read # actions/checkout
     uses: ./.github/workflows/task-zizmor.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   # ------------------------------------------------------------------
   # Per-job-type pipelines. Each runs its own build → test fan-out
@@ -64,7 +70,7 @@ jobs:
 
   basic-test:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
-    if: ${{ (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
       packages: write
@@ -74,15 +80,19 @@ jobs:
     secrets: inherit
     with:
       job-type: basic-test
-      platform: ubuntu:latest
+      platform: ubuntu:noble
+      enable-lto: '0'
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Component units run on every PR; retain flow filtering for unrelated changes.
+      skip-unit-tests: false
+      skip-flow-tests: ${{ (needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' || (needs.check-what-changed.outputs.CODE_CHANGED != 'true' && needs.check-what-changed.outputs.TESTS_CHANGED != 'true')) && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
       packages: write
@@ -92,15 +102,19 @@ jobs:
     secrets: inherit
     with:
       job-type: coverage
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Never skipped: Codecov has no carryforward configured (.github/codecov.yml), so
+      # skipping a suite here would show its lines as "missed" instead of carried forward.
+      skip-unit-tests: false
+      skip-flow-tests: false
 
   sanitize:
     needs: [check-what-changed, get-latest-redis-tag, spellcheck]
-    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     permissions:
       contents: read
       packages: write
@@ -110,11 +124,14 @@ jobs:
     secrets: inherit
     with:
       job-type: sanitize
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       rejson-branch: master
+      # Component units run on every PR; retain flow filtering for unrelated changes.
+      skip-unit-tests: false
+      skip-flow-tests: ${{ (needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' || (needs.check-what-changed.outputs.CODE_CHANGED != 'true' && needs.check-what-changed.outputs.TESTS_CHANGED != 'true')) && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
 
   # ------------------------------------------------------------------
   # MIRI runs independently — no build artifact reuse possible, and we
@@ -124,7 +141,9 @@ jobs:
   miri:
     name: miri (${{ matrix.shard }}/3)
     needs: [check-what-changed, spellcheck]
-    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # Runs when, in a non-draft PR, code or tests changed (or enforce:sanitize is set),
+    # and either enforce:sanitize is set or the change could actually affect MIRI.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || needs.check-what-changed.outputs.MIRI_RELEVANT == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     # Split MIRI across 3 nextest partitions. Each shard is self-contained
     # (builds the C side + compiles miri) since miri can't reuse the nextest
     # archive; the slow part — miri interpretation — is split 3 ways.
@@ -137,16 +156,47 @@ jobs:
       packages: write
       id-token: write
       actions: write
-    uses: ./.github/workflows/task-miri.yml
+    uses: ./.github/workflows/task-rust-standalone-tests.yml
     secrets: inherit
     with:
-      platform: ubuntu:latest
+      tool: miri
+      platform: ubuntu:noble
       architecture: x86_64
       partition: count:${{ matrix.shard }}/3
+
+  # ------------------------------------------------------------------
+  # Rust tests under valgrind run independently too: `cargo valgrind test`
+  # compiles its own optimised test binaries, so there is no build artifact
+  # to reuse. Not sharded: build.sh's valgrind run has no partition support.
+  # ------------------------------------------------------------------
+
+  rust-valgrind:
+    needs: [check-what-changed, spellcheck]
+    # Same gate as MIRI: both only exercise the Rust workspace.
+    if: ${{ ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) && (contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') || needs.check-what-changed.outputs.MIRI_RELEVANT == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/task-rust-standalone-tests.yml
+    secrets: inherit
+    with:
+      tool: valgrind
+      platform: ubuntu:resolute
+      architecture: x86_64
+
+  vecsim:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/task-vecsim-checks.yml
 
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
     needs:
+      - vecsim
       - get-latest-redis-tag
       - check-what-changed
       - spellcheck
@@ -156,8 +206,17 @@ jobs:
       - coverage
       - sanitize
       - miri
+      - rust-valgrind
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+      - if: needs.vecsim.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1

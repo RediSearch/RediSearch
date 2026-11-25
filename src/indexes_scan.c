@@ -66,6 +66,17 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                                   RedisModuleKey *key, ScanProcCtx *scanCtx);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
+static GilGate reindexGilGate = GIL_GATE_INIT;
+
+// The reindex jobs take the GIL through a gate so ReindexPool_ThreadPoolDestroy can join them.
+void ReindexPool_LockGIL(RedisModuleCtx *ctx) {
+  GilGate_Lock(&reindexGilGate, ctx);
+}
+
+void ReindexPool_UnlockGIL(RedisModuleCtx *ctx) {
+  GilGate_Unlock(&reindexGilGate, ctx);
+}
+
 // This function should be called after the first background scan OOM error
 // It will wait for resource manager to allocate more memory to the process if possible
 // and after the function returns, the scan will continue
@@ -75,12 +86,70 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
   RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
                   scanner->spec_name_for_logs, sleepTime);
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  ReindexPool_UnlockGIL(ctx);
   sleep(sleepTime);
-  RedisModule_ThreadSafeContextLock(ctx);
+  ReindexPool_LockGIL(ctx);
 }
 
 static redisearch_thpool_t *reindexPool = NULL;
+
+static void verifyReindexPoolInit(void) {
+  if (!reindexPool) {
+    GilGate_Reset(&reindexGilGate);
+    reindexPool =
+        redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
+  }
+}
+
+#define KEY_MAP_BUILD_BATCH_SIZE 1024
+
+typedef struct {
+  WeakRef spec;
+  DocTableKeyMapIterator iterator;
+} KeyMapBuild;
+
+static void KeyMapBuild_Run(void *arg) {
+  KeyMapBuild *build = arg;
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("KeyMapBeforeBatch");
+#endif
+  StrongRef ref = IndexSpecRef_Promote(build->spec);
+  IndexSpec *spec = StrongRef_Get(ref);
+  bool done = true;
+  if (spec) {
+    IndexSpec_LockWrite(spec);
+    done = DocTable_BuildKeyMapBatch(&spec->docs, &build->iterator, KEY_MAP_BUILD_BATCH_SIZE);
+    IndexSpec_Unlock(spec);
+#ifdef ENABLE_ASSERT
+    if (done) SyncPoint_Wait("KeyMapBuildComplete");
+#endif
+    IndexSpecRef_Release(ref);
+  }
+  if (!done) {
+    // One low-priority continuation per build keeps the queue bounded and lets other
+    // reindex work run between batches. Pool destruction drains these continuations.
+    int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+    RS_ASSERT_ALWAYS(rc == 0);
+  } else {
+    DocTable_KeyMapIteratorReleaseNext(&build->iterator);
+    WeakRef_Release(build->spec);
+    rm_free(build);
+  }
+}
+
+void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
+  // Only GIL-owning callers publish this pointer; the builder never replaces it.
+  if (SearchDisk_IsEnabled() || spec->docs.keyMap) return;
+  IndexSpec_LockWrite(spec);
+  DocKeyMapActivation activation = DocTable_StartKeyMap(&spec->docs);
+  IndexSpec_Unlock(spec);
+  if (activation != DocKeyMapActivation_NeedsBackfill) return;
+  verifyReindexPoolInit();
+  KeyMapBuild *build = rm_calloc(1, sizeof(*build));
+  build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));
+  int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+  RS_ASSERT_ALWAYS(rc == 0);
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -95,12 +164,11 @@ static void IndexScanner_QueuePendingScanKey(ScanProcCtx *scanCtx, RedisModuleSt
 }
 
 static void IndexScanner_FreePendingScanKeys(ScanProcCtx *scanCtx) {
+  RS_LOG_ASSERT(scanCtx->pendingKeys, "pending scan keys must be initialized");
   for (size_t i = 0; i < array_len(scanCtx->pendingKeys); ++i) {
     RedisModule_FreeString(RSDummyContext, scanCtx->pendingKeys[i]);
   }
-  if (scanCtx->pendingKeys) {
-    array_set_len(scanCtx->pendingKeys, 0);
-  }
+  array_set_len(scanCtx->pendingKeys, 0);
 }
 
 static bool IndexScanner_MarkOOMIfNeeded(RedisModuleCtx *ctx, IndexesScanner *scanner,
@@ -141,12 +209,12 @@ static bool DebugIndexScanner_ShouldStopBeforePendingScanKey(RedisModuleCtx *ctx
   }
 
   if (globalDebugCtx.bgIndexing.pause) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    ReindexPool_UnlockGIL(ctx);
     while (globalDebugCtx.bgIndexing.pause) {  // volatile variable
       dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
       usleep(1000);
     }
-    RedisModule_ThreadSafeContextLock(ctx);
+    ReindexPool_LockGIL(ctx);
   }
 
   if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
@@ -154,6 +222,41 @@ static bool DebugIndexScanner_ShouldStopBeforePendingScanKey(RedisModuleCtx *ctx
   }
 
   return IndexesScanner_IsCancelled(scanner);
+}
+
+// Per-key body of a per-index scan. Takes ownership of `key`, which was opened read-only with
+// DOCUMENT_OPEN_KEY_INDEXING_FLAGS for type detection, and closes it before any reindex.
+static void IndexScanner_ScanKeyForSpec(RedisModuleCtx *ctx, const IndexesScanner *scanner,
+                                        IndexSpec *sp, RedisModuleString *keyname,
+                                        RedisModuleKey *key, DocumentType type) {
+  // This check is performed without locking the spec, but it's ok since we locked the GIL
+  // So the main thread is not running and the GC is not touching the relevant data
+  // Deliberately not handed `key`: a FILTER clause evaluates through
+  // RLookup_LoadRuleFields, which opens the document with DOCUMENT_OPEN_KEY_QUERY_FLAGS.
+  // This scan's handle carries the narrower DOCUMENT_OPEN_KEY_INDEXING_FLAGS, so reusing it
+  // would evaluate FILTER against a key opened without NOEXPIRE/ACCESS_EXPIRED/
+  // ACCESS_TRIMMED and could change which documents a filtered index accepts.
+  bool shouldIndex = SchemaRule_ShouldIndex(sp, keyname, type, NULL);
+  // scanner->addedFields is non-empty only for a selective ALTER scan (see
+  // AddedFieldsRange in indexes_scanner.h); skip the document when every added field is
+  // confirmed absent, so this backfill does not force a full replacement of documents
+  // the ALTER cannot affect. A probe failure falls through to the full-reindex path.
+  bool selective = scanner->addedFields.start != scanner->addedFields.end;
+  bool skipUnchanged =
+      shouldIndex && selective &&
+      Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
+                                  scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
+  // The reindex (IndexSpec_UpdateDoc or IndexSpec_UpdateDocForAlter) can update key metadata
+  // and must retain its own key-opening behavior, so the read-only handle is closed rather than
+  // passed through.
+  RedisModule_CloseKey(key);
+  if (shouldIndex && !skipUnchanged) {
+    if (selective) {
+      IndexSpec_UpdateDocForAlter(sp, ctx, keyname, type, scanner->addedFields.start);
+    } else {
+      IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL, NULL, 0);
+    }
+  }
 }
 
 static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *scanCtx) {
@@ -169,25 +272,23 @@ static void IndexScanner_DrainPendingScanKeys(RedisModuleCtx *ctx, ScanProcCtx *
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     DocumentType type = getDocType(key);
-    RedisModule_CloseKey(key);
     if (type == DocumentType_Unsupported) {
+      RedisModule_CloseKey(key);
       ++scanner->scannedKeys;
       continue;
     }
 
     if (scanner->global) {
-      Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
+      RedisModule_CloseKey(key);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL, 0);
     } else {
       StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
       if (sp) {
-        // This check is performed without locking the spec, but it's ok since we locked the GIL
-        // So the main thread is not running and the GC is not touching the relevant data
-        if (SchemaRule_ShouldIndex(sp, keyname, type, NULL)) {
-          IndexSpec_UpdateDoc(sp, ctx, keyname, type, NULL);
-        }
+        IndexScanner_ScanKeyForSpec(ctx, scanner, sp, keyname, key, type);
         IndexSpecRef_Release(curr_run_ref);
       } else {
+        RedisModule_CloseKey(key);
         // spec was deleted, cancel scan
         IndexesScanner_Cancel(scanner);
       }
@@ -306,7 +407,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  RedisModule_ThreadSafeContextLock(ctx);
+  ReindexPool_LockGIL(ctx);
 
   if (IndexesScanner_IsCancelled(scanner)) {
     goto end;
@@ -322,11 +423,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     // If background indexing paused, wait until it is resumed
     // Allow the redis server to acquire the GIL while we release it
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    ReindexPool_UnlockGIL(ctx);
     while (globalDebugCtx.bgIndexing.pause) { // volatile variable
       usleep(1000);
     }
-    RedisModule_ThreadSafeContextLock(ctx);
+    ReindexPool_LockGIL(ctx);
   }
 
   while (hasMore) {
@@ -350,7 +451,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       break;
     }
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    ReindexPool_UnlockGIL(ctx);
     counter++;
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
       // Sleep to allow redis server to acquire the GIL while we release it.
@@ -363,7 +464,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     } else {
       sched_yield();
     }
-    RedisModule_ThreadSafeContextLock(ctx);
+    ReindexPool_LockGIL(ctx);
   }
 
   if (scanner->isDebug) {
@@ -389,17 +490,15 @@ end:
 
   IndexesScanner_Free(scanner);
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  ReindexPool_UnlockGIL(ctx);
   RedisModule_ScanCursorDestroy(cursor);
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
+  verifyReindexPoolInit();
 #ifdef _DEBUG
   IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
   const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
@@ -416,6 +515,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   } else {
     scanner = IndexesScanner_New(spec_ref);
   }
+  // Record after construction: IndexesScanner_New/DebugIndexesScanner_New may cancel and
+  // replace sp->scanner, but the freshly-constructed scanner returned here is always the one
+  // that ends up running, so there is nothing to preserve from a prior scanner's range.
+  scanner->addedFields = addedFields;
 
   // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
   // (in-RAM key loads are cheap and gain nothing from offloading the read). The
@@ -429,6 +532,20 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
+#ifdef ENABLE_ASSERT
+    // A shutdown regression test pins the final spec reference until this drain.
+    SyncPoint_Signal("KeyMapBuildComplete");
+#endif
+    GilGate_BeginJoin(&reindexGilGate);
+    redisearch_thpool_destroy(reindexPool);
+    reindexPool = NULL;
+  }
+}
+
+// Unlike ReindexPool_ThreadPoolDestroy, called from a command: Lock's bookkeeping is in place, so
+// the GIL can be dropped for real and running scans finish on it instead of borrowing.
+void ReindexPool_ThreadPoolDrain() {
+  if (reindexPool != NULL) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
@@ -440,8 +557,44 @@ void ReindexPool_ThreadPoolDestroy() {
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(spec_ref);
+    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0});
   }
+}
+
+// See indexes_scan.h for the contract. Falls back to the same full scan
+// IndexSpec_ScanAndReindex schedules unless every one of the conditions below holds; each
+// describes a case where a selective scan could skip a document that still needs the full
+// reindex path to converge. These must all be checked before IndexesScanner_New runs, since
+// that call cancels any active scanner and clears scan_failed_OOM out from under this check.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
+                                      t_fieldIndex addedFieldsStart) {
+  // DiskDisabledCmd rejects ALTER before it can schedule a disk backfill.
+  RS_ASSERT(!SearchDisk_IsEnabled());
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  RS_LOG_ASSERT(sp, "caller must hold a strong ref to the spec being scanned");
+  RS_ASSERT(addedFieldsStart < sp->numFields);
+
+  size_t nkeys = RedisModule_DbSize(ctx);
+  if (nkeys == 0) {
+    return;
+  }
+
+  bool canBeSelective = sp->scanner == NULL && !RS_AtomicBoolLoadRelaxed(&sp->scan_failed_OOM);
+  for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    // A sortable field widens every document's sorting vector, and only the full reindex path
+    // rebuilds one. A skipped document keeps a vector sized for the old schema, while
+    // AddDocumentCtx_UpdateNoIndex reallocates only a zero-length vector -- so a later partial
+    // update writing the new sortIdx into a short vector panics in RSSortingVector_Put*.
+    canBeSelective = !FieldSpec_IndexesMissing(fs) && !FieldSpec_IsSortable(fs);
+  }
+
+  AddedFieldsRange range = {0};
+  if (canBeSelective) {
+    range.start = addedFieldsStart;
+    range.end = sp->numFields;
+  }
+  IndexSpec_ScanAndReindexAsync(spec_ref, range);
 }
 
 // only used on "RDB load finished" event (before the server is ready to accept commands)
@@ -494,8 +647,13 @@ void Indexes_UpgradeLegacyIndexes() {
     // recreate the doctable
     DocTable_Free(&sp->docs);
     sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
+    if (!sp->gc) {
+      // As IndexSpec_StartGC decided at load: no cycle will ever prune what it records.
+      DocTable_StopTrackingDeleted(&sp->docs);
+    }
 
     // clear index stats
+    IndexError_Clear(sp->stats.indexError);
     memset(&sp->stats, 0, sizeof(sp->stats));
     // Init the index error
     sp->stats.indexError = IndexError_Init();
@@ -503,14 +661,13 @@ void Indexes_UpgradeLegacyIndexes() {
     // put the new index in the global spec dictionaries (by name and by specId)
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
+    SearchDisk_ActivateUsage(sp);
   }
   dictReleaseIterator(iter);
 }
 
 void Indexes_ScanAndReindex() {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
 
   RedisModule_Log(RSDummyContext, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_NewGlobal();
@@ -540,11 +697,11 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
     return;
   }
   globalDebugCtx.bgIndexing.pause = true;
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  ReindexPool_UnlockGIL(ctx);
   while (globalDebugCtx.bgIndexing.pause) { // volatile variable
     dScanner->status = code;
     usleep(1000);
   }
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
-  RedisModule_ThreadSafeContextLock(ctx);
+  ReindexPool_LockGIL(ctx);
 }

@@ -26,11 +26,16 @@ use super::term_record::RawTermRecord;
 pub enum RawResultData<'query, R: Ref> {
     Union(RawAggregateResult<'query, R>) = 1,
     Intersection(RawAggregateResult<'query, R>) = 2,
-    Term(RawTermRecord<'query, R>) = 4,
+    Term(RawTermRecord<R>) = 4,
     Virtual = 8,
     Numeric(f64) = 16,
     Metric(f64) = 32,
     HybridMetric(RawAggregateResult<'query, R>) = 64,
+    /// A sparse vector node's score: the document's dot product with the query.
+    ///
+    /// Numeric like [`Metric`](Self::Metric), but its own kind, so the sparse
+    /// scorer can tell it apart from a dense vector distance in the same query.
+    SparseScore(f64) = 128,
 }
 
 /// The [`Active`] instantiation of [`RawResultData`].
@@ -62,6 +67,7 @@ impl<'a> PartialEq for RSResultData<'a> {
             (Self::Virtual, Self::Virtual) => true,
             (Self::Numeric(a), Self::Numeric(b)) => a == b,
             (Self::Metric(a), Self::Metric(b)) => a == b,
+            (Self::SparseScore(a), Self::SparseScore(b)) => a == b,
             (Self::HybridMetric(a), Self::HybridMetric(b)) => a == b,
             _ => false,
         }
@@ -77,6 +83,7 @@ impl<'query, R: Ref> RawResultData<'query, R> {
             Self::Virtual => RSResultKind::Virtual,
             Self::Numeric(_) => RSResultKind::Numeric,
             Self::Metric(_) => RSResultKind::Metric,
+            Self::SparseScore(_) => RSResultKind::SparseScore,
             Self::HybridMetric(_) => RSResultKind::HybridMetric,
         }
     }
@@ -85,8 +92,9 @@ impl<'query, R: Ref> RawResultData<'query, R> {
 impl<'a> RSResultData<'a> {
     /// Create an owned copy of this result data, allocating new memory for the contained data.
     ///
-    /// The returned data may borrow the term from the original data.
-    pub fn to_owned(&'a self) -> RSResultData<'a> {
+    /// See [`RSIndexResult::to_owned`](crate::RSIndexResult::to_owned) for what the copy still
+    /// shares.
+    pub fn to_owned(&self) -> RSResultData<'a> {
         match self {
             Self::Union(agg) => Self::Union(agg.to_owned()),
             Self::Intersection(agg) => Self::Intersection(agg.to_owned()),
@@ -94,6 +102,7 @@ impl<'a> RSResultData<'a> {
             Self::Virtual => Self::Virtual,
             Self::Numeric(num) => Self::Numeric(*num),
             Self::Metric(num) => Self::Metric(*num),
+            Self::SparseScore(num) => Self::SparseScore(*num),
             Self::HybridMetric(agg) => Self::HybridMetric(agg.to_owned()),
         }
     }

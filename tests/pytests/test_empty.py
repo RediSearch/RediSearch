@@ -99,13 +99,13 @@ def EmptyTagJSONTest(env, idx, dialect):
     }
     js = json.dumps(j, separators=(',', ':'))
     conn.execute_command('JSON.SET', 'j', '$', js)
-    res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
     # add a document where all values are non-empty
     k = {
         't': ['a', 'b', 'c']
     }
     ks = json.dumps(k, separators=(',', ':'))
     conn.execute_command('JSON.SET', 'k', '$', ks)
+    res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
     if dialect >= 3:
         js = json.dumps([j], separators=(',', ':'))
     expected = [1, 'j', ['$', js]]
@@ -976,63 +976,30 @@ def testEmptyExplainCli():
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{foo ""}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    foo',
-                '    ""',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  foo ""',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  foo ""',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" bar}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    ""',
-                '    bar',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  "" bar',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  "" bar',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         res = env.cmd('FT.EXPLAINCLI', 'idx', '@tag:{"" ""}')
-        if dialect < 5:
-            expected = [
-                'TAG:@tag {',
-                '  INTERSECT {',
-                '    ""',
-                '    ""',
-                '  }',
-                '}',
-                ''
-            ]
-        else:
-            expected = [
-                'TAG:@tag {',
-                '  "" ""',
-                '}',
-                ''
-            ]
+        expected = [
+            'TAG:@tag {',
+            '  "" ""',
+            '}',
+            ''
+        ]
         env.assertEqual(res, expected)
 
         # # ------------------------------ TEXT field ----------------------------
@@ -1194,6 +1161,40 @@ def testEmptyExplainCli():
             ''
         ]
         env.assertEqual(res, expected)
+
+@skip(cluster=True)
+def testTagPhraseWithEmptyWordSearch():
+    """An empty word inside a tag phrase such as {foo ""} is a zero-length segment of the
+    joined value, and hash indexing trims edge whitespace, so {foo ""} matches nothing but
+    {foo "" bar} matches a stored 'foo  bar'."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('HSET', 'h1', 't', 'foo ')
+    conn.execute_command('HSET', 'h2', 't', 'foo  bar')
+
+    env.expect('FT.SEARCH', 'idx', '@t:{foo ""}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@t:{foo "" bar}', 'NOCONTENT').equal([1, 'h2'])
+    env.expect('FT.EXPLAIN', 'idx', '@t:{foo "" bar}').equal(r'''
+TAG:@t {
+  foo "" bar
+}
+'''[1:])
+
+@skip(cluster=True, no_json=True)
+def testTagPhraseWithEmptyWordSearchJSON():
+    """A JSON tag field with the default separator is not trimmed, so {foo ""} matches a
+    stored value of 'foo '."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'jidx', 'ON', 'JSON', 'SCHEMA', '$.t', 'AS', 't', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('JSON.SET', 'j1', '$', '{"t":"foo "}')
+
+    env.expect('FT.SEARCH', 'jidx', '@t:{foo ""}', 'NOCONTENT').equal([1, 'j1'])
 
 def testInvalidUseOfEmptyString():
     """Tests that invalid syntax for empty values is rejected by the parser"""
@@ -1468,3 +1469,53 @@ def testemptyfuzzy():
         res = env.cmd('FT.SEARCH', 'idx', s)
         expected = [1, 'h2', ['t', 'sr']]
         env.assertEqual(res, expected)
+
+# JSON shapes a multi-value field can take, by key suffix.
+JSON_MULTI_VALUE_EMPTY_DOCS = {
+    'null': {'f': None},
+    'empty_str': {'f': ''},
+    'empty_arr': {'f': []},
+    'all_nulls': {'f': [None, None]},
+    'one_empty': {'f': ['']},
+    'all_empty': {'f': ['', '']},
+    'null_and_empty': {'f': [None, '']},
+    'mixed': {'f': ['foo', '']},
+    'non_empty': {'f': ['foo', 'bar']},
+}
+
+# Path -> docs matching the empty value. `[]` and all-null arrays index
+# nothing, so they never match. `$.f[*]` yields no results for a scalar `""`.
+JSON_MULTI_VALUE_EXPECTED_EMPTY = {
+    '$.f': {'empty_str', 'one_empty', 'all_empty', 'null_and_empty', 'mixed'},
+    '$.f[*]': {'one_empty', 'all_empty', 'null_and_empty', 'mixed'},
+}
+
+@skip(cluster=True, no_json=True)
+def testJsonMultiValueEmpty():
+    """Pins which JSON multi-value shapes INDEXEMPTY indexes as the empty value,
+    and that dropped nulls and empty strings leave the other values indexed, for
+    each path form, field type and SORTABLE (which builds a multi-value sort
+    key)."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    for path, expected_empty in JSON_MULTI_VALUE_EXPECTED_EMPTY.items():
+        for field_type, empty_query, value_query in (('TAG', '@f:{""}', '@f:{foo}'),
+                                                     ('TEXT', '@f:""', '@f:foo')):
+            for options in ([], ['SORTABLE']):
+                case = f'{path} {field_type} {options}'
+                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
+                           path, 'AS', 'f', field_type, 'INDEXEMPTY', *options).ok()
+                for suffix, doc in JSON_MULTI_VALUE_EMPTY_DOCS.items():
+                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
+                # A doc that fails to index also looks like a non-match, so rule that out.
+                env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], 0, message=case)
+
+                for query, expected in ((empty_query, expected_empty),
+                                        (value_query, {'mixed', 'non_empty'})):
+                    res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', '0', '100')
+                    env.assertEqual(res[0], len(expected), message=f'{case} {query}: {res}')
+                    env.assertEqual(set(res[1:]), {f'doc:{s}' for s in expected},
+                                    message=f'{case} {query}')
+                env.flush()

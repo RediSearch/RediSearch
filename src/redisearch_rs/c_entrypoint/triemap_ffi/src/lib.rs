@@ -17,12 +17,11 @@ use std::{
 
 mod find_prefixes;
 mod iter;
-mod iter_types;
-mod range;
+pub mod rdb;
 
 pub use find_prefixes::*;
 pub use iter::*;
-pub use range::*;
+pub use rdb::{TrieMap_RdbLoad, TrieMap_RdbSave};
 
 /// The length of a key string in the trie.
 pub type tm_len_t = u16;

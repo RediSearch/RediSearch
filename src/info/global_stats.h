@@ -42,8 +42,10 @@ typedef struct {
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHNSW;
+  size_t numVectorFieldsHNSWCompressed;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
+  size_t numSparseVectorFields;
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   size_t textTotalDocsIndexed;
   size_t tagTotalDocsIndexed;
@@ -51,6 +53,8 @@ typedef struct {
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
+  size_t vectorTotalDocsRelabeled;
+  size_t sparseVectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
 // The pipeline stage a timeout occurred in, used to break down the timeout metric.
@@ -135,8 +139,8 @@ extern GlobalStats RSGlobalStats;
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 
 /**
- * Add or increase `toAdd` number of errors to the global index errors counter of field_type.
- * `toAdd` can be negative to decrease the counter.
+ * Update the global index error counter for one supported field type.
+ * Invalid or combined field types are ignored. `toAdd` can be negative to decrease the counter.
  */
 void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
 
@@ -211,6 +215,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 
 // Increase the number of documents indexed by the given field type by `toAdd`.
 void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
+
+// Increase, by `toAdd`, the number of documents whose entry for the given field type was moved
+// onto a new doc-id rather than re-added.
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
 }

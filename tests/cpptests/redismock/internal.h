@@ -245,6 +245,9 @@ struct RedisModuleKey {
 
 struct KVDB {
   std::map<std::string, Value *> db;
+  // Keys of slots awaiting trim after a migration: hidden from OpenKey without
+  // REDISMODULE_OPEN_KEY_ACCESS_TRIMMED, as Redis does.
+  std::set<std::string> trimmed;
   uint32_t id = -1;
 
   Value *get(const std::string &s) {
@@ -288,6 +291,7 @@ struct KVDB {
 
   void clear() {
     RMCK_FreeAllKeyMeta();
+    trimmed.clear();
 
     for (auto it : db) {
       it.second->decref();
@@ -324,6 +328,8 @@ struct RedisModuleCtx {
   KVDB *db = NULL;
   uint32_t dbid = 0;
   std::string last_error;  // Store the last error message from ReplyWithError
+  int ctx_flags = 0;                   // Returned by RedisModule_GetContextFlags
+  std::vector<std::string> reply_log;  // Collection open/close calls, for reply builder tests
 
   RedisModuleCtx(uint32_t dbid = 0);
 

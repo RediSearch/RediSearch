@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -32,24 +34,6 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
     unsafe { new_id_list_iterator::<true>(ids, num, weight) }
 }
 
-#[unsafe(no_mangle)]
-/// Creates a new iterator over a list of unsorted document IDs.
-///
-/// # Safety
-///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
-/// 2. The caller must ensure that `ids` is not null unless `num` is zero.
-/// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
-///    so the caller must ensure that the pointer was allocated in a compatible manner.
-pub unsafe extern "C" fn NewUnsortedIdListIterator(
-    ids: *mut DocId,
-    num: u64,
-    weight: f64,
-) -> *mut QueryIterator {
-    // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_id_list_iterator::<false>(ids, num, weight) }
-}
-
 /// # Safety
 ///
 /// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
@@ -61,7 +45,7 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
-    let ids_list = if !ids.is_null() {
+    let ids_list = if let Some(ids) = NonNull::new(ids) {
         // SAFETY: Safe thanks to 1
         unsafe { OwnedSlice::from_c(ids, num as usize) }
     } else {
@@ -77,4 +61,5 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         ids_list,
         RSIndexResult::build_virt().weight(weight).build(),
     ))
+    .as_ptr()
 }

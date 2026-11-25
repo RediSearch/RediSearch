@@ -14,6 +14,8 @@
 #include "varint_ffi.h"
 #include "rmalloc.h"
 
+// A field owns exactly one stored byte offset per position in [firstTokPos, lastTokPos].
+// Fields without stored offsets use lastTokPos == firstTokPos - 1, even if they have indexed tokens.
 typedef struct __attribute__((packed)) RSByteOffsetMap {
   // ID this belongs to.
   uint16_t fieldId;
@@ -50,6 +52,7 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
                                           uint32_t startPos);
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
+// Returns NULL if `buf` is shorter than the serialized offsets it describes.
 RSByteOffsets *LoadByteOffsets(Buffer *buf);
 
 typedef struct {
@@ -71,6 +74,10 @@ static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
   VVW_Write(w->vw, offset);
+}
+
+static inline uint32_t ByteOffsetWriter_Count(const ByteOffsetWriter *w) {
+  return VVW_GetCount(w->vw);
 }
 
 /**

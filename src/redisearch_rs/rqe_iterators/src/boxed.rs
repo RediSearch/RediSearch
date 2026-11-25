@@ -52,9 +52,12 @@
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
 //! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
+use std::ptr::NonNull;
+
 use ffi::t_docId;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
@@ -84,6 +87,9 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     type Suspended: RQESuspendedIterator<'index> + 'index;
 
     /// Transition to the suspended state.
+    ///
+    /// Must be called while the spec read lock is still held: an implementation may still read
+    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
@@ -143,7 +149,7 @@ pub trait RQESuspendedIterator<'query> {
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
-    /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
+    /// [`Stopped`](RQEIteratorError::Stopped)) — distinct from `Aborted`. On
     /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'index>(
         self: Box<Self>,
@@ -235,7 +241,7 @@ impl<'query> TypeErasedRQESuspendedIterator<'query> {
 /// Call it in a `const {}` block so the check runs at monomorphization: a
 /// mismatch fails to compile instead of causing undefined behaviour when the
 /// suspend/resume helpers reinterpret an allocation from `A` to `B`.
-pub(crate) const fn assert_layout_compatible<A, B>() {
+pub const fn assert_layout_compatible<A, B>() {
     assert!(
         std::mem::size_of::<A>() == std::mem::size_of::<B>(),
         "size mismatch across suspend/resume transition: active and suspended representations must have identical size"
@@ -244,6 +250,74 @@ pub(crate) const fn assert_layout_compatible<A, B>() {
         std::mem::align_of::<A>() == std::mem::align_of::<B>(),
         "alignment mismatch across suspend/resume transition: active and suspended representations must have identical alignment"
     );
+}
+
+/// Compile-time assertion that resuming `I`'s suspended form yields `I`.
+///
+/// Relabelling a slot back to `I` after [`resume_child_slot_in_place`] needs
+/// this type identity; equal layouts alone do not make the value valid as `I`.
+pub const fn assert_resumes_to_itself<I>()
+where
+    I: RQEIteratorBoxed<'static>,
+    I::Suspended: RQESuspendedIterator<'static, Resumed<'static> = I>,
+{
+}
+
+/// Suspend, in place, an iterator whose only [`Ref`](ref_mode::Ref)-dependent
+/// state is the owned result `result` projects onto, returning `slot` as its
+/// suspended form `S`. The allocation never moves.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `A`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `S` is `A` with that field
+///    retyped to a [`Suspended`] [`RawIndexResult`]: same layout, and every
+///    other field valid unchanged at `S`.
+pub(crate) unsafe fn suspend_owned_result_in_place<'index, A, S>(
+    mut slot: NonNull<A>,
+    result: impl FnOnce(&mut A) -> &mut RSIndexResult<'index>,
+) -> NonNull<S> {
+    const { assert_layout_compatible::<A, S>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+    // Caller's 2: every field is now valid at `S`.
+    slot.cast::<S>()
+}
+
+/// Reverse [`suspend_owned_result_in_place`], returning `slot` as its active
+/// form `A`.
+///
+/// # Safety
+///
+/// 1. `slot` is aligned, points to an initialized `S`, and is unaliased for the
+///    duration of the call.
+/// 2. `result` returns a field of its argument, and `A` is `S` with that field
+///    retyped to an [`Active`] [`RSIndexResult`] for `'a`: same layout, and
+///    every other field valid unchanged at `A`.
+/// 3. The preconditions of [`RawIndexResult::into_active`] hold for that field
+///    at `'a`.
+pub(crate) unsafe fn resume_owned_result_in_place<'query, 'a, S, A>(
+    mut slot: NonNull<S>,
+    result: impl FnOnce(&mut S) -> &mut RawIndexResult<'query, Suspended>,
+) -> NonNull<A>
+where
+    'query: 'a,
+{
+    const { assert_layout_compatible::<S, A>() };
+    // SAFETY: caller's 1; the reference ends before `slot` is used again.
+    let result_slot = NonNull::from(result(unsafe { slot.as_mut() }));
+    // SAFETY:
+    // 1. An initialized field of `*slot` (caller's 1, 2).
+    // 2. The projecting reference is dead (caller's 1).
+    // 3. Caller's 3.
+    unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+    // Caller's 2: every field is now valid at `A`.
+    slot.cast::<A>()
 }
 
 /// Suspend a single child slot in place: read the value out, call its
@@ -283,15 +357,13 @@ pub(crate) const fn assert_layout_compatible<A, B>() {
 /// if it did, unwinding past the uninitialised slot would let the owner drop a
 /// moved-from value (double drop). To keep the window sound, a panic from
 /// `suspend` is converted into a process abort rather than an unwind.
-pub unsafe fn suspend_child_slot_in_place<'index, I>(slot: *mut I)
+pub unsafe fn suspend_child_slot_in_place<'index, I>(slot: NonNull<I>)
 where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     // Statically enforce the size/alignment invariant the `ptr::write` cast
     // below relies on: a mismatched-layout implementer fails to compile here.
     const { assert_layout_compatible::<I, I::Suspended>() };
-
-    debug_assert!(!slot.is_null(), "slot must not be null");
 
     /// Aborts the process if dropped during unwinding through the
     /// uninitialised-slot window. Disarmed with [`std::mem::forget`] once the
@@ -306,7 +378,7 @@ where
     // SAFETY: caller guarantees `slot` is exclusively owned and points to a
     // valid `I` value. `ptr::read` moves the value out; the slot bytes are
     // typed-but-moved-from until the matching `ptr::write` below.
-    let active = unsafe { std::ptr::read(slot) };
+    let active = unsafe { std::ptr::read(slot.as_ptr()) };
     // Armed across the uninitialised-slot window: if `suspend` panics, drop
     // aborts instead of unwinding through the moved-from slot.
     let bomb = AbortOnUnwind;
@@ -321,15 +393,52 @@ where
     // `assert_layout_compatible` guard at the top of the body). The slot is
     // uninitialised after the earlier `ptr::read`; writing a valid `I::Suspended`
     // reinitialises it.
-    unsafe { std::ptr::write(slot as *mut I::Suspended, suspended) };
+    unsafe { std::ptr::write(slot.cast::<I::Suspended>().as_ptr(), suspended) };
     // Slot reinitialised — disarm the abort guard.
     std::mem::forget(bomb);
+}
+
+/// Suspend every child of a composite's children buffer in place, through
+/// [`suspend_child_slot_in_place`] on each.
+///
+/// The buffer is walked through its raw pointer rather than `iter_mut`, since
+/// each transition retypes a slot from `I` to `I::Suspended`.
+///
+/// `slot_of` locates the child within an element. It is called once per
+/// element, before that element's child is suspended.
+///
+/// # Safety
+///
+/// 1. `children` must point to a valid, exclusively-owned `Vec<E>`.
+/// 2. `slot_of` must return a pointer to the `I` held by the element it is given.
+/// 3. From this call on, the caller must interpret every child slot as
+///    `I::Suspended`, as [`suspend_child_slot_in_place`] requires of a single slot.
+pub(crate) unsafe fn suspend_children_in_place<'index, E, I>(
+    mut children: NonNull<Vec<E>>,
+    slot_of: impl Fn(NonNull<E>) -> NonNull<I>,
+) where
+    I: RQEIteratorBoxed<'index> + 'index,
+{
+    let (base, len) = {
+        // SAFETY: 1. The borrow only reaches the buffer pointer and length, and
+        // ends here.
+        let children = unsafe { children.as_mut() };
+        let base = NonNull::new(children.as_mut_ptr()).expect("Vec buffers are non-null");
+        (base, children.len())
+    };
+    for i in 0..len {
+        // SAFETY: `i < len`, so the offset stays within the buffer.
+        let elem = unsafe { base.add(i) };
+        // SAFETY: by 1 and 2 the slot holds a valid, exclusively-owned `I`; its
+        // reinterpretation as `I::Suspended` is delegated to the caller by 3.
+        unsafe { suspend_child_slot_in_place(slot_of(elem)) };
+    }
 }
 
 /// Outcome of [`resume_child_slot_in_place`], mirroring the recoverable
 /// discriminants of [`ResumeOutcome`] but *without* carrying the iterator —
 /// the resumed child is written back into the slot instead.
-pub(crate) enum ResumeSlotOutcome {
+pub enum ResumeSlotOutcome {
     /// The child resumed at the same position; the slot now holds the active child.
     Unchanged,
     /// The child resumed but its position moved forward; the slot now holds the
@@ -376,8 +485,8 @@ pub(crate) enum ResumeSlotOutcome {
 /// implementations and could panic; as in [`suspend_child_slot_in_place`], a
 /// panic is converted into a process abort rather than an unwind through the
 /// uninitialised slot.
-pub(crate) unsafe fn resume_child_slot_in_place<'query, 'a, S>(
-    slot: *mut S,
+pub unsafe fn resume_child_slot_in_place<'query, 'a, S>(
+    slot: NonNull<S>,
     guard: &IndexSpecReadGuard<'a>,
 ) -> Result<ResumeSlotOutcome, RQEIteratorError>
 where
@@ -387,8 +496,6 @@ where
     // Statically enforce the size/alignment invariant the `ptr::write` cast
     // below relies on: a mismatched-layout implementer fails to compile here.
     const { assert_layout_compatible::<S, S::Resumed<'a>>() };
-
-    debug_assert!(!slot.is_null(), "slot must not be null");
 
     /// Aborts the process if dropped during unwinding through the
     /// uninitialised-slot window. Disarmed with [`std::mem::forget`] once
@@ -403,7 +510,7 @@ where
     // SAFETY: caller guarantees `slot` is exclusively owned and points to a
     // valid `S` value. `ptr::read` moves the value out; the slot bytes are
     // typed-but-moved-from until the matching `ptr::write` (or teardown) below.
-    let suspended = unsafe { std::ptr::read(slot) };
+    let suspended = unsafe { std::ptr::read(slot.as_ptr()) };
     // Armed across the uninitialised-slot window: if `resume` panics, drop
     // aborts instead of unwinding through the moved-from slot.
     let bomb = AbortOnUnwind;
@@ -422,12 +529,96 @@ where
     // the `assert_layout_compatible` guard at the top of the body). The slot is
     // uninitialised after the earlier `ptr::read`; writing a valid
     // `S::Resumed<'a>` reinitialises it.
-    unsafe { std::ptr::write(slot as *mut S::Resumed<'a>, *active) };
+    unsafe { std::ptr::write(slot.cast::<S::Resumed<'a>>().as_ptr(), *active) };
     Ok(if moved {
         ResumeSlotOutcome::Moved
     } else {
         ResumeSlotOutcome::Unchanged
     })
+}
+
+/// Finish resuming a container `S` whose payload slot went through
+/// [`resume_child_slot_in_place`], reusing the container's allocation.
+///
+/// On [`Unchanged`](ResumeSlotOutcome::Unchanged) or
+/// [`Moved`](ResumeSlotOutcome::Moved) the allocation is relabelled as the
+/// active container `A`, so every address inside it survives the cycle. On
+/// [`Aborted`](ResumeSlotOutcome::Aborted) or [`Err`] the payload is gone and
+/// the allocation is freed without dropping anything.
+///
+/// # Safety
+///
+/// 1. `raw` comes from [`Box::into_raw`] on a `Box<S>`, is exclusively owned,
+///    and no reference into the allocation is live.
+/// 2. `outcome` is what [`resume_child_slot_in_place`] returned for the payload
+///    slot of `*raw`, and apart from that slot `S` holds nothing that needs
+///    dropping (e.g. only an enum tag).
+/// 3. Once the slot holds its resumed form, the allocation is a valid `A`.
+pub unsafe fn finish_resume_in_place<S, A>(
+    raw: *mut S,
+    outcome: Result<ResumeSlotOutcome, RQEIteratorError>,
+) -> Result<ResumeOutcome<Box<A>>, RQEIteratorError> {
+    // SAFETY: 1. On `Aborted`/`Err` the guard frees the allocation on drop,
+    // which by 2 drops nothing that needs it.
+    let allocation = unsafe { UninitBox::new(raw) };
+    Ok(match outcome? {
+        // SAFETY: 3.
+        ResumeSlotOutcome::Unchanged => ResumeOutcome::Ok(unsafe { allocation.relabel() }),
+        // SAFETY: 3.
+        ResumeSlotOutcome::Moved => ResumeOutcome::Moved(unsafe { allocation.relabel() }),
+        ResumeSlotOutcome::Aborted => ResumeOutcome::Aborted,
+    })
+}
+
+/// Owns a [`Box`] allocation without assuming its contents are initialised.
+///
+/// Dropping it frees the allocation without dropping its contents;
+/// [`UninitBox::relabel`] instead hands it back as a [`Box`] of a
+/// layout-compatible type once the contents are valid again.
+struct UninitBox<S> {
+    raw: std::ptr::NonNull<S>,
+}
+
+impl<S> UninitBox<S> {
+    /// # Safety
+    ///
+    /// 1. `raw` comes from [`Box::into_raw`] on a `Box<S>`, is exclusively owned,
+    ///    and no reference into the allocation is live.
+    const unsafe fn new(raw: *mut S) -> Self {
+        // `Box` does not allocate for a ZST, so there would be nothing to free.
+        const { assert!(std::mem::size_of::<S>() != 0) };
+        Self {
+            raw: std::ptr::NonNull::new(raw).expect("`Box::into_raw` never returns null"),
+        }
+    }
+
+    /// Hand the allocation back as a `Box<A>`, without freeing it.
+    ///
+    /// # Safety
+    ///
+    /// 1. The allocation holds a valid `A`.
+    unsafe fn relabel<A>(self) -> Box<A> {
+        const { assert_layout_compatible::<S, A>() };
+        let this = std::mem::ManuallyDrop::new(self);
+        // SAFETY: the allocation came from a `Box<S>` (`new`'s 1) whose layout
+        // matches `A` (checked above) and holds a valid `A` (1). `this` is never
+        // dropped, so the allocation has a single owner.
+        unsafe { Box::from_raw(this.raw.as_ptr().cast::<A>()) }
+    }
+}
+
+impl<S> Drop for UninitBox<S> {
+    fn drop(&mut self) {
+        // SAFETY: the allocation came from a `Box<S>`, so it has the layout of
+        // `S`, and is exclusively owned (`new`'s 1). Its contents are not
+        // dropped, which at worst leaks them.
+        unsafe {
+            std::alloc::dealloc(
+                self.raw.as_ptr().cast::<u8>(),
+                std::alloc::Layout::new::<S>(),
+            )
+        }
+    }
 }
 
 // --- Blanket bridges: concrete → dyn-safe -----------------------------------
@@ -547,6 +738,26 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     #[inline(always)]
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.0.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.0.current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.0.current_block_bound()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.0.read_with_threshold(min_competitive_score)
     }
 }
 

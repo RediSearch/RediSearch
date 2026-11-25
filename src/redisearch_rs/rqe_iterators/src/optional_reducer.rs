@@ -71,8 +71,8 @@ where
         // Shortcircuit 1: child is structurally empty — drop it and return a wildcard.
         IteratorType::Empty => {
             drop(child);
-            // SAFETY: 5. `new_wildcard_iterator` pulls the snapshot (if any) from
-            // `query.sctx.diskSnapshot` itself, so this short-circuit observes the same
+            // SAFETY: 5. `new_wildcard_iterator` pulls the view (if any) from
+            // `query.sctx.diskQueryView` itself, so this short-circuit observes the same
             // view as the rest of the query.
             let wc = unsafe { new_wildcard_iterator(query, 0.0) };
             NewOptionalIterator::WildcardFallback(wc)
@@ -104,14 +104,19 @@ where
                     // SAFETY: We checked `disk_index_available` (i.e. `!spec.diskSpec.is_null()`)
                     // above, and (6) guarantees the pointer is valid for `'index`.
                     let disk_spec = unsafe { &mut *spec.diskSpec };
-                    let snapshot = NonNull::new(sctx_ref.diskSnapshot).expect(
-                        "query.sctx.diskSnapshot is null for a disk-backed optional iterator",
+                    let view = NonNull::new(sctx_ref.diskQueryView).expect(
+                        "query.sctx.diskQueryView is null for a disk-backed optional iterator",
                     );
-                    // SAFETY: (6). The snapshot is read from `sctx_ref.diskSnapshot` so the
+                    // SAFETY: (6). The view is read from `sctx_ref.diskQueryView` so the
                     // optional-optimized path observes the same view as the rest of the query;
                     // `query.status` is the valid `QueryError` of the evaluating query.
                     unsafe {
-                        new_wildcard_iterator_on_disk(disk_spec, weight, snapshot, query_ref.status)
+                        new_wildcard_iterator_on_disk(
+                            disk_spec,
+                            weight,
+                            view,
+                            NonNull::new(query_ref.status),
+                        )
                     }
                 } else {
                     // SAFETY: (2) guarantees `sctx` is valid; (7) covers all remaining

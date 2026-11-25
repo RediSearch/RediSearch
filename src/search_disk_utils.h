@@ -16,15 +16,6 @@
 
 typedef struct QueryError QueryError;
 
-#define FLEX_MAX_INDEX_COUNT 10
-
-/**
- * @brief Check if the number of indexes is within the limit
- *
- * @return true if the number of indexes is within the limit, false otherwise
- */
-bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
-
 /**
  * @brief Mark a field as unsupported in Flex indexes
  *
@@ -38,7 +29,7 @@ bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, cons
 /**
  * @brief Mark an argument as unsupported in Flex indexes
  *
- * @param argName Argument name string (e.g., "SLOP", "WITHSUFFIXTRIE")
+ * @param argName Argument name string (e.g., "HIGHLIGHT", "WITHSUFFIXTRIE")
  * @param status Query error status
  * @return true if the argument is supported, false otherwise
  */

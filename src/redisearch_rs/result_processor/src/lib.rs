@@ -40,8 +40,8 @@ use std::{
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    /// Execution halted because of timeout
-    TimedOut,
+    /// Execution halted on a timeout or a requested stop
+    Stopped,
     /// Aborted because of error. The QueryState (parent->status) should have
     /// more information.
     Error,
@@ -111,6 +111,25 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Add GIL acquisition wait and hold time to this processor and its query.
+    ///
+    /// Call only for profiled queries, after releasing the GIL.
+    pub const fn add_gil_time(&mut self, elapsed: std::time::Duration) {
+        // SAFETY: the context exclusively accesses its processor header during this call.
+        let header = unsafe { self.ptr.as_mut() };
+        debug_assert!(
+            !header.parent.is_null(),
+            "profiled result processor must have a parent"
+        );
+        let elapsed_ns = elapsed.as_nanos() as ffi::rs_wall_clock_ns_t + 1;
+        header.rp_gil_time += elapsed_ns;
+        // SAFETY: the parent installed by the C pipeline outlives this processor. Its profiling
+        // counters are updated by the query worker, with no overlapping parent borrow here.
+        if let Some(parent) = unsafe { header.parent.cast_mut().as_mut() } {
+            parent.queryGILTime += elapsed_ns;
+        }
+    }
+
     /// Create a new context for calling the given type-erased result processor
     pub(crate) fn new(header: Pin<&mut Header>) -> Self {
         // Safety: Context & Upstream correctly treat the pointer as pinned
@@ -169,6 +188,39 @@ impl Context<'_> {
             parent.totalResults = parent.totalResults.saturating_sub(n);
         }
     }
+
+    /// Marks the reply as cut by a memory stop ([`ffi::QueryProcessingCtx::oomCut`]): this
+    /// processor keeps emitting rows it held when the stop arrived, so the reply carries the OOM
+    /// warning even if it ends at EOF. The Rust side of `RP_HoldStop`.
+    ///
+    /// No-op unless the parent has request limits that are memory-stopped, as in C.
+    pub fn hold_stop(&mut self) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor and the chain runs on a
+        // single thread. Provenance comes from the raw pointer C provided, so writing through it
+        // is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor.
+            let limits = unsafe { (*parent).limits };
+            if limits.is_null() {
+                return;
+            }
+            // SAFETY: `limits` is non-null and is the request's `QueryRequestLimits`, which
+            // outlives the pipeline; this only takes the address of its field.
+            let flag = unsafe { &raw mut (*limits).memory.stopped };
+            // SAFETY: `flag` points to the live, aligned `bool` that other threads set atomically,
+            // so it is read atomically, as C `QueryRequestLimits_IsMemoryStopped` does.
+            let stopped = unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if stopped {
+                // SAFETY: as above for `parent`; the chain runs on a single thread, so a plain
+                // store to `oomCut`, as C `RP_HoldStop` does, is sound.
+                unsafe { (*parent).oomCut = true };
+            }
+        }
+    }
 }
 
 /// The previous result processor in the pipeline.
@@ -209,7 +261,7 @@ impl Upstream<'_> {
             ffi::RPStatus_RS_RESULT_PAUSED => {
                 unimplemented!("result processor returned unsupported error code PAUSED")
             }
-            ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus_RS_RESULT_STOPPED => Err(Error::Stopped),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
             code => {
                 unimplemented!("result processor returned unknown error code {code}")
@@ -425,7 +477,7 @@ where
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
+            Err(Error::Stopped) => ffi::RPStatus_RS_RESULT_STOPPED as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
         }
     }
@@ -535,7 +587,7 @@ pub(crate) mod test {
         }
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
-        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_TIMEDOUT as i32);
+        check(Error::Stopped, ffi::RPStatus_RS_RESULT_STOPPED as i32);
     }
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
@@ -648,10 +700,7 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
-        check(
-            ffi::RPStatus_RS_RESULT_TIMEDOUT as i32,
-            Err(Error::TimedOut),
-        );
+        check(ffi::RPStatus_RS_RESULT_STOPPED as i32, Err(Error::Stopped));
     }
 
     /// Assert that the search result is passed correctly
@@ -696,6 +745,59 @@ pub(crate) mod test {
         rp.next(cx, &mut res).unwrap().unwrap();
 
         assert_eq!(res.score(), 42.0);
+    }
+
+    /// Runs [`Context::hold_stop`] on a processor whose parent has the given `limits`, and
+    /// returns the parent's `oomCut` afterwards.
+    ///
+    /// The parent pointer is derived once, mutably, and the context is not touched through
+    /// anything else in between: `hold_stop` writes through the pointer, as C does.
+    fn hold_stop_cut(limits: *mut ffi::QueryRequestLimits) -> bool {
+        let mut qctx = ffi::QueryProcessingCtx::new();
+        // SAFETY: the context is only accessed through this pointer and stays boxed, so it is
+        // never moved.
+        let qctx_ptr: *mut ffi::QueryProcessingCtx = unsafe { qctx.as_mut().get_unchecked_mut() };
+        // SAFETY: `qctx_ptr` is valid and exclusively ours.
+        unsafe { (*qctx_ptr).limits = limits };
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        rp.as_mut().project().header.parent = qctx_ptr;
+        let mut cx = Context::new(rp.as_mut().project().header);
+
+        cx.hold_stop();
+
+        cx.parent().unwrap().oomCut
+    }
+
+    #[test]
+    fn hold_stop_marks_the_parent_cut_on_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
+        let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
+        limits.memory.stopped = true;
+
+        assert!(hold_stop_cut(&raw mut limits));
+    }
+
+    #[test]
+    fn hold_stop_leaves_the_parent_alone_without_a_memory_stop() {
+        // SAFETY: all-zero is a valid initial QueryRequestLimits.
+        let mut limits: ffi::QueryRequestLimits = unsafe { std::mem::zeroed() };
+
+        assert!(!hold_stop_cut(&raw mut limits));
+    }
+
+    #[test]
+    fn hold_stop_without_limits_leaves_the_parent_alone() {
+        assert!(!hold_stop_cut(ptr::null_mut()));
+    }
+
+    #[test]
+    fn hold_stop_without_a_parent_is_a_no_op() {
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let mut cx = Context::new(rp.as_mut().project().header);
+
+        cx.hold_stop();
+
+        assert!(cx.parent().is_none());
     }
 
     #[test]

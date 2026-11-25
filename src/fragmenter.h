@@ -60,7 +60,7 @@ typedef struct {
 typedef struct {
   RSByteOffsetIterator *byteIter;
   RSOffsetIterator *offsetIter;
-  RSQueryTerm *curMatchRec;
+  const RSQueryTerm *curMatchRec;
   uint32_t curTokPos;
   uint32_t curByteOffset;
   FragmentTerm tmpTerm;

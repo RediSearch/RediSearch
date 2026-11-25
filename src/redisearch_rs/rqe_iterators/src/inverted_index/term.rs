@@ -15,8 +15,8 @@ use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterMaskReader, IndexReader, PointsToOpaqueIndex, RawIndexReaderCore, RefreshOutcome,
-    ResumableReader, SuspendableReader, TermReader, doc_ids_only::DocIdsOnly, fields_offsets,
-    fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
+    ReseatIndex, ResumableReader, SuspendableReader, TermReader, doc_ids_only::DocIdsOnly,
+    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
     opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
 };
 use query_term::RSQueryTerm;
@@ -110,18 +110,21 @@ impl<'query, Rf: Ref, R, E, RA> RawTerm<'query, Rf, R, E, RA>
 where
     R: PointsToOpaqueIndex,
 {
-    /// Check if the iterator should abort revalidation.
+    /// The term's inverted index, freshly looked up via `spec.keysDict`, or `None`
+    /// when the iterator must [abort](RQEValidateStatus::Aborted) — the garbage
+    /// collector removed the term's index, or replaced it with a new allocation.
     ///
-    /// The term's inverted index may have been garbage-collected and
-    /// replaced with a new allocation. If the index pointer looked up via
-    /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
+    /// Hands back the resolution so the caller can
+    /// [reseat](inverted_index::ReseatIndex) the reader on it.
     ///
     /// # Safety
     ///
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
-    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+    fn resolve_live_index(
+        &self,
+        spec: &IndexSpecReadGuard,
+    ) -> Option<NonNull<inverted_index::opaque::InvertedIndex>> {
         let term = self
             .it
             .result
@@ -147,16 +150,15 @@ where
             )
         };
 
-        let Some(idx) = NonNull::new(idx as *mut _) else {
-            // The inverted index was collected entirely by GC.
-            return true;
-        };
-
-        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>();
+        // `None`: the inverted index was collected entirely by GC.
+        let opaque = NonNull::new(idx as *mut _)?.cast::<inverted_index::opaque::InvertedIndex>();
         // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
         // valid opaque `InvertedIndex`.
-        let opaque = unsafe { opaque.as_ref() };
-        !self.it.reader.points_to_the_same_opaque_index(opaque)
+        let same = self
+            .it
+            .reader
+            .points_to_the_same_opaque_index(unsafe { opaque.as_ref() });
+        same.then_some(opaque)
     }
 }
 
@@ -220,9 +222,17 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(RQEValidateStatus::Aborted);
-        }
+        };
+
+        // `revalidate` reads the index's GC marker through the reader's pointer,
+        // which may not have survived a write to the index.
+        // SAFETY: 1. `points_to_the_same_opaque_index` held. 2. `ii` was looked up
+        // just now, under the read lock `spec` witnesses. 3. The revalidation
+        // protocol only lets the index be written while the reader is parked
+        // across a lock release.
+        unsafe { self.it.reader.reseat(ii) };
 
         self.it.revalidate(spec)
     }
@@ -376,14 +386,21 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
 }
 
 /// Resolve an opaque index and compare it against the current variant's reader.
-/// Implemented for every `Rf` so it is callable from the suspended-side
-/// `should_abort` check as well as the active reader.
+/// Implemented for every `Rf` so it is callable on the suspended form during
+/// resume as well as on the active reader.
 impl<Rf: Ref> PointsToOpaqueIndex for RawTermIndexReader<Rf> {
     fn points_to_the_same_opaque_index(
         &self,
         opaque: &inverted_index::opaque::InvertedIndex,
     ) -> bool {
         term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
+    }
+}
+
+impl<Rf: Ref> ReseatIndex<inverted_index::opaque::InvertedIndex> for RawTermIndexReader<Rf> {
+    unsafe fn reseat(&mut self, index: NonNull<inverted_index::opaque::InvertedIndex>) {
+        // SAFETY: the caller upholds the trait's contract, which forwards as is.
+        unsafe { term_ir_dispatch!(self, reseat, index) }
     }
 }
 
@@ -425,7 +442,7 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 ///
 /// # Safety
 ///
-/// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
+/// 1. `idx` must be a valid pointer to a term [`InvertedIndex`],
 ///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
 ///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
 ///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
@@ -437,17 +454,14 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 ///
 /// Panics if `idx` is a numeric index, which has no term reader.
 pub unsafe fn build_term_iterator<'index>(
-    idx: *const ffi::InvertedIndex,
+    idx: NonNull<ffi::InvertedIndex>,
     sctx: NonNull<RedisSearchCtx>,
     field_mask_or_index: FieldMaskOrIndex,
     term: Box<RSQueryTerm>,
     weight: f64,
 ) -> Term<'index, TermIndexReader<'index>, FieldExpirationChecker> {
-    debug_assert!(!idx.is_null(), "idx must not be null");
-
-    let idx_ptr: *const InvertedIndex = idx.cast();
-    // SAFETY: precondition (1) — `idx` is a valid, non-null `InvertedIndex`.
-    let idx = unsafe { &*idx_ptr };
+    // SAFETY: precondition (1) — `idx` is a valid `InvertedIndex`.
+    let idx = unsafe { idx.cast::<InvertedIndex>().as_ref() };
 
     // A field mask reads only its fields; a field index reads all fields (index
     // filtering happens later, via the expiration checker).
@@ -495,7 +509,8 @@ pub unsafe fn build_term_iterator<'index>(
 impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
 where
     R: TermReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    R::Suspended:
+        ResumableReader + PointsToOpaqueIndex + ReseatIndex<inverted_index::opaque::InvertedIndex>,
     for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
     E: ExpirationChecker + 'static,
 {
@@ -517,7 +532,7 @@ where
 
 impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawTerm<'query, Suspended, RS, E, RA>
 where
-    RS: ResumableReader + PointsToOpaqueIndex,
+    RS: ResumableReader + PointsToOpaqueIndex + ReseatIndex<inverted_index::opaque::InvertedIndex>,
     for<'a> RS::Resumed<'a>: TermReader<'a>,
     E: ExpirationChecker + 'static,
 {
@@ -536,9 +551,17 @@ where
         // Step 1: identity check on the suspended form. On abort we drop the
         // suspended iterator without promoting it to Active — nothing is
         // materialized.
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(ResumeOutcome::Aborted);
-        }
+        };
+
+        // `resume_in_place` first reads the index's GC marker through the reader's
+        // pointer, which may not have survived a write while suspended.
+        // SAFETY: 1. `points_to_the_same_opaque_index` held. 2. `ii` was looked up
+        // just now, under the read lock `spec` witnesses. 3. The revalidation
+        // protocol only lets the index be written while the reader is parked
+        // across a lock release.
+        unsafe { self.it.reader.reseat(ii) };
 
         // Step 2: run the shared in-place resume transition on the inner
         // core iterator (refresh pointers, reset stale offsets, promote the

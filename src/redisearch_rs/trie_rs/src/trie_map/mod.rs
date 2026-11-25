@@ -16,16 +16,18 @@ mod utils;
 use crate::automaton::{Automaton, wildcard::WildcardNfa};
 use crate::trie_map::{
     iter::{
-        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter,
-        RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter, filter::VisitAll,
+        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PatternLendingIter,
+        PatternMode, PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend,
+        WildcardFilterIter, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
 };
+use lending_iterator::LendingIterator;
 use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 /// A trie data structure that maps keys of type `&[u8]` to values.
 pub struct TrieMap<Data> {
     /// The root node of the trie.
@@ -91,7 +93,12 @@ impl<Data> TrieMap<Data> {
         } else {
             // The node we need to remove is deeper in the trie.
             let data = root.remove_descendant(suffix, &mut self.memory_usage);
-            root.merge_child_if_possible(&mut self.memory_usage);
+            if root.data().is_none() && root.n_children() == 0 {
+                self.memory_usage -= root.mem_usage();
+                self.root = None;
+            } else {
+                root.merge_child_if_possible(&mut self.memory_usage);
+            }
             data
         };
         if data.is_some() {
@@ -142,8 +149,8 @@ impl<Data> TrieMap<Data> {
         match &mut self.root {
             None => {
                 let data = wrapped_f(None);
-                let root = Node::new_leaf(key, Some(data));
-                self.memory_usage += root.mem_usage();
+                let (root, memory_usage) = Node::new_path(key, Some(data));
+                self.memory_usage += memory_usage;
                 self.root = Some(root);
             }
             Some(root) => root.insert_or_replace_with(key, wrapped_f, &mut self.memory_usage),
@@ -299,6 +306,16 @@ impl<Data> TrieMap<Data> {
         self.prefixed_iter(prefix).into()
     }
 
+    /// Iterate over the entries whose key matches `pattern` under the given [`PatternMode`],
+    /// borrowing the current key from the iterator, in lexicographical key order.
+    pub fn pattern_lending_iter<'trie, 'pattern>(
+        &'trie self,
+        pattern: &'pattern [u8],
+        mode: PatternMode,
+    ) -> PatternLendingIter<'trie, 'pattern, Data> {
+        PatternLendingIter::new(self, pattern, mode)
+    }
+
     /// Iterate over references to the values stored in this trie, in lexicographical key order.
     ///
     /// It won't yield the corresponding keys.
@@ -323,6 +340,25 @@ impl<Data> TrieMap<Data> {
         }
     }
 }
+
+impl<Data: PartialEq> PartialEq for TrieMap<Data> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.n_unique_keys != other.n_unique_keys {
+            return false;
+        }
+        let mut left = self.lending_iter();
+        let mut right = other.lending_iter();
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left == right => {}
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl<Data: Eq> Eq for TrieMap<Data> {}
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {

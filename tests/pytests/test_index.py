@@ -235,3 +235,83 @@ def test_restore_schema(env: Env):
 
     # Test that synonyms were also restored correctly
     env.expect('FT.SYNDUMP', 'idx').equal(['cat', ['meow'], 'dog', ['bark']])
+
+@skip(cluster=True)
+def test_restore_schema_rejects_truncated_payload(env: Env):
+    """A schema payload that fails partway through loading must be rejected
+    without crashing and without leaving the half-loaded index registered
+    in the prefix trie or the alias table."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+    # Two aliases: a cut inside the second leaves the first registered unless
+    # the failure path unregisters it.
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.ALIASADD', 'a2', 'idx').ok()
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    # Every proper prefix of the payload fails at a different point of the loader.
+    for cut in range(len(dump)):
+        env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump[:cut]).error() \
+           .contains('Failed to deserialize schema')
+
+    env.assertEqual(env.cmd('FT._LIST'), [])
+    prefixes = env.cmd(debug_cmd(), 'DUMP_PREFIX_TRIE')
+    env.assertEqual(prefixes[prefixes.index('prefixes_count') + 1], 0)
+    env.expect('FT.ALIASDEL', 'a1').error().contains('Alias does not exist')
+    env.expect('FT.ALIASDEL', 'a2').error().contains('Alias does not exist')
+    # A write under the prefix must not reach a freed spec.
+    env.expect('HSET', 'doc:1', 't', 'hello', 'n', 1).equal(2)
+    env.assertTrue(env.cmd('PING'))
+
+    # The intact payload still restores, and writes under the prefix are indexed.
+    # (A restored schema does not scan existing keys, so only doc:2 is expected.)
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+    env.expect('HSET', 'doc:2', 't', 'hello', 'n', 2).equal(2)
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+@skip(cluster=True)
+def test_restore_schema_of_existing_aliased_index(env: Env):
+    """Slot migration can deliver a schema the shard already holds. Restoring an aliased index
+    that is already registered finds each alias taken, and must keep the registered index and its
+    aliases rather than crash."""
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.ALIASADD', 'a2', 'idx').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+
+    for _ in range(10):
+        env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
+
+    env.assertEqual(env.cmd('FT._LIST'), ['idx'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
+    # A restored schema does not scan existing keys, so finding doc:1 shows the original index
+    # still answers through each name.
+    for name in ('idx', 'a1', 'a2'):
+        env.expect('FT.SEARCH', name, 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.ALIASDEL', 'a1').ok()
+    env.expect('FT.ALIASADD', 'a1', 'idx').ok()
+    env.expect('FT.SEARCH', 'a1', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.assertEqual(sorted(env.cmd('FT.ALIASLIST', 'idx')), ['a1', 'a2'])
+
+@skip(cluster=True)
+def test_forward_index_reuse_after_large_document(env: Env):
+    """Documents indexed after one with enough unique terms to make the pooled forward index release
+    its storage must still get exactly their own terms and positions."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'NOSTEM').ok()
+
+    conn.execute_command('HSET', 'big', 't', ' '.join(f'w{i}' for i in range(40000)))
+    conn.execute_command('HSET', 'small', 't', 'hello brave new world')
+    conn.execute_command('HSET', 'after', 't', 'world new brave hello')
+
+    env.expect('FT.SEARCH', 'idx', 'w39999', 'NOCONTENT').equal([1, 'big'])
+    env.expect('FT.SEARCH', 'idx', '"brave new"', 'NOCONTENT').equal([1, 'small'])
+    env.expect('FT.SEARCH', 'idx', '"new brave"', 'NOCONTENT').equal([1, 'after'])
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT')
+    env.assertEqual(res[0], 2, message=res)
+    env.assertEqual(sorted(res[1:]), ['after', 'small'], message=res)
+    env.expect('FT.SEARCH', 'idx', 'w0', 'NOCONTENT').equal([1, 'big'])

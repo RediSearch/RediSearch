@@ -66,7 +66,7 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
 #define TIMEOUT_COUNTER_LIMIT QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT
 
 static inline int TimedOut(const struct timespec *timeout) {
-  static struct timespec now;
+  struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
     return TIMED_OUT;
@@ -76,10 +76,10 @@ static inline int TimedOut(const struct timespec *timeout) {
 
 // VecSim timeout callback adapter. The request timeout owns the active source and decides how it
 // is checked; its shared counter amortizes clock reads without delaying blocked-client checks.
-static inline int VecSim_TimedOut(QueryRequestTimeout *timeout) {
+static inline int VecSim_TimedOut(QueryRequestLimits *timeout) {
   RS_ASSERT(timeout);
   if (RS_IsMock) return NOT_TIMED_OUT;
-  return QueryRequestTimeout_IsTimedOut(timeout);
+  return QueryRequestLimits_IsTimedOut(timeout);
 }
 
 #ifdef __cplusplus

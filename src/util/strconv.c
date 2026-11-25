@@ -12,3 +12,11 @@
 char *unicode_tolower_fn(char *encoded, size_t *inout_len) {
   return unicode_tolower(encoded, inout_len);
 }
+
+const char *nu_utf8_read_fn(const char *utf8, uint32_t *unicode) {
+  return nu_utf8_read(utf8, unicode);
+}
+
+char *nu_utf8_write_fn(uint32_t unicode, char *utf8) {
+  return nu_utf8_write(unicode, utf8);
+}

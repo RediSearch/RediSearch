@@ -1,0 +1,42 @@
+name: Rerun Action Download Failures
+
+# Re-runs the failed jobs of a `Pull Request Flow` run, once, when every failure
+# is the runner failing to download an action archive in "Set up job". The
+# conditions and safeguards are documented in the shared action. This caller
+# exists because a `workflow_run` trigger only fires for workflows in its own
+# repository.
+
+on:
+  workflow_run:
+    workflows: ["Pull Request Flow"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: rerun-action-download-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  rerun:
+    # The action checks these itself; repeating them here only avoids starting
+    # a runner for every successful PR run.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      actions: write # read the run's jobs and call rerun-failed-jobs
+      checks: read   # job annotations carry the runner's "Set up job" error
+    steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
+
+      - uses: redislabsdev/redisearch-ci-common/.github/actions/rerun-action-download-failures@v1

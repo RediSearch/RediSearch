@@ -9,6 +9,8 @@
 
 //! Supporting types for [`Not`].
 
+use std::ptr::NonNull;
+
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
@@ -120,11 +122,11 @@ where
     /// Wrapper around [`TimeoutContext::check_timeout`] to ensure that in case of an error (timeout),
     /// we also mark this iterator as EOF.
     ///
-    /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
+    /// Returns error [`RQEIteratorError::Stopped`] if the deadline has been reached or exceeded.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         let result = self.timeout_ctx.check_timeout();
-        if matches!(result, Err(RQEIteratorError::TimedOut)) {
+        if matches!(result, Err(RQEIteratorError::Stopped)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
         }
@@ -371,6 +373,8 @@ where
         // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
         // exclusively owned); `&raw mut` forms a field pointer to `child`.
         let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child = unsafe { NonNull::new_unchecked(child) };
         // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
         // dispatches its `suspend` and reinitialises the slot as a valid
         // `MaybeEmpty<I::Suspended>`.
@@ -420,6 +424,8 @@ where
         // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
         // exclusively owned); `&raw mut` forms a field pointer to `child`.
         let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
 
         // Resume the child in place. `MaybeEmpty<S>`'s own `resume` walks its
         // `Some` arm and propagates an inner abort; its `None(Empty)` arm resumes

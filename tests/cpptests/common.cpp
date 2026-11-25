@@ -27,6 +27,8 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
   RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  // Unit tests assume an empty workers pool, so vector writes run in place.
+  RSGlobalConfig.minMaintenanceWorkers = 0;
   if (!DocIdMeta_Init(ctx)) {
     return REDISMODULE_ERR;
   }
@@ -45,7 +47,10 @@ class MyEnvironment : public ::testing::Environment {
 
   virtual void TearDown() {
     RMCK_Shutdown();
+    // Module shutdown holds the Redis lock; pool drains release it temporarily.
+    RedisModule_ThreadSafeContextLock(nullptr);
     RediSearch_CleanupModule(NULL);
+    RedisModule_ThreadSafeContextUnlock(nullptr);
   }
 };
 

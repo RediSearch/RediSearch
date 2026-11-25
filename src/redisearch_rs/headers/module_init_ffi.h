@@ -18,17 +18,19 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Add the current backtrace as a new section to the report printed
- * by RediSearch's INFO command.
+ * Add the stashed Rust panic backtrace to the crash report.
  *
- * When a Rust panic was stashed in [`PANIC_STASH`], its details are emitted
- * in the same section, ahead of the backtrace.
+ * When no Rust panic was stashed, this is a no-op. In particular, a C crash
+ * does not attempt to initialize or capture a Rust backtrace from the fatal
+ * signal handler.
  *
  * A null `ctx` is a no-op.
  *
  * # Safety
  *
- * `ctx` must either be null or point to a valid `RedisModuleInfoCtx`.
+ * `ctx` must either be null or point to a [valid] `RedisModuleInfoCtx`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 

@@ -87,6 +87,8 @@ def test_numeric_field_invalid_array_elements(env):
 @skip(no_json=True, cluster=True)
 def test_json_type_validation_errors(env):
     """Test JSON type validation errors from FieldSpec_CheckJsonType"""
+    # With the flag off the object-type error keeps its wording from before sparse vectors.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
 
     # Test: Object type for TEXT field (should fail)
     env.expect('FT.CREATE', 'obj_val_idx', 'ON', 'JSON', 'SCHEMA',
@@ -108,3 +110,58 @@ def test_json_type_validation_errors(env):
     env.assertIn('last indexing error key', error_dict)
     env.assertEqual(error_dict['last indexing error key'], 'obj_val_error_doc')
 
+
+
+@skip(no_json=True, cluster=True)
+def test_populated_array_freed_when_later_field_fails(env):
+    """A populated multi-value field loads, then a later schema field fails, so
+    the document is discarded. The stored array, and for SORTABLE the multi-value
+    sorting value built at load time, must be freed: a leak is only reported
+    under the sanitizer job."""
+
+    conn = getConnectionByEnv(env)
+    # (field, type, array, query matching the array)
+    arrays = [
+        ('tags', 'TAG', '["foo","bar"]', '@tags:{foo}'),
+        ('nums', 'NUMERIC', '[1,2,3]', '@nums:[1 3]'),
+    ]
+    cases = [(name, ftype, arr, query, path, sortable)
+             for name, ftype, arr, query in arrays
+             for path in (f'$.{name}', f'$.{name}[*]')
+             for sortable in ([], ['SORTABLE'])]
+
+    for name, ftype, arr, query, path, sortable in cases:
+        msg = f'{path} {ftype} {" ".join(sortable)}'
+        # Fields load in schema order: the array field must precede `n`.
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:',
+                   'SCHEMA', path, 'AS', name, ftype, *sortable,
+                   '$.n', 'AS', 'n', 'NUMERIC').ok()
+
+        # Control: the same array indexes when `n` is valid.
+        conn.execute_command('JSON.SET', 'doc:ok', '$', f'{{"{name}": {arr}, "n": 1}}')
+        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([1, 'doc:ok'], message=msg)
+
+        conn.execute_command('JSON.SET', 'doc:bad', '$', f'{{"{name}": {arr}, "n": "invalid"}}')
+        info = index_info(env, 'idx')
+        env.assertEqual(info['hash_indexing_failures'], 1, message=msg)
+        errors = to_dict(info['Index Errors'])
+        env.assertEqual(errors['last indexing error key'], 'doc:bad', message=msg)
+        env.assertContains('String type can represent only', errors['last indexing error'],
+                           message=msg)
+        env.expect('FT.SEARCH', 'idx', query, 'NOCONTENT').equal([1, 'doc:ok'], message=msg)
+        env.flush()
+
+
+@skip(no_json=True, cluster=True)
+def test_json_object_type_error_names_sparse_vectors_when_enabled(env):
+    """With sparse vectors enabled, the object-type error lists them among the
+    field types that accept an object."""
+    enable_unstable_features(env)
+    env.expect('FT.CREATE', 'obj_val_idx', 'ON', 'JSON', 'SCHEMA',
+               '$.data', 'AS', 'data', 'TEXT').ok()
+    env.expect('JSON.SET', 'obj_val_error_doc', '$',
+               '{"data": {"nested": "object"}}').ok()
+    errors = to_dict(index_info(env, 'obj_val_idx')['Index Errors'])
+    env.assertEqual(errors['indexing failures'], 1)
+    env.assertContains('Object type can represent only GEOMETRY or SPARSEVECTOR fields',
+                       errors['last indexing error'])

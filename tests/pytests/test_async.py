@@ -78,6 +78,12 @@ def test_yield_while_bg_indexing_mod4745(env):
     # give the main thread a chance to reply to PINGs.
 
 def test_eval_node_errors_async():
+    if CLUSTER:
+        # The query times out while the shards are still scanning, and the
+        # coordinator frees that request's fanout state only once the abandoned
+        # shard replies arrive, which can be after the server exits. LSan then
+        # reports that state as leaked.
+        skipTest(asan=True)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
     conn = getConnectionByEnv(env)
     dim = 1000

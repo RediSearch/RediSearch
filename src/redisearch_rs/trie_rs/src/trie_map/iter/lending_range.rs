@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use super::RangeIter;
 use lending_iterator::prelude::*;
 
@@ -15,6 +17,17 @@ use lending_iterator::prelude::*;
 ///
 /// Unlike [`RangeIter`], this iterator lets you borrow the current key, rather than having to clone it.
 pub struct RangeLendingIter<'tm, 'f, Data>(RangeIter<'tm, 'f, Data>);
+
+impl<'tm, 'f, Data> RangeLendingIter<'tm, 'f, Data> {
+    /// Set the deadline after which iteration stops, or clear it with `None`.
+    ///
+    /// The deadline is probed periodically during the traversal rather than on
+    /// every step. Once it has passed, [`next`](LendingIterator::next) returns
+    /// `None`, exactly as if the range had run out of entries.
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout)
+    }
+}
 
 impl<'tm, 'f, Data> From<RangeIter<'tm, 'f, Data>> for RangeLendingIter<'tm, 'f, Data> {
     fn from(iter: RangeIter<'tm, 'f, Data>) -> Self {

@@ -55,9 +55,9 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
 /// 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
 ///    for the lifetime of the returned iterator.
 /// 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
-/// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
-///    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
-///    returned iterator.
+/// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_index` is
+///    within `(*ctx).spec`'s current field count, and the field at that index must be of
+///    numeric or geo type.
 /// 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
 /// 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
 ///    index (not a field mask).
@@ -80,18 +80,11 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     let sctx = unsafe { &*ctx };
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
-    let compress = global_config::numeric_compress();
 
     // SAFETY: preconditions 1–3/5 map directly to those of
     // `build_numeric_filter_iterator`.
     unsafe {
-        rqe_iterators::build_numeric_filter_iterator(
-            sctx,
-            flt_ref,
-            min_union_iter_heap,
-            field_ctx,
-            compress,
-        )
+        rqe_iterators::build_numeric_filter_iterator(sctx, flt_ref, min_union_iter_heap, field_ctx)
     }
     .map_or(ptr::null_mut(), NonNull::as_ptr)
 }

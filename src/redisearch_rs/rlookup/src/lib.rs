@@ -24,13 +24,13 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub use bindings::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
 pub use load_document::{
-    DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, JsonDocumentFormat,
-    LoadAllError, LoadFieldError, LoadFieldProfile,
+    DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, HashFieldNames,
+    JsonDocumentFormat, JsonPathCache, LoadAllError, LoadFieldError, LoadFieldProfile,
 };
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
-pub use metric_request::{MetricRequest, RLookupKeyHandle};
+pub use metric_request::{KeyHandleSlot, MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

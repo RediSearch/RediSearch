@@ -13,6 +13,7 @@
 
 #include "../parse.h"
 #include "parser.h"
+#include "../../config.h"
 #include "../../query_node.h"
 #include "../../stopwords.h"
 #include "fast_float/fast_float_strtod.h"
@@ -72,24 +73,106 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       tok.sign = *start2 == '-' ? -1 : 1;
       ++start2;
     }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
+    int is_attr = (*start2 == '$') ? 1 : 0;
+    tok.s = start2 + is_attr;
+    tok.len = te - tok.s;
 
     if(is_attr) {
-      tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
       RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
     } else {
       char *ne = (char*)te;
-      tok.numval = fast_float_strtod(tok.s, &ne);
+      tok.numval = fast_float_strtod_n(tok.s, te, &ne);
       RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     }
     if (!QPCTX_ISOK(q)) {
         return 0;
+    }
+    return 1;
+}
+
+/* Emit a field-scoped comparison - `@field:<op>` - as the three tokens
+ * `MODIFIER COLON <OperatorType>`.
+ *
+ * `ts` points at the '@', `te` one past the operator's last character, and
+ * `opLen` is the operator's length (1 for `<`/`>`, 2 for `<=`/`>=`).
+ *
+ * The single ENABLE_UNSTABLE_FEATURES gate for this syntax; the shard-local and
+ * coordinator parses both come through here. */
+int RSQuery_ParseFieldColonOp_v2(void *pParser, int OperatorType, QueryToken tok,
+      QueryParseCtx *q, const char *ts, const char *te, unsigned int opLen) {
+    const char *name = ts + 1;
+
+    // Find the ':' separating the name from the operator, tracking escapes: a
+    // name may contain an escaped ':' (`@a\:b`) or an escaped space, while the
+    // unescaped spaces the pattern allows before the ':' are not part of it.
+    // Bounded by `te` since the ':' is inside the matched text, so this never
+    // depends on the query buffer being NUL-terminated.
+    const char *p = name;
+    const char *nameEnd = name;
+    int escaped = 0;
+    while (p < te) {
+      if (!escaped && *p == ':') {
+        break;
+      }
+      if (!escaped && *p == '\\') {
+        escaped = 1;
+        ++p;
+        continue;
+      }
+      if (escaped || !isspace((unsigned char)*p)) {
+        nameEnd = p + 1;
+      }
+      escaped = 0;
+      ++p;
+    }
+    const char *colon = p;
+
+    tok.type = QT_TERM;
+    tok.pos = ts - q->raw;
+    tok.s = name;
+    tok.len = nameEnd - name;
+    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    tok.pos = colon - q->raw;
+    tok.s = colon;
+    tok.len = 1;
+    RSQuery_Parse_v2(pParser, COLON, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
+    }
+
+    // Requirement 1 of docs/CONTRIBUTING-unstable-features.md: with the flag off
+    // an existing query keeps its results and its errors. `@f:>{v}` already
+    // parses - `>` is punctuation the lexer drops, leaving the tag clause
+    // `@f:{v}` - so rejecting it here would change what a user who never
+    // enabled the feature gets back. Leave the operator unemitted and let that
+    // parse stand. Checking before the scan below also keeps the flag-off cost
+    // to the one branch Requirement 4 asks for.
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      return 1;
+    }
+
+    // The operator only means a lex range when a brace bound follows it. `@f:>`
+    // alone, or followed by anything else, keeps parsing as it did before this
+    // syntax existed.
+    const char *after = te;
+    const char *queryEnd = q->raw + q->len;
+    while (after < queryEnd && isspace((unsigned char)*after)) {
+      ++after;
+    }
+    if (after == queryEnd || *after != '{') {
+      return 1;
+    }
+
+    tok.pos = (te - opLen) - q->raw;
+    tok.s = te - opLen;
+    tok.len = opLen;
+    RSQuery_Parse_v2(pParser, OperatorType, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      return 0;
     }
     return 1;
 }
@@ -131,6 +214,10 @@ mod_gt = '@'.term.(space*).'>'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_ge = '@'.term.(space*).'>='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_lt = '@'.term.(space*).'<'.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
 mod_le = '@'.term.(space*).'<='.(space*).(number|inf|size|('+'|'-')?.attr) $ 1;
+mod_colon_gt = '@'.term.(space*).':'.(space*).'>' $ 1;
+mod_colon_ge = '@'.term.(space*).':'.(space*).'>=' $ 1;
+mod_colon_lt = '@'.term.(space*).':'.(space*).'<' $ 1;
+mod_colon_le = '@'.term.(space*).':'.(space*).'<=' $ 1;
 contains = (star.term.star | star.number.star | star.attr.star) $1;
 contains_exact = (star.exact.star) $1;
 prefix = (term.star | number.star | attr.star) $1;
@@ -148,7 +235,7 @@ main := |*
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -159,7 +246,7 @@ main := |*
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -221,6 +308,30 @@ main := |*
     }
   };
 
+  mod_colon_gt => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, GT, tok, q, ts, te, 1)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_ge => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, GE, tok, q, ts, te, 2)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_lt => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, LT, tok, q, ts, te, 1)) {
+      fbreak;
+    }
+  };
+
+  mod_colon_le => {
+    if(!RSQuery_ParseFieldColonOp_v2(pParser, LE, tok, q, ts, te, 2)) {
+      fbreak;
+    }
+  };
+
   arrow => {
     tok.pos = ts-q->raw;
     tok.len = te - ts;
@@ -262,6 +373,8 @@ main := |*
 
   quote => {
     tok.pos = ts-q->raw;
+    tok.s = ts;
+    tok.len = te - ts;
     RSQuery_Parse_v2(pParser, QUOTE, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;

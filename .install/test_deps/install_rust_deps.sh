@@ -90,13 +90,20 @@ binstall() {
 }
 
 # Tool required to compute test coverage for Rust code
-binstall cargo-llvm-cov@0.8.4
+binstall cargo-llvm-cov@"$(cat "$REPO_ROOT/.cargo-llvm-cov-version")"
 # Our preferred test runner, instead of the default `cargo test`.
 # The musl prebuilt is chosen for glibc independence; a host-target
 # prebuilt would be glibc-linked and defeat the purpose, so on fallback
 # we go straight to a source build with the host toolchain.
 # Pin shared with .install/install_rust.sh (bootstrap) via .nextest-version.
 binstall --no-host-prebuilt cargo-nextest@"$(cat "$REPO_ROOT/.nextest-version")"
+# Runs the Rust tests under valgrind (`build.sh RUN_RUST_VALGRIND`). Only on
+# x86_64 Linux: it is the one platform CI runs it on, and other Linux
+# architectures have no prebuilt release, so they would compile it from source
+# for nothing.
+if [[ "$OS_TYPE" = "Linux" ]] && [[ "$processor" = "x86_64" ]]; then
+    binstall cargo-valgrind@2.4.1
+fi
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/

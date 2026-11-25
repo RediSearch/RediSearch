@@ -93,7 +93,6 @@ mod not_miri {
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
     use inverted_index::opaque::OpaqueEncoding;
     use rqe_iterators::RQEValidateStatus;
-    use std::ffi::CStr;
 
     struct MissingRevalidateTest {
         test: RevalidateTest,
@@ -123,7 +122,7 @@ mod not_miri {
             let ii = DocIdsOnly::from_opaque(self.test.context.missing_inverted_index());
             let field_index = self.test.context.field_spec().index;
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
-            // `spec` and `missingFieldDict` that outlive the returned iterator.
+            // `spec` and `missing.indexes` that outlive the returned iterator.
             unsafe {
                 Missing::new(
                     ii.reader(),
@@ -186,8 +185,8 @@ mod not_miri {
         // Replace the dict entry. `dictDelete` calls the value destructor
         // which frees the original inverted index. Then add the new one.
         // Note: the iterator's reader holds a (now-dangling) pointer to the
-        // original II, but `should_abort` only compares pointers via
-        // `is_index` without dereferencing it, so this is safe.
+        // original II, but revalidation only compares it against the dict's
+        // entry without dereferencing it, so this is safe.
         let dict = test.test.context.spec_read().missing_field_dict_ptr();
         unsafe {
             ffi::RS_dictDelete(dict, field_name as *mut _);
@@ -239,7 +238,7 @@ mod not_miri {
             ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
-        // `should_abort` sees NULL from `dictFetchValue` and returns true.
+        // Revalidation sees NULL from `dictFetchValue` and aborts.
         let status = it
             .revalidate(&*test.test.context.spec_read())
             .expect("revalidate failed");
@@ -266,12 +265,7 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let it = test.create_iterator();
 
-        let (field_name, field_name_len) = it.field_name();
-        // SAFETY: `field_name()` returns a valid pointer to the field name stored in the live spec.
-        let field_name = unsafe { CStr::from_ptr(field_name) };
-
-        assert_eq!(field_name.to_bytes().len(), field_name_len);
-        assert_eq!(field_name.to_bytes(), b"text_field");
+        assert_eq!(it.field_name(), c"text_field");
     }
 
     mod via_resume {
@@ -374,7 +368,7 @@ mod not_miri {
                 ffi::RS_dictDelete(dict, field_name as *mut _);
             }
 
-            // `should_abort` sees NULL from `dictFetchValue` and returns true.
+            // Revalidation sees NULL from `dictFetchValue` and aborts.
             let outcome =
                 revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
             assert!(matches!(outcome, ResumeOutcome::Aborted));

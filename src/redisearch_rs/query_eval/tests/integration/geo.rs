@@ -16,6 +16,8 @@
 //! the C library, which Miri cannot execute.
 #![cfg(not(miri))]
 
+use std::ptr::NonNull;
+
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
@@ -61,7 +63,7 @@ impl GeoFixture {
         let ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         let mut gf = Box::new(ffi::GeoFilter {
-            fieldSpec: context.field_spec() as *const _,
+            fieldIndex: context.field_spec().index,
             lat,
             lon,
             radius: radius_km,
@@ -106,7 +108,9 @@ impl Drop for GeoFixture {
         // SAFETY: `gf.numericFilters` is NULL or exactly what
         // `build_geo_numeric_filters` stored, and no iterator references it any
         // longer.
-        unsafe { rqe_iterators::free_geo_numeric_filters(self.gf.numericFilters.cast()) };
+        unsafe {
+            rqe_iterators::free_geo_numeric_filters(NonNull::new(self.gf.numericFilters.cast()))
+        };
     }
 }
 

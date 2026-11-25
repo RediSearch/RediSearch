@@ -11,7 +11,7 @@ dnf_install dnf-plugins-core
 
 # Keep the large group out of list mode; package checks below cover build deps.
 if [[ "${CHECK_DEPS:-0}" != 1 ]] && ! rpm -q gcc gcc-c++ make >/dev/null 2>&1; then
-    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq < /dev/null"
+    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq --nobest < /dev/null"
 fi
 
 # powertools (Rocky/Alma) or codeready-builder (RHEL) is needed to install epel
@@ -24,7 +24,7 @@ dnf_install epel-release
 dnf_install gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \
     bzip2-devel libffi-devel zlib-devel tar xz which rsync \
-    clang curl clang-devel lld gdb
+    curl gdb
 
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64
@@ -60,3 +60,8 @@ else
     _toolset13_shim_ok as as || _run ln -sf "$_toolset13_bindir/as" /usr/local/bin/as
     _toolset13_shim_ok make make || _run ln -sf "$_toolset13_bindir/make" /usr/local/bin/make
 fi
+
+# Install the pinned LLVM (see LLVM_VERSION.sh) for LTO. Unversioned
+# `clang`/`lld` packages track the distro's current LLVM, which can move past
+# the version Rust uses and break cross-language LTO.
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

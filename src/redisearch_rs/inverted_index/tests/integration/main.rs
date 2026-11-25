@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod c_mocks;
-
 mod codec;
 mod controlled_cursor;
 mod index;

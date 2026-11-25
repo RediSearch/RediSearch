@@ -34,6 +34,10 @@ header_name = "ttl_table_rs"
 [package.ttl_table_ffi]
 header_name = "ttl_table"
 
+[package.language_ffi]
+# Named `language.h` so the existing `#include "language.h"` lines in C resolve to it.
+header_name = "language"
+
 [c]
 cpp_compat = true
 
@@ -55,8 +59,15 @@ typedef uint64_t t_fieldMask;
 
 [header.field]
 
-[header.fork_gc_ffi]
-includes = ["fork_gc.h", "search_ctx.h"]
+[header.language]
+# Hand-written because cheadergen cannot export an enum-typed constant. It must name
+# the same language as `#[default]` on `Language`, which `RSLanguage_Find(NULL, _)` returns.
+after_includes = """
+#define DEFAULT_LANGUAGE RS_LANG_ENGLISH
+"""
+
+[header.index_gc_ffi]
+includes = ["gc/index_gc.h", "search_ctx.h"]
 
 [header.inverted_index]
 # `index_result_rs.h` carries the types historically defined in this header
@@ -87,13 +98,13 @@ trailer = """
 #define RSResultData_Numeric      RawResultData_Active_Numeric
 #define RSResultData_Metric       RawResultData_Active_Metric
 #define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+#define RSResultData_SparseScore  RawResultData_Active_SparseScore
 
 #define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
 #define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
 
-#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
-#define RSTermRecord_Owned      RawTermRecord_Active_Owned
-#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+#define RSTermRecord_Borrowed RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned    RawTermRecord_Active_Owned
 """
 
 [header.inverted_index_ffi]
@@ -110,7 +121,7 @@ inline static struct InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *m
 """
 
 [header.iterators_ffi]
-includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h", "VecSim/vec_sim.h"]
+includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h", "vecsim/vec_sim.h"]
 after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
@@ -118,7 +129,7 @@ typedef struct timespec timespec;
 """
 
 [header.query_eval_ffi]
-includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h", "result_processor.h"]
 after_includes = """
 // `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
 // i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
@@ -184,22 +195,9 @@ after_includes = """
 // Manually added alias for the "no flags" state of RLookup_F (not a variant in Rust).
 #define RLOOKUP_F_NOFLAGS 0x0
 
-// Forward typedef for RLookupKey.
-//
-// We have two distinct Rust types that both map to the C name `RLookupKey`:
-//   - `RLookupKeyHeader` (renamed via `#[cheadergen::config(rename = "RLookupKey")]`),
-//     whose struct body is what gets emitted in this header.
-//   - `RLookupKey` (the wrapping Rust struct, marked `#[cheadergen::config(skip)]`),
-//     which appears as the pointee of the `next: *mut RLookupKey` self-reference
-//     inside the `RLookupKeyHeader` body.
-//
-// Because the two Rust types share a C name (a name collision we introduced via
-// the rename), cheadergen takes the bare-reference path for the skipped type and
-// emits `RLookupKey *next` with no `struct` qualifier. The typedef is not yet in
-// scope at that point inside the body, so the C compiler errors. We pre-declare
-// the typedef here so the bare reference resolves; C11+ permits the later
-// `typedef struct RLookupKey { ... } RLookupKey;` as a compatible redeclaration.
+// Handles are emitted before the full key definition.
 typedef struct RLookupKey RLookupKey;
+
 """
 
 [header.query_flags]
@@ -258,10 +256,12 @@ after_includes = """
 #define QN_WILDCARD        QueryNodeType_Wildcard
 #define QN_TAG             QueryNodeType_Tag
 #define QN_FUZZY           QueryNodeType_Fuzzy
+#define QN_LEXRANGE        QueryNodeType_LexRange
 #define QN_VECTOR          QueryNodeType_Vector
 #define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
+#define QN_SPARSE_VECTOR   QueryNodeType_SparseVector
 #define QN_MAX             QueryNodeType_Max
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
@@ -330,6 +330,7 @@ typedef struct QueryProcessingCtx {
   rs_wall_clock initTime;
   rs_wall_clock_ns_t queryGILTime;
   double minScore;
+  double minCompetitiveScore;
   uint32_t totalResults;
   uint32_t skippedResults;
   uint32_t resultLimit;
@@ -339,6 +340,9 @@ typedef struct QueryProcessingCtx {
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
   bool skipIndexResultDeepCopy;
+  struct QueryRequestLimits *limits;
+  RSOomPolicy oomPolicy;
+  bool oomCut;
 } QueryProcessingCtx;
 """
 
@@ -376,7 +380,7 @@ after_includes = """
 """
 
 [header.triemap_ffi]
-includes = ["<time.h>"]
+includes = ["<time.h>", "redismodule.h"]
 after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
@@ -401,7 +405,11 @@ includes = ["redisearch.h", "score_explain.h"]
 [header.slots_tracker_ffi]
 includes = ["redismodule.h"]
 
+[header.sparse_vector_index_ffi]
+includes = ["redismodule.h"]
+
 [header.sorting_vector_ffi]
+includes = ["redismodule.h"]
 trailer = """
 #ifdef __cplusplus
 extern \"C\" {

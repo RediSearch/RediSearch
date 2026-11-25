@@ -12,9 +12,6 @@ from RLTest import Env
 
 def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'NOSTEM').error() # sortable must be last
-
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHSUFFIXTRIE']]
@@ -36,9 +33,6 @@ def testWITHSUFFIXTRIEParamText(env):
 
 def testWITHSUFFIXTRIEParamTag(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'CASESENSITIVE').error() # sortable must be last
-
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'WITHSUFFIXTRIE']]
@@ -276,7 +270,7 @@ def test_misc1(env):
 
 @skip(cluster=True)
 def testContainsGC(env):
-  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
+  set_thread_gc_config(env, clean_threshold=0)
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
@@ -305,7 +299,7 @@ def testContainsGC(env):
 def testContainsGCDeepSuffixTrie(env):
   max_prefix_expansions = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
   try:
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
     env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000000).ok()
 
     conn = getConnectionByEnv(env)
@@ -341,7 +335,7 @@ def testContainsGCDeepSuffixTrie(env):
 
 @skip(cluster=True)
 def testContainsGCTag(env):
-  env.expect(config_cmd() + ' set FORK_GC_CLEAN_THRESHOLD 0').ok()
+  set_thread_gc_config(env, clean_threshold=0)
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
@@ -756,3 +750,17 @@ def testSuffixTrieWildcardCaseSensitiveTag():
     conn.execute_command('HSET', 'doc:1', 't', 'Apple')
     env.expect('FT.SEARCH', 'idx', "@t:{w'A*'}", 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', "@t:{w'a*'}", 'NOCONTENT').equal([0])
+
+@skip(cluster=True)
+def testSuffixTrieWildcardLongTagPattern():
+    """A TAG wildcard pattern has no length cap, so its length must not drive
+    per-character stack scratch on the suffix-trie path: 16 bytes per character
+    used to overflow the thread stack and crash the server."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+
+    # Anchors on "ell"; the run of '*' only makes the pattern long.
+    pattern = '*ell' + '*' * (1 << 20)
+    env.expect('FT.SEARCH', 'idx', "@t:{w'%s'}" % pattern, 'NOCONTENT').equal([1, 'doc:1'])

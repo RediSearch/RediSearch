@@ -38,7 +38,7 @@
  }
 
  bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-   return rc == RS_RESULT_TIMEDOUT
+   return rc == RS_RESULT_STOPPED
           && timeoutPolicy == TimeoutPolicy_Fail
           && !isProfile;
  }
@@ -46,6 +46,28 @@
  void ReplyWithTimeoutError(RedisModule_Reply *reply) {
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
+
+int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryError *err,
+                 int rc) {
+  // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
+  if (rc != RS_RESULT_STOPPED || !QueryRequestLimits_IsMemoryStopped(limits) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
+    return rc;
+  }
+  if (oomPolicy == OomPolicy_Fail) {
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    return RS_RESULT_ERROR;
+  }
+  QueryError_SetQueryOOMWarning(err);
+  // A timeout that also fired outranks the stop: ON_TIMEOUT FAIL replies its error (the OOM
+  // warning is then unused) and RETURN replies both warnings, the timeout one derived from rc.
+  if (QueryRequestLimits_IsTimedOutExact(limits)) {
+    return RS_RESULT_STOPPED;
+  }
+  // Without a timeout, EOF rather than STOPPED: STOPPED replies as a timeout, and a cursor would
+  // read again into the same stop.
+  return RS_RESULT_EOF;
+}
 
  void destroyResults(SearchResult **results) {
    if (results) {
@@ -76,7 +98,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -87,6 +109,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 // Compiler eliminates the function completely in release builds - zero overhead
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
+
+static bool oomStopKeepsBufferedRows(const AREQ *areq) {
+  const QueryRequestLimits *timeout = &areq->base.limits;
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
+         areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+         !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
+}
 
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
@@ -102,11 +131,23 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+     // Honour a memory stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
+     // over the rows they already hold (see RP_StopPolicy), and read nothing new.
+     if (areq &&
+         (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+          QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) &&
+         !oomStopKeepsBufferedRows(areq)) {
+       *rc = RS_RESULT_STOPPED;
+       break;
+     }
+     // Rows handed over after an OOM stop read nothing upstream, so no per-row check there sees
+     // a clock deadline: this one ends the drain on it.
+     if (areq && oomStopKeepsBufferedRows(areq) &&
+         QueryRequestLimits_IsTimedOut(&areq->base.limits)) {
+       *rc = RS_RESULT_STOPPED;
        break;
      }
    }
@@ -119,12 +160,15 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->policy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
+     // same way, except under ON_OOM RETURN, where the held rows keep coming over the next reads.
+     if (QueryRequestLimits_IsTimedOutExact(ctx->limits) ||
+         (QueryRequestLimits_IsMemoryStopped(ctx->limits) &&
+          !(ctx->areq && oomStopKeepsBufferedRows(ctx->areq)))) {
+       *rc = RS_RESULT_STOPPED;
      }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)

@@ -56,11 +56,13 @@ mod profilable;
 mod profile;
 #[cfg(not(miri))]
 mod profile_print;
+mod score_bound;
 mod timeout_context;
 #[macro_use]
 mod union_common;
 mod union_flat;
 mod union_heap;
+mod union_opaque;
 mod union_reducer;
 mod union_trimmed;
 mod wildcard;

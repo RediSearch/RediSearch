@@ -8,6 +8,8 @@
 */
 
 use ffi::IndexFlags;
+use std::ptr::NonNull;
+
 use index_result::{RSIndexResult, RawIndexResult, RawOffsetSlice, RawTermRecord};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{IndexReader, RefreshOutcome, ResumableReader, SuspendableReader};
@@ -180,6 +182,32 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     /// live reader is unavailable.
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
+    }
+}
+
+impl<'query, Rf: Ref, RRf: Ref, Enc: inverted_index::Encoder, E, RA>
+    RawInvIndIterator<'query, Rf, inverted_index::RawIndexReaderCore<RRf, Enc>, E, RA>
+{
+    /// Whether this iterator reads `index`, as
+    /// [`points_to_ii`](inverted_index::IndexReaderCore::points_to_ii) defines it.
+    ///
+    /// For leaves outside this crate whose owner can drop or replace the index
+    /// while the iterator is parked: revalidation, or resume on the suspended
+    /// form, resolves the index again through the owner and checks it with this
+    /// before reseating.
+    pub fn reads_index(&self, index: &inverted_index::InvertedIndex<Enc>) -> bool {
+        self.reader.points_to_ii(index)
+    }
+
+    /// Adopt `ii`'s provenance for the reader's index pointer; see
+    /// [`reseat_index`](inverted_index::IndexReaderCore::reseat_index).
+    ///
+    /// # Safety
+    ///
+    /// The same as [`reseat_index`](inverted_index::IndexReaderCore::reseat_index).
+    pub unsafe fn reseat_reader_index(&mut self, ii: NonNull<inverted_index::InvertedIndex<Enc>>) {
+        // SAFETY: the caller upholds `reseat_index`'s contract.
+        unsafe { self.reader.reseat_index(ii) }
     }
 }
 
@@ -608,9 +636,11 @@ where
     /// # Precondition
     ///
     /// Like [`RQESuspendedIterator::resume`], this refreshes the reader pointers
-    /// without an index-identity check of its own. It assumes the caller has
-    /// already established that the underlying inverted index is still live
-    /// (leaf wrappers run their `should_abort` check first).
+    /// without an index-identity check of its own, and reads the index through
+    /// the reader's pointer. The caller must already have established that the
+    /// underlying inverted index is still live, and
+    /// [reseated](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     pub(crate) fn resume_in_place<'a>(
         &mut self,
         guard: &IndexSpecReadGuard<'a>,
@@ -648,8 +678,8 @@ where
                 RawTermRecord::Borrowed { offsets, .. } => {
                     *offsets = RawOffsetSlice::empty();
                 }
-                RawTermRecord::Owned { .. } | RawTermRecord::FullyOwned { .. } => {
-                    // These variants own their offsets, so no issues.
+                RawTermRecord::Owned { .. } => {
+                    // This variant owns its offsets, so no issues.
                 }
             }
         }
@@ -662,6 +692,9 @@ where
         // `&raw mut` forms a field pointer without creating a reference, leaving
         // provenance over the whole allocation intact for the reborrow below.
         let result_slot = &raw mut self.result;
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `self`, so it
+        // is non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `into_active_in_place`'s preconditions for `'a` hold — the
         // caller's read lock (witnessed by `guard`) plus the `refresh_pointers`
         // call above ensure every index-backed pointer inside `result` is
@@ -736,6 +769,9 @@ where
         // pointer without creating a reference, leaving provenance over the
         // whole allocation intact for the cast below.
         let result_slot = unsafe { &raw mut (*active).result };
+        // SAFETY: `result_slot` is a field pointer derived from the non-null `active`, so it
+        // is non-null too.
+        let result_slot = unsafe { NonNull::new_unchecked(result_slot) };
         // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
         // and is unaliased. Suspending only loosens validity, so there is no
         // further precondition. Converting the `Rf`-carrying `result` field
@@ -774,20 +810,20 @@ where
     /// [`resume_in_place`](RawInvIndIterator::resume_in_place)) without
     /// performing an index-identity check of its own. It assumes the caller — a
     /// leaf wrapper's `resume` (`Term`/`Tag`/`Missing`/`Wildcard`/`Numeric`),
-    /// which runs its `should_abort` identity check *first* — has already
+    /// which resolves its index and checks its identity *first* — has already
     /// established that the underlying inverted index is still live (not freed
-    /// or replaced by GC while suspended).
+    /// or replaced by GC while suspended), and reseated the reader on it.
     ///
     /// The liveness check is deliberately **not** performed here: it is
     /// leaf-specific (each leaf locates its index differently — `Term` via
-    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missingFieldDict`,
+    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missing.indexes`,
     /// `Wildcard` via `existingDocs`), so it cannot be expressed generically at
     /// this layer. Consequently, resuming the *bare* core iterator directly —
     /// i.e. an [`InvIndIterator`] not wrapped by one of those leaves — after the
     /// index was fully GC'd or replaced while suspended would let
     /// `resume_in_place` dereference the stale saved index pointer. That path is
     /// never exercised in production: every core iterator is owned by a leaf
-    /// wrapper whose `resume` gates on `should_abort` before delegating here. If
+    /// wrapper whose `resume` gates on that check before delegating here. If
     /// a future caller resumes the bare core directly, it must first prove the
     /// index identity itself.
     fn resume<'a>(

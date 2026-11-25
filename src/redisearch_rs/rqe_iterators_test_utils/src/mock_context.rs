@@ -9,7 +9,7 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryEvalCtx, QueryRequestTimeout, RedisSearchCtx, SchemaRule};
+use ffi::{QueryEvalCtx, QueryRequestLimits, RedisSearchCtx, SchemaRule};
 use field::FieldMaskOrIndex;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
@@ -26,7 +26,7 @@ use rqe_core::DocId;
 pub struct MockContext {
     rule: *mut SchemaRule,
     spec: *mut ffi::IndexSpec,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -57,7 +57,7 @@ impl Drop for MockContext {
             );
             std::alloc::dealloc(
                 self.timeout as *mut u8,
-                std::alloc::Layout::new::<QueryRequestTimeout>(),
+                std::alloc::Layout::new::<QueryRequestLimits>(),
             );
             std::alloc::dealloc(
                 self.sctx as *mut u8,
@@ -87,7 +87,7 @@ impl MockContext {
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
         let timeout_ptr = Box::into_raw(Box::new(unsafe {
-            std::mem::zeroed::<QueryRequestTimeout>()
+            std::mem::zeroed::<QueryRequestLimits>()
         }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
@@ -122,8 +122,9 @@ impl MockContext {
 
             // Initialize RedisSearchCtx
             (*sctx_ptr).spec = spec_ptr;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-            (*sctx_ptr).timeout = timeout_ptr;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx_ptr).limits = timeout_ptr;
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;
@@ -194,32 +195,32 @@ impl MockContext {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
 
-    /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now
-    /// require a non-null snapshot can run against the mock context. The
-    /// snapshot value itself is opaque to the rqe-iterators layer; the mock
+    /// Set `sctx.diskQueryView` to `view` so disk-backed paths that
+    /// require a non-null view can run against the mock context. The
+    /// view value itself is opaque to the rqe-iterators layer; the mock
     /// enterprise iterators never dereference it.
     ///
     /// # Safety
-    /// `snapshot` must outlive every iterator created against this
+    /// `view` must outlive every iterator created against this
     /// `MockContext`.
-    pub const unsafe fn set_disk_snapshot(&self, snapshot: *mut ffi::RedisSearchDiskSnapshot) {
+    pub const unsafe fn set_disk_query_view(&self, view: *mut ffi::RedisSearchDiskQueryView) {
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
-        unsafe { (*self.sctx).diskSnapshot = snapshot };
+        unsafe { (*self.sctx).diskQueryView = view };
     }
 
-    /// Install a non-null sentinel `sctx.diskSnapshot` for tests that exercise
-    /// disk-backed paths, which now require a non-null snapshot.
+    /// Install a non-null sentinel `sctx.diskQueryView` for tests that exercise
+    /// disk-backed paths, which require a non-null view.
     ///
-    /// The snapshot is opaque to the rqe-iterators layer and the mock enterprise
+    /// The view is opaque to the rqe-iterators layer and the mock enterprise
     /// iterators never dereference it, so a dangling (well-aligned, non-null)
     /// pointer is sufficient and needs no backing storage — callers no longer
-    /// have to borrow an unrelated address to stand in for the snapshot.
-    pub fn set_dummy_disk_snapshot(&self) {
+    /// have to borrow an unrelated address to stand in for the view.
+    pub fn set_dummy_disk_query_view(&self) {
         // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
         // The sentinel is never dereferenced, only checked for non-null.
         unsafe {
-            (*self.sctx).diskSnapshot =
-                NonNull::<ffi::RedisSearchDiskSnapshot>::dangling().as_ptr();
+            (*self.sctx).diskQueryView =
+                NonNull::<ffi::RedisSearchDiskQueryView>::dangling().as_ptr();
         }
     }
 

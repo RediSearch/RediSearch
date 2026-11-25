@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 #include "reply.h"
+#include "util/gil_gate.h"
 #include "cluster.h"
 #include "command.h"
 #include "util/references.h"
@@ -49,12 +50,16 @@ void iterExpandShellsCb(void *p);
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
 typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 
-/* Fanout map - send the same command to all the shards, sending the collective
- * reply to the reducer callback */
-int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
+/* Block the client and send the same command to all shards, sending the collective
+ * reply to the reducer callback. */
+int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
+
+/* Search fanout uses the caller's blocked client and MRCtx_SetReduceFunction callback,
+ * discarding replies after the MRCtx_SetAbortFlag flag is set. */
+int MR_FanoutSearch(struct MRCtx *ctx, MRCommand cmd);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size);
 
 /* @brief Set a new topology for the cluster and refresh local slots information.
  * @param newTopology The new cluster topology, consumed by this function.
@@ -71,7 +76,7 @@ void MR_InitLocalNodeId();
 void MR_SetLocalNodeId(const char *node_id);
 
 /* @brief Get the local node ID for this shard.
- * The caller must call MR_ReleaseLocalNodeId() when done using the returned string.
+ * The caller must call MR_ReleaseLocalNodeIdReadLock() when done using the returned string.
  */
 const char* MR_GetLocalNodeId(void);
 
@@ -79,6 +84,10 @@ const char* MR_GetLocalNodeId(void);
  * Must be called after MR_GetLocalNodeId() to release the read lock.
  */
 void MR_ReleaseLocalNodeIdReadLock();
+
+/* Copy the local node ID under its read lock. Returns NULL if unknown; the caller
+ * owns the copy and must release it with rm_free(). No lock remains held. */
+char *MR_DuplicateLocalNodeId(void);
 
 /* @brief Free the local node ID structure. */
 void MR_FreeLocalNodeId();
@@ -99,6 +108,11 @@ long long MR_Debug_GetPendingRequests();
 
 void MR_FreeCluster();
 
+// GIL for the coordinator's IO threads, so MR_FreeCluster can join them while holding it. Use
+// instead of RedisModule_ThreadSafeContextLock/Unlock on those threads.
+void MR_LockGIL(RedisModuleCtx *ctx);
+void MR_UnlockGIL(RedisModuleCtx *ctx);
+
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
@@ -108,9 +122,9 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
+// Available before fanout when MR_CreateCtx received a RedisModuleCtx.
 int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
-QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
 void MRCtx_IncrRef(struct MRCtx *ctx);
 void MRCtx_DecrRef(struct MRCtx *ctx);
 void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
@@ -118,15 +132,18 @@ void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 /* Set the blocked client for the context (used when MRCtx is created before blocking) */
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 
-/* Timeout and reducing state management for partial timeout support */
-void MRCtx_SetTimedOut(struct MRCtx *ctx);
-bool MRCtx_IsTimedOut(struct MRCtx *ctx);
-bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
-void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
-void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
+/* Install before MR_FanoutSearch. The flag is borrowed until client unblocking;
+ * remaining MRCtx reference releases must not access it. NULL disables aborts. */
+void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag);
+bool MRCtx_IsAborted(const struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
+// Runs on the IO thread immediately before dispatch. The topology is borrowed
+// only for the callback; retain any needed snapshot in the command's private data.
+typedef void (*MRCtxBeforeFanoutCB)(struct MRCtx *ctx, const MRClusterTopology *topology);
+void MRCtx_SetBeforeFanoutCB(struct MRCtx *ctx, MRCtxBeforeFanoutCB cb);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
@@ -195,12 +212,16 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+// Return the next queued reply, or NULL without waiting for more replies.
+MRReply *MRIterator_TryNext(MRIterator *it);
+
 /* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
- * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
- * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
- * blocking next, use MRIterator_Next. */
+ * abort flags (either one aborts; pair with MRChannel_WakeAbort). `timedOut` set
+ * if deadline expired. At least one of `abstime` / `timedOutFlag` / `memoryStopFlag`
+ * must be non-NULL; for an indefinite blocking next, use MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
-                                    RS_Atomic(bool) *abortFlag, bool *timedOut);
+                                    RS_Atomic(bool) *timedOutFlag,
+                                    RS_Atomic(bool) *memoryStopFlag, bool *timedOut);
 
 /* Return the underlying channel used by the iterator. Intended for callers that need to
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
@@ -213,6 +234,10 @@ struct MRChannel *MRIterator_GetChannel(MRIterator *it);
  * can arrive on the IO thread. Pair every MR_CreateIterator with
  * MR_StartIterator. */
 MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
+
+/* Like MR_CreateIterator, but takes over `cmd`'s allocations instead of copying them, leaving
+ * `*cmd` empty. */
+MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *config);
 
 /* Schedule the iterator's start callback on its IO runtime, kicking off the
  * fan-out to the shards. After this call replies may arrive at any time on the

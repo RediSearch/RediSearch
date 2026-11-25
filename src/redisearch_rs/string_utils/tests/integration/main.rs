@@ -11,8 +11,12 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
+#[cfg(not(miri))]
+mod ffi_comparison;
+mod libnu_codec;
 mod runes_to_bytes;
 mod str_to_lower_runes;
-mod tag_strtolower;
+mod tag_unescape;
 mod unicode_tolower;
+mod unicode_tolower_bytes;
 mod unicode_tolower_capped;

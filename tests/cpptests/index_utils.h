@@ -37,13 +37,12 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 
 void freeSpec(RefManager *ism);
 
-NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
-
 class MockQueryEvalCtx {
 public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
-  QueryRequestTimeout *timeout;
+  TimeoutConfig timeoutConfig = {};
+  QueryRequestLimits *limits;
   IndexSpec spec;
   SchemaRule rule;
 
@@ -67,9 +66,10 @@ public:
     sctx = {0};
     sctx.spec = &spec;
     sctx.currentTime = {0, 0};
-    timeout = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(*timeout)));
-    QueryRequestTimeout_Init(timeout, TimeoutPolicy_Return, 0);
-    sctx.timeout = timeout;
+    limits = static_cast<QueryRequestLimits *>(rm_calloc(1, sizeof(*limits)));
+    timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+    QueryRequestLimits_Init(limits, &timeoutConfig);
+    sctx.limits = limits;
 
     // Initialize QueryEvalCtx
     qctx = {0};
@@ -92,7 +92,7 @@ public:
   }
 
   ~MockQueryEvalCtx() noexcept {
-    rm_free(timeout);
+    rm_free(limits);
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }

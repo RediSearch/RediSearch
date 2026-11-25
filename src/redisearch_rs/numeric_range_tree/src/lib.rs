@@ -80,12 +80,14 @@ mod window;
 pub use arena::NodeIndex;
 pub use index::{NumericIndex, NumericIndexReader, RawNumericIndexReader};
 pub use inverted_index::NumericFilter;
-pub use iter::{IndexedReversePreOrderDfsIterator, ReversePreOrderDfsIterator};
+pub use iter::{
+    IndexedPostOrderDfsIterator, IndexedReversePreOrderDfsIterator, ReversePreOrderDfsIterator,
+};
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
-pub use range::{Hll, NumericRange};
+pub use range::{Hll, NumericRange, ValueBounds};
 pub use tree::{
     AddResult, CompactIfSparseResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult,
-    TrimEmptyLeavesResult,
+    TrimEmptyLeavesResult, scan_range_index_gc,
 };
 pub use unique_id::TreeUniqueId;
 pub use window::RangeWindow;

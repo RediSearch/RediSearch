@@ -140,7 +140,7 @@ static void redisearch_thpool_push_chain(redisearch_thpool_t *thpool_p,
                                         job *last_newjob,
                                         size_t num,
                                         thpool_priority priority);
-static int thread_init(redisearch_thpool_t *thpool_p, volatile bool *started);
+static int thread_init(redisearch_thpool_t *thpool_p, atomic_bool *started);
 static void *thread_do(void *p);
 
 static int jobqueue_init(jobqueue *jobqueue_p);
@@ -317,7 +317,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
 
   /* Add new threads if needed */
   if (n_new_threads > 0) {
-    volatile bool started[n_new_threads];
+    atomic_bool started[n_new_threads];
     for (size_t n = 0; n < n_new_threads; n++) {
       thread_init(thpool_p, &started[n]);
     }
@@ -352,7 +352,7 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
     return n_threads;
   }
   /* Add new threads */
-  volatile bool started[n_threads_to_add];
+  atomic_bool started[n_threads_to_add];
   for (size_t n = 0; n < n_threads_to_add; n++) {
     thread_init(thpool_p, &started[n]);
   }
@@ -651,8 +651,10 @@ void redisearch_thpool_resume_threads(redisearch_thpool_t *thpool_p) {
 /* ============================ THREAD ============================== */
 struct thread_do_args {
   redisearch_thpool_t *thpool_p;
-  volatile bool *started; // Signal the start of the thread to the initializer, so it can wait for all threads to start. This is more robust than relying on num_threads_alive,
-                // since this may change due to other threads terminating (TERMINATE_WITH_EMPTY, etc ...)
+  atomic_bool
+      *started;  // Signal the start of the thread to the initializer, so it can wait for all
+                 // threads to start. This is more robust than relying on num_threads_alive, since
+                 // this may change due to other threads terminating (TERMINATE_WITH_EMPTY, etc ...)
 };
 /* Initialize a thread in the thread pool
  *
@@ -660,9 +662,9 @@ struct thread_do_args {
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init(redisearch_thpool_t *thpool_p, volatile bool *started) {
+static int thread_init(redisearch_thpool_t *thpool_p, atomic_bool *started) {
   pthread_t thread_id;
-  *started = false;
+  atomic_init(started, false);
   struct thread_do_args *args = rm_malloc(sizeof(struct thread_do_args));
   args->thpool_p = thpool_p;
   args->started = started;

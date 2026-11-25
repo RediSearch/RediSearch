@@ -36,9 +36,9 @@ impl<Data> Node<Data> {
                     // insert the old root as a child of the new root,
                     // and add a new child to the empty root.
                     current.map(|old_root| {
-                        let new_child = Node::new_leaf(key, Some(f(None)));
+                        let (new_child, memory_usage) = Node::new_path(key, Some(f(None)));
 
-                        *total_memory_usage += new_child.mem_usage();
+                        *total_memory_usage += memory_usage;
 
                         let new_root = {
                             let children = if ordering == Ordering::Greater {
@@ -79,7 +79,9 @@ impl<Data> Node<Data> {
                         //   found that its `equal_up_to` byte differed from the corresponding byte in
                         //   the current label.
                         let (_, new_child_suffix) = unsafe { key.split_at_unchecked(equal_up_to) };
-                        let new_child = Node::new_leaf(new_child_suffix, Some(f(None)));
+                        let (new_child, memory_usage) =
+                            Node::new_path(new_child_suffix, Some(f(None)));
+                        *total_memory_usage += memory_usage - new_child.mem_usage();
                         // SAFETY:
                         // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
                         //   found that its `equal_up_to` byte differed from the corresponding byte in
@@ -170,7 +172,9 @@ impl<Data> Node<Data> {
                                         .unwrap_err();
 
                                     current.map(|root| {
-                                        let new_child = Node::new_leaf(key, Some(f(None)));
+                                        let (new_child, memory_usage) =
+                                            Node::new_path(key, Some(f(None)));
+                                        *total_memory_usage += memory_usage - new_child.mem_usage();
                                         // SAFETY:
                                         // - The index returned by `binary_search` is
                                         //   never greater than the length of the searched array.
@@ -300,37 +304,32 @@ impl<Data> Node<Data> {
 
         let suffix = strip_prefix(key, child.label())?;
 
-        if suffix.is_empty() {
-            // The child's label is equal to the key, so we remove the child.
-            let data = child.data_mut().take();
-
-            let is_leaf = child.n_children() == 0;
-            if is_leaf {
-                self.map(|current| {
-                    // If the child is a leaf, we remove the child node itself.
-                    // SAFETY:
-                    // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-                    unsafe { current.remove_child_unchecked(child_index, total_memory_usage) }
-                });
-            } else {
-                // If there's a single grandchild,
-                // we merge the grandchild into the child.
-                child.merge_child_if_possible(total_memory_usage);
-            }
-
-            data
+        let data = if suffix.is_empty() {
+            child.data_mut().take()
         } else {
-            let data = child.remove_descendant(suffix, total_memory_usage);
+            child.remove_descendant(suffix, total_memory_usage)
+        };
+
+        if child.data().is_none() && child.n_children() == 0 {
+            self.map(|current| {
+                // SAFETY: The child index is in bounds and the child has no descendants.
+                unsafe { current.remove_child_unchecked(child_index, total_memory_usage) }
+            });
+        } else {
             child.merge_child_if_possible(total_memory_usage);
-            data
         }
+        data
     }
 
     /// If `self` has exactly one child, and `self` doesn't hold
     /// any data, merge child into `self`, by moving the child's data and
     /// children into `self`.
     pub fn merge_child_if_possible(&mut self, total_memory_usage: &mut usize) {
-        if self.data().is_some() || self.n_children() != 1 {
+        if self.data().is_some()
+            || self.n_children() != 1
+            || self.label_len() as usize + self.children()[0].label_len() as usize
+                > u16::MAX as usize
+        {
             return;
         }
         self.map(|old_parent| {

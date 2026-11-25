@@ -25,7 +25,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{FuzzyWalk, LoweredPattern, QueryRequestTimeoutHandle, TermsTrie, TrieTerm};
+use c_trie::{FuzzyWalk, LoweredPattern, QueryRequestLimitsHandle, TermsTrie, TrieTerm};
 
 fn trie_term(term: &str) -> TrieTerm {
     // SAFETY: every test input is the complete byte representation of a
@@ -33,11 +33,11 @@ fn trie_term(term: &str) -> TrieTerm {
     unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
 }
 
-fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestTimeout {
+fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestLimits {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
-    let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
-    timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-    timeout.source.clock.deadline = deadline;
+    let mut timeout: ffi::QueryRequestLimits = unsafe { mem::zeroed() };
+    timeout.timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+    timeout.timeout.source.clock.deadline = deadline;
     timeout
 }
 
@@ -286,7 +286,7 @@ fn iterate_contains_some_and_none_timeout_agree() {
         let mut timeout = clock_timeout(deadline);
         // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
         // does not access it concurrently.
-        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
             .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout), |term, _| {
@@ -316,7 +316,7 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
         let timeout_ptr = ptr::from_mut(&mut timeout);
         // SAFETY: `timeout` remains live and at a stable address for every walk. Source changes
         // happen only between walks, never while C is using the handle.
-        let timeout_handle = unsafe { QueryRequestTimeoutHandle::from_raw(timeout_ptr) }
+        let timeout_handle = unsafe { QueryRequestLimitsHandle::from_raw(timeout_ptr) }
             .expect("the timeout pointer is non-null");
         let runes = to_runes("ap");
 
@@ -330,8 +330,9 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
         // SAFETY: the walk above is complete, so the handle is not currently being used by C.
         // The `UnsafeCell`-backed handle permits C-owned state to change between operations.
         unsafe {
-            (*timeout_ptr).source.blockedClientTimedOut = true;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+            (*timeout_ptr).timeout.source.blockedClientTimedOut = true;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
         let mut blocked_client_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
@@ -345,9 +346,10 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
 
         // SAFETY: as above, the previous walk is complete before selecting the clock member.
         unsafe {
-            (*timeout_ptr).source.clock.deadline = deadline;
-            (*timeout_ptr).source.clock.counter = 0;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*timeout_ptr).timeout.source.clock.deadline = deadline;
+            (*timeout_ptr).timeout.source.clock.counter = 0;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
         }
         let mut rearmed_clock_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
@@ -599,10 +601,8 @@ fn iterate_fuzzy_measures_the_limit_in_runes_not_bytes() {
 fn iterate_fuzzy_accepts_a_pattern_with_a_truncated_multibyte_tail() {
     with_terms_trie(FUZZY_CORPUS, |trie| {
         // A token is a byte string that nothing validates, so a pattern can end
-        // mid-sequence. The C decoder reads a fixed 2-4 bytes from a lead byte
-        // without checking the input has that many left, so this is the input
-        // class that would read past the pattern; under a sanitizer it is what
-        // catches an unpadded decode.
+        // mid-sequence. Under a sanitizer, this is the input class that catches a
+        // decode reading past the pattern.
         for pattern in [
             &b"ma\xF0"[..],
             b"ma\xF0\x9F",
@@ -610,7 +610,7 @@ fn iterate_fuzzy_accepts_a_pattern_with_a_truncated_multibyte_tail() {
             b"ma\xC3",
             b"ma\x80",
         ] {
-            // What the truncated tail decodes to through the zero padding is not
+            // What the truncated tail decodes to, its missing bytes read as zero, is not
             // uniform: `ma\xF0`, `ma\xE0` and `ma\x80` pad out to codepoint 0,
             // which stops the length pass, so they fold to the two runes `ma`;
             // `ma\xC3` and `ma\xF0\x9F` pad out to a non-zero codepoint and fold
@@ -634,7 +634,7 @@ fn iterate_fuzzy_accepts_a_pattern_with_a_truncated_multibyte_tail() {
 )]
 fn iterate_fuzzy_byte_cap_admits_the_longest_pattern_that_fits_in_runes() {
     with_terms_trie(FUZZY_CORPUS, |trie| {
-        // The over-long pattern is refused on byte length before it is copied,
+        // The over-long pattern is refused on byte length before it is decoded,
         // and the widest rune is four bytes — so the densest pattern that still
         // fits the rune limit sits exactly on that byte bound. If the cap were
         // off by one, or measured in anything but the widest rune, this pattern
@@ -656,14 +656,36 @@ fn iterate_fuzzy_byte_cap_admits_the_longest_pattern_that_fits_in_runes() {
     miri,
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
-fn iterate_fuzzy_refuses_an_over_long_truncated_tail_before_padding_it() {
+fn iterate_fuzzy_refuses_an_over_long_pattern_with_a_truncated_tail() {
     with_terms_trie(FUZZY_CORPUS, |trie| {
-        // A truncated trailing sequence is what forces the padded copy, and the
-        // token it pads is attacker-supplied and unbounded. Over the byte cap
-        // the pattern is refused first, so nothing proportional to it is copied
-        // — the same answer C gives, which refuses it on rune length.
+        // Over the byte cap the pattern is refused before it is decoded — the
+        // same answer C gives, which refuses it on rune length.
         let mut pattern = b"m".repeat(ffi::TRIE_MAX_PREFIX as usize * 4);
         pattern.push(0xF0);
+        let mut visited = false;
+        // SAFETY: live, un-mutated terms trie; the closure only records.
+        let walk = unsafe {
+            trie.iterate_fuzzy(&pattern, 1, |_, _| {
+                visited = true;
+                ControlFlow::Continue(())
+            })
+        };
+        assert!(matches!(walk, Ok(FuzzyWalk::PatternRejected)));
+        assert!(!visited, "a refused pattern visits nothing");
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn iterate_fuzzy_refuses_an_over_long_pattern_with_an_early_overlong_nul() {
+    with_terms_trie(FUZZY_CORPUS, |trie| {
+        // C would stop decoding at the overlong NUL and walk `ma`, which `map`
+        // is within one edit of. The byte cap refuses the pattern first.
+        let mut pattern = b"ma\xC0\x80".to_vec();
+        pattern.resize(ffi::TRIE_MAX_PREFIX as usize * 4 + 1, b'x');
         let mut visited = false;
         // SAFETY: live, un-mutated terms trie; the closure only records.
         let walk = unsafe {
@@ -871,7 +893,7 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
         let mut timeout = clock_timeout(deadline);
         // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
         // does not access it concurrently.
-        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
             .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
         trie.iterate_wildcard(&pattern("ap*"), Some(timeout), |term, _| {
@@ -949,5 +971,165 @@ fn delete_of_a_multibyte_term_round_trips() {
     with_terms_trie(&["héllo", "wörld"], |trie| {
         assert!(trie.delete(&trie_term("héllo")));
         assert_eq!(terms_of(trie), set(&["wörld"]));
+    });
+}
+
+/// Collect the keys [`TermsTrie::visit_after`] visits after `term`.
+fn visited_after(trie: &TermsTrie, term: &str) -> Vec<String> {
+    let mut visited = Vec::new();
+    trie.visit_after(&to_runes(term), &mut Vec::new(), |runes, encoded| {
+        let text = runes_to_string(runes);
+        assert_eq!(
+            encoded.as_bytes(),
+            text.as_bytes(),
+            "the term is its key's encoding"
+        );
+        visited.push(text);
+        ControlFlow::Continue(())
+    });
+    visited
+}
+
+/// Words chosen so radix compression splits nodes at every depth: prefixes of
+/// one another, shared stems, and single-rune keys.
+const VISIT_CORPUS: &[&str] = &[
+    "b", "abz", "a", "abc", "ba", "bab", "ab", "c", "cab", "abcd", "zz", "z",
+];
+
+fn sorted_corpus() -> Vec<String> {
+    let mut sorted: Vec<String> = VISIT_CORPUS.iter().map(|s| s.to_string()).collect();
+    sorted.sort();
+    sorted
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_nothing_visits_every_term_in_lexicographic_order() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        assert_eq!(visited_after(trie, ""), sorted_corpus());
+    });
+}
+
+/// The bound is exclusive whether or not it is itself a stored term, and
+/// whether it is a prefix of stored terms, extends one, or sorts past all.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_starts_strictly_after_the_bound() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        let sorted = sorted_corpus();
+        for bound in [
+            "a", "ab", "abc", "abca", "abz", "aa", "b", "bb", "c", "ca", "y", "zz", "zzz",
+        ] {
+            let expected: Vec<String> = sorted
+                .iter()
+                .filter(|t| t.as_str() > bound)
+                .cloned()
+                .collect();
+            assert_eq!(visited_after(trie, bound), expected, "after {bound:?}");
+        }
+    });
+}
+
+/// Stopping after every term and resuming from it walks the whole trie once,
+/// which is how a caller resumes across lock releases.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_resumes_from_the_last_term_seen() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        let mut cursor: Vec<ffi::rune> = Vec::new();
+        let mut walked = Vec::new();
+        loop {
+            let mut next = None;
+            trie.visit_after(&cursor, &mut Vec::new(), |runes, _| {
+                next = Some(runes.to_vec());
+                ControlFlow::Break(())
+            });
+            let Some(next) = next else { break };
+            walked.push(runes_to_string(&next));
+            cursor = next;
+        }
+        assert_eq!(walked, sorted_corpus());
+    });
+}
+
+/// A deleted term is skipped, and resuming from it still works.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_skips_and_resumes_past_a_deleted_term() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        assert!(trie.delete(&trie_term("abc")));
+        let expected: Vec<String> = sorted_corpus().into_iter().filter(|t| t != "abc").collect();
+        assert_eq!(visited_after(trie, ""), expected);
+        let after_deleted: Vec<String> = expected
+            .iter()
+            .filter(|t| t.as_str() > "abc")
+            .cloned()
+            .collect();
+        assert_eq!(visited_after(trie, "abc"), after_deleted);
+    });
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_on_an_empty_trie_visits_nothing() {
+    with_terms_trie(&[], |trie| {
+        assert!(visited_after(trie, "").is_empty());
+        assert!(visited_after(trie, "a").is_empty());
+    });
+}
+
+/// The walk orders terms by rune value, which for BMP text is code point
+/// order, the same order a Rust `String` sort gives.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "calling the C trie's foreign functions is not supported by Miri"
+)]
+fn visit_after_orders_non_ascii_terms_by_rune_value() {
+    let corpus = [
+        "über", "zebra", "école", "eagle", "日本", "日", "ßeta", "été",
+    ];
+    with_terms_trie(&corpus, |trie| {
+        let mut expected: Vec<String> = corpus.iter().map(|s| s.to_string()).collect();
+        expected.sort();
+
+        let mut visited = Vec::new();
+        trie.visit_after(&[], &mut Vec::new(), |runes, term| {
+            let text = runes_to_text(runes);
+            assert_eq!(
+                term.as_bytes(),
+                text.as_bytes(),
+                "the term is its key's UTF-8"
+            );
+            visited.push(text);
+            ControlFlow::Continue(())
+        });
+        assert_eq!(visited, expected);
+
+        let mut after_ecole = Vec::new();
+        trie.visit_after(&to_runes("école"), &mut Vec::new(), |runes, _| {
+            after_ecole.push(runes_to_text(runes));
+            ControlFlow::Continue(())
+        });
+        let tail: Vec<String> = expected
+            .into_iter()
+            .filter(|t| t.as_str() > "école")
+            .collect();
+        assert_eq!(after_ecole, tail);
     });
 }

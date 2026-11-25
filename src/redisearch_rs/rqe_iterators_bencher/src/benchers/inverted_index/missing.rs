@@ -66,7 +66,7 @@ impl MissingBencher {
         group.bench_function("Rust", |b| {
             b.iter(|| {
                 // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec` and `missingFieldDict` that outlive the iterator.
+                // `spec` and `missing.indexes` that outlive the iterator.
                 let mut it = unsafe {
                     Missing::new(
                         ii.reader(),
@@ -92,7 +92,7 @@ impl MissingBencher {
         group.bench_function("Rust", |b| {
             b.iter(|| {
                 // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec` and `missingFieldDict` that outlive the iterator.
+                // `spec` and `missing.indexes` that outlive the iterator.
                 let mut it = unsafe {
                     Missing::new(
                         ii.reader(),

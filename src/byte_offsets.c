@@ -32,6 +32,7 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
   RSByteOffsetField *field = &(offsets->fields[offsets->numFields++]);
   field->fieldId = fieldId;
   field->firstTokPos = startPos;
+  field->lastTokPos = startPos - 1;
   return field;
 }
 
@@ -60,10 +61,21 @@ void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
 }
 
 RSByteOffsets *LoadByteOffsets(Buffer *buf) {
+  // Buffer_Read does not check the buffer's bounds, so every read is checked against what
+  // RSByteOffsets_Serialize wrote: a u8 field count, a (u8 id, u32 first, u32 last) record per
+  // field, a u32 data length, and the data itself.
+  const size_t fieldRecordSize = sizeof(uint8_t) + 2 * sizeof(uint32_t);
   BufferReader r = NewBufferReader(buf);
 
-  RSByteOffsets *offsets = NewByteOffsets();
+  if (BufferReader_Remaining(&r) < sizeof(uint8_t)) {
+    return NULL;
+  }
   uint8_t numFields = Buffer_ReadU8(&r);
+  if (BufferReader_Remaining(&r) < numFields * fieldRecordSize + sizeof(uint32_t)) {
+    return NULL;
+  }
+
+  RSByteOffsets *offsets = NewByteOffsets();
   RSByteOffsets_ReserveFields(offsets, numFields);
 
   for (size_t ii = 0; ii < numFields; ++ii) {
@@ -75,6 +87,10 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
+  if (BufferReader_Remaining(&r) < offsetsLen) {
+    RSByteOffsets_Free(offsets);
+    return NULL;
+  }
   if (offsetsLen) {
     char *data = rm_malloc(offsetsLen);
     Buffer_Read(&r, data, offsetsLen);
@@ -89,11 +105,14 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
                          RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
+  // Locate the field using the RSByteOffsetField offset-range contract.
+  uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {
       offField = offsets->fields + ii;
       break;
     }
+    offsetsStart += offsets->fields[ii].lastTokPos - offsets->fields[ii].firstTokPos + 1;
   }
   if (!offField) {
     return REDISMODULE_ERR;
@@ -106,17 +125,15 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->buf.data = (char *) offsets_data;
   iter->buf.offset = offsets_len;
   iter->rdr = NewBufferReader(&iter->buf);
-  iter->curPos = 1;
   iter->endPos = offField->lastTokPos;
 
   iter->lastValue = 0;
 
-  while (iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr)) {
+  for (uint32_t ii = 0; ii < offsetsStart && !BufferReader_AtEnd(&iter->rdr); ++ii) {
     iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
-    iter->curPos++;
   }
 
-  iter->curPos--;
+  iter->curPos = offField->firstTokPos - 1;
   return REDISMODULE_OK;
 }
 

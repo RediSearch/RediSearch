@@ -7,14 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::mem;
-
 use value::{SharedValue, Trio, Value};
 
 // Moderate stress depth: with the deliberately small test stack below it is enough to overflow
 // recursive dereferencing in non-optimized test profiles, without allocating a 100k-node chain.
-// The tests call `mem::forget` on the root so recursive destruction of the intentionally deep
-// chain does not become the limiting factor.
 const CHAIN_DEPTH: usize = 8 * 1024;
 
 // Stack bytes for the stress thread. Keep this deliberately small so `CHAIN_DEPTH` measures
@@ -35,17 +31,32 @@ fn trio_left_chain(depth: usize, terminal: Value) -> Value {
     })
 }
 
-fn intentional_leak_stress_disabled() -> bool {
-    // Sanitizer CI sets `SAN=address`. Do not deliberately leak the stress-test chains under
-    // LeakSanitizer; normal and coverage runs still execute the stress path.
-    std::env::var("SAN").as_deref() == Ok("address")
+/// The next link of a chain built by [`ref_chain`] or [`trio_left_chain`].
+fn chain_link(value: &Value) -> Option<SharedValue> {
+    match value {
+        Value::Ref(next) => Some(next.clone()),
+        Value::Trio(trio) => Some(trio.left().clone()),
+        _ => None,
+    }
+}
+
+/// Drops a chain built by [`ref_chain`] or [`trio_left_chain`] one link at a time.
+///
+/// Dropping the root directly would recurse once per link and overflow the small test stack.
+/// Holding a clone of the next link while dropping the current one keeps that link alive, so
+/// freeing each link only decrements the next link's refcount instead of descending into it.
+fn drop_chain(value: Value) {
+    let mut next = chain_link(&value);
+    drop(value);
+    while let Some(link) = next {
+        // A link with another owner outlives this drop, and whichever owner releases it last
+        // tears the rest of the chain down recursively.
+        assert_eq!(SharedValue::refcount(&link), 1, "chain link is shared");
+        next = chain_link(&link);
+    }
 }
 
 fn run_with_small_stack(test: impl FnOnce() + Send + 'static) {
-    if intentional_leak_stress_disabled() {
-        return;
-    }
-
     std::thread::Builder::new()
         .stack_size(TEST_STACK_SIZE)
         .spawn(test)
@@ -57,14 +68,14 @@ fn run_with_small_stack(test: impl FnOnce() + Send + 'static) {
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+    ignore = "Building and dropping a deep chain is too slow under Miri"
 )]
 fn fully_dereferenced_ref_follows_nested_refs() {
     run_with_small_stack(|| {
         let value = ref_chain(CHAIN_DEPTH, Value::Number(42.0));
 
         let dereferenced = matches!(value.fully_dereferenced_ref(), Value::Number(42.0));
-        mem::forget(value);
+        drop_chain(value);
 
         assert!(dereferenced);
     });
@@ -73,14 +84,14 @@ fn fully_dereferenced_ref_follows_nested_refs() {
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+    ignore = "Building and dropping a deep chain is too slow under Miri"
 )]
 fn fully_dereferenced_ref_and_trio_follows_nested_refs() {
     run_with_small_stack(|| {
         let value = ref_chain(CHAIN_DEPTH, Value::Number(42.0));
 
         let dereferenced = matches!(value.fully_dereferenced_ref_and_trio(), Value::Number(42.0));
-        mem::forget(value);
+        drop_chain(value);
 
         assert!(dereferenced);
     });
@@ -89,14 +100,14 @@ fn fully_dereferenced_ref_and_trio_follows_nested_refs() {
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "Intentionally leaks a deep chain and is too slow under Miri"
+    ignore = "Building and dropping a deep chain is too slow under Miri"
 )]
 fn fully_dereferenced_ref_and_trio_follows_nested_trio_left_values() {
     run_with_small_stack(|| {
         let value = trio_left_chain(CHAIN_DEPTH, Value::Number(42.0));
 
         let dereferenced = matches!(value.fully_dereferenced_ref_and_trio(), Value::Number(42.0));
-        mem::forget(value);
+        drop_chain(value);
 
         assert!(dereferenced);
     });

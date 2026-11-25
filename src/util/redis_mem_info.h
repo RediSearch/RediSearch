@@ -21,14 +21,26 @@
  *
  * */
 
+// A used-memory ratio at or above this is out of memory, for the query entry guard and the
+// in-query memory checkpoints alike. The checkpoints read the GIL-free estimate, which also counts
+// the replication and AOF buffers, so they trip no later than the entry guard.
+#define REDIS_MEMORY_OOM_RATIO 1.0f
+
 // Get the used memory ratio from Redis modules API.
-// If the ratio is 1 or more, we are out of memory.
+// If the ratio is REDIS_MEMORY_OOM_RATIO or more, we are out of memory.
 // The memory limit is calculated against the following:
 // OSS : maxmemory
 // Enterprise : MIN(max_process_mem, maxmemory)
 // GIL must be held before calling this function
 static inline bool RedisMemory_isOutOfMemory(void) {
-  return RedisModule_GetUsedMemoryRatio() >= 1;
+  return RedisModule_GetUsedMemoryRatio() >= REDIS_MEMORY_OOM_RATIO;
+}
+
+// Used memory divided by the memory limit, a GIL-free estimate readable from any thread: the raw
+// allocator total, with nothing subtracted, over the limit the server enforces. Returns 0 when no
+// limit is configured and when the server lacks RedisModule_GetUsedMemoryRatioEstimate.
+static inline float RedisMemory_GetUsedMemoryRatioEstimate(void) {
+  return RedisModule_GetUsedMemoryRatioEstimate ? RedisModule_GetUsedMemoryRatioEstimate() : 0;
 }
 
 // Get the used memory ratio from Redis modules API.
