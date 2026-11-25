@@ -1393,4 +1393,9 @@ void JSONTest_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype
                                      const void *src, size_t n, char *target) {
   VecSim_ConvertFromTypedBuffer(target_type, jtype, src, n, target);
 }
+
+int JSONTest_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
+                                         QueryError *status) {
+  return JSON_StoreSparseVectorInDocField(obj, df, status);
+}
 #endif // ENABLE_ASSERT

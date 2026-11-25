@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "json.h"
 #include "rejson_api.h"
 #include "vecsim/vec_sim_common.h"
 
@@ -20,12 +21,14 @@
 extern "C" {
 #endif
 
-// Non-static wrappers over the vector-ingestion helpers in `json.c`.
+// Non-static wrappers over the vector-ingestion helpers in `json.c`, dense and sparse.
 // Exposed only under `ENABLE_ASSERT` for C/C++ unit testing; not part of the
 // shipped module ABI.
 bool JSONTest_AcceptsJSONArrayType(VecSimType target, JSONArrayType src);
 void JSONTest_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype,
                                      const void *src, size_t n, char *target);
+int JSONTest_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
+                                         QueryError *status);
 
 #ifdef __cplusplus
 }
