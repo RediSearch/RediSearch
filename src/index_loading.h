@@ -35,8 +35,7 @@ static inline bool IndexLoading_NodeLoads(const QueryNode *qn) {
   return qn->opts.flags & QueryNodeFlags_LoadsValue;
 }
 
-/* Whether any clause in the tree under `root` loads a value through `$as`. Always false, without
- * walking the tree, while unstable features are off. */
+/* Whether any clause in the tree under `root` loads a value through `$as`. */
 bool IndexLoading_TreeLoads(QueryNode *root);
 
 #endif  // INDEX_LOADING_H__

@@ -73,11 +73,6 @@ static int nodeDoesNotLoad(QueryNode *node, QueryNode *root, void *ctx) {
 }
 
 bool IndexLoading_TreeLoads(QueryNode *root) {
-  // No node loads while the gate is off, so skip the walk. A query parsed just before the gate was
-  // turned off may then lose its loaded values, never more.
-  if (!RSGlobalConfig.enableUnstableFeatures) {
-    return false;
-  }
   // `QueryNode_ForEach` stops, and returns 0, at the first node the callback rejects.
   return !QueryNode_ForEach(root, nodeDoesNotLoad, NULL, 0);
 }
