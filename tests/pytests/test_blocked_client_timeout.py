@@ -5,6 +5,10 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+from redis import ConnectionPool, Redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
+
 from common import *
 from test_hybrid_internal import get_shard_slot_ranges
 from test_info_modules import (
@@ -1935,130 +1939,6 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_after_coord_encode_search(self):
         self._test_fail_timeout_after_coord_encode_impl(['FT.SEARCH', 'idx', '*'])
 
-    def _test_fail_timeout_before_coord_store_impl(self, query_args):
-        """Test timeout occurring before coordinator stores results (reply_callback path).
-
-        This tests the FAIL timeout policy when timeout occurs just before the
-        background thread stores results for the reply_callback to serialize.
-        """
-        env = self.env
-
-        # Skip if ENABLE_ASSERT is not enabled
-        skipIfNoEnableAssert(env)
-
-        cmd_name = query_args[0]
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-
-        # Capture baseline metrics
-        before_info = info_modules_to_dict(env)
-        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-        # The coord pipeline finished and the phase advanced to REPLY before the store pause.
-        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
-
-        # Enable pause before store results
-        setPauseBeforeStoreResults(env, True, internal=False)
-
-        t_query = threading.Thread(
-            target=run_cmd_expect_timeout,
-            args=(env, query_args),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
-
-        # Wait for the query to be paused before storing results
-        wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause before store results'
-        )
-
-        # Unblock the client to simulate timeout
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Verify coord timeout error metric incremented by 1
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message=f"Coordinator timeout error should be +1 after {cmd_name} before coord store")
-        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-                        base_err_reply + 1,
-                        message=f"Coordinator timeout before store should bump the REPLY stage after {cmd_name}")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-
-        # Cleanup
-        resetStoreResultsDebug(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-
-    def _test_fail_timeout_after_coord_store_impl(self, query_args):
-        """Test timeout occurring after coordinator stores results but before reply_callback.
-
-        This tests the FAIL timeout policy when timeout occurs just after the
-        background thread stores results, but before the reply_callback is triggered.
-        """
-        env = self.env
-
-        # Skip if ENABLE_ASSERT is not enabled
-        skipIfNoEnableAssert(env)
-
-        cmd_name = query_args[0]
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-
-        # Capture baseline metrics
-        before_info = info_modules_to_dict(env)
-        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-        # Still in the REPLY phase (the phase advanced to REPLY before the store).
-        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
-
-        # Enable pause after store results
-        setPauseAfterStoreResults(env, True, internal=False)
-
-        t_query = threading.Thread(
-            target=run_cmd_expect_timeout,
-            args=(env, query_args),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
-
-        # Wait for the query to be paused after storing results
-        wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause after store results'
-        )
-
-        # Unblock the client to simulate timeout
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Verify coord timeout error metric incremented by 1
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message=f"Coordinator timeout error should be +1 after {cmd_name} after coord store")
-        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-                        base_err_reply + 1,
-                        message=f"Coordinator timeout after store should bump the REPLY stage after {cmd_name}")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-
-        # Cleanup
-        resetStoreResultsDebug(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-
     def test_fail_timeout_before_coord_encode_aggregate(self):
         """Test timeout occurring before coordinator encodes results for FT.AGGREGATE."""
         self._test_fail_timeout_before_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
@@ -2071,18 +1951,18 @@ class TestCoordinatorTimeout:
         """Test timeout occurring after coordinator encodes results for FT.AGGREGATE."""
         self._test_fail_timeout_after_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_before_coord_store_hybrid(self):
-        """Test timeout occurring before coordinator stores results for FT.HYBRID."""
-        self._test_fail_timeout_before_coord_store_impl([
+    def test_fail_timeout_before_coord_encode_hybrid(self):
+        """Test timeout occurring before coordinator encodes results for FT.HYBRID."""
+        self._test_fail_timeout_before_coord_encode_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_fail_timeout_after_coord_store_hybrid(self):
-        """Test timeout occurring after coordinator stores results for FT.HYBRID."""
-        self._test_fail_timeout_after_coord_store_impl([
+    def test_fail_timeout_after_coord_encode_hybrid(self):
+        """Test timeout occurring after coordinator encodes results for FT.HYBRID."""
+        self._test_fail_timeout_after_coord_encode_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
@@ -6920,129 +6800,6 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def _test_fail_timeout_before_store_impl(self, query_args, cmd_name=None):
-        """Test timeout occurring before storing results (reply_callback path) in standalone."""
-        env = self.env
-
-        # Skip if ENABLE_ASSERT is not enabled
-        skipIfNoEnableAssert(env)
-
-        cmd_name = cmd_name or query_args[0]
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-
-        # Capture baseline metrics (standalone uses coord metrics)
-        before_info = info_modules_to_dict(env)
-        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
-
-        # Enable pause before store results
-        setPauseBeforeStoreResults(env, True, internal=False)
-
-        t_query = threading.Thread(
-            target=run_cmd_expect_timeout,
-            args=(env, query_args),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
-
-        # Wait for the query to be paused before storing results
-        wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause before store results'
-        )
-
-        # Unblock the client to simulate timeout
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message=f"Coordinator timeout error should be +1 after {cmd_name} before store")
-        # The pipeline finished and the execution phase advanced to REPLY before the
-        # pause, so the timeout is attributed to the REPLY stage. (Hybrid stage
-        # attribution is approximate, so assert per-stage only for the AREQ commands;
-        # the sum invariant holds for all.)
-        if cmd_name in ('FT.SEARCH', 'FT.AGGREGATE'):
-            env.assertEqual(
-                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-                base_err_reply + 1,
-                message=f"{cmd_name} timeout before store should bump the REPLY-stage counter")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-
-        # Cleanup
-        resetStoreResultsDebug(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-
-    def _test_fail_timeout_after_store_impl(self, query_args, cmd_name=None):
-        """Test timeout occurring after storing results but before reply_callback in standalone."""
-        env = self.env
-
-        # Skip if ENABLE_ASSERT is not enabled
-        skipIfNoEnableAssert(env)
-
-        cmd_name = cmd_name or query_args[0]
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-
-        # Capture baseline metrics (standalone uses coord metrics)
-        before_info = info_modules_to_dict(env)
-        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-        base_err_reply = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC])
-
-        # Enable pause after store results
-        setPauseAfterStoreResults(env, True, internal=False)
-
-        t_query = threading.Thread(
-            target=run_cmd_expect_timeout,
-            args=(env, query_args),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
-
-        # Wait for the query to be paused after storing results
-        wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause after store results'
-        )
-
-        # Unblock the client to simulate timeout
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
-                        str(base_err_coord + 1),
-                        message=f"Coordinator timeout error should be +1 after {cmd_name} after store")
-        # Still in the REPLY phase (the phase advanced to REPLY before the store).
-        if cmd_name in ('FT.SEARCH', 'FT.AGGREGATE'):
-            env.assertEqual(
-                int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_REPLY_METRIC]),
-                base_err_reply + 1,
-                message=f"{cmd_name} timeout after store should bump the REPLY-stage counter")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
-
-        # Cleanup
-        resetStoreResultsDebug(env)
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-
     def _test_fail_timeout_before_encode_impl(self, query_args, cmd_name=None):
         _assert_fail_timeout_at_worker_reply_boundary(
             self.env, query_args, before=True, cmd_name=cmd_name)
@@ -7071,18 +6828,18 @@ class TestShardTimeout:
         """Test timeout occurring after worker result encoding for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_before_store_hybrid(self):
-        """Test timeout occurring before storing results for FT.HYBRID in standalone."""
-        self._test_fail_timeout_before_store_impl([
+    def test_fail_timeout_before_encode_hybrid(self):
+        """Test timeout occurring before worker result encoding for FT.HYBRID in standalone."""
+        self._test_fail_timeout_before_encode_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def test_fail_timeout_after_store_hybrid(self):
-        """Test timeout occurring after storing results for FT.HYBRID in standalone."""
-        self._test_fail_timeout_after_store_impl([
+    def test_fail_timeout_after_encode_hybrid(self):
+        """Test timeout occurring after worker result encoding for FT.HYBRID in standalone."""
+        self._test_fail_timeout_after_encode_impl([
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
@@ -9094,7 +8851,6 @@ def test_fail_coord_search_worker_reply_resp2():
     env.expect(*query).equal([1, '{doc}:1'])
 
 
-
 # Regression for the MOD-16992 reply-path use-after-free: with the registry no
 # longer pinning the spec for the cycle, nothing may read the spec after the
 # worker released its execution reference.
@@ -9215,7 +8971,7 @@ def test_stored_hybrid_reply_after_index_dropped_mid_cycle():
         protocol=3,
         moduleArgs='WORKERS 1 TIMEOUT 0 _FREE_RESOURCE_ON_THREAD FALSE')
     skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
-    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
 
     query_vec = _setup_hybrid_index(env)
     n_docs = 100
@@ -9384,3 +9140,99 @@ def test_coord_background_fail_reply_parity_resp2():
 def test_coord_background_fail_reply_parity_resp3():
     """Worker RESP3 replies match callback replies for results and profiles."""
     _reply_parity(3)
+
+
+def test_hybrid_cursor_read_timeout_during_background_encoding():
+    """Cancel each HYBRID subcursor after its sibling has been deleted."""
+    env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL NOGC')
+    skipIfNoEnableAssert(env)
+    vector = _setup_hybrid_index(env)
+    waitForIndex(env, 'hybrid_idx')
+    shard_id, slots = get_shard_slot_ranges(env)[-1]
+    shard = (env.getConnection(shard_id) if env.isCluster()
+             else env.getConnection())
+    shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    def cursor_total():
+        info = to_dict(shard.execute_command('_FT.INFO', 'hybrid_idx'))
+        return int(to_dict(info['cursor_stats'])['global_total'])
+
+    def create_cursors():
+        reply = shard.execute_command(
+            '_FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB', 'KNN', 2, 'K', 100,
+            'COMBINE', 'RRF', 2, 'WINDOW', 100,
+            'WITHCURSOR', 'COUNT', 2, '_SLOTS_INFO', slots,
+            'PARAMS', 2, 'BLOB', vector, 'TIMEOUT', 0)
+        cursors = _internal_hybrid_cursor_map(reply)
+        env.assertEqual(set(cursors), {'SEARCH', 'VSIM'})
+        return cursors
+
+    def create_client(protocol):
+        original = shard.connection_pool
+        kwargs = dict(original.connection_kwargs, protocol=protocol,
+                      retry=Retry(NoBackoff(), 0), socket_timeout=5)
+        pool = ConnectionPool(connection_class=original.connection_class, **kwargs)
+        client = Redis(connection_pool=pool, single_connection_client=True)
+        client.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        return client, pool
+
+    def wait_cleanup(total):
+        def finished():
+            stats = to_dict(shard.execute_command(debug_cmd(), 'WORKERS', 'STATS'))
+            return (stats['numJobsInProgress'] == 0 and stats['totalPendingJobs'] == 0
+                    and cursor_total() == total, stats)
+        wait_for_condition(finished, 'HYBRID cursor READ did not release its cursor', timeout=5)
+
+    point = 'DuringBackgroundReplyEncode'
+    for protocol in (2, 3):
+        for subquery in ('SEARCH', 'VSIM'):
+            baseline = cursor_total()
+            cursors = create_cursors()
+            cursor = cursors.pop(subquery)
+            # Leave only the subcursor under test on this shard.
+            shard.execute_command('_FT.CURSOR', 'DEL', 'hybrid_idx',
+                                  next(iter(cursors.values())))
+            client, pool = create_client(protocol)
+            client_id = client.client_id()
+            results = []
+
+            def read():
+                try:
+                    results.append(client.execute_command('_FT.CURSOR', 'READ',
+                                                          'hybrid_idx', cursor, 'COUNT', 2))
+                except Exception as error:
+                    results.append(error)
+
+            thread = threading.Thread(target=read, daemon=True)
+            shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', point)
+            try:
+                thread.start()
+                wait_for_condition(
+                    lambda: (shard.execute_command(
+                        debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
+                        {'results': results}),
+                    f'{subquery} RESP{protocol} did not reach {point}', timeout=5)
+                # Trigger the timeout while the worker is paused in reply encoding.
+                env.assertEqual(shard.execute_command('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT'), 1)
+                thread.join(timeout=5)
+                env.assertFalse(thread.is_alive(), message='Timeout waited for cursor worker')
+                env.assertEqual(len(results), 1)
+                env.assertTrue(isinstance(results[0], redis_exceptions.ResponseError), message=results)
+                env.assertContains(TIMEOUT_ERROR, str(results[0]))
+                env.assertTrue(client.ping())
+                env.assertEqual(client.client_id(), client_id)
+                env.assertEqual(cursor_total(), baseline + 1)
+                env.assertEqual(shard.execute_command(
+                    debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point), 1)
+            finally:
+                shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+                thread.join(timeout=5)
+                try:
+                    wait_cleanup(baseline)
+                    env.assertTrue(client.ping())
+                    env.assertEqual(client.client_id(), client_id)
+                finally:
+                    client.close()
+                    pool.disconnect()
+                    shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')

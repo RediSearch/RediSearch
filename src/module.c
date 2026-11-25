@@ -3006,9 +3006,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   hreq->profileClocks.coordStartTime = coordInitialTime;
 
   if (policy != TimeoutPolicy_Return) {
-    reply_cb = DistHybridReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistHybridTimeoutFailCallback
-                                                : DistHybridTimeoutReturnStrictCallback;
+    const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    reply_cb = useReplyCallback ? DistHybridReplyCallback : NULL;
+    timeout_cb = useReplyCallback ? DistHybridTimeoutReturnStrictCallback
+                                  : DistHybridTimeoutFailCallback;
     timeout_ms = queryTimeoutMS;
   }
 

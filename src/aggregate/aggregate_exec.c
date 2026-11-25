@@ -2613,10 +2613,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         replyCallback = CursorReadReplyCallback;
         timeoutCallback = CursorReadTimeoutReturnStrictCallback;
       } else {
-        // The HYBRID shard sub-cursor reply still uses the main-thread callback.
-        if (IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) {
-          replyCallback = CursorReadReplyCallback;
-        }
         timeoutCallback = CursorReadTimeoutFailCallback;
       }
       timeoutMS = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
