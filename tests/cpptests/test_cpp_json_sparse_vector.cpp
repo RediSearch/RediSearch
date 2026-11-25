@@ -111,6 +111,7 @@ class JSONSparseVectorTest : public ::testing::Test {
   RedisJSONAPI *savedApi = nullptr;
   int savedVersion = 0;
   int liveHandles = 0, liveIterators = 0;
+  bool failGetLen = false;
   // Every key string handed out, with one extra reference held here, so TearDown can check the
   // parser released its own.
   std::vector<RedisModuleString *> keys;
@@ -126,7 +127,9 @@ class JSONSparseVectorTest : public ::testing::Test {
     api.getType = [](RedisJSON json) { return node(json)->type; };
     api.getLen = [](RedisJSON json, size_t *count) {
       const Node *n = node(json);
-      if (n->type == JSONType_Array) {
+      if (current->failGetLen) {
+        return REDISMODULE_ERR;
+      } else if (n->type == JSONType_Array) {
         *count = n->array.size();
       } else if (n->type == JSONType_Object) {
         *count = n->object.size();
@@ -317,6 +320,21 @@ TEST_F(JSONSparseVectorTest, arraysRejectOtherKeys) {
   EXPECT_REJECTED(Obj({{"indices", Ints({1})}, {"meta", Str("x")}, {"values", Dbls({1})}}), msg);
   // One of the two keys is enough to pick the arrays shape.
   EXPECT_REJECTED(Obj({{"values", Dbls({1})}, {"7", Dbl(1)}}), msg);
+}
+
+TEST_F(JSONSparseVectorTest, shapeIsKnownAtTheFirstArraysKey) {
+  // The arrays shape is read in one pass after a single key of the shape scan; a map is scanned
+  // whole, then read.
+  parse(Obj({{"indices", Ints({1})}, {"values", Dbls({1})}}));
+  EXPECT_EQ(keys.size(), 1u + 2u);
+  size_t before = keys.size();
+  parse(Obj({{"1", Dbl(1)}, {"2", Dbl(1)}, {"3", Dbl(1)}}));
+  EXPECT_EQ(keys.size() - before, 3u + 3u);
+}
+
+TEST_F(JSONSparseVectorTest, unreadableObjectIsAnError) {
+  failGetLen = true;
+  EXPECT_REJECTED(Obj({{"1", Dbl(1)}}), "Could not read sparse vector object");
 }
 
 TEST_F(JSONSparseVectorTest, arraysStopAtTheFirstError) {

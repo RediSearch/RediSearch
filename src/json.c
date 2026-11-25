@@ -831,16 +831,15 @@ static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, 
   JSONKeyValuesIterator iter = japi->getKeyValues(obj);
   RedisModuleString *keyName;
   RedisJSONPtr value_ptr = japi->allocJson();
-  while (rv == REDISMODULE_OK && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
+  // `numKeys` is the object's own key count, so the bound never stops a read early; it keeps the
+  // buffer write in range without trusting that count and the iterator to agree.
+  while (rv == REDISMODULE_OK && n < numKeys &&
+         japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
     size_t klen;
     const char *key = RedisModule_StringPtrLen(keyName, &klen);
     uint32_t id;
     float weight;
-    if (n == numKeys) {
-      // The object cannot grow while it is being indexed; this only guards the buffer.
-      rv = REDISMODULE_ERR;
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Sparse vector object changed");
-    } else if (!JSON_ParseSparseDimKey(key, klen, &id)) {
+    if (!JSON_ParseSparseDimKey(key, klen, &id)) {
       rv = REDISMODULE_ERR;
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
                                     "Invalid sparse vector dimension id", ": `%.*s`", (int)klen,
@@ -873,16 +872,21 @@ static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, 
  * is indexed, as for HASH. */
 static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
                                             QueryError *status) {
-  size_t numKeys = 0;
+  size_t numKeys;
+  if (japi->getLen(obj, &numKeys) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not read sparse vector object");
+    return REDISMODULE_ERR;
+  }
+  // The arrays shape is found at its first `indices` or `values` key; the map shape only once every
+  // key has been seen.
   bool arrayForm = false;
   JSONKeyValuesIterator iter = japi->getKeyValues(obj);
   RedisModuleString *keyName;
   RedisJSONPtr value_ptr = japi->allocJson();
-  while (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
+  while (!arrayForm && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
     size_t klen;
     const char *key = RedisModule_StringPtrLen(keyName, &klen);
-    arrayForm |= STR_EQ(key, klen, "indices") || STR_EQ(key, klen, "values");
-    ++numKeys;
+    arrayForm = STR_EQ(key, klen, "indices") || STR_EQ(key, klen, "values");
     RedisModule_FreeString(NULL, keyName);
   }
   japi->freeJson(value_ptr);
