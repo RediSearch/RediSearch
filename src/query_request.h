@@ -437,6 +437,17 @@ static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
   return request->replyDeferred;
 }
 
+// The blocked cycle records reply ownership once for each dispatch or cursor read.
+static inline bool QueryRequest_EncodeReplyInBackground(const QueryRequest *request) {
+  return request->blockedClientCycleActive && !QueryRequest_UsesReplyCallback(request) &&
+         request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
+}
+
+static inline bool QueryRequest_BackgroundReplyTimedOut(const QueryRequest *request) {
+  return QueryRequest_EncodeReplyInBackground(request) &&
+         QueryRequestLimits_IsBlockedClientTimedOut(&request->limits);
+}
+
 /* Record one complete inline response for a blocked cycle, including errors.
  * Foreground execution has no OnFree and is not counted. */
 #ifdef ENABLE_ASSERT
