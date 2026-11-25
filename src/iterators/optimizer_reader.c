@@ -345,6 +345,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;
   ri->PrintProfile = Optimus_PrintProfile;
+  QueryIterator_SetNoScoreBounds(ri);
   ri->current = NULL;
 
   return &oi->base;

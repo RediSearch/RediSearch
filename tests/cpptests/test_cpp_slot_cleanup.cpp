@@ -378,6 +378,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
       QueryIterator base{};
       RSIndexResult current{};
       Iterator() {
+        QueryIterator_SetNoScoreBounds(&base);
         base.Free = [](QueryIterator *) {};
         base.Read = [](QueryIterator *base) {
           auto *self = reinterpret_cast<Iterator *>(base);
@@ -399,7 +400,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     QueryProcessingCtx processing{};
     processing.isProfile = counts != nullptr;
     ResultProcessor *processor =
-        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false);
+        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false, false);
     processor->parent = &processing;
     SearchResult result = SearchResult_New();
     std::vector<t_docId> ids;
@@ -469,6 +470,7 @@ class BufferedDiskQuery {
     RSIndexResult *current = nullptr;
     Iterator() {
       current = NewVirtualResult(1.0, RS_FIELDMASK_ALL);
+      QueryIterator_SetNoScoreBounds(&base);
       base.Free = [](QueryIterator *base) {
         auto *self = reinterpret_cast<Iterator *>(base);
         IndexResult_Free(self->current);
@@ -504,7 +506,7 @@ class BufferedDiskQuery {
     sctx.spec = spec;
     sctx.diskQueryView = view;
     processing.isProfile = profiled;
-    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false);
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false, false);
     QITR_PushRP(&processing, processor);
     RPQueryIterator_ConfigureAsyncIO(processor);
   }
@@ -524,7 +526,7 @@ class BufferedDiskQuery {
   }
 
   void sortByScore() {
-    auto *sorter = RPSorter_NewByScore(6, nullptr);
+    auto *sorter = RPSorter_NewByScore(6, nullptr, true);
     QITR_PushRP(activeProcessing, sorter);
     processor = sorter;
   }

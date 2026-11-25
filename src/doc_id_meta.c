@@ -102,7 +102,11 @@ static inline bool isSpecValid(uint64_t specId) {
 #define DOCID_META_VERSION 2
 #define KEY_OPEN_META_SET_FLAGS \
   (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
-#define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
+// ACCESS_TRIMMED: after a slot migration the source keeps serving the moved slots' docs to
+// coordinators on the old topology until it trims them (see the trim delay in notifications.c).
+// Redis hides those keys from lookups without this flag, which would drop the docs.
+#define KEY_OPEN_META_GET_FLAGS \
+  (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED)
 
 /* Free callback. May run on a Redis BIO thread without the GIL (background slot trim), so it frees
  * only the key's own dict; Indexes_DeleteSlots removes those docs from the indexes. */
