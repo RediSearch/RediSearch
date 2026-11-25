@@ -26,7 +26,7 @@ pub struct ContainsIter<'tm, 't, Data> {
     /// The target fragment we are looking for.
     finder: Finder<'t>,
     /// The timeout
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 struct StackItem<'tm, Data> {
@@ -81,6 +81,10 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
 
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into()
+    }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+        self.timeout.set_stop_check(stop);
     }
 }
 
