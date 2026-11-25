@@ -1038,3 +1038,21 @@ def testTagUNF():
     res = env.cmd('FT.AGGREGATE', 'idx_unf', '*', 'GROUPBY', '1', '@tag',
                   'REDUCE', 'COUNT', '0')
     env.assertEqual(res[0], 3)
+
+
+@skip(cluster=True)
+def testDialect1TagQueryOnANonTagFieldMatchesNothing(env):
+    # DIALECT 2 rejects a tag query on a non-TAG field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection, which a dropped clause would not. VECTOR and GEOSHAPE
+    # keep their own options where a TAG field keeps its tag index.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2',
+               'g', 'GEOSHAPE', 'FLAT',
+               't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 'v', np.array([1.0, 2.0], dtype=np.float32).tobytes(),
+                         'g', 'POINT (1 1)', 't', 'red')
+    for field in ['v', 'g']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}}', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}} @t:{{red}}', 'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@t:{red}', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])

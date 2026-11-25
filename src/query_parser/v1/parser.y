@@ -475,6 +475,9 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
             if (!A->tag.fs) {
                 QueryNode_Free(A);
                 A = NULL;
+            } else if (!FIELD_IS(A->tag.fs, INDEXFLD_T_TAG)) {
+                QueryNode_Free(A);
+                A = NewQueryNode(QN_NULL);
             }
         }
     }
@@ -534,8 +537,12 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
     A = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
-    if (fs) {
+    if (fs && FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         A = NewNumericNode(C, fs);
+    } else if (fs) {
+        QueryParam_Free(C);
+        C = NULL;
+        A = NewQueryNode(QN_NULL);
     } else if (C) {
         QueryParam_Free(C);
         C = NULL;
@@ -561,6 +568,9 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
         if (!A->gn.gf->fieldSpec) {
             QueryNode_Free(A);
             A = NULL;
+        } else if (!FIELD_IS(A->gn.gf->fieldSpec, INDEXFLD_T_GEO)) {
+            QueryNode_Free(A);
+            A = NewQueryNode(QN_NULL);
         }
     }
 }

@@ -1514,6 +1514,9 @@ static YYACTIONTYPE yy_reduce(
             if (!yylhsminor.yy75->tag.fs) {
                 QueryNode_Free(yylhsminor.yy75);
                 yylhsminor.yy75 = NULL;
+            } else if (!FIELD_IS(yylhsminor.yy75->tag.fs, INDEXFLD_T_TAG)) {
+                QueryNode_Free(yylhsminor.yy75);
+                yylhsminor.yy75 = NewQueryNode(QN_NULL);
             }
         }
     }
@@ -1555,8 +1558,12 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
-    if (fs) {
+    if (fs && FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
+    } else if (fs) {
+        QueryParam_Free(yymsp[0].minor.yy62);
+        yymsp[0].minor.yy62 = NULL;
+        yylhsminor.yy75 = NewQueryNode(QN_NULL);
     } else if (yymsp[0].minor.yy62) {
         QueryParam_Free(yymsp[0].minor.yy62);
         yymsp[0].minor.yy62 = NULL;
@@ -1579,6 +1586,9 @@ static YYACTIONTYPE yy_reduce(
         if (!yylhsminor.yy75->gn.gf->fieldSpec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
+        } else if (!FIELD_IS(yylhsminor.yy75->gn.gf->fieldSpec, INDEXFLD_T_GEO)) {
+            QueryNode_Free(yylhsminor.yy75);
+            yylhsminor.yy75 = NewQueryNode(QN_NULL);
         }
     }
 }
