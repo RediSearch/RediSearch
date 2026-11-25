@@ -588,6 +588,10 @@ static int parseVectorField_GetHnswQuantType(ArgsCursor *ac, VecSimQuantType *qu
   }
   if (STR_EQCASE(quantTypeStr, len, VECSIM_SQ8)) {
     *quantType = VecSimQuant_SQ8;
+  } else if (STR_EQCASE(quantTypeStr, len, VECSIM_TQ2)) {
+    *quantType = VecSimQuant_TQ2;
+  } else if (STR_EQCASE(quantTypeStr, len, VECSIM_TQ3)) {
+    *quantType = VecSimQuant_TQ3;
   } else {
     return AC_ERR_ENOENT;
   }
@@ -633,7 +637,7 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
     return 0;
   }
   const VecSimParams *estimateParams = primaryParams;
-  if (hnswParams->quantType == VecSimQuant_SQ8) {
+  if (hnswParams->quantType != VecSimQuant_NONE) {
     estimateParams = params;
   }
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
@@ -879,6 +883,24 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
                         "COMPRESSION is only supported for FLOAT32 and FLOAT16 vector types");
     return 0;
   }
+  if (hnswParams->quantType == VecSimQuant_TQ2 || hnswParams->quantType == VecSimQuant_TQ3) {
+    if (hnswParams->type != VecSimType_FLOAT32) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "COMPRESSION TQ2 and TQ3 are only supported for FLOAT32 vectors");
+      return 0;
+    }
+    if (hnswParams->metric == VecSimMetric_L2) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "COMPRESSION TQ2 and TQ3 support only the IP and COSINE distance metrics");
+      return 0;
+    }
+    if (hnswParams->dim % HNSW_TQ_DIM_MULTIPLE != 0) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                       "COMPRESSION TQ2 and TQ3 require DIM to be a multiple of %d",
+                                       HNSW_TQ_DIM_MULTIPLE);
+      return 0;
+    }
+  }
   if (hnswParams->quantType == VecSimQuant_NONE && trainingThresholdSet) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         "TRAINING_THRESHOLD is irrelevant when compression was not requested");
@@ -891,6 +913,11 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
     // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_TQ2 || hnswParams->quantType == VecSimQuant_TQ3) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk index does not support COMPRESSION TQ2 or TQ3");
+      return 0;
+    }
     if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                           "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "

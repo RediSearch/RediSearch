@@ -60,6 +60,10 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
 #define VECSIM_COMPRESSION "COMPRESSION"
 #define VECSIM_NO_COMPRESSION "NO_COMPRESSION"
 #define VECSIM_SQ8 "SQ8"
+#define VECSIM_TQ2 "TQ2"
+#define VECSIM_TQ3 "TQ3"
+// TQ2/TQ3 use a block Hadamard rotation that needs DIM to be a multiple of this.
+#define HNSW_TQ_DIM_MULTIPLE 64
 #define VECSIM_LVQ_SCALAR "GlobalSQ8"
 #define VECSIM_LVQ_4 "LVQ4"
 #define VECSIM_LVQ_8 "LVQ8"

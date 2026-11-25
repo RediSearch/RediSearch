@@ -464,6 +464,18 @@ def test_flex_disk_hnsw_optional_compression_and_training(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rejects_turbo_quant(env):
+    base = ['TYPE', 'FLOAT32', 'DIM', 64, 'DISTANCE_METRIC', 'IP',
+            'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+    for compression in ('TQ2', 'TQ3'):
+        params = [*base, 'COMPRESSION', compression]
+        env.expect('FT.CREATE', 'tq', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                   'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(
+                       'Disk index does not support COMPRESSION TQ2 or TQ3')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_disk_hnsw_rerank_value(env):
     env.expect(
         'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',

@@ -1537,7 +1537,7 @@ TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
     bool disk = false;
     int expectedResult = REDISMODULE_ERR;
   };
-  const std::array<TestParams, 13> cases{{
+  const std::array<TestParams, 18> cases{{
       {VecSimQuant_NONE, 0, VecSimType_FLOAT32, 0, SIZE_MAX / 4 + 2},
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
@@ -1551,6 +1551,12 @@ TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
       {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
+      // TQ2/TQ3: FLOAT32, IP or Cosine, and DIM a multiple of 64.
+      {VecSimQuant_TQ2, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_IP, false, REDISMODULE_OK},
+      {VecSimQuant_TQ3, 0, VecSimType_FLOAT32, 0, 128, VecSimMetric_Cosine, false, REDISMODULE_OK},
+      {VecSimQuant_TQ2, 4, VecSimType_FLOAT16, 0, 64, VecSimMetric_IP},
+      {VecSimQuant_TQ3, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2},
+      {VecSimQuant_TQ2, 4, VecSimType_FLOAT32, 0, 96, VecSimMetric_IP},
   }};
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()

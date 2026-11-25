@@ -436,6 +436,10 @@ const char *VecSimHnswCompression_ToString(VecSimQuantType quantType) {
       return VECSIM_NO_COMPRESSION;
     case VecSimQuant_SQ8:
       return VECSIM_SQ8;
+    case VecSimQuant_TQ2:
+      return VECSIM_TQ2;
+    case VecSimQuant_TQ3:
+      return VECSIM_TQ3;
   }
   return NULL;
 }
@@ -549,9 +553,16 @@ static bool VecSimHnswQuantParams_AreValid(const HNSWParams *params, size_t trai
   if (params->quantType == VecSimQuant_NONE) {
     return trainingThreshold == 0;
   }
+  if (params->dim == 0 || trainingThreshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
+    return false;
+  }
+  if (params->quantType == VecSimQuant_TQ2 || params->quantType == VecSimQuant_TQ3) {
+    return params->type == VecSimType_FLOAT32 && params->metric != VecSimMetric_L2 &&
+           isSupportedHnswQuantMetric(params->metric) &&
+           params->dim % HNSW_TQ_DIM_MULTIPLE == 0;
+  }
   return params->quantType == VecSimQuant_SQ8 && isSupportedHnswQuantDataType(params->type) &&
-         params->dim > 0 && isSupportedHnswQuantMetric(params->metric) &&
-         trainingThreshold <= HNSW_QUANT_MAX_TRAINING_THRESHOLD;
+         isSupportedHnswQuantMetric(params->metric);
 }
 
 static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
@@ -592,7 +603,8 @@ static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, 
       if (hasHnswQuantParams) {
         uint64_t quantType = LoadUnsigned_IOError(rdb, goto fail);
         uint64_t trainingThreshold = LoadUnsigned_IOError(rdb, goto fail);
-        if ((quantType != VecSimQuant_NONE && quantType != VecSimQuant_SQ8) ||
+        if ((quantType != VecSimQuant_NONE && quantType != VecSimQuant_SQ8 &&
+             quantType != VecSimQuant_TQ2 && quantType != VecSimQuant_TQ3) ||
             trainingThreshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
           goto invalidQuantParams;
         }
@@ -639,7 +651,7 @@ static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, 
 
 invalidQuantParams:
   RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING,
-                         "ERROR: loading vector index failed! Invalid HNSW SQ8 parameters");
+                         "ERROR: loading vector index failed! Invalid HNSW quantization parameters");
 fail:
   return REDISMODULE_ERR;
 }
