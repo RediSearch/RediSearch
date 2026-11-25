@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -293,6 +293,93 @@ process.stdout.write('cli-token\\n');`,
         await assert.rejects(feedback, { status: scenario.error });
       else if (scenario.error) await assert.rejects(feedback, new RegExp(scenario.error));
       else assert.deepEqual(await feedback(), { findings: [], pending: false });
+    });
+  }
+});
+
+test('the stage PRs are registered as one GitHub stack when gh can link them', async (t) => {
+  for (const scenario of [
+    { name: 'links every PR bottom to top into the job base', link: true },
+    { name: 'uses the verified gh fallback token', link: true, fallback: true },
+    { name: 'leaves the PRs unstacked without gh', missing: true },
+    { name: 'leaves the PRs unstacked when gh has no stack support', unsupported: true },
+    { name: 'a lone PR needs no stack', single: true },
+    { name: 'a merged stage leaves the stack as registered', merged: true },
+    { name: 'a failed link is reported', fail: true },
+  ]) {
+    await t.test(scenario.name, async (t) => {
+      const root = await mkdtemp(join(tmpdir(), 'github-stack-'));
+      const env = { ...process.env };
+      t.after(async () => {
+        process.env = env;
+        await rm(root, { recursive: true, force: true });
+      });
+      process.env.PATH = root;
+      process.env.GH_TOKEN = scenario.fallback ? 'denied-token' : 'verified-token';
+      process.env.GITHUB_TOKEN = 'unverified-token';
+      process.env.GH_REPO = 'other/repo';
+      const linked = join(root, 'stack.json');
+      if (!scenario.missing)
+        await writeFile(
+          join(root, 'gh'),
+          `#!${process.execPath}
+const { writeFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === 'auth') {
+  if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) process.exit(2);
+  console.log('verified-token');
+} else {
+  if (args[0] !== 'stack' || args[1] !== 'link') process.exit(3);
+  if (args[2] === '--help') process.exit(${scenario.unsupported ? 1 : 0});
+  writeFileSync(${JSON.stringify(linked)}, JSON.stringify({
+    token: process.env.GH_TOKEN === process.env.GITHUB_TOKEN && process.env.GH_TOKEN,
+    repo: process.env.GH_REPO,
+    args: args.slice(2),
+  }));
+  if (${Boolean(scenario.fail)}) {
+    console.error('stack registration failed');
+    process.exit(1);
+  }
+}`,
+          { mode: 0o755 },
+        );
+      t.mock.method(globalThis, 'fetch', async (url: string, options: RequestInit) => {
+        const request = new URL(url);
+        const auth = new Headers(options.headers).get('authorization');
+        let status = 200;
+        let body: unknown;
+        if (auth !== 'token verified-token') {
+          status = 403;
+          body = { message: 'access denied' };
+        } else if (request.pathname === '/repos/o/r') body = { id: 1 };
+        else {
+          const number = Number(request.pathname.split('/').pop());
+          const merged = scenario.merged && number === 11;
+          body = { number, state: merged ? 'closed' : 'open', merged };
+        }
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      const pr = (number: number) => ({
+        number,
+        url: `https://github.com/o/r/pull/${number}`,
+        head: 'h',
+      });
+      const prs = scenario.single ? [pr(11)] : [11, 12, 13].map(pr);
+      const link = github({ root, repository: 'o/r', ci: CI }).linkStack({ base: 'release', prs });
+      if (scenario.fail) await assert.rejects(link, /stack registration failed/);
+      else await link;
+      if (!scenario.link && !scenario.fail) {
+        await assert.rejects(readFile(linked), { code: 'ENOENT' });
+        return;
+      }
+      assert.deepEqual(JSON.parse(await readFile(linked, 'utf8')), {
+        token: 'verified-token',
+        repo: 'o/r',
+        args: ['--base', 'release', ...prs.map((p) => p.url)],
+      });
     });
   }
 });
