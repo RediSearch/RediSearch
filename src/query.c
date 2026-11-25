@@ -36,6 +36,7 @@
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include "query_internal.h"
+#include "index_loading.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
 #include "search_disk.h"
@@ -1104,6 +1105,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       const FieldSpec *nfFs = spec->fields + f->fieldIndex;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
                        HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+      if (qs->opts.distField) {
+        s = sdscatprintf(s, " => {$as: %s}", qs->opts.distField);
+      }
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1412,6 +1416,10 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     qn->opts.distField = (char *)attr->value;
     attr->value = NULL;
     res = 1;
+
+  } else if (STR_EQCASE(attr->name, attr->namelen, AS_ATTR)) {
+    // Reports its own error, more specific than an unknown attribute.
+    return IndexLoading_ApplyAlias(qn, attr, status);
 
   } else if (qn->type == QN_VECTOR) {
     res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr, status);
