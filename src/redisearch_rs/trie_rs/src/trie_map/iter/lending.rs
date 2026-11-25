@@ -27,21 +27,6 @@ impl<'tm, Data, F> From<Iter<'tm, Data, F>> for LendingIter<'tm, Data, F> {
     }
 }
 
-impl<'tm, Data, F: TraversalFilter> LendingIter<'tm, Data, F> {
-    pub(crate) fn find_with_stop(
-        &mut self,
-        stop: &impl Fn() -> bool,
-        matches: impl Fn(&[u8]) -> bool,
-    ) -> Option<(&[u8], &'tm Data)> {
-        while let Some(item) = self.0.advance_with_stop(stop) {
-            if matches(self.0.key()) {
-                return Some((self.0.key(), item));
-            }
-        }
-        None
-    }
-}
-
 impl<'tm, Data, F> LendingIter<'tm, Data, F> {
     /// Change the traversal filter used by this iterator.
     pub fn traversal_filter<F1>(self, f: F1) -> LendingIter<'tm, Data, F1>

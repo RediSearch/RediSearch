@@ -27,12 +27,6 @@ impl<'tm, 'f, Data> RangeLendingIter<'tm, 'f, Data> {
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
     }
-
-    /// Poll `stop` during this advance, including between matching values.
-    pub fn next_with_stop(&mut self, stop: &impl Fn() -> bool) -> Option<(&[u8], &'tm Data)> {
-        let item = self.0.advance_with_stop(stop)?;
-        Some((self.0.key(), item))
-    }
 }
 
 impl<'tm, 'f, Data> From<RangeIter<'tm, 'f, Data>> for RangeLendingIter<'tm, 'f, Data> {

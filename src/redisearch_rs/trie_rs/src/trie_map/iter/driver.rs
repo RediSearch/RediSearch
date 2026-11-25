@@ -130,12 +130,8 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
 
     /// Advance to the next matching entry, returning a reference to its data.
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
-        self.advance_with_stop(&|| false)
-    }
-
-    pub(crate) fn advance_with_stop(&mut self, stop: &impl Fn() -> bool) -> Option<&'tm Data> {
         loop {
-            if stop() || matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
+            if matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
                 return None;
             }
 

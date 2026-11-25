@@ -60,10 +60,6 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         self.0.advance()
     }
 
-    fn advance_with_stop(&mut self, stop: &impl Fn() -> bool) -> Option<&'tm Data> {
-        self.0.advance_with_stop(stop)
-    }
-
     /// The current key — the concatenation of labels from the trie root to
     /// the node yielded by the most recent [`Self::advance`] call.
     pub(crate) fn key(&self) -> &[u8] {
@@ -183,18 +179,6 @@ impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
     /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout);
-    }
-
-    pub(crate) fn next_with_stop(
-        &mut self,
-        stop: &impl Fn() -> bool,
-    ) -> Option<(&[u8], &'tm Data)> {
-        let data = match &mut self.0 {
-            WildcardIter::U64(it) => it.advance_with_stop(stop),
-            WildcardIter::U128(it) => it.advance_with_stop(stop),
-            WildcardIter::Filter(it) => it.advance_with_stop(stop),
-        }?;
-        Some((self.0.key(), data))
     }
 }
 

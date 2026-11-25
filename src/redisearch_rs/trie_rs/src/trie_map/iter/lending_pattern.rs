@@ -90,16 +90,6 @@ impl<'trie, 'pattern, Data> PatternLendingIter<'trie, 'pattern, Data> {
             Self::Wildcard(it) => it.set_timeout(timeout),
         }
     }
-
-    /// Poll `stop` during this advance, including while skipping nonmatching values.
-    pub fn next_with_stop(&mut self, stop: &impl Fn() -> bool) -> Option<(&[u8], &'trie Data)> {
-        match self {
-            Self::All(it) => it.find_with_stop(stop, |_| true),
-            Self::Suffix(it, suffix) => it.find_with_stop(stop, |key| key.ends_with(suffix)),
-            Self::Contains(it) => it.next_with_stop(stop),
-            Self::Wildcard(it) => it.next_with_stop(stop),
-        }
-    }
 }
 
 impl<'trie, 'pattern, Data> From<LendingIter<'trie, Data, VisitAll>>

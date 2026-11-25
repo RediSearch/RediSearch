@@ -28,32 +28,6 @@ fn matching(trie: &TrieMap<u32>, pattern: &[u8], mode: PatternMode) -> Vec<Vec<u
     keys(trie.pattern_lending_iter(pattern, mode))
 }
 
-#[test]
-fn unanchored_patterns_poll_for_stop_before_a_match() {
-    use std::cell::Cell;
-
-    let mut trie = TrieMap::new();
-    for key in 0..300 {
-        trie.insert(format!("key{key:04}").as_bytes(), ());
-    }
-    trie.insert(b"zz-tail", ());
-
-    for (mode, pattern) in [
-        (PatternMode::Suffix, b"tail".as_slice()),
-        (PatternMode::Contains, b"tail"),
-        (PatternMode::Wildcard, b"*tail"),
-    ] {
-        let polls = Cell::new(0);
-        let stop = || {
-            polls.set(polls.get() + 1);
-            polls.get() == 100
-        };
-        let mut iter = trie.pattern_lending_iter(pattern, mode);
-        assert!(iter.next_with_stop(&stop).is_none(), "{mode:?}");
-        assert_eq!(polls.get(), 100, "{mode:?}");
-    }
-}
-
 fn fruit() -> TrieMap<u32> {
     let mut trie = TrieMap::new();
     for (i, key) in [

@@ -242,32 +242,6 @@ fn an_elapsed_deadline_stops_the_walk_early() {
     assert!(yielded < KEYS as usize, "the walk yielded {yielded} keys");
 }
 
-#[test]
-fn range_walk_can_stop_before_yielding_a_value() {
-    use std::cell::Cell;
-
-    let mut trie = TrieMap::new();
-    for depth in 0..128 {
-        let mut key = vec![b'a'; depth];
-        key.push(b'z');
-        trie.insert(&key, ());
-    }
-    let first = vec![b'a'; 128];
-    trie.insert(&first, ());
-    assert_eq!(in_range(&trie, RangeFilter::all()).first(), Some(&first));
-
-    let polls = Cell::new(0);
-    let mut iter = RangeLendingIter::from(trie.range_iter(RangeFilter::all()));
-    assert!(
-        iter.next_with_stop(&|| {
-            polls.set(polls.get() + 1);
-            polls.get() == 100
-        })
-        .is_none()
-    );
-    assert_eq!(polls.get(), 100);
-}
-
 mod property_based {
     #![cfg(not(miri))]
 
