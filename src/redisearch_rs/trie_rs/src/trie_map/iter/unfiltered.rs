@@ -27,7 +27,7 @@ pub struct Iter<'tm, Data, F> {
     /// i.e. the key of the current node.
     key: Vec<u8>,
     /// Timeout for this iterator
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 impl<'tm, Data, F> Iter<'tm, Data, F> {
@@ -48,6 +48,10 @@ impl<'tm, Data, F> Iter<'tm, Data, F> {
     /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into();
+    }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+        self.timeout.set_stop_check(stop);
     }
 }
 
