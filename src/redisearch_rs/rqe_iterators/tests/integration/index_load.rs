@@ -15,7 +15,8 @@ use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
     ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, index_load,
-    index_load::IndexLoad, score_bound::MinCompetitiveScore, union_opaque::build_union,
+    index_load::IndexLoad, interop::RQEIteratorWrapper, score_bound::MinCompetitiveScore,
+    union_opaque::build_union,
 };
 use rqe_iterators_test_utils::{
     ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
@@ -263,6 +264,26 @@ fn resume_aborted_frees_the_decorator() {
     );
 }
 
+/// A C-ABI parent sees through the decorator to its child's sort weight: here
+/// the weight a full union reports when union children are prioritized.
+#[test]
+fn intersection_sort_weight_through_the_c_abi() {
+    let leaves = vec![
+        CRQEIterator::from_rust_leaf(Mock::new([1])),
+        CRQEIterator::from_rust_leaf(Mock::new([2])),
+        CRQEIterator::from_rust_leaf(Mock::new([3])),
+    ];
+    let union = build_union(leaves, false, 20, QueryNodeType::Union, 1.0);
+    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    let child = unsafe { CRQEIterator::new(union) };
+    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    let it = unsafe { CRQEIterator::new(index_load::boxed_new(child)) };
+
+    assert_eq!(it.type_(), IteratorType::IndexLoad);
+    assert_eq!(it.intersection_sort_weight(true), 3.0);
+    assert_eq!(it.intersection_sort_weight(false), 1.0);
+}
+
 /// The handle pipeline construction writes through is bound right after the
 /// decorator is built, but profiling re-boxes compound iterators before the
 /// key is written. The slot must survive that move.
@@ -321,14 +342,16 @@ fn union_over_loading_child(
     key: &mut FakeKey,
     sibling_outcome: MockRevalidateResult,
 ) -> CRQEIterator {
-    let mut loading = IndexLoad::new(Mock::new_with_values([1, 2], [10.0, 20.0]));
+    let mut loading = IndexLoad::new(CRQEIterator::from_rust_leaf(Mock::new_with_values(
+        [1, 2],
+        [10.0, 20.0],
+    )));
     bind(&mut loading, key);
     let sibling = Mock::new([1, 3]);
     sibling.data().set_revalidate_result(sibling_outcome);
-    let children = vec![
-        CRQEIterator::from_rust_leaf(loading),
-        CRQEIterator::from_rust_leaf(sibling),
-    ];
+    // SAFETY: `boxed_new_compound` returns a valid, owning iterator handle.
+    let loading = unsafe { CRQEIterator::new(RQEIteratorWrapper::boxed_new_compound(loading)) };
+    let children = vec![loading, CRQEIterator::from_rust_leaf(sibling)];
     let union = build_union(children, false, 20, QueryNodeType::Union, 1.0);
     // SAFETY: `build_union` returns a valid, owning iterator handle.
     unsafe { CRQEIterator::new(union) }

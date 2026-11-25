@@ -306,10 +306,18 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
 
 /// Transparent: the profile shows the decorated iterator as it would without
 /// index loading.
-impl<'index, I> ProfilePrint for IndexLoad<'index, I>
-where
-    I: RQEIterator<'index> + ProfilePrint,
-{
+///
+/// Implemented for the [`CRQEIterator`] child alone, the instantiation
+/// [`boxed_new`] lowers. Every constructor of a C-ABI wrapper requires
+/// [`ProfilePrint`], so no other instantiation can reach the C ABI under the
+/// [`IteratorType::IndexLoad`] tag, which C-ABI code reinterprets as this one.
+///
+/// ```compile_fail
+/// use rqe_iterators::{Empty, c2rust::CRQEIterator, index_load::IndexLoad};
+///
+/// CRQEIterator::from_rust_leaf(IndexLoad::new(Empty));
+/// ```
+impl<'index> ProfilePrint for IndexLoad<'index, CRQEIterator> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.child.print_profile(map, ctx);
     }
