@@ -367,3 +367,39 @@ def testProfileIteratorTreeIsUnchanged(env):
                                .replace('@n:[25 35]', '@n:[25 35] => {$as: v}'))
         env.assertIsNotNone(iterators_profile(plain), message=plain)
         env.assertEqual(iterators_profile(loading), iterators_profile(plain), message=query)
+
+
+def testLoadsInsideVectorFilter(env):
+    """A loading clause in the filter of a KNN query keeps its value next to the distance, under
+    both hybrid policies, whichever syntax names the distance field."""
+    env.flush()
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'vec', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 9):
+        conn.execute_command('HSET', f'doc:{i}', 'n', str(i * 10), 't', 'a' if i % 2 else 'b',
+                             'vec', np.array([float(i), 0.0]).astype(np.float32).tobytes())
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    # (filter, docs the KNN returns, nearest first, mapped to the value each loads or None)
+    cases = [
+        ('@n:[25 75] => {$as: v}', [(3, '30'), (4, '40'), (5, '50')]),
+        # doc:1 passes the filter through the TAG branch only, so it loads nothing.
+        ('@n:[25 45] => {$as: v} | @t:{a}', [(1, None), (3, '30'), (4, '40')]),
+    ]
+    for policy in ['ADHOC_BF', 'BATCHES']:
+        for flt, expected in cases:
+            for knn in [f'=>[KNN 3 @vec $b HYBRID_POLICY {policy} AS dist]',
+                        f'=>[KNN 3 @vec $b HYBRID_POLICY {policy}]=>{{$yield_distance_as: dist}}']:
+                query = f'({flt}){knn}'
+                expected_rows = [{'dist': str(i * i), **({'v': v} if v else {})} for i, v in expected]
+
+                res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'b', blob,
+                              'SORTBY', 'dist', 'RETURN', '2', 'v', 'dist')
+                env.assertEqual(res[1::2], [f'doc:{i}' for i, _ in expected], message=(query, res))
+                env.assertEqual([to_dict(fields) for fields in res[2::2]], expected_rows,
+                                message=(query, res))
+
+                rows = aggregate_rows(env, query, 'PARAMS', '2', 'b', blob, 'SORTBY', '2', '@dist', 'ASC')
+                env.assertEqual(rows, expected_rows, message=(query, rows))
