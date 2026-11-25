@@ -15,9 +15,26 @@ DOCS = {i: (str(i * 10), 'a' if i % 2 else 'b') for i in range(1, 9)}
 DOCS[3] = ('30.50', 'a')
 
 
+def set_unstable_features(env, on):
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features',
+                              'yes' if on else 'no')
+
+
+def with_unstable_features(test):
+    """Runs `test` with unstable features on, and turns them back off after it, so no other test
+    in the file inherits them."""
+    @wraps(test)
+    def wrapper(env, *args, **kwargs):
+        set_unstable_features(env, True)
+        try:
+            return test(env, *args, **kwargs)
+        finally:
+            set_unstable_features(env, False)
+    return wrapper
+
+
 def setup_hash_index(env):
     env.flush()
-    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
                'n', 'NUMERIC', 'm', 'NUMERIC', 'id', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE',
@@ -35,19 +52,22 @@ def aggregate_rows(env, query, *args):
     return [to_dict(row) for row in res[1:]]
 
 
+@with_unstable_features
 def testRequiresUnstableFeatures(env):
     """With the gate off, `$as` is rejected with an error naming the config that enables it."""
     setup_hash_index(env)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+    set_unstable_features(env, False)
     env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: v}').error() \
         .contains('`CONFIG SET search-enable-unstable-features yes`')
-    env.expect('FT.SEARCH', 'idx', '@n:[15 25] => {$as: v}').error() \
-        .contains('ENABLE_UNSTABLE_FEATURES')
+    for cmd in ['FT.SEARCH', 'FT.EXPLAIN']:
+        env.expect(cmd, 'idx', '@n:[15 25] => {$as: v}').error() \
+            .contains('ENABLE_UNSTABLE_FEATURES')
 
-    enable_unstable_features(env)
+    set_unstable_features(env, True)
     env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: v}'), [{'v': '20'}])
 
 
+@with_unstable_features
 def testLoadsMatchedValueOnHash(env):
     """The loaded value is the number the index holds, not the document's spelling."""
     setup_hash_index(env)
@@ -59,7 +79,10 @@ def testLoadsMatchedValueOnHash(env):
 def testLoadsMatchedElementOnJsonMultiValue():
     """On a multi-value field the loaded value is one of the elements in range, with no warning."""
     env = Env(protocol=3)  # RESP3 exposes the reply's warnings
-    enable_unstable_features(env)
+    with_unstable_features(json_multi_value_loads_one_element)(env)
+
+
+def json_multi_value_loads_one_element(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'j:', 'SCHEMA',
                '$.n', 'AS', 'n', 'NUMERIC', '$.id', 'AS', 'id', 'NUMERIC', 'SORTABLE').ok()
@@ -79,6 +102,7 @@ def testLoadsMatchedElementOnJsonMultiValue():
     env.assertEqual(values['4'], 22.5)
 
 
+@with_unstable_features
 def testPlacementUnderAndOrOptional(env):
     """At the root or under AND every result has the value; under OR or an optional node only the
     results matched through the clause have it."""
@@ -97,6 +121,7 @@ def testPlacementUnderAndOrOptional(env):
     env.assertEqual(rows, [{'id': '2'}, {'v': '40', 'id': '4'}, {'v': '60', 'id': '6'}, {'id': '8'}])
 
 
+@with_unstable_features
 def testDocumentMatchedByEveryBranchKeepsTheValue(env):
     """A union with a loading branch is evaluated in full, even with weight 0, so a document
     matched by several branches keeps the value."""
@@ -108,6 +133,7 @@ def testDocumentMatchedByEveryBranchKeepsTheValue(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testRejectedUnderNegation(env):
     """The documents a NOT yields are those its child did not match, so there is no value to
     load."""
@@ -118,6 +144,7 @@ def testRejectedUnderNegation(env):
         .contains('`$as` is not supported under a negation')
 
 
+@with_unstable_features
 def testSortByAliasPutsMissingValuesLast(env):
     """Rows the clause did not match have no value, and sort last in both directions, also after a
     cluster merge of shard-local top-k."""
@@ -133,10 +160,10 @@ def testSortByAliasPutsMissingValuesLast(env):
                            {'id': '1'}, {'id': '5'}])
 
 
+@with_unstable_features
 def testSortByAliasWithTieBreaker(env):
     """Equal loaded values are ordered by the tie-breaker, on a single shard and after a merge."""
     env.flush()
-    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'n', 'NUMERIC', 'id', 'NUMERIC', 'SORTABLE').ok()
     for i in range(1, 31):
@@ -148,6 +175,7 @@ def testSortByAliasWithTieBreaker(env):
     env.assertEqual(rows, [{'v': str(v), 'id': str(i)} for v, i in expected])
 
 
+@with_unstable_features
 def testApplyAndFilterReadTheAlias(env):
     """APPLY and FILTER read the alias like any field, and exists() tells rows without it."""
     setup_hash_index(env)
@@ -162,6 +190,7 @@ def testApplyAndFilterReadTheAlias(env):
     env.assertEqual(rows, [{'v': '30.5', 'twice': '61'}])
 
 
+@with_unstable_features
 def testSeveralAliases(env):
     """Each loading clause has its own alias, under OR and under AND."""
     setup_hash_index(env)
@@ -173,6 +202,7 @@ def testSeveralAliases(env):
     env.assertEqual(rows, [{'a': '20', 'b': '102'}])
 
 
+@with_unstable_features
 def testAliasDefinedWhenNothingMatches(env):
     """The alias exists for SORTBY and APPLY even when the clause, or a sibling, matches nothing."""
     setup_hash_index(env)
@@ -181,6 +211,7 @@ def testAliasDefinedWhenNothingMatches(env):
                                    'APPLY', '@v + 1', 'AS', 'w', 'SORTBY', '1', '@v'), [])
 
 
+@with_unstable_features
 def testLoadOfSameNameIsServedByTheAlias(env):
     """A document field named like the alias is not loaded: the clause's value wins."""
     setup_hash_index(env)
@@ -190,6 +221,7 @@ def testLoadOfSameNameIsServedByTheAlias(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testAliasErrors(env):
     """An alias that collides with a schema field or another alias, an invalid property name, and
     `$as` on anything but a single NUMERIC clause are rejected."""
@@ -198,7 +230,7 @@ def testAliasErrors(env):
         .contains('Property `m` already exists in schema')
     env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: v} | @m:[100 200] => {$as: v}').error() \
         .contains('Property `v` specified more than once')
-    for name in ['a b', 'a.b', '@v', 'a-b']:
+    for name in ['a b', 'a.b', '@v', 'a-b', 'a\tb', 'a\x01b', 'a\x7fb']:
         env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: $name}', 'PARAMS', '2', 'name', name,
                    'DIALECT', '2').error().contains('`$as` requires a valid property name')
     for query in ['@title:hello => {$as: v}', '@t:{a} => {$as: v}', '@g:[1 1 10 km] => {$as: v}',
@@ -208,10 +240,10 @@ def testAliasErrors(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testRejectedOnVectorClause(env):
     """A vector range clause yields distances through `$yield_distance_as`, not `$as`."""
     env.flush()
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
                'DISTANCE_METRIC', 'L2').ok()
     blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
@@ -220,6 +252,7 @@ def testRejectedOnVectorClause(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testRejectedOnCompressedTree(env):
     """A field whose range tree was built with float compression may hold values other than the
     indexed ones, so it cannot be loaded; a tree built before compression was enabled still can."""
@@ -237,6 +270,7 @@ def testRejectedOnCompressedTree(env):
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'no')
 
 
+@with_unstable_features
 def testSearchReturnsTheAlias(env):
     """FT.SEARCH sorts by the alias and returns it when RETURN lists it."""
     setup_hash_index(env)
@@ -244,11 +278,11 @@ def testSearchReturnsTheAlias(env):
     env.assertEqual(res, [2, 'doc:3', ['v', '30.5'], 'doc:4', ['v', '40']])
 
 
+@with_unstable_features
 def testHybridSearchSubqueryLoadsTheAlias(env):
     """The search subquery of FT.HYBRID keeps the alias through the merge, with the value
     FT.AGGREGATE returns."""
     env.flush()
-    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'emb', 'VECTOR', 'FLAT', '6',
                'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -268,6 +302,7 @@ def testHybridSearchSubqueryLoadsTheAlias(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testProfileShowsNoKeyspaceLoader(env):
     """A query that returns only loaded and sortable fields never reads the document."""
     setup_hash_index(env)
@@ -294,6 +329,7 @@ def testProfileShowsNoKeyspaceLoader(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testExplainShowsTheAlias(env):
     """FT.EXPLAIN prints the alias on the NUMERIC clause that loads it."""
     setup_hash_index(env)
@@ -301,6 +337,7 @@ def testExplainShowsTheAlias(env):
     env.assertContains('NUMERIC {15.000000 <= @n <= 25.000000} => {$as: v}', res)
 
 
+@with_unstable_features
 def testOptimizedQueryKeepsTheAlias(env):
     """With the query optimizer on (DIALECT 4, or WITHOUTCOUNT on FT.SEARCH) and a numeric SORTBY,
     the optimizer would replace the iterator tree's root with a numeric top-k that drops the
@@ -328,6 +365,7 @@ def testOptimizedQueryKeepsTheAlias(env):
                                       'doc:7', ['v', '70']], message=(sort_field, optimize, res))
 
 
+@with_unstable_features
 def testLoadsOnEquality(env):
     """`@n == x` is a NUMERIC clause too."""
     setup_hash_index(env)
@@ -336,6 +374,7 @@ def testLoadsOnEquality(env):
 
 
 @skip(cluster=True)
+@with_unstable_features
 def testProfileIteratorTreeIsUnchanged(env):
     """The index-loading decorator is invisible in FT.PROFILE: the iterator tree is the one the
     clause builds without `$as`."""
@@ -372,11 +411,11 @@ def testProfileIteratorTreeIsUnchanged(env):
         env.assertEqual(iterators_profile(loading), iterators_profile(plain), message=query)
 
 
+@with_unstable_features
 def testLoadsInsideVectorFilter(env):
     """A loading clause in the filter of a KNN query keeps its value next to the distance, under
     both hybrid policies, whichever syntax names the distance field."""
     env.flush()
-    enable_unstable_features(env)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TAG', 'vec', 'VECTOR', 'FLAT', '6',
                'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -408,6 +447,52 @@ def testLoadsInsideVectorFilter(env):
                 env.assertEqual(rows, expected_rows, message=(query, rows))
 
 
+@with_unstable_features
+def testRepeatedAsKeepsTheLast(env):
+    """A clause given `$as` twice loads under the last alias only."""
+    setup_hash_index(env)
+    env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: a; $as: b}'), [{'b': '20'}])
+
+
+@with_unstable_features
+def testNonAsciiAlias(env):
+    """An alias of non-ASCII letters works like any other, in SORTBY, APPLY and FILTER."""
+    setup_hash_index(env)
+    rows = aggregate_rows(env, '@n:[15 35] => {$as: $name}', 'PARAMS', '2', 'name', 'ערך',
+                          'APPLY', '@ערך * 2', 'AS', 'twice', 'FILTER', '@ערך > 25',
+                          'SORTBY', '2', '@ערך', 'ASC', 'DIALECT', '2')
+    env.assertEqual(rows, [{'ערך': '30.5', 'twice': '61'}])
+
+
+@skip(cluster=True)
+@with_unstable_features
+def testHybridRejections(env):
+    """FT.HYBRID's search subquery reports the same errors as FT.SEARCH: the gate, and the
+    rejections only evaluation can make."""
+    env.flush()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'c', 'NUMERIC', 'emb', 'VECTOR', 'FLAT',
+               '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn.execute_command('HSET', 'doc:1', 'n', '10', 'emb', np.array([1.0, 0.0]).astype(np.float32).tobytes())
+    # `c`'s tree is created by its first value, while compression is on.
+    env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
+    try:
+        conn.execute_command('HSET', 'doc:1', 'c', '1.5')
+    finally:
+        env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'no').ok()
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    def hybrid(query):
+        return env.expect('FT.HYBRID', 'idx', 'SEARCH', query, 'VSIM', '@emb', '$BLOB',
+                          'PARAMS', '2', 'BLOB', blob)
+
+    hybrid('-(@n:[5 15] => {$as: v})').error().contains('`$as` is not supported under a negation')
+    hybrid('@c:[1 2] => {$as: v}').error().contains('`search-_numeric-compress`')
+    set_unstable_features(env, False)
+    hybrid('@n:[5 15] => {$as: v}').error().contains('ENABLE_UNSTABLE_FEATURES')
+
+
+@with_unstable_features
 def testOptimizerKeepsTheScorerDecision(env):
     """Without SORTBY the optimizer only decides whether results need scoring and sorting, which
     `$as` must not change: an optimized query replies the same, total, order and scores, with or
@@ -421,3 +506,57 @@ def testOptimizerKeepsTheScorerDecision(env):
             loading = env.cmd('FT.SEARCH', 'idx', '@t:{a} @n:[5 85] => {$as: v}', *args,
                               'NOCONTENT', 'LIMIT', '0', '2', *optimize)
             env.assertEqual(loading, plain, message=(optimize, args))
+
+
+@skip(cluster=True)
+@with_unstable_features
+def testCompressCheckFollowsTheReloadedTree(env):
+    """Range trees are rebuilt from the keyspace on load, under the compression setting of that
+    time: after a reload a lossy tree is rejected, and a tree rebuilt lossless loads again."""
+    setup_hash_index(env)
+    query = '@n:[15 25] => {$as: v}'
+    env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
+    try:
+        env.assertEqual(aggregate_rows(env, query), [{'v': '20'}])
+        env.expect('DEBUG', 'RELOAD').ok()
+        waitForIndex(env, 'idx')
+        env.expect('FT.AGGREGATE', 'idx', query).error().contains('`search-_numeric-compress`')
+    finally:
+        env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'no').ok()
+    env.expect('DEBUG', 'RELOAD').ok()
+    waitForIndex(env, 'idx')
+    env.assertEqual(aggregate_rows(env, query), [{'v': '20'}])
+
+
+@skip(cluster=True)
+def testCursorReadsAfterRevalidation():
+    """A cursor that resumes after documents were deleted and collected revalidates its iterators,
+    and every later row still carries the value its own document matched."""
+    env = Env(redisConfigFile=thread_gc_conf(clean_threshold=1, run_interval=1000000000))
+    with_unstable_features(cursor_reads_after_revalidation)(env)
+
+
+def cursor_reads_after_revalidation(env):
+    conn = getConnectionByEnv(env)
+    # (query, documents deleted after the first row, the (id, value) rows read after them)
+    cases = [
+        # The document just returned, and the next one the clause matches.
+        ('@t:{a} @n:[5 85] => {$as: v}', ['doc:1', 'doc:3'], [('5', '50'), ('7', '70')]),
+        ('@n:[5 45] => {$as: v} | @t:{a}', ['doc:1', 'doc:2'],
+         [('3', '30.5'), ('4', '40'), ('5', None), ('7', None)]),
+    ]
+    for query, deleted, expected in cases:
+        setup_hash_index(env)
+        # No SORTBY: a sorter would drain the iterators before the first row.
+        res, cursor = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', '1', '@id',
+                              'WITHCURSOR', 'COUNT', '1')
+        env.assertEqual([to_dict(row)['id'] for row in res[1:]], ['1'], message=query)
+        for key in deleted:
+            conn.execute_command('DEL', key)
+        forceInvokeGC(env)
+
+        rows = []
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows.extend(to_dict(row) for row in res[1:])
+        env.assertEqual([(row['id'], row.get('v')) for row in rows], expected, message=query)
