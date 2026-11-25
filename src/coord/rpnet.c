@@ -599,7 +599,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (!nc->drainOnly &&
       (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
        ((QueryRequest_UsesReplyCallback(&areq->base) ||
-         QueryRequest_RepliesOnFailWorker(&areq->base)) &&
+         QueryRequest_EncodeReplyInBackground(&areq->base)) &&
         QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)))) {
     return RS_RESULT_STOPPED;
   }

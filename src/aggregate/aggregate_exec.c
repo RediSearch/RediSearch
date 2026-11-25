@@ -385,6 +385,12 @@ static void serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchRes
     serializeSchemaResult(req, reply, r, cv, schema);
   else
     serializeLegacyResult(req, reply, r, cv);
+#ifdef ENABLE_ASSERT
+  if (QueryRequest_EncodeReplyInBackground(&req->base)) {
+    SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
+                                      : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
 }
 
 #ifdef ENABLE_ASSERT
@@ -505,7 +511,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
 /**
  * Store pipeline results for reply_callback path.
- * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
+ * Called after startPipeline when serialization is deferred to the reply callback.
  * Stores results in req->base.reply so serializeAndReplyResults can be called
  * from the reply_callback on the main thread.
  *
@@ -555,7 +561,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!QueryRequest_FailWorkerReplyCancelled(&req->base) &&
+  if (!QueryRequest_BackgroundReplyTimedOut(&req->base) &&
       (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err))) {
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
@@ -607,12 +613,24 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
  */
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
+#ifdef ENABLE_ASSERT
+  if (QueryRequest_EncodeReplyInBackground(&req->base)) {
+    SyncPoint_WaitUntil(IsCoordinator(req) ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
+                                           : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE,
+                        areq_timed_out, req);
+  }
+#endif
+  const bool countError = !QueryRequest_BackgroundReplyTimedOut(&req->base);
   if (ShouldReplyWithError(QueryError_GetCode(qctx->err), req->base.limits.timeout.config.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
+    }
     RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, req->base.limits.timeout.config.timeoutPolicy, IsProfile(req))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    }
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -854,22 +872,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     state.r = &r;
 
-#ifdef ENABLE_ASSERT
-    // Shard fanout on the coordinator process must not claim the client's sync point.
-    const bool pauseWorkerReply = QueryRequest_RepliesOnFailWorker(&req->base) &&
-                                  !IsInternal(req) && !IsHybridSearchSubquery(req) &&
-                                  !IsHybridVectorSubquery(req);
-    if (pauseWorkerReply) {
-      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE, areq_timed_out, req);
-    }
-#endif
-    if (QueryRequest_FailWorkerReplyCancelled(&req->base)) {
+    if (QueryRequest_BackgroundReplyTimedOut(&req->base)) {
       state.cursor_done = true;
     } else {
       serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
 #ifdef ENABLE_ASSERT
-      if (pauseWorkerReply) {
-        SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+      if (QueryRequest_EncodeReplyInBackground(&req->base)) {
+        SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                                          : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
       }
 #endif
     }
@@ -1082,22 +1092,14 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     state.r = &r;
 
-#ifdef ENABLE_ASSERT
-    // Shard fanout on the coordinator process must not claim the client's sync point.
-    const bool pauseWorkerReply = QueryRequest_RepliesOnFailWorker(&req->base) &&
-                                  !IsInternal(req) && !IsHybridSearchSubquery(req) &&
-                                  !IsHybridVectorSubquery(req);
-    if (pauseWorkerReply) {
-      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE, areq_timed_out, req);
-    }
-#endif
-    if (QueryRequest_FailWorkerReplyCancelled(&req->base)) {
+    if (QueryRequest_BackgroundReplyTimedOut(&req->base)) {
       state.cursor_done = true;
     } else {
       serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 #ifdef ENABLE_ASSERT
-      if (pauseWorkerReply) {
-        SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+      if (QueryRequest_EncodeReplyInBackground(&req->base)) {
+        SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                                          : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
       }
 #endif
     }
@@ -1347,7 +1349,7 @@ void AREQ_ReplyErrorOrDefer(AREQ *req, RedisModuleCtx *ctx) {
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
-  } else if (!QueryRequest_FailWorkerReplyCancelled(&req->base)) {
+  } else if (!QueryRequest_BackgroundReplyTimedOut(&req->base)) {
     QueryRequest_RecordInlineReply(&req->base);
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, err);
@@ -1783,7 +1785,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   }
 }
 
-// Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
+// Main-thread reply callback for RETURN-STRICT worker requests.
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in req->base.reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).

@@ -91,7 +91,7 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   // Snapshot the disposition before clearing the per-cycle fields it lives in.
   struct Cursor *cursor = request->cursorInfo.cursor;
   CursorDisposition disposition = request->cursorInfo.disposition;
-  if (QueryRequest_FailWorkerReplyCancelled(request)) {
+  if (QueryRequest_BackgroundReplyTimedOut(request)) {
     // The worker may have encoded a cursor ID that Redis discarded.
     disposition = CURSOR_DISPOSITION_FREE;
   }
@@ -126,7 +126,7 @@ void QueryRequest_OnFree(RedisModuleCtx *ctx, void *privdata) {
   } else {
     RS_ASSERT(request->inlineReplyCount == 1 ||
               (request->inlineReplyCount == 0 &&
-               QueryRequest_FailWorkerReplyCancelled(request)));
+               QueryRequest_BackgroundReplyTimedOut(request)));
     RS_ASSERT(!request->reply.hasStoredResults && request->reply.results == NULL);
   }
   // Debug-only counter so tests can deterministically observe that

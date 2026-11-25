@@ -32,12 +32,18 @@ def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
 
-def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_name=None):
+def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_name=None,
+                                                  coordinator=False, during=False):
     skipIfNoEnableAssert(env)
     cmd_name = cmd_name or query_args[0]
     if cmd_name != 'FT.CURSOR|READ':
         query_args = [*query_args, 'TIMEOUT', 0]
-    point = 'BeforeFailWorkerReplyEncode' if before else 'AfterFailWorkerReplyEncode'
+    if coordinator and cmd_name == 'FT.SEARCH':
+        point = 'CoordSearchReplyStarted' if before else 'CoordSearchReplySerialized'
+    else:
+        phase = 'During' if during else ('Before' if before else 'After')
+        stage = 'CoordBackgroundReplyEncode' if coordinator else 'BackgroundReplyEncode'
+        point = phase + stage
     prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
     before_info = info_modules_to_dict(env)
@@ -1916,13 +1922,13 @@ class TestCoordinatorTimeout:
 
     def _test_fail_timeout_before_coord_encode_impl(self, query_args):
         _assert_fail_timeout_at_worker_reply_boundary(
-            self.env, query_args, before=True)
+            self.env, query_args, before=True, coordinator=True)
 
     def _test_fail_timeout_after_coord_encode_impl(self, query_args):
         _assert_fail_timeout_at_worker_reply_boundary(
-            self.env, query_args, before=False)
+            self.env, query_args, before=False, coordinator=True)
 
-    def test_fail_timeout_before_coord_encode_search(self):
+    def test_fail_timeout_during_coord_encode_search(self):
         self._test_fail_timeout_before_coord_encode_impl(['FT.SEARCH', 'idx', '*'])
 
     def test_fail_timeout_after_coord_encode_search(self):
@@ -1931,6 +1937,10 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_before_coord_encode_aggregate(self):
         """Test timeout occurring before coordinator encodes results for FT.AGGREGATE."""
         self._test_fail_timeout_before_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_fail_timeout_during_coord_encode_aggregate(self):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, ['FT.AGGREGATE', 'idx', '*'], before=False, coordinator=True, during=True)
 
     def test_fail_timeout_after_coord_encode_aggregate(self):
         """Test timeout occurring after coordinator encodes results for FT.AGGREGATE."""
@@ -1962,7 +1972,7 @@ class TestCoordinatorTimeout:
         prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(
             env, timeout=0)
 
-        point = 'BeforeFailWorkerReplyEncode' if before else 'AfterFailWorkerReplyEncode'
+        point = ('Before' if before else 'After') + 'CoordBackgroundReplyEncode'
         env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         try:
@@ -6540,7 +6550,7 @@ class TestShardTimeout:
 
         unexpected = []
         query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0]
-        point = 'BeforeFailWorkerReplyEncode'
+        point = 'BeforeBackgroundReplyEncode'
         env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
         t_query = threading.Thread(
             target=run_cmd_expect_disconnect,
@@ -6804,6 +6814,10 @@ class TestShardTimeout:
     def test_fail_timeout_after_encode_search(self):
         """Test timeout occurring after worker result encoding for FT.SEARCH in standalone."""
         self._test_fail_timeout_after_encode_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_during_encode_aggregate(self):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, ['FT.AGGREGATE', 'idx', '*'], before=False, during=True)
 
     def test_fail_timeout_after_encode_aggregate(self):
         """Test timeout occurring after worker result encoding for FT.AGGREGATE in standalone."""
@@ -8828,7 +8842,7 @@ def test_fail_coord_search_worker_reply_resp2():
     getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
     query = ['FT.SEARCH', 'idx', 'hello', 'NOCONTENT']
     env.expect(*query).equal([1, '{doc}:1'])
-    _assert_fail_timeout_at_worker_reply_boundary(env, query, before=False)
+    _assert_fail_timeout_at_worker_reply_boundary(env, query, before=False, coordinator=True)
     env.expect(*query).equal([1, '{doc}:1'])
 
 

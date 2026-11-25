@@ -2882,12 +2882,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->base.limits.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
+    const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    reply_cb = useReplyCallback ? DistAggregateReplyCallback : NULL;
+    timeout_cb = useReplyCallback ? DistAggregateTimeoutReturnStrictCallback
+                                  : DistAggregateTimeoutFailCallback;
     timeout_ms = queryTimeoutMS;
-    if (policy == TimeoutPolicy_Fail) {
-      timeout_cb = DistAggregateTimeoutFailCallback;
-    } else {
-      reply_cb = DistAggregateReplyCallback;
-      timeout_cb = DistAggregateTimeoutReturnStrictCallback;
+    if (useReplyCallback) {
       r->base.async.requiresAggregateResultsSync = true;
     }
   }
@@ -3009,13 +3009,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   hreq->profileClocks.coordStartTime = coordInitialTime;
 
   if (policy != TimeoutPolicy_Return) {
+    const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    reply_cb = useReplyCallback ? DistHybridReplyCallback : NULL;
+    timeout_cb = useReplyCallback ? DistHybridTimeoutReturnStrictCallback
+                                  : DistHybridTimeoutFailCallback;
     timeout_ms = queryTimeoutMS;
-    if (policy == TimeoutPolicy_Fail) {
-      timeout_cb = DistHybridTimeoutFailCallback;
-    } else {
-      reply_cb = DistHybridReplyCallback;
-      timeout_cb = DistHybridTimeoutReturnStrictCallback;
-    }
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
@@ -3206,7 +3204,15 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   // RETURN-STRICT may own reduction on main; only the result owner can publish an error.
   if (QueryRequest_TryClaimResults(request)) {
     QueryError_CloneFrom(status, &request->reply.err);
-    QueryRequest_SignalResultsComplete(request);
+    searchRequestCtx *req = QueryRequest_GetSearch(request);
+    if (req->serializeInReplyCallback) {
+      QueryRequest_SignalResultsComplete(request);
+    } else if (!QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)) {
+      RedisModule_ReplyWithError(req->failReplyCtx, QueryError_GetUserError(&request->reply.err));
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait("CoordSearchReplySerialized");
+#endif
+    }
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or
   // leaks
@@ -3416,9 +3422,12 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
 
   RedisModuleBlockedClient *bc =
       BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback, queryTimeout);
-  if (request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+  searchRequestCtx *req = QueryRequest_GetSearch(request);
+  req->serializeInReplyCallback =
+      request->limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
+  if (!req->serializeInReplyCallback) {
     // The reply context snapshots the live client before the worker is dispatched.
-    QueryRequest_GetSearch(request)->failReplyCtx = RedisModule_GetThreadSafeContext(bc);
+    req->failReplyCtx = RedisModule_GetThreadSafeContext(bc);
   }
   return bc;
 }
