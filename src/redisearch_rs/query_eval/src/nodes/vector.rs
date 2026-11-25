@@ -147,13 +147,40 @@ fn narrow_numeric_conjunction(
     }
     let first = (intersection.child_at(0).num_estimated() as u64).min(docs);
     let second = (intersection.child_at(1).num_estimated() as u64).min(docs);
-    let product = first * second / docs;
+    prefers_exact_for_estimates(policy, first * second / docs, first.max(second))
+}
+
+/// Select exact search from the normalized product and the larger child estimate.
+fn prefers_exact_for_estimates(policy: ffi::RSNumericKnnPolicy, product: u64, larger: u64) -> bool {
     // Retain the first selector's exact routes and add the leaf fitted by
     // fit_early_exact.py. Both rules use stock iterator estimates.
     product <= 86_872
         || (policy == ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT
             && product <= 133_378
-            && first.max(second) <= 558_180)
+            && larger <= 558_180)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefers_exact_for_estimates;
+
+    #[test]
+    fn early_exact_enlarges_the_first_selector_leaf() {
+        let first = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_FIRST_SELECTOR;
+        let early_exact = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT;
+        assert!(prefers_exact_for_estimates(first, 86_872, 600_000));
+        assert!(prefers_exact_for_estimates(early_exact, 86_872, 600_000));
+        assert!(!prefers_exact_for_estimates(first, 86_873, 500_000));
+        assert!(prefers_exact_for_estimates(early_exact, 86_873, 500_000));
+    }
+
+    #[test]
+    fn early_exact_checks_both_inclusive_thresholds() {
+        let early_exact = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT;
+        assert!(prefers_exact_for_estimates(early_exact, 133_378, 558_180));
+        assert!(!prefers_exact_for_estimates(early_exact, 133_379, 558_180));
+        assert!(!prefers_exact_for_estimates(early_exact, 133_378, 558_181));
+    }
 }
 
 /// The query named the distance field twice.
