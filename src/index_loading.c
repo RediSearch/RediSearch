@@ -52,6 +52,14 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
                                   (int)attr->vallen, attr->value);
     return 0;
   }
+  // The pipeline names its own row keys `__key`, `__score` and so on; an alias shadowing one would
+  // corrupt the rows that rely on it, such as the FT.HYBRID merge by `__key`.
+  if (attr->vallen >= 2 && attr->value[0] == '_' && attr->value[1] == '_') {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ATTR,
+                                  "`$as` aliases starting with `__` are reserved", ": %.*s",
+                                  (int)attr->vallen, attr->value);
+    return 0;
+  }
   // Move ownership of the value string, so it won't get freed with the QueryAttribute.
   rm_free(qn->opts.distField);
   qn->opts.distField = (char *)attr->value;

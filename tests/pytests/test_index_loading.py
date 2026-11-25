@@ -220,6 +220,24 @@ def testLoadOfSameNameIsServedByTheAlias(env):
     env.assertEqual(rows, [{'v': '20'}])
 
 
+@with_unstable_features
+def testReservedAliasPrefix(env):
+    """The pipeline's own row keys start with `__`, such as the `__key` FT.HYBRID merges by, so an
+    alias may not; a single leading `_` is fine."""
+    setup_hash_index(env)
+    for alias in ['__key', '__score', '__v']:
+        env.expect('FT.AGGREGATE', 'idx', f'@n:[15 25] => {{$as: {alias}}}').error() \
+            .contains('`$as` aliases starting with `__` are reserved')
+    env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: _v}'), [{'_v': '20'}])
+
+    env.expect('FT.CREATE', 'vidx', 'PREFIX', '1', 'vdoc:', 'SCHEMA', 'n', 'NUMERIC',
+               'emb', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    env.expect('FT.HYBRID', 'vidx', 'SEARCH', '@n:[1 9] => {$as: __key}', 'VSIM', '@emb', '$BLOB',
+               'PARAMS', '2', 'BLOB', blob).error() \
+        .contains('`$as` aliases starting with `__` are reserved')
+
+
 @skip(cluster=True)
 @with_unstable_features
 def testAliasErrors(env):
