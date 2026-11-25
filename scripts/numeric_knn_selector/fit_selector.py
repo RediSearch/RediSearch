@@ -15,13 +15,15 @@ import json
 from pathlib import Path
 import random
 from statistics import median
+import sys
 import time
 
-from replay import DATA_ROWS, K, connection, index_info, read_queries, search
+from replay import DATA_ROWS, connection, index_info, read_queries, search
 
 
 FAMILIES = ("single", "and", "or")
 MODES = ("auto", "adhoc", "batches")
+STOCK_ACTIONS = (*MODES, "batch-size-64", "batch-size-128", "batch-size-256")
 ESTIMATE = b"Estimated number of matches"
 
 
@@ -49,13 +51,12 @@ def planning_profile(client, query):
     vector = pairs(shard[b"Iterators profile"])
     node = pairs(vector[b"Child iterator"])
     children = [estimate(pairs(child)) for child in node.get(b"Child iterators", [])]
-    if query[-1] == "and" and len(children) == 2 and all(c is not None for c in children):
-        product = children[0] * children[1] // DATA_ROWS
-    else:
-        product = None
+    conjunction = query[-1] == "and" and len(children) == 2 and all(c is not None for c in children)
+    child_estimates = sorted(min(count, DATA_ROWS) for count in children) if conjunction else None
     return {
         "estimate": estimate(node),
-        "product": product,
+        "product": child_estimates[0] * child_estimates[1] // DATA_ROWS if child_estimates else None,
+        "child_estimates": child_estimates,
         "auto_mode": vector[b"Vector search mode"].decode(),
         "stock_batches": int(vector.get(b"Batches number", 0)),
     }
@@ -67,16 +68,16 @@ def measure(client, query, mode):
     elapsed = time.perf_counter_ns() - start
     returned = {int(key.split(b":")[-1]) for key in result[1::2]}
     truth = query[-2]
-    if result[0] != len(returned) or len(returned) > K:
+    if result[0] != len(returned) or len(returned) != len(truth):
         raise ValueError(f"{mode} returned a malformed KNN reply")
     return elapsed, sorted(truth & returned)
 
 
-def selected_queries(queries, per_family, warmup):
-    rand = random.Random(20500)
+def selected_queries(queries, per_family, warmup, seed=20500, excluded=()):
+    rand = random.Random(seed)
     selected = []
     for family in FAMILIES:
-        ids = [i for i, query in enumerate(queries) if query[-1] == family]
+        ids = [i for i, query in enumerate(queries) if query[-1] == family and i not in excluded]
         sampled = rand.sample(ids, 3 * per_family + warmup)
         selected.extend((i, "train") for i in sampled[:2 * per_family])
         selected.extend((i, "holdout") for i in sampled[2 * per_family:3 * per_family])
@@ -92,23 +93,30 @@ def capture(args):
         raise ValueError("the sealed million-document index is required")
     if client.config_get("search-workers") != {"search-workers": "6"}:
         raise ValueError("expected six Redis search workers")
-    scheduled = selected_queries(queries, args.per_family_holdout, 16)
+    excluded_ids = set()
+    if args.exclude_samples:
+        with args.exclude_samples.open() as source:
+            excluded_ids.update(json.loads(line)["id"] for line in source)
+    modes = tuple(args.actions)
+    if len(set(modes)) != len(modes) or not set(MODES) <= set(modes):
+        raise ValueError("actions must include auto, adhoc, and batches exactly once")
+    scheduled = selected_queries(queries, args.per_family_holdout, 16, args.seed, excluded_ids)
     for i, split in scheduled:
         if split == "warmup":
-            for mode in MODES:
+            for mode in modes:
                 measure(client, queries[i], mode)
-
-    orders = list(itertools.permutations(MODES))
 
     def sample(item):
         i, split = item
         query = queries[i]
         worker = connection(args)
         try:
-            samples = {mode: [] for mode in MODES}
+            samples = {mode: [] for mode in modes}
             hits = {}
+            order = random.Random(args.seed ^ i).sample(modes, len(modes))
             for repeat in range(args.repeats):
-                for mode in orders[(i + repeat) % len(orders)]:
+                offset = repeat % len(order)
+                for mode in order[offset:] + order[:offset]:
                     elapsed, found = measure(worker, query, mode)
                     samples[mode].append(elapsed)
                     if hits.setdefault(mode, found) != found:
@@ -127,13 +135,20 @@ def capture(args):
     scheduled = [(i, split) for i, split in scheduled if split != "warmup"]
     with args.output.open("x") as file:
         with ThreadPoolExecutor(max_workers=args.clients) as pool:
-            records = list(pool.map(sample, scheduled))
-        for row in records:
+            records = []
+            for row in pool.map(sample, scheduled):
+                records.append(row)
+                if len(records) % 100 == 0 or len(records) == len(scheduled):
+                    print(f"Timed {len(records)}/{len(scheduled)} queries", file=sys.stderr, flush=True)
+        for index, row in enumerate(records, start=1):
             try:
                 row.update(planning_profile(client, queries[row["id"]]))
             except KeyError as error:
                 raise ValueError(f"query {row['id']} lacks a stock profile field: {error}") from error
             print(json.dumps(row), file=file, flush=True)
+            if index % 100 == 0 or index == len(records):
+                print(f"Captured planner estimates for {index}/{len(records)} queries",
+                      file=sys.stderr, flush=True)
 
 
 def choose(row, rule):
@@ -256,6 +271,9 @@ if __name__ == "__main__":
     capture_parser.add_argument("--clients", type=int, default=6)
     capture_parser.add_argument("--per-family-holdout", type=int, default=100)
     capture_parser.add_argument("--repeats", type=int, default=3)
+    capture_parser.add_argument("--seed", type=int, default=20500)
+    capture_parser.add_argument("--exclude-samples", type=Path)
+    capture_parser.add_argument("--actions", choices=STOCK_ACTIONS, nargs="+", default=MODES)
     capture_parser.set_defaults(run=capture)
     fit_parser = sub.add_parser("fit")
     fit_parser.add_argument("samples", type=Path)

@@ -14,8 +14,6 @@ import random
 import struct
 import time
 
-import redis
-
 INDEX = "range20500"
 PREFIX = "range20500:"
 K = 25
@@ -24,6 +22,8 @@ DATA_ROWS = 1_000_000
 
 
 def connection(args):
+    import redis
+
     return redis.Redis(unix_socket_path=args.socket, socket_timeout=120)
 
 
