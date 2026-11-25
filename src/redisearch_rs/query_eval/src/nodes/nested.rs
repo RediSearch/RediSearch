@@ -22,10 +22,11 @@ use ::query::{QueryNode, WildcardMode};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use nested_index::query::{Branch, Clause, Expr, PlanError, Predicate, TerminalFilter, plan};
-use nested_index::{CollectError, Constraint, NestedIndex, Terminal, WalkLimits};
+use nested_index::{CollectError, Constraint, NestedIndex, Terminal};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_core::FieldIndex;
+use rqe_iterators::utils::{NoTimeoutChecker, TimeoutChecker, TimeoutContextRequest};
 use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, union_opaque::build_union};
 use tag_index::{InMemoryMode, IterMode, Tag, TagIndex, TrieLookup};
 
@@ -49,7 +50,7 @@ enum GroupError {
         /// The group's limit.
         max: usize,
     },
-    /// An alternative's walk failed: too many nodes, or a range cutting a bucket.
+    /// An alternative's walk failed: the request timed out, or a range cuts a bucket.
     #[error("NESTED group: {0}")]
     Walk(CollectError),
     /// The group opens more iterators than [`NestedLimits::max_readers`].
@@ -67,6 +68,10 @@ impl GroupError {
             Self::Unsupported
             | Self::Plan(_)
             | Self::Walk(CollectError::UnalignedBucketRange { .. }) => QueryErrorCode::Syntax,
+            // Reported as an error under every `ON_TIMEOUT` policy: a group that stops early
+            // would return fewer matches, and the pipeline may reach its end before it checks
+            // the clock, so the result would carry no timeout warning.
+            Self::Walk(CollectError::TimedOut) => QueryErrorCode::TimedOut,
             Self::TooManyTerminals { .. } | Self::TooManyReaders { .. } | Self::Walk(_) => {
                 QueryErrorCode::Limit
             }
@@ -112,7 +117,34 @@ pub(crate) fn eval<'index>(
     let index = unsafe { index.as_ref() };
 
     let sctx = NonNull::new(ctx.sctx_ptr().cast_mut()).expect("a query has a search context");
-    match open(index, def, &mut node, sctx, field_index, config) {
+    let opened = match NonNull::new(ctx.sctx().limits) {
+        Some(limits) => {
+            // SAFETY: the request owns its limits at a stable address and outlives evaluation.
+            // The checker is dropped when `open` returns, before the request can start another
+            // execution cycle, so no source change or deadline write overlaps a probe.
+            let mut timeout =
+                unsafe { TimeoutContextRequest::new(limits, WALK_TIMEOUT_GRANULARITY) };
+            open(
+                index,
+                def,
+                &mut node,
+                sctx,
+                field_index,
+                config,
+                &mut timeout,
+            )
+        }
+        None => open(
+            index,
+            def,
+            &mut node,
+            sctx,
+            field_index,
+            config,
+            &mut NoTimeoutChecker,
+        ),
+    };
+    match opened {
         Ok(readers) => {
             if readers.reached_max_prefix_expansions {
                 ctx.status()
@@ -139,7 +171,12 @@ pub(crate) fn eval<'index>(
     }
 }
 
-/// The iterators of every terminal the group `node` reaches.
+/// How many nodes a routing walk enters between two reads of the clock, as the trie walks of
+/// prefix expansion do.
+const WALK_TIMEOUT_GRANULARITY: u32 = 100;
+
+/// The iterators of every terminal the group `node` reaches. `timeout` is shared by all the
+/// group's alternatives.
 fn open(
     index: &NestedIndex,
     def: &ffi::NestedDef,
@@ -147,6 +184,7 @@ fn open(
     sctx: NonNull<ffi::RedisSearchCtx>,
     field_index: FieldIndex,
     config: Config,
+    timeout: &mut impl TimeoutChecker,
 ) -> Result<Readers, GroupError> {
     let limits = config.nested_limits;
     debug_assert_eq!(node.num_children(), 1, "a group has one inner expression");
@@ -162,16 +200,12 @@ fn open(
         max_prefix_expansions: config.max_prefix_expansions,
         reached_max_prefix_expansions: false,
     };
-    // The terminal budget is shared by all alternatives; each may enter up to the node budget.
+    // The terminal budget is shared by all alternatives.
     let mut terminals_left = limits.max_terminals;
     for branch in &branches {
-        let walk = WalkLimits {
-            max_terminals: terminals_left,
-            max_nodes: limits.max_nodes,
-        };
         let terminals = index
             .routing()
-            .collect_terminals(&branch.routing, walk)
+            .collect_terminals(&branch.routing, terminals_left, timeout)
             .map_err(|err| match err {
                 // Named by the group's own limit, not what this alternative had left of it.
                 CollectError::TooManyTerminals { .. } => GroupError::TooManyTerminals {

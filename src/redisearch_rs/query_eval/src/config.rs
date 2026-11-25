@@ -51,10 +51,9 @@ pub struct NestedLimits {
     /// The most alternatives the group's inner expression may expand to once its ORs are
     /// distributed.
     pub max_branches: usize,
-    /// The most terminals the group may read, across all its alternatives.
+    /// The most terminals the group may read, across all its alternatives. The request timeout,
+    /// not a limit here, bounds the routing nodes the walks enter.
     pub max_terminals: usize,
-    /// The most routing nodes each alternative's walk may enter.
-    pub max_nodes: usize,
     /// The most iterators the group may open: one per numeric range of a numeric terminal, one
     /// per tag value of a tag terminal.
     pub max_readers: usize,
@@ -65,7 +64,6 @@ impl Default for NestedLimits {
         Self {
             max_branches: 16,
             max_terminals: 10_000,
-            max_nodes: 100_000,
             max_readers: 100_000,
         }
     }

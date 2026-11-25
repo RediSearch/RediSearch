@@ -449,8 +449,8 @@ routing level, plus a constraint on the terminal:
 
 An `|` across sub-fields inside the group (`@color:{red} | @size:{M}`) becomes **disjunctive
 normal form**: each branch is its own conjunction, planned separately, and the branches are UNIONed.
-Cap the number of branches (`NESTED_MAX_DNF_BRANCHES`, proposed 16) and fail the query with a
-limit error past it. A clause with a single branch extends every conjunction in place, so planning
+Cap the number of branches with an internal constant (16, not configurable) and fail the query
+with a limit error past it. A clause with a single branch extends every conjunction in place, so planning
 a long AND is linear in its clauses; only a clause with several branches copies the conjunctions,
 and the cap allows few of those. A clause on something that isn't a sub-field of the group is a parse error.
 
@@ -630,8 +630,11 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      constraint and is rejected. A property test checks that an element matches the expression
      exactly when it matches one of the planned branches.
    - Eval (`query_eval/src/nodes/nested.rs`). Each branch walks the routing levels with
-     `collect_terminals`, sharing `max_terminals` (10K) across branches, each entering at most
-     `max_nodes` (100K). The limits are `query_eval::NestedLimits` in the evaluator's `Config`. A
+     `collect_terminals`, sharing `max_terminals` (10K) and the request timeout across branches.
+     The timeout is read every 100 nodes entered; past it the group fails with a timeout error
+     under every `ON_TIMEOUT` policy, since a walk cut short would drop matches and the pipeline
+     can end before it notices the deadline. The limits are `query_eval::NestedLimits` in the
+     evaluator's `Config`, internal constants rather than `FT.CONFIG` options. A
      numeric terminal opens `NumericIteratorVariant::from_tree` with a filter the `QN_NESTED` node
      owns, so it lives as long as the AST; a tag terminal opens `TagIndex::open_reader` per value,
      listing the terminal's values for `Any`, `TagNotIn` and prefixes. At most `max_readers` (100K)

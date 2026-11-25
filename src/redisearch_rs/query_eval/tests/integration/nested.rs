@@ -63,7 +63,7 @@ struct NestedFixture {
     ctx: QueryEvalContext,
     /// Owns the spec; its teardown frees the field's definition and index, as
     /// `FieldSpec_Cleanup` does for any NESTED field.
-    _context: TestContext,
+    context: TestContext,
     field_index: FieldIndex,
 }
 
@@ -155,7 +155,7 @@ impl NestedFixture {
         Self {
             _guard,
             ctx,
-            _context: context,
+            context,
             field_index,
         }
     }
@@ -163,6 +163,11 @@ impl NestedFixture {
     /// `color` and `size` tags routing to numeric `price` terminals.
     fn priced(docs: &[(DocId, Vec<Vec<Value>>)]) -> Self {
         Self::new(&[COLOR, SIZE, PRICE], docs)
+    }
+
+    /// Arms the request timeout with a deadline already in the past.
+    fn expire_deadline(&mut self) {
+        self.context.set_search_time(EXPIRED_DEADLINE, false);
     }
 
     /// The doc ids `group` matches, or `None` when evaluation yields no iterator.
@@ -521,9 +526,8 @@ fn each_group_limit_fails_the_query_and_names_itself() {
         let m = q.tag_values(field, 1, &["m"]);
         q.group(field, m);
     };
-    let cases: [(Config, &str); 3] = [
+    let cases: [(Config, &str); 2] = [
         (limited(|l| l.max_terminals = 2), "more than 2 terminals"),
-        (limited(|l| l.max_nodes = 2), "more than 2 index nodes"),
         (limited(|l| l.max_readers = 2), "more than 2 posting lists"),
     ];
     for (config, expected) in cases {
@@ -542,6 +546,40 @@ fn each_group_limit_fails_the_query_and_names_itself() {
         l.max_readers = 3;
     });
     assert_eq!(fixture.eval_with(&mut q, config), Some(vec![1, 2, 3]));
+}
+
+/// A `CLOCK_MONOTONIC_RAW` deadline one second after boot: in the past for any process that can
+/// run this test.
+const EXPIRED_DEADLINE: ffi::timespec = ffi::timespec {
+    tv_sec: 1,
+    tv_nsec: 0,
+};
+
+#[test]
+fn a_walk_past_the_deadline_fails_the_query_with_a_timeout() {
+    // An open color level over more colors than the walk enters between two clock reads, and a
+    // size no element has: the walk enters every color and reaches no terminal, so only the
+    // timeout bounds it.
+    let docs: Vec<_> = (0..500)
+        .map(|doc| (doc + 1, vec![priced(&format!("c{doc}"), "m", 1.0)]))
+        .collect();
+    let mut fixture = NestedFixture::priced(&docs);
+    let field = fixture.field_index;
+    let group = |q: &mut Query| {
+        let xl = q.tag_values(field, 1, &["xl"]);
+        q.group(field, xl);
+    };
+
+    let mut q = Query::default();
+    group(&mut q);
+    assert_eq!(fixture.eval(&mut q), None, "no element has size XL");
+
+    fixture.expire_deadline();
+    let mut q = Query::default();
+    group(&mut q);
+    let (code, message) = fixture.error_with(&mut q, Config::default());
+    assert_eq!(code, QueryErrorCode::TimedOut);
+    assert!(message.contains("timed out"), "{message}");
 }
 
 #[test]
