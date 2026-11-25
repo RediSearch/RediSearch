@@ -17,11 +17,6 @@ typedef enum MetricType {
 } MetricType;
 
 /**
- * Context passed through recursive profile printing calls.
- */
-typedef struct ProfilePrintCtx ProfilePrintCtx;
-
-/**
  * Configuration parameters related to the query execution.
  */
 typedef struct IteratorsConfig {
