@@ -2186,6 +2186,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchRequestFree");
 #endif
+  if (r->failReplyCtx) {
+    RedisModule_FreeThreadSafeContext(r->failReplyCtx);
+  }
   CoordSearchReducer_Free(r);
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
@@ -3411,8 +3414,13 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
     queryTimeout = 0;
   }
 
-  return BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback,
-                                     queryTimeout);
+  RedisModuleBlockedClient *bc =
+      BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback, queryTimeout);
+  if (request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+    // The reply context snapshots the live client before the worker is dispatched.
+    QueryRequest_GetSearch(request)->failReplyCtx = RedisModule_GetThreadSafeContext(bc);
+  }
+  return bc;
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

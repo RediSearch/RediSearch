@@ -15,7 +15,6 @@
 #include "dist_profile.h"
 #include "fast_float/fast_float_strtod.h"
 #include "info/global_stats.h"
-#include "module.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "resp3.h"
@@ -965,25 +964,20 @@ static void replySearchResults(RedisModule_Reply *reply, searchRequestCtx *req) 
   RedisModule_EndReply(reply);
 }
 
-static void replyFailSearchOnWorker(RedisModuleBlockedClient *bc, searchRequestCtx *req) {
-  RedisModuleCtx *replyCtx = NULL;
-  RedisModule_Reply reply = {0};
-
-  // Snapshot the client context and protocol under the Redis lock.
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
-  if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
-    replyCtx = RedisModule_GetThreadSafeContext(bc);
-    reply = RedisModule_NewReply(replyCtx);
+static void replyFailSearchOnWorker(searchRequestCtx *req) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+    return;
   }
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 
-  if (replyCtx) {
-    replySearchResults(&reply, req);
-    RedisModule_FreeThreadSafeContext(replyCtx);
+  RS_ASSERT(req->failReplyCtx != NULL);
+  RedisModule_Reply reply = {
+      .ctx = req->failReplyCtx,
+      .resp3 = MRCtx_GetCommandProtocol(req->mrctx) == 3,
+  };
+  replySearchResults(&reply, req);
 #ifdef ENABLE_ASSERT
-    SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+  SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
 #endif
-  }
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {
@@ -998,7 +992,7 @@ static void searchResultReducer_wrapper(void *mc_v) {
 #ifdef ENABLE_ASSERT
       SyncPoint_Wait(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE);
 #endif
-      replyFailSearchOnWorker(bc, req);
+      replyFailSearchOnWorker(req);
     }
   }
   // The worker owns blocked-client completion even when timeout owns the reply.
