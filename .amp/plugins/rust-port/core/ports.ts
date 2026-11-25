@@ -98,7 +98,7 @@ export type Judge = (o: {
   check: CheckResult;
   log: string;
   root: string;
-}) => Promise<string | undefined> | string | undefined;
+}) => Promise<Pick<CheckResult, 'problem' | 'report'>> | Pick<CheckResult, 'problem' | 'report'>;
 
 /** What a project brings: its stages, layout, rules, runners, judges, reviewers and hooks. */
 export interface Profile<X = {}> {

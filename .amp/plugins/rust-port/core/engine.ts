@@ -569,9 +569,16 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     const { job } = state;
     const branch = (s: Stage) => `${job.plan.branchPrefix}-${s}`;
     const prev = previousStage(job, stage);
+    const admission = job.admitted[stage]!;
+    const evidence = state.evidence[`${stage}:${candidate}:${admission.base}:${admission.plan}`];
+    const reports =
+      evidence?.checks
+        .map((c) => c.report)
+        .filter(Boolean)
+        .join('\n\n') ?? '';
     const forge = o.forge(job.plan.repository);
     job.prs[stage] = await forge.publish({
-      ...pullRequest(job.plan, profile, stage, runReport(state)),
+      ...pullRequest(job.plan, profile, stage, runReport(state), reports),
       ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
       base: prev ? branch(prev) : job.plan.baseBranch,
     });
