@@ -51,7 +51,7 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         self.0.set_timeout(timeout);
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.0.set_stop_check(stop);
     }
 
@@ -135,7 +135,7 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
         }
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         match self {
             Self::U64(it) => it.set_stop_check(stop),
             Self::U128(it) => it.set_stop_check(stop),
@@ -193,7 +193,7 @@ impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
         self.0.set_timeout(timeout);
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.0.set_stop_check(stop);
     }
 }

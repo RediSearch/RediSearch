@@ -92,7 +92,7 @@ impl<'trie, 'pattern, Data> PatternLendingIter<'trie, 'pattern, Data> {
     }
 
     /// Stop walking when the periodically polled predicate returns true.
-    pub fn set_stop_check(&mut self, stop: &'trie dyn Fn() -> bool) {
+    pub fn set_stop_check(&mut self, stop: &'trie (dyn Fn() -> bool + Sync)) {
         match self {
             Self::All(it) | Self::Suffix(it, _) => it.set_stop_check(stop),
             Self::Contains(it) => it.set_stop_check(stop),

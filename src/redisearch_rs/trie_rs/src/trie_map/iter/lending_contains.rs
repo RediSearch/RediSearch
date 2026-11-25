@@ -30,7 +30,7 @@ impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
         self.0.set_timeout(timeout)
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.0.set_stop_check(stop);
     }
 }

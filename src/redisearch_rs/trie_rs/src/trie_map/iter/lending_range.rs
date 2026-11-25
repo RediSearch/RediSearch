@@ -29,7 +29,7 @@ impl<'tm, 'f, Data> RangeLendingIter<'tm, 'f, Data> {
     }
 
     /// Stop walking when the periodically polled predicate returns true.
-    pub fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.0.set_stop_check(stop);
     }
 }

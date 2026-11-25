@@ -49,13 +49,24 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
 }
 
 /// Check the request limit from inside a trie traversal, including when no tags match.
-fn expansion_stop_check(ctx: &QueryEvalContext) -> impl Fn() -> bool + use<> {
-    let limits = ctx.sctx().limits;
-    move || {
-        // SAFETY: the predicate runs only during query evaluation, while the request limits
-        // remain live and in the same execution cycle.
-        !limits.is_null() && unsafe { ffi::QueryRequestLimits_ShouldStopExact(limits) }
+fn expansion_stop_check(ctx: &QueryEvalContext) -> impl Fn() -> bool + Sync + use<> {
+    struct ExpansionLimits(*const ffi::QueryRequestLimits);
+
+    // SAFETY: the exact check reads the fixed timeout source and deadline, and uses
+    // atomic loads for the blocked-client and memory-stop flags. It does not touch
+    // the shared clock poll counter.
+    unsafe impl Sync for ExpansionLimits {}
+
+    impl ExpansionLimits {
+        fn should_stop(&self) -> bool {
+            // SAFETY: the callback stays within synchronous evaluation, when the limits
+            // are live in the same execution cycle.
+            !self.0.is_null() && unsafe { ffi::QueryRequestLimits_ShouldStopExact(self.0) }
+        }
     }
+
+    let limits = ExpansionLimits(ctx.sctx().limits);
+    move || limits.should_stop()
 }
 
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
