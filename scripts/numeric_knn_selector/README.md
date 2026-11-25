@@ -39,7 +39,8 @@ two-range ANDs, and two-range ORs. The capture measures legacy AUTO, forced
 ADHOC_BF, and forced BATCHES three times per query, with the order varied.
 The two graph modes use EF 2048. Exact search has no graph effort parameter.
 The script extracts estimates from an untimed profile and saves the IDs
-that matched ground truth for every mode.
+that matched ground truth for every mode. A reply with an unexpected result
+count stops the run and reports the query ID and mode.
 
 The fitter looks for one threshold per family. It uses training latency
 medians, requires at least 20 queries and a 5% saving in the selected

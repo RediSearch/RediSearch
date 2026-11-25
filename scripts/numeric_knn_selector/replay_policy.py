@@ -50,7 +50,7 @@ def main():
             row[name] = {}
         for order in (first, first[::-1]):
             for mode in order:
-                elapsed, hits = measure(client, query, mode)
+                elapsed, hits = measure(client, query, mode, query_id=i)
                 row["ns"].setdefault(mode, []).append(elapsed)
                 if row["hits"].setdefault(mode, hits) != hits:
                     raise ValueError(f"query {i} returned unstable ground-truth hits in {mode}")

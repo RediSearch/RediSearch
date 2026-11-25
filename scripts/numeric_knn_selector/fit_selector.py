@@ -62,14 +62,17 @@ def planning_profile(client, query):
     }
 
 
-def measure(client, query, mode):
+def measure(client, query, mode, *, query_id=None):
     start = time.perf_counter_ns()
     result = search(client, query, mode, 2048)
     elapsed = time.perf_counter_ns() - start
     returned = {int(key.split(b":")[-1]) for key in result[1::2]}
     truth = query[-2]
-    if result[0] != len(returned) or len(returned) != len(truth):
-        raise ValueError(f"{mode} returned a malformed KNN reply")
+    label = f"query {query_id} in {mode}" if query_id is not None else mode
+    if not result or result[0] != len(returned) or len(result) != 1 + 2 * len(returned):
+        raise ValueError(f"{label} returned a malformed KNN reply")
+    if len(returned) != len(truth):
+        raise ValueError(f"{label} returned {len(returned)} results, expected {len(truth)}")
     return elapsed, sorted(truth & returned)
 
 
@@ -101,7 +104,7 @@ def capture(args):
     for i, split in scheduled:
         if split == "warmup":
             for mode in modes:
-                measure(client, queries[i], mode)
+                measure(client, queries[i], mode, query_id=i)
 
     def sample(item):
         i, split = item
@@ -114,7 +117,7 @@ def capture(args):
             for repeat in range(args.repeats):
                 offset = repeat % len(order)
                 for mode in order[offset:] + order[:offset]:
-                    elapsed, found = measure(worker, query, mode)
+                    elapsed, found = measure(worker, query, mode, query_id=i)
                     samples[mode].append(elapsed)
                     if hits.setdefault(mode, found) != found:
                         raise ValueError(f"query {i} returned varying ground-truth hits in {mode}")
