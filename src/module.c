@@ -379,6 +379,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryAST qast = {0};
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
+  int termsArgPos = argvOffset;
   bool fullScoreInfo = false;
   SpellCheckCtx scCtx;
 
@@ -421,7 +422,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }  // LCOV_EXCL_LINE
 
-  int termsArgPos = argvOffset;
   while ((termsArgPos = RMUtil_ArgExists("TERMS", argv, argc, termsArgPos))) {
     if (termsArgPos + 2 >= argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
