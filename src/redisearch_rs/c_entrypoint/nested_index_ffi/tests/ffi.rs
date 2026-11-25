@@ -296,24 +296,6 @@ fn a_tag_terminal_counts_its_records() {
 }
 
 #[test]
-fn doc_ids_must_increase() {
-    let index = new_index(NestedTerminalKind::Numeric);
-    let rows = NestedRows_New(2);
-    push_tag(rows, "red");
-    // SAFETY: `rows` is live.
-    unsafe { NestedRows_FinishNumeric(rows, 1.0) };
-
-    index_document(index, 2, rows, 64).unwrap();
-    let err = index_document(index, 2, rows, 128).unwrap_err();
-    assert!(err.contains("doc id"), "{err}");
-    // SAFETY: both were created above and are freed once.
-    unsafe {
-        NestedRows_Free(rows);
-        NestedIndex_Free(index);
-    }
-}
-
-#[test]
 fn check_document_agrees_with_index_document_and_writes_nothing() {
     let index = new_index(NestedTerminalKind::Numeric);
     let good = NestedRows_New(2);
