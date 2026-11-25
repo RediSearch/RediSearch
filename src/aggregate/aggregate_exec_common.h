@@ -43,58 +43,49 @@ int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
 /**
- * Memory checkpoint of the request's `limits` for replaying the rows a finished
- * pipeline buffered. On true the caller stops replaying; the query OOM warning
- * is then set in `err`. Never an error: the reply has started, and
- * StoredResults_StopBeforeReply decided ON_OOM FAIL.
+ * Per-row memory checkpoint for replaying the rows a finished pipeline buffered. On true the
+ * caller stops replaying; the query OOM warning is then set in `err`. Never an error: the reply
+ * has started.
  */
-bool StoredResults_ShouldStopForMemory(struct QueryRequestLimits *limits, QueryError *err);
+bool StoredResults_ShouldStop(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                              QueryError *err);
 
 /**
- * Exact memory check under ON_OOM FAIL right before the header of a reply that
- * replays buffered rows. A reply that has started cannot become an error, so on
- * a stop `err` gets the OOM error and the replay must not start; the replay
- * itself then never checks memory. Returns whether it stopped. Under ON_OOM
- * RETURN it checks nothing: the replay's per-row check cuts the rows. A
- * blocked-client timeout owns its reply: no stop is reported then.
+ * Exact memory check under ON_OOM FAIL right before the header of a reply that replays buffered
+ * rows: a reply that has started cannot become an error. On a stop `err` gets the OOM error and the
+ * replay must not start. Checks nothing under RETURN (StoredResults_ShouldStop cuts per row), nor
+ * after a blocked-client timeout, whose callback owns the reply.
  */
 bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                                    QueryError *err);
 
 /**
- * Per-row memory stop check of the loops that read a pipeline's rows (the
- * inline reply loops and AggregateResults): a memory stop already requested on
- * `limits`, or memory pressure. The reply grows the client output buffer, which
- * only the memory ratio sees, so this is a reply loop's only memory check. On
- * true `rc` is RS_RESULT_STOPPED, which the caller maps like a pipeline stop
- * (ApplyOomStop for an OOM stop). An OOM stop under ON_OOM RETURN does not end
- * the loop: the rows the pipeline's stages already hold still come, and
- * `qctx`'s row source is ended (RP_EndRowSourceOnStop). Those rows read nothing
- * upstream, so the clock deadline of `limits` is read here then. A
- * blocked-client timeout is the upstream stages' check.
+ * Per-row memory stop check of the loops that read a pipeline's rows (the inline reply loops and
+ * AggregateResults), on `qctx`'s limits. The reply grows the client output buffer, which only the
+ * memory ratio sees, so this is a reply loop's only memory check. On true `rc` is
+ * RS_RESULT_STOPPED, mapped by the caller (ApplyOomStop). An OOM stop under ON_OOM RETURN does not
+ * end the loop: the rows the stages already hold still come, `qctx`'s row source is ended
+ * (RP_EndRowSourceOnStop), and the clock deadline is read here since those rows read nothing
+ * upstream.
  */
-bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestLimits *limits,
-                          RSOomPolicy oomPolicy, int *rc);
+bool RP_ReadShouldStop(struct QueryProcessingCtx *qctx, int *rc);
 
 void destroyResults(SearchResult **results);
 
+/**
+ * Buffers the pipeline's rows until EOF, an error, the result limit or a stop. A stop returns the
+ * rows buffered so far with RS_RESULT_STOPPED in `rc`. `areq` is only for the debug pause.
+ */
+SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
+
 typedef struct CommonPipelineCtx {
-  struct QueryRequestLimits *limits;
+  const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; its debug pause loop releases itself
   // on the request timeout. A subquery AREQ on hybrid.
   struct AREQ *areq;
 } CommonPipelineCtx;
-
-/**
- * Buffers the pipeline's rows until EOF, an error, the result limit or a stop
- * (the stop flags of `ctx->limits`, or memory pressure, which requests an OOM
- * stop; an OOM stop under ON_OOM RETURN keeps collecting what the stages
- * hold). A stop returns the rows buffered so far with RS_RESULT_STOPPED in
- * `rc`.
- */
-SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc);
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
 

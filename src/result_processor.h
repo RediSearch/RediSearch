@@ -390,7 +390,7 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
  * The upstream's final return code for a depleter (RP_DEPLETER or RP_SAFE_DEPLETER). Valid once
  * its depletion is over and before its rows are first read.
  */
-RPStatus RPDepleter_GetLastResult(const ResultProcessor *depleter);
+RPStatus RPDepleter_GetReturnCode(const ResultProcessor *depleter);
 
 /**
  * Triggers depletion for all depleters in the array.
