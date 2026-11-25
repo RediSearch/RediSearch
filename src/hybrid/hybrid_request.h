@@ -73,10 +73,9 @@ _Static_assert(offsetof(HybridRequest, base) == 0,
 /* The label of the arm at `position`; see HybridRequest.armLabels. */
 const char *HybridRequest_ArmLabel(const HybridRequest *req, size_t position);
 
-// Room for "(VSIM @<field>)" with any field name a warning needs to tell apart.
-#define HYBRID_ARM_SUFFIX_SIZE 256
-/* Write "(<label>)", the suffix that tags warnings and errors with the arm at `position`. */
-void HybridRequest_ArmSuffix(const HybridRequest *req, size_t position, char *buf, size_t len);
+/* "(<label>)", the suffix that tags warnings and errors with the arm at `position`. The caller
+ * frees it with rm_free. Sized to the label, so two arms always have different suffixes. */
+char *HybridRequest_ArmSuffix(const HybridRequest *req, size_t position);
 
 /*
  * Make `arms` the request's active arms, in that order, which must be slot order, with `mask`

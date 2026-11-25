@@ -549,8 +549,10 @@ const char *HybridRequest_ArmLabel(const HybridRequest *req, size_t position) {
   return IsHybridSearchSubquery(req->requests[position]) ? "SEARCH" : "VSIM";
 }
 
-void HybridRequest_ArmSuffix(const HybridRequest *req, size_t position, char *buf, size_t len) {
-  snprintf(buf, len, "(%s)", HybridRequest_ArmLabel(req, position));
+char *HybridRequest_ArmSuffix(const HybridRequest *req, size_t position) {
+  char *suffix = NULL;
+  rm_asprintf(&suffix, "(%s)", HybridRequest_ArmLabel(req, position));
+  return suffix;
 }
 
 void HybridRequest_SetArms(HybridRequest *req, AREQ **arms, size_t numArms, HybridArmMask mask) {

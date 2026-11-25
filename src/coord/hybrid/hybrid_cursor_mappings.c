@@ -60,10 +60,13 @@ static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
     MRReply *warning = MRReply_TakeArrayElement(warnings, i);
     const char *warning_str = MRReply_String(warning, NULL);
     if (!strncmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
-      // The first arm takes a warning no suffix matches, as SEARCH did before arms were labelled.
+      // The warning ends with its arm's suffix. The first arm takes one that matches no suffix,
+      // as SEARCH did before arms were labelled.
       size_t target = 0;
+      const size_t len = strlen(warning_str);
       for (size_t a = 0; a < ctx->numArms; a++) {
-        if (strstr(warning_str, ctx->suffixes[a])) {
+        const size_t suffixLen = strlen(ctx->suffixes[a]);
+        if (len >= suffixLen && !strcmp(warning_str + len - suffixLen, ctx->suffixes[a])) {
           target = a;
           break;
         }

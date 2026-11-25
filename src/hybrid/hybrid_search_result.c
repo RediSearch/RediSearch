@@ -77,6 +77,7 @@ HybridExplainContext *HybridExplainContext_Build(const struct AREQ *const *arms,
     } else {
       const ParsedVectorData *pvd = arm->parsedVectorData;
       ctx->arms[i].vectorMode = pvd->explainQueryType;
+      ctx->arms[i].isSparse = pvd->armSlot == SPARSE_INDEX;
       ctx->arms[i].envelope = vectorBranchEnvelope(pvd);
     }
   }
@@ -362,9 +363,21 @@ static RSScoreExplain *buildHybridScoreExplain(const HybridSearchResult *hybridR
                                                const double *values, double finalScore) {
   const size_t numArms = explainCtx->numArms;
   RS_ASSERT(hybridResult->numSources == numArms);
+  // A query with a dense and a sparse arm, which only unstable features allow, tells them apart.
+  // Every other keeps "vector", as the two-arm syntax always printed it.
+  size_t numVsim = 0;
+  for (size_t i = 0; i < numArms; i++) {
+    numVsim += !explainCtx->arms[i].isText;
+  }
   const char *labels[HYBRID_NUM_ARM_SLOTS];
   for (size_t i = 0; i < numArms; i++) {
-    labels[i] = explainCtx->arms[i].isText ? "text" : "vector";
+    if (explainCtx->arms[i].isText) {
+      labels[i] = "text";
+    } else if (numVsim > 1) {
+      labels[i] = explainCtx->arms[i].isSparse ? "sparse" : "dense";
+    } else {
+      labels[i] = "vector";
+    }
   }
 
   RSScoreExplain *outer = rm_calloc(1, sizeof(RSScoreExplain));

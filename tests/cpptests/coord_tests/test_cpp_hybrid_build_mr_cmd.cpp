@@ -1106,8 +1106,8 @@ TEST_F(HybridBuildMRCommandTest, testStableArmsKeepCountlessForm) {
         "FT.HYBRID", "idx", "2", "SEARCH", "hello", "VSIM", "@vec", "$v"});
     HybridShardWireParams shardWireParams = {};
     shardWireParams.numArms = 2;
-    shardWireParams.arms[0] = {3, true, false};
-    shardWireParams.arms[1] = {5, false, true};
+    shardWireParams.arms[0] = {.offset = 3, .slotPosition = 0, .isSearch = true, .isDense = false};
+    shardWireParams.arms[1] = {.offset = 5, .slotPosition = 1, .isSearch = false, .isDense = true};
     MRCommand xcmd;
     int kArgIndex = -1;
     HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
@@ -1130,8 +1130,8 @@ TEST_F(HybridBuildMRCommandTest, testNArmsSendCountAndEveryVsimClause) {
         "VSIM", "@vec", "$v", "KNN", "2", "K", "7"});
     HybridShardWireParams shardWireParams = {};
     shardWireParams.numArms = 2;
-    shardWireParams.arms[0] = {3, false, false};
-    shardWireParams.arms[1] = {10, false, true};
+    shardWireParams.arms[0] = {.offset = 3, .slotPosition = 1, .isSearch = false, .isDense = false};
+    shardWireParams.arms[1] = {.offset = 10, .slotPosition = 0, .isSearch = false, .isDense = true};
     MRCommand xcmd;
     int kArgIndex = -1;
     HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
@@ -1166,6 +1166,52 @@ TEST_F(HybridBuildMRCommandTest, testLinearWithThreeWeightsForwardsWeights) {
     auto combine = std::find(toks.begin(), toks.end(), "COMBINE");
     ASSERT_GE(toks.end() - combine, (long)expected.size());
     EXPECT_EQ(std::vector<std::string>(combine, combine + expected.size()), expected);
+    MRCommand_Free(&xcmd);
+    HybridScoringContext_Free(scoring);
+}
+
+// An arm's clause ends where the next one starts: a VSIM arm without KNN does not take the KNN
+// of the VSIM arm after it.
+TEST_F(HybridBuildMRCommandTest, testVsimClauseStopsAtTheNextArm) {
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", "idx", "2", "VSIM", "@vec", "$v", "VSIM", "@sp", "$q", "KNN", "2", "K", "3"});
+    HybridShardWireParams shardWireParams = {};
+    shardWireParams.numArms = 2;
+    shardWireParams.arms[0] = {.offset = 3, .slotPosition = 0, .isSearch = false, .isDense = true};
+    shardWireParams.arms[1] = {.offset = 6, .slotPosition = 1, .isSearch = false, .isDense = false};
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                 &kArgIndex);
+    const std::vector<std::string> toks = toTokens(&xcmd);
+    const std::vector<std::string> expected{
+        "_FT.HYBRID", "idx", "2", "VSIM", "@vec", "$v", "VSIM", "@sp", "$q", "KNN", "2", "K", "3"};
+    ASSERT_GT(toks.size(), expected.size());
+    EXPECT_EQ(std::vector<std::string>(toks.begin(), toks.begin() + expected.size()), expected);
+    // The dense arm has no K of its own to rewrite.
+    EXPECT_EQ(kArgIndex, -1);
+    MRCommand_Free(&xcmd);
+}
+
+// LINEAR weights are held in slot order (dense before sparse) but forwarded in the command's
+// order, which is the order a shard reads them in.
+TEST_F(HybridBuildMRCommandTest, testLinearWeightsForwardedInCommandOrder) {
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", "idx", "2", "VSIM", "@sp", "$q", "VSIM", "@vec", "$v"});
+    const double slotOrderWeights[] = {0.8, 0.2};  // dense, sparse
+    HybridScoringContext *scoring = HybridScoringContext_NewLinear(slotOrderWeights, 2, 20);
+    HybridShardWireParams shardWireParams = {};
+    shardWireParams.combine = HybridCombineWireParams{scoring, nullptr};
+    shardWireParams.numArms = 2;
+    shardWireParams.arms[0] = {.offset = 3, .slotPosition = 1, .isSearch = false, .isDense = false};
+    shardWireParams.arms[1] = {.offset = 6, .slotPosition = 0, .isSearch = false, .isDense = true};
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                 &kArgIndex);
+    const std::vector<std::string> toks = toTokens(&xcmd);
+    EXPECT_EQ(valueAfter(toks, "ALPHA"), "0.20000000000000001");
+    EXPECT_EQ(valueAfter(toks, "BETA"), "0.80000000000000004");
     MRCommand_Free(&xcmd);
     HybridScoringContext_Free(scoring);
 }

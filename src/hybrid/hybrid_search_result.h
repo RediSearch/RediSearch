@@ -40,6 +40,7 @@ typedef struct HybridExplainContext {
     // epsilon=…)" or "sparse vector branch (KNN, IP: raw dot product)".
     char *envelope;
     VectorQueryType vectorMode;  // VSIM arms only
+    bool isSparse;               // VSIM arms only
   } arms[HYBRID_NUM_ARM_SLOTS];
   size_t numArms;
 } HybridExplainContext;

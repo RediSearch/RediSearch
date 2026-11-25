@@ -47,8 +47,9 @@ ARMS = {
 
 
 def hybrid(env, q, arms, *args):
-    """`{key: score}` of an FT.HYBRID over `arms`, a list of ARMS keys, in that command order."""
-    clauses = [token for arm in arms for token in ARMS[arm]]
+    """`{key: score}` of an FT.HYBRID over `arms`, in that command order: each an ARMS key, or an
+    arm's whole clause as a list."""
+    clauses = [token for arm in arms for token in (ARMS[arm] if isinstance(arm, str) else arm)]
     res = to_dict(env.cmd('FT.HYBRID', 'idx', len(arms), *clauses, *args, 'LIMIT', 0, 100,
                           'PARAMS', 4, 'v', struct.pack('<2f', 5.0, 5.0), 'q', q))
     return {row['__key']: float(row['__score'])
@@ -92,8 +93,27 @@ def testEverySubsetOfArms(env):
     enable_unstable_features(env)
     q = setup_index(env)
     ranks = {arm: arm_ranks(env, q, arm) for arm in ('text', 'dense', 'sparse')}
-    for arms in (['dense', 'sparse'], ['text', 'sparse'], ['text', 'dense'], ['sparse']):
+    for arms in (['dense', 'sparse'], ['text', 'sparse'], ['text', 'dense'], ['sparse'],
+                 # SEARCH last: the tail's arguments follow it.
+                 ['sparse', 'text'], ['dense', 'sparse', 'text']):
         assert_scores(env, hybrid(env, q, arms), reference_rrf([ranks[a] for a in arms]))
+
+
+def testOptionsStayWithTheirArm(env):
+    """Each VSIM arm runs with its own options, in standalone and on every shard: a VSIM arm
+    without KNN keeps the default K though the next arm sets one, a RANGE arm stays a range query,
+    and a dense-only option on the second arm does not reach the first."""
+    enable_unstable_features(env)
+    q = setup_index(env)
+    sparse_k3 = ['VSIM', '@sp', '$q', 'KNN', 2, 'K', 3]
+    dense_range = ['VSIM', '@emb', '$v', 'RANGE', 2, 'RADIUS', 8]
+    dense_ratio = ['VSIM', '@emb', '$v', 'KNN', 4, 'K', 10, 'SHARD_K_RATIO', 0.9]
+    for arms in (['dense', sparse_k3], [dense_range, sparse_k3], ['sparse', dense_ratio]):
+        expected = reference_rrf([arm_ranks(env, q, arm) for arm in arms])
+        assert_scores(env, hybrid(env, q, arms), expected)
+    # The K that applied, per arm.
+    env.assertEqual(len(arm_ranks(env, q, sparse_k3)), 3)
+    env.assertEqual(len(arm_ranks(env, q, 'dense')), 10)
 
 
 def testWeightsFollowCommandOrder(env):
@@ -135,6 +155,14 @@ def testThreeArmsExplainScore(env):
                           'PARAMS', 4, 'v', struct.pack('<2f', 5.0, 5.0), 'q', q))
     explain = to_dict(res['results'][0])['score']
     hybrid_node = explain[1][1][0]
+    # With a dense and a sparse arm, a "no match" placeholder names which one.
+    res = to_dict(env.cmd('FT.HYBRID', 'idx', 2, 'VSIM', '@emb', '$v', 'VSIM', '@sp', '$q',
+                          'EXPLAINSCORE', 'LIMIT', 0, 100,
+                          'PARAMS', 4, 'v', struct.pack('<2f', 5.0, 5.0), 'q', q))
+    finals = [to_dict(row)['score'][1][0] for row in res['results']]
+    placeholders = {p for line in finals for p in ('[dense: no match]', '[sparse: no match]',
+                                                   '[vector: no match]') if p in line}
+    env.assertEqual(placeholders, {'[dense: no match]', '[sparse: no match]'}, message=finals)
     branches = hybrid_node[1]
     env.assertEqual(len(branches), 3, message=explain)
     heads = [b if isinstance(b, str) else b[0] for b in branches]
@@ -143,18 +171,39 @@ def testThreeArmsExplainScore(env):
                                 'sparse vector branch (KNN, IP: raw dot product)'])
 
 
-@skip(cluster=True)
 def testProfileLabelsEachVsimArm(env):
-    """With two VSIM arms, FT.PROFILE names each by its field."""
+    """With two VSIM arms, FT.PROFILE names each by its field, per shard in a cluster."""
     enable_unstable_features(env)
     q = setup_index(env)
     res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 3, 'SEARCH', 'red',
                   'VSIM', '@emb', '$v', 'VSIM', '@sp', '$q',
                   'PARAMS', 4, 'v', struct.pack('<2f', 5.0, 5.0), 'q', q)
-    shard = to_dict(to_dict(res[-1])['Shards'][0])
-    env.assertEqual(list(shard), ['SEARCH', 'VSIM @emb', 'VSIM @sp'])
-    env.assertEqual(to_dict(to_dict(shard['VSIM @sp'])['Iterators profile'])['Type'],
-                    'SPARSE_VECTOR')
+    shards = [to_dict(shard) for shard in to_dict(res[-1])['Shards']]
+    env.assertEqual(len(shards), env.shardsCount)
+    for shard in shards:
+        env.assertEqual([k for k in shard if k != 'Shard ID'], ['SEARCH', 'VSIM @emb', 'VSIM @sp'])
+        env.assertEqual(to_dict(to_dict(shard['VSIM @sp'])['Iterators profile'])['Type'],
+                        'SPARSE_VECTOR')
+
+
+def testPrefixWarningNamesItsVsimArm(env):
+    """A FILTER hitting the prefix-expansion limit warns for its own VSIM arm only."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    q = setup_index(env)
+    for k, title in enumerate(['cola', 'cold', 'colt']):
+        conn.execute_command('HSET', f'extra:{k}', 'title', title,
+                             'emb', struct.pack('<2f', 5.0, 5.0), 'sp', sparse_blob([(0, 1.0)]))
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    try:
+        res = to_dict(env.cmd('FT.HYBRID', 'idx', 2, 'VSIM', '@emb', '$v',
+                              'VSIM', '@sp', '$q', 'FILTER', '@title:col*',
+                              'PARAMS', 4, 'v', struct.pack('<2f', 5.0, 5.0), 'q', q))
+        prefix = [w for w in res['warnings'] if w.startswith('Max prefix expansions')]
+        env.assertEqual(prefix, ['Max prefix expansions limit was reached (VSIM @sp)'],
+                        message=res['warnings'])
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 
 def testVsimTimeoutAppliesToEveryVsimArm():
@@ -197,10 +246,22 @@ def testArmCountErrors(env):
 def testNArmsRequireUnstableFeatures(env):
     """With the flag off, FT.HYBRID keeps the errors of the two-arm syntax."""
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
-               'emb', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
-    params = ['PARAMS', 2, 'v', struct.pack('<2f', 5.0, 5.0)]
-    env.expect('FT.HYBRID', 'idx', 1, 'VSIM', '@emb', '$v', *params) \
-        .error().contains('FT.HYBRID currently supports only two subqueries')
-    env.expect('FT.HYBRID', 'idx', 2, 'VSIM', '@emb', '$v', 'VSIM', '@emb', '$v', *params) \
-        .error().contains('SEARCH keyword is required')
+    try:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'emb', 'VECTOR', 'FLAT', 6,
+                   'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+        params = ['PARAMS', 2, 'v', struct.pack('<2f', 5.0, 5.0)]
+        env.expect('FT.HYBRID', 'idx', 1, 'VSIM', '@emb', '$v', *params) \
+            .error().contains('FT.HYBRID currently supports only two subqueries')
+        env.expect('FT.HYBRID', 'idx', 2, 'VSIM', '@emb', '$v', 'VSIM', '@emb', '$v', *params) \
+            .error().contains('SEARCH keyword is required')
+        # A repeated VSIM is an unknown tail argument, as it always was.
+        for count in ([], [2]):
+            try:
+                env.cmd('FT.HYBRID', 'idx', *count, 'SEARCH', 'red', 'VSIM', '@emb', '$v',
+                        'VSIM', '@emb', '$v', *params)
+                env.assertTrue(False, message='expected an error')
+            except Exception as e:
+                env.assertNotContains('declares', str(e))
+                env.assertContains('VSIM', str(e))
+    finally:
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')

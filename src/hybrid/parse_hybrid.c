@@ -98,9 +98,9 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
-// `onlyArm`: SEARCH is the query's only subquery, so what follows it are the tail's arguments,
-// left for HybridParseOptionalArgs rather than rejected here.
-static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, bool onlyArm, QueryError *status) {
+// `lastArm`: no subquery follows SEARCH, so what follows it are the tail's arguments, left for
+// HybridParseOptionalArgs rather than rejected here.
+static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, bool lastArm, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided for SEARCH");
     return REDISMODULE_ERR;
@@ -138,7 +138,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, bool onlyArm, QueryEr
       // Hit VSIM, we're done with search options
       break;
     }
-    if (onlyArm && rv == AC_OK && strcasecmp("DIALECT", cur)) {
+    if (lastArm && rv == AC_OK && strcasecmp("DIALECT", cur)) {
       break;
     }
     if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
@@ -930,7 +930,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       searchRequest = arm;
       arm->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
       arm->ast.validationFlags |= QAST_NO_VECTOR;
-      if (parseSearchSubquery(ac, arm, declaredArms == 1, status) != REDISMODULE_OK) {
+      if (parseSearchSubquery(ac, arm, numArms + 1 == declaredArms, status) != REDISMODULE_OK) {
         goto error;
       }
     } else {
@@ -942,7 +942,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     }
     arms[numArms++] = arm;
   }
-  if (AC_AdvanceIfMatch(ac, "VSIM") || AC_AdvanceIfMatch(ac, "SEARCH")) {
+  // Without unstable features an extra arm is left for HybridParseOptionalArgs to reject, as it
+  // always was.
+  if (RSGlobalConfig.enableUnstableFeatures &&
+      (AC_AdvanceIfMatch(ac, "VSIM") || AC_AdvanceIfMatch(ac, "SEARCH"))) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                      "FT.HYBRID declares %zu subqueries but has more",
                                      declaredArms);

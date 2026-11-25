@@ -57,6 +57,7 @@ typedef struct {
   // VSIM are copied, which is the whole of the stable two-arm syntax.
   struct {
     uint32_t offset;  // index in argv of the arm's SEARCH or VSIM keyword
+    size_t slotPosition;  // the arm's position in slot order, where its weight is
     bool isSearch;
     bool isDense;     // a VSIM arm on a VECTOR field, the only kind SHARD_K_RATIO applies to
   } arms[HYBRID_NUM_ARM_SLOTS];

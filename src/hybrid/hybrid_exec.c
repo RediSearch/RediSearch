@@ -155,10 +155,10 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
   // Handle warnings from each subquery, suffixed with its label
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     QueryError* err = &hreq->requests[i]->base.reply.err;
-    char suffix[HYBRID_ARM_SUFFIX_SIZE];
-    HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
+    char *suffix = HybridRequest_ArmSuffix(hreq, i);
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
+    rm_free(suffix);
   }
 
   // Handle warnings from post-processing stage
@@ -741,12 +741,13 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
     for (size_t i = 0; i < hreq->nrequests; i++) {
       QueryError *err = &hreq->requests[i]->base.reply.err;
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-        char suffix[HYBRID_ARM_SUFFIX_SIZE];
-        HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
-        char buf[128 + HYBRID_ARM_SUFFIX_SIZE];
-        snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
+        char *suffix = HybridRequest_ArmSuffix(hreq, i);
+        char *warning = NULL;
+        rm_asprintf(&warning, "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
-        RedisModule_Reply_SimpleString(reply, buf);
+        RedisModule_Reply_SimpleString(reply, warning);
+        rm_free(warning);
+        rm_free(suffix);
       }
     }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings

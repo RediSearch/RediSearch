@@ -280,7 +280,15 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // fall back on their own (possibly different) defaults. Fusion runs on the
 // coordinator, so RRF WEIGHTS are not forwarded, and two LINEAR WEIGHTS go out as
 // ALPHA and BETA: a shard without WEIGHTS support accepts both.
-static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
+// The LINEAR weight of the arm at command position `i`. The scoring context holds them in slot
+// order; the shard command keeps the arms in command order, and a shard reorders weights itself.
+static double forwardedLinearWeight(const HybridShardWireParams *wp, size_t i) {
+  const size_t pos = wp->numArms ? wp->arms[i].slotPosition : i;
+  return wp->combine.scoringCtx->linearCtx.linearWeights[pos];
+}
+
+static void MRCommand_appendCombine(MRCommand *xcmd, const HybridShardWireParams *wp) {
+  const HybridCombineWireParams *cp = &wp->combine;
   RS_ASSERT(cp != NULL);
   if (!cp->scoringCtx) {
     return;
@@ -315,7 +323,7 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     n = snprintf(numBuf, numBufSize, "%zu", numWeights);
     MRCommand_Append(xcmd, numBuf, n);
     for (size_t i = 0; i < numWeights; i++) {
-      n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[i]);
+      n = snprintf(numBuf, numBufSize, "%.17g", forwardedLinearWeight(wp, i));
       MRCommand_Append(xcmd, numBuf, n);
     }
     MRCommand_AppendLiteral(xcmd, "WINDOW");
@@ -327,10 +335,10 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     MRCommand_AppendLiteral(xcmd, "LINEAR");
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_AppendLiteral(xcmd, "ALPHA");
-    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
+    n = snprintf(numBuf, numBufSize, "%.17g", forwardedLinearWeight(wp, 0));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_AppendLiteral(xcmd, "BETA");
-    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
+    n = snprintf(numBuf, numBufSize, "%.17g", forwardedLinearWeight(wp, 1));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
@@ -426,12 +434,15 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     *outKArgIndex = -1;
     for (size_t i = 0; i < numArms; i++) {
       const int offset = (int)shardWireParams->arms[i].offset;
+      // An arm's clause ends where the next arm starts: the copiers look ahead for KNN, RANGE,
+      // FILTER and YIELD_SCORE_AS, and must not find the next arm's.
+      const int end = i + 1 < numArms ? (int)shardWireParams->arms[i + 1].offset : argc;
       if (shardWireParams->arms[i].isSearch) {
-        MRCommand_appendSearch(xcmd, argv, argc, offset);
+        MRCommand_appendSearch(xcmd, argv, end, offset);
       } else {
         // Only the dense arm's K is rewritten by SHARD_K_RATIO.
         int kArgIndex = -1;
-        MRCommand_appendVsim(xcmd, argv, argc, offset, &kArgIndex);
+        MRCommand_appendVsim(xcmd, argv, end, offset, &kArgIndex);
         if (shardWireParams->arms[i].isDense) {
           *outKArgIndex = kArgIndex;
         }
@@ -448,7 +459,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // each shard falling back on its own (possibly changed) defaults. This also
   // normalizes the positional YIELD_SCORE_AS form and a zero argument count
   // into the counted form that all shard versions accept.
-  MRCommand_appendCombine(xcmd, &shardWireParams->combine);
+  MRCommand_appendCombine(xcmd, shardWireParams);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -813,6 +824,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         at--;
       }
       shardWireParams.arms[at].offset = offset;
+      shardWireParams.arms[at].slotPosition = i;
       shardWireParams.arms[at].isSearch = isSearch;
       shardWireParams.arms[at].isDense =
           !isSearch && arm->parsedVectorData->armSlot == VECTOR_INDEX;
@@ -962,9 +974,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         }
       );
       ioRuntime = MRIterator_GetIORuntime(armingCtx->its[i]);
-      char suffix[HYBRID_ARM_SUFFIX_SIZE];
-      HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
-      armingCtx->suffixes[i] = rm_strdup(suffix);
+      armingCtx->suffixes[i] = HybridRequest_ArmSuffix(hreq, i);
     }
 
     MRIterator *hybridIt = MR_CreateIteratorTakingCmd(
