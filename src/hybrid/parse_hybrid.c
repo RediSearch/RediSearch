@@ -910,7 +910,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  while (numArms < declaredArms) {
+  // parseSubqueriesCount bounds declaredArms to [1, HYBRID_NUM_ARM_SLOTS]; the second condition
+  // states that bound where `arms` is written.
+  while (numArms < declaredArms && numArms < HYBRID_NUM_ARM_SLOTS) {
     if (numArms == array_len(hreq->requests)) {
       // Construction allocated one sub-request per SEARCH or VSIM keyword, so the next token is
       // not an arm, unless ENABLE_UNSTABLE_FEATURES was turned on between allocation and parsing.
@@ -944,6 +946,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
   // Without unstable features an extra arm is left for HybridParseOptionalArgs to reject, as it
   // always was.
+  RS_LOG_ASSERT(numArms > 0 && numArms == declaredArms, "every declared arm was parsed");
   if (RSGlobalConfig.enableUnstableFeatures &&
       (AC_AdvanceIfMatch(ac, "VSIM") || AC_AdvanceIfMatch(ac, "SEARCH"))) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,

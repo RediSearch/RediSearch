@@ -416,6 +416,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // the command modifier callback (HybridKnnCommandModifier) which runs on the
   // IO thread with access to the actual topology/numShards.
   const size_t numArms = shardWireParams->numArms;
+  RS_LOG_ASSERT(numArms <= HYBRID_NUM_ARM_SLOTS, "a request has at most one arm per slot");
   if (numArms == 0) {
     // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
     MRCommand_appendSearch(xcmd, argv, argc, RMUtil_ArgIndex("SEARCH", argv, argc));
@@ -915,7 +916,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Get each arm's RPNet from its query context
     const size_t numArms = hreq->nrequests;
-    RPNet *rpnets[HYBRID_NUM_ARM_SLOTS];
+    RS_LOG_ASSERT(numArms > 0 && numArms <= HYBRID_NUM_ARM_SLOTS, "a parsed request has 1 to 3 arms");
+    RPNet *rpnets[HYBRID_NUM_ARM_SLOTS] = {0};
     for (size_t i = 0; i < numArms; i++) {
       rpnets[i] = (RPNet *)AREQ_QueryProcessingCtx(hreq->requests[i])->rootProc;
     }
