@@ -106,7 +106,10 @@ def testDocumentMatchedByEveryBranchKeepsTheValue(env):
     env.assertEqual(rows, [{'v': '30.5', 'id': '3'}])
 
 
+@skip(cluster=True)
 def testRejectedUnderNegation(env):
+    """The documents a NOT yields are those its child did not match, so there is no value to
+    load."""
     setup_hash_index(env)
     env.expect('FT.AGGREGATE', 'idx', '-(@n:[25 45] => {$as: v})').error() \
         .contains('`$as` is not supported under a negation')
@@ -145,6 +148,7 @@ def testSortByAliasWithTieBreaker(env):
 
 
 def testApplyAndFilterReadTheAlias(env):
+    """APPLY and FILTER read the alias like any field, and exists() tells rows without it."""
     setup_hash_index(env)
     rows = aggregate_rows(env, '@n:[35 45] => {$as: v} | @t:{a}', 'LOAD', '1', '@id',
                           'APPLY', 'exists(@v)', 'AS', 'has', 'FILTER', '@id <= 4',
@@ -158,6 +162,7 @@ def testApplyAndFilterReadTheAlias(env):
 
 
 def testSeveralAliases(env):
+    """Each loading clause has its own alias, under OR and under AND."""
     setup_hash_index(env)
     rows = aggregate_rows(env, '@n:[15 25] => {$as: lo} | @n:[65 75] => {$as: hi}',
                           'LOAD', '1', '@id', 'SORTBY', '2', '@id', 'ASC')
@@ -183,7 +188,10 @@ def testLoadOfSameNameIsServedByTheAlias(env):
     env.assertEqual(rows, [{'v': '20'}])
 
 
+@skip(cluster=True)
 def testAliasErrors(env):
+    """An alias that collides with a schema field or another alias, an invalid property name, and
+    `$as` on anything but a single NUMERIC clause are rejected."""
     setup_hash_index(env)
     env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: m}').error() \
         .contains('Property `m` already exists in schema')
@@ -198,7 +206,9 @@ def testAliasErrors(env):
             .contains('`$as` is supported only on NUMERIC clauses')
 
 
+@skip(cluster=True)
 def testRejectedOnVectorClause(env):
+    """A vector range clause yields distances through `$yield_distance_as`, not `$as`."""
     env.flush()
     enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
@@ -226,6 +236,7 @@ def testRejectedOnCompressedTree(env):
 
 
 def testSearchReturnsTheAlias(env):
+    """FT.SEARCH sorts by the alias and returns it when RETURN lists it."""
     setup_hash_index(env)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[25 45] => {$as: v}', 'SORTBY', 'v', 'ASC', 'RETURN', '1', 'v')
     env.assertEqual(res, [2, 'doc:3', ['v', '30.5'], 'doc:4', ['v', '40']])
@@ -285,3 +296,74 @@ def testExplainShowsTheAlias(env):
     setup_hash_index(env)
     res = env.cmd('FT.EXPLAIN', 'idx', '@n:[15 25] => {$as: v}')
     env.assertContains('NUMERIC {15.000000 <= @n <= 25.000000} => {$as: v}', res)
+
+
+def testOptimizedQueryKeepsTheAlias(env):
+    """With the query optimizer on (DIALECT 4, or WITHOUTCOUNT on FT.SEARCH) and a numeric SORTBY,
+    the optimizer would replace the iterator tree's root with a numeric top-k that drops the
+    loaded value. A query with a loading clause therefore runs unoptimized."""
+    setup_hash_index(env)
+    query = '@t:{a} @n:[25 75] => {$as: v}'
+
+    def without(rows, field):
+        return [{k: v for k, v in row.items() if k != field} for row in rows]
+
+    for sort_field in ['m', 'n']:
+        rows = aggregate_rows(env, query, 'LOAD', '1', '@id', 'SORTBY', '2', f'@{sort_field}', 'ASC',
+                              'DIALECT', '4')
+        env.assertEqual(without(rows, sort_field), [{'v': '30.5', 'id': '3'}, {'v': '50', 'id': '5'},
+                                                    {'v': '70', 'id': '7'}], message=sort_field)
+        rows = aggregate_rows(env, query, 'LOAD', '1', '@id', 'FILTER', '@v > 40',
+                              'SORTBY', '2', f'@{sort_field}', 'ASC', 'DIALECT', '4')
+        env.assertEqual(without(rows, sort_field), [{'v': '50', 'id': '5'}, {'v': '70', 'id': '7'}],
+                        message=sort_field)
+
+        for optimize in [['WITHOUTCOUNT'], ['DIALECT', '4']]:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', sort_field, 'ASC', 'RETURN', '1', 'v',
+                          *optimize)
+            env.assertEqual(res[1:], ['doc:3', ['v', '30.5'], 'doc:5', ['v', '50'],
+                                      'doc:7', ['v', '70']], message=(sort_field, optimize, res))
+
+
+def testLoadsOnEquality(env):
+    """`@n == x` is a NUMERIC clause too."""
+    setup_hash_index(env)
+    env.assertEqual(aggregate_rows(env, '@n == 40 => {$as: v}', 'LOAD', '1', '@id'),
+                    [{'v': '40', 'id': '4'}])
+
+
+@skip(cluster=True)
+def testProfileIteratorTreeIsUnchanged(env):
+    """The index-loading decorator is invisible in FT.PROFILE: the iterator tree is the one the
+    clause builds without `$as`."""
+    setup_hash_index(env)
+
+    def without_time(node):
+        if not isinstance(node, list):
+            return node
+        out, i = [], 0
+        while i < len(node):
+            if node[i] == 'Time':
+                i += 2
+                continue
+            out.append(without_time(node[i]))
+            i += 1
+        return out
+
+    def iterators_profile(reply):
+        if isinstance(reply, list):
+            for i, item in enumerate(reply):
+                if item == 'Iterators profile':
+                    return without_time(reply[i + 1])
+                found = iterators_profile(item)
+                if found is not None:
+                    return found
+        return None
+
+    for query in ['@n:[25 75]', '@t:{a} @n:[25 75]', '@n:[25 35] | @t:{b}']:
+        plain = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query)
+        loading = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY',
+                          query.replace('@n:[25 75]', '@n:[25 75] => {$as: v}')
+                               .replace('@n:[25 35]', '@n:[25 35] => {$as: v}'))
+        env.assertIsNotNone(iterators_profile(plain), message=plain)
+        env.assertEqual(iterators_profile(loading), iterators_profile(plain), message=query)

@@ -10,6 +10,7 @@
 #include "index_loading.h"
 
 #include "config.h"
+#include "query.h"
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 
@@ -54,4 +55,13 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
   qn->opts.distField = (char *)attr->value;
   attr->value = NULL;
   return 1;
+}
+
+static int nodeDoesNotLoad(QueryNode *node, QueryNode *root, void *ctx) {
+  return !IndexLoading_NodeLoads(node);
+}
+
+bool IndexLoading_TreeLoads(QueryNode *root) {
+  // `QueryNode_ForEach` stops, and returns 0, at the first node the callback rejects.
+  return !QueryNode_ForEach(root, nodeDoesNotLoad, NULL, 0);
 }

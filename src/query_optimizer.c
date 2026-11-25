@@ -120,10 +120,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      // A loading clause stays in the tree: the optimizer's own scan of the range yields no
-      // loaded value.
-      if (targetFieldIndex != RS_INVALID_FIELD_INDEX &&
-          node->nn.nf->fieldIndex == targetFieldIndex && !IndexLoading_NodeLoads(node)) {
+      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && node->nn.nf->fieldIndex == targetFieldIndex) {
         ret = node;
       }
       break;
@@ -183,6 +180,13 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   bool isSortby = !!field;
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
+
+  // The numeric top-k the optimizer can put at the root yields results of its own, without the
+  // values a loading clause attaches.
+  if (IndexLoading_TreeLoads(root)) {
+    opt->type = Q_OPT_NONE;
+    return;
+  }
 
   if (root->type == QN_WILDCARD) {
     opt->scorerType = SCORER_TYPE_NONE;
@@ -333,8 +337,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
           return REDISMODULE_ERR;
         }
       } else if (req->ast.root->type == QN_NUMERIC) {
-        // trim the union numeric iterator to have the minimal number of ranges. A loading clause
-        // keeps every range: its iterator is the index-loading decorator, not the union.
+        // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
