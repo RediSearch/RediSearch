@@ -2731,14 +2731,14 @@ static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
 }
 
-// Dictionary type for keyPtr -> HybridSearchResult mapping
+// Binary-safe document key -> HybridSearchResult mapping
 dictType dictTypeHybridSearchResult = {
-  .hashFunction = stringsHashFunction,
-  .keyDup = stringsKeyDup,
-  .valDup = NULL,
-  .keyCompare = stringsKeyCompare,
-  .keyDestructor = stringsKeyDestructor,
-  .valDestructor = hybridSearchResultValueDestructor,
+    .hashFunction = redisStringsHashFunction,
+    .keyDup = redisStringsKeyDup,
+    .valDup = NULL,
+    .keyCompare = redisStringsKeyCompare,
+    .keyDestructor = redisStringsKeyDestructor,
+    .valDestructor = hybridSearchResultValueDestructor,
 };
 
  /*******************************************************************************************************************
@@ -2791,23 +2791,25 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
+static bool hybridMergerStoreUpstreamResult(RPHybridMerger *self, SearchResult *r,
+                                            size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = RLookupRow_New();
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
-      self->lookupCtx->sourceLookups[upstreamIndex], &translated,
-      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
+                             self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+                             self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
   RLookupRow_Reset(SearchResult_GetRowDataMut(r));
   SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+  size_t keyLen = keyPtr ? sdslen(dmd->keyPtr) : 0;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
-      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+      keyPtr = RSValue_StringPtrLen(docKeyValue, &keyLen);
     }
   }
   if (!keyPtr) {
@@ -2815,22 +2817,24 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   }
 
   // Check if we've seen this document before
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(self->hybridResults, keyPtr);
+  RedisModuleString *key = RedisModule_CreateString(NULL, keyPtr, keyLen);
+  HybridSearchResult *hybridResult = (HybridSearchResult *)dictFetchValue(self->hybridResults, key);
 
   if (!hybridResult) {
     // First time seeing this document - create new hybrid result
     hybridResult = HybridSearchResult_New(self->numUpstreams);
-    dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
+    dictAdd(self->hybridResults, key, hybridResult);
   }
 
-   SearchResult_SetScore(r, score);
-   // The merger holds `r` in its dictionary across further upstream Reads;
-   // preserve or drop the borrowed RSIndexResult so it does not dangle.
-   SearchResult_BufferIndexResult(&self->base, r);
-   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
-   return true;
- }
+  RedisModule_FreeString(NULL, key);
 
+  SearchResult_SetScore(r, score);
+  // The merger holds `r` in its dictionary across further upstream Reads;
+  // preserve or drop the borrowed RSIndexResult so it does not dangle.
+  SearchResult_BufferIndexResult(&self->base, r);
+  HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+  return true;
+}
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
    size_t consumed = 0;
