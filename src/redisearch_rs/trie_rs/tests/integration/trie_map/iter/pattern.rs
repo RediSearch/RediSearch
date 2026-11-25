@@ -8,7 +8,7 @@
 */
 
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -281,6 +281,30 @@ fn unanchored_scans_can_stop_before_yielding_their_first_match() {
             iter.next().is_none(),
             "{mode:?} yielded during cancellation"
         );
+    }
+}
+
+#[test]
+fn long_wildcard_patterns_can_stop_before_their_first_match() {
+    for (backend, literal_len) in [("u128", 80), ("filter", 140)] {
+        let mut trie = TrieMap::new();
+        for i in 0..500 {
+            trie.insert(format!("key{i:04}").as_bytes(), ());
+        }
+        let literal = "a".repeat(literal_len);
+        let last_match = format!("zz{literal}x");
+        trie.insert(last_match.as_bytes(), ());
+        let pattern = format!("*{literal}?");
+
+        let scan = || trie.pattern_lending_iter(pattern.as_bytes(), PatternMode::Wildcard);
+        assert_eq!(keys(scan()), owned(&[last_match.as_bytes()]), "{backend}");
+
+        // Require three polls to distinguish traversal polling from checks at entry and yield.
+        let polls = AtomicUsize::new(0);
+        let stop = || polls.fetch_add(1, Ordering::Relaxed) >= 2;
+        let mut iter = scan();
+        iter.set_stop_check(&stop);
+        assert!(iter.next().is_none(), "{backend} yielded the final match");
     }
 }
 
