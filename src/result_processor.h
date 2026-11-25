@@ -233,8 +233,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ * @param scoreSkipping whether a full heap may publish its minimum as the pipeline's
+ * `minCompetitiveScore`: the request's `diskScoreSkippingQuery`, taken when the request was
+ * created.
  */
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey,
+                                     bool scoreSkipping);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -363,6 +367,8 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *rp);
 */
 ResultProcessor *RPDepleter_New();
 
+/** Marks a depleter whose pipeline root preloads the total (coordinator WITHCOUNT). */
+void RPDepleter_SetTotalPreloaded(ResultProcessor *base);
 
 /**
 * Consumes and buffers all upstream results without yielding any to the caller.
@@ -486,6 +492,24 @@ enum CrashLocation {
 };
 ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
+
+/**
+ * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
+ * with RS_RESULT_STOPPED. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
+ * RS_RESULT_STOPPED and keeps the rows buffering stages upstream already held. Always false for
+ * a pipeline without a timeout state.
+ */
+bool RP_FillShouldStop(ResultProcessor *rp);
+
+/**
+ * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
+ * with RS_RESULT_STOPPED, also under a RETURN stop policy. Rows it already emitted are kept, and
+ * rows a buffering stage upstream still holds are not drained through it. A stop that an upstream
+ * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
+ * held rows pass.
+ */
+bool RP_FillShouldCut(ResultProcessor *rp);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY

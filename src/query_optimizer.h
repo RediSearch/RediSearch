@@ -103,15 +103,8 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt);
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure (allocation overflow). */
 int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status);
 
-/* estimate the number of documents that should be checked before reaching the
- * `limit` requirement of the the query. */
-size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit);
-
 /* update total results to number of returned results. */
 void QOptimizer_UpdateTotalResults(AREQ *req);
-
-/* print type of optimizer */
-const char *QOptimizer_PrintType(QOptimizer *opt);
 
 #ifdef __cplusplus
 }

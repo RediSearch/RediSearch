@@ -724,6 +724,11 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     do {
       MRReply_Free(rpnet->current.root);
       RPNet_resetCurrent(rpnet);
+      // A memory stop, possibly requested mid-drain, aborts the pop on an empty channel with
+      // RS_RESULT_STOPPED forever. Take only what is queued, so the next call ends with EOF.
+      if (QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+        rpnet->drainOnly = true;
+      }
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;

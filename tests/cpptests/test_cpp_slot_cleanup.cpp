@@ -378,6 +378,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
       QueryIterator base{};
       RSIndexResult current{};
       Iterator() {
+        QueryIterator_SetNoScoreBounds(&base);
         base.Free = [](QueryIterator *) {};
         base.Read = [](QueryIterator *base) {
           auto *self = reinterpret_cast<Iterator *>(base);
@@ -469,6 +470,7 @@ class BufferedDiskQuery {
     RSIndexResult *current = nullptr;
     Iterator() {
       current = NewVirtualResult(1.0, RS_FIELDMASK_ALL);
+      QueryIterator_SetNoScoreBounds(&base);
       base.Free = [](QueryIterator *base) {
         auto *self = reinterpret_cast<Iterator *>(base);
         IndexResult_Free(self->current);
@@ -524,7 +526,7 @@ class BufferedDiskQuery {
   }
 
   void sortByScore() {
-    auto *sorter = RPSorter_NewByScore(6, nullptr);
+    auto *sorter = RPSorter_NewByScore(6, nullptr, true);
     QITR_PushRP(activeProcessing, sorter);
     processor = sorter;
   }

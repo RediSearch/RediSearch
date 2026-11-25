@@ -7,71 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! FFI entry point for iterator profile printing and C-only iterator
-//! `PrintProfile` vtable implementations.
+//! FFI entry point for iterator profile printing.
 //!
 //! Rust iterators have their `PrintProfile` vtable entry set at
-//! construction time by [`rqe_iterators::interop::RQEIteratorWrapper::boxed_new`]. C-only
-//! iterator types (Hybrid, Optimus) set theirs to the
-//! `extern "C"` functions exported here.
+//! construction time by [`rqe_iterators::interop::RQEIteratorWrapper::boxed_new`].
 
-use std::{ffi::CStr, ptr::NonNull};
+use std::ptr::NonNull;
 
 use ffi::QueryIterator;
 use redis_module::RedisModuleCtx;
 use redis_reply::Replier;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
-
-// ── C-only iterator PrintProfile vtable implementations ─────────────────
-
-/// `PrintProfile` vtable entry for Optimus (optimizer) iterators.
-///
-/// # Safety
-///
-/// 1. `self_` must be a valid pointer to an Optimus iterator.
-/// 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
-/// 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Optimus_PrintProfile(
-    self_: *const QueryIterator,
-    map: *mut redis_reply::MapBuilder,
-    ctx: *mut ProfilePrintCtx,
-) {
-    debug_assert!(!self_.is_null());
-    debug_assert_eq!(
-        // SAFETY: precondition 1.
-        unsafe { (*self_).type_ },
-        IteratorType::Optimus,
-        "Optimus_PrintProfile called on a non-Optimus iterator",
-    );
-    // SAFETY: precondition 2.
-    let map = unsafe { &mut *map };
-    // SAFETY: precondition 3.
-    let ctx = unsafe { &mut *ctx };
-
-    map.kv_simple_string(c"Type", c"OPTIMIZER");
-    ctx.print_optional_counters(map);
-
-    // SAFETY: precondition 1.
-    let mode_str = unsafe { ffi::OptimizerIterator_GetOptimizationType(self_) };
-    if !mode_str.is_null() {
-        // SAFETY: mode_str is a valid C string (checked non-null).
-        let mode_cstr = unsafe { CStr::from_ptr(mode_str) };
-        map.kv_simple_string(c"Optimizer mode", mode_cstr);
-    }
-
-    // SAFETY: precondition 1.
-    let child = unsafe { ffi::OptimizerIterator_GetChild(self_) };
-    if let Some(child) = std::ptr::NonNull::new(child as *mut _) {
-        let mut child_map = map.kv_map(c"Child iterator");
-        let mut child_ctx = ctx.child_ctx();
-        // SAFETY: child is valid (checked non-null), and every iterator's
-        // PrintProfile vtable entry is set at construction, by
-        // `RQEIteratorWrapper::boxed_new` or by the C iterator's constructor.
-        unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
-    }
-}
 
 // ── FFI entry point ─────────────────────────────────────────────────────
 

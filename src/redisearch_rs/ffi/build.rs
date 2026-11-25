@@ -212,15 +212,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/iterators/optimizer_reader.h",
-        fns: &[
-            "OptimizerIterator_GetChild",
-            "OptimizerIterator_GetOptimizationType",
-        ],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/json.h",
         fns: &["JSON_GetJsonFromHandle"],
         types: &[],
@@ -585,6 +576,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &["QueryMemory_CheckpointExtern"],
+        types: &[],
+        vars: &[],
+    },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
     // chosen for `vector_top_k` hybrid iteration.
     HeaderAllowlist {
@@ -675,8 +672,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "types_ffi.h",
     // TAG GC walks the C TagIndex values trie directly.
     "triemap_ffi.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    // `aggregate.h` includes `value_ffi.h`.
     "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is

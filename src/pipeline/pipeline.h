@@ -13,6 +13,7 @@
 #include "query.h"
 #include "query_eval.h"
 #include "query_flags.h"
+#include "query_request.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +113,10 @@ typedef struct AggregationPipelineParams {
    *  Used by highlighting result processors to apply proper stemming,
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
+
+  /** The request's `diskScoreSkippingQuery`, taken when the request was created: whether a score
+   *  sorter may pass its heap minimum upstream as a threshold. */
+  bool diskScoreSkippingQuery;
 } AggregationPipelineParams;
 
 /**
@@ -206,10 +211,10 @@ typedef struct Pipeline {
  * context, and prepares the pipeline for step addition and execution.
  *
  * @param pipeline The pipeline structure to initialize
- * @param timeoutPolicy Policy for handling query timeouts (fail vs. return partial results)
- * @param status Error status object for reporting initialization failures
+ * @param request The owning request: its timeout and ON_OOM policies, its timeout state, and its
+ *        reply error slot, which the running pipeline reports into
  */
-void Pipeline_Initialize(Pipeline *pipeline, RSTimeoutPolicy timeoutPolicy, QueryError *status);
+void Pipeline_Initialize(Pipeline *pipeline, QueryRequest *request);
 
 /**
  * Clean up and free all resources associated with a query pipeline.
