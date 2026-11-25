@@ -322,12 +322,22 @@ impl TestContext {
         id
     }
 
-    /// Create a new [`TestContext`] with a numeric inverted index having the given records.
+    /// Create a new [`TestContext`] with a numeric inverted index having the given records,
+    /// stored with float compression.
     ///
     /// # Arguments
     /// * `records` - An iterator over the records to be indexed.
     /// * `multi` - Whether each record should be added twice.
     pub fn numeric<I>(records: I, multi: bool) -> Self
+    where
+        I: Iterator<Item = RSIndexResult<'static>>,
+    {
+        Self::numeric_with_compression(records, multi, true)
+    }
+
+    /// Like [`numeric`](Self::numeric), with the range tree created with float compression
+    /// iff `compress_floats`.
+    pub fn numeric_with_compression<I>(records: I, multi: bool, compress_floats: bool) -> Self
     where
         I: Iterator<Item = RSIndexResult<'static>>,
     {
@@ -353,7 +363,7 @@ impl TestContext {
 
         // Create the numeric range tree through the proper API
         let numeric_range_tree = unsafe {
-            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, true)
+            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, compress_floats)
         }
         .expect("NumericRangeTree should not be None");
 

@@ -157,6 +157,12 @@ enum QueryNodeFlags
    * the internally generated name is hidden from the user.
    */
   QueryNodeFlags_HideVectorDistanceField = 0x40,
+  /**
+   * The node loads the value it matched under the alias stored in
+   * [`QueryNodeOptions::dist_field`] (the `as` query attribute, an
+   * unstable feature). Only set on numeric nodes.
+   */
+  QueryNodeFlags_LoadsValue = 0x80,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeFlags;

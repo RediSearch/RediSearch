@@ -197,6 +197,10 @@ pub enum QueryNodeFlags {
     /// no explicit `AS` alias is provided for the vector score field, so
     /// the internally generated name is hidden from the user.
     HideVectorDistanceField = 0x40,
+    /// The node loads the value it matched under the alias stored in
+    /// [`QueryNodeOptions::dist_field`] (the `as` query attribute, an
+    /// unstable feature). Only set on numeric nodes.
+    LoadsValue = 0x80,
 }
 
 /// Phonetic matching mode for a query node.

@@ -20,9 +20,9 @@
  * loading it from the document. An unstable feature, gated on
  * `search-enable-unstable-features`.
  *
- * The alias is stored on the node's `opts.distField`; query evaluation
- * reserves a metric under it and wraps the clause's iterator so each hit
- * carries the value. */
+ * A loading node carries `QueryNodeFlags_LoadsValue` and stores the alias on its
+ * `opts.distField`; query evaluation reserves a metric under it and wraps the
+ * clause's iterator so each hit carries the value. */
 
 #define AS_ATTR "as"
 
@@ -32,7 +32,7 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
 
 /* Whether `qn` loads a value through `$as`. */
 static inline bool IndexLoading_NodeLoads(const QueryNode *qn) {
-  return qn->type == QN_NUMERIC && qn->opts.distField;
+  return qn->opts.flags & QueryNodeFlags_LoadsValue;
 }
 
 /* Whether any clause in the tree under `root` loads a value through `$as`. */

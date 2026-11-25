@@ -14,8 +14,10 @@
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 
-// Mirrors the expression lexer's `@property` token, so the alias can be referenced from SORTBY,
-// APPLY and FILTER.
+// Admits an alias that SORTBY, APPLY and FILTER can reference as `@alias`: one or more bytes, none
+// of them ASCII punctuation (`_` excepted), control or space. Stricter than the expression lexer's
+// `property` rule, which also accepts punctuation escaped with a backslash (`@a\-b`); relaxing it
+// later is not a breaking change.
 static bool isValidPropertyName(const char *name, size_t len) {
   if (len == 0) {
     return false;
@@ -54,6 +56,7 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
   rm_free(qn->opts.distField);
   qn->opts.distField = (char *)attr->value;
   attr->value = NULL;
+  qn->opts.flags |= QueryNodeFlags_LoadsValue;
   return 1;
 }
 

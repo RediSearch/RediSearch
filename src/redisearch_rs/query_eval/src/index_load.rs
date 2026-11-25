@@ -9,7 +9,8 @@
 
 //! Evaluation of index loading, the `$as` query attribute on a numeric clause.
 //!
-//! The parser stores the alias on the clause's
+//! The parser marks a loading node with [`QueryNodeFlags::LoadsValue`] and
+//! stores the alias on its
 //! [`dist_field`](query_types::QueryNodeOptions::dist_field), and admits it
 //! only on numeric nodes while unstable features are enabled. Evaluation
 //! reserves a metric request under the alias and wraps the clause's iterator
@@ -20,7 +21,7 @@ use ffi::FieldSpec;
 use numeric_range_tree::NumericRangeTree;
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
-use query_types::QueryNodeType;
+use query_types::QueryNodeFlags;
 use rqe_iterators::{c2rust::CRQEIterator, index_load};
 
 use crate::{Evaluated, QueryEvalContext, QueryNodeRef, metric_binding::bind_metric_request};
@@ -39,10 +40,11 @@ pub(crate) fn reserve(
     ctx: &mut QueryEvalContext,
     node: &QueryNodeRef,
 ) -> Result<Option<MetricRequestId>, Rejected> {
-    let alias = node.opts().dist_field;
-    if alias.is_null() {
+    if !loads(node) {
         return Ok(None);
     }
+    let alias = node.opts().dist_field;
+    debug_assert!(!alias.is_null(), "a loading node carries its alias");
     if ctx.in_not_sub_tree() {
         ctx.status().set_error(
             QueryErrorCode::BadAttr,
@@ -50,7 +52,7 @@ pub(crate) fn reserve(
         );
         return Err(Rejected);
     }
-    // SAFETY: `alias` is non-null, per the guard above, and is the
+    // SAFETY: `alias` is non-null, as on every loading node, and is the
     // NUL-terminated name the parser stored on the node's options. The
     // request borrows it; the node owns it, and the AST outlives the
     // metric-request array.
@@ -95,6 +97,10 @@ pub(crate) fn decorate<'index>(
 
 /// Whether a clause in the subtree of `node` loads a value.
 pub(crate) fn subtree_loads(node: &QueryNodeRef) -> bool {
-    (node.node_type() == QueryNodeType::Numeric && !node.opts().dist_field.is_null())
-        || node.children().any(|child| subtree_loads(&child))
+    loads(node) || node.children().any(|child| subtree_loads(&child))
+}
+
+/// Whether `node` itself loads a value.
+fn loads(node: &QueryNodeRef) -> bool {
+    node.opts().flags.contains(QueryNodeFlags::LoadsValue)
 }
