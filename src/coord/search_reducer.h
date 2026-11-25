@@ -22,6 +22,8 @@ int CoordSearchReducer_Schedule(struct MRCtx *ctx, int count, MRReply **replies)
 /* Blocked-client callbacks share the request's result-production claim. */
 int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int CoordSearchReducer_TimeoutFail(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+void CoordSearchReducer_DisconnectFail(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
+RedisModuleCtx *CoordSearchReducer_CreateReplyContext(QueryRequest *request, RedisModuleBlockedClient *bc);
 int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG

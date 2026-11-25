@@ -138,6 +138,7 @@ typedef struct {
   bool timedOut;
 
   struct searchReducerCtx *rctx;
+  bool serializeInReplyCallback;
 } searchRequestCtx;
 
 /* Borrows the query from QueryRequest's held arguments. */
