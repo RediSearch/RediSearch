@@ -63,7 +63,10 @@ pub enum IteratorType {
     /// Used only in tests.
     Mock = 23,
     SparseVector = 24,
-    Max = 25,
+    /// Index loading: attaches the numeric value of each hit of its child as a
+    /// metric, so the pipeline can read it as a field.
+    IndexLoad = 25,
+    Max = 26,
 }
 
 impl IteratorType {
@@ -92,6 +95,9 @@ impl IteratorType {
 
             // Wraps a union of posting-list iterators, so it has children.
             Self::SparseVector => false,
+
+            // Decorates a single child.
+            Self::IndexLoad => false,
 
             Self::Hybrid
             | Self::Union
@@ -134,6 +140,7 @@ impl IteratorType {
             Self::GeoShape => "GEO_SHAPE",
             Self::Mock => "MOCK",
             Self::SparseVector => "SPARSE_VECTOR",
+            Self::IndexLoad => "INDEX_LOAD",
             Self::Max => "MAX",
         }
     }
@@ -175,7 +182,8 @@ impl TryFrom<u32> for IteratorType {
             22 => Ok(Self::MetricLazySortedByScore),
             23 => Ok(Self::Mock),
             24 => Ok(Self::SparseVector),
-            25 => Ok(Self::Max),
+            25 => Ok(Self::IndexLoad),
+            26 => Ok(Self::Max),
             other => Err(other),
         }
     }

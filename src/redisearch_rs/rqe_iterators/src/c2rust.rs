@@ -450,6 +450,19 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
             IteratorType::SparseVector => 1.0,
+            IteratorType::IndexLoad => {
+                // SAFETY: `type_ == IndexLoad` guarantees `self` was produced by
+                // `index_load::boxed_new`, whose inner type is
+                // `IndexLoad<CRQEIterator>`; `as_raw` returns the owning pointer, whose
+                // provenance spans the whole wrapper.
+                unsafe {
+                    RQEIteratorWrapper::<crate::index_load::IndexLoad<'_, CRQEIterator>>::ref_from_header_ptr(
+                        self.as_raw(),
+                    )
+                }
+                .inner
+                .intersection_sort_weight(prioritize_union_children)
+            }
             IteratorType::Max => 1.0,
         }
     }
