@@ -408,6 +408,7 @@ dependencies = [
  "lending-iterator",
  "proptest",
  "thiserror",
+ "timeout",
  "trie_rs",
  "workspace_hack",
 ]

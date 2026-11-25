@@ -14,8 +14,9 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
-use compound_index::{BucketRange, CollectError, CompoundIndex, Constraint, Key, WalkLimits};
+use compound_index::{BucketRange, CollectError, CompoundIndex, Constraint, Key};
 use proptest::prelude::*;
+use timeout::NoTimeoutChecker;
 
 use crate::util::{bucket_level, tag_level};
 
@@ -153,7 +154,7 @@ proptest! {
     ) {
         let index = index_of(&elements);
         let constraints = [color.clone(), size.clone(), year.clone()];
-        let result = index.collect_terminals(&constraints, WalkLimits::UNLIMITED);
+        let result = index.collect_terminals(&constraints, usize::MAX, &mut NoTimeoutChecker);
 
         if let Constraint::BucketRange(range) = &year
             && cuts_a_bucket(range)

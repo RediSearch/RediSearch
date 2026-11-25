@@ -120,7 +120,7 @@ $.items[*] AS items NESTED 4
 
 | Option | Applies to | Meaning | At ingest | Effect on the index and the planner |
 |---|---|---|---|---|
-| `MAXCARD <n>` | TAG level | At most `n` distinct values on this level, counted per parent node | A value that would be the `n+1`-th child is an index error for the doc (the doc isn't indexed and the error shows in `FT.INFO`, like a type mismatch) | Caps children per node, so tree size ≤ ∏ `MAXCARD` × terminal size. An `Any` walk on this level opens at most `n` children, so `FT.CREATE` can compute the worst-case number of terminals per query and reject an `INDEX` whose product exceeds `NESTED_MAX_TERMINALS_PER_QUERY` |
+| `MAXCARD <n>` | TAG level | At most `n` distinct values on this level, counted per parent node | A value that would be the `n+1`-th child is an index error for the doc (the doc isn't indexed and the error shows in `FT.INFO`, like a type mismatch) | Caps children per node, so tree size ≤ ∏ `MAXCARD` × terminal size. An `Any` walk on this level opens at most `n` children, so the product of the `MAXCARD`s bounds the terminals any query can reach |
 | `BUCKETS <n> b₁ … bₙ` | NUMERIC level, any position | Fixed boundaries giving the intervals `[b₁,b₂) … [bₙ₋₁,bₙ)`, at most `MAX_BUCKETS` (1,024) of them, checked at `FT.CREATE` in either position. No dynamic splits | A value outside `[b₁, bₙ)` is an index error | **As a middle level**: an equality level whose children are the buckets (cardinality n−1). **As the terminal**: a range tree pre-split at the boundaries that never splits again, so leaf count and memory per terminal are fixed |
 | `RANGE <lo> <hi>` | NUMERIC terminal | Valid values are `[lo, hi]` | A value outside is an index error | Validation only. The range tree still splits dynamically, but within known bounds, which the first splits can use |
 
@@ -152,10 +152,12 @@ filtered by value as in any numeric range query today.
 
 #### Defaults
 
-All three options are absent by default, which means no cardinality cap and dynamic ranges. The
-global safety limits (`NESTED_MAX_TERMINALS` at ingest and `NESTED_MAX_TERMINALS_PER_QUERY` at
-query time) still apply. Declared limits only make them reachable earlier and predictably: at
-`FT.CREATE` for the static check, at ingest per document.
+All three options are absent by default, which means no cardinality cap and dynamic ranges. A
+NESTED field then has no ingest limit beyond what a TAG or multi-value NUMERIC field has today:
+any number of elements per document and any number of distinct paths, made visible through
+`FT.INFO` (§3, "Limits and costs"). These options are the only user-facing limits of the
+feature. Everything else is an internal constant (`MAX_LEVELS`, `MAX_BUCKETS`) or a query-time
+bound (§5, step 3), none of them configurable.
 
 #### Limitation: only the terminal numeric adapts to the data
 
@@ -236,8 +238,8 @@ The index has two layers:
     layer never handles doc ids;
   - `check_paths(paths)`, which runs the same checks on all of one document's paths together,
     so ingest can index a document whole or not at all (§3, "Ingest path");
-  - `collect_terminals(constraints, limits)`, the planner's walk (§5), which fails instead of
-    truncating past either of its `WalkLimits`: terminals returned and nodes entered.
+  - `collect_terminals(constraints, max_terminals, timeout)`, the planner's walk (§5), which
+    fails instead of truncating past `max_terminals`, and stops when the query times out.
 
   Removing terminals comes with GC (fifth PR), which removes each emptied terminal by its path.
 - **The terminals** (second PR), reusing existing structures unchanged:
@@ -263,7 +265,7 @@ the terminal type changes.
 The crate is built around one rule: **check everything first, then touch the tree**. Writes check
 a whole path, or a whole document's paths, before inserting anything. Queries check every
 constraint before visiting any node. A bad path or query is rejected up front, and the only
-errors left during a walk are its `WalkLimits`.
+errors left during a walk are its terminal bound and the query timeout.
 
 Public types, used by the later PRs:
 
@@ -289,16 +291,17 @@ Public types, used by the later PRs:
   unbounded), like a query's `[lo hi]`. It selects the buckets wholly inside it and is rejected if
   one is only partly inside, since nothing below a bucket level can filter the elements outside
   the range.
-- **`WalkLimits`**: the two budgets of one walk. `max_terminals` bounds how many terminals it
-  returns, so the number of iterators the UNION opens. `max_nodes` bounds how many nodes it
-  enters, so the work of a query that leaves a level open and matches little. Past either one,
-  the walk fails rather than returning a truncated, wrong result.
-- **`num_terminals`**: a running count of terminals, so `FT.INFO` and the ingest cap
-  `NESTED_MAX_TERMINALS` read it without a walk. It changes in exactly two places: +1 when an
-  insert creates a path, −1 when GC (fifth PR) removes one.
+- **The walk's bounds**: `max_terminals` bounds how many terminals it returns, so the number of
+  iterators the UNION opens. A `TimeoutChecker` (the `timeout` crate's trait, which query
+  iterators already use) is checked on every node entered, so the query timeout bounds the work
+  of a query that leaves a level open and matches little. Past either one, the walk fails
+  rather than returning a truncated, wrong result.
+- **`num_terminals`**: a running count of terminals, so `FT.INFO` reads it without a walk. It
+  changes in exactly two places: +1 when an insert creates a path, −1 when GC (fifth PR) removes
+  one.
 - **Errors**: `SchemaError` (levels), `BucketsError` (boundaries), `PathError` (a path that does not
-  route), `InsertError` (adds the cardinality limit), `CollectError` (adds the walk limits). Each
-  names the level at fault, so the C side can build a user-facing message.
+  route), `InsertError` (adds the cardinality limit), `CollectError` (adds the terminal bound and
+  the timeout). Each names the level at fault, so the C side can build a user-facing message.
 
 Internal types, private to the crate, that carry the "check first" rule:
 
@@ -318,8 +321,8 @@ Internal types, private to the crate, that carry the "check first" rule:
 2. **Preprocess** (`document.c`, `preprocessorMap[IXFLDPOS_NESTED]`): validate the types and
    normalise TAG values (case folding unless `CASESENSITIVE`; no separator split, see §2). Drop elements
    that are missing any level's attribute. They aren't indexed, so they never match a group,
-   which gives SQL's NULL behaviour. Reject the document (index error, like today's type
-   mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K).
+   which gives SQL's NULL behaviour. There is no cap on elements per document, as for
+   multi-value fields today.
 3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, first
    call `check_paths` on all the document's rows together, and fail the document if it errors.
    Checking each row alone is not enough: two new values under one parent can each fit a
@@ -357,9 +360,9 @@ This is the invariant every posting list in the codebase already relies on.
   than one value is an index error).
 - **Memory**: a terminal costs about one range tree root, or one TrieMap entry plus one inverted
   index. Many sparse prefixes mean many small terminals, a fixed cost per distinct path at every
-  level. Report `nested_terminals`, `nested_entries` and `nested_bytes` in `FT.INFO`, and add a
-  config cap `NESTED_MAX_TERMINALS` per field (proposed 1M) past which ingest fails with an error
-  naming the field.
+  level. Report `nested_terminals`, `nested_entries` and `nested_bytes` in `FT.INFO`. There is no
+  cap on distinct paths, as there is none on distinct TAG values: `MAXCARD` is the opt-in bound,
+  and `FT.INFO` gives visibility without a new way for ingest to fail.
 
 ---
 
@@ -432,7 +435,7 @@ routing level, plus a constraint on the terminal:
 |---|---|
 | `@color:{red}`, `@color:{red\|blue}` | `TagIn([red, blue])` |
 | `-@color:{red}` | `TagNotIn([red])` |
-| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, bounded by the walk limits of step 3; unlike `MAXPREFIXEXPANSIONS` it fails instead of truncating) |
+| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, bounded as in step 3; unlike `MAXPREFIXEXPANSIONS` it fails instead of truncating) |
 | no clause on the level | `Any` |
 | `@year:[lo hi]`, `[(lo hi]`, … on a `BUCKETS` middle level | `BucketRange { start, end }` with each end `Included`, `Excluded` or `Unbounded`. It selects the buckets wholly inside the range and fails if one is only partly inside (§2, "Optional limits") |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
@@ -440,8 +443,9 @@ routing level, plus a constraint on the terminal:
 
 An `|` across sub-fields inside the group (`@color:{red} | @size:{M}`) becomes **disjunctive
 normal form**: each branch is its own conjunction, planned separately, and the branches are UNIONed.
-Cap the number of branches (`NESTED_MAX_DNF_BRANCHES`, proposed 16) and fail the query with a
-clear error past it. A clause on something that isn't a sub-field of the group is a parse error.
+Cap the number of branches with an internal constant (16, not configurable) and fail the query
+with a clear error past it. A clause on something that isn't a sub-field of the group is a parse
+error.
 
 ### Step 2: walk the tree to collect terminals
 
@@ -500,15 +504,16 @@ Using the running example's `INDEX 3 color size price`:
 - **Estimate**: the group's `num_estimated` is the sum of the visited terminals' `unique_docs`.
   The outer INTERSECT uses this to order its children, so a selective group drives the
   intersection.
-- **Expansion caps**: `collect_terminals` takes two `WalkLimits`, and fails the query instead of
-  truncating past either. Silent truncation, as prefix expansion does today, would return wrong
+- **Expansion bounds**: none of these is a config. The walk fails the query instead of
+  truncating past a bound. Silent truncation, as prefix expansion does today, would return wrong
   results.
-  - `NESTED_MAX_TERMINALS_PER_QUERY` (proposed 10K) bounds the terminals returned, so the number
-    of iterators the UNION opens.
-  - `NESTED_MAX_NODES_PER_QUERY` (proposed 100K) bounds the nodes entered. A level the query
-    leaves open is entered through every child even when nothing matches below it:
-    `@items:( @size:{XL} )` with no `MAXCARD` on `color` enters every color to find no XL. Only this
-    second limit bounds that work.
+  - The query timeout bounds the walk's work. A level the query leaves open is entered through
+    every child even when nothing matches below it: `@items:( @size:{XL} )` with no `MAXCARD` on
+    `color` enters every color to find no XL. The walk runs while the iterator tree is built,
+    before any result processor checks the timeout, so it checks the timeout itself on every node
+    entered, as the prefix and wildcard expansions check it during their trie walks.
+  - Internal constants bound the terminals returned and the iterators opened on them (10K and
+    100K). That bounds the memory of the UNION, as `MAXPREFIXEXPANSIONS` does for a prefix.
 - **Profile**: `FT.PROFILE` shows a `NESTED` iterator with `terminals_visited`, `levels_fixed` and
   the per-terminal children. That makes a badly ordered `INDEX` visible.
 
@@ -552,8 +557,8 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
 
 1. **Design and routing layer**: this document and the `compound_index` crate: tag and bucket
    levels with their limits, path insert that checks before mutating, `check_paths` for a whole
-   document, and the constraint walk with its `WalkLimits`. Pure Rust, tested
-   under `miri`, with property tests against brute-force filters.
+   document, and the constraint walk with its terminal bound and timeout check. Pure Rust,
+   tested under `miri`, with property tests against brute-force filters.
 2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting an
    element's terminal value, the iterator builders (one numeric filter iterator or tag iterator
    per terminal, UNIONed), and the per-terminal stats the planner uses. Rust tests linked against
@@ -571,7 +576,7 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
 4. **Read side: parser, planner and eval**:
    - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
      a non-NESTED field must keep today's text meaning.
-   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, `WalkLimits`, the
+   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, the walk's bounds and the request timeout, the
      UNION of terminal iterators, estimates and profile output.
    - Python correctness tests against a brute-force evaluator on random documents, for every
      shape in the §5 table.
@@ -590,6 +595,7 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
 | The error for a range that cuts a bucket must name the bucket boundaries, so users see the half-open form (`[2022 (2024]`) | Read side (4) |
+| Pass the request timeout (`rqe_iterators`' `TimeoutContextRequest`) to `collect_terminals`, map `CollectError::TimedOut` to the query's timeout error, and drop `max_nodes` from `NestedLimits`. Keep the terminal, reader and branch bounds as internal constants, not `FT.CONFIG` | Read side (4) |
 | `FT.CREATE` rejects more than `MAX_BUCKETS` buckets for `BUCKETS` in either position. On the terminal, the pre-split range tree has one leaf per bucket, so it carries the same per-terminal cost | Write side (3) |
 | Whether to lift "only the terminal adapts" (§2, "Limitation"): an adaptive numeric middle level, a filter attribute, or sparse buckets | After Terminals (2), driven by workloads with two numeric attributes |
 
@@ -601,7 +607,6 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
   warning with partial results, as prefix queries do today.
 - Should v1 already allow sub-fields that aren't index levels, served by a slower
   "filter on load" path, or keep the strict rule?
-- Default values for `NESTED_MAX_ELEMENTS`, `NESTED_MAX_TERMINALS` and the per-query cap.
 - When a value breaks `MAXCARD`, `BUCKETS` or `RANGE`: reject the whole document (proposed), or
   index the document without the offending element?
 - Should `MAXCARD` count distinct values per parent node (as the routing layer does, which bounds

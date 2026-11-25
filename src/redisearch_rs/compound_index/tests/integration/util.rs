@@ -13,8 +13,27 @@
 use std::num::NonZeroUsize;
 
 use compound_index::{BucketLevel, CompoundIndex, Constraint, Key, Level, TagLevel};
+use timeout::{TimeoutCheckResult, TimeoutChecker};
 
 pub type Index = CompoundIndex<Vec<u32>>;
+
+/// A [`TimeoutChecker`] that passes its first `n` checks and times out from then on, so a walk
+/// that checks exactly `n` times succeeds and one that checks once more fails.
+pub struct TimesOutAfter(pub usize);
+
+impl TimeoutChecker for TimesOutAfter {
+    fn check_timeout(&mut self) -> TimeoutCheckResult {
+        match self.0.checked_sub(1) {
+            Some(left) => {
+                self.0 = left;
+                TimeoutCheckResult::Ok
+            }
+            None => TimeoutCheckResult::TimedOut,
+        }
+    }
+
+    fn reset_counter(&mut self) {}
+}
 
 pub const fn tag(value: &str) -> Key<'_> {
     Key::Tag(value.as_bytes())

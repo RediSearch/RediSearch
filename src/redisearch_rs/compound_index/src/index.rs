@@ -14,6 +14,7 @@ use std::{
 };
 
 use lending_iterator::LendingIterator;
+use timeout::{TimeoutCheckResult, TimeoutChecker};
 use trie_rs::TrieMap;
 
 use crate::{
@@ -26,27 +27,6 @@ use crate::{
 /// Together with the terminal attribute, an index covers at most one more attribute than this.
 /// The bound keeps the recursion of a walk shallow and the fan-out of a query predictable.
 pub const MAX_LEVELS: usize = 3;
-
-/// Bounds on the work of one [`CompoundIndex::collect_terminals`] walk.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WalkLimits {
-    /// The most terminals the walk may return.
-    pub max_terminals: usize,
-    /// The most nodes the walk may enter, terminals included. A level a query leaves open is
-    /// entered through every child, even when few terminals match below it, so this bounds the
-    /// work of a walk that returns little. On a bucket level the walk also reads the empty slots
-    /// in its range; those are not counted, and [`MAX_BUCKETS`](crate::MAX_BUCKETS) bounds them
-    /// per node entered.
-    pub max_nodes: usize,
-}
-
-impl WalkLimits {
-    /// No bound on either count.
-    pub const UNLIMITED: Self = Self {
-        max_terminals: usize::MAX,
-        max_nodes: usize::MAX,
-    };
-}
 
 /// The routing levels of a compound index, with a terminal of type `T` at the end of each path.
 ///
@@ -269,18 +249,26 @@ impl<T> CompoundIndex<T> {
     /// The terminals whose path satisfies every constraint, one constraint per level.
     ///
     /// Terminals come out in a deterministic order: tag children by byte order of their value,
-    /// buckets in increasing order. Each terminal is returned at most once. The walk fails as soon
-    /// as it would exceed one of `limits`, with [`CollectError::TooManyTerminals`] or
-    /// [`CollectError::TooManyNodes`]; it never returns a partial result.
+    /// buckets in increasing order. Each terminal is returned at most once. The walk never returns
+    /// a partial result: it fails with [`CollectError::TooManyTerminals`] as soon as it would
+    /// return more than `max_terminals`, and with [`CollectError::TimedOut`] as soon as `timeout`
+    /// reports a timeout.
+    ///
+    /// `max_terminals` bounds the result, so the memory of whatever the caller opens per terminal.
+    /// It does not bound the work: a level the query leaves open is entered through every child,
+    /// even when nothing matches below it. `timeout` bounds that, and is checked on every node
+    /// entered. On a bucket level the walk also reads the empty slots in its range;
+    /// [`MAX_BUCKETS`](crate::MAX_BUCKETS) bounds those per node entered.
     pub fn collect_terminals<'s>(
         &'s self,
         constraints: &[Constraint<'_>],
-        limits: WalkLimits,
+        max_terminals: usize,
+        timeout: &mut impl TimeoutChecker,
     ) -> Result<Vec<&'s T>, CollectError> {
         let plan = self.plan(constraints)?;
         let mut walk = Walk {
-            limits,
-            nodes: 0,
+            max_terminals,
+            timeout,
             out: Vec::new(),
         };
         walk.visit(&self.root, &plan)?;
@@ -493,30 +481,28 @@ fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
 }
 
 /// The state of one [`CompoundIndex::collect_terminals`] walk.
-struct Walk<'s, T> {
-    limits: WalkLimits,
-    /// Nodes entered so far, terminals included, the root excluded.
-    nodes: usize,
+struct Walk<'s, 't, T, C> {
+    max_terminals: usize,
+    timeout: &'t mut C,
     out: Vec<&'s T>,
 }
 
-impl<'s, T> Walk<'s, T> {
+impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
+    /// Visits a child, after checking the timeout. The root is visited without a check, so
+    /// every node entered below it, terminals included, costs one check.
     fn enter(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
-        if self.nodes == self.limits.max_nodes {
-            return Err(CollectError::TooManyNodes {
-                max: self.limits.max_nodes,
-            });
+        if let TimeoutCheckResult::TimedOut = self.timeout.check_timeout() {
+            return Err(CollectError::TimedOut);
         }
-        self.nodes += 1;
         self.visit(node, plan)
     }
 
     fn visit(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
         let children = match node {
             Node::Terminal(terminal) => {
-                if self.out.len() == self.limits.max_terminals {
+                if self.out.len() == self.max_terminals {
                     return Err(CollectError::TooManyTerminals {
-                        max: self.limits.max_terminals,
+                        max: self.max_terminals,
                     });
                 }
                 self.out.push(terminal);

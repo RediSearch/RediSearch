@@ -127,10 +127,7 @@ pub enum CollectError {
         /// The limit the walk was given.
         max: usize,
     },
-    /// The walk entered more than the allowed number of nodes.
-    #[error("the query enters more than {max} index nodes")]
-    TooManyNodes {
-        /// The limit the walk was given.
-        max: usize,
-    },
+    /// The walk's [`TimeoutChecker`](timeout::TimeoutChecker) reported a timeout.
+    #[error("the query timed out while walking the index")]
+    TimedOut,
 }

@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{Constraint, InsertError, Key, PathError, WalkLimits};
+use compound_index::{Constraint, InsertError, Key, PathError};
+use timeout::NoTimeoutChecker;
 
 use crate::util::{Index, bucket_level, orders, post, tag, tag_level, tag_level_max, union};
 
@@ -106,7 +107,11 @@ fn a_rejected_insert_leaves_the_index_unchanged() {
     );
     assert_eq!(index.num_terminals(), 1);
     let all = index
-        .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
+        .collect_terminals(
+            &[Constraint::Any, Constraint::Any],
+            usize::MAX,
+            &mut NoTimeoutChecker,
+        )
         .unwrap();
     assert_eq!(union(&all), vec![1]);
 }
@@ -163,7 +168,8 @@ fn an_empty_tag_value_is_an_ordinary_value() {
     let empty_only = index
         .collect_terminals(
             &[Constraint::TagIn(vec![b""]), Constraint::Any],
-            WalkLimits::UNLIMITED,
+            usize::MAX,
+            &mut NoTimeoutChecker,
         )
         .unwrap();
     assert_eq!(union(&empty_only), vec![1]);
@@ -171,7 +177,8 @@ fn an_empty_tag_value_is_an_ordinary_value() {
     let every_value = index
         .collect_terminals(
             &[Constraint::TagPrefix(b""), Constraint::Any],
-            WalkLimits::UNLIMITED,
+            usize::MAX,
+            &mut NoTimeoutChecker,
         )
         .unwrap();
     assert_eq!(union(&every_value), vec![1, 2]);

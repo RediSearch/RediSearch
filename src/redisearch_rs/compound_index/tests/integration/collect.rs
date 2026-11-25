@@ -9,9 +9,12 @@
 
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
-use compound_index::{BucketRange, CollectError, Constraint, Key, WalkLimits};
+use compound_index::{BucketRange, CollectError, Constraint, Key};
+use timeout::NoTimeoutChecker;
 
-use crate::util::{Index, bucket_level, orders, post, tag, tag_in, tag_level, union};
+use crate::util::{
+    Index, TimesOutAfter, bucket_level, orders, post, tag, tag_in, tag_level, union,
+};
 
 /// Every shape a query can take on the [`orders`] index, with the docs that have one element
 /// satisfying both constraints.
@@ -62,7 +65,7 @@ fn every_query_shape_returns_the_docs_with_one_matching_element() {
     ];
     for (name, constraints, expected) in cases {
         let terminals = index
-            .collect_terminals(constraints, WalkLimits::UNLIMITED)
+            .collect_terminals(constraints, usize::MAX, &mut NoTimeoutChecker)
             .unwrap();
         assert_eq!(union(&terminals), *expected, "{name}");
     }
@@ -73,7 +76,11 @@ fn constraints_never_pair_values_from_different_elements() {
     let index = orders();
     // Doc 1 has a blue item and an M item, but no blue M item.
     let terminals = index
-        .collect_terminals(&[tag_in(&["blue"]), tag_in(&["M"])], WalkLimits::UNLIMITED)
+        .collect_terminals(
+            &[tag_in(&["blue"]), tag_in(&["M"])],
+            usize::MAX,
+            &mut NoTimeoutChecker,
+        )
         .unwrap();
     assert_eq!(union(&terminals), vec![4]);
 }
@@ -84,7 +91,8 @@ fn repeated_values_in_a_set_visit_a_terminal_once() {
     let terminals = index
         .collect_terminals(
             &[tag_in(&["red", "red"]), tag_in(&["M"])],
-            WalkLimits::UNLIMITED,
+            usize::MAX,
+            &mut NoTimeoutChecker,
         )
         .unwrap();
     assert_eq!(terminals.len(), 1);
@@ -94,7 +102,11 @@ fn repeated_values_in_a_set_visit_a_terminal_once() {
 fn terminals_come_out_in_byte_order_of_their_path() {
     let index = orders();
     let terminals = index
-        .collect_terminals(&[Constraint::Any, Constraint::Any], WalkLimits::UNLIMITED)
+        .collect_terminals(
+            &[Constraint::Any, Constraint::Any],
+            usize::MAX,
+            &mut NoTimeoutChecker,
+        )
         .unwrap();
     // (blue, L), (blue, M), (red, L), (red, M).
     assert_eq!(
@@ -103,31 +115,19 @@ fn terminals_come_out_in_byte_order_of_their_path() {
     );
 }
 
-const fn terminals_at_most(max_terminals: usize) -> WalkLimits {
-    WalkLimits {
-        max_terminals,
-        max_nodes: usize::MAX,
-    }
-}
-
-const fn nodes_at_most(max_nodes: usize) -> WalkLimits {
-    WalkLimits {
-        max_terminals: usize::MAX,
-        max_nodes,
-    }
-}
-
 #[test]
 fn a_walk_past_the_terminal_limit_fails_instead_of_truncating() {
     let index = orders();
     let all = [Constraint::Any, Constraint::Any];
     assert_eq!(
-        index.collect_terminals(&all, terminals_at_most(3)).err(),
+        index
+            .collect_terminals(&all, 3, &mut NoTimeoutChecker)
+            .err(),
         Some(CollectError::TooManyTerminals { max: 3 })
     );
     assert_eq!(
         index
-            .collect_terminals(&all, terminals_at_most(4))
+            .collect_terminals(&all, 4, &mut NoTimeoutChecker)
             .unwrap()
             .len(),
         4
@@ -139,41 +139,50 @@ fn a_zero_terminal_limit_only_accepts_walks_that_reach_nothing() {
     let index = orders();
     assert_eq!(
         index
-            .collect_terminals(&[tag_in(&["green"]), Constraint::Any], terminals_at_most(0))
+            .collect_terminals(
+                &[tag_in(&["green"]), Constraint::Any],
+                0,
+                &mut NoTimeoutChecker
+            )
             .unwrap(),
         Vec::<&Vec<u32>>::new()
     );
     assert_eq!(
         index
-            .collect_terminals(&[tag_in(&["red"]), Constraint::Any], terminals_at_most(0))
+            .collect_terminals(
+                &[tag_in(&["red"]), Constraint::Any],
+                0,
+                &mut NoTimeoutChecker
+            )
             .err(),
         Some(CollectError::TooManyTerminals { max: 0 })
     );
 }
 
 #[test]
-fn the_node_limit_bounds_a_walk_that_returns_nothing() {
+fn the_timeout_bounds_a_walk_that_returns_nothing() {
     let index = orders();
     // Both colors are entered, then neither has a size "XL": no terminal, two nodes.
     let open_then_missing = [Constraint::Any, tag_in(&["XL"])];
     assert_eq!(
         index
-            .collect_terminals(&open_then_missing, nodes_at_most(1))
+            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(1))
             .err(),
-        Some(CollectError::TooManyNodes { max: 1 })
+        Some(CollectError::TimedOut)
     );
     assert!(
         index
-            .collect_terminals(&open_then_missing, nodes_at_most(2))
+            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(2))
             .unwrap()
             .is_empty()
     );
 }
 
 #[test]
-fn the_node_limit_applies_to_every_constraint_kind() {
+fn the_timeout_is_checked_for_every_constraint_kind() {
     let index = orders();
-    // Each case enters exactly `nodes` nodes, terminals included.
+    // Each case enters exactly `nodes` nodes, terminals included, so it checks the timeout
+    // `nodes` times.
     let cases: &[(&str, [Constraint<'_>; 2], usize)] = &[
         // blue, then (blue, L) and (blue, M).
         (
@@ -187,14 +196,14 @@ fn the_node_limit_applies_to_every_constraint_kind() {
     for (name, constraints, nodes) in cases {
         assert_eq!(
             index
-                .collect_terminals(constraints, nodes_at_most(nodes - 1))
+                .collect_terminals(constraints, usize::MAX, &mut TimesOutAfter(nodes - 1))
                 .err(),
-            Some(CollectError::TooManyNodes { max: nodes - 1 }),
+            Some(CollectError::TimedOut),
             "{name}"
         );
         assert!(
             index
-                .collect_terminals(constraints, nodes_at_most(*nodes))
+                .collect_terminals(constraints, usize::MAX, &mut TimesOutAfter(*nodes))
                 .is_ok(),
             "{name}"
         );
@@ -204,13 +213,13 @@ fn the_node_limit_applies_to_every_constraint_kind() {
     let all_years = [Constraint::Any, Constraint::Any];
     assert_eq!(
         years()
-            .collect_terminals(&all_years, nodes_at_most(5))
+            .collect_terminals(&all_years, usize::MAX, &mut TimesOutAfter(5))
             .err(),
-        Some(CollectError::TooManyNodes { max: 5 })
+        Some(CollectError::TimedOut)
     );
     assert_eq!(
         years()
-            .collect_terminals(&all_years, nodes_at_most(6))
+            .collect_terminals(&all_years, usize::MAX, &mut TimesOutAfter(6))
             .unwrap()
             .len(),
         3
@@ -218,17 +227,19 @@ fn the_node_limit_applies_to_every_constraint_kind() {
 }
 
 #[test]
-fn the_node_limit_counts_terminals() {
+fn the_timeout_is_checked_on_terminals() {
     let index = orders();
     // (red) then (red, M): two nodes.
     let red_m = [tag_in(&["red"]), tag_in(&["M"])];
     assert_eq!(
-        index.collect_terminals(&red_m, nodes_at_most(1)).err(),
-        Some(CollectError::TooManyNodes { max: 1 })
+        index
+            .collect_terminals(&red_m, usize::MAX, &mut TimesOutAfter(1))
+            .err(),
+        Some(CollectError::TimedOut)
     );
     assert_eq!(
         index
-            .collect_terminals(&red_m, nodes_at_most(2))
+            .collect_terminals(&red_m, usize::MAX, &mut TimesOutAfter(2))
             .unwrap()
             .len(),
         1
@@ -261,7 +272,7 @@ fn invalid_queries_are_rejected() {
     for (name, constraints, expected) in cases {
         assert_eq!(
             index
-                .collect_terminals(constraints, WalkLimits::UNLIMITED)
+                .collect_terminals(constraints, usize::MAX, &mut NoTimeoutChecker)
                 .err(),
             Some(expected.clone()),
             "{name}"
@@ -351,7 +362,8 @@ fn numeric_ranges_select_the_buckets_wholly_inside_them() {
         let terminals = index
             .collect_terminals(
                 &[constraint.clone(), Constraint::Any],
-                WalkLimits::UNLIMITED,
+                usize::MAX,
+                &mut NoTimeoutChecker,
             )
             .unwrap();
         assert_eq!(union(&terminals), *expected, "{name}");
@@ -394,7 +406,8 @@ fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
             index
                 .collect_terminals(
                     &[constraint.clone(), Constraint::Any],
-                    WalkLimits::UNLIMITED
+                    usize::MAX,
+                    &mut NoTimeoutChecker
                 )
                 .err(),
             Some(CollectError::UnalignedBucketRange { level: 0 }),
@@ -413,7 +426,11 @@ fn a_negative_zero_range_end_is_the_zero_boundary() {
     post(&mut index, &[Key::Numeric(0.0), tag("x")], 1);
     let walk = |start, end| {
         index
-            .collect_terminals(&[range(start, end), Constraint::Any], WalkLimits::UNLIMITED)
+            .collect_terminals(
+                &[range(start, end), Constraint::Any],
+                usize::MAX,
+                &mut NoTimeoutChecker,
+            )
             .map(|terminals| union(&terminals))
     };
 

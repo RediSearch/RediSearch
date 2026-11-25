@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 lending-iterator.workspace = true
 thiserror.workspace = true
+timeout.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 
