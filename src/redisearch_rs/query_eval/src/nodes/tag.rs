@@ -10,6 +10,7 @@
 //! Evaluation of `QN_TAG` query nodes.
 
 use std::{
+    borrow::Cow,
     ffi::{CStr, c_void},
     ops::Bound,
     ptr::NonNull,
@@ -28,10 +29,11 @@ use rqe_iterators::{
     union_opaque::{build_union, build_union_with_q_str},
     utils::duration_from_redis_timespec,
 };
+use rqe_wildcard::{Token, WildcardPattern};
 use string_utils::{tag::unescape, unicode::tolower_bytes};
 use trie_rs::{
     TrieMap, TrieMapOpaque,
-    iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
+    iter::{PatternLendingIter, PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
 use super::wildcard_query::below_min_term_prefix;
@@ -322,14 +324,8 @@ fn eval_prefix<'index>(
             WildcardMode::Suffix => PatternMode::Suffix,
             WildcardMode::Contains => PatternMode::Contains,
         };
-        collect_filtered_readers(
-            ctx,
-            index,
-            value,
-            iter_mode,
-            field.index,
-            max_prefix_expansions,
-        )
+        let values = index.values().pattern_lending_iter(value, iter_mode);
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     } else {
         collect_suffix_readers(
             ctx,
@@ -522,21 +518,21 @@ fn eval_wildcard<'index>(
     let mut tok = child
         .token_mut()
         .expect("a tag wildcard child must carry a token");
-    // SAFETY: invariant (5) of `QueryNodeMut::new` puts this token in the
-    // module allocator whenever the field is case-insensitive.
-    unsafe { tok.normalize_tag(case_sensitive) };
-    tok.remove_wildcard_escapes();
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    // Preserve disk pattern escapes until `WildcardPattern::parse` identifies literal bytes.
+    if !is_disk {
+        // SAFETY: the AST owns this token in the module allocator.
+        unsafe { tok.normalize_tag(case_sensitive) };
+        tok.remove_wildcard_escapes();
+    }
     let tok_ref = tok.as_ref();
     let pattern = tok_ref
         .as_bytes()
         .expect("a tag wildcard token must carry a string");
-    if below_min_term_prefix(pattern, min_term_prefix) {
+    if !is_disk && below_min_term_prefix(pattern, min_term_prefix) {
         return None;
     }
-
     let children = if pattern.is_empty() {
-        // Not `b""`: an empty slice's pointer dangles, while this one points at
-        // a real NUL, for readers that forward the value as a C string.
         open_reader_child(ctx, index, c"".to_bytes(), field.index)
             .into_iter()
             .collect()
@@ -565,14 +561,10 @@ fn eval_wildcard<'index>(
         // FIXME: return a proper type when porting
         // `TagIndex_GetSuffixWildcardMatches` to Rust.
         if matches.addr().get() == ffi::BAD_POINTER_ADDR as usize {
-            collect_filtered_readers(
-                ctx,
-                index,
-                pattern,
-                PatternMode::Wildcard,
-                field.index,
-                max_prefix_expansions,
-            )
+            let values = index
+                .values()
+                .pattern_lending_iter(pattern, PatternMode::Wildcard);
+            collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
         } else {
             // SAFETY: any other non-null result is a fat array of `char *`
             // elements, built by the C array API and so aligned for them and
@@ -588,15 +580,31 @@ fn eval_wildcard<'index>(
                 max_prefix_expansions,
             )
         }
+    } else if is_disk {
+        let pattern = if case_sensitive {
+            Cow::Borrowed(pattern)
+        } else {
+            tolower_bytes(pattern)
+        };
+        let pattern = WildcardPattern::parse(&pattern);
+        let literals: usize = pattern
+            .tokens()
+            .iter()
+            .map(|token| match token {
+                Token::Literal(bytes) => bytes.len(),
+                _ => 0,
+            })
+            .sum();
+        if literals > 0 && literals < min_term_prefix && pattern.tokens().contains(&Token::Any) {
+            return None;
+        }
+        let values = PatternLendingIter::Wildcard(index.values().wildcard_iter(pattern).into());
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     } else {
-        collect_filtered_readers(
-            ctx,
-            index,
-            pattern,
-            PatternMode::Wildcard,
-            field.index,
-            max_prefix_expansions,
-        )
+        let values = index
+            .values()
+            .pattern_lending_iter(pattern, PatternMode::Wildcard);
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     };
 
     let q_str = tok_ref
@@ -617,16 +625,14 @@ fn eval_wildcard<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
-/// Open a reader for each tag value matching `pattern` in `mode`, by scanning the values trie.
+/// Open a reader for each value yielded by the TAG dictionary traversal.
 fn collect_filtered_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
-    pattern: &[u8],
-    mode: PatternMode,
+    mut values: PatternLendingIter<'_, '_, *mut c_void>,
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
-    let mut values = index.values().pattern_lending_iter(pattern, mode);
     values.set_timeout(
         clock_deadline(ctx)
             .and_then(duration_from_redis_timespec)

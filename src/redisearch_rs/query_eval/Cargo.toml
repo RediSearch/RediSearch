@@ -32,6 +32,7 @@ query_types.workspace = true
 redis-module.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
+rqe_wildcard.workspace = true
 rs_token.workspace = true
 search_disk.workspace = true
 sparse_vector_index.workspace = true
