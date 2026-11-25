@@ -2879,11 +2879,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->base.limits.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    reply_cb = DistAggregateReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
-                                                : DistAggregateTimeoutReturnStrictCallback;
+    const bool useReplyCallback = policy == TimeoutPolicy_ReturnStrict;
+    reply_cb = useReplyCallback ? DistAggregateReplyCallback : NULL;
+    timeout_cb = useReplyCallback ? DistAggregateTimeoutReturnStrictCallback
+                                  : DistAggregateTimeoutFailCallback;
     timeout_ms = queryTimeoutMS;
-    if (policy == TimeoutPolicy_ReturnStrict) {
+    if (useReplyCallback) {
       r->base.async.requiresAggregateResultsSync = true;
     }
   }

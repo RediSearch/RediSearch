@@ -2059,13 +2059,17 @@ class TestCoordinatorTimeout:
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def test_fail_timeout_before_coord_store_aggregate(self):
-        """Test timeout occurring before coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_before_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+    def test_fail_timeout_before_coord_encode_aggregate(self):
+        """Test timeout occurring before coordinator encodes results for FT.AGGREGATE."""
+        self._test_fail_timeout_before_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_after_coord_store_aggregate(self):
-        """Test timeout occurring after coordinator stores results for FT.AGGREGATE."""
-        self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+    def test_fail_timeout_during_coord_encode_aggregate(self):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, ['FT.AGGREGATE', 'idx', '*'], before=False, coordinator=True, during=True)
+
+    def test_fail_timeout_after_coord_encode_aggregate(self):
+        """Test timeout occurring after coordinator encodes results for FT.AGGREGATE."""
+        self._test_fail_timeout_after_coord_encode_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_store_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
@@ -2085,45 +2089,44 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def _test_fail_timeout_coord_store_cursor_read_impl(self, before):
-        """FAIL timeout on FT.CURSOR READ paused before/after coord AREQ_StoreResults."""
+    def _test_fail_timeout_coord_encode_cursor_read_impl(self, before):
+        """FAIL timeout on FT.CURSOR READ paused before or after coordinator reply encoding."""
         env = self.env
         skipIfNoEnableAssert(env)
 
-        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
+        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(
+            env, timeout=0)
 
-        if before:
-            setPauseBeforeStoreResults(env, True, internal=False)
-        else:
-            setPauseAfterStoreResults(env, True, internal=False)
+        point = ('Before' if before else 'After') + 'CoordBackgroundReplyEncode'
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
 
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
             wait_for_condition(
-                lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-                'Timeout while waiting for FT.CURSOR READ to pause around store results'
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+                'Timeout while waiting for FT.CURSOR READ to pause around worker encoding'
             )
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
         finally:
-            resetStoreResultsDebug(env)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
 
         # Wait for the worker's post-timeout wind-down before asserting.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
                                                     base_err_coord,
-                                                    'FAIL coord-store cursor-read timeout')
+                                                    'FAIL coordinator reply encoding timeout')
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
-    def test_fail_timeout_before_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just before coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=True)
+    def test_fail_timeout_before_coord_encode_cursor_read(self):
+        """Test FAIL timeout on FT.CURSOR READ just before coordinator reply encoding."""
+        self._test_fail_timeout_coord_encode_cursor_read_impl(before=True)
 
-    def test_fail_timeout_after_coord_store_cursor_read(self):
-        """Test FAIL timeout on FT.CURSOR READ just after coord AREQ_StoreResults."""
-        self._test_fail_timeout_coord_store_cursor_read_impl(before=False)
+    def test_fail_timeout_after_coord_encode_cursor_read(self):
+        """Test FAIL timeout on FT.CURSOR READ just after coordinator reply encoding."""
+        self._test_fail_timeout_coord_encode_cursor_read_impl(before=False)
 
     def test_sticky_policy_fail_aggregate_config_return_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN."""
@@ -9313,3 +9316,71 @@ def test_background_fail_reply_parity_resp2():
 @skip(cluster=True)
 def test_background_fail_reply_parity_resp3():
     _compare_background_fail_replies(3)
+
+
+def _new_env(protocol):
+    # Explicit FAIL workers and both wire protocols exercise background encoding.
+    env = Env(protocol=protocol,
+              moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT FAIL DEFAULT_DIALECT 2 NOGC')
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for n in range(8):
+        conn.execute_command('HSET', f'{{doc}}:{n}', 'n', n,
+                             'value', 'invalid' if n == 3 else str(n),
+                             'payload', 'prefix\x00suffix\r\n' + 'w' * 4096)
+    return env
+
+
+def _aggregate(timeout=0, withcount=False):
+    return ['FT.AGGREGATE', 'idx', '*', *(['WITHCOUNT'] if withcount else []),
+            'TIMEOUT', timeout, 'LOAD', 3, '@n', '@value', '@payload',
+            'SORTBY', 2, '@n', 'ASC']
+
+
+def _reply_parity(protocol):
+    env = _new_env(protocol)
+    for timeout in (0, 10000):
+        commands = [
+            _aggregate(timeout), _aggregate(timeout, withcount=True),
+            ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout, 'LOAD', 1, '@n'],
+            ['FT.AGGREGATE', 'idx', '@n:[100 200]', 'TIMEOUT', timeout],
+            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *_aggregate(timeout)[2:]],
+        ]
+        for command in commands:
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+            expected = env.cmd(*command)
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+            actual = env.cmd(*command)
+            if command[0] == 'FT.PROFILE':
+                expected = expected['Results'] if protocol == 3 else expected[0]
+                actual = actual['Results'] if protocol == 3 else actual[0]
+            env.assertEqual(actual, expected, message=str(command))
+
+        for withcount in (False, True):
+            chunk, cursor = env.cmd(*_aggregate(timeout, withcount), 'WITHCURSOR', 'COUNT', 2)
+            values = []
+            for _ in range(8):
+                rows = ([row['extra_attributes'] for row in chunk['results']] if protocol == 3
+                        else [to_dict(row) for row in chunk[1:]])
+                values.extend(int(row['n']) for row in rows)
+                if not cursor:
+                    break
+                chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 2)
+            env.assertEqual(cursor, 0)
+            env.assertEqual(values, list(range(8)))
+            cursor_stats = to_dict(to_dict(env.cmd('FT.INFO', 'idx'))['cursor_stats'])
+            env.assertEqual(int(cursor_stats['global_total']), 0)
+
+
+@skip(cluster=False)
+def test_coord_background_fail_reply_parity_resp2():
+    """Worker replies preserve counts, cursor chunks, and profiles."""
+    _reply_parity(2)
+
+
+@skip(cluster=False)
+def test_coord_background_fail_reply_parity_resp3():
+    """Worker RESP3 replies match callback replies for results and profiles."""
+    _reply_parity(3)
