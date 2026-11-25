@@ -13,11 +13,10 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{QueryIterator, QueryRequestLimits, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
 use field::FieldFilterContext;
-use rqe_core::DocId;
 use rqe_iterators::{
     ExpirationChecker, FieldExpirationChecker, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
-use vector_score_source::{NewVectorTopK, new_vector_top_k};
+use vector_score_source::{DocIdBound, NewVectorTopK, new_vector_top_k};
 
 use crate::without_skip_to;
 
@@ -53,6 +52,8 @@ use crate::without_skip_to;
 /// 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
 ///    `spec`, both outliving the returned iterator.
 /// 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+/// 8. When `sctx->maxVisibleDocId` is set, the returned iterator is read only
+///    while the spec read lock is held.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
@@ -99,11 +100,14 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
     // SAFETY: guaranteed by 6.
-    let max_doc_id = match unsafe { sctx_nn.as_ref() }.maxVisibleDocId {
-        0 => DocId::MAX,
-        bound => bound,
-    };
-    // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
+    let sctx_ref = unsafe { sctx_nn.as_ref() };
+    let doc_id_bound = (sctx_ref.maxVisibleDocId != 0).then(|| DocIdBound {
+        max_doc_id: sctx_ref.maxVisibleDocId,
+        // SAFETY: guaranteed by 6.
+        doc_table: NonNull::from(unsafe { &(*sctx_ref.spec).docs }),
+    });
+    // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7; the doc
+    // table of `doc_id_bound` by 6 and 8, as the read lock keeps writers out.
     let reduced = unsafe {
         new_vector_top_k(
             index,
@@ -114,7 +118,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
             can_trim_deep_results,
             checker,
             child,
-            max_doc_id,
+            doc_id_bound,
         )
     };
     box_reduced(reduced)

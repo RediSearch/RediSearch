@@ -214,6 +214,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
         return false;
       }
     } else {
+      // A late document needs no doc table lookup.
       if (!SearchCtx_IsDocVisible(sctx, it->lastDocId)) {
         return false;
       }
@@ -226,7 +227,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
     // RAM lookups also reject missing metadata and pending slot deletions.
-    // Expiration and visibility are checked afterward and do not affect the candidate counts.
+    // Expiration and visibility do not affect the candidate counts.
     const bool deleted = !*dmd || ((*dmd)->flags & Document_Deleted);
     recordCandidate(self, deleted, isProfiled);
     if (deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime) ||

@@ -217,6 +217,8 @@ pub struct RawTopK<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering = Ascend
     /// each entry carries the child's record captured at match time.
     results: Vec<HeapResult<'query>>,
     yield_pos: usize,
+    /// Results the unfiltered path has accepted; it yields at most `k`.
+    direct_accepted: usize,
     current: Option<RSIndexResult<'query>>,
     child: TopKChild<I>,
     last_doc_id: DocId,
@@ -407,6 +409,7 @@ const _: () = {
     assert!(offset_of!(A, phase) == offset_of!(S, phase));
     assert!(offset_of!(A, results) == offset_of!(S, results));
     assert!(offset_of!(A, yield_pos) == offset_of!(S, yield_pos));
+    assert!(offset_of!(A, direct_accepted) == offset_of!(S, direct_accepted));
     assert!(offset_of!(A, current) == offset_of!(S, current));
     assert!(offset_of!(A, child) == offset_of!(S, child));
     assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
@@ -476,6 +479,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             phase: Phase::NotStarted,
             results: Vec::new(),
             yield_pos: 0,
+            direct_accepted: 0,
             current: None,
             last_doc_id: 0,
             at_eof: false,
@@ -736,19 +740,23 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
 
     /// Yield the next result from the unfiltered direct batch.
     ///
-    /// Results whose document expired ([`ScoreSource::is_expired`]) are dropped
-    /// without replacement: the batch holds at most k entries, so skipping
-    /// shrinks the yielded count.
+    /// Stops after k results pass [`ScoreSource::accept_candidate`]; the batch
+    /// may hold more, to leave room for the rejected ones. Results whose
+    /// document expired ([`ScoreSource::is_expired`]) are dropped without
+    /// replacement, so skipping them shrinks the yielded count.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
-            let item = self
-                .direct_batch
-                .as_mut()
-                .map(S::Batch::next)
-                .transpose()?
-                .flatten();
+            let item = if self.direct_accepted < self.k.get() {
+                self.direct_batch
+                    .as_mut()
+                    .map(S::Batch::next)
+                    .transpose()?
+                    .flatten()
+            } else {
+                None
+            };
 
             // Poll once per step, after classifying the entry and before yielding
             // it — gates valid results, EOF, and expired skips alike.
@@ -759,6 +767,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     if !self.source.accept_candidate(doc_id, score)? {
                         continue;
                     }
+                    self.direct_accepted += 1;
                     let result = self.source.build_result(doc_id, score);
                     if self.source.is_expired(&result) {
                         continue;
@@ -947,6 +956,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         self.mode = self.initial_mode;
         self.direct_batch = None;
         self.yield_pos = 0;
+        self.direct_accepted = 0;
         self.last_doc_id = 0;
         self.at_eof = false;
         self.phase = Phase::NotStarted;

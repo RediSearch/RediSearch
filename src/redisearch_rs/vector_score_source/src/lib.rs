@@ -35,7 +35,7 @@ pub use reducer::{NewVectorTopK, new_vector_top_k};
 use rqe_iterators::c2rust::CRQEIterator;
 use rqe_iterators::profile_print::ProfilePrint;
 pub use score_batch::VecSimScoreBatch;
-pub use source::VectorScoreSource;
+pub use source::{DocIdBound, VectorScoreSource};
 
 use std::{ffi::CStr, num::NonZeroUsize};
 
