@@ -710,7 +710,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     do {
       MRReply_Free(rpnet->current.root);
       RPNet_resetCurrent(rpnet);
-    } while (!QueryRequest_FailWorkerReplyCancelled(&req->base) &&
+    } while (!QueryRequest_BackgroundReplyTimedOut(&req->base) &&
              getNextReply(rpnet) != RS_RESULT_EOF);
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;
@@ -1111,7 +1111,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// Main-thread reply callback for coord AREQ under RETURN-STRICT. Reads results
 // stored by the BG thread in req->base.reply. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);

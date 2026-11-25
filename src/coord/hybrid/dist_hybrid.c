@@ -746,7 +746,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // Set request flags from hybridParams
-    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags;
+    hreq->reqflags = (QEFlags)hybridParams.aggregationParams.common.reqflags |
+                     QEXEC_F_IS_COORDINATOR | QEXEC_F_RUN_IN_BACKGROUND;
 
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];

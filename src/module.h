@@ -138,6 +138,7 @@ typedef struct {
   bool timedOut;
 
   struct searchReducerCtx *rctx;
+  bool serializeInReplyCallback;
   // Created on the main thread before dispatch and released at request teardown.
   RedisModuleCtx *failReplyCtx;
 } searchRequestCtx;
