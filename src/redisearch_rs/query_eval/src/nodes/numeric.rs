@@ -14,7 +14,7 @@ use std::ptr::NonNull;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
-use rqe_core::RS_INVALID_FIELD_INDEX;
+use rqe_core::{FieldIndex, RS_INVALID_FIELD_INDEX};
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
@@ -45,17 +45,7 @@ pub(crate) fn eval<'index>(
     );
     let field_index = nf.field_index;
     if cfg!(debug_assertions) {
-        let spec = ctx.spec();
-        assert!(
-            field_index < spec.numFields,
-            "field_index must be within the spec's current field count"
-        );
-        // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
-        // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
-        let field_ptr = unsafe { spec.fields.add(field_index as usize) };
-        // SAFETY: `field_ptr` points into the live spec's field array, which the
-        // query's spec read lock keeps alive and unmodified throughout evaluation.
-        let field = unsafe { &*field_ptr };
+        let field = field_spec(ctx.spec(), field_index);
         // Both query parsers and the legacy `FILTER` argument build a numeric node only on a
         // NUMERIC field.
         assert!(
@@ -96,15 +86,9 @@ pub(crate) fn eval<'index>(
         };
     }
 
-    if load.is_some() {
-        // SAFETY: `field_index` is within the spec's current field count (both
-        // parsers only build numeric nodes on resolved fields), so this stays
-        // within the bounds of the `numFields`-sized array `spec.fields` points to.
-        let field_ptr = unsafe { ctx.spec().fields.add(field_index as usize) };
-        // SAFETY: `field_ptr` points into the live spec's field array, which the
-        // query's spec read lock keeps alive and unmodified throughout evaluation.
-        let field = unsafe { &*field_ptr };
-        index_load::check_lossless(ctx, field).ok()?;
+    if load.is_some() && index_load::compresses_floats(field_spec(ctx.spec(), field_index)) {
+        index_load::reject_lossy(ctx);
+        return None;
     }
 
     let field_ctx = FieldFilterContext {
@@ -123,4 +107,20 @@ pub(crate) fn eval<'index>(
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
     iter.map(|it| index_load::decorate(ctx, load, Evaluated::RustCompound(it)))
+}
+
+/// The field `field_index` names in `spec`.
+fn field_spec(spec: &ffi::IndexSpec, field_index: FieldIndex) -> &ffi::FieldSpec {
+    debug_assert!(
+        field_index < spec.numFields,
+        "field_index must be within the spec's current field count"
+    );
+    // SAFETY: `field_index` is within `spec.numFields` (asserted above): both query
+    // parsers and the legacy `FILTER` argument build a numeric node only on a
+    // resolved field. So this stays within the bounds of the `numFields`-sized
+    // array `spec.fields` points to.
+    let field = unsafe { spec.fields.add(field_index as usize) };
+    // SAFETY: `field` points into the live spec's field array, which the query's
+    // spec read lock keeps alive and unmodified throughout evaluation.
+    unsafe { field.as_ref() }.expect("a spec with fields has a field array")
 }

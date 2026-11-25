@@ -57,27 +57,22 @@ pub(crate) fn reserve(
     Ok(Some(unsafe { ctx.add_metric_request(alias, false) }))
 }
 
-/// Reject loading from `field` when its numeric range tree was built with
-/// float compression, which may store a value other than the indexed one.
-///
-/// A field with no tree yet has nothing to load and is allowed.
-pub(crate) fn check_lossless(
-    ctx: &mut QueryEvalContext,
-    field: &FieldSpec,
-) -> Result<(), Rejected> {
+/// Whether `field`'s numeric range tree was built with float compression,
+/// which may store a value other than the indexed one, so loading from it is
+/// rejected by [`reject_lossy`]. A field with no tree yet has nothing to load.
+pub(crate) fn compresses_floats(field: &FieldSpec) -> bool {
     // SAFETY: a numeric field's `tree` is null or the `NumericRangeTree` the
     // field owns, which the query's spec read lock keeps alive and unmodified.
-    let Some(tree) = (unsafe { field.tree.cast::<NumericRangeTree>().as_ref() }) else {
-        return Ok(());
-    };
-    if !tree.compresses_floats() {
-        return Ok(());
-    }
+    unsafe { field.tree.cast::<NumericRangeTree>().as_ref() }
+        .is_some_and(NumericRangeTree::compresses_floats)
+}
+
+/// Reject a loading clause on a field that [`compresses_floats`].
+pub(crate) fn reject_lossy(ctx: &mut QueryEvalContext) {
     ctx.status().set_error(
         QueryErrorCode::Inval,
         "`$as` cannot load a numeric field indexed with `search-_numeric-compress`",
     );
-    Err(Rejected)
 }
 
 /// Wrap `evaluated` in an index-loading decorator bound to `request`, or hand
