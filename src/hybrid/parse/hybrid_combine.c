@@ -47,8 +47,17 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   }
 
   rc = AC_GetSlice(ac, target, count);
+  const bool hasWeights = rc == AC_OK && sliceHasWeights(target);
+  // WEIGHTS is unstable surface. Checked here, before anything else in the block is parsed, so a
+  // request that uses it gets the gate's error whatever else is wrong with it, on every node.
+  if (hasWeights && !RSGlobalConfig.enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "`WEIGHTS` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
+                        "Enable it with `CONFIG SET search-enable-unstable-features yes`");
+    return false;
+  }
   // Every argument is a key/value pair except `WEIGHTS <n> <w1> ... <wn>`, which takes n + 2.
-  if (count % 2 != 0 && (rc != AC_OK || !sliceHasWeights(target))) {
+  if (count % 2 != 0 && !hasWeights) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
     return false;
   }
@@ -62,17 +71,12 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   return true;
 }
 
+typedef enum { WEIGHTS_ANY_SIGN, WEIGHTS_NON_NEGATIVE } WeightsSign;
+
 // Read `WEIGHTS <n> <w1> ... <wn>`, already sliced to its n values, into `out`: one finite weight
-// per subquery, in command order. Unstable surface, gated here so that every node, coordinator and
-// shard alike, rejects it at the same point.
-static bool parseWeights(ArgsCursor *weights, double *out, size_t numSubqueries,
+// per subquery, in command order. getVarArgsForClause has already applied the unstable gate.
+static bool parseWeights(ArgsCursor *weights, double *out, size_t numSubqueries, WeightsSign sign,
                          QueryError *status) {
-  if (!RSGlobalConfig.enableUnstableFeatures) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        "`WEIGHTS` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
-                        "Enable it with `CONFIG SET search-enable-unstable-features yes`");
-    return false;
-  }
   const size_t given = AC_NumRemaining(weights);
   if (given != numSubqueries) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
@@ -84,6 +88,11 @@ static bool parseWeights(ArgsCursor *weights, double *out, size_t numSubqueries,
     if (AC_GetDouble(weights, &out[i], 0) != AC_OK || !isfinite(out[i])) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                           "Invalid WEIGHTS value: expected a finite number");
+      return false;
+    }
+    if (sign == WEIGHTS_NON_NEGATIVE && out[i] < 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Invalid WEIGHTS value: RRF weights cannot be negative");
       return false;
     }
   }
@@ -143,7 +152,8 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
     if (hasAlpha || hasBeta) {
       QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX,
                           "WEIGHTS cannot be combined with ALPHA or BETA");
-    } else if (parseWeights(&weights, linearCtx->linearWeights, linearCtx->numWeights, status)) {
+    } else if (parseWeights(&weights, linearCtx->linearWeights, linearCtx->numWeights,
+                            WEIGHTS_ANY_SIGN, status)) {
       linearCtx->window = windowValue;
     }
     ArgParser_Free(parser);
@@ -253,7 +263,8 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, size_t numS
     // Owned by the scoring context from here, so it is freed on an error too.
     rrfCtx->weights = rm_calloc(numSubqueries, sizeof(double));
     rrfCtx->numWeights = numSubqueries;
-    if (!parseWeights(&weights, rrfCtx->weights, numSubqueries, status)) {
+    // A negative weight would rank a document an arm returned below one it did not return.
+    if (!parseWeights(&weights, rrfCtx->weights, numSubqueries, WEIGHTS_NON_NEGATIVE, status)) {
       return;
     }
   }

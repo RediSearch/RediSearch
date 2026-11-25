@@ -15,17 +15,16 @@ from common import *
 
 RRF_CONSTANT = 60
 GATE_ERROR = '`WEIGHTS` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off'
-WORDS = ['red', 'blue', 'green', 'shoes', 'hat', 'coat']
-
-
 def setup_index(env, n=60, seed=99):
-    """Documents with random titles over a small vocabulary and random 2-d vectors."""
+    """Every other document matches `red`, each with a title of its own length, so no two text
+    scores tie; the vectors are random, so no two distances do either. Ranks are then the same on
+    every run, in standalone and in cluster."""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
                'emb', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
     rnd = random.Random(seed)
     for k in range(n):
-        title = ' '.join(rnd.choice(WORDS) for _ in range(rnd.randint(1, 6)))
+        title = 'red' + ' coat' * (k // 2) if k % 2 == 0 else 'blue shoes'
         conn.execute_command('HSET', f'doc:{k}', 'title', title,
                              'emb', struct.pack('<2f', rnd.uniform(0, 10), rnd.uniform(0, 10)))
 
@@ -35,6 +34,11 @@ def hybrid(env, *combine):
                           *combine, 'LIMIT', 0, 100,
                           'PARAMS', 2, 'v', struct.pack('<2f', 5.0, 5.0)))
     return [to_dict(row) for row in res['results']]
+
+
+def scores(rows, field='__score'):
+    """`{key: score}`: fused scores can tie, and tied rows may come back in either order."""
+    return {row['__key']: float(row[field]) for row in rows}
 
 
 def flatten(x):
@@ -73,11 +77,12 @@ def testWeightedRrfMatchesReference(env):
         for key, arm in ranks.items():
             expected = sum(w / (RRF_CONSTANT + r) for w, r in zip(weights, arm) if r is not None)
             env.assertAlmostEqual(got[key], expected, 1e-9)
-        scores = [float(row['__score']) for row in rows]
-        env.assertEqual(scores, sorted(scores, reverse=True))
+        ordered = [float(row['__score']) for row in rows]
+        env.assertEqual(ordered, sorted(ordered, reverse=True))
 
     # Every weight 1 is the unweighted fusion.
-    env.assertEqual(hybrid(env, 'COMBINE', 'RRF', 4, 'WEIGHTS', 2, 1, 1), hybrid(env))
+    env.assertEqual(scores(hybrid(env, 'COMBINE', 'RRF', 4, 'WEIGHTS', 2, 1, 1)),
+                    scores(hybrid(env)))
 
 
 def testLinearWeightsSpellAlphaBeta(env):
@@ -85,8 +90,12 @@ def testLinearWeightsSpellAlphaBeta(env):
     enable_unstable_features(env)
     setup_index(env)
     for a, b in [(0.3, 0.7), (1.0, 0.0), (0.25, 2.5)]:
-        env.assertEqual(hybrid(env, 'COMBINE', 'LINEAR', 4, 'WEIGHTS', 2, a, b),
-                        hybrid(env, 'COMBINE', 'LINEAR', 4, 'ALPHA', a, 'BETA', b))
+        env.assertEqual(scores(hybrid(env, 'COMBINE', 'LINEAR', 4, 'WEIGHTS', 2, a, b)),
+                        scores(hybrid(env, 'COMBINE', 'LINEAR', 4, 'ALPHA', a, 'BETA', b)))
+    # EXPLAINSCORE shows the two weights as alpha and beta.
+    rows = hybrid(env, 'COMBINE', 'LINEAR', 4, 'WEIGHTS', 2, 0.25, 2.5, 'EXPLAINSCORE')
+    lines = [str(s) for s in flatten(rows[0]['score'])]
+    env.assertContains('Hybrid score (LINEAR: alpha=0.2500, beta=2.5000, window=20)', lines)
 
 
 def testWeightsWithOtherCombineArguments(env):
@@ -94,9 +103,9 @@ def testWeightsWithOtherCombineArguments(env):
     enable_unstable_features(env)
     setup_index(env)
     rows = hybrid(env, 'COMBINE', 'RRF', 8, 'CONSTANT', 60, 'WEIGHTS', 2, 1, 1, 'WINDOW', 20)
-    env.assertEqual(rows, hybrid(env))
+    env.assertEqual(scores(rows), scores(hybrid(env)))
     rows = hybrid(env, 'COMBINE', 'RRF', 6, 'WEIGHTS', 2, 1, 1, 'YIELD_SCORE_AS', 'fused')
-    env.assertEqual([r['fused'] for r in rows], [r['__score'] for r in hybrid(env)])
+    env.assertEqual(scores(rows, 'fused'), scores(hybrid(env)))
 
 
 def testWeightsExplainScore(env):
@@ -131,13 +140,20 @@ def testWeightsErrors(env):
     expect_error('COMBINE', 'LINEAR', 4, 'WEIGHTS', 2, 1, 'inf').contains('Invalid WEIGHTS value')
     expect_error('COMBINE', 'LINEAR', 6, 'ALPHA', 1, 'WEIGHTS', 2, 1, 1) \
         .contains('WEIGHTS cannot be combined with ALPHA or BETA')
+    expect_error('COMBINE', 'RRF', 4, 'WEIGHTS', 2, -1, 1).contains('RRF weights cannot be negative')
     expect_error('COMBINE', 'RRF', 4, 'WEIGHTS', 3, 1, 1).contains('WEIGHTS')
+    # An odd count is allowed only for a real WEIGHTS argument, not the word as a value.
+    expect_error('COMBINE', 'RRF', 3, 'YIELD_SCORE_AS', 'WEIGHTS', 'x').contains('x')
+    # Too few weights inside the block.
+    expect_error('COMBINE', 'RRF', 3, 'WEIGHTS', 2, 1).contains('WEIGHTS')
     # An odd count without WEIGHTS is still a key without its value.
     expect_error('COMBINE', 'RRF', 1, 'WINDOW').contains('argument count must be an even number')
 
 
 def testWeightsRequireUnstableFeatures(env):
-    """With the flag off, WEIGHTS is rejected on every node and the rest of COMBINE works."""
+    """With the flag off, WEIGHTS is rejected, ahead of any other error in its COMBINE block, and
+    the rest of COMBINE works. Shards never receive WEIGHTS, so the coordinator's check is the
+    one a cluster exercises."""
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     setup_index(env)
     blob = struct.pack('<2f', 5.0, 5.0)
@@ -145,4 +161,7 @@ def testWeightsRequireUnstableFeatures(env):
         env.expect('FT.HYBRID', 'idx', 'SEARCH', 'red', 'VSIM', '@emb', '$v',
                    'COMBINE', method, 4, 'WEIGHTS', 2, 1, 1, 'PARAMS', 2, 'v', blob) \
             .error().contains(GATE_ERROR)
+    for combine in (['LINEAR', 6, 'ALPHA', 1, 'WEIGHTS', 2, 1, 1], ['RRF', 3, 'WEIGHTS', 0, 1]):
+        env.expect('FT.HYBRID', 'idx', 'SEARCH', 'red', 'VSIM', '@emb', '$v', 'COMBINE', *combine,
+                   'PARAMS', 2, 'v', blob).error().contains(GATE_ERROR)
     env.assertGreater(len(hybrid(env, 'COMBINE', 'LINEAR', 4, 'ALPHA', 1, 'BETA', 1)), 0)

@@ -54,11 +54,12 @@ double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, con
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_RRF);
 
     const double *weights = scoringCtx->rrfCtx.weights;
-    RS_ASSERT(!weights || scoringCtx->rrfCtx.numWeights == num_sources);
+    const size_t numWeights = scoringCtx->rrfCtx.numWeights;
+    RS_ASSERT(!weights || numWeights == num_sources);
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_rank[i]) {
-            const double weight = weights ? weights[i] : 1.0;
+            const double weight = weights && i < numWeights ? weights[i] : 1.0;
             score += weight / (scoringCtx->rrfCtx.constant + ranks[i]);
         }
     }
@@ -170,7 +171,7 @@ static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoring
   for (size_t i = 0; i < num_sources; i++) {
     if (i > 0) buf = sdscat(buf, " + ");
     if (has_rank[i]) {
-      if (weights) {
+      if (weights && i < scoringCtx->rrfCtx.numWeights) {
         buf = sdscatprintf(buf, "%.4f * ", weights[i]);
       }
       buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, ranks[i]);
