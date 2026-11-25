@@ -213,6 +213,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 
     RedisModule_Reply_RLookupRow(reply, lk, rowData, RLOOKUP_F_NOFLAGS, RLOOKUP_F_HIDDEN, flags, HREQ_SearchCtx(hreq)->apiVersion);
   }
+#ifdef ENABLE_ASSERT
+  if (QueryRequest_EncodeReplyInBackground(&hreq->base)) {
+    SyncPoint_Wait(IsCoordinator(hreq) ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
+                                       : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
+  }
+#endif
 }
 
 #ifdef ENABLE_ASSERT
@@ -291,7 +297,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
     SearchResult_Destroy(r);
   }
 
-  if (countQuery) {
+  if (countQuery && !QueryRequest_BackgroundReplyTimedOut(&hreq->base)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }
@@ -328,12 +334,24 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 }
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const QueryError *err, int rc) {
+#ifdef ENABLE_ASSERT
+  if (QueryRequest_EncodeReplyInBackground(&hreq->base)) {
+    SyncPoint_WaitUntil(IsCoordinator(hreq) ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
+                                            : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE,
+                        hreq_timed_out, hreq);
+  }
+#endif
+  const bool countError = !QueryRequest_BackgroundReplyTimedOut(&hreq->base);
   if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->base.limits.timeout.config.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    }
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, hreq->base.limits.timeout.config.timeoutPolicy, IsProfile(hreq))) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    if (countError) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    }
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -529,28 +547,26 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 
 }
 
-// Helper for error handling in coordinator HREQ execution.
-// FAIL / RETURN_STRICT (deferred reply): store the error for the
-//   reply_callback to handle.
-// RETURN (inline reply): reply directly - an empty result set with a
-//   timeout warning when the error is a non-fail-policy timeout (no result set
-//   was produced here), otherwise the error itself.
+// Deferred replies retain errors for the callback. Direct replies use the worker context.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (!QueryRequest_UsesReplyCallback(&hreq->base)) {
-    QueryRequest_RecordInlineReply(&hreq->base);
-  }
   if (QueryRequest_UsesReplyCallback(&hreq->base)) {
-    // Deep copy since QueryError contains heap-allocated strings.
-    // reply_callback will clear the stored error after replying.
     QueryError_ClearError(&hreq->base.reply.err);
     QueryError_CloneFrom(status, &hreq->base.reply.err);
-    // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
-  } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->base.limits.timeout.config.timeoutPolicy, IsProfile(hreq))) {
-    // Error is a timeout under a non-fail policy, which must not surface as an
-    // error: reply an empty result set with the timeout warning instead.
+    return;
+  }
+
+  if (QueryRequest_BackgroundReplyTimedOut(&hreq->base)) {
+    QueryError_ClearError(status);
+    return;
+  }
+
+  QueryRequest_RecordInlineReply(&hreq->base);
+  RSTimeoutPolicy policy = hreq->base.limits.timeout.config.timeoutPolicy;
+  if (policy != TimeoutPolicy_Fail &&
+      !ShouldReplyWithError(QueryError_GetCode(status), policy, IsProfile(hreq))) {
     common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
-                                    IsInternal(hreq), IsProfile(hreq));
+                                  IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
@@ -618,11 +634,20 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
+    if (QueryRequest_BackgroundReplyTimedOut(&hreq->base)) {
+      goto done_err;
+    }
     QueryRequest_RecordInlineReply(&hreq->base);
 
     fatalError = HybridRequest_GetFatalError(hreq);
     countQuery = !fatalError || QueryError_GetCode(fatalError) == QUERY_ERROR_CODE_TIMED_OUT;
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, fatalError);
+#ifdef ENABLE_ASSERT
+    if (QueryRequest_EncodeReplyInBackground(&hreq->base)) {
+      SyncPoint_Wait(IsCoordinator(hreq) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
+                                         : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
+    }
+#endif
 
 done_err:
   finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock),
@@ -630,7 +655,7 @@ done_err:
 }
 
 /**
- * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Serialize results from stored state for the main-thread reply callback.
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */
 void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply) {
@@ -1228,10 +1253,11 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     rs_wall_clock_ms_t timeoutMS = 0;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {
-      replyCallback = internal
-          ? HybridQueryCursorReplyCallback
-          : HybridQueryReplyCallback;
-
+      // The initial shard reply only publishes cursor IDs and warnings.
+      const bool useReplyCallback = internal || timeoutPolicy == TimeoutPolicy_ReturnStrict;
+      if (useReplyCallback) {
+        replyCallback = internal ? HybridQueryCursorReplyCallback : HybridQueryReplyCallback;
+      }
       timeoutMS = hreq->base.limits.timeout.config.queryTimeoutMS;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
