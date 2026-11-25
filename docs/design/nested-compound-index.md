@@ -321,8 +321,8 @@ Internal types, private to the crate, that carry the "check first" rule:
 2. **Preprocess** (`document.c`, `preprocessorMap[IXFLDPOS_NESTED]`): validate the types and
    normalise TAG values (case folding unless `CASESENSITIVE`; no separator split, see §2). Drop elements
    that are missing any level's attribute. They aren't indexed, so they never match a group,
-   which gives SQL's NULL behaviour. Reject the document (index error, like today's type
-   mismatch) past `NESTED_MAX_ELEMENTS` elements (proposed 25K). Then check every row of the
+   which gives SQL's NULL behaviour. There is no cap on elements per document, as for
+   multi-value fields today. Then check every row of the
    document (`NestedIndex::check_document`: value types, NaN, routing, and `check_paths` on all
    rows together), and fail the document if it errors. A preprocessor failure drops the whole
    document; an indexer failure would come after its other fields are written. Checking each row
