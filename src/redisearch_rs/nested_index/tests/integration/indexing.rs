@@ -109,6 +109,15 @@ fn numeric_deltas_add_up_to_the_trees_postings() {
         .map(|range| range.entries().num_blocks())
         .sum();
     assert_eq!(total.block_delta, blocks as i64);
+    // Inner ranges hold copies of their children's entries, so the tree's records are those of
+    // every range, not its documents.
+    let records: usize = tree
+        .iter()
+        .filter_map(|node| node.range())
+        .map(|range| range.num_entries())
+        .sum();
+    assert_eq!(total.records, records as i64);
+    assert_eq!(index.num_records() as i64, total.records);
 }
 
 #[test]
@@ -135,6 +144,7 @@ fn tag_deltas_add_up_to_the_posting_lists() {
     let wood = tags.find_value(b"wood").unwrap();
 
     assert_eq!(total.records, 300 + 100);
+    assert_eq!(index.num_records(), 400);
     assert_eq!(steel.unique_docs() + wood.unique_docs(), 400);
     assert_eq!(
         total.size_delta,
@@ -321,7 +331,47 @@ fn rejected_documents_leave_the_index_unchanged() {
             "{name}"
         );
         assert!(index.routing().is_empty(), "{name}");
+        assert_eq!(index.num_records(), 0, "{name}");
     }
+}
+
+#[test]
+fn a_terminals_overhead_does_not_grow_with_its_postings() {
+    // Postings are counted through the deltas, so overhead that grew with them would count
+    // their bytes twice. A tag terminal's overhead grows with its distinct values only.
+    let mut prices = priced(None);
+    let mut materials = materials();
+    let red_m = [tag("red"), tag("M")];
+    let red = [tag("red")];
+    let numeric_doc = |price| {
+        [Element {
+            path: &red_m,
+            value: TerminalValue::Numeric(price),
+        }]
+    };
+    let tag_doc = [Element {
+        path: &red,
+        value: tag_value("steel"),
+    }];
+    prices.index_document(1, &numeric_doc(1.0), PARAMS).unwrap();
+    materials.index_document(1, &tag_doc, PARAMS).unwrap();
+    let numeric_overhead = prices.routing().get(&red_m).unwrap().unwrap().mem_usage();
+    let tag_overhead = materials.routing().get(&red).unwrap().unwrap().mem_usage();
+
+    for doc in 2..=200u64 {
+        prices
+            .index_document(doc, &numeric_doc(doc as f64), PARAMS)
+            .unwrap();
+        materials.index_document(doc, &tag_doc, PARAMS).unwrap();
+    }
+    assert_eq!(
+        prices.routing().get(&red_m).unwrap().unwrap().mem_usage(),
+        numeric_overhead
+    );
+    assert_eq!(
+        materials.routing().get(&red).unwrap().unwrap().mem_usage(),
+        tag_overhead
+    );
 }
 
 #[test]

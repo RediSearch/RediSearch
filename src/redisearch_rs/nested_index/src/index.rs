@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{CompoundIndex, InsertError, Key, Level, SchemaError};
+use compound_index::{CheckPathsError, CompoundIndex, Key, Level, SchemaError};
 use rqe_core::DocId;
 
 use crate::{IndexError, Terminal, TerminalKind, TerminalValue};
@@ -107,23 +107,17 @@ impl NestedIndex {
                 return Err(IndexError::NotANumber { element: position });
             }
         }
-        // Checked one by one first, so a path error names its element.
-        for (position, element) in elements.iter().enumerate() {
-            self.routing
-                .get(element.path)
-                .map_err(|error| IndexError::Path {
-                    element: position,
-                    error,
-                })?;
-        }
         let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
         self.routing
             .check_paths(&paths)
             .map_err(|error| match error {
-                InsertError::CardinalityExceeded { level, max } => {
+                CheckPathsError::Path { position, error } => IndexError::Path {
+                    element: position,
+                    error,
+                },
+                CheckPathsError::CardinalityExceeded { level, max } => {
                     IndexError::CardinalityExceeded { level, max }
                 }
-                InsertError::Path(_) => unreachable!("every path was routed above"),
             })?;
 
         let kind = self.terminal_kind;
