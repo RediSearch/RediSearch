@@ -703,6 +703,15 @@ impl TagFixture {
         unsafe { self.field_spec.as_ref() }.index
     }
 
+    fn request_memory_stop(&mut self) {
+        self._context.set_search_time(EXPIRED_DEADLINE, true);
+        // SAFETY: set_search_time installed live, exclusively owned limits with
+        // the timeout unarmed. No evaluator can read the flag during setup.
+        unsafe {
+            (*self._context.sctx.as_mut().limits).memory.stopped = true;
+        }
+    }
+
     /// Evaluate the node, wrapping whatever it yields in a contract checker.
     ///
     /// Returns `None` when evaluation yields no iterator. The checker owns
@@ -2511,6 +2520,60 @@ fn eval_tag_does_not_evaluate_short_alternatives_when_cancelled() {
 
     let mut it = fixture.eval().expect("a TAG expression yields a union");
     assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
+fn eval_tag_wildcard_scan_stops_before_a_late_match_on_memory_stop() {
+    let make_fixture = || {
+        let mut values = generated(TIMEOUT_VALUES, 100);
+        values.push((b"zz-late".to_vec(), vec![1]));
+        TagFixture::new(TagOptions {
+            values,
+            children: vec![Child::WildcardQuery(b"*late")],
+            ..TagOptions::default()
+        })
+    };
+
+    let mut active = make_fixture();
+    assert_eq!(drain_doc_ids(&mut active.eval().unwrap()), vec![1]);
+
+    let mut stopped = make_fixture();
+    stopped.request_memory_stop();
+    assert!(drain_doc_ids(&mut stopped.eval().unwrap()).is_empty());
+}
+
+#[test]
+fn eval_tag_lex_range_walk_stops_on_memory_stop() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        ..TagOptions::default()
+    });
+
+    fixture.request_memory_stop();
+    let ids = drain_doc_ids(&mut fixture.eval().unwrap());
+    assert!(ids.len() < TIMEOUT_VALUES as usize);
+}
+
+#[test]
+fn eval_tag_skips_exact_alternatives_on_memory_stop() {
+    let make_fixture = || {
+        TagFixture::new(TagOptions {
+            children: vec![Child::Token(TAG_APPLE), Child::Token(TAG_BANANA)],
+            ..TagOptions::default()
+        })
+    };
+
+    let mut active = make_fixture();
+    assert_eq!(drain_doc_ids(&mut active.eval().unwrap()), vec![1, 2, 3, 4]);
+
+    let mut stopped = make_fixture();
+    stopped.request_memory_stop();
+    assert!(drain_doc_ids(&mut stopped.eval().unwrap()).is_empty());
 }
 
 #[test]
