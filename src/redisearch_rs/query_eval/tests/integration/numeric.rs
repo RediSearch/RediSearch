@@ -193,9 +193,8 @@ fn eval_numeric_out_of_range_yields_no_results() {
     );
 }
 
-/// `TestContext` builds its range tree with float compression, which may store
-/// a value other than the indexed one, so `$as` on it is rejected. The binding
-/// path is covered end to end by the `test_index_loading` flow tests.
+/// A range tree built with float compression may store a value other than the
+/// indexed one, so `$as` on it is rejected.
 #[test]
 fn eval_numeric_with_alias_on_compressed_tree_is_rejected() {
     let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"), Compression::On);
