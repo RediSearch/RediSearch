@@ -12,9 +12,9 @@ stays readable but owns nothing; the new one also handles later fixes to your st
 
 ## Waiting for CI and comments
 
-After a PR is published, subscribe to its CI and its comments with `create_github_subscription`,
-then end your turn when you have nothing else to do: the subscription wakes you, and the turn
-starts with whatever arrived as findings. Never poll GitHub or sleep yourself.
+After a PR is published, try subscribing to its CI and comments with `create_github_subscription`. If the tool is unavailable or the Amp GitHub App cannot access the repository, verify access with local `gh pr view` and continue using `gh` for GitHub reads and the plugin for publication and findings. When `gh` works, report that GitHub access works through local `gh` and only automatic CI/comment notifications are unavailable. Report these together in status updates and handoffs; do not present the subscription failure as a blocker or ask for App access to continue.
+
+Subscriptions wake the thread when CI or comments arrive. Without them, the plugin still collects feedback at the next turn; when only waiting remains, tell the user to resume the thread later rather than claiming automatic monitoring is active. Never poll GitHub or sleep yourself.
 
 ## Context
 

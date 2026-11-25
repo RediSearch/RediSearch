@@ -244,6 +244,17 @@ static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   return result;
 }
 
+// The coordinator's RPNet preloads the shard-summed WITHCOUNT total, which a stopped depleter
+// rebases (see RPDepleter_SetTotalPreloaded).
+static ResultProcessor *newDepleter(const AggregationPipelineParams *params) {
+  ResultProcessor *rp = RPDepleter_New();
+  if (IsCoordinator(&params->common) && IsAggregate(&params->common) &&
+      HasWithCount(&params->common)) {
+    RPDepleter_SetTotalPreloaded(rp);
+  }
+  return rp;
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -323,14 +334,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
         scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
       }
-      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey, params->diskScoreSkippingQuery);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
 
   if (astp->offset || (astp->limit && !rp)) {
     if (HasDepleter(&params->common)) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }
@@ -346,7 +357,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
   if (HasDepleter(&params->common)) { // We need to add a RPDepleter
     if (!RPDepleterAdded) {
-      rp = RPDepleter_New();
+      rp = newDepleter(params);
       up = pushRP(&pipeline->qctx, rp, up);
       RPDepleterAdded = true;
     }
@@ -505,9 +516,11 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
   RS_ASSERT(params->iteratorTree);
+  // A hybrid subquery that ends early is merged as empty and successful.
   ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
       params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
-      params->common.reqflags & QEXEC_F_PROFILE);
+      params->common.reqflags & QEXEC_F_PROFILE,
+      IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common));
   // Ownership of the iterator tree and the slot ranges is now with the pipeline.
   params->iteratorTree = NULL;
   params->querySlots = NULL;

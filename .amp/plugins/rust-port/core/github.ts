@@ -9,9 +9,10 @@
 
 /** The {@link Forge} on GitHub: stage PRs pushed from the checkout, their review threads and CI. */
 import { Octokit } from '@octokit/rest';
+import { execa } from 'execa';
 import { hash, type NewFinding, type FindingSource } from './job.ts';
 import type { Forge, Stage } from './ports.ts';
-import { git } from './git.ts';
+import { git, trackInJj } from './git.ts';
 
 // STALE is a check GitHub gave up on: it never passed.
 const FAILED = [
@@ -64,14 +65,39 @@ function trimComment(body: string, max = 1500): string {
   return text.length > max ? `${text.slice(0, max)}… (full text at the link)` : text;
 }
 
-/** Amp configures git's credential helper in Orbs, so this needs nothing beyond git itself. */
-async function githubToken(cwd: string): Promise<string> {
+/** Selects credentials with repository access before any write can be attempted. */
+async function githubClient(cwd: string, owner: string, repo: string): Promise<Octokit> {
   const env = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
-  if (env) return env;
-  const fill = await git(cwd, ['credential', 'fill'], 'protocol=https\nhost=github.com\n\n');
-  const password = fill.match(/^password=(.*)$/m)?.[1];
-  if (!password) throw new Error('git has no credentials for github.com');
-  return password;
+  const fill = env
+    ? ''
+    : await git(cwd, ['credential', 'fill'], 'protocol=https\nhost=github.com\n\n').catch(() => '');
+  const token = env || fill.match(/^password=(.*)$/m)?.[1];
+  let denied: unknown;
+  if (token) {
+    const client = new Octokit({ auth: token });
+    try {
+      await client.rest.repos.get({ owner, repo });
+      return client;
+    } catch (error) {
+      if (![401, 403, 404].includes((error as { status?: number }).status ?? 0)) throw error;
+      denied = error;
+    }
+  }
+  const auth = await execa('gh', ['auth', 'token', '--hostname', 'github.com'], {
+    cwd,
+    // Environment tokens override gh's stored login, which may have broader repository access.
+    env: { GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_PROMPT_DISABLED: '1' },
+  })
+    .then(({ stdout }) => stdout.trim())
+    .catch(() => '');
+  if (!auth)
+    throw (
+      denied ??
+      new Error('No GitHub credentials available; run gh auth login or connect the GitHub App.')
+    );
+  const client = new Octokit({ auth });
+  await client.rest.repos.get({ owner, repo });
+  return client;
 }
 
 /**
@@ -196,7 +222,7 @@ export function github(o: { root: string; repository: string; ci: CI }): Forge {
   const [owner, repo] = repository.split('/');
   // Made on first use, so inspecting a plan needs no credentials.
   let client: Promise<Octokit> | undefined;
-  const api = () => (client ??= githubToken(root).then((auth) => new Octokit({ auth })));
+  const api = () => (client ??= githubClient(root, owner, repo));
   const sh = (args: string[]) => git(root, args);
 
   return {
@@ -257,6 +283,8 @@ export function github(o: { root: string; repository: string; ci: CI }): Forge {
         const lease = `--force-with-lease=${o.branch}:${expected}`;
         await sh(['push', lease, o.remote, `${o.candidate}:refs/heads/${o.branch}`]);
       }
+      // Outside the push, so a retry after a failed tracking still tracks.
+      await trackInJj(root, o.remote, o.branch);
       const fields = { owner, repo, title: o.title, body: o.body };
       // A PR created before the plugin could record it, say by a run that died, is adopted.
       const open =

@@ -1017,6 +1017,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResultsLimit = maxHybridResults,
       .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
       .language = searchRequest->searchopts.language,
+      .diskScoreSkippingQuery = parsedCmdCtx->reqConfig->diskScoreSkippingQuery,
   };
 
   hybridParams->aggregationParams = params;

@@ -182,6 +182,9 @@ RedisModuleString **HashValue::kvarray(RedisModuleCtx *allocctx) const {
 }
 
 RedisModuleKey *RMCK_OpenKey(RedisModuleCtx *ctx, RedisModuleString *s, int mode) {
+  if (!(mode & REDISMODULE_OPEN_KEY_ACCESS_TRIMMED) && ctx->db->trimmed.count(*s)) {
+    return NULL;
+  }
   // Look up in db:
   Value *vv = ctx->db->get(s);
   // Always return a valid key handle, matching real Redis behavior.

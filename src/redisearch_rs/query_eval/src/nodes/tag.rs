@@ -35,7 +35,9 @@ use trie_rs::{
 };
 
 use super::wildcard_query::below_min_term_prefix;
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
+use crate::{
+    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, into_child_iterator,
+};
 
 /// The request's clock deadline, or `None` when it has no clock-based timeout.
 fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
@@ -99,11 +101,12 @@ pub(crate) fn eval<'index>(
     // Going through the raw pointer detaches the borrow from `ctx`, which the
     // children's evaluation needs exclusively.
     let field = unsafe { &*field_ptr };
+    // Both query parsers build a tag node only on a TAG field.
     debug_assert!(
         field.types() & ffi::FieldType_INDEXFLD_T_TAG != 0,
         "a tag node must reference a tag field"
     );
-    // SAFETY: the field is a tag field, so `tagOpts` is the active union member.
+    // SAFETY: the field is a tag field (asserted above), so `tagOpts` is the active union member.
     let index = NonNull::new(unsafe { field.__bindgen_anon_1.tagOpts.tagIndex })?;
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
@@ -640,6 +643,9 @@ fn collect_filtered_readers(
                 .set_reached_max_prefix_expansions();
             break;
         }
+        if memory_stop(ctx) {
+            break;
+        }
         children.extend(open_reader_child(ctx, index, value, field_index));
     }
     children
@@ -674,7 +680,7 @@ fn collect_suffix_readers(
     // stay owned by the suffix trie.
     let matches = unsafe { FatArray::new(NonNull::new(matches)?) };
     let mut children = Vec::new();
-    for &inner in matches.as_slice() {
+    'outer: for &inner in matches.as_slice() {
         if children.len() >= max_prefix_expansions {
             break;
         }
@@ -690,6 +696,9 @@ fn collect_suffix_readers(
                     .warnings_mut()
                     .set_reached_max_prefix_expansions();
                 break;
+            }
+            if memory_stop(ctx) {
+                break 'outer;
             }
             debug_assert!(!value.is_null(), "a suffix match must carry a string");
             // SAFETY: the suffix trie stores NUL-terminated tag strings.
@@ -714,6 +723,9 @@ fn collect_wildcard_suffix_readers(
             ctx.status()
                 .warnings_mut()
                 .set_reached_max_prefix_expansions();
+            break;
+        }
+        if memory_stop(ctx) {
             break;
         }
         debug_assert!(!value.is_null(), "a suffix match must carry a string");

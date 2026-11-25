@@ -42,6 +42,7 @@ public:
 
 private:
     void Init() {
+      base = QueryIterator{};
       base.type = MAX_ITERATOR;
       base.atEOF = false;
       base.lastDocId = 0;
@@ -52,6 +53,7 @@ private:
       base.SkipTo = MockIterator_SkipTo;
       base.Rewind = MockIterator_Rewind;
       base.Revalidate = MockIterator_Revalidate;
+      QueryIterator_SetNoScoreBounds(&base);
 
       std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
