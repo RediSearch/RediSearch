@@ -464,12 +464,19 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         char *s = rm_strndup(B.s, B.len);
         size_t slen = unescapen((char*)s, B.len);
 
-        A = NewTagNode(s, slen);
-        QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
+        const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetField(ctx->sctx->spec, s, slen) : NULL;
+        if (fs && !FIELD_IS(fs, INDEXFLD_T_TAG)) {
+            rm_free(s);
+            QueryNode_Free(C);
+            A = NewQueryNode(QN_NULL);
+        } else {
+            A = NewTagNode(s, slen);
+            QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
-        // Set the children count on C to 0 so they won't get recursively free'd
-        QueryNode_ClearChildren(C, 0);
-        QueryNode_Free(C);
+            // Set the children count on C to 0 so they won't get recursively free'd
+            QueryNode_ClearChildren(C, 0);
+            QueryNode_Free(C);
+        }
     }
 }
 
@@ -525,8 +532,15 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
-    A = NewNumericNode(C);
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetField(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs && !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
+        QueryParam_Free(C);
+        C = NULL;
+        A = NewQueryNode(QN_NULL);
+    } else {
+        C->nf->fieldName = rm_strndup(B.s, B.len);
+        A = NewNumericNode(C);
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
@@ -542,8 +556,15 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->gf->property = rm_strndup(B.s, B.len);
-    A = NewGeofilterNode(C);
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetField(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        QueryParam_Free(C);
+        C = NULL;
+        A = NewQueryNode(QN_NULL);
+    } else {
+        C->gf->property = rm_strndup(B.s, B.len);
+        A = NewGeofilterNode(C);
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
