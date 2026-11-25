@@ -19,6 +19,7 @@ extern "C" {
 #include "profile/options.h"
 #include "vector_index.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_arm.h"
 
 // Resolved COMBINE parameters captured on the coordinator, used to reconstruct
 // an old-shard-compatible COMBINE clause on the wire (see HybridRequest_buildMRCommand).
@@ -52,6 +53,14 @@ typedef struct {
   // appended.
   bool forwardTimeout;
   long long timeoutMS;
+  // The arms to copy from argv, in command order. With none, the first SEARCH and the first
+  // VSIM are copied, which is the whole of the stable two-arm syntax.
+  struct {
+    uint32_t offset;  // index in argv of the arm's SEARCH or VSIM keyword
+    bool isSearch;
+    bool isDense;     // a VSIM arm on a VECTOR field, the only kind SHARD_K_RATIO applies to
+  } arms[HYBRID_NUM_ARM_SLOTS];
+  size_t numArms;
 } HybridShardWireParams;
 
 // Builds the per-shard MR command from the coordinator's parsed hybrid request.

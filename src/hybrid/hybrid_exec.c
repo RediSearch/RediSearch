@@ -152,10 +152,11 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
                                                    QueryProcessingCtx *qctx, int postProcessingRC) {
   HybridWarningMask warnings = HYBRID_WARNING_NONE;
 
-  // Handle warnings from each subquery, adding appropriate suffix
+  // Handle warnings from each subquery, suffixed with its label
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     QueryError* err = &hreq->requests[i]->base.reply.err;
-    const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+    char suffix[HYBRID_ARM_SUFFIX_SIZE];
+    HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
   }
@@ -258,7 +259,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
     // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = HybridRequest_Arm(hreq, SEARCH_INDEX),
+    .areq = hreq->requests[0],
   };
 
 #ifdef ENABLE_ASSERT
@@ -399,10 +400,8 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     warnings |= HYBRID_WARNING_TIMEOUT;
   }
-  // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
-  // the search subquery is sufficient.
-  const AREQ *searchReq = HybridRequest_Arm(hreq, SEARCH_INDEX);
-  if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
+  // The cap flag is mirrored on every subquery; checking the first is sufficient.
+  if (hreq->requests[0]->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
 
@@ -728,15 +727,11 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
+    // One label/cursor pair per arm, in slot order. With SEARCH and one VSIM this is the
+    // stable reply, ["SEARCH", cid, "VSIM", cid, "warnings", [...]].
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ *areq = hreq->requests[i];
-      if (IsHybridSearchSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "SEARCH", areq->base.cursorInfo.id);
-      } else if (IsHybridVectorSubquery(areq)) {
-        RedisModule_ReplyKV_LongLong(reply, "VSIM", areq->base.cursorInfo.id);
-      } else {
-        RS_ABORT_ALWAYS("Unknown subquery type");
-      }
+      RedisModule_ReplyKV_LongLong(reply, HybridRequest_ArmLabel(hreq, i),
+                                   hreq->requests[i]->base.cursorInfo.id);
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
@@ -746,9 +741,9 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
     for (size_t i = 0; i < hreq->nrequests; i++) {
       QueryError *err = &hreq->requests[i]->base.reply.err;
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-        const char *suffix =
-            HybridArmMask_SlotAt(hreq->armMask, i) == SEARCH_INDEX ? SEARCH_SUFFIX : VSIM_SUFFIX;
-        char buf[128];
+        char suffix[HYBRID_ARM_SUFFIX_SIZE];
+        HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
+        char buf[128 + HYBRID_ARM_SUFFIX_SIZE];
         snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
         RedisModule_Reply_SimpleString(reply, buf);
@@ -1314,23 +1309,14 @@ void printHybridProfileCoordinator(RedisModule_Reply *reply, void *ctx) {
   }
 }
 
-// output "SEARCH" and "VSIM" profiles grouped together for standalone mode
-// Format: {SEARCH: profile, VSIM: profile} - single shard with both profiles
+// Output every arm's profile grouped together for standalone mode
+// Format: {SEARCH: profile, VSIM: profile} - single shard with each arm's profile
 void printHybridProfileShards(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  // For standalone mode, output as a single shard map containing both SEARCH
-  // and VSIM
   RedisModule_Reply_Map(reply);  // Start shard map
   for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *areq = hreq->requests[i];
-    const char *subqueryType = "N/A";
-    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
-      subqueryType = "SEARCH";
-    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
-      subqueryType = "VSIM";
-    }
-    RedisModule_Reply_SimpleString(reply, subqueryType);
-    Profile_Print(reply, areq);
+    RedisModule_Reply_SimpleString(reply, HybridRequest_ArmLabel(hreq, i));
+    Profile_Print(reply, hreq->requests[i]);
   }
   RedisModule_Reply_MapEnd(reply);  // End shard map
 }
@@ -1407,8 +1393,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     *hybridRequest->debugParams = *debugParams;
   }
   ParseHybridCommandCtx cmd = {0};
-  cmd.search = HybridRequest_Arm(hybridRequest, SEARCH_INDEX);
-  cmd.vector = hybridRequest->requests[HYBRID_VSIM_ARM_POSITION];
+  cmd.hreq = hybridRequest;
   cmd.reqConfig = &hybridRequest->base.reqConfig;
   cmd.timeoutConfig = &hybridRequest->base.limits.timeout.config;
   cmd.cursorConfig = &hybridRequest->base.cursorConfig;

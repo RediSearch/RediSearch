@@ -14,6 +14,7 @@
 
 #include "hybrid_callbacks.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_request.h"
 #include "config.h"
 #include "query_error_ffi.h"
 #include "util/arg_parser.h"
@@ -156,6 +157,14 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
                             WEIGHTS_ANY_SIGN, status)) {
       linearCtx->window = windowValue;
     }
+    ArgParser_Free(parser);
+    return;
+  }
+  if (linearCtx->numWeights != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    // ALPHA, BETA and their defaults weigh exactly two subqueries.
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX,
+                                     "LINEAR with %zu subqueries requires WEIGHTS",
+                                     linearCtx->numWeights);
     ArgParser_Free(parser);
     return;
   }

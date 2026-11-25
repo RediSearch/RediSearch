@@ -12,6 +12,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
@@ -420,7 +421,8 @@ void HybridRequest_Free(HybridRequest *req) {
     // RedisModuleCtx — each cycle lends and reclaims its own.
     const bool timedOut =
         QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
-    for (size_t i = 0; i < req->nrequests; i++) {
+    // Spares past nrequests never got a cursor, so they take the AREQ_Free branch.
+    for (size_t i = 0; i < array_len(req->requests); i++) {
       AREQ *sub = req->requests[i];
       struct Cursor *cursor = sub->base.cursorInfo.cursor;
       if (cursor) {
@@ -437,6 +439,9 @@ void HybridRequest_Free(HybridRequest *req) {
       }
     }
     array_free(req->requests);
+    if (req->armLabels) {
+      array_free_ex(req->armLabels, rm_free(*(char **)ptr));
+    }
 
     rm_free(req->subqueriesReturnCodes);
     req->subqueriesReturnCodes = NULL;
@@ -498,20 +503,86 @@ void HybridRequest_ClearErrors(HybridRequest *req) {
   }
 }
 
+// How many sub-requests to allocate before parsing, which may run off the main thread and so
+// cannot create one. Every arm starts with a SEARCH or VSIM keyword, so counting them can only
+// over-count (the word as a query or value), never under-count. Without unstable features a
+// query has exactly the two arms of the stable syntax.
+static size_t armsToAllocate(RedisModuleString **argv, uint32_t argc) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    return HYBRID_REQUEST_NUM_SUBQUERIES;
+  }
+  size_t keywords = 0;
+  for (uint32_t i = 2; i < argc; i++) {
+    const char *arg = RedisModule_StringPtrLen(argv[i], NULL);
+    if (!strcasecmp(arg, "SEARCH") || !strcasecmp(arg, "VSIM")) {
+      keywords++;
+    }
+  }
+  if (keywords < HYBRID_REQUEST_NUM_SUBQUERIES) {
+    return HYBRID_REQUEST_NUM_SUBQUERIES;
+  }
+  return keywords < HYBRID_NUM_ARM_SLOTS ? keywords : HYBRID_NUM_ARM_SLOTS;
+}
+
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
-  AREQ *search = AREQ_New(argv, argc);
-  AREQ *vector = AREQ_New(argv, argc);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
-  // lends each sub a ctx valid for that cycle and reclaims it at cycle end
-  // (a background cycle's depleting threads each need a private one).
-  search->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
-  vector->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
-  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
-  requests = array_ensure_append_1(requests, search);
-  requests = array_ensure_append_1(requests, vector);
+  const size_t numArms = armsToAllocate(argv, argc);
+  arrayof(AREQ*) requests = array_new(AREQ*, numArms);
+  for (size_t i = 0; i < numArms; i++) {
+    AREQ *arm = AREQ_New(argv, argc);
+    // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
+    // lends each sub a ctx valid for that cycle and reclaims it at cycle end
+    // (a background cycle's depleting threads each need a private one).
+    arm->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
+    requests = array_ensure_append_1(requests, arm);
+  }
   return HybridRequest_New(sctx, requests, array_len(requests), argv, argc);
+}
+
+const char *HybridRequest_ArmLabel(const HybridRequest *req, size_t position) {
+  RS_ASSERT(position < req->nrequests);
+  if (req->armLabels) {
+    return req->armLabels[position];
+  }
+  // Before parsing settles the arms, and for requests built without parsing.
+  return IsHybridSearchSubquery(req->requests[position]) ? "SEARCH" : "VSIM";
+}
+
+void HybridRequest_ArmSuffix(const HybridRequest *req, size_t position, char *buf, size_t len) {
+  snprintf(buf, len, "(%s)", HybridRequest_ArmLabel(req, position));
+}
+
+void HybridRequest_SetArms(HybridRequest *req, AREQ **arms, size_t numArms, HybridArmMask mask) {
+  RS_ASSERT(numArms == HybridArmMask_Count(mask) && numArms <= array_len(req->requests));
+  // Move the arms to the front, keeping every other sub-request as a spare behind them.
+  for (size_t i = 0; i < numArms; i++) {
+    for (size_t j = i; j < array_len(req->requests); j++) {
+      if (req->requests[j] == arms[i]) {
+        AREQ *tmp = req->requests[i];
+        req->requests[i] = req->requests[j];
+        req->requests[j] = tmp;
+        break;
+      }
+    }
+    RS_ASSERT(req->requests[i] == arms[i]);
+  }
+  req->nrequests = numArms;
+  req->armMask = mask;
+
+  const size_t numVsim = numArms - HybridArmMask_Has(mask, SEARCH_INDEX);
+  req->armLabels = array_new(char *, numArms);
+  for (size_t i = 0; i < numArms; i++) {
+    char *label;
+    if (HybridArmMask_SlotAt(mask, i) == SEARCH_INDEX) {
+      label = rm_strdup("SEARCH");
+    } else if (numVsim == 1) {
+      label = rm_strdup("VSIM");
+    } else {
+      rm_asprintf(&label, "VSIM @%s", arms[i]->parsedVectorData->fieldName);
+    }
+    array_append(req->armLabels, label);
+  }
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {

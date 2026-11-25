@@ -159,6 +159,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
+    .hreq = hybridReq,
     .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
     .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,

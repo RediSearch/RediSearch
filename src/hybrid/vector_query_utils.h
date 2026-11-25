@@ -41,6 +41,9 @@ typedef struct {
   // The first option given that only a dense field supports, as the user spelled it; NULL if
   // none. applyVectorQuery rejects it on a sparse field.
   const char *denseOnlyOption;
+  // Index of the arm's VSIM keyword in the held argv, where the coordinator copies the clause
+  // from for the shard command.
+  uint32_t argOffset;
   // VECTOR_INDEX or SPARSE_INDEX, by the field's type. Set by applyVectorQuery.
   HybridArmSlot armSlot;
   SparseMetric sparseMetric;  // valid only when armSlot == SPARSE_INDEX

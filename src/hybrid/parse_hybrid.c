@@ -98,7 +98,9 @@ static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLe
   vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
 }
 
-static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
+// `onlyArm`: SEARCH is the query's only subquery, so what follows it are the tail's arguments,
+// left for HybridParseOptionalArgs rather than rejected here.
+static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, bool onlyArm, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided for SEARCH");
     return REDISMODULE_ERR;
@@ -134,6 +136,9 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
 
     if (rv == AC_OK && !strcasecmp("VSIM", cur)) {
       // Hit VSIM, we're done with search options
+      break;
+    }
+    if (onlyArm && rv == AC_OK && strcasecmp("DIALECT", cur)) {
       break;
     }
     if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
@@ -463,6 +468,7 @@ static int parseYieldScoreClause(ArgsCursor *ac, ParsedVectorData *pvd, QueryErr
 }
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
+  const uint32_t vsimOffset = (uint32_t)ac->offset;
   // Check for required VSIM keyword
   if (!AC_AdvanceIfMatch(ac, "VSIM")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "VSIM argument is required");
@@ -471,6 +477,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Create ParsedVectorData struct at the beginning for cleaner error handling
   ParsedVectorData *pvd = rm_calloc(1, sizeof(ParsedVectorData));
+  pvd->argOffset = vsimOffset;
   pvd->queryNodeFlags = QueryNode_YieldsDistance | QueryNode_HybridVectorSubqueryNode;
 
   // Allocate VectorQuery directly (params arrays will be created lazily by array_ensure_append_1)
@@ -729,58 +736,48 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 }
 
 /**
- * Handle load step distribution for hybrid search pipelines.
- *
- * This function  finds all existing load steps in the tail plan and clones them to search and vector pipelines.
- * If no load steps are found, it creates an implicit one.
- *
- * @param tailPlan The tail aggregation plan that may contain load steps
- * @param searchPlan The search subquery aggregation plan
- * @param vectorPlan The vector subquery aggregation plan
+ * Move every load step of the tail plan into each arm's plan, or give each arm an implicit one
+ * (the document key and score) when the tail has none.
  */
-static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchPlan, AGGPlan *vectorPlan) {
-    PLN_LoadStep *loadStep;
-    bool foundAnyLoadStep = false;
+static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AREQ **arms, size_t numArms) {
+  PLN_LoadStep *loadStep;
+  bool foundAnyLoadStep = false;
 
-    // Move all load steps found in the tail plan to the search and vector pipelines
-    while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_LOAD)) != NULL) {
-        foundAnyLoadStep = true;
-        // Pop the load step from the tail plan
-        AGPLN_PopStep(&loadStep->base);
-        // Clone it to both search and vector pipelines
-        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
-        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
-        // Free the source load step
-        loadStep->base.dtor(&loadStep->base);
+  while ((loadStep = (PLN_LoadStep *)AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_LOAD)) != NULL) {
+    foundAnyLoadStep = true;
+    AGPLN_PopStep(&loadStep->base);
+    for (size_t i = 0; i < numArms; i++) {
+      AGPLN_AddStep(&arms[i]->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
     }
+    loadStep->base.dtor(&loadStep->base);
+  }
 
-    // If no load steps were found, create an implicit one
-    if (!foundAnyLoadStep) {
-
-        loadStep = createImplicitLoadStep();
-        AGPLN_AddStep(searchPlan, &PLNLoadStep_Clone(loadStep)->base);
-        AGPLN_AddStep(vectorPlan, &PLNLoadStep_Clone(loadStep)->base);
-        // Free the source load step
-        loadStep->base.dtor(&loadStep->base);
+  if (!foundAnyLoadStep) {
+    loadStep = createImplicitLoadStep();
+    for (size_t i = 0; i < numArms; i++) {
+      AGPLN_AddStep(&arms[i]->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
     }
+    loadStep->base.dtor(&loadStep->base);
+  }
 }
 
 /**
  * Parse the subqueries count at the beginning of the FT.HYBRID command.
  *
  * Expected position in command:
- *   FT.HYBRID <index> <subqueries_count> SEARCH ...
+ *   FT.HYBRID <index> <subqueries_count> [SEARCH ...] [VSIM ...]...
  *                    ^
  *
- * Currently supports only 2 subqueries. We also support the old format without
- * the subqueries count for backward compatibility:
- *   FT.HYBRID <index> SEARCH <query> VSIM <vector_args>
+ * The stable syntax has exactly two subqueries, SEARCH then VSIM; the count may be left out for
+ * backward compatibility: FT.HYBRID <index> SEARCH <query> VSIM <vector_args>. Any other count,
+ * a missing SEARCH and a repeated VSIM are unstable surface.
  *
  * @param ac ArgsCursor for parsing - should be right after the index name
+ * @param numArms Output: the number of subqueries the command declares
  * @param status Output parameter for error reporting
  * @return true if parsing succeeded, false if an error occurred (error is set in status)
  */
-static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+static bool parseSubqueriesCount(ArgsCursor *ac, size_t *numArms, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
     return false;
@@ -788,31 +785,77 @@ static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
 
   unsigned int subqueriesCount = 0;
   bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK; // Advances the cursor only if parsing succeeded
+  const bool unstable = RSGlobalConfig.enableUnstableFeatures;
 
-  if (hasSubqueryCount) {
-    if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
-      return false;
-    } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
+  const char *next = NULL;
+  if (!hasSubqueryCount) {
+    // Old format: FT.HYBRID <index> SEARCH <query> VSIM <vector_args>. SEARCH is left for the
+    // caller to parse.
+    AC_GetString(ac, &next, NULL, AC_F_NOADVANCE);
+    if (strcasecmp(next, "SEARCH")) {
+      // error according to the new format
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX,
+                          "Invalid subqueries count: expected an unsigned integer");
       return false;
     }
-  } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
-    // error according to the new format
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
+    *numArms = HYBRID_REQUEST_NUM_SUBQUERIES;
+    return true;
+  }
+  if (!unstable && subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "FT.HYBRID currently supports only two subqueries");
     return false;
   }
-
+  if (subqueriesCount > HYBRID_NUM_ARM_SLOTS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "FT.HYBRID supports at most %d subqueries",
+                                     HYBRID_NUM_ARM_SLOTS);
+    return false;
+  }
+  next = NULL;
+  AC_GetString(ac, &next, NULL, AC_F_NOADVANCE);
+  if (!next || (strcasecmp(next, "SEARCH") && (!unstable || strcasecmp(next, "VSIM")))) {
+    QueryError_SetError(
+        status, QUERY_ERROR_CODE_SYNTAX,
+        unstable ? "SEARCH or VSIM keyword is required" : "SEARCH keyword is required");
+    return false;
+  }
+  *numArms = subqueriesCount;
   return true;
+}
+
+// The window every arm returns at most, and the merger fuses.
+static size_t combineWindow(const HybridPipelineParams *hybridParams) {
+  return hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF
+             ? hybridParams->scoringCtx->rrfCtx.window
+             : hybridParams->scoringCtx->linearCtx.window;
+}
+
+// Reorder a per-arm weight array from command order into slot order: `toSlotOrder[i]` is the
+// command-order index of the arm now at position i.
+static void permuteWeights(double *weights, const size_t *toSlotOrder, size_t numArms) {
+  if (!weights) {
+    return;
+  }
+  double inCommandOrder[HYBRID_NUM_ARM_SLOTS];
+  memcpy(inCommandOrder, weights, numArms * sizeof(double));
+  for (size_t i = 0; i < numArms; i++) {
+    weights[i] = inCommandOrder[toSlotOrder[i]];
+  }
 }
 
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
- * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
- *                  [COMBINE <method> [params]] [aggregation_options]
+ * Expected format: FT.HYBRID <index> [<count>] [SEARCH <query> [SCORER <scorer>]] VSIM
+ * <vector_args>... [COMBINE <method> [params]] [aggregation_options]
  *
- * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
+ * The arms are parsed in command order into the request's pre-allocated sub-requests, then put in
+ * slot order (SEARCH, dense VSIM, sparse VSIM) once their fields are resolved; WEIGHTS, given in
+ * command order, are reordered with them.
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig
+ * which is not thread safe)
  *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
@@ -826,6 +869,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status, bool internal, ProfileOptions profileOptions) {
   REDISMODULE_NOT_USED(ctx);
+  HybridRequest *hreq = parsedCmdCtx->hreq;
+  RS_ASSERT(hreq);
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
@@ -840,47 +885,67 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
     parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
   }
-  parsedCmdCtx->search->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
-  parsedCmdCtx->vector->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
 
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
   size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
-
-  AREQ *vectorRequest = parsedCmdCtx->vector;
-  AREQ *searchRequest = parsedCmdCtx->search;
-
-  searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
-  vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
-  if (internal) {
-    searchRequest->reqflags |= QEXEC_F_INTERNAL;
-    vectorRequest->reqflags |= QEXEC_F_INTERNAL;
-  }
-
-  searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
-  vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   // Declare variables used after goto statements to avoid "jump skips variable initialization" errors
-  const char *vectorScoreFieldAlias = NULL;
-  PLN_VectorNormalizerStep *vnStep = NULL;
-  PLN_ArrangeStep *arrangeStep = NULL;
-  const ParsedVectorData *pvd = NULL;
+  AREQ *arms[HYBRID_NUM_ARM_SLOTS] = {0};  // in command order
+  PLN_VectorNormalizerStep *vnSteps[HYBRID_NUM_ARM_SLOTS] = {0};
+  size_t numArms = 0;
+  AREQ *searchRequest = NULL;
+  HybridArmMask mask = 0;
+  AREQ *slotOrder[HYBRID_NUM_ARM_SLOTS] = {0};
+  size_t toSlotOrder[HYBRID_NUM_ARM_SLOTS] = {0};
   AggregationPipelineParams params;
   HybridParseContext hybridParseCtx;
 
-  if (!parseSubqueriesCount(ac, status)) {
+  size_t declaredArms = 0;
+  if (!parseSubqueriesCount(ac, &declaredArms, status)) {
     goto error;
   }
 
-  if (parseSearchSubquery(ac, searchRequest, status) != REDISMODULE_OK) {
-    goto error;
+  while (numArms < declaredArms) {
+    if (numArms == array_len(hreq->requests)) {
+      // Construction allocated one sub-request per SEARCH or VSIM keyword, so the next token is
+      // not an arm, unless ENABLE_UNSTABLE_FEATURES was turned on between allocation and parsing.
+      const bool isArm = AC_AdvanceIfMatch(ac, "VSIM") || AC_AdvanceIfMatch(ac, "SEARCH");
+      QueryError_SetError(
+          status, isArm ? QUERY_ERROR_CODE_PARSE_ARGS : QUERY_ERROR_CODE_SYNTAX,
+          isArm ? "Too many subqueries for FT.HYBRID" : "VSIM argument is required");
+      goto error;
+    }
+    AREQ *arm = hreq->requests[numArms];
+    arm->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+    if (internal) {
+      arm->reqflags |= QEXEC_F_INTERNAL;
+    }
+    // SEARCH may come anywhere among the arms, once.
+    if (!searchRequest && AC_AdvanceIfMatch(ac, "SEARCH")) {
+      searchRequest = arm;
+      arm->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
+      arm->ast.validationFlags |= QAST_NO_VECTOR;
+      if (parseSearchSubquery(ac, arm, declaredArms == 1, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    } else {
+      arm->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
+      arm->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
+      if (parseVectorSubquery(ac, arm, status) != REDISMODULE_OK) {
+        goto error;
+      }
+    }
+    arms[numArms++] = arm;
   }
-
-  if (parseVectorSubquery(ac, vectorRequest, status) != REDISMODULE_OK) {
+  if (AC_AdvanceIfMatch(ac, "VSIM") || AC_AdvanceIfMatch(ac, "SEARCH")) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "FT.HYBRID declares %zu subqueries but has more",
+                                     declaredArms);
     goto error;
   }
 
@@ -888,7 +953,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .status = status,
       .specifiedArgs = 0,
       .hybridScoringCtx = hybridParams->scoringCtx,
-      .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
+      .numSubqueries = numArms,
       .plan = parsedCmdCtx->tailPlan,
       .reqFlags = mergeReqflags,
       .searchopts = &mergeSearchopts,
@@ -912,86 +977,91 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Cap the effective query timeout to search-_max-foreground-timeout-limit
   // when the limit is active. The hybrid request has a timeout configuration
-  // that is later copied into both subqueries through copyHybridConfigToSubquery.
-  // finishSendChunkReply_hybrid reads the cap flag from the search subquery
-  // only, so the flag is set on searchRequest alone.
+  // that is later copied into every subquery through copyHybridConfigToSubquery.
+  // finishSendChunkReply_hybrid reads the cap flag from the first subquery, which
+  // may be any arm, so the flag is set on all of them.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->timeoutConfig->queryTimeoutMS)) {
-    searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    for (size_t i = 0; i < numArms; i++) {
+      arms[i]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    }
   }
 
-  // Set slots info in both subqueries
+  // Set slots info in every subquery
   if (internal) {
     if (!requestSlotRanges) {
       // Coordinators older than 8.4 do not send a slots specification. Fall back to the
       // current local slots so rolling upgrades across the 8.4 boundary keep working.
       requestSlotRanges = ASM_FallbackToLocalSlots(ctx, &keySpaceVersion);
     }
-    vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->keySpaceVersion = keySpaceVersion;
-    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
-    }
-    searchRequest->querySlots = requestSlotRanges;
-    searchRequest->keySpaceVersion = keySpaceVersion;
-    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
-      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    for (size_t i = 0; i < numArms; i++) {
+      // The last arm takes the parsed ranges, the others a clone each.
+      arms[i]->querySlots =
+          i + 1 < numArms ? SlotRangeArray_Clone(requestSlotRanges) : requestSlotRanges;
+      arms[i]->keySpaceVersion = keySpaceVersion;
+      if (keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+        ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+      }
     }
     requestSlotRanges = NULL; // ownership transferred
   }
 
-  // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
-  // otherwise, store the vector score in a default key.
-  if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
-    vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
-    vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
-  } else {
-    vectorScoreFieldAlias = VectorQuery_GetDefaultScoreFieldName(
-      vectorRequest->parsedVectorData->fieldName,
-      strlen(vectorRequest->parsedVectorData->fieldName)
-    );
-    vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
+  for (size_t i = 0; i < numArms; i++) {
+    AREQ *arm = arms[i];
+    if (arm == searchRequest) {
+      continue;
+    }
+    ParsedVectorData *armPvd = arm->parsedVectorData;
+    // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
+    // otherwise, store the vector score in a default key.
+    const char *vectorScoreFieldAlias;
+    if (armPvd->vectorScoreFieldAlias != NULL) {
+      vectorScoreFieldAlias = armPvd->vectorScoreFieldAlias;
+      armPvd->vectorScoreFieldAlias = NULL;
+    } else {
+      vectorScoreFieldAlias =
+          VectorQuery_GetDefaultScoreFieldName(armPvd->fieldName, strlen(armPvd->fieldName));
+      armPvd->queryNodeFlags |= QueryNode_HideVectorDistanceField;
+    }
+    // Store the key string so it could fetch the distance from the RlookupRow
+    vnSteps[i] = PLNVectorNormalizerStep_New(armPvd->fieldName, vectorScoreFieldAlias);
+    AGPLN_AddStep(&arm->pipeline.ap, &vnSteps[i]->base);
   }
-  // Store the key string so it could fetch the distance from the RlookupRow
-  vnStep = PLNVectorNormalizerStep_New(
-    vectorRequest->parsedVectorData->fieldName,
-    vectorScoreFieldAlias
-  );
-  AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   // Copy hybrid request configuration to each subquery
-  copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
-                            *mergeReqflags, maxHybridResults, profileOptions);
-  copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
-                            *mergeReqflags, maxHybridResults, profileOptions);
+  for (size_t i = 0; i < numArms; i++) {
+    copyHybridConfigToSubquery(arms[i], parsedCmdCtx, *mergeReqflags, maxHybridResults,
+                               profileOptions);
+  }
 
-  // Each subquery frees its own params dict, so one gets a clone and the other takes the original.
+  // Each subquery frees its own params dict: the last takes the original, the others a clone.
   if (mergeSearchopts.params) {
-    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-    vectorRequest->searchopts.params = mergeSearchopts.params;
+    for (size_t i = 0; i + 1 < numArms; i++) {
+      arms[i]->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    }
+    arms[numArms - 1]->searchopts.params = mergeSearchopts.params;
     mergeSearchopts.params = NULL;
   }
 
   if ((hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
 
-    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
-      goto error;
+    for (size_t i = 0; i < numArms; i++) {
+      if (arms[i] != searchRequest &&
+          QAST_EvalParams(&arms[i]->ast, &arms[i]->searchopts, 2, status) != REDISMODULE_OK) {
+        goto error;
+      }
     }
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
-  } else {
-    // hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR
-    arrangeStep->limit = hybridParams->scoringCtx->linearCtx.window;
+  if (searchRequest) {
+    AGPLN_GetOrCreateArrangeStep(&searchRequest->pipeline.ap)->limit = combineWindow(hybridParams);
   }
 
   // Handle load step distribution for hybrid pipelines
-  handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, &searchRequest->pipeline.ap, &vectorRequest->pipeline.ap);
+  handleLoadStepForHybridPipelines(parsedCmdCtx->tailPlan, arms, numArms);
 
   if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
     // No NOSORT - add implicit sort-by-score
@@ -999,47 +1069,77 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
 
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
-  applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
+  for (size_t i = 0; i < numArms; i++) {
+    applyKNNTopKWindowConstraint(arms[i]->parsedVectorData, hybridParams);
+  }
 
   if (hybridParseCtx.nprefixes &&
-      !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, hybridParseCtx.prefixes, hybridParseCtx.nprefixes)) {
+      !IndexSpec_IsCoherent(arms[0]->sctx->spec, hybridParseCtx.prefixes,
+                            hybridParseCtx.nprefixes)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
 
-  // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
-    AddValidationErrorContext(searchRequest, status);
-    goto error;
+  // Apply context to each request. A VSIM arm's slot is known only once applyVectorQuery has
+  // resolved its field.
+  for (size_t i = 0; i < numArms; i++) {
+    AREQ *arm = arms[i];
+    if (AREQ_ApplyContext(arm, arm->sctx, status) != REDISMODULE_OK) {
+      AddValidationErrorContext(arm, status);
+      goto error;
+    }
+    HybridArmSlot slot = SEARCH_INDEX;
+    if (arm != searchRequest) {
+      slot = arm->parsedVectorData->armSlot;
+      RS_ASSERT(slot == VECTOR_INDEX || slot == SPARSE_INDEX);
+    }
+    if (HybridArmMask_Has(mask, slot)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "FT.HYBRID accepts at most one VSIM subquery on a VECTOR field and one "
+                          "on a SPARSEVECTOR field");
+      goto error;
+    }
+    mask |= HybridArm_Bit(slot);
+    toSlotOrder[slot] = i;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
-    AddValidationErrorContext(vectorRequest, status);
-    goto error;
+  // Compact toSlotOrder over the slots in use, so entry k names the arm at position k.
+  for (size_t pos = 0; pos < numArms; pos++) {
+    const HybridArmSlot slot = HybridArmMask_SlotAt(mask, pos);
+    toSlotOrder[pos] = toSlotOrder[slot];
+    slotOrder[pos] = arms[toSlotOrder[pos]];
   }
 
-  // The VSIM arm's slot is known only now that applyVectorQuery has resolved its field.
-  pvd = vectorRequest->parsedVectorData;
-  RS_ASSERT(pvd->armSlot == VECTOR_INDEX || pvd->armSlot == SPARSE_INDEX);
-  parsedCmdCtx->armMask = HybridArm_Bit(SEARCH_INDEX) | HybridArm_Bit(pvd->armSlot);
-  if (pvd->armSlot == SPARSE_INDEX) {
+  for (size_t i = 0; i < numArms; i++) {
+    const ParsedVectorData *pvd = arms[i]->parsedVectorData;
+    if (arms[i] == searchRequest || pvd->armSlot != SPARSE_INDEX) {
+      continue;
+    }
     // VecSim stops a dense KNN after K results, but a sparse node yields every document that
     // shares a dimension with the query. Keeping the K best normalized scores gives the arm the
     // top K that FT.SEARCH returns. It goes right after the normalizer, which sets the score, so
     // only those K are loaded. It stays out of the shard command: each shard parses the VSIM clause
     // and adds its own, and the coordinator's copy is set up by setupCoordinatorArrangeSteps.
-    PLN_ArrangeStep *topK = AGPLN_GetOrCreateArrangeStep(&vectorRequest->pipeline.ap);
+    AGGPlan *plan = &arms[i]->pipeline.ap;
+    PLN_ArrangeStep *topK = AGPLN_GetOrCreateArrangeStep(plan);
     AGPLN_PopStep(&topK->base);
-    AGPLN_AddAfter(&vectorRequest->pipeline.ap, &vnStep->base, &topK->base);
+    AGPLN_AddAfter(plan, &vnSteps[i]->base, &topK->base);
     topK->limit = pvd->knnK;
     topK->runLocal = true;
   }
 
-  // Build here, after AREQ_ApplyContext on both sub-queries: it has resolved the
-  // search scorer name, and the vector ParsedVectorData snapshot is still intact
+  // WEIGHTS were given in command order; the merger reads them in slot order.
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    permuteWeights(hybridParams->scoringCtx->rrfCtx.weights, toSlotOrder, numArms);
+  } else {
+    permuteWeights(hybridParams->scoringCtx->linearCtx.linearWeights, toSlotOrder, numArms);
+  }
+
+  // Build here, after AREQ_ApplyContext on every sub-query: it has resolved the
+  // search scorer name, and the vector ParsedVectorData snapshots are still intact
   // (the live VectorQuery is moved into the AST by the same call, so reading it
   // any later would be too late).
   if (*mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-    hybridParams->explainCtx = HybridExplainContext_Build(searchRequest, vectorRequest);
+    hybridParams->explainCtx = HybridExplainContext_Build((const AREQ *const *)slotOrder, numArms);
   }
 
   // thread safe context
@@ -1054,12 +1154,23 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
       .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
-      .language = searchRequest->searchopts.language,
+      // AREQ_ApplyContext resolved every arm's language to the index default unless SEARCH set one.
+      .language = (searchRequest ? searchRequest : arms[0])->searchopts.language,
       .diskScoreSkippingQuery = parsedCmdCtx->reqConfig->diskScoreSkippingQuery,
   };
 
   hybridParams->aggregationParams = params;
 
+  HybridRequest_SetArms(hreq, slotOrder, numArms, mask);
+  parsedCmdCtx->armMask = mask;
+  parsedCmdCtx->search = searchRequest;
+  parsedCmdCtx->vector = NULL;
+  for (size_t i = 0; i < numArms; i++) {
+    if (slotOrder[i] != searchRequest) {
+      parsedCmdCtx->vector = slotOrder[i];
+      break;
+    }
+  }
   return REDISMODULE_OK;
 
 error:

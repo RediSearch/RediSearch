@@ -10,6 +10,7 @@
 #pragma once
 
 #include "rmr/rmr.h"
+#include "hybrid/hybrid_arm.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +29,7 @@ typedef struct {
 /**
  * Shared state of the FT.HYBRID arming fan-out (the `cbPrivateData` of the
  * `_FT.HYBRID` iterator). The fan-out's reply callback arms and dispatches
- * each shard's cursor-read placeholders on the two sibling read iterators, so
+ * each shard's cursor-read placeholders on the sibling read iterators, so
  * every published shard cursor id lives in a live iterator command from the
  * moment it is known — cleanup on abort is then the standard rmr teardown
  * (DEL-swap / timed-out arming), with no coordinator-side cursor bookkeeping.
@@ -39,8 +40,12 @@ typedef struct {
  * only this fan-out's callbacks do.
  */
 typedef struct {
-  MRIterator *searchIt;
-  MRIterator *vsimIt;
+  // One read iterator per arm, in slot order, which is also the order of the shard's cursor
+  // mapping reply.
+  MRIterator *its[HYBRID_NUM_ARM_SLOTS];
+  // Owned. Each arm's "(<label>)", which tags the shard's max-prefix-expansion warnings.
+  char *suffixes[HYBRID_NUM_ARM_SLOTS];
+  size_t numArms;
   HybridKnnContext *knnCtx;  // KNN context for SHARD_K_RATIO optimization (may be NULL)
 } HybridArmingCtx;
 
@@ -49,25 +54,25 @@ void HybridArmingCtx_Free(void *p);
 
 /**
  * Per-reply callback of the `_FT.HYBRID` arming fan-out. Parses the shard's
- * cursor mapping, forwards mapping-stage warnings into both read streams, and
+ * cursor mapping, forwards mapping-stage warnings into the read streams, and
  * arms (or resolves) this shard's placeholder on each read iterator. Shard
- * errors are cloned into both read streams, where rpnetNext applies the
+ * errors are cloned into every read stream, where rpnetNext applies the
  * timeout/OOM policies.
  */
 void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 /**
  * No-reply counterpart of hybridArmingCallback (dead connection mid-flight):
- * surfaces a cluster error into both read streams and resolves the shard's
+ * surfaces a cluster error into every read stream and resolves the shard's
  * placeholders. Notify-only per the MRIteratorErrorCallback contract.
  */
 void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx);
 
 /**
  * Start callback of the `_FT.HYBRID` arming fan-out: validates shard
- * connections, expands both sibling read iterators' placeholders, and
+ * connections, expands every sibling read iterator's placeholders, and
  * dispatches the fan-out — all within one scheduled IO job, i.e. one topology
- * snapshot, so the three iterators cannot observe different shard counts and
+ * snapshot, so the iterators cannot observe different shard counts and
  * a per-shard index addresses the same shard on all of them.
  */
 void hybridArmingStartCb(void *p);

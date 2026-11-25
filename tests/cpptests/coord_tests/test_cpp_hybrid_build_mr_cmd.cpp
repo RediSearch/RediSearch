@@ -26,6 +26,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "param.h"
 
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -355,6 +356,7 @@ protected:
         ParseHybridCommandCtx cmd = {};
         cmd.search = hreq->requests[0];
         cmd.vector = hreq->requests[1];
+        cmd.hreq = hreq;
         cmd.tailPlan = &hreq->tailPipeline->ap;
         cmd.hybridParams = &hybridParams;
         cmd.reqConfig = &hreq->base.reqConfig;
@@ -453,6 +455,7 @@ protected:
         ParseHybridCommandCtx cmd = {};
         cmd.search = hreq->requests[0];
         cmd.vector = hreq->requests[1];
+        cmd.hreq = hreq;
         cmd.tailPlan = &hreq->tailPipeline->ap;
         cmd.hybridParams = &hybridParams;
         cmd.reqConfig = &hreq->base.reqConfig;
@@ -1094,4 +1097,75 @@ TEST_F(HybridBuildMRCommandTest, testCombineInsideParamsNotMistakenForClause) {
     });
     std::vector<std::string> expected = {"COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20"};
     EXPECT_EQ(clause, expected);
+}
+
+// SEARCH then one VSIM keeps the count-less form every shard version parses, now built from the
+// arm layout the coordinator parsed.
+TEST_F(HybridBuildMRCommandTest, testStableArmsKeepCountlessForm) {
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", "idx", "2", "SEARCH", "hello", "VSIM", "@vec", "$v"});
+    HybridShardWireParams shardWireParams = {};
+    shardWireParams.numArms = 2;
+    shardWireParams.arms[0] = {3, true, false};
+    shardWireParams.arms[1] = {5, false, true};
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                 &kArgIndex);
+    const std::vector<std::string> expected{
+        "_FT.HYBRID", "idx", "SEARCH", "hello", "VSIM", "@vec", "$v"};
+    const std::vector<std::string> toks = toTokens(&xcmd);
+    // The arms come first; the internal arguments appended after them are covered elsewhere.
+    ASSERT_GT(toks.size(), expected.size());
+    EXPECT_EQ(std::vector<std::string>(toks.begin(), toks.begin() + expected.size()), expected);
+    EXPECT_EQ(toks[expected.size()], "WITHCURSOR");
+    MRCommand_Free(&xcmd);
+}
+
+// Any other set of arms is sent with its count and every arm's clause, in command order. Only
+// the dense arm's K is recorded for SHARD_K_RATIO.
+TEST_F(HybridBuildMRCommandTest, testNArmsSendCountAndEveryVsimClause) {
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", "idx", "2", "VSIM", "@sp", "$q", "KNN", "2", "K", "5",
+        "VSIM", "@vec", "$v", "KNN", "2", "K", "7"});
+    HybridShardWireParams shardWireParams = {};
+    shardWireParams.numArms = 2;
+    shardWireParams.arms[0] = {3, false, false};
+    shardWireParams.arms[1] = {10, false, true};
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                 &kArgIndex);
+    const std::vector<std::string> toks = toTokens(&xcmd);
+    const std::vector<std::string> expected{
+        "_FT.HYBRID", "idx", "2", "VSIM", "@sp", "$q", "KNN", "2", "K", "5",
+        "VSIM", "@vec", "$v", "KNN", "2", "K", "7"};
+    ASSERT_GT(toks.size(), expected.size());
+    EXPECT_EQ(std::vector<std::string>(toks.begin(), toks.begin() + expected.size()), expected);
+    EXPECT_EQ(toks[expected.size()], "WITHCURSOR");
+    ASSERT_GE(kArgIndex, 0);
+    EXPECT_EQ(toks[kArgIndex], "7");
+    MRCommand_Free(&xcmd);
+}
+
+// LINEAR with other than two weights cannot be spelled ALPHA/BETA, so it is forwarded as WEIGHTS.
+TEST_F(HybridBuildMRCommandTest, testLinearWithThreeWeightsForwardsWeights) {
+    RMCK::ArgvList args(ctx, std::vector<std::string>{
+        "FT.HYBRID", "idx", "SEARCH", "hello", "VSIM", "@vec", "$v"});
+    const double weights[] = {0.5, 0.25, 2};
+    HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 3, 20);
+    HybridShardWireParams shardWireParams = {};
+    shardWireParams.combine = HybridCombineWireParams{scoring, nullptr};
+    MRCommand xcmd;
+    int kArgIndex = -1;
+    HybridRequest_buildMRCommand(args, args.size(), &shardWireParams, &xcmd, nullptr, nullptr,
+                                 &kArgIndex);
+    const std::vector<std::string> toks = toTokens(&xcmd);
+    const std::vector<std::string> expected{
+        "COMBINE", "LINEAR", "7", "WEIGHTS", "3", "0.5", "0.25", "2", "WINDOW", "20"};
+    auto combine = std::find(toks.begin(), toks.end(), "COMBINE");
+    ASSERT_GE(toks.end() - combine, (long)expected.size());
+    EXPECT_EQ(std::vector<std::string>(combine, combine + expected.size()), expected);
+    MRCommand_Free(&xcmd);
+    HybridScoringContext_Free(scoring);
 }

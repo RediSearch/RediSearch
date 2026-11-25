@@ -24,12 +24,11 @@
 #include "debug_commands.h"
 #endif
 
-// Flattened element count of a shard's cursor-mapping reply (3 key/value
-// pairs); identical in both protocols. See processHybridMapping.
-#define HYBRID_MAPPING_REPLY_LENGTH 6
-
 void HybridArmingCtx_Free(void *p) {
   HybridArmingCtx *ctx = (HybridArmingCtx *)p;
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    rm_free(ctx->suffixes[i]);
+  }
   rm_free(ctx->knnCtx);
   rm_free(ctx);
 }
@@ -38,62 +37,71 @@ static inline MRReply *clusterQueryErrorReply(void) {
   return MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
 }
 
+// Push `reply` into every arm's read stream. Each channel's reader frees its
+// replies independently, so the streams cannot share one reply: all but the
+// last get a clone, made before the original is pushed, since a push hands
+// ownership to a reader that may free it concurrently.
+static void pushToEveryArm(HybridArmingCtx *ctx, MRReply *reply) {
+  for (size_t i = 0; i + 1 < ctx->numArms; i++) {
+    MRIterator_PushReply(ctx->its[i], MRReply_Clone(reply));
+  }
+  MRIterator_PushReply(ctx->its[ctx->numArms - 1], reply);
+}
+
 // Forward mapping-stage warnings into the read streams, where each subquery's
 // RPNet folds them (see processHybridMappingWarning in rpnet.c). Pushed one
 // bare string reply per warning — a top-level string is unambiguous in a read
 // stream, whose other replies are arrays or errors. Max-prefix warnings are
 // suffix-tagged with the subquery they belong to and routed to that stream
 // alone; the rest (timeout / shard OOM) are whole-shard conditions and go to
-// both. Each channel's reader frees its replies independently, so the two
-// streams cannot share one reply — the second stream gets a clone.
+// every stream.
 static void forwardWarnings(HybridArmingCtx *ctx, MRReply *warnings) {
   for (size_t i = 0; i < MRReply_Length(warnings); i++) {
     MRReply *warning = MRReply_TakeArrayElement(warnings, i);
     const char *warning_str = MRReply_String(warning, NULL);
     if (!strncmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS))) {
-      MRIterator *target = strstr(warning_str, VSIM_SUFFIX) ? ctx->vsimIt : ctx->searchIt;
-      MRIterator_PushReply(target, warning);
+      // The first arm takes a warning no suffix matches, as SEARCH did before arms were labelled.
+      size_t target = 0;
+      for (size_t a = 0; a < ctx->numArms; a++) {
+        if (strstr(warning_str, ctx->suffixes[a])) {
+          target = a;
+          break;
+        }
+      }
+      MRIterator_PushReply(ctx->its[target], warning);
       continue;
     }
-    // Clone before pushing the original: a push hands ownership to the
-    // reader, which may free it concurrently.
-    MRReply *clone = MRReply_Clone(warning);
-    MRIterator_PushReply(ctx->searchIt, clone);
-    MRIterator_PushReply(ctx->vsimIt, warning);
+    pushToEveryArm(ctx, warning);
   }
 }
 
-// Arm (or retire) one shard's placeholders on both read iterators. Cursor ids
-// come in pairs: the shard reserves both subquery cursors before publishing
-// anything (HybridRequest_ReserveSubCursors), so a mapping is either
-// both-nonzero or 0/0 (the shard bailed and published nothing). Published
-// cursors of a request that already timed out are deleted instead of read;
-// either way the id ends up in a live command and the standard teardown
-// covers any abort from here on.
-static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, long long searchCid,
-                          long long vsimCid) {
-  RS_ASSERT((searchCid == 0) == (vsimCid == 0));
-  if (searchCid == 0) {
-    MRIterator_ResolveShard(ctx->searchIt, shardIdx, 0);
-  } else {
-    MRIterator_ArmShardCursorRead(ctx->searchIt, shardIdx, searchCid);
-  }
-  if (vsimCid == 0) {
-    MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 0);
-  } else {
-    MRIterator_ArmShardCursorRead(ctx->vsimIt, shardIdx, vsimCid);
+// Arm (or retire) one shard's placeholders on every read iterator. The shard
+// reserves every subquery cursor before publishing anything
+// (HybridRequest_ReserveSubCursors), so a mapping's ids are either all nonzero
+// or all 0 (the shard bailed and published nothing). Published cursors of a
+// request that already timed out are deleted instead of read; either way the id
+// ends up in a live command and the standard teardown covers any abort from
+// here on.
+static void armShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, const long long *cids) {
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    RS_ASSERT((cids[i] == 0) == (cids[0] == 0));
+    if (cids[i] == 0) {
+      MRIterator_ResolveShard(ctx->its[i], shardIdx, 0);
+    } else {
+      MRIterator_ArmShardCursorRead(ctx->its[i], shardIdx, cids[i]);
+    }
   }
 }
 
-// Surface a shard-level failure to both read streams and retire the shard's
+// Surface a shard-level failure to every read stream and retire the shard's
 // placeholders. The error is pushed before the placeholders are resolved so
 // the resolving side's channel unblock cannot beat the error into the reader.
 // Consumes the error reply.
 static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *error) {
-  MRIterator_PushReply(ctx->searchIt, MRReply_Clone(error));
-  MRIterator_PushReply(ctx->vsimIt, error);
-  MRIterator_ResolveShard(ctx->searchIt, shardIdx, 1);
-  MRIterator_ResolveShard(ctx->vsimIt, shardIdx, 1);
+  pushToEveryArm(ctx, error);
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    MRIterator_ResolveShard(ctx->its[i], shardIdx, 1);
+  }
 }
 
 // Whole-fan-out failure before anything was dispatched (pre-fanout connection
@@ -101,37 +109,50 @@ static void failShardReads(HybridArmingCtx *ctx, uint16_t shardIdx, MRReply *err
 // single initial placeholder — surface one error per read stream and retire
 // those placeholders. No shard was sent anything, so no callback ever fires.
 static void failReadsBeforeExpansion(HybridArmingCtx *ctx) {
-  MRIterator *its[2] = {ctx->searchIt, ctx->vsimIt};
-  for (int j = 0; j < 2; j++) {
-    RS_ASSERT(MRIterator_GetNumShards(its[j]) == 1);
-    MRIterator_PushReply(its[j], clusterQueryErrorReply());
-    MRIterator_ResolveShard(its[j], 0, 1);
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    RS_ASSERT(MRIterator_GetNumShards(ctx->its[i]) == 1);
+    MRIterator_PushReply(ctx->its[i], clusterQueryErrorReply());
+    MRIterator_ResolveShard(ctx->its[i], 0, 1);
   }
 }
 
-// Parse a shard's cursor-mapping reply. Both protocols carry the same fixed
-// layout — a RESP2 array or a RESP3 map, stored either way as a flat element
-// array: ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]] (the emission
-// order of replyWithCursors in hybrid_exec.c). The structure is asserted in
-// debug builds; production extracts the values by offset.
-// Consumes the reply.
+// Parse a shard's cursor-mapping reply. Both protocols carry the same layout —
+// a RESP2 array or a RESP3 map, stored either way as a flat element array: one
+// label/cursor-id pair per arm, in slot order, then "warnings" and its array
+// (the emission order of replyWithCursors in hybrid_exec.c). With SEARCH and one
+// VSIM that is ["SEARCH", <cid>, "VSIM", <cid>, "warnings", [...]]. A shard that
+// bails before parsing (common_hybrid_query_reply_empty) cannot know the arm
+// count and always sends SEARCH and VSIM with id 0, so the pairs are read until
+// "warnings" and arms with no pair read as 0. Consumes the reply.
 static void processHybridMapping(HybridArmingCtx *ctx, MRReply *rep, uint16_t shardIdx) {
   // Quietly read any unexpected layout as "shard published no cursors" —
   // e.g. a profile-wrapped envelope from a shard build that still wrapped its
-  // early-bail reply. Both of that shard's streams end empty; nothing leaks
+  // early-bail reply. All of that shard's streams end empty; nothing leaks
   // (it published no cursor ids to begin with).
-  long long searchCid = 0, vsimCid = 0;
+  long long cids[HYBRID_NUM_ARM_SLOTS] = {0};
   RS_ASSERT(MRReply_Type(rep) == MR_REPLY_ARRAY || MRReply_Type(rep) == MR_REPLY_MAP);
-  RS_ASSERT(MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH);
-  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 0), "SEARCH", true));
-  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 2), "VSIM", true));
-  RS_ASSERT(MRReply_StringEquals(MRReply_ArrayElement(rep, 4), "warnings", true));
-  if (MRReply_Length(rep) == HYBRID_MAPPING_REPLY_LENGTH) {
-    MRReply_ToInteger(MRReply_ArrayElement(rep, 1), &searchCid);
-    MRReply_ToInteger(MRReply_ArrayElement(rep, 3), &vsimCid);
-    forwardWarnings(ctx, MRReply_ArrayElement(rep, 5));
+  const size_t len = MRReply_Length(rep);
+  size_t arm = 0;
+  for (size_t i = 0; i + 1 < len; i += 2) {
+    MRReply *key = MRReply_ArrayElement(rep, i);
+    MRReply *value = MRReply_ArrayElement(rep, i + 1);
+    if (MRReply_StringEquals(key, "warnings", true)) {
+      forwardWarnings(ctx, value);
+      break;
+    }
+    if (arm < ctx->numArms) {
+      MRReply_ToInteger(value, &cids[arm]);
+    }
+    arm++;
   }
-  armShardReads(ctx, shardIdx, searchCid, vsimCid);
+  // Either one id per arm, or a shard that published none.
+  if (arm != ctx->numArms) {
+    for (size_t i = 0; i < ctx->numArms; i++) {
+      RS_ASSERT(cids[i] == 0);
+      cids[i] = 0;
+    }
+  }
+  armShardReads(ctx, shardIdx, cids);
   MRReply_Free(rep);
 }
 
@@ -169,8 +190,9 @@ void hybridArmingStartCb(void *p) {
   // IORuntimeCtx_RequestCompleted when it drains) but share this one
   // scheduled job — register them so the queue's pending accounting balances.
   IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(hybridIt);
-  IORuntimeCtx_RequestStarted(ioRuntime);
-  IORuntimeCtx_RequestStarted(ioRuntime);
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    IORuntimeCtx_RequestStarted(ioRuntime);
+  }
   // Validate connections before expanding anything, so a failure retires
   // exactly one placeholder per iterator. iterStartCb re-validates internally,
   // but connection state only changes via jobs on this same IO loop, so its
@@ -180,8 +202,9 @@ void hybridArmingStartCb(void *p) {
     MRIterator_ResolveShard(hybridIt, 0, 1);
     return;
   }
-  iterExpandShellsCb(ctx->searchIt);
-  iterExpandShellsCb(ctx->vsimIt);
+  for (size_t i = 0; i < ctx->numArms; i++) {
+    iterExpandShellsCb(ctx->its[i]);
+  }
   iterStartCb(hybridIt);
 }
 

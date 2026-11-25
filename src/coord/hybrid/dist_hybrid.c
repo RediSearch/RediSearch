@@ -303,6 +303,24 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
+  } else if (sc->linearCtx.numWeights != HYBRID_REQUEST_NUM_SUBQUERIES) {
+    // COMBINE LINEAR <count> WEIGHTS <n> <w1> ... <wn> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    // Only a query with other than two subqueries has other than two weights, and only a
+    // shard that parses such a query reads this.
+    const size_t numWeights = sc->linearCtx.numWeights;
+    n = snprintf(numBuf, numBufSize, "%zu", numWeights + 4 + (hasAlias ? 2 : 0));
+    MRCommand_AppendLiteral(xcmd, "LINEAR");
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_AppendLiteral(xcmd, "WEIGHTS");
+    n = snprintf(numBuf, numBufSize, "%zu", numWeights);
+    MRCommand_Append(xcmd, numBuf, n);
+    for (size_t i = 0; i < numWeights; i++) {
+      n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[i]);
+      MRCommand_Append(xcmd, numBuf, n);
+    }
+    MRCommand_AppendLiteral(xcmd, "WINDOW");
+    n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
   } else {
     // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
     n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
@@ -386,16 +404,40 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
   *xcmd = MR_NewCommandArgvLen(cmdArgCount, cmdArgs, cmdLens);
 
-  // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
-  int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
-  MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
-
-  // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   // Note: K value is appended as-is here; effectiveK calculation is deferred to
   // the command modifier callback (HybridKnnCommandModifier) which runs on the
   // IO thread with access to the actual topology/numShards.
-  int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, outKArgIndex);
+  const size_t numArms = shardWireParams->numArms;
+  if (numArms == 0) {
+    // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
+    MRCommand_appendSearch(xcmd, argv, argc, RMUtil_ArgIndex("SEARCH", argv, argc));
+    // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
+    MRCommand_appendVsim(xcmd, argv, argc, RMUtil_ArgIndex("VSIM", argv, argc), outKArgIndex);
+  } else {
+    // SEARCH then one VSIM goes out in the count-less form every shard version parses; any
+    // other set of arms needs the count, which only a shard with N-arm support accepts.
+    const bool stable = numArms == HYBRID_REQUEST_NUM_SUBQUERIES &&
+                        shardWireParams->arms[0].isSearch;
+    if (!stable) {
+      char numBuf[HYBRID_NUM_BUF_SIZE];
+      int n = snprintf(numBuf, sizeof(numBuf), "%zu", numArms);
+      MRCommand_Append(xcmd, numBuf, n);
+    }
+    *outKArgIndex = -1;
+    for (size_t i = 0; i < numArms; i++) {
+      const int offset = (int)shardWireParams->arms[i].offset;
+      if (shardWireParams->arms[i].isSearch) {
+        MRCommand_appendSearch(xcmd, argv, argc, offset);
+      } else {
+        // Only the dense arm's K is rewritten by SHARD_K_RATIO.
+        int kArgIndex = -1;
+        MRCommand_appendVsim(xcmd, argv, argc, offset, &kArgIndex);
+        if (shardWireParams->arms[i].isDense) {
+          *outKArgIndex = kArgIndex;
+        }
+      }
+    }
+  }
 
   // Always reconstruct and forward the coordinator's resolved COMBINE clause
   // (in the legacy counted form).
@@ -607,50 +649,41 @@ static void printProfileExcludingShardId(RedisModule_Reply *reply, MRReply *prof
 
 void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
-  // New format: group by shard with Shard ID printed once per shard
-  // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)},
-  // ...]
+  // Grouped by shard, with the Shard ID printed once per shard and each arm's profile under its
+  // label: [{"Shard ID": "id", "SEARCH": profile, "VSIM": profile}, ...]
+  const size_t numArms = hreq->nrequests;
+  RPNet *rpnets[HYBRID_NUM_ARM_SLOTS];
+  size_t counts[HYBRID_NUM_ARM_SLOTS];
+  size_t numShards = 0;
+  for (size_t a = 0; a < numArms; a++) {
+    rpnets[a] = (RPNet *)AREQ_QueryProcessingCtx(hreq->requests[a])->rootProc;
+    counts[a] = array_len(rpnets[a]->shardsProfile);
+    numShards = MAX(numShards, counts[a]);
+  }
 
-  // Get RPNets for SEARCH and VSIM requests
-  AREQ *searchAreq = HybridRequest_Arm(hreq, SEARCH_INDEX);
-  AREQ *vsimAreq = hreq->requests[HYBRID_VSIM_ARM_POSITION];
-  RPNet *searchRpnet = (RPNet *)AREQ_QueryProcessingCtx(searchAreq)->rootProc;
-  RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
-
-  size_t searchCount = array_len(searchRpnet->shardsProfile);
-  size_t vsimCount = array_len(vsimRpnet->shardsProfile);
-
-  // The subqueries collect profiles independently; a timeout can leave either list shorter.
+  // The subqueries collect profiles independently; a timeout can leave any list shorter.
   // Decode using each shard command's protocol, which can differ from the client's protocol.
-  for (size_t i = 0; i < MAX(searchCount, vsimCount); i++) {
-    MRReply *searchProfile = i < searchCount ? extractShardProfile(searchRpnet->shardsProfile[i],
-                                                                   searchRpnet->cmd.protocol == 3)
-                                             : NULL;
-    MRReply *vsimProfile = i < vsimCount ? extractShardProfile(vsimRpnet->shardsProfile[i],
-                                                               vsimRpnet->cmd.protocol == 3)
-                                         : NULL;
-    RedisModule_Reply_Map(reply);  // Start shard map
-
-    // Use the available profile when SEARCH is missing or contains an error.
-    MRReply *shardIdReply = extractShardIdReply(searchProfile);
-    if (!shardIdReply) {
-      shardIdReply = extractShardIdReply(vsimProfile);
+  for (size_t i = 0; i < numShards; i++) {
+    MRReply *profiles[HYBRID_NUM_ARM_SLOTS];
+    MRReply *shardIdReply = NULL;
+    for (size_t a = 0; a < numArms; a++) {
+      profiles[a] = i < counts[a] ? extractShardProfile(rpnets[a]->shardsProfile[i],
+                                                        rpnets[a]->cmd.protocol == 3)
+                                  : NULL;
+      // Use the first arm whose profile carries the ID: another may be missing or an error.
+      if (!shardIdReply) {
+        shardIdReply = extractShardIdReply(profiles[a]);
+      }
     }
+    RedisModule_Reply_Map(reply);  // Start shard map
     RedisModule_Reply_SimpleString(reply, "Shard ID");
     MR_ReplyWithMRReply(reply, shardIdReply);
-
-    // Print SEARCH profile for this shard (excluding Shard ID)
-    if (searchProfile) {
-      RedisModule_Reply_SimpleString(reply, "SEARCH");
-      printProfileExcludingShardId(reply, searchProfile);
+    for (size_t a = 0; a < numArms; a++) {
+      if (profiles[a]) {
+        RedisModule_Reply_SimpleString(reply, HybridRequest_ArmLabel(hreq, a));
+        printProfileExcludingShardId(reply, profiles[a]);
+      }
     }
-
-    // Print VSIM profile for this shard (excluding Shard ID)
-    if (vsimProfile) {
-      RedisModule_Reply_SimpleString(reply, "VSIM");
-      printProfileExcludingShardId(reply, vsimProfile);
-    }
-
     RedisModule_Reply_MapEnd(reply);  // End shard map
   }
 }
@@ -665,16 +698,8 @@ static void printDistHybridSubqueryRPs(RedisModule_Reply *reply, void *ctx) {
   RedisModule_ReplyKV_Map(reply, "Subqueries result processors profile");
 
   for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *areq = hreq->requests[i];
-    const char *subqueryType = "N/A";
-    if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
-      subqueryType = "SEARCH";
-    } else if (AREQ_RequestFlags(areq) & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
-      subqueryType = "VSIM";
-    }
-
-    ResultProcessor *rp = AREQ_QueryProcessingCtx(areq)->endProc;
-    RedisModule_ReplyKV_Array(reply, subqueryType);
+    ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
+    RedisModule_ReplyKV_Array(reply, HybridRequest_ArmLabel(hreq, i));
     Profile_PrintResultProcessors(reply, rp, profile_verbose);
     RedisModule_Reply_ArrayEnd(reply);
   }
@@ -703,8 +728,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     // Parse the hybrid command (equivalent to AREQ_Compile)
     HybridPipelineParams hybridParams = {0};
     ParseHybridCommandCtx cmd = {0};
-    cmd.search = HybridRequest_Arm(hreq, SEARCH_INDEX);
-    cmd.vector = hreq->requests[HYBRID_VSIM_ARM_POSITION];
+    cmd.hreq = hreq;
     cmd.cursorConfig = &hreq->base.cursorConfig;
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
@@ -757,7 +781,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
     // apply the sorting changes after the distribute phase
     setupCoordinatorArrangeSteps(hreq, &hybridParams);
-    RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
+    RLookup *lookups[HYBRID_NUM_ARM_SLOTS] = {0};
 
     // Capture the parsed state forwarded to the shards, used to build the
     // per-shard command below. This must happen here, before
@@ -770,10 +794,29 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         .sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
         .combine = {.scoringCtx = hybridParams.scoringCtx,
                     .scoreAlias = hybridParams.aggregationParams.common.scoreAlias},
-        .params = cmd.search->searchopts.params,
+        // Every arm holds a copy of the same PARAMS.
+        .params = hreq->requests[0]->searchopts.params,
         .forwardTimeout = cmd.timeoutSpecified,
         .timeoutMS = cmd.clientTimeoutMS,
+        .numArms = hreq->nrequests,
     };
+    // The arms are in slot order; the shard command keeps the client's command order.
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      const AREQ *arm = hreq->requests[i];
+      const bool isSearch = IsHybridSearchSubquery(arm);
+      // The SEARCH keyword precedes the query string; a VSIM arm records its keyword.
+      const uint32_t offset =
+          isSearch ? arm->base.args.queryOffset - 1 : arm->parsedVectorData->argOffset;
+      size_t at = i;
+      while (at > 0 && shardWireParams.arms[at - 1].offset > offset) {
+        shardWireParams.arms[at] = shardWireParams.arms[at - 1];
+        at--;
+      }
+      shardWireParams.arms[at].offset = offset;
+      shardWireParams.arms[at].isSearch = isSearch;
+      shardWireParams.arms[at].isDense =
+          !isSearch && arm->parsedVectorData->armSlot == VECTOR_INDEX;
+    }
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
@@ -809,12 +852,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     }
 
     // The RPNets consume cursor-read streams whose iterators are created and
-    // wired by HybridRequest_prepareCursors below. The search RPNet carries the
-    // fan-out command until then; the VSIM RPNet's command is only ever the
-    // cursor-read template, so it starts empty.
-    MRCommand vsimCmd = {0};
+    // wired by HybridRequest_prepareCursors below. The first arm's RPNet carries the
+    // fan-out command until then; the other RPNets' commands are only ever the
+    // cursor-read template, so they start empty.
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &vsimCmd, lookups[1], rpnetNext);
+    for (size_t i = 1; i < hreq->nrequests; i++) {
+      MRCommand readCmd = {0};
+      HybridRequest_buildDistRPChain(hreq->requests[i], &readCmd, lookups[i], rpnetNext);
+    }
 
     if (profileOptions != EXEC_NO_FLAGS) {
       rs_wall_clock pipelineClock;
@@ -845,9 +890,9 @@ static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate)
 #endif
 }
 
-// Dispatch the arming fan-out for the hybrid request. Non-blocking: three
-// sibling iterators are bound to one IO runtime — two inert cursor-read
-// iterators (one per subquery, owned by their RPNets) and the `_FT.HYBRID`
+// Dispatch the arming fan-out for the hybrid request. Non-blocking: sibling
+// iterators are bound to one IO runtime — one inert cursor-read iterator per
+// subquery, owned by its RPNet, and the `_FT.HYBRID`
 // fan-out whose reply callback arms each shard's reads the moment that shard
 // publishes its cursor ids (see hybridArmingCallback). Every published shard
 // cursor id thus lives in a live iterator command from the moment the
@@ -856,14 +901,15 @@ static void wireReadIterator(RPNet *nc, MRIterator *it, MRCommand *readTemplate)
 // (MOD-17913).
 static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status) {
 
-    // Get RPNet structures from query context
-    QueryProcessingCtx *searchQctx = AREQ_QueryProcessingCtx(hreq->requests[0]);
-    QueryProcessingCtx *vsimQctx = AREQ_QueryProcessingCtx(hreq->requests[1]);
-    RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
-    RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
+    // Get each arm's RPNet from its query context
+    const size_t numArms = hreq->nrequests;
+    RPNet *rpnets[HYBRID_NUM_ARM_SLOTS];
+    for (size_t i = 0; i < numArms; i++) {
+      rpnets[i] = (RPNet *)AREQ_QueryProcessingCtx(hreq->requests[i])->rootProc;
+    }
 
     // The _FT.HYBRID fan-out command (set during prepareForExecution).
-    MRCommand *xcmd = &searchRPNet->cmd;
+    MRCommand *xcmd = &rpnets[0]->cmd;
     xcmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     // Per-shard cursor-read placeholder: the arming callback plants each
@@ -900,27 +946,26 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
         }
     }
 
-    MRIterator *searchIt = MR_CreateIterator(
-      &readTemplate,
-      &(MRIteratorConfig){
-        .successCB = netCursorCallback,
-      }
-    );
-    // The three iterators must share one IO runtime (assigned round-robin to
-    // the first) so the arming callbacks touch the siblings on one IO thread.
-    IORuntimeCtx *ioRuntime = MRIterator_GetIORuntime(searchIt);
-    MRIterator *vsimIt = MR_CreateIterator(
-      &readTemplate,
-      &(MRIteratorConfig){
-        .successCB = netCursorCallback,
-        .ioRuntime = ioRuntime,
-      }
-    );
-
+    // One inert cursor-read iterator per arm. They must share one IO runtime (assigned
+    // round-robin to the first) with the fan-out, so the arming callbacks touch the siblings on
+    // one IO thread.
     HybridArmingCtx *armingCtx = rm_calloc(1, sizeof(*armingCtx));
-    armingCtx->searchIt = searchIt;
-    armingCtx->vsimIt = vsimIt;
+    armingCtx->numArms = numArms;
     armingCtx->knnCtx = knnCtx;
+    IORuntimeCtx *ioRuntime = NULL;
+    for (size_t i = 0; i < numArms; i++) {
+      armingCtx->its[i] = MR_CreateIterator(
+        &readTemplate,
+        &(MRIteratorConfig){
+          .successCB = netCursorCallback,
+          .ioRuntime = ioRuntime,
+        }
+      );
+      ioRuntime = MRIterator_GetIORuntime(armingCtx->its[i]);
+      char suffix[HYBRID_ARM_SUFFIX_SIZE];
+      HybridRequest_ArmSuffix(hreq, i, suffix, sizeof(suffix));
+      armingCtx->suffixes[i] = rm_strdup(suffix);
+    }
 
     MRIterator *hybridIt = MR_CreateIteratorTakingCmd(
       xcmd,
@@ -936,17 +981,19 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Hand the read iterators (and read-shaped commands) to their RPNets
     // before anything is scheduled, so no reply can beat the wiring. The
-    // SEARCH iterator is wired last so FT.DEBUG BG_PENDING_REPLIES (a single
+    // first arm's iterator is wired last so FT.DEBUG BG_PENDING_REPLIES (a single
     // global handle, last-set wins) observes the subquery-0 stream, which is
     // what the choreographed timeout tests gate on.
-    MRCommand vsimTemplate = MRCommand_Copy(&readTemplate);
-    wireReadIterator(vsimRPNet, vsimIt, &vsimTemplate);
-    wireReadIterator(searchRPNet, searchIt, &readTemplate);
+    for (size_t i = numArms; i-- > 1;) {
+      MRCommand armTemplate = MRCommand_Copy(&readTemplate);
+      wireReadIterator(rpnets[i], armingCtx->its[i], &armTemplate);
+    }
+    wireReadIterator(rpnets[0], armingCtx->its[0], &readTemplate);
 
-    // One start job for all three iterators (hybridArmingStartCb expands the
+    // One start job for all the iterators (hybridArmingStartCb expands the
     // read placeholders and dispatches the fan-out): a single topology
-    // snapshot, so per-shard indices agree across the iterators and both read
-    // iterators are expanded before any mapping reply can be processed.
+    // snapshot, so per-shard indices agree across the iterators and every read
+    // iterator is expanded before any mapping reply can be processed.
     MR_StartIterator(hybridIt, hybridArmingStartCb);
     // The fan-out's reader side is unused (its callbacks never queue replies);
     // the IO-thread writers drive it to completion and free it.

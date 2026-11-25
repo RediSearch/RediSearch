@@ -76,8 +76,8 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  *
  * For RRF: "Hybrid score (RRF: window=W, constant=K)", plus ", weights=[w1, w2]" when
  * WEIGHTS was given.
- * For LINEAR: "Hybrid score (LINEAR: alpha=A, beta=B, window=W)" (assumes the
- * two-source hybrid layout — text=weight[0], vector=weight[1]).
+ * For LINEAR with two weights: "Hybrid score (LINEAR: alpha=A, beta=B, window=W)"; with any
+ * other number: "Hybrid score (LINEAR: weights=[w1, w2, w3], window=W)".
  *
  * The returned string is heap-allocated with rm_malloc and must be freed by
  * the caller (or transferred to an RSScoreExplain node, which frees it).
@@ -93,7 +93,7 @@ char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx
  *     "final score: 1 / (constant K + rank N1) + 1 / (constant K + rank N2) = S"
  *   RRF with WEIGHTS, each term is prefixed by its weight:
  *     "final score: W1 * 1 / (constant K + rank N1) + W2 * 1 / (constant K + rank N2) = S"
- *   RRF, text-only:
+ *   RRF, text-only (`labels` names each source in its "no match" placeholder):
  *     "final score: 1 / (constant K + rank N1) + 0 [vector: no match] = S"
  *   LINEAR, both matched:
  *     "final score: A * X + B * Y = S"
@@ -105,7 +105,8 @@ char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx
  */
 char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
                                          const double *values, const bool *has_value,
-                                         size_t num_sources, double finalScore);
+                                         const char *const *labels, size_t num_sources,
+                                         double finalScore);
 
 
 
