@@ -152,6 +152,18 @@ jobs:
                       'name': 'Rocky Linux 9 ARM64'
                   }
               },
+              "rockylinux:10": {
+                  "x86_64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 x86_64'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 ARM64'
+                  }
+              },
               "alpine:3.22": {
                 # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
                 # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details

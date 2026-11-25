@@ -39,6 +39,7 @@ on:
           - ubuntu:jammy
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bookworm
           - alpine:3.22
           - macos
