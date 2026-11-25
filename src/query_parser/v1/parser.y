@@ -513,6 +513,11 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
             if (!fs) {
                 QueryNode_Free(A);
                 A = NULL;
+            } else if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
+                // DIALECT 2 rejects this; DIALECT 1 keeps it valid but matching nothing. It becomes
+                // a null node rather than a dropped clause, so an intersection with it stays empty.
+                QueryNode_Free(A);
+                A = NewQueryNode(QN_NULL);
             } else {
                 A->tag.fieldIndex = fs->index;
             }
@@ -574,8 +579,13 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
     A = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
-    if (fs) {
+    if (fs && FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         A = NewNumericNode(C, fs);
+    } else if (fs) {
+        // As for a tag query on a non-TAG field: valid on DIALECT 1, matching nothing.
+        QueryParam_Free(C);
+        C = NULL;
+        A = NewQueryNode(QN_NULL);
     } else if (C) {
         QueryParam_Free(C);
         C = NULL;
@@ -602,6 +612,10 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
         if (!fs) {
             QueryNode_Free(A);
             A = NULL;
+        } else if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
+            // As for a tag query on a non-TAG field: valid on DIALECT 1, matching nothing.
+            QueryNode_Free(A);
+            A = NewQueryNode(QN_NULL);
         }
     }
 }

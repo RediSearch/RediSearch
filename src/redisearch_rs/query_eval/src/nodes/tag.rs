@@ -95,11 +95,12 @@ pub(crate) fn eval<'index>(
     // Going through the raw pointer detaches the borrow from `ctx`, which the
     // children's evaluation needs exclusively.
     let field = unsafe { &*field_ptr };
+    // Both query parsers build a tag node only on a TAG field.
     debug_assert!(
         field.types() & ffi::FieldType_INDEXFLD_T_TAG != 0,
         "a tag node must reference a tag field"
     );
-    // SAFETY: the field is a tag field, so `tagOpts` is the active union member.
+    // SAFETY: the field is a tag field (asserted above), so `tagOpts` is the active union member.
     let index = NonNull::new(unsafe { field.__bindgen_anon_1.tagOpts.tagIndex })?;
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
@@ -491,6 +492,7 @@ fn eval_wildcard<'index>(
         .token_mut()
         .expect("a tag wildcard child must carry a token");
     let is_disk = !ctx.spec().diskSpec.is_null();
+    // Preserve disk pattern escapes until `WildcardPattern::parse` identifies literal bytes.
     if !is_disk {
         // SAFETY: the AST owns this token in the module allocator.
         unsafe { tok.normalize_tag(case_sensitive) };
@@ -596,7 +598,7 @@ fn eval_wildcard<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
-/// Open a reader for each tag value matching `pattern` in `mode`, by scanning the values trie.
+/// Open a reader for each matching value, subject to the request limits and expansion cap.
 fn collect_filtered_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
