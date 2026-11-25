@@ -219,6 +219,7 @@ def fit(args):
     and_exact_policy = dict.fromkeys(FAMILIES)
     if policy["and"] and policy["and"]["mode"] == "adhoc":
         and_exact_policy["and"] = policy["and"]
+    and_exact_holdout = summarize(holdout, and_exact_policy)
     report = {
         "training": summarize(training, policy),
         "policy": policy,
@@ -235,7 +236,12 @@ def fit(args):
         "holdout_forced_modes": {mode: summarize(holdout, policy, mode) for mode in MODES[1:]},
         "holdout_oracle_summed_cost": summarize(holdout, policy, "oracle"),
         "and_exact_policy": and_exact_policy,
-        "and_exact_policy_holdout": summarize(holdout, and_exact_policy),
+        "and_exact_policy_holdout": and_exact_holdout,
+        "and_exact_policy_passes_screen": (
+            and_exact_policy["and"] is not None
+            and and_exact_holdout["lost_hits"] == 0
+            and and_exact_holdout["candidate_latency_change_pct"] < 0
+        ),
     }
     print(json.dumps(report, indent=2))
 

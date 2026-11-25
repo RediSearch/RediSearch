@@ -44,8 +44,9 @@ medians, requires at least 20 queries and a 5% saving in the selected
 branch, and rejects loss of any ground-truth hit found by AUTO. Evaluate
 each selected rule on the held-out sample. The AND rule passed this check.
 The selected forced-BATCHES OR rule lost two hits on the held-out sample
-and was discarded. The script reports the accepted AND rule alongside the
-original training fit. Sum-of-median latency is a screening metric.
+and was discarded. The script reports the AND-only candidate and its
+holdout check alongside the original training fit. Sum-of-median latency
+is a screening metric.
 
 ## Run the 100-client comparison
 
