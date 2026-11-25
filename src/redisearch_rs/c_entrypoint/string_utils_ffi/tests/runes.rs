@@ -20,20 +20,29 @@ extern crate redisearch_rs;
 // Mock or stub the C symbols the bundle needs but the line above does not provide.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Take back a buffer an entry point returned, `len` items plus its
-/// terminator, so the test frees it the way it was allocated.
+/// Copy out a buffer an entry point returned, `len` items plus its
+/// terminator, and free it with `RedisModule_Free` as the C caller would.
 ///
 /// # Safety
 ///
 /// 1. `ptr` must come from one of the entry points under test, which reported
 ///    `len` items, and must not be used afterwards.
-unsafe fn take_buffer<T>(ptr: *mut T, len: usize) -> Box<[T]> {
-    // SAFETY: see safety point 1 above; the entry points allocate exactly
-    // `len + 1` items as a boxed slice.
-    unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(ptr, len + 1)) }
+unsafe fn take_buffer<T: Copy>(ptr: *mut T, len: usize) -> Vec<T> {
+    // SAFETY: see safety point 1 above; the entry points write `len` items and
+    // a terminator.
+    let items = unsafe { std::slice::from_raw_parts(ptr, len + 1) }.to_vec();
+    // SAFETY: `RedisModule_Free` is set by the mock before any test runs.
+    let free = unsafe { redis_module::RedisModule_Free }.expect("Redis allocator not available");
+    // SAFETY: see safety point 1 above; the buffer came from `RedisModule_Alloc`.
+    unsafe { free(ptr.cast()) };
+    items
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn runes_to_str_returns_a_nul_terminated_copy() {
     let mut len = usize::MAX;
     // SAFETY: the runes are a live array of the given length, and `len` is a
@@ -42,7 +51,7 @@ fn runes_to_str_returns_a_nul_terminated_copy() {
     assert_eq!(len, 3);
     // SAFETY: `encoded` was just returned with length `len`.
     let encoded = unsafe { take_buffer(encoded.cast::<u8>(), len) };
-    assert_eq!(&*encoded, b"A\xDF\xBF\0");
+    assert_eq!(encoded, b"A\xDF\xBF\0");
 }
 
 #[test]
@@ -57,6 +66,10 @@ fn runes_to_str_rejects_too_many_runes() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn folded_runes_are_zero_terminated_and_the_length_is_optional() {
     let input = b"AbC";
     // SAFETY: `input` is live for its length, and a NULL length is allowed.
@@ -65,7 +78,7 @@ fn folded_runes_are_zero_terminated_and_the_length_is_optional() {
     };
     // SAFETY: `folded` was just returned, holding one rune per input byte.
     let folded = unsafe { take_buffer(folded, input.len()) };
-    assert_eq!(&*folded, b"abc\0".map(u16::from));
+    assert_eq!(folded, b"abc\0".map(u16::from));
 }
 
 #[test]

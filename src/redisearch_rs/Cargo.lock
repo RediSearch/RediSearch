@@ -3161,6 +3161,7 @@ dependencies = [
 name = "string_utils_ffi"
 version = "0.0.1"
 dependencies = [
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "string_utils",
