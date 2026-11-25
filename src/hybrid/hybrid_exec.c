@@ -296,7 +296,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
     SearchResult_Destroy(r);
   }
 
-  if (countQuery) {
+  if (countQuery && !QueryRequest_FailWorkerReplyCancelled(&hreq->base)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
     TotalGlobalStats_CountQuery(reqflags, duration);
   }

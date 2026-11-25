@@ -555,7 +555,8 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
+  if (!QueryRequest_FailWorkerReplyCancelled(&req->base) &&
+      (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err))) {
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
