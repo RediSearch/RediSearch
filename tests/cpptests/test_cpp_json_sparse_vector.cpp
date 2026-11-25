@@ -32,13 +32,20 @@ namespace {
 
 // A JSON value as RedisJSON hands it to the parser. Objects keep their keys in insertion order,
 // as RedisJSON does, so a test controls the order the parser sees them in.
+// A key/value is a struct rather than `std::pair` because `std::vector` accepts an incomplete
+// element type but `std::pair` does not; with libstdc++ the pair form fails to compile.
+struct Field;
 struct Node {
   JSONType type = JSONType_Null;
   long long integer = 0;
   double number = 0;
   std::string string;
   std::vector<Node> array;
-  std::vector<std::pair<std::string, Node>> object;
+  std::vector<Field> object;
+};
+struct Field {
+  std::string first;
+  Node second;
 };
 
 Node Int(long long v) {
@@ -73,7 +80,7 @@ Node Arr(std::vector<Node> items) {
   n.array = std::move(items);
   return n;
 }
-Node Obj(std::vector<std::pair<std::string, Node>> fields) {
+Node Obj(std::vector<Field> fields) {
   Node n;
   n.type = JSONType_Object;
   n.object = std::move(fields);
@@ -380,8 +387,8 @@ TEST_F(JSONSparseVectorTest, mapLargeShuffledVectorIsSorted) {
   std::mt19937 rng(42);
   for (size_t i = 0; i < ids.size(); ++i) ids[i] = static_cast<uint32_t>(i * 7919 + 13);
   std::shuffle(ids.begin(), ids.end(), rng);
-  std::vector<std::pair<std::string, Node>> fields;
-  for (uint32_t id : ids) fields.emplace_back(std::to_string(id), Dbl(id / 2.0));
+  std::vector<Field> fields;
+  for (uint32_t id : ids) fields.push_back({std::to_string(id), Dbl(id / 2.0)});
 
   Pairs pairs = parse(Obj(std::move(fields)));
   ASSERT_EQ(pairs.size(), ids.size());
