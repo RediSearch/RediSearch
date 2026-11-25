@@ -20,6 +20,7 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
+    score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
 
 /// A generic iterator over inverted index entries, parameterised over a
@@ -571,6 +572,58 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.reader.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.reader.current_record_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        if self.at_eos {
+            return None;
+        }
+        self.reader.current_block_bound()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.reader.has_duplicates() {
+            // A plain read yields a document through its first record only. Letting the reader
+            // drop that record could yield the document through a later one, scored differently,
+            // so duplicates are skipped first and only the survivor is tested.
+            loop {
+                if self.read()?.is_none() {
+                    return Ok(None);
+                }
+                if !can_drop(self.current_max_score(), min_competitive_score) {
+                    return Ok(Some(&mut self.result));
+                }
+            }
+        }
+
+        if self.at_eos {
+            return Ok(None);
+        }
+        let check_expiration = self.expiration_checker.has_expiration();
+        while self
+            .reader
+            .next_record_with_threshold(&mut self.result, min_competitive_score)?
+        {
+            if check_expiration && self.is_current_doc_expired() {
+                continue;
+            }
+            debug_assert!(!can_drop(self.current_max_score(), min_competitive_score));
+            self.last_doc_id = self.result.doc_id;
+            return Ok(Some(&mut self.result));
+        }
+        self.at_eos = true;
+        Ok(None)
     }
 }
 // ---- Suspend / Resume ------------------------------------------------------

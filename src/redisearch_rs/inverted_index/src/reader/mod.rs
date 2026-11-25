@@ -16,6 +16,8 @@ use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::{DocId, FieldMask};
 
+use crate::score_bound::{BlockBound, MinCompetitiveScore, can_drop};
+
 pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
@@ -80,6 +82,53 @@ pub trait IndexReader<'index> {
     /// is reading. The reader must then be reset and re-seeked before it reads again — re-pointing
     /// the cached buffer is not a substitute, see [`ResumableReader::refresh_pointers`] for why.
     fn needs_revalidation(&self) -> bool;
+
+    /**************** score bounds ****************/
+
+    /// Whether [`current_record_max_score`](Self::current_record_max_score) can ever be finite.
+    ///
+    /// Fixed when the reader is built. An iterator over this reader reports score bounds exactly
+    /// when this holds.
+    fn reports_score_bounds(&self) -> bool {
+        false
+    }
+
+    /// Upper bound on the final score, under the query's scorer, of the record last read into
+    /// the caller's result, or [`f64::INFINITY`] when unknown or when no record has been read.
+    ///
+    /// Must not cost I/O, and must never be less than the score the scorer would compute.
+    fn current_record_max_score(&self) -> f64 {
+        f64::INFINITY
+    }
+
+    /// Bound on the scores of the record last read and of every record after it up to the end of
+    /// the storage block holding it, or `None` when the reader has no block to report or is not
+    /// positioned on a record.
+    ///
+    /// Must not cost I/O.
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        None
+    }
+
+    /// [`next_record`](Self::next_record), except that records whose
+    /// [`current_record_max_score`](Self::current_record_max_score) is below
+    /// `min_competitive_score` ([`can_drop`]) are passed over without being returned.
+    ///
+    /// Never passes over a record that could reach `min_competitive_score`. The default decodes
+    /// every record and drops it afterwards; a reader that knows its block bounds overrides it to
+    /// pass over whole blocks below the threshold without decoding them.
+    fn next_record_with_threshold(
+        &mut self,
+        result: &mut RSIndexResult<'index>,
+        min_competitive_score: MinCompetitiveScore,
+    ) -> std::io::Result<bool> {
+        while self.next_record(result)? {
+            if !can_drop(self.current_record_max_score(), min_competitive_score) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// Type-level mapping from an Active reader to its Suspended counterpart.

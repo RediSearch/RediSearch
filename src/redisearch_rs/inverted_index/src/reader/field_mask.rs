@@ -12,7 +12,9 @@ use super::{
     ResumableReader, SuspendableReader, TermReader,
 };
 use crate::{
-    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
+    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder,
+    opaque::OpaqueEncoding,
+    score_bound::{BlockBound, MinCompetitiveScore},
 };
 use ffi::IndexFlags;
 use index_result::RSIndexResult;
@@ -155,6 +157,39 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.inner.reports_score_bounds()
+    }
+
+    fn current_record_max_score(&self) -> f64 {
+        self.inner.current_record_max_score()
+    }
+
+    // The inner block's bound still holds: the mask only removes records from it.
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        self.inner.current_block_bound()
+    }
+
+    #[inline(always)]
+    fn next_record_with_threshold(
+        &mut self,
+        result: &mut RSIndexResult<'index>,
+        min_competitive_score: MinCompetitiveScore,
+    ) -> std::io::Result<bool> {
+        loop {
+            if !self
+                .inner
+                .next_record_with_threshold(result, min_competitive_score)?
+            {
+                return Ok(false);
+            }
+
+            if result.field_mask & self.mask > 0 {
+                return Ok(true);
+            }
+        }
     }
 }
 
