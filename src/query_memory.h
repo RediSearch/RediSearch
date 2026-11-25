@@ -90,9 +90,8 @@ bool QueryMemory_CheckpointExtern(QueryRequestLimits *limits);
 bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
 
 /**
- * The memory checkpoint after a query is built, before it reads
- * its first row. Unless a stop is already requested, reads memory on this call,
- * whatever the read interval. Under
+ * The memory checkpoint before a query reads its first row, or before it replays buffered rows.
+ * Unless a stop is already requested, reads memory on this call, whatever the read interval. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
  * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
  * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source

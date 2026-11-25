@@ -68,7 +68,7 @@ bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolic
  * (RP_EndRowSourceOnStop), and the clock deadline is read here since those rows read nothing
  * upstream.
  */
-bool RP_ReadShouldStop(struct QueryProcessingCtx *qctx, int *rc);
+bool PipelineRead_ShouldStop(struct QueryProcessingCtx *qctx, int *rc);
 
 void destroyResults(SearchResult **results);
 

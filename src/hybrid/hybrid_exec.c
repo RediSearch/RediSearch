@@ -306,7 +306,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   qctx->skippedResults = 0;
 }
 
-// A subquery checkpoint stopped the request for memory (its own timeout carries the reason).
+// A subquery checkpoint stopped the request for memory (its own limits carry the stop).
 static bool HybridRequest_HasMemoryStoppedSubquery(HybridRequest *hreq) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     if (QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits)) {
@@ -325,7 +325,7 @@ static bool clearSoftTailErrorForOom(HybridRequest *hreq, QueryError *err) {
       return false;
     }
   }
-  if (HybridRequest_IsSoftTailError(err)) {
+  if (!HybridRequest_GetFatalError(hreq)) {
     QueryError_ClearError(err);
   }
   return true;
@@ -363,7 +363,8 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   QueryError *err = hreq->tailPipeline->qctx.err;
   const bool tailStopped =
       rc == RS_RESULT_STOPPED && QueryRequestLimits_IsMemoryStopped(&hreq->base.limits);
-  if (oomPolicy == OomPolicy_Fail && (tailStopped || HybridRequest_HasMemoryStoppedSubquery(hreq)) &&
+  if (oomPolicy == OomPolicy_Fail &&
+      (tailStopped || HybridRequest_HasMemoryStoppedSubquery(hreq)) &&
       !clearSoftTailErrorForOom(hreq, err)) {
     // A subquery's fatal error is the reply's error; the OOM must not take the tail slot over it.
     return RS_RESULT_ERROR;
@@ -395,8 +396,9 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
     int len = array_len(results);
     bool stopped = false;
     array_foreach(results, res, {
-      stopped = stopped || StoredResults_ShouldStop(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
-                                                    hreq->tailPipeline->qctx.err);
+      stopped =
+          stopped || StoredResults_ShouldStop(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
+                                              hreq->tailPipeline->qctx.err);
       if (!stopped) {
         serializeResult_hybrid(hreq, reply, res, cv);
       }
@@ -414,9 +416,9 @@ static void stopBeforeReply_hybrid(HybridRequest *hreq, SearchResult **results, 
   QueryError *err = hreq->tailPipeline->qctx.err;
   if (results && (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) &&
       !HybridRequest_GetFatalError(hreq) &&
-      StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, err) &&
-      clearSoftTailErrorForOom(hreq, err)) {
+      StoredResults_StopBeforeReply(&hreq->base.limits, hreq->base.reqConfig.oomPolicy, err)) {
     // A soft tail error in the slot kept the OOM error out; it is cleared now.
+    QueryError_ClearError(err);
     QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 }
@@ -551,8 +553,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 
     SearchResult_Clear(r);
     if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
-      while (--rp->parent->resultLimit &&
-             !RP_ReadShouldStop(rp->parent, &rc) &&
+      while (--rp->parent->resultLimit && !PipelineRead_ShouldStop(rp->parent, &rc) &&
              (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
         serializeResult_hybrid(hreq, reply, r, cv);
         SearchResult_Clear(r);
