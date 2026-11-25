@@ -719,7 +719,7 @@ TEST_F(DiskTagPersistenceTest, UnboundCountDictionariesCanBeDiscarded) {
   EXPECT_EQ(loaded->diskSpec, nullptr);
 }
 
-TEST_F(DiskTagPersistenceTest, RestoredTagQueriesRequireExactValues) {
+TEST_F(DiskTagPersistenceTest, RestoredTagQueriesAcceptMultiTermValues) {
   ASSERT_NE(saveSource(), nullptr);
   discardSource();
   load(INDEX_CURRENT_VERSION);
@@ -731,10 +731,8 @@ TEST_F(DiskTagPersistenceTest, RestoredTagQueriesRequireExactValues) {
   QASTCXX ast(sctx);
   for (const char *query :
        {"@first:{hel*}", "@first:{*llo}", "@first:{*ell*}", "@first:{w'hel*'}", "@first:>{a}"}) {
-    EXPECT_FALSE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0))) << query;
-    EXPECT_NE(std::string(ast.getError()).find("queries are not supported on Flex indexes"),
-              std::string::npos)
-        << query;
+    EXPECT_TRUE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0)))
+        << query << ": " << ast.getError();
   }
   EXPECT_TRUE(ast.isValidQuery("@first:{hello}", static_cast<QASTValidationFlagsSet>(0)));
   EXPECT_TRUE(ast.isValidQuery("@first:{hello|world}", static_cast<QASTValidationFlagsSet>(0)));
