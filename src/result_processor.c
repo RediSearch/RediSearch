@@ -1621,6 +1621,16 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 /*********************************************************************************/
 
+// Destroys the buffered rows from `end` on, which were never loaded, and ends the buffer there.
+static void rpSafeLoader_TruncateBuffer(RPSafeLoader *self, size_t end) {
+  self->curr_result_index = end;
+  SearchResult *res;
+  while ((res = GetNextResult(self))) {
+    SearchResult_Destroy(res);
+  }
+  self->buffer_results_count = end;
+}
+
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
   // The pipeline's timeout state, NULL for a pipeline built without a request.
@@ -1629,24 +1639,18 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
   // with nothing held upstream, cuts the load.
   const bool checkMemory = timeout && !QueryRequestLimits_IsMemoryStopped(timeout);
-  bool stopped = false;
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     // A timeout never cuts the load: its callback waits for this worker.
-    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout)) {
-      // The loaded prefix is yielded; the yield phase then ends on the stop.
-      stopped = true;
+    if (checkMemory && QueryMemory_Checkpoint(timeout)) {
+      // Rows load in order, so the loaded prefix ends here: the yield phase hands it out, then
+      // ends on the stop. The rest still matched the query, so they are not counted as skipped.
       self->last_buffered_rc = RS_RESULT_STOPPED;
       RP_HoldStop(&self->base_loader.base);
-    }
-    if (stopped) {
-      // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
-      // matched the query.
-      SearchResult_Destroy(curr_res);
-      *curr_res = SearchResult_New();
-      continue;
+      rpSafeLoader_TruncateBuffer(self, self->curr_result_index - 1);
+      break;
     }
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
