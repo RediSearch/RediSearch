@@ -35,7 +35,7 @@ pub struct RangeIter<'tm, 'f, Data> {
     /// It is only taken into account if the range specifies a maximum boundary.
     is_max_included: bool,
     /// The timeout state.
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -197,7 +197,11 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
 
     /// Set the deadline after which iteration stops, or clear it with `None`.
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
-        self.timeout = timeout.into()
+        self.timeout.set_timeout(timeout)
+    }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
+        self.timeout.set_stop_check(stop);
     }
 
     /// The current key, obtained by concatenating the labels of the nodes

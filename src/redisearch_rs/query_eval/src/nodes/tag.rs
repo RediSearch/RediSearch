@@ -14,7 +14,6 @@ use std::{
     ffi::{CStr, c_void},
     ops::Bound,
     ptr::NonNull,
-    time::Instant,
 };
 
 use c_trie::QueryRequestLimitsHandle;
@@ -27,7 +26,6 @@ use rqe_core::FieldIndex;
 use rqe_iterators::{
     c2rust::CRQEIterator,
     union_opaque::{build_union, build_union_with_q_str},
-    utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{Token, WildcardPattern};
 use string_utils::{tag::unescape, unicode::tolower_bytes};
@@ -52,18 +50,25 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
     timeout.clock_deadline()
 }
 
-/// Whether the request has been cancelled by the blocked-client callback.
-///
-/// A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
-/// blocked-client cycle, which publishes a flag instead of a clock deadline, so
-/// [`clock_deadline`] reports nothing for it and a deadline-driven walk would
-/// run on past the client's timeout while holding the spec read lock.
-fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
-    // SAFETY: as in `clock_deadline` -- a non-null request timeout is an
-    // initialized C object that outlives query evaluation, and the handle lives
-    // only for the single flag read below.
-    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
-    timeout.is_some_and(QueryRequestLimitsHandle::blocked_client_timed_out)
+/// Check the request limit from inside a trie traversal, including when no tags match.
+fn expansion_stop_check(ctx: &QueryEvalContext) -> impl Fn() -> bool + Sync + use<> {
+    struct ExpansionLimits(*const ffi::QueryRequestLimits);
+
+    // SAFETY: the exact check reads the fixed timeout source and deadline, and uses
+    // atomic loads for the blocked-client and memory-stop flags. It does not touch
+    // the shared clock poll counter.
+    unsafe impl Sync for ExpansionLimits {}
+
+    impl ExpansionLimits {
+        fn should_stop(&self) -> bool {
+            // SAFETY: the callback stays within synchronous evaluation, when the limits
+            // are live in the same execution cycle.
+            !self.0.is_null() && unsafe { ffi::QueryRequestLimits_ShouldStopExact(self.0) }
+        }
+    }
+
+    let limits = ExpansionLimits(ctx.sctx().limits);
+    move || limits.should_stop()
 }
 
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
@@ -136,7 +141,9 @@ pub(crate) fn eval<'index>(
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let stop = expansion_stop_check(ctx);
     let children = (0..num_children)
+        .take_while(|_| !stop())
         .map(|i| {
             let child = node.child_mut(i);
             let child = eval_child(
@@ -455,16 +462,7 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
     }
 }
 
-/// Values walked between two blocked-client cancellation probes, matching the
-/// cadence `trie_rs` uses between its own clock probes.
-const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
-
-/// Open one reader per value the range covers, up to the expansion cap.
-///
-/// The cap counts readers opened, not values visited, and a value whose reader
-/// cannot be opened leaves it where it was, so the walk carries the request
-/// deadline as the pattern walk in [`collect_filtered_readers`] does, and
-/// observes a blocked-client cancellation, which carries no deadline.
+/// Open one reader per matching value, subject to the request limits and expansion cap.
 fn collect_range_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
@@ -472,32 +470,18 @@ fn collect_range_readers(
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
+    let stop = expansion_stop_check(ctx);
     let values = index.values().range_iter(filter);
     let mut values = RangeLendingIter::from(values);
-    values.set_timeout(
-        clock_deadline(ctx)
-            .and_then(duration_from_redis_timespec)
-            .map(|remaining| Instant::now() + remaining),
-    );
+    values.set_stop_check(&stop);
 
     let mut children = Vec::new();
-    let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
     while let Some((value, _)) = values.next() {
         if children.len() == max_prefix_expansions {
             ctx.status()
                 .warnings_mut()
                 .set_reached_max_prefix_expansions();
             break;
-        }
-        // The deadline installed above covers a clock cycle. A blocked-client
-        // cycle carries no deadline, so without this the walk would not observe
-        // that the client has already timed out.
-        until_cancellation_check -= 1;
-        if until_cancellation_check == 0 {
-            until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-            if blocked_client_cancelled(ctx) {
-                break;
-            }
         }
         children.extend(open_reader_child(ctx, index, value, field_index));
     }
@@ -627,19 +611,17 @@ fn eval_wildcard<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
-/// Open a reader for each value yielded by the TAG dictionary traversal.
+/// Open a reader for each matching value, subject to the request limits and expansion cap.
 fn collect_filtered_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
-    mut values: PatternLendingIter<'_, '_, *mut c_void>,
+    values: PatternLendingIter<'_, '_, *mut c_void>,
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
-    values.set_timeout(
-        clock_deadline(ctx)
-            .and_then(duration_from_redis_timespec)
-            .map(|remaining| Instant::now() + remaining),
-    );
+    let stop = expansion_stop_check(ctx);
+    let mut values = values;
+    values.set_stop_check(&stop);
 
     let mut children = Vec::new();
     while let Some((value, _)) = values.next() {
