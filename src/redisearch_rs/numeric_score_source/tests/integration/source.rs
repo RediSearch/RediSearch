@@ -1481,3 +1481,70 @@ fn legacy_buffered_results_survive_freed_range_storage() {
     it.rewind();
     assert!(it.read().unwrap().is_none());
 }
+
+fn lifted_union_top_k(tree: &NumericRangeTree, k: usize) -> NumericTopKIterator<'_> {
+    use numeric_score_source::NumericRangeBound;
+
+    let unconditional = Box::new([NumericRangeBound {
+        min: 10.0,
+        max: f64::INFINITY,
+        min_inclusive: false,
+        max_inclusive: true,
+    }]);
+    let boundary = Some(CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![
+        1u64,
+    ])));
+    let source = NumericScoreSource::unfiltered(tree, full_range(true))
+        .with_union_filter(unconditional, boundary);
+    new_numeric_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap())
+}
+
+#[test]
+fn union_filter_preserves_boundary_across_rewind() {
+    // Doc 1 and doc 2 both sit on the boundary (score 10.0), but only doc 1 matches
+    // the boundary filter; docs 3 and 4 sit in the unconditional tail (10.0, +inf].
+    let tree = tree_from(&[(1, 10.0), (2, 10.0), (3, 20.0), (4, 30.0)]);
+    let mut it = lifted_union_top_k(&tree, 4);
+
+    let expected = vec![(1, 10.0), (3, 20.0), (4, 30.0)];
+    assert_eq!(drain_top_k(&mut it), expected);
+
+    // Rewind after finish_collection() must still find the conditional boundary doc 1.
+    it.rewind();
+    assert_eq!(drain_top_k(&mut it), expected);
+}
+
+#[test]
+fn union_filter_aborts_resume_after_suspend_before_collection() {
+    let mock_ctx = MockContext::new(0, 0);
+    let tree = tree_from(&[(1, 10.0), (2, 10.0), (3, 20.0), (4, 30.0)]);
+    let it = Box::new(lifted_union_top_k(&tree, 4));
+    let guard = mock_ctx.spec_read();
+
+    // Suspending before the first read releases the boundary iterator; even though the
+    // numeric tree itself is unchanged, resume must abort rather than silently dropping
+    // conditional boundary matches.
+    assert!(matches!(
+        it.suspend().resume(&guard).unwrap(),
+        ResumeOutcome::Aborted
+    ));
+}
+
+#[test]
+fn union_filter_preserves_buffered_results_across_suspend_but_prevents_recollection() {
+    let mock_ctx = MockContext::new(0, 0);
+    let tree = tree_from(&[(1, 10.0), (2, 10.0), (3, 20.0), (4, 30.0)]);
+    let mut it = Box::new(lifted_union_top_k(&tree, 4));
+    let guard = mock_ctx.spec_read();
+
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let ResumeOutcome::Ok(mut it) = it.suspend().resume(&guard).unwrap() else {
+        panic!("buffered results should survive suspension");
+    };
+    assert_eq!(drain_top_k(&mut it), vec![(3, 20.0), (4, 30.0)]);
+
+    // After suspension released the boundary iterator, rewinding must not re-collect
+    // without it.
+    it.rewind();
+    assert!(it.read().unwrap().is_none());
+}
