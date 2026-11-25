@@ -233,8 +233,12 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 /**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ * @param scoreSkipping whether a full heap may publish its minimum as the pipeline's
+ * `minCompetitiveScore`: the request's `diskScoreSkippingQuery`, taken when the request was
+ * created.
  */
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey,
+                                     bool scoreSkipping);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

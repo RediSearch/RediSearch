@@ -70,6 +70,14 @@ pub struct QueryProcessingCtx {
     /// The minimal score applicable for a result. It can be used to optimize
     /// the scorers.
     pub minScore: f64,
+    /// The score a row must reach to enter the score sorter's full heap: its minimum. The row
+    /// source may skip candidates whose score bound is below it. Not positive means none.
+    ///
+    /// Written only by a score sorter whose upstream chain keeps every row's score from its own
+    /// candidate, so a skipped candidate could not have reached the heap, and ends at an
+    /// `RP_INDEX` whose root reports score bounds, the only reader. Both run on the pipeline's
+    /// thread. Unlike [`Self::minScore`], which SORTBY sorters also write, it is always a score.
+    pub minCompetitiveScore: f64,
     /// The total results found in the query, incremented by the root
     /// processors and decremented by others who might disqualify results.
     pub totalResults: u32,
@@ -140,6 +148,7 @@ impl QueryProcessingCtx {
             },
             queryGILTime: 0,
             minScore: 0.0,
+            minCompetitiveScore: 0.0,
             totalResults: 0,
             skippedResults: 0,
             resultLimit: 0,

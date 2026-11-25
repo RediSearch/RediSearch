@@ -334,7 +334,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
         scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
       }
-      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey, params->diskScoreSkippingQuery);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }

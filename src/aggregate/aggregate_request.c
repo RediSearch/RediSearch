@@ -1936,6 +1936,7 @@ AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .groupByLimits = groupByLimits,
     .language = req->searchopts.language,
+    .diskScoreSkippingQuery = req->base.reqConfig.diskScoreSkippingQuery,
   };
 }
 
