@@ -11,6 +11,7 @@
 #include "common.h"
 #include "concurrent_ctx.h"
 #include "query_test_utils.h"
+#include "query_eval_ffi.h"
 
 extern "C" {
 #include "rules.h"
@@ -18,6 +19,7 @@ extern "C" {
 #include "tag_index.h"
 #include "triemap_ffi.h"
 int RegisterDebugCommands(RedisModuleCommand *debugCommand);
+int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
@@ -604,6 +606,83 @@ TEST_F(DiskSchemaOpenTest, TagDebugCommandsReportDiskCountsAndRejectPostingDumps
   EXPECT_EQ(RMCK_GetLastError(RSDummyContext),
             "dump_id_entries not supported for disk-mode indexes");
   RMCK_GetLastError(RSDummyContext).clear();
+}
+
+TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp =
+      create("tag_wildcard_disk", {"folded", "TAG", "exact", "TAG", "CASESENSITIVE"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *folded[] = {"hello"};
+  const char *exact[] = {"a*b?end", "axbyend"};
+  TagIndex_Commit(TagIndex_Open(&sp->fields[0]), folded, 1, &sp->stats);
+  TagIndex_Commit(TagIndex_Open(&sp->fields[1]), exact, 2, &sp->stats);
+
+  Restore minPrefix{RSGlobalConfig.iteratorsConfigParams.minTermPrefix};
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 2;
+  api.index.createQueryView = [](RedisSearchDiskIndexSpec *index) {
+    return reinterpret_cast<RedisSearchDiskQueryView *>(index);
+  };
+  api.index.freeQueryView = [](RedisSearchDiskQueryView *) {};
+  static std::vector<std::string> opened;
+  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, t_fieldIndex,
+                                double, RedisSearchDiskQueryView *,
+                                QueryError *) -> QueryIterator * {
+    opened.emplace_back(tok->str, tok->len);
+    return nullptr;
+  };
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  IndexSpec_LockRead(sp);
+  const int viewStatus = SearchCtx_OpenDiskQueryView(&sctx, &err);
+  IndexSpec_Unlock(sp);
+  ASSERT_EQ(viewStatus, REDISMODULE_OK) << QueryError_GetUserError(&err);
+
+  const std::pair<const char *, std::vector<std::string>> cases[] = {
+      {"@folded:{w'HE*'}", {"hello"}},
+      {"@folded:{w'H*'}", {}},
+      {R"(@exact:{w'a\*b\?*'})", {"a*b?end"}},
+  };
+  for (const auto &[query, expected] : cases) {
+    SCOPED_TRACE(query);
+    QASTCXX ast(sctx);
+    if (!ast.parse(query, 2)) {
+      ADD_FAILURE() << ast.getError();
+      continue;
+    }
+    opened.clear();
+    iteratorsConfig_init(&ast.config);
+    SearchOptionsCXX opts;
+    IndexSpec_LockRead(sp);
+    QueryIteratorTree *tree = QAST_Iterate(&ast, &opts, &sctx, 0, &err);
+    QueryIteratorTree_Free(tree);
+    IndexSpec_Unlock(sp);
+    EXPECT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    EXPECT_EQ(opened, expected);
+    QueryError_ClearError(&err);
+  }
+  SearchCtx_CleanUp(&sctx);
+}
+
+TEST_F(DiskSchemaOpenTest, TagValsEnumeratesDiskDictionary) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_vals_disk", {"tags", "TAG", "INDEXEMPTY"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *values[] = {"hello", "", "hello"};
+  TagIndex_Commit(TagIndex_Open(&sp->fields[0]), values, 3, &sp->stats);
+
+  Restore stringHook{RedisModule_ReplyWithStringBuffer};
+  RedisModule_ReplyWithStringBuffer = [](RedisModuleCtx *ctx, const char *value, size_t len) {
+    RMCK_GetReplyLog(ctx).emplace_back(value, len);
+    return REDISMODULE_OK;
+  };
+
+  auto &reply = RMCK_GetReplyLog(RSDummyContext);
+  reply.clear();
+  RMCK::ArgvList args(RSDummyContext, "FT.TAGVALS", "tag_vals_disk", "tags");
+  EXPECT_EQ(TagValsCommand(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+  EXPECT_EQ(reply, (std::vector<std::string>{"set:postponed", "", "hello", "setset:2"}));
+  reply.clear();
 }
 
 class DiskTagPersistenceTest : public DiskSchemaOpenTest {

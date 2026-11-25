@@ -24,6 +24,8 @@
 #include "redismock/redismock.h"
 extern "C" {
 #include "coord/info_command.h"
+extern bool isFlex;
+int uniqueStringsReducer(MRCtx *mc, int count, MRReply **replies);
 }
 
 #include <algorithm>
@@ -254,6 +256,29 @@ TEST_F(FieldDiskMetricsTest, InfoReducerSumsTextColumnFamilyResources) {
       "string:storage_bytes", "integer:5000", "setmap:3", "setmap:1"};
   const auto &output = RMCK_GetReplyLog(ctx);
   EXPECT_NE(std::search(output.begin(), output.end(), expected.begin(), expected.end()), output.end());
+
+  for (auto *reply : replies) MRReply_Free(reply);
+  MRCtx_DecrRef(mr);
+  RedisModule_ThreadSafeContextLock(ctx);
+  MR_FreeCluster();
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+TEST(DiskTagValsReducerTest, ForwardsAnExplicitShardErrorAlongsideValues) {
+  MRReply *replies[] = {parseReply("*1\r\n$5\r\nhello\r\n"),
+                        parseReply("-ERR tag dictionary unavailable\r\n")};
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  MR_Init(1, 1);
+  MR_InitLocalNodeId();
+  MRCtx *mr = MR_CreateCtx(ctx, nullptr, nullptr, 2);
+
+  const bool savedFlex = isFlex;
+  isFlex = true;
+  EXPECT_EQ(uniqueStringsReducer(mr, 2, replies), REDISMODULE_OK);
+  isFlex = savedFlex;
+  EXPECT_EQ(RMCK_GetLastError(ctx), "ERR tag dictionary unavailable");
+  EXPECT_TRUE(RMCK_GetReplyLog(ctx).empty());
 
   for (auto *reply : replies) MRReply_Free(reply);
   MRCtx_DecrRef(mr);
