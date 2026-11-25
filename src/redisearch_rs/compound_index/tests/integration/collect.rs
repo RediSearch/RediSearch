@@ -7,14 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Bound::{self, Excluded, Included, Unbounded};
-
-use compound_index::{BucketRange, CollectError, Constraint, Key};
+use compound_index::{CollectError, Constraint};
 use timeout::NoTimeoutChecker;
 
-use crate::util::{
-    Index, TimesOutAfter, bucket_level, orders, post, tag, tag_in, tag_level, union,
-};
+use crate::util::{TimesOutAfter, orders, tag_in, tag_not_in, union};
 
 /// Every shape a query can take on the [`orders`] index, with the docs that have one element
 /// satisfying both constraints.
@@ -42,11 +38,7 @@ fn every_query_shape_returns_the_docs_with_one_matching_element() {
             [tag_in(&["blue"]), Constraint::Any],
             &[1, 4],
         ),
-        (
-            "negation",
-            [Constraint::TagNotIn(vec![b"red"]), tag_in(&["M"])],
-            &[4],
-        ),
+        ("negation", [tag_not_in(&["red"]), tag_in(&["M"])], &[4]),
         (
             "prefix",
             [Constraint::TagPrefix(b"bl"), Constraint::Any],
@@ -186,11 +178,7 @@ fn the_timeout_is_checked_for_every_constraint_kind() {
     // timeout `nodes` times.
     let cases: &[(&str, [Constraint<'_>; 2], usize)] = &[
         // blue, then (blue, L) and (blue, M); red is skipped, which also counts.
-        (
-            "negation",
-            [Constraint::TagNotIn(vec![b"red"]), Constraint::Any],
-            4,
-        ),
+        ("negation", [tag_not_in(&["red"]), Constraint::Any], 4),
         // red, then (red, L) and (red, M).
         ("prefix", [Constraint::TagPrefix(b"re"), Constraint::Any], 3),
     ];
@@ -209,22 +197,6 @@ fn the_timeout_is_checked_for_every_constraint_kind() {
             "{name}"
         );
     }
-
-    // Three bucket children, one terminal under each.
-    let all_years = [Constraint::Any, Constraint::Any];
-    assert_eq!(
-        years()
-            .collect_terminals(&all_years, usize::MAX, &mut TimesOutAfter(5))
-            .err(),
-        Some(CollectError::TimedOut)
-    );
-    assert_eq!(
-        years()
-            .collect_terminals(&all_years, usize::MAX, &mut TimesOutAfter(6))
-            .unwrap()
-            .len(),
-        3
-    );
 }
 
 #[test]
@@ -240,7 +212,7 @@ fn the_timeout_is_checked_on_values_that_enter_nothing() {
         ),
         (
             "every value excluded",
-            [Constraint::TagNotIn(vec![b"blue", b"red"]), Constraint::Any],
+            [tag_not_in(&["blue", "red"]), Constraint::Any],
             2,
         ),
     ];
@@ -283,208 +255,7 @@ fn the_timeout_is_checked_on_terminals() {
 }
 
 #[test]
-fn invalid_queries_are_rejected() {
-    let index = years();
-    let cases: &[(&str, &[Constraint<'_>], CollectError)] = &[
-        (
-            "too few constraints",
-            &[Constraint::Any],
-            CollectError::WrongLength {
-                expected: 2,
-                got: 1,
-            },
-        ),
-        (
-            "tag constraint on a bucket level",
-            &[tag_in(&["2022"]), Constraint::Any],
-            CollectError::ConstraintMismatch { level: 0 },
-        ),
-        (
-            "bucket range on a tag level",
-            &[Constraint::Any, range(Included(0.0), Excluded(1.0))],
-            CollectError::ConstraintMismatch { level: 1 },
-        ),
-    ];
-    for (name, constraints, expected) in cases {
-        assert_eq!(
-            index
-                .collect_terminals(constraints, usize::MAX, &mut NoTimeoutChecker)
-                .err(),
-            Some(expected.clone()),
-            "{name}"
-        );
-    }
-}
-
-const fn range(start: Bound<f64>, end: Bound<f64>) -> Constraint<'static> {
-    Constraint::BucketRange(BucketRange { start, end })
-}
-
-/// A bucket level on years, `[2020, 2022) [2022, 2024) [2024, 2026)`, over a tag level. Doc `n`
-/// has one element in bucket `n`.
-fn years() -> Index {
-    let mut index = Index::new(vec![
-        bucket_level(&[2020.0, 2022.0, 2024.0, 2026.0]),
-        tag_level(),
-    ])
-    .unwrap();
-    for (doc, year) in [(0, 2021.0), (1, 2022.0), (2, 2025.5)] {
-        post(&mut index, &[Key::Numeric(year), tag("x")], doc);
-    }
-    index
-}
-
-#[test]
-fn numeric_ranges_select_the_buckets_wholly_inside_them() {
-    let index = years();
-    let cases: &[(&str, Constraint<'_>, &[u32])] = &[
-        (
-            "[2022 (2024]",
-            range(Included(2022.0), Excluded(2024.0)),
-            &[1],
-        ),
-        (
-            "[2022 (2026]",
-            range(Included(2022.0), Excluded(2026.0)),
-            &[1, 2],
-        ),
-        (
-            "upper end on the last boundary, inclusive",
-            range(Included(2022.0), Included(2026.0)),
-            &[1, 2],
-        ),
-        ("[-inf (2024]", range(Unbounded, Excluded(2024.0)), &[0, 1]),
-        ("[2024 +inf]", range(Included(2024.0), Unbounded), &[2]),
-        (
-            "(2019 (2022]: exclusive start below the first boundary",
-            range(Excluded(2019.0), Excluded(2022.0)),
-            &[0],
-        ),
-        (
-            "ends outside every bucket",
-            range(Included(3000.0), Included(5000.0)),
-            &[],
-        ),
-        ("empty", range(Included(2022.0), Excluded(2022.0)), &[]),
-        (
-            "empty inside a bucket",
-            range(Excluded(2023.0), Included(2023.0)),
-            &[],
-        ),
-        ("inverted", range(Included(2024.0), Included(2022.0)), &[]),
-        ("unbounded", range(Unbounded, Unbounded), &[0, 1, 2]),
-        (
-            "[-inf +inf] as inclusive infinities",
-            range(Included(f64::NEG_INFINITY), Included(f64::INFINITY)),
-            &[0, 1, 2],
-        ),
-        (
-            "upper end one float below a boundary",
-            range(Included(2022.0), Included(2024f64.next_down())),
-            &[1],
-        ),
-        (
-            "exclusive start one float below a boundary",
-            range(Excluded(2022f64.next_down()), Excluded(2024.0)),
-            &[1],
-        ),
-        (
-            "empty between adjacent floats",
-            range(Excluded(2023.0), Excluded(2023f64.next_up())),
-            &[],
-        ),
-    ];
-    for (name, constraint, expected) in cases {
-        let terminals = index
-            .collect_terminals(
-                &[constraint.clone(), Constraint::Any],
-                usize::MAX,
-                &mut NoTimeoutChecker,
-            )
-            .unwrap();
-        assert_eq!(union(&terminals), *expected, "{name}");
-    }
-}
-
-#[test]
-fn numeric_ranges_covering_part_of_a_bucket_are_rejected() {
-    let index = years();
-    let cases: &[(&str, Constraint<'_>)] = &[
-        (
-            "[2022 2024]: includes 2024, the first value of the next bucket",
-            range(Included(2022.0), Included(2024.0)),
-        ),
-        (
-            "(2022 (2024]: excludes 2022, the first value of its bucket",
-            range(Excluded(2022.0), Excluded(2024.0)),
-        ),
-        (
-            "start inside a bucket",
-            range(Included(2021.0), Excluded(2024.0)),
-        ),
-        (
-            "end inside a bucket",
-            range(Included(2022.0), Excluded(2025.0)),
-        ),
-        (
-            "upper end one float above a boundary",
-            range(Included(2022.0), Included(2024f64.next_up())),
-        ),
-        ("NaN start", range(Included(f64::NAN), Unbounded)),
-        ("NaN end", range(Unbounded, Excluded(f64::NAN))),
-        (
-            "NaN on both ends",
-            range(Excluded(f64::NAN), Included(f64::NAN)),
-        ),
-    ];
-    for (name, constraint) in cases {
-        assert_eq!(
-            index
-                .collect_terminals(
-                    &[constraint.clone(), Constraint::Any],
-                    usize::MAX,
-                    &mut NoTimeoutChecker
-                )
-                .err(),
-            Some(CollectError::UnalignedBucketRange { level: 0 }),
-            "{name}"
-        );
-    }
-}
-
-/// `-0.0` equals `0.0` as a range end, as IEEE comparison has it. Comparing bit patterns or with
-/// `total_cmp` would order `-0.0` below the boundary, so `(-0` would wrongly count `[0, 10)` as
-/// wholly inside and return the elements valued `0.0` it excludes.
-#[test]
-fn a_negative_zero_range_end_is_the_zero_boundary() {
-    let mut index = Index::new(vec![bucket_level(&[-10.0, 0.0, 10.0]), tag_level()]).unwrap();
-    post(&mut index, &[Key::Numeric(-5.0), tag("x")], 0);
-    post(&mut index, &[Key::Numeric(0.0), tag("x")], 1);
-    let walk = |start, end| {
-        index
-            .collect_terminals(
-                &[range(start, end), Constraint::Any],
-                usize::MAX,
-                &mut NoTimeoutChecker,
-            )
-            .map(|terminals| union(&terminals))
-    };
-
-    assert_eq!(walk(Included(-0.0), Excluded(10.0)), Ok(vec![1]));
-    assert_eq!(walk(Excluded(-0.0), Excluded(0.0)), Ok(vec![]));
-    assert_eq!(
-        walk(Excluded(-0.0), Excluded(10.0)),
-        Err(CollectError::UnalignedBucketRange { level: 0 })
-    );
-}
-
-#[test]
-fn numeric_keys_route_to_their_bucket() {
-    let index = years();
-    // 2023.5 shares the bucket [2022, 2024) with doc 1's 2022.
-    assert_eq!(
-        index.get(&[Key::Numeric(2023.5), tag("x")]).unwrap(),
-        Some(&vec![1])
-    );
-    assert_eq!(index.get(&[Key::Numeric(2024.0), tag("y")]).unwrap(), None);
+#[should_panic(expected = "a walk takes one constraint per level")]
+fn a_walk_with_the_wrong_number_of_constraints_panics() {
+    let _ = orders().collect_terminals(&[Constraint::Any], usize::MAX, &mut NoTimeoutChecker);
 }

@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{CheckPathsError, Key, PathError};
+use compound_index::CardinalityExceeded;
 use proptest::prelude::*;
 
-use crate::util::{Index, bucket_level, post, tag, tag_level, tag_level_max};
+use crate::util::{Index, post, tag, tag_level, tag_level_max};
 
 /// The batch of one document's elements, as `check_paths` takes it.
-fn check(index: &Index, rows: &[[Key<'_>; 2]]) -> Result<(), CheckPathsError> {
-    let paths: Vec<&[Key<'_>]> = rows.iter().map(|row| row.as_slice()).collect();
+fn check(index: &Index, rows: &[[&[u8]; 2]]) -> Result<(), CardinalityExceeded> {
+    let paths: Vec<&[&[u8]]> = rows.iter().map(|row| row.as_slice()).collect();
     index.check_paths(&paths)
 }
 
@@ -27,7 +27,7 @@ fn two_new_values_under_an_existing_parent_count_together() {
     assert!(check(&index, &[[tag("red"), tag("L")]]).is_ok());
     assert_eq!(
         check(&index, &[[tag("red"), tag("L")], [tag("red"), tag("S")]]),
-        Err(CheckPathsError::CardinalityExceeded { level: 1, max: 2 })
+        Err(CardinalityExceeded { level: 1, max: 2 })
     );
 }
 
@@ -36,7 +36,7 @@ fn new_values_under_a_parent_the_batch_creates_count_together() {
     let index = Index::new(vec![tag_level(), tag_level_max(1)]).unwrap();
     assert_eq!(
         check(&index, &[[tag("blue"), tag("M")], [tag("blue"), tag("L")]]),
-        Err(CheckPathsError::CardinalityExceeded { level: 1, max: 1 })
+        Err(CardinalityExceeded { level: 1, max: 1 })
     );
 }
 
@@ -54,21 +54,18 @@ fn values_already_present_take_no_new_room() {
 }
 
 #[test]
-fn an_invalid_path_in_the_batch_is_reported() {
-    let index = Index::new(vec![tag_level(), bucket_level(&[0.0, 10.0])]).unwrap();
-    assert_eq!(
-        check(
-            &index,
-            &[
-                [tag("red"), Key::Numeric(5.0)],
-                [tag("red"), Key::Numeric(50.0)]
-            ]
-        ),
-        Err(CheckPathsError::Path {
-            position: 1,
-            error: PathError::OutsideBuckets { level: 1 }
-        })
-    );
+fn without_a_limit_any_batch_fits() {
+    let mut index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    post(&mut index, &[tag("red"), tag("M")], 1);
+    let rows: Vec<[&[u8]; 2]> = VALUES.iter().map(|v| [tag(v), tag(v)]).collect();
+    assert!(check(&index, &rows).is_ok());
+}
+
+#[test]
+#[should_panic(expected = "a path has one value per level")]
+fn a_batch_with_a_path_of_the_wrong_length_panics() {
+    let index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    let _ = index.check_paths(&[&[tag("red"), tag("M")], &[tag("red")]]);
 }
 
 const VALUES: [&str; 3] = ["a", "b", "c"];
@@ -80,7 +77,7 @@ fn row() -> impl Strategy<Value = (&'static str, &'static str)> {
     )
 }
 
-const fn path(row: &(&'static str, &'static str)) -> [Key<'static>; 2] {
+const fn path(row: &(&'static str, &'static str)) -> [&'static [u8]; 2] {
     [tag(row.0), tag(row.1)]
 }
 
@@ -106,7 +103,7 @@ proptest! {
             let _ = index.get_or_insert_with(&path(row), Vec::new);
         }
 
-        let rows: Vec<[Key<'static>; 2]> = batch.iter().map(path).collect();
+        let rows: Vec<[&[u8]; 2]> = batch.iter().map(path).collect();
         let checked = check(&index, &rows);
         let inserted_whole = insert_order
             .iter()

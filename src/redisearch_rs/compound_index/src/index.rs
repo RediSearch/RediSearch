@@ -10,17 +10,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
-    ops::{Bound, Range},
 };
 
 use lending_iterator::LendingIterator;
 use timeout::{TimeoutCheckResult, TimeoutChecker};
 use trie_rs::TrieMap;
 
-use crate::{
-    BucketLevel, BucketRange, CheckPathsError, CollectError, Constraint, InsertError, Key, Level,
-    PathError, SchemaError,
-};
+use crate::{CardinalityExceeded, CollectError, Constraint, SchemaError, TagLevel};
 
 /// The most routing levels a [`CompoundIndex`] accepts.
 ///
@@ -33,86 +29,39 @@ pub const MAX_LEVELS: usize = 3;
 /// See the [crate documentation](crate) for what a path means. Terminals are created on first
 /// insert, by [`CompoundIndex::get_or_insert_with`].
 pub struct CompoundIndex<T> {
-    levels: Box<[Level]>,
+    levels: Box<[TagLevel]>,
     root: Node<T>,
     num_terminals: usize,
 }
 
-/// A node at some depth of the index. Nodes above the last level are [`Node::Inner`], with
-/// children of their level's kind. Nodes at depth [`CompoundIndex::levels`]`.len()` are
+/// A node at some depth of the index. Nodes above the last level are [`Node::Inner`], with their
+/// children keyed by tag value. Nodes at depth [`CompoundIndex::levels`]`.len()` are
 /// [`Node::Terminal`].
 enum Node<T> {
-    Inner(Children<T>),
+    Inner(TrieMap<Box<Node<T>>>),
     Terminal(T),
 }
 
-enum Children<T> {
-    Tag(TrieMap<Box<Node<T>>>),
-    /// One slot per bucket of the level.
-    Buckets(Box<[Option<Box<Node<T>>>]>),
-}
-
-/// The child a key selects on one level, once checked against that level.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Step<'k> {
-    Tag(&'k [u8]),
-    Bucket(usize),
-}
-
-/// A [`Constraint`] checked against its level.
-enum LevelPlan<'c> {
-    Any,
-    /// Sorted and deduplicated.
-    TagIn(Vec<&'c [u8]>),
-    /// Sorted, for binary search.
-    TagNotIn(Vec<&'c [u8]>),
-    TagPrefix(&'c [u8]),
-    Buckets(Range<usize>),
-}
-
-const INVARIANT: &str = "a node's kind matches its depth, checked when the path was routed";
+const INVARIANT: &str = "a node's kind matches its depth, and every path has one key per level";
 
 impl<T> Node<T> {
     /// The children of an inner node. Only called on nodes above the terminal depth.
-    fn children(&self) -> &Children<T> {
+    fn children(&self) -> &TrieMap<Box<Self>> {
         match self {
             Self::Inner(children) => children,
             Self::Terminal(_) => unreachable!("{INVARIANT}"),
         }
     }
-}
 
-impl<T> Children<T> {
-    /// The child `step` selects, if it exists. `step` was routed against this node's level.
-    fn child(&self, step: &Step<'_>) -> Option<&Node<T>> {
-        match (self, step) {
-            (Self::Tag(map), Step::Tag(value)) => map.find(value).map(|child| &**child),
-            (Self::Buckets(slots), Step::Bucket(bucket)) => slots[*bucket].as_deref(),
-            _ => unreachable!("{INVARIANT}"),
-        }
-    }
-
-    /// The number of children.
-    fn len(&self) -> usize {
-        match self {
-            Self::Tag(map) => map.n_unique_keys(),
-            Self::Buckets(slots) => slots.iter().filter(|slot| slot.is_some()).count(),
-        }
-    }
-
-    fn for_level(level: &Level) -> Self {
-        match level {
-            Level::Tag(_) => Self::Tag(TrieMap::new()),
-            Level::Buckets(buckets) => {
-                Self::Buckets((0..buckets.num_buckets()).map(|_| None).collect())
-            }
-        }
+    /// The child keyed by `value`, if it exists.
+    fn child(&self, value: &[u8]) -> Option<&Self> {
+        self.children().find(value).map(|child| &**child)
     }
 }
 
 impl<T> CompoundIndex<T> {
     /// An empty index with the given routing levels, outermost first.
-    pub fn new(levels: Vec<Level>) -> Result<Self, SchemaError> {
+    pub fn new(levels: Vec<TagLevel>) -> Result<Self, SchemaError> {
         if levels.is_empty() {
             return Err(SchemaError::NoLevels);
         }
@@ -122,16 +71,15 @@ impl<T> CompoundIndex<T> {
                 got: levels.len(),
             });
         }
-        let root = Node::Inner(Children::for_level(&levels[0]));
         Ok(Self {
             levels: levels.into_boxed_slice(),
-            root,
+            root: Node::Inner(TrieMap::new()),
             num_terminals: 0,
         })
     }
 
     /// The routing levels, outermost first.
-    pub fn levels(&self) -> &[Level] {
+    pub fn levels(&self) -> &[TagLevel] {
         &self.levels
     }
 
@@ -146,79 +94,76 @@ impl<T> CompoundIndex<T> {
     }
 
     /// The terminal at the end of `path`, if that path was inserted.
-    pub fn get(&self, path: &[Key<'_>]) -> Result<Option<&T>, PathError> {
-        let steps = self.route(path)?;
-        Ok(self.find(&steps))
+    ///
+    /// # Panics
+    ///
+    /// If `path` does not have one value per level.
+    pub fn get(&self, path: &[&[u8]]) -> Option<&T> {
+        self.assert_path(path);
+        self.find(path)
     }
 
     /// The terminal at the end of `path`, created with `init` if the path is new: the route step
     /// of [route, then post](crate#route-then-post).
     ///
-    /// Creating the path adds every missing node on the way. The path is checked in full
+    /// Creating the path adds every missing node on the way. The cardinality limits are checked
     /// before anything is added, so an error leaves the index unchanged.
+    ///
+    /// # Panics
+    ///
+    /// If `path` does not have one value per level.
     ///
     /// # Examples
     ///
     /// ```
-    /// use compound_index::{CompoundIndex, Key, Level, TagLevel};
+    /// use compound_index::{CompoundIndex, TagLevel};
     ///
     /// // Terminals are doc-id lists; levels are `color`, then `size`.
     /// let mut index: CompoundIndex<Vec<u32>> =
-    ///     CompoundIndex::new(vec![Level::Tag(TagLevel::new()), Level::Tag(TagLevel::new())])
-    ///         .unwrap();
-    /// let path = [Key::Tag(b"red"), Key::Tag(b"M")];
+    ///     CompoundIndex::new(vec![TagLevel::new(), TagLevel::new()]).unwrap();
+    /// let path: [&[u8]; 2] = [b"red", b"M"];
     ///
     /// // Route, then post.
     /// index.get_or_insert_with(&path, Vec::new).unwrap().push(7);
     /// // Same path, so the same terminal: `init` does not run again.
     /// index.get_or_insert_with(&path, Vec::new).unwrap().push(9);
     ///
-    /// assert_eq!(index.get(&path).unwrap(), Some(&vec![7, 9]));
+    /// assert_eq!(index.get(&path), Some(&vec![7, 9]));
     /// assert_eq!(index.num_terminals(), 1);
     /// ```
     pub fn get_or_insert_with(
         &mut self,
-        path: &[Key<'_>],
+        path: &[&[u8]],
         init: impl FnOnce() -> T,
-    ) -> Result<&mut T, InsertError> {
-        let steps = self.route(path)?;
+    ) -> Result<&mut T, CardinalityExceeded> {
+        self.assert_path(path);
         // The same check as `check_paths`, so a batch it accepts always inserts here.
-        if let Some((level, max)) = self.exceeded_cardinality(std::slice::from_ref(&steps)) {
-            return Err(InsertError::CardinalityExceeded { level, max });
+        if let Some(exceeded) = self.exceeded_cardinality(&[path]) {
+            return Err(exceeded);
         }
-        let is_new = self.find(&steps).is_none();
+        let is_new = self.find(path).is_none();
         // Built before anything is inserted, so a panicking `init` leaves the index unchanged.
         let mut terminal = is_new.then(init);
 
-        let levels = &self.levels;
-        let mut new_node = |depth: usize| -> Box<Node<T>> {
-            Box::new(match levels.get(depth) {
-                Some(level) => Node::Inner(Children::for_level(level)),
-                None => Node::Terminal(
-                    terminal
-                        .take()
-                        .expect("a new path reaches the terminal depth once"),
-                ),
-            })
-        };
-
+        let depth_of_terminals = self.levels.len();
         let mut node = &mut self.root;
-        for (depth, step) in steps.iter().enumerate() {
+        for (depth, value) in path.iter().enumerate() {
             let Node::Inner(children) = node else {
                 unreachable!("{INVARIANT}");
             };
-            node = match (children, step) {
-                (Children::Tag(map), Step::Tag(value)) => {
-                    if map.find(value).is_none() {
-                        map.insert(value, new_node(depth + 1));
-                    }
-                    &mut **map.find_mut(value).expect("present or inserted above")
-                }
-                (Children::Buckets(slots), Step::Bucket(bucket)) => {
-                    &mut **slots[*bucket].get_or_insert_with(|| new_node(depth + 1))
-                }
-                _ => unreachable!("{INVARIANT}"),
-            };
+            if children.find(value).is_none() {
+                let child = if depth + 1 == depth_of_terminals {
+                    Node::Terminal(
+                        terminal
+                            .take()
+                            .expect("a new path reaches the terminal depth once"),
+                    )
+                } else {
+                    Node::Inner(TrieMap::new())
+                };
+                children.insert(value, Box::new(child));
+            }
+            node = &mut **children.find_mut(value).expect("present or inserted above");
         }
         if is_new {
             self.num_terminals += 1;
@@ -238,80 +183,70 @@ impl<T> CompoundIndex<T> {
     /// every path, in any order, succeeds. A caller indexing all the elements of one document calls
     /// it first, so a document is indexed whole or not at all.
     ///
-    /// A path error is reported for the first invalid path, with its position, so a caller can
-    /// name the element it came from; cardinality is checked once every path has been routed.
-    pub fn check_paths(&self, paths: &[&[Key<'_>]]) -> Result<(), CheckPathsError> {
-        let routed = paths
-            .iter()
-            .enumerate()
-            .map(|(position, path)| {
-                self.route(path)
-                    .map_err(|error| CheckPathsError::Path { position, error })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        match self.exceeded_cardinality(&routed) {
-            Some((level, max)) => Err(CheckPathsError::CardinalityExceeded { level, max }),
-            None => Ok(()),
+    /// Without any cardinality limit the tree is not read: the outcome depends on the levels
+    /// alone, so it holds whatever has been inserted.
+    ///
+    /// # Panics
+    ///
+    /// If a path does not have one value per level.
+    pub fn check_paths(&self, paths: &[&[&[u8]]]) -> Result<(), CardinalityExceeded> {
+        for path in paths {
+            self.assert_path(path);
         }
+        self.exceeded_cardinality(paths).map_or(Ok(()), Err)
     }
 
     /// The terminals whose path satisfies every constraint, one constraint per level.
     ///
-    /// Terminals come out in a deterministic order: tag children by byte order of their value,
-    /// buckets in increasing order. Each terminal is returned at most once. The walk never returns
-    /// a partial result: it fails with [`CollectError::TooManyTerminals`] as soon as it would
-    /// return more than `max_terminals`, and with [`CollectError::TimedOut`] as soon as `timeout`
-    /// reports a timeout.
+    /// Terminals come out in byte order of their path. Each terminal is returned at most once.
+    /// The walk never returns a partial result: it fails with [`CollectError::TooManyTerminals`]
+    /// as soon as it would return more than `max_terminals`, and with [`CollectError::TimedOut`]
+    /// as soon as `timeout` reports a timeout.
     ///
     /// `max_terminals` bounds the result, so the memory of whatever the caller opens per terminal.
     /// It does not bound the work: a level the query leaves open is entered through every child,
     /// even when nothing matches below it. `timeout` bounds that, and is checked once per child
     /// the walk considers: every node entered, and every tag value looked up or skipped without
-    /// entering a node. On a bucket level the walk also reads the empty slots in its range;
-    /// [`MAX_BUCKETS`](crate::MAX_BUCKETS) bounds those per node entered.
+    /// entering a node.
+    ///
+    /// # Panics
+    ///
+    /// If `constraints` does not have one constraint per level.
     pub fn collect_terminals<'s>(
         &'s self,
         constraints: &[Constraint<'_>],
         max_terminals: usize,
         timeout: &mut impl TimeoutChecker,
     ) -> Result<Vec<&'s T>, CollectError> {
-        let plan = self.plan(constraints)?;
+        assert_eq!(
+            constraints.len(),
+            self.levels.len(),
+            "a walk takes one constraint per level"
+        );
         let mut walk = Walk {
             max_terminals,
             timeout,
             out: Vec::new(),
         };
-        walk.visit(&self.root, &plan)?;
+        walk.visit(&self.root, constraints)?;
         Ok(walk.out)
     }
 
-    fn route<'k>(&self, path: &[Key<'k>]) -> Result<Vec<Step<'k>>, PathError> {
-        if path.len() != self.levels.len() {
-            return Err(PathError::WrongLength {
-                expected: self.levels.len(),
-                got: path.len(),
-            });
-        }
-        self.levels
-            .iter()
-            .zip(path)
-            .enumerate()
-            .map(|(level_index, (level, key))| match (level, key) {
-                (Level::Tag(_), Key::Tag(value)) => Ok(Step::Tag(value)),
-                (Level::Buckets(buckets), Key::Numeric(value)) => buckets
-                    .bucket_of(*value)
-                    .map(Step::Bucket)
-                    .ok_or(PathError::OutsideBuckets { level: level_index }),
-                _ => Err(PathError::KeyMismatch { level: level_index }),
-            })
-            .collect()
+    /// A path of another length would stop above the terminals or run past them, so it is a
+    /// caller's bug rather than data to reject.
+    fn assert_path(&self, path: &[&[u8]]) {
+        assert_eq!(
+            path.len(),
+            self.levels.len(),
+            "a path has one value per level"
+        );
     }
 
-    /// The terminal at the end of `steps`, if that path was inserted.
-    fn find(&self, steps: &[Step<'_>]) -> Option<&T> {
+    /// The terminal at the end of `path`, if that path was inserted.
+    fn find(&self, path: &[&[u8]]) -> Option<&T> {
         let mut node = &self.root;
-        for step in steps {
-            node = node.children().child(step)?;
+        for value in path {
+            node = node.child(value)?;
         }
         match node {
             Node::Terminal(terminal) => Some(terminal),
@@ -323,22 +258,30 @@ impl<T> CompoundIndex<T> {
     /// children than that level's cardinality limit. The one write-side check:
     /// [`CompoundIndex::check_paths`] runs it on a batch and
     /// [`CompoundIndex::get_or_insert_with`] on its single path, so they cannot disagree.
-    fn exceeded_cardinality(&self, paths: &[Vec<Step<'_>>]) -> Option<(usize, usize)> {
+    fn exceeded_cardinality(&self, paths: &[&[&[u8]]]) -> Option<CardinalityExceeded> {
+        // `check_paths` promises not to read the tree when no level has a limit.
+        if (0..self.levels.len()).all(|level| self.max_cardinality(level).is_none()) {
+            return None;
+        }
         // A parent on a level with a limit → its existing children and the new ones the batch
         // adds. A level without a limit accepts any child, so it is not tracked.
-        let mut new_children: BTreeMap<&[Step<'_>], (usize, BTreeSet<Step<'_>>)> = BTreeMap::new();
-        for steps in paths {
+        let mut new_children: BTreeMap<&[&[u8]], NewChildren<'_>> = BTreeMap::new();
+        for path in paths {
             // `None` once the walk has left the existing nodes: everything below is new.
             let mut node = Some(&self.root);
-            for (depth, step) in steps.iter().enumerate() {
-                let children = node.map(Node::children);
-                node = children.and_then(|children| children.child(step));
+            for (depth, value) in path.iter().enumerate() {
+                let parent = node;
+                node = parent.and_then(|parent| parent.child(value));
                 if node.is_none() && self.max_cardinality(depth).is_some() {
                     new_children
-                        .entry(&steps[..depth])
-                        .or_insert_with(|| (children.map_or(0, Children::len), BTreeSet::new()))
+                        .entry(&path[..depth])
+                        .or_insert_with(|| {
+                            let existing =
+                                parent.map_or(0, |parent| parent.children().n_unique_keys());
+                            (existing, BTreeSet::new())
+                        })
                         .1
-                        .insert(*step);
+                        .insert(value);
                 }
             }
         }
@@ -348,7 +291,10 @@ impl<T> CompoundIndex<T> {
                 .max_cardinality(level)
                 .expect("only levels with a limit are tracked");
             if existing + added.len() > max.get() {
-                return Some((level, max.get()));
+                return Some(CardinalityExceeded {
+                    level,
+                    max: max.get(),
+                });
             }
         }
         None
@@ -356,136 +302,12 @@ impl<T> CompoundIndex<T> {
 
     /// The cardinality limit of the level at `level_index`, if it has one.
     fn max_cardinality(&self, level_index: usize) -> Option<NonZeroUsize> {
-        match &self.levels[level_index] {
-            Level::Tag(tag) => tag.max_cardinality(),
-            Level::Buckets(_) => None,
-        }
-    }
-
-    fn plan<'c>(&self, constraints: &[Constraint<'c>]) -> Result<Vec<LevelPlan<'c>>, CollectError> {
-        if constraints.len() != self.levels.len() {
-            return Err(CollectError::WrongLength {
-                expected: self.levels.len(),
-                got: constraints.len(),
-            });
-        }
-        self.levels
-            .iter()
-            .zip(constraints)
-            .enumerate()
-            .map(|(level_index, (level, constraint))| {
-                let mismatch = CollectError::ConstraintMismatch { level: level_index };
-                match (level, constraint) {
-                    (_, Constraint::Any) => Ok(LevelPlan::Any),
-                    (Level::Tag(_), Constraint::TagIn(values)) => {
-                        let mut values = values.clone();
-                        values.sort_unstable();
-                        values.dedup();
-                        Ok(LevelPlan::TagIn(values))
-                    }
-                    (Level::Tag(_), Constraint::TagNotIn(values)) => {
-                        let mut values = values.clone();
-                        values.sort_unstable();
-                        Ok(LevelPlan::TagNotIn(values))
-                    }
-                    (Level::Tag(_), Constraint::TagPrefix(prefix)) => {
-                        Ok(LevelPlan::TagPrefix(prefix))
-                    }
-                    (Level::Buckets(buckets), Constraint::BucketRange(range)) => {
-                        bucket_span(buckets, *range)
-                            .map(LevelPlan::Buckets)
-                            .ok_or(CollectError::UnalignedBucketRange { level: level_index })
-                    }
-                    (Level::Tag(_), Constraint::BucketRange(_))
-                    | (
-                        Level::Buckets(_),
-                        Constraint::TagIn(_) | Constraint::TagNotIn(_) | Constraint::TagPrefix(_),
-                    ) => Err(mismatch),
-                }
-            })
-            .collect()
+        self.levels[level_index].max_cardinality()
     }
 }
 
-/// The buckets lying wholly inside `range`, or [`None`] if a bucket is only partly inside it or
-/// an end is NaN.
-fn bucket_span(buckets: &BucketLevel, range: BucketRange) -> Option<Range<usize>> {
-    let is_nan =
-        |bound: Bound<f64>| matches!(bound, Bound::Included(v) | Bound::Excluded(v) if v.is_nan());
-    if is_nan(range.start) || is_nan(range.end) {
-        return None;
-    }
-    // An empty range holds no value, so no bucket is even partly inside it.
-    let is_empty = match (range.start, range.end) {
-        (Bound::Included(start), Bound::Included(end)) => start > end,
-        (Bound::Included(start), Bound::Excluded(end))
-        | (Bound::Excluded(start), Bound::Included(end)) => start >= end,
-        // No float lies strictly between two adjacent floats.
-        (Bound::Excluded(start), Bound::Excluded(end)) => start.next_up() >= end,
-        (Bound::Unbounded, _) | (_, Bound::Unbounded) => false,
-    };
-    if is_empty {
-        return Some(0..0);
-    }
-    let mut span: Option<Range<usize>> = None;
-    for (bucket, bounds) in buckets.boundaries().windows(2).enumerate() {
-        match overlap(bounds[0], bounds[1], range) {
-            Overlap::Inside => {
-                let start = span.map_or(bucket, |span| span.start);
-                span = Some(start..bucket + 1);
-            }
-            Overlap::Outside => {}
-            Overlap::Partial => return None,
-        }
-    }
-    // A range is an interval, so the buckets inside it are contiguous.
-    Some(span.unwrap_or(0..0))
-}
-
-/// How the bucket `[lo, hi)` sits relative to a range.
-enum Overlap {
-    /// Every value of the bucket is in the range.
-    Inside,
-    /// No value of the bucket is in the range.
-    Outside,
-    /// Some values of the bucket are in the range and some are not.
-    Partial,
-}
-
-/// Classifies the bucket `[lo, hi)` against `range`, whose ends are not NaN and which holds at
-/// least one value.
-fn overlap(lo: f64, hi: f64, range: BucketRange) -> Overlap {
-    // The largest value of the bucket is the float just below `hi`. Comparing it, rather than
-    // `hi`, keeps the classification exact for ends one float away from a boundary.
-    let top = hi.next_down();
-    let all_above_start = match range.start {
-        Bound::Unbounded => true,
-        Bound::Included(start) => lo >= start,
-        Bound::Excluded(start) => lo > start,
-    };
-    let all_below_end = match range.end {
-        Bound::Unbounded => true,
-        Bound::Included(end) => top <= end,
-        Bound::Excluded(end) => top < end,
-    };
-    let all_before_start = match range.start {
-        Bound::Unbounded => false,
-        Bound::Included(start) => top < start,
-        Bound::Excluded(start) => top <= start,
-    };
-    let all_after_end = match range.end {
-        Bound::Unbounded => false,
-        Bound::Included(end) => lo > end,
-        Bound::Excluded(end) => lo >= end,
-    };
-    if all_before_start || all_after_end {
-        Overlap::Outside
-    } else if all_above_start && all_below_end {
-        Overlap::Inside
-    } else {
-        Overlap::Partial
-    }
-}
+/// A parent's existing number of children, and the new values a batch adds under it.
+type NewChildren<'k> = (usize, BTreeSet<&'k [u8]>);
 
 /// The state of one [`CompoundIndex::collect_terminals`] walk.
 struct Walk<'s, 't, T, C> {
@@ -507,12 +329,16 @@ impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
 
     /// Visits a child, after checking the timeout. The root is visited without a check, so
     /// every node entered below it, terminals included, costs one check.
-    fn enter(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
+    fn enter(&mut self, node: &'s Node<T>, rest: &[Constraint<'_>]) -> Result<(), CollectError> {
         self.consider()?;
-        self.visit(node, plan)
+        self.visit(node, rest)
     }
 
-    fn visit(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
+    fn visit(
+        &mut self,
+        node: &'s Node<T>,
+        constraints: &[Constraint<'_>],
+    ) -> Result<(), CollectError> {
         let children = match node {
             Node::Terminal(terminal) => {
                 if self.out.len() == self.max_terminals {
@@ -525,48 +351,37 @@ impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
             }
             Node::Inner(children) => children,
         };
-        let (level_plan, rest) = plan.split_first().expect(INVARIANT);
-        match (children, level_plan) {
-            (Children::Tag(map), LevelPlan::Any) => {
-                for child in map.values() {
+        let (constraint, rest) = constraints.split_first().expect(INVARIANT);
+        match constraint {
+            Constraint::Any => {
+                for child in children.values() {
                     self.enter(child, rest)?;
                 }
             }
-            (Children::Tag(map), LevelPlan::TagIn(values)) => {
-                for value in values {
-                    match map.find(value) {
+            Constraint::TagIn(values) => {
+                for value in values.values() {
+                    match children.find(value) {
                         Some(child) => self.enter(child, rest)?,
                         None => self.consider()?,
                     }
                 }
             }
-            (Children::Tag(map), LevelPlan::TagNotIn(values)) => {
+            Constraint::TagNotIn(values) => {
                 // Borrows each key instead of copying it, as `TrieMap::iter` would.
-                let mut entries = map.lending_iter();
+                let mut entries = children.lending_iter();
                 while let Some((value, child)) = entries.next() {
-                    if values.binary_search(&value).is_err() {
-                        self.enter(child, rest)?;
-                    } else {
+                    if values.contains(value) {
                         self.consider()?;
+                    } else {
+                        self.enter(child, rest)?;
                     }
                 }
             }
-            (Children::Tag(map), LevelPlan::TagPrefix(prefix)) => {
-                for child in map.prefixed_values(prefix) {
+            Constraint::TagPrefix(prefix) => {
+                for child in children.prefixed_values(prefix) {
                     self.enter(child, rest)?;
                 }
             }
-            (Children::Buckets(slots), LevelPlan::Any) => {
-                for child in slots.iter().flatten() {
-                    self.enter(child, rest)?;
-                }
-            }
-            (Children::Buckets(slots), LevelPlan::Buckets(span)) => {
-                for child in slots[span.clone()].iter().flatten() {
-                    self.enter(child, rest)?;
-                }
-            }
-            _ => unreachable!("constraints were checked against their levels"),
         }
         Ok(())
     }

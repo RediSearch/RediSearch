@@ -7,42 +7,46 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Bound;
-
-/// What a query asks of one routing [`Level`](crate::Level).
+/// What a query asks of one routing level.
 ///
 /// [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) takes one
-/// constraint per level. The tag variants apply to a [`TagLevel`](crate::TagLevel),
-/// [`Constraint::BucketRange`] to a [`BucketLevel`](crate::BucketLevel), and [`Constraint::Any`]
-/// to either.
-#[derive(Debug, Clone, PartialEq)]
+/// constraint per level.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Constraint<'a> {
     /// Every child of the level.
     Any,
-    /// The children whose tag value is in the set. Repeated values count once.
-    TagIn(Vec<&'a [u8]>),
+    /// The children whose tag value is in the set.
+    TagIn(TagSet<'a>),
     /// The children whose tag value is not in the set.
-    TagNotIn(Vec<&'a [u8]>),
+    TagNotIn(TagSet<'a>),
     /// The children whose tag value starts with the prefix.
     TagPrefix(&'a [u8]),
-    /// The buckets inside a range of values.
-    BucketRange(BucketRange),
 }
 
-/// A numeric range on a [`BucketLevel`](crate::BucketLevel), with ends like a numeric query
-/// range: inclusive (`[lo`), exclusive (`(lo`), or unbounded (`-inf`, `+inf`).
+/// A set of tag values, kept sorted and without repeats.
 ///
-/// The range selects the buckets lying wholly inside it. A bucket only partly inside it would
-/// hold elements outside the range, and the index keeps no value below a bucket level to filter
-/// them out, so such a range is rejected with
-/// [`CollectError::UnalignedBucketRange`](crate::CollectError::UnalignedBucketRange). Over the
-/// buckets `[2022, 2024)` and `[2024, 2026)`, `[2022 (2024]` selects the first bucket, while
-/// `[2022 2024]` is rejected: it includes 2024, the first value of the second bucket. An end that
-/// is NaN is rejected too, and an empty range selects no bucket.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BucketRange {
-    /// The lower end of the range.
-    pub start: Bound<f64>,
-    /// The upper end of the range.
-    pub end: Bound<f64>,
+/// A walk looks up each value of a [`Constraint::TagIn`] once, so a value listed twice would
+/// return its terminal twice; and it binary-searches a [`Constraint::TagNotIn`]. Holding the set
+/// in this form makes both hold by construction.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TagSet<'a>(Box<[&'a [u8]]>);
+
+impl<'a> TagSet<'a> {
+    /// The set of `values`, in any order, repeats counting once.
+    pub fn new(values: impl IntoIterator<Item = &'a [u8]>) -> Self {
+        let mut values: Vec<&'a [u8]> = values.into_iter().collect();
+        values.sort_unstable();
+        values.dedup();
+        Self(values.into_boxed_slice())
+    }
+
+    /// Whether `value` is in the set.
+    pub fn contains(&self, value: &[u8]) -> bool {
+        self.0.binary_search(&value).is_ok()
+    }
+
+    /// The values, in increasing byte order.
+    pub fn values(&self) -> &[&'a [u8]] {
+        &self.0
+    }
 }

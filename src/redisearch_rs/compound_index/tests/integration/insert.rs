@@ -7,16 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{Constraint, InsertError, Key, PathError};
+use compound_index::{CardinalityExceeded, Constraint};
 use timeout::NoTimeoutChecker;
 
-use crate::util::{Index, bucket_level, orders, post, tag, tag_level, tag_level_max, union};
+use crate::util::{Index, orders, post, tag, tag_in, tag_level, tag_level_max, union};
 
 #[test]
 fn elements_with_the_same_path_share_a_terminal() {
     let index = orders();
     // Doc 3 has two (red, M) items, and doc 1 one: all three land in one terminal.
-    let red_m = index.get(&[tag("red"), tag("M")]).unwrap().unwrap();
+    let red_m = index.get(&[tag("red"), tag("M")]).unwrap();
     assert_eq!(red_m, &vec![1, 3, 3]);
 }
 
@@ -25,57 +25,28 @@ fn each_distinct_path_gets_its_own_terminal() {
     let index = orders();
     // (red, M), (red, L), (blue, L), (blue, M).
     assert_eq!(index.num_terminals(), 4);
-    assert_eq!(index.get(&[tag("blue"), tag("L")]).unwrap(), Some(&vec![1]));
+    assert_eq!(index.get(&[tag("blue"), tag("L")]), Some(&vec![1]));
 }
 
 #[test]
 fn a_path_never_inserted_has_no_terminal() {
     let index = orders();
-    assert_eq!(index.get(&[tag("green"), tag("M")]).unwrap(), None);
-    assert_eq!(index.get(&[tag("red"), tag("S")]).unwrap(), None);
+    assert_eq!(index.get(&[tag("green"), tag("M")]), None);
+    assert_eq!(index.get(&[tag("red"), tag("S")]), None);
 }
 
 #[test]
-fn invalid_paths_are_rejected() {
-    let mut index = Index::new(vec![tag_level(), bucket_level(&[0.0, 10.0])]).unwrap();
-    let cases: &[(&str, &[Key<'_>], PathError)] = &[
-        (
-            "too short",
-            &[tag("red")],
-            PathError::WrongLength {
-                expected: 2,
-                got: 1,
-            },
-        ),
-        (
-            "numeric key on a tag level",
-            &[Key::Numeric(1.0), Key::Numeric(1.0)],
-            PathError::KeyMismatch { level: 0 },
-        ),
-        (
-            "tag key on a bucket level",
-            &[tag("red"), tag("1")],
-            PathError::KeyMismatch { level: 1 },
-        ),
-        (
-            "value outside the buckets",
-            &[tag("red"), Key::Numeric(10.0)],
-            PathError::OutsideBuckets { level: 1 },
-        ),
-        (
-            "infinite value",
-            &[tag("red"), Key::Numeric(f64::INFINITY)],
-            PathError::OutsideBuckets { level: 1 },
-        ),
-    ];
-    for (name, path, expected) in cases {
-        assert_eq!(
-            index.get_or_insert_with(path, Vec::new).err(),
-            Some(InsertError::Path(expected.clone())),
-            "{name}"
-        );
-    }
-    assert!(index.is_empty());
+#[should_panic(expected = "a path has one value per level")]
+fn an_insert_with_a_path_of_the_wrong_length_panics() {
+    let mut index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    let _ = index.get_or_insert_with(&[tag("red")], Vec::new);
+}
+
+#[test]
+#[should_panic(expected = "a path has one value per level")]
+fn a_lookup_with_a_path_of_the_wrong_length_panics() {
+    let index = Index::new(vec![tag_level(), tag_level()]).unwrap();
+    let _ = index.get(&[tag("red"), tag("M"), tag("x")]);
 }
 
 #[test]
@@ -91,7 +62,7 @@ fn cardinality_limits_children_per_parent_not_per_level() {
         index
             .get_or_insert_with(&[tag("red"), tag("L")], Vec::new)
             .err(),
-        Some(InsertError::CardinalityExceeded { level: 1, max: 1 })
+        Some(CardinalityExceeded { level: 1, max: 1 })
     );
 }
 
@@ -131,43 +102,15 @@ fn a_panicking_init_leaves_the_index_unchanged() {
 }
 
 #[test]
-fn lookups_reject_invalid_paths() {
-    let index = Index::new(vec![tag_level(), bucket_level(&[0.0, 10.0])]).unwrap();
-    let cases: &[(&str, &[Key<'_>], PathError)] = &[
-        (
-            "too long",
-            &[tag("red"), Key::Numeric(1.0), tag("x")],
-            PathError::WrongLength {
-                expected: 2,
-                got: 3,
-            },
-        ),
-        (
-            "tag key on a bucket level",
-            &[tag("red"), tag("1")],
-            PathError::KeyMismatch { level: 1 },
-        ),
-        (
-            "value outside the buckets",
-            &[tag("red"), Key::Numeric(-1.0)],
-            PathError::OutsideBuckets { level: 1 },
-        ),
-    ];
-    for (name, path, expected) in cases {
-        assert_eq!(index.get(path), Err(expected.clone()), "{name}");
-    }
-}
-
-#[test]
 fn an_empty_tag_value_is_an_ordinary_value() {
     let mut index = Index::new(vec![tag_level(), tag_level()]).unwrap();
     post(&mut index, &[tag(""), tag("M")], 1);
     post(&mut index, &[tag("red"), tag("M")], 2);
 
-    assert_eq!(index.get(&[tag(""), tag("M")]).unwrap(), Some(&vec![1]));
+    assert_eq!(index.get(&[tag(""), tag("M")]), Some(&vec![1]));
     let empty_only = index
         .collect_terminals(
-            &[Constraint::TagIn(vec![b""]), Constraint::Any],
+            &[tag_in(&[""]), Constraint::Any],
             usize::MAX,
             &mut NoTimeoutChecker,
         )

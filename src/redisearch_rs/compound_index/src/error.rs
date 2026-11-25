@@ -7,37 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-/// Why [`BucketLevel::new`](crate::BucketLevel::new) rejected a list of boundaries.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum BucketsError {
-    /// Fewer than two boundaries, so no bucket.
-    #[error("a bucket level needs at least 2 boundaries, got {got}")]
-    TooFewBoundaries {
-        /// The number of boundaries given.
-        got: usize,
-    },
-    /// More buckets than [`MAX_BUCKETS`](crate::MAX_BUCKETS).
-    #[error("a bucket level supports at most {max} buckets, got {got}")]
-    TooManyBuckets {
-        /// The limit, [`MAX_BUCKETS`](crate::MAX_BUCKETS).
-        max: usize,
-        /// The number of buckets the boundaries define.
-        got: usize,
-    },
-    /// A boundary is NaN or infinite.
-    #[error("bucket boundary {index} is not a finite number")]
-    NotFinite {
-        /// The position of the boundary.
-        index: usize,
-    },
-    /// A boundary is not greater than the one before it.
-    #[error("bucket boundary {index} is not greater than the previous one")]
-    NotIncreasing {
-        /// The position of the boundary.
-        index: usize,
-    },
-}
-
 /// Why [`CompoundIndex::new`](crate::CompoundIndex::new) rejected a list of levels.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SchemaError {
@@ -54,96 +23,23 @@ pub enum SchemaError {
     },
 }
 
-/// Why a path of [`Key`](crate::Key)s does not route through the index.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum PathError {
-    /// The path does not have one key per level.
-    #[error("expected one key per level ({expected}), got {got}")]
-    WrongLength {
-        /// The number of levels.
-        expected: usize,
-        /// The number given.
-        got: usize,
-    },
-    /// A tag key on a bucket level, or a numeric key on a tag level.
-    #[error("the key for level {level} does not match the level's type")]
-    KeyMismatch {
-        /// The position of the level.
-        level: usize,
-    },
-    /// A numeric key outside every bucket of its level, or NaN.
-    #[error("the value for level {level} is outside the level's buckets")]
-    OutsideBuckets {
-        /// The position of the level.
-        level: usize,
-    },
+/// Inserting a path, or a batch of them, would give a node more children than its level's
+/// [`max_cardinality`](crate::TagLevel::max_cardinality). Returned by
+/// [`CompoundIndex::get_or_insert_with`](crate::CompoundIndex::get_or_insert_with) and
+/// [`CompoundIndex::check_paths`](crate::CompoundIndex::check_paths); nothing is inserted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("level {level} already holds its maximum of {max} distinct values under this path")]
+pub struct CardinalityExceeded {
+    /// The position of the level.
+    pub level: usize,
+    /// The level's limit.
+    pub max: usize,
 }
 
-/// Why [`CompoundIndex::get_or_insert_with`](crate::CompoundIndex::get_or_insert_with)
-/// rejected a path. A rejected insert leaves the index unchanged.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InsertError {
-    /// The path itself is invalid.
-    #[error(transparent)]
-    Path(#[from] PathError),
-    /// The path needs a new child under a node that already holds its level's
-    /// [`max_cardinality`](crate::TagLevel::max_cardinality) children.
-    #[error("level {level} already holds its maximum of {max} distinct values under this path")]
-    CardinalityExceeded {
-        /// The position of the level.
-        level: usize,
-        /// The level's limit.
-        max: usize,
-    },
-}
-
-/// Why [`CompoundIndex::check_paths`](crate::CompoundIndex::check_paths) rejected a batch of
-/// paths.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum CheckPathsError {
-    /// A path of the batch is invalid.
-    #[error("path {position}: {error}")]
-    Path {
-        /// The position of the first invalid path in the batch.
-        position: usize,
-        /// Why it is invalid.
-        error: PathError,
-    },
-    /// The batch as a whole gives a node more children than its level's
-    /// [`max_cardinality`](crate::TagLevel::max_cardinality).
-    #[error("level {level} already holds its maximum of {max} distinct values under this path")]
-    CardinalityExceeded {
-        /// The position of the level.
-        level: usize,
-        /// The level's limit.
-        max: usize,
-    },
-}
-
-/// Why [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) rejected a
-/// query.
+/// Why a [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) walk
+/// failed. It never returns part of the terminals.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CollectError {
-    /// The query does not have one constraint per level.
-    #[error("expected one constraint per level ({expected}), got {got}")]
-    WrongLength {
-        /// The number of levels.
-        expected: usize,
-        /// The number given.
-        got: usize,
-    },
-    /// A tag constraint on a bucket level, or a bucket range on a tag level.
-    #[error("the constraint for level {level} does not match the level's type")]
-    ConstraintMismatch {
-        /// The position of the level.
-        level: usize,
-    },
-    /// A [`BucketRange`](crate::BucketRange) that covers part of a bucket, or has a NaN end.
-    #[error("the range for level {level} must cover whole buckets")]
-    UnalignedBucketRange {
-        /// The position of the level.
-        level: usize,
-    },
     /// The walk reached more than the allowed number of terminals.
     #[error("the query reaches more than {max} terminals")]
     TooManyTerminals {

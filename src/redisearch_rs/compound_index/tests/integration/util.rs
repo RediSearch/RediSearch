@@ -12,7 +12,7 @@
 
 use std::num::NonZeroUsize;
 
-use compound_index::{BucketLevel, CompoundIndex, Constraint, Key, Level, TagLevel};
+use compound_index::{CompoundIndex, Constraint, TagLevel, TagSet};
 use timeout::{TimeoutCheckResult, TimeoutChecker};
 
 pub type Index = CompoundIndex<Vec<u32>>;
@@ -35,30 +35,32 @@ impl TimeoutChecker for TimesOutAfter {
     fn reset_counter(&mut self) {}
 }
 
-pub const fn tag(value: &str) -> Key<'_> {
-    Key::Tag(value.as_bytes())
+pub const fn tag(value: &str) -> &[u8] {
+    value.as_bytes()
 }
 
-pub const fn tag_level() -> Level {
-    Level::Tag(TagLevel::new())
+pub const fn tag_level() -> TagLevel {
+    TagLevel::new()
 }
 
-pub const fn tag_level_max(max: usize) -> Level {
-    Level::Tag(TagLevel::with_max_cardinality(
-        NonZeroUsize::new(max).unwrap(),
-    ))
+pub const fn tag_level_max(max: usize) -> TagLevel {
+    TagLevel::with_max_cardinality(NonZeroUsize::new(max).unwrap())
 }
 
-pub fn bucket_level(boundaries: &[f64]) -> Level {
-    Level::Buckets(BucketLevel::new(boundaries.to_vec()).unwrap())
+pub fn tag_set<'a>(values: &[&'a str]) -> TagSet<'a> {
+    TagSet::new(values.iter().map(|v| v.as_bytes()))
 }
 
 pub fn tag_in<'a>(values: &[&'a str]) -> Constraint<'a> {
-    Constraint::TagIn(values.iter().map(|v| v.as_bytes()).collect())
+    Constraint::TagIn(tag_set(values))
+}
+
+pub fn tag_not_in<'a>(values: &[&'a str]) -> Constraint<'a> {
+    Constraint::TagNotIn(tag_set(values))
 }
 
 /// Posts `doc` in the terminal at `path`, creating it if needed.
-pub fn post(index: &mut Index, path: &[Key<'_>], doc: u32) {
+pub fn post(index: &mut Index, path: &[&[u8]], doc: u32) {
     index.get_or_insert_with(path, Vec::new).unwrap().push(doc);
 }
 
