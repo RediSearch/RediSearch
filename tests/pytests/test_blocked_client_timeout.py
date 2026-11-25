@@ -32,6 +32,57 @@ def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
 
+def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_name=None,
+                                                  coordinator=False, during=False):
+    skipIfNoEnableAssert(env)
+    cmd_name = cmd_name or query_args[0]
+    if cmd_name != 'FT.CURSOR|READ':
+        query_args = [*query_args, 'TIMEOUT', 0]
+    if coordinator and cmd_name == 'FT.SEARCH':
+        point = 'CoordSearchReplyStarted' if before else 'CoordSearchReplySerialized'
+    else:
+        phase = 'During' if during else ('Before' if before else 'After')
+        stage = 'CoordBackgroundReplyEncode' if coordinator else 'BackgroundReplyEncode'
+        point = phase + stage
+    prev_cfg = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_policy = prev_cfg[ON_TIMEOUT_CONFIG] if isinstance(prev_cfg, dict) else prev_cfg[1]
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+    before_info = info_modules_to_dict(env)
+    coord_metrics = before_info[COORD_WARN_ERR_SECTION]
+    thread = threading.Thread(target=run_cmd_expect_timeout, args=(env, query_args), daemon=True)
+    onfree_before = None
+
+    try:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        thread.start()
+        client_id = wait_for_blocked_query_client(env, cmd_name)
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            f'{cmd_name} did not reach the worker reply boundary')
+        onfree_before = _get_blocked_request_onfree_count(env)
+        env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+        wait_for_client_unblocked(env, client_id)
+        thread.join(timeout=10)
+        env.assertFalse(thread.is_alive(), message=f'{cmd_name} timeout reply should be immediate')
+
+        after = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
+        env.assertEqual(int(after[TIMEOUT_ERROR_COORD_METRIC]),
+                        int(coord_metrics[TIMEOUT_ERROR_COORD_METRIC]) + 1)
+        if cmd_name in ('FT.SEARCH', 'FT.AGGREGATE'):
+            env.assertEqual(int(after[TIMEOUT_ERROR_COORD_REPLY_METRIC]),
+                            int(coord_metrics[TIMEOUT_ERROR_COORD_REPLY_METRIC]) + 1)
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+        if thread.ident is not None:
+            thread.join(timeout=10)
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+        if onfree_before is not None:
+            wait_for_condition(
+                lambda: (_get_blocked_request_onfree_count(env) > onfree_before, {}),
+                f'{cmd_name} worker did not release its blocked client')
+
+
 def run_cmd_expect_disconnect(env, query_args, unexpected):
     client = env.getConnection()
     connection = client.connection_pool.get_connection()
@@ -1867,6 +1918,20 @@ class TestCoordinatorTimeout:
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC])
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def _test_fail_timeout_before_coord_encode_impl(self, query_args):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, query_args, before=True, coordinator=True)
+
+    def _test_fail_timeout_after_coord_encode_impl(self, query_args):
+        _assert_fail_timeout_at_worker_reply_boundary(
+            self.env, query_args, before=False, coordinator=True)
+
+    def test_fail_timeout_during_coord_encode_search(self):
+        self._test_fail_timeout_before_coord_encode_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_after_coord_encode_search(self):
+        self._test_fail_timeout_after_coord_encode_impl(['FT.SEARCH', 'idx', '*'])
 
     def _test_fail_timeout_before_coord_store_impl(self, query_args):
         """Test timeout occurring before coordinator stores results (reply_callback path).
@@ -8997,6 +9062,21 @@ class TestNoDeadlockQueryWithConcurrentWriter:
 
     def test_search(self):
         self._run(['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1'])
+
+
+@skip(cluster=False)
+def test_fail_coord_search_worker_reply_resp2():
+    env = Env(protocol=2, moduleArgs='WORKERS 1 TIMEOUT 0')
+    skipIfNoEnableAssert(env)
+    verify_shard_init(env)
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
+    query = ['FT.SEARCH', 'idx', 'hello', 'NOCONTENT']
+    env.expect(*query).equal([1, '{doc}:1'])
+    _assert_fail_timeout_at_worker_reply_boundary(env, query, before=False, coordinator=True)
+    env.expect(*query).equal([1, '{doc}:1'])
+
 
 
 # Regression for the MOD-16992 reply-path use-after-free: with the registry no

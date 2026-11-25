@@ -190,6 +190,31 @@ static inline void QueryRequestAsyncState_Destroy(QueryRequestAsyncState *state)
   pthread_cond_destroy(&state->aggregateResultsCond);
 }
 
+// Redis runs the timeout or disconnect callback before detaching the live client.
+// Serialize that notification with a FAIL worker's Redis context creation.
+void QueryRequest_MarkTimedOut(QueryRequest *request) {
+  const bool protectReplyContext = request->kind == QUERY_REQUEST_KIND_COORD_SEARCH &&
+      request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
+  if (protectReplyContext) {
+    pthread_mutex_lock(&request->async.aggregateResultsLock);
+  }
+  QueryRequestLimits_MarkTimedOut(&request->limits);
+  if (protectReplyContext) {
+    pthread_mutex_unlock(&request->async.aggregateResultsLock);
+  }
+}
+
+RedisModuleCtx *QueryRequest_CreateSearchReplyContext(QueryRequest *request,
+                                                      RedisModuleBlockedClient *bc) {
+  RS_ASSERT(request->kind == QUERY_REQUEST_KIND_COORD_SEARCH);
+  RS_ASSERT(request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail);
+  pthread_mutex_lock(&request->async.aggregateResultsLock);
+  RedisModuleCtx *ctx = QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)
+      ? NULL : RedisModule_GetThreadSafeContext(bc);
+  pthread_mutex_unlock(&request->async.aggregateResultsLock);
+  return ctx;
+}
+
 bool QueryRequest_TryClaimResults(QueryRequest *request) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&request->async.aggregatingResults, &expected,

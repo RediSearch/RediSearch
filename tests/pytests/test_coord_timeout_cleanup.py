@@ -15,10 +15,10 @@ from common import *
 from test_blocked_client_timeout import _get_blocked_request_onfree_count, is_client_blocked
 
 
-def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
+def _exercise_cleanup(stage, debug_query=False, hold_worker=False, protocol=3):
     # Force each cancellation at a particular coordinator ownership transition.
     # GC retains its own weak reference until its next timer, even after DROPINDEX.
-    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 NOGC', protocol=3)
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0 NOGC', protocol=protocol)
     skipIfNoEnableAssert(env)
     verify_shard_init(env)
     points = {
@@ -28,12 +28,14 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
         'empty_fanout': 'BeforeCoordFanout',
         'reducer_claim': 'BeforeCoordReducerClaim',
         'claimed': 'CoordSearchReducerClaimed',
+        'serialized': 'CoordSearchReplySerialized',
+        'serializing': 'CoordSearchReplyStarted',
     }
     point = points.get(stage)
     cleanup_point = 'CoordSearchRequestFree'
     worker_done_point = 'CoordSearchWorkerDone'
     policies = ('return',) if debug_query else ('return', 'fail', 'return-strict')
-    if stage == 'claimed':
+    if stage in ('claimed', 'serialized', 'serializing'):
         policies = ('fail',)
     for policy in policies:
         cancellations = ('disconnect',) if policy == 'return' else ('timeout', 'disconnect')
@@ -100,9 +102,11 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
                     env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
                 thread.join(timeout=5)
                 env.assertFalse(thread.is_alive())
-                if stage == 'claimed':
+                if stage in ('claimed', 'serialized', 'serializing'):
                     env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(True)
                     env.expect(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', cleanup_point).equal(0)
+                if stage in ('serialized', 'serializing') and cancellation == 'timeout':
+                    env.assertTrue(client.ping())
                 if cancellation == 'disconnect':
                     env.assertEqual(results, [])
                     env.assertEqual(len(errors), 1)
@@ -143,6 +147,8 @@ def _exercise_cleanup(stage, debug_query=False, hold_worker=False):
                         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', worker_done_point), {}),
                         'Worker did not retain its transport reference through request cleanup', timeout=5)
                 env.assertTrue(env.cmd('PING'))
+                if stage in ('serialized', 'serializing') and cancellation == 'timeout':
+                    env.assertTrue(client.ping())
             finally:
                 if hold_worker:
                     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', worker_done_point)
@@ -239,6 +245,24 @@ def test_request_cleanup_before_debug_worker_release():
 def test_fail_timeout_does_not_wait_for_reducer():
     """FAIL replies while the reducer is parked; request cleanup waits for worker unblocking."""
     _exercise_cleanup('claimed')
+
+
+@skip(cluster=False)
+def test_cancel_after_background_search_serialization():
+    """Timeout/disconnect discards a completed BG reply without freeing its active worker."""
+    _exercise_cleanup('serialized')
+
+
+@skip(cluster=False)
+def test_cancel_during_background_search_serialization_resp2():
+    """Cancellation must discard a partial RESP2 reply while BG finishes writing it."""
+    _exercise_cleanup('serializing', protocol=2)
+
+
+@skip(cluster=False)
+def test_cancel_during_background_search_serialization_resp3():
+    """Cancellation must discard a partial RESP3 reply while BG finishes writing it."""
+    _exercise_cleanup('serializing', protocol=3)
 
 
 @skip(cluster=False)

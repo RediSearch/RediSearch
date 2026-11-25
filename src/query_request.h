@@ -27,6 +27,8 @@ extern "C" {
 
 typedef struct RLookup RLookup;
 typedef struct RedisModuleString RedisModuleString;
+struct RedisModuleCtx;
+struct RedisModuleBlockedClient;
 typedef struct PLN_ArrangeStep PLN_ArrangeStep;
 typedef struct ResultProcessor ResultProcessor;
 typedef struct SearchResult SearchResult;
@@ -423,6 +425,10 @@ void QueryRequest_Free(QueryRequest *request);
 bool QueryRequest_TryClaimResults(QueryRequest *request);
 void QueryRequest_SignalResultsComplete(QueryRequest *request);
 void QueryRequest_WaitForResultsComplete(QueryRequest *request);
+
+void QueryRequest_MarkTimedOut(QueryRequest *request);
+struct RedisModuleCtx *QueryRequest_CreateSearchReplyContext(QueryRequest *request,
+                                                             struct RedisModuleBlockedClient *bc);
 
 static inline void QueryRequest_SetEndProcRef(QueryRequest *request,
                                               ResultProcessor **endProcRef) {

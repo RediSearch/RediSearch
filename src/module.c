@@ -3199,7 +3199,19 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   // RETURN-STRICT may own reduction on main; only the result owner can publish an error.
   if (QueryRequest_TryClaimResults(request)) {
     QueryError_CloneFrom(status, &request->reply.err);
-    QueryRequest_SignalResultsComplete(request);
+    searchRequestCtx *req = QueryRequest_GetSearch(request);
+    if (req->serializeInReplyCallback) {
+      QueryRequest_SignalResultsComplete(request);
+    } else {
+      RedisModuleCtx *replyCtx = QueryRequest_CreateSearchReplyContext(request, bc);
+      if (replyCtx) {
+        RedisModule_ReplyWithError(replyCtx, QueryError_GetUserError(&request->reply.err));
+        RedisModule_FreeThreadSafeContext(replyCtx);
+#ifdef ENABLE_ASSERT
+        SyncPoint_Wait("CoordSearchReplySerialized");
+#endif
+      }
+    }
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or
   // leaks
@@ -3407,6 +3419,9 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
     queryTimeout = 0;
   }
 
+  searchRequestCtx *req = QueryRequest_GetSearch(request);
+  req->serializeInReplyCallback =
+      request->limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
   return BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback,
                                      queryTimeout);
 }
