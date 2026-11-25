@@ -75,9 +75,14 @@ class HybridProfileTest : public ::testing::TestWithParam<std::tuple<bool, bool>
     }
     AREQ_QueryProcessingCtx(&searchAreq)->rootProc = &searchRpnet.base;
     AREQ_QueryProcessingCtx(&vsimAreq)->rootProc = &vsimRpnet.base;
+    // Arm labels come from the subquery flags when the request was not parsed.
+    searchAreq.reqflags = QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
+    vsimAreq.reqflags = QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
     AREQ *requests[] = {&searchAreq, &vsimAreq};
     HybridRequest hreq = {};
     hreq.requests = requests;
+    hreq.nrequests = 2;
+    hreq.armMask = HybridArm_Bit(SEARCH_INDEX) | HybridArm_Bit(VECTOR_INDEX);
 
     RMCK_GetReplyLog(ctx).clear();
     RedisModule_Reply reply = RedisModule_NewReply(ctx);

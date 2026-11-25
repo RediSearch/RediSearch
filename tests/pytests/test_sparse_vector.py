@@ -835,9 +835,13 @@ def testHybridSparseProfile(env):
         env.assertEqual(to_dict(vsim['Iterators profile'])['Type'], 'SPARSE_VECTOR')
         processors = [to_dict(rp) for rp in vsim['Result processors profile']]
         types = [rp['Type'] for rp in processors]
-        env.assertEqual(types[:4], ['Index', 'Metrics Applier', 'Vector Normalizer', 'Sorter'],
-                        message=types)
-        normalized, kept = processors[2]['Results processed'], processors[3]['Results processed']
+        # A shard also scores the arm for its coordinator, before the normalizer overwrites the
+        # score; the sorter keeping K comes right after the normalizer either way.
+        env.assertEqual(types[0], 'Index', message=types)
+        at = types.index('Vector Normalizer')
+        env.assertEqual(types[at + 1], 'Sorter', message=types)
+        normalized = processors[at]['Results processed']
+        kept = processors[at + 1]['Results processed']
         env.assertEqual(kept, min(2, normalized), message=processors)
         candidates += normalized
     # Every document is a candidate on the shard that holds it.
