@@ -38,6 +38,7 @@ on:
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bullseye
           - amazonlinux:2
           - amazonlinux:2023
