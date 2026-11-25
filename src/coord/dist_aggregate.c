@@ -710,7 +710,8 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     do {
       MRReply_Free(rpnet->current.root);
       RPNet_resetCurrent(rpnet);
-    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+    } while (!QueryRequest_FailWorkerReplyCancelled(&req->base) &&
+             getNextReply(rpnet) != RS_RESULT_EOF);
     rpnet->breakdown.waitTime = waitTime;
     rpnet->breakdown.convertTime = convertTime;
     rpnet->breakdown.freeTime = freeTime;
@@ -1031,8 +1032,9 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Signal timeout to the background thread
+  // The worker may be waiting for a shard, including during profile encoding.
   QueryRequestLimits_MarkTimedOut(&req->base.limits);
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);

@@ -3451,12 +3451,50 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
     }
 }
 
+static void replySearchResults(RedisModuleCtx *ctx, searchRequestCtx *req) {
+  struct MRCtx *mrctx = req->mrctx;
+  searchReducerCtx *rCtx = req->rctx;
+  RS_ASSERT(rCtx != NULL);
+
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  if (req->profileArgs > 0) {
+    profileSearchReply(&reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
+                       &req->profileClock, rs_wall_clock_now_ns());
+  } else {
+    sendSearchResults(&reply, rCtx);
+  }
+  RedisModule_EndReply(&reply);
+
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, rs_wall_clock_elapsed_ns(&req->initClock));
+}
+
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchResultReducer(req, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+    // Keep the callback for small errors and the zero-send fanout path.
+    if (MRCtx_GetNumReplied(mc) > 0 && !QueryError_HasError(&req->base.reply.err) &&
+        !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE);
+#endif
+      if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+        RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
+        replySearchResults(replyCtx, req);
+        RedisModule_FreeThreadSafeContext(replyCtx);
+#ifdef ENABLE_ASSERT
+        SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+#endif
+      }
+    }
+    if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+      RedisModule_BlockedClientMeasureTimeEnd(bc);
+    }
+  }
   // The worker owns blocked-client completion even when timeout owns the reply.
-  RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), &req->base);
+  RedisModule_UnblockClient(bc, &req->base);
   MRCtx_DecrRef(mc);
 }
 
@@ -3663,7 +3701,8 @@ cleanup:
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+  if (bc && !fromTimeout && req->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
   QueryRequest_SignalResultsComplete(&req->base);
@@ -3989,11 +4028,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   RSTimeoutPolicy policy = r->base.limits.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
-    reply_cb = DistAggregateReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
-                                                : DistAggregateTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
-    if (policy == TimeoutPolicy_ReturnStrict) {
+    if (policy == TimeoutPolicy_Fail) {
+      timeout_cb = DistAggregateTimeoutFailCallback;
+    } else {
+      reply_cb = DistAggregateReplyCallback;
+      timeout_cb = DistAggregateTimeoutReturnStrictCallback;
       r->base.async.requiresAggregateResultsSync = true;
     }
   }
@@ -4115,10 +4155,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   hreq->profileClocks.coordStartTime = coordInitialTime;
 
   if (policy != TimeoutPolicy_Return) {
-    reply_cb = DistHybridReplyCallback;
-    timeout_cb = (policy == TimeoutPolicy_Fail) ? DistHybridTimeoutFailCallback
-                                                : DistHybridTimeoutReturnStrictCallback;
     timeout_ms = queryTimeoutMS;
+    if (policy == TimeoutPolicy_Fail) {
+      timeout_cb = DistHybridTimeoutFailCallback;
+    } else {
+      reply_cb = DistHybridReplyCallback;
+      timeout_cb = DistHybridTimeoutReturnStrictCallback;
+    }
   }
 
   DistQueryDispatchCtx *dispatch = rm_new(DistQueryDispatchCtx);
@@ -4491,24 +4534,9 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
       return REDISMODULE_OK;
     }
 
-    searchReducerCtx *rCtx = req->rctx;
-    // If NumReplied > 0 we expect ReducerCtx to be initialized
-    RS_ASSERT(rCtx)
-
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    if (req->profileArgs > 0) {
-      // Profile command
-      profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), &req->profileClock, rs_wall_clock_now_ns());
-    } else {
-      // Non-profile command
-      sendSearchResults(reply, rCtx);
+    if (req->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail) {
+      replySearchResults(ctx, req);
     }
-
-    RedisModule_EndReply(reply);
-
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
-    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
   }
   return REDISMODULE_OK;
 }
