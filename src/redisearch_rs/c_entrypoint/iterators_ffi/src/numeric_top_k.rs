@@ -12,22 +12,111 @@
 //!
 //! This module provides [`NewNumericTopKIterator`].
 
-use std::ptr::NonNull;
+use std::{cmp::Ordering, ptr::NonNull, sync::Arc};
 
-use ffi::{DocTable_IsVisible, QueryIterator, RedisSearchCtx};
+use document_metadata::OwnedDocumentMetadata;
+use ffi::{DocTable, DocTable_Borrow, DocTable_IsVisible, QueryIterator, RedisSearchCtx};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use numeric_score_source::{
-    DocValidity, NumericOptimizerMode, NumericTopKIterator, new_numeric_top_k,
-    range_iterator::NumericTreeRef,
+    DocValidity, NumericOptimizerMode, NumericOrder, NumericTopKIterator, TieBreakComparator,
+    new_numeric_top_k_with_order, range_iterator::NumericTreeRef,
 };
+use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     utils::AnyTimeoutContext,
 };
+use sorting_vector::RSSortingVector;
+use top_k::ScoreOrdering;
+use value::Value;
 
 use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
+
+/// Multi-key sorting and missing-value parameters passed from C's `QOptimizer`
+/// to [`NewNumericTopKIterator`].
+#[repr(C)]
+#[cheadergen::config(export)]
+pub struct NumericTopKSortSpec {
+    /// Bitmask of sort directions (bit 0 = primary numeric key, bit `i + 1` =
+    /// tie-break key `i`; set = ASC, clear = DESC), matching `PLN_ArrangeStep::sortAscMap`.
+    pub sort_asc_map: u64,
+    /// Sorting-vector slot indices for the `num_tie_break_keys` keys following
+    /// the primary numeric key. May be NULL when `num_tie_break_keys == 0`.
+    pub tie_break_sort_idx: *const i16,
+    /// Number of tie-break keys in `tie_break_sort_idx`.
+    pub num_tie_break_keys: usize,
+    /// When `true` (unbounded whole-field walk), fill remaining heap slots with
+    /// matching documents that lack a value for the primary numeric sort field.
+    pub collect_missing: bool,
+}
+
+/// Breaks ties on the primary numeric key by reading secondary `SORTABLE` keys
+/// from each document's [`RSSortingVector`] in the index's [`DocTable`].
+#[derive(Clone)]
+struct DocTableTieBreaker {
+    docs: *const DocTable,
+    sort_asc_map: u64,
+    tie_break_keys: Option<Arc<[i16]>>,
+}
+
+// SAFETY: `docs` points to the index's `DocTable`, which is accessed only under
+// the index spec read lock during collection (`RawTopK` invariant 3 keeps the
+// heap empty outside collection).
+unsafe impl Send for DocTableTieBreaker {}
+
+impl DocTableTieBreaker {
+    fn sort_key_value(dmd: &OwnedDocumentMetadata, sort_idx: i16) -> Option<&Value> {
+        let idx = usize::try_from(sort_idx).ok()?;
+        // SAFETY: `ffi::RSSortingVector` and `sorting_vector::RSSortingVector`
+        // have identical layout (the C type is generated from the Rust type).
+        let sv = unsafe { &*(&raw const dmd.sortVector).cast::<RSSortingVector>() };
+        let val = sv.get(idx)?;
+        if matches!(&**val, Value::Null) {
+            None
+        } else {
+            Some(&**val)
+        }
+    }
+}
+
+impl TieBreakComparator for DocTableTieBreaker {
+    fn cmp_tie_break(&self, a: DocId, b: DocId) -> Ordering {
+        let Some(ref keys) = self.tie_break_keys else {
+            return Ordering::Equal;
+        };
+        // SAFETY: `self.docs` is valid for the lifetime of the iterator and
+        // `cmp_tie_break` is only called during collection under the read lock.
+        let dmd_a = NonNull::new(unsafe { DocTable_Borrow(self.docs, a) }.cast_mut())
+            .map(|p| unsafe { OwnedDocumentMetadata::from_raw(p) });
+        // SAFETY: as above.
+        let dmd_b = NonNull::new(unsafe { DocTable_Borrow(self.docs, b) }.cast_mut())
+            .map(|p| unsafe { OwnedDocumentMetadata::from_raw(p) });
+
+        for (i, &sort_idx) in keys.iter().enumerate() {
+            let val_a = dmd_a
+                .as_ref()
+                .and_then(|d| Self::sort_key_value(d, sort_idx));
+            let val_b = dmd_b
+                .as_ref()
+                .and_then(|d| Self::sort_key_value(d, sort_idx));
+            match (val_a, val_b) {
+                (None, None) => continue,
+                (Some(_), None) => return Ordering::Less,
+                (None, Some(_)) => return Ordering::Greater,
+                (Some(va), Some(vb)) => {
+                    let ord = value::comparison::compare(va, vb, true).unwrap_or(Ordering::Equal);
+                    if ord != Ordering::Equal {
+                        let ascending = (self.sort_asc_map & (1u64 << (i + 1))) != 0;
+                        return if ascending { ord } else { ord.reverse() };
+                    }
+                }
+            }
+        }
+        Ordering::Equal
+    }
+}
 
 /// Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
 ///
@@ -63,6 +152,10 @@ use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
 /// 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
 ///    duration of this call.
 ///
+/// 6. `sort_spec`, when non-null, must point to a valid [`NumericTopKSortSpec`]
+///    whose `tie_break_sort_idx` is valid for `num_tie_break_keys` elements when
+///    `num_tie_break_keys > 0`.
+///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNumericTopKIterator(
@@ -74,6 +167,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     child: *mut QueryIterator,
     sctx: *const RedisSearchCtx,
     filter_ctx: *const FieldFilterContext,
+    sort_spec: *const NumericTopKSortSpec,
 ) -> *mut QueryIterator {
     let sctx_nn = NonNull::new(sctx.cast_mut()).expect("sctx must be non-null");
     debug_assert!(!filter_ctx.is_null(), "filter_ctx must be non-null");
@@ -92,6 +186,8 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     debug_assert!(!spec.is_null(), "sctx.spec must be non-null");
     // SAFETY: guaranteed by 4.
     let docs = unsafe { &raw const (*spec).docs };
+    // SAFETY: guaranteed by 4.
+    let max_doc_id = unsafe { (*docs).maxDocId };
     // SAFETY: 4 keeps the inline doc table valid for the iterator's lifetime.
     let validity = move |doc_id| unsafe { DocTable_IsVisible(docs, doc_id) };
 
@@ -102,13 +198,54 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     // SAFETY: guaranteed by 2. `NumericFilter` is `Copy`.
     let filter = unsafe { *filter };
 
+    // SAFETY: guaranteed by 6.
+    let (sort_asc_map, tie_break_keys, collect_missing) = if let Some(spec) =
+        unsafe { sort_spec.as_ref() }
+    {
+        let keys = if spec.num_tie_break_keys > 0 {
+            debug_assert!(!spec.tie_break_sort_idx.is_null());
+            // SAFETY: guaranteed by 6.
+            let slice =
+                unsafe { std::slice::from_raw_parts(spec.tie_break_sort_idx, spec.num_tie_break_keys) };
+            Some(Arc::<[i16]>::from(slice))
+        } else {
+            None
+        };
+        (spec.sort_asc_map, keys, spec.collect_missing)
+    } else {
+        (u64::from(filter.ascending), None, false)
+    };
+
+    let num_tie_break_keys = tie_break_keys.as_ref().map_or(0, |k| k.len());
+    let last_ascending = (sort_asc_map & (1u64 << num_tie_break_keys)) != 0;
+    let order = NumericOrder::with_tie_break(
+        filter.ascending,
+        last_ascending,
+        DocTableTieBreaker {
+            docs,
+            sort_asc_map,
+            tie_break_keys,
+        },
+    );
+    let unscored_max_doc_id = collect_missing.then_some(max_doc_id);
+
     // Adopt the filter child as an owning Rust iterator. A null child means a
     // plain range scan.
     // SAFETY: guaranteed by 3.
     let child = NonNull::new(child).map(|c| unsafe { CRQEIterator::new(c) });
 
-    let reduced = new_numeric_top_k(
-        tree, filter, k, num_docs, mode, validity, expiration, timeout, child,
+    let reduced = new_numeric_top_k_with_order(
+        tree,
+        filter,
+        k,
+        num_docs,
+        mode,
+        order,
+        unscored_max_doc_id,
+        validity,
+        expiration,
+        timeout,
+        child,
     );
     match reduced {
         Ok(reduced) => box_reduced(reduced),
@@ -120,8 +257,10 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
 }
 
 /// Box a reduced numeric top-k into the C [`QueryIterator`] handle.
-fn box_reduced<V: DocValidity>(
-    reduced: Option<NumericTopKIterator<'_, V, FieldExpirationChecker, AnyTimeoutContext>>,
+fn box_reduced<V: DocValidity, O: ScoreOrdering>(
+    reduced: Option<
+        NumericTopKIterator<'_, V, FieldExpirationChecker, AnyTimeoutContext, CRQEIterator, O>,
+    >,
 ) -> *mut QueryIterator {
     let Some(it) = reduced else {
         return RQEIteratorWrapper::boxed_new(rqe_iterators::Empty).as_ptr();

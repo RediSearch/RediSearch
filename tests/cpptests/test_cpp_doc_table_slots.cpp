@@ -237,7 +237,7 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
     }
     IteratorHandle it(NewNumericTopKIterator(tree.get(), &filter, testCase.k, 3,
                                              NUMERIC_OPTIMIZER_MODE_PARTIAL_RANGE, child.get(),
-                                             &sctx, &filterCtx),
+                                             &sctx, &filterCtx, nullptr),
                       freeIterator);
     if (it) child.release();
     if (!testCase.expectedRows) {

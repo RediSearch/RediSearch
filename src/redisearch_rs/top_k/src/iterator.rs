@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
+use std::{cmp::Ordering, collections::HashSet, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -667,7 +667,57 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 }
             }
         }
+        if !self.heap.is_full() && self.source.collects_unscored_on_shortfall() {
+            self.collect_unscored()?;
+        }
         self.finalize_collection();
+        Ok(())
+    }
+
+    /// Fill remaining heap slots with matching documents that have no value for
+    /// the sort field (offered with score `f64::NAN`, which the ordering ranks
+    /// after every finite score).
+    ///
+    /// Because batch collection just exhausted the whole source without filling
+    /// the heap, nothing was evicted: every scored match is already in
+    /// `self.heap`, so checking membership against that snapshot identifies
+    /// unscored matches without opening a second index iterator.
+    fn collect_unscored(&mut self) -> Result<(), RQEIteratorError> {
+        const LINEAR_THRESHOLD: usize = 16;
+        let (valued_vec, valued_set) = if self.heap.len() <= LINEAR_THRESHOLD {
+            (self.heap.doc_ids().collect::<Vec<_>>(), None)
+        } else {
+            (Vec::new(), Some(self.heap.doc_ids().collect::<HashSet<_>>()))
+        };
+        let is_valued = |doc_id: DocId| -> bool {
+            if let Some(ref set) = valued_set {
+                set.contains(&doc_id)
+            } else {
+                valued_vec.contains(&doc_id)
+            }
+        };
+
+        if let Some(child) = self.child.as_mut() {
+            child.rewind();
+            while let Some(res) = child.read()? {
+                let doc_id = res.doc_id;
+                if is_valued(doc_id) {
+                    continue;
+                }
+                if self.source.accept_candidate(doc_id, f64::NAN)? {
+                    offer_accepted(&mut self.heap, &mut self.source, doc_id, f64::NAN, || None);
+                }
+            }
+        } else if let Some(max_doc_id) = self.source.unscored_max_doc_id() {
+            for doc_id in 1..=max_doc_id {
+                if is_valued(doc_id) {
+                    continue;
+                }
+                if self.source.accept_candidate(doc_id, f64::NAN)? {
+                    offer_accepted(&mut self.heap, &mut self.source, doc_id, f64::NAN, || None);
+                }
+            }
+        }
         Ok(())
     }
 

@@ -190,6 +190,9 @@ struct NumericScan<'index> {
     num_iterations: usize,
     /// Strategy reported as the profile's `Optimizer mode`.
     optimizer_mode: NumericOptimizerMode,
+    /// When set, collect matches lacking the sort field (up to `max_doc_id` for
+    /// unfiltered scans) once an unbounded walk finishes with `heap.len() < k`.
+    collect_missing_max_doc_id: Option<DocId>,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -226,6 +229,7 @@ impl<'index> NumericScoreSource<'index> {
                 heap_old_size: 0,
                 num_iterations: 0,
                 optimizer_mode: NumericOptimizerMode::PartialRange,
+                collect_missing_max_doc_id: None,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -289,6 +293,14 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     /// Set the strategy the profile reports.
     pub fn with_optimizer_mode(mut self, mode: NumericOptimizerMode) -> Self {
         self.scan.optimizer_mode = mode;
+        self
+    }
+
+    /// Enable collecting matching documents that lack a value for the sort
+    /// field when the walk finishes short of `k`, using `max_doc_id` as the
+    /// upper bound when no filter child is present.
+    pub fn with_collect_missing(mut self, max_doc_id: DocId) -> Self {
+        self.scan.collect_missing_max_doc_id = Some(max_doc_id);
         self
     }
 
@@ -403,13 +415,16 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.timeout.check_timeout()?;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
-        // range tree only sheds at GC time.
+        // range tree only sheds at GC time. Missing-value candidates (`score.is_nan()`)
+        // have no sort-field value (including documents whose sort field expired), so
+        // field expiration does not exclude them.
         Ok(!self.scan.ranges.is_retained(doc_id)
             && self.validity.is_valid(doc_id)
-            && !(self.expiration.has_expiration()
-                && self
-                    .expiration
-                    .is_expired(&self.build_result(doc_id, score))))
+            && (score.is_nan()
+                || !(self.expiration.has_expiration()
+                    && self
+                        .expiration
+                        .is_expired(&self.build_result(doc_id, score)))))
     }
 
     fn admitted(&mut self, doc_id: DocId, evicted: Option<DocId>) {
@@ -434,6 +449,14 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.scan.ranges.can_collect_after_lock_release()
     }
 
+    fn collects_unscored_on_shortfall(&self) -> bool {
+        self.scan.collect_missing_max_doc_id.is_some()
+    }
+
+    fn unscored_max_doc_id(&self) -> Option<DocId> {
+        self.scan.collect_missing_max_doc_id
+    }
+
     fn rewind(&mut self) {
         // Full reset to the initial window. The expand-and-retry path resolves
         // its own windows inside `expand_window`, so this is only reached for an
@@ -449,6 +472,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     where
         Self: 'r,
     {
+        let score = if score.is_nan() { 0.0 } else { score };
         RSIndexResult::build_numeric(score).doc_id(doc_id).build()
     }
 

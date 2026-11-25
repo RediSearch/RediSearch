@@ -364,6 +364,26 @@ pub trait ScoreSource {
     /// [`suspend`]: rqe_iterators::RQEIteratorBoxed::suspend
     fn release_index_handles(&mut self);
 
+    /// Whether this source should fill remaining heap slots with matching
+    /// documents that lack a score (represented as `f64::NAN`) once batch
+    /// collection finishes with `heap.len() < k`.
+    ///
+    /// Used by unbounded numeric `SORTBY` scans so documents missing the sort
+    /// field rank after every document that has one, matching the pipeline
+    /// sorter. The default is `false`.
+    fn collects_unscored_on_shortfall(&self) -> bool {
+        false
+    }
+
+    /// Upper bound on document IDs to scan when [`collects_unscored_on_shortfall`](Self::collects_unscored_on_shortfall)
+    /// runs without a filter child (e.g. an elided wildcard).
+    ///
+    /// Only used when the iterator has no child filter; returning `None` skips
+    /// the unfiltered unscored scan.
+    fn unscored_max_doc_id(&self) -> Option<DocId> {
+        None
+    }
+
     /// Whether this source can still collect after the index spec read lock
     /// was released and re-acquired, once
     /// [`release_index_handles`](Self::release_index_handles) has run.
