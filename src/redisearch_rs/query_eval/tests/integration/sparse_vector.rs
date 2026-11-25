@@ -65,12 +65,10 @@ fn reserved_request_is_internal(score: Score) -> bool {
     // SAFETY: `field_spec` was just added and nothing else observes it yet.
     let field = unsafe { field_spec.as_ptr().as_mut() }.expect("non-null");
     field.set_types(ffi::FieldType_INDEXFLD_T_SPARSE_VECTOR);
-    // SAFETY: the field is a sparse vector field, so `sparseVecOpts` is the
-    // active union member. Its index stays null: no document wrote to it.
-    unsafe {
-        field.__bindgen_anon_1.sparseVecOpts.dim = 10;
-        field.__bindgen_anon_1.sparseVecOpts.metric = SparseMetric::InnerProduct as u32;
-    }
+    // Writing a union member needs no `unsafe`. `sparseVecOpts` is the one a sparse vector
+    // field reads; its index stays null, as no document wrote to it.
+    field.__bindgen_anon_1.sparseVecOpts.dim = 10;
+    field.__bindgen_anon_1.sparseVecOpts.metric = SparseMetric::InnerProduct as u32;
 
     let blob = query_blob();
     let mut node = MockQueryNode::new(QueryNodeType::SparseVector);
@@ -91,9 +89,9 @@ fn reserved_request_is_internal(score: Score) -> bool {
     assert_eq!(requests.len(), 1);
     let is_internal = requests[0].is_internal;
     drop(ctx);
-    // SAFETY: the evaluation borrowed the distance field without taking it, so
-    // it is still this test's allocation from the module allocator.
-    unsafe { redis_mock::allocator::free_shim(node.opts_mut().dist_field.cast::<c_void>()) };
+    // The evaluation borrowed the distance field without taking it, so it is
+    // still this test's allocation from the module allocator.
+    redis_mock::allocator::free_shim(node.opts_mut().dist_field.cast::<c_void>());
     is_internal
 }
 
