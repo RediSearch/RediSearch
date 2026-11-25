@@ -29,24 +29,6 @@ def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False)
     return decorator
 
 
-@skip(cluster=False, min_shards=2)
-@with_simulate_in_flex(True)
-def test_flex_tagvals_rejects_incomplete_fanout(env):
-    skipIfNoEnableAssert(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
-    env.getClusterConnectionIfNeeded().hset('doc', 'tag', 'red')
-    env.expect('FT.TAGVALS', 'idx', 'tag').equal(['red'])
-
-    env.expect(debug_cmd(), 'SEND_ERROR', 1).ok()
-    try:
-        env.expect('FT.TAGVALS', 'idx', 'tag').error().contains(
-            'Could not collect TAG values from all shards',
-        )
-    finally:
-        env.cmd(debug_cmd(), 'SEND_ERROR', 0)
-    env.expect('FT.TAGVALS', 'idx', 'tag').equal(['red'])
-
-
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_no_fixed_index_limit(env):

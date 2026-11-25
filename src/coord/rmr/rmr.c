@@ -70,7 +70,6 @@ typedef struct MRCtx {
   _Atomic(int) refcount;
   int numReplied;
   int numExpected;
-  size_t numTargetShards;
   int numErrored;
   int repliesCap;
   MRReply **replies;
@@ -179,10 +178,6 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx) {
 
 int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
-}
-
-bool MRCtx_HasAllShardReplies(const struct MRCtx *ctx) {
-  return ctx->numTargetShards > 0 && (size_t)ctx->numReplied == ctx->numTargetShards;
 }
 
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
@@ -320,7 +315,6 @@ static void dispatchFanout(MRCtx *mrctx, redisCallbackFn *callback) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordFanout");
 #endif
-  mrctx->numTargetShards = ioRuntime->topo->numShards;
   mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, callback, mrctx,
                                                MRCtx_GetValidateConnections(mrctx));
 }
