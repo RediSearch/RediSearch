@@ -132,7 +132,6 @@ def testDocumentMatchedByEveryBranchKeepsTheValue(env):
         env.assertEqual(rows, [{'v': '30.5', 'id': '3'}], message=query)
 
 
-@skip(cluster=True)
 @with_unstable_features
 def testRejectedUnderNegation(env):
     """The documents a NOT yields are those its child did not match, so there is no value to
@@ -221,6 +220,16 @@ def testLoadOfSameNameIsServedByTheAlias(env):
 
 
 @with_unstable_features
+def testAliasCollisions(env):
+    """An alias that collides with a schema field or another alias is rejected."""
+    setup_hash_index(env)
+    env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: m}').error() \
+        .contains('Property `m` already exists in schema')
+    env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: v} | @m:[100 200] => {$as: v}').error() \
+        .contains('Property `v` specified more than once')
+
+
+@with_unstable_features
 def testReservedAliasPrefix(env):
     """The pipeline's own row keys start with `__`, such as the `__key` FT.HYBRID merges by, so an
     alias may not; a single leading `_` is fine."""
@@ -241,16 +250,15 @@ def testReservedAliasPrefix(env):
 @skip(cluster=True)
 @with_unstable_features
 def testAliasErrors(env):
-    """An alias that collides with a schema field or another alias, an invalid property name, and
-    `$as` on anything but a single NUMERIC clause are rejected."""
+    """An invalid property name, and `$as` on anything but a single NUMERIC clause, are rejected
+    at parse time."""
     setup_hash_index(env)
-    env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: m}').error() \
-        .contains('Property `m` already exists in schema')
-    env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: v} | @m:[100 200] => {$as: v}').error() \
-        .contains('Property `v` specified more than once')
     for name in ['a b', 'a.b', '@v', 'a-b', 'a\tb', 'a\x01b', 'a\x7fb']:
         env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: $name}', 'PARAMS', '2', 'name', name,
                    'DIALECT', '2').error().contains('`$as` requires a valid property name')
+    # The parser rejects an empty attribute value before `$as` sees it.
+    env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: $name}', 'PARAMS', '2', 'name', '',
+               'DIALECT', '2').error().contains('Invalid value () for `as`')
     for query in ['@title:hello => {$as: v}', '@t:{a} => {$as: v}', '@g:[1 1 10 km] => {$as: v}',
                   '(@n:[15 25] @t:{b}) => {$as: v}', '@n != 20 => {$as: v}']:
         env.expect('FT.AGGREGATE', 'idx', query).error() \
@@ -269,7 +277,6 @@ def testRejectedOnVectorClause(env):
         .error().contains('`$as` is supported only on NUMERIC clauses')
 
 
-@skip(cluster=True)
 @with_unstable_features
 def testRejectedOnCompressedTree(env):
     """A field whose range tree was built with float compression may hold values other than the
@@ -279,13 +286,28 @@ def testRejectedOnCompressedTree(env):
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'yes')
     try:
         env.expect('FT.CREATE', 'cidx', 'ON', 'HASH', 'PREFIX', '1', 'c:', 'SCHEMA', 'n', 'NUMERIC').ok()
-        conn.execute_command('HSET', 'c:1', 'n', '1.5')
+        # Enough keys that every shard of a cluster builds its own tree.
+        for i in range(20):
+            conn.execute_command('HSET', f'c:{i}', 'n', '1.5')
         env.expect('FT.AGGREGATE', 'cidx', '@n:[1 2] => {$as: v}').error() \
             .contains('`search-_numeric-compress`')
         # `idx`'s tree was built uncompressed, and keeps its codec.
         env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: v}'), [{'v': '20'}])
     finally:
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'no')
+
+
+@with_unstable_features
+def testSearchReturnsTheAliasAmongTheDocumentFields(env):
+    """Without RETURN, FT.SEARCH returns the alias next to the document's fields, and a document
+    field of the same name is replaced by the loaded value."""
+    setup_hash_index(env)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:2', 'v', 'from-document')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[15 25] => {$as: v}')
+    env.assertEqual(res[:2], [1, 'doc:2'], message=res)
+    env.assertEqual(to_dict(res[2]), {'v': '20', 'n': '20', 'm': '102', 'id': '2', 't': 'b',
+                                      'title': 'hello', 'g': '1,1'}, message=res)
 
 
 @with_unstable_features
@@ -383,6 +405,7 @@ def testOptimizedQueryKeepsTheAlias(env):
                                       'doc:7', ['v', '70']], message=(sort_field, optimize, res))
 
 
+@skip(cluster=True)
 @with_unstable_features
 def testLoadsOnEquality(env):
     """`@n == x` is a NUMERIC clause too."""
@@ -465,6 +488,15 @@ def testLoadsInsideVectorFilter(env):
                 env.assertEqual(rows, expected_rows, message=(query, rows))
 
 
+@skip(cluster=True)
+@with_unstable_features
+def testLoadsUnderDialect1(env):
+    """The DIALECT 1 parser applies `$as` like the later ones."""
+    setup_hash_index(env)
+    env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: v}', 'DIALECT', '1'), [{'v': '20'}])
+
+
+@skip(cluster=True)
 @with_unstable_features
 def testRepeatedAsKeepsTheLast(env):
     """A clause given `$as` twice loads under the last alias only."""
@@ -472,6 +504,7 @@ def testRepeatedAsKeepsTheLast(env):
     env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: a; $as: b}'), [{'b': '20'}])
 
 
+@skip(cluster=True)
 @with_unstable_features
 def testNonAsciiAlias(env):
     """An alias of non-ASCII letters works like any other, in SORTBY, APPLY and FILTER."""
@@ -482,7 +515,6 @@ def testNonAsciiAlias(env):
     env.assertEqual(rows, [{'ערך': '30.5', 'twice': '61'}])
 
 
-@skip(cluster=True)
 @with_unstable_features
 def testHybridRejections(env):
     """FT.HYBRID's search subquery reports the same errors as FT.SEARCH: the gate, and the
@@ -491,13 +523,17 @@ def testHybridRejections(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'c', 'NUMERIC', 'emb', 'VECTOR', 'FLAT',
                '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-    conn.execute_command('HSET', 'doc:1', 'n', '10', 'emb', np.array([1.0, 0.0]).astype(np.float32).tobytes())
+    # Enough keys that every shard of a cluster has documents, and builds its own trees.
+    keys = [f'doc:{i}' for i in range(20)]
+    for key in keys:
+        conn.execute_command('HSET', key, 'n', '10', 'emb', np.array([1.0, 0.0]).astype(np.float32).tobytes())
     # `c`'s tree is created by its first value, while compression is on.
-    env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'yes')
     try:
-        conn.execute_command('HSET', 'doc:1', 'c', '1.5')
+        for key in keys:
+            conn.execute_command('HSET', key, 'c', '1.5')
     finally:
-        env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'no').ok()
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'no')
     blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     def hybrid(query):
