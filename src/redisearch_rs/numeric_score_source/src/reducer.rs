@@ -18,9 +18,9 @@ use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator, utils:
 use top_k::{ChildReduction, ScoreOrdering, TopKHeap, reduce_child};
 
 use crate::{
-    DocValidity, NoTieBreak, NumericOptimizerMode, NumericOrder, NumericScoreSource,
-    NumericTopKIterator, UnscoredLiveDocsFn, assemble, range_iterator::NumericTreeRef,
-    source::estimate_limit,
+    DocValidity, NoTieBreak, NumericOptimizerMode, NumericOrder, NumericRangeBound,
+    NumericScoreSource, NumericTopKIterator, UnscoredLiveDocsFn, assemble,
+    range_iterator::NumericTreeRef, source::estimate_limit,
 };
 
 /// Error of [`new_numeric_top_k`]: the heap for `k` results could not be
@@ -81,6 +81,7 @@ where
         mode,
         NumericOrder::<NoTieBreak>::single_key(filter.ascending),
         None,
+        None,
         validity,
         expiration,
         timeout,
@@ -89,9 +90,10 @@ where
 }
 
 /// Like [`new_numeric_top_k`], with an explicit [`ScoreOrdering`] (for
-/// multi-key tie-breaks and direction-aware doc-id tie-breaking) and optional
+/// multi-key tie-breaks and direction-aware doc-id tie-breaking), optional
 /// `unscored_live_docs` enumerator to collect matches lacking the sort field
-/// when an unbounded walk finishes short of `k`.
+/// when an unbounded walk finishes short of `k`, and optional `union_filter`
+/// `(unconditional_ranges, boundary_iter)` for lifted keyset unions.
 #[expect(clippy::too_many_arguments, reason = "one parameter per query input")]
 #[expect(
     clippy::type_complexity,
@@ -105,6 +107,7 @@ pub fn new_numeric_top_k_with_order<'index, V, E, T, O>(
     mode: NumericOptimizerMode,
     order: O,
     unscored_live_docs: Option<UnscoredLiveDocsFn>,
+    union_filter: Option<(Box<[NumericRangeBound]>, Option<CRQEIterator>)>,
     validity: V,
     expiration: E,
     timeout: T,
@@ -147,6 +150,10 @@ where
         .with_timeout(timeout);
     let source = match unscored_live_docs {
         Some(live_docs) => source.with_collect_missing(live_docs),
+        None => source,
+    };
+    let source = match union_filter {
+        Some((unconditional, boundary)) => source.with_union_filter(unconditional, boundary),
         None => source,
     };
     Ok(Some(assemble(source, child, heap)))

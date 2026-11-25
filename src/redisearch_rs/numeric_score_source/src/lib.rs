@@ -36,7 +36,8 @@ pub use range_iterator::NumericRangeIterator;
 pub use reducer::{HeapReserveError, new_numeric_top_k, new_numeric_top_k_with_order};
 pub use score_batch::NumericScoreBatch;
 pub use source::{
-    AllValid, DocValidity, NumericOptimizerMode, NumericScoreSource, UnscoredLiveDocsFn,
+    AllValid, DocValidity, NumericOptimizerMode, NumericRangeBound, NumericScoreSource,
+    UnscoredLiveDocsFn,
 };
 
 use std::num::NonZeroUsize;

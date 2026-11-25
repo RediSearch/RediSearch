@@ -23,8 +23,8 @@ use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use numeric_score_source::{
-    DocValidity, NumericOptimizerMode, NumericOrder, NumericTopKIterator, TieBreakComparator,
-    new_numeric_top_k_with_order, range_iterator::NumericTreeRef,
+    DocValidity, NumericOptimizerMode, NumericOrder, NumericRangeBound, NumericTopKIterator,
+    TieBreakComparator, new_numeric_top_k_with_order, range_iterator::NumericTreeRef,
 };
 use rqe_core::DocId;
 use rqe_iterators::{
@@ -36,6 +36,18 @@ use top_k::ScoreOrdering;
 use value::Value;
 
 use crate::{TIMEOUT_CHECK_GRANULARITY, without_skip_to};
+
+/// A numeric interval with open or closed endpoints, passed from C's
+/// `QOptimizer` for each pure numeric branch lifted out of a keyset union.
+#[repr(C)]
+#[cheadergen::config(export)]
+#[derive(Clone, Copy)]
+pub struct NumericTopKRangeBound {
+    pub min: f64,
+    pub max: f64,
+    pub min_inclusive: bool,
+    pub max_inclusive: bool,
+}
 
 /// Multi-key sorting and missing-value parameters passed from C's `QOptimizer`
 /// to [`NewNumericTopKIterator`].
@@ -53,6 +65,15 @@ pub struct NumericTopKSortSpec {
     /// When `true` (unbounded whole-field walk), fill remaining heap slots with
     /// matching documents that lack a value for the primary numeric sort field.
     pub collect_missing: bool,
+    /// Pure numeric range branches lifted out of a keyset/lexicographic union.
+    /// May be NULL when `num_unconditional_ranges == 0`.
+    pub unconditional_ranges: *const NumericTopKRangeBound,
+    /// Number of lifted pure numeric ranges in `unconditional_ranges`.
+    pub num_unconditional_ranges: usize,
+    /// Owning iterator for the remaining conditional branches of a lifted
+    /// keyset union (e.g. `@n:[c c] @m:[(k +inf]`). Adopted unconditionally
+    /// (freed on drop even if heap reservation fails). May be NULL.
+    pub boundary_iter: *mut QueryIterator,
 }
 
 /// Breaks ties on the primary numeric key by reading secondary `SORTABLE` keys
@@ -200,22 +221,48 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     let filter = unsafe { *filter };
 
     // SAFETY: guaranteed by 6.
-    let (sort_asc_map, tie_break_keys, collect_missing) =
-        if let Some(spec) = unsafe { sort_spec.as_ref() } {
-            let keys = if spec.num_tie_break_keys > 0 {
-                debug_assert!(!spec.tie_break_sort_idx.is_null());
-                // SAFETY: guaranteed by 6.
-                let slice = unsafe {
-                    std::slice::from_raw_parts(spec.tie_break_sort_idx, spec.num_tie_break_keys)
-                };
-                Some(Arc::<[i16]>::from(slice))
-            } else {
-                None
+    let (sort_asc_map, tie_break_keys, collect_missing, union_filter) = if let Some(spec) =
+        unsafe { sort_spec.as_ref() }
+    {
+        let keys = if spec.num_tie_break_keys > 0 {
+            debug_assert!(!spec.tie_break_sort_idx.is_null());
+            // SAFETY: guaranteed by 6.
+            let slice = unsafe {
+                std::slice::from_raw_parts(spec.tie_break_sort_idx, spec.num_tie_break_keys)
             };
-            (spec.sort_asc_map, keys, spec.collect_missing)
+            Some(Arc::<[i16]>::from(slice))
         } else {
-            (u64::from(filter.ascending), None, false)
+            None
         };
+        let union_filter = if spec.num_unconditional_ranges > 0 {
+            debug_assert!(!spec.unconditional_ranges.is_null());
+            // SAFETY: guaranteed by 6.
+            let ranges = unsafe {
+                std::slice::from_raw_parts(spec.unconditional_ranges, spec.num_unconditional_ranges)
+            };
+            let converted: Box<[NumericRangeBound]> = ranges
+                .iter()
+                .map(|r| NumericRangeBound {
+                    min: r.min,
+                    max: r.max,
+                    min_inclusive: r.min_inclusive,
+                    max_inclusive: r.max_inclusive,
+                })
+                .collect();
+            // SAFETY: guaranteed by 6 (`boundary_iter`, when non-null, is a valid owning iterator).
+            let boundary =
+                NonNull::new(spec.boundary_iter).map(|b| unsafe { CRQEIterator::new(b) });
+            Some((converted, boundary))
+        } else {
+            // Free any stray boundary_iter defensively if num_unconditional_ranges == 0.
+            // SAFETY: guaranteed by 6 (`boundary_iter`, when non-null, is a valid owning iterator).
+            let _ = NonNull::new(spec.boundary_iter).map(|b| unsafe { CRQEIterator::new(b) });
+            None
+        };
+        (spec.sort_asc_map, keys, spec.collect_missing, union_filter)
+    } else {
+        (u64::from(filter.ascending), None, false, None)
+    };
 
     let num_tie_break_keys = tie_break_keys.as_ref().map_or(0, |k| k.len());
     let last_ascending = (sort_asc_map & (1u64 << num_tie_break_keys)) != 0;
@@ -270,6 +317,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
         mode,
         order,
         unscored_live_docs,
+        union_filter,
         validity,
         expiration,
         timeout,

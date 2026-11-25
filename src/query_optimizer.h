@@ -97,6 +97,14 @@ typedef struct QOptimizer {
     // `$.n[*]`). A query predicate then constrains any of them, not the one the document sorts by.
     bool sortFieldMayHoldManyValues;
 
+    // When a keyset/lexicographic union (such as `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`) has
+    // pure numeric range branches on the sort field, those branches are lifted into
+    // `unconditionalRanges` and the remaining conditional branches are detached into
+    // `boundaryNode` (compiled in `QOptimizer_Iterators`).
+    SortFieldBounds *unconditionalRanges;
+    size_t numUnconditionalRanges;
+    QueryNode *boundaryNode;
+
     QueryIterator *numIter;
     QueryIterator *root;
 
@@ -120,7 +128,7 @@ void QOptimizer_Parse(AREQ *req);
  * 1. does the query requires scoring
  * 2. can the sortby field be extracted for optimization
  **/
-void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt);
+void QOptimizer_QueryNodes(QueryNode **rootPtr, QOptimizer *opt);
 
 /* iterate over index iterator, check estimations and performs further
  * optimizations.

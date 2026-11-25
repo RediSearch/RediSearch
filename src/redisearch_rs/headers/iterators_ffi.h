@@ -84,6 +84,17 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**
+ * A numeric interval with open or closed endpoints, passed from C's
+ * `QOptimizer` for each pure numeric branch lifted out of a keyset union.
+ */
+typedef struct NumericTopKRangeBound {
+  double min;
+  double max;
+  bool min_inclusive;
+  bool max_inclusive;
+} NumericTopKRangeBound;
+
+/**
  * Multi-key sorting and missing-value parameters passed from C's `QOptimizer`
  * to [`NewNumericTopKIterator`].
  */
@@ -107,6 +118,21 @@ typedef struct NumericTopKSortSpec {
    * matching documents that lack a value for the primary numeric sort field.
    */
   bool collect_missing;
+  /**
+   * Pure numeric range branches lifted out of a keyset/lexicographic union.
+   * May be NULL when `num_unconditional_ranges == 0`.
+   */
+  const struct NumericTopKRangeBound *unconditional_ranges;
+  /**
+   * Number of lifted pure numeric ranges in `unconditional_ranges`.
+   */
+  size_t num_unconditional_ranges;
+  /**
+   * Owning iterator for the remaining conditional branches of a lifted
+   * keyset union (e.g. `@n:[c c] @m:[(k +inf]`). Adopted unconditionally
+   * (freed on drop even if heap reservation fails). May be NULL.
+   */
+  QueryIterator *boundary_iter;
 } NumericTopKSortSpec;
 
 #ifdef __cplusplus

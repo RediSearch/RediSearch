@@ -44,6 +44,10 @@ void QOptimizer_Free(QOptimizer *opt) {
   if (opt->sortbyNode) {
     QueryNode_Free(opt->sortbyNode);
   }
+  if (opt->boundaryNode) {
+    QueryNode_Free(opt->boundaryNode);
+  }
+  rm_free(opt->unconditionalRanges);
   rm_free(opt);
 }
 
@@ -267,12 +271,28 @@ static void widenToInclude(SortFieldBounds *hull, const SortFieldBounds *range) 
   }
 }
 
+/* Tighten `acc` to the intersection of `acc` and `range`. */
+static void narrowToIntersection(SortFieldBounds *acc, const SortFieldBounds *range) {
+  if (range->min > acc->min) {
+    acc->min = range->min;
+    acc->minInclusive = range->minInclusive;
+  } else if (range->min == acc->min) {
+    acc->minInclusive &= range->minInclusive;
+  }
+  if (range->max < acc->max) {
+    acc->max = range->max;
+    acc->maxInclusive = range->maxInclusive;
+  } else if (range->max == acc->max) {
+    acc->maxInclusive &= range->maxInclusive;
+  }
+}
+
 /* Whether every document matching `node` has its sort field inside some range, and if so, which.
  * The node stays in the tree as the exact filter; the range only bounds the optimizer's walk, so
  * it may be wider than the matches but never narrower. A range on the field bounds itself, an
- * intersection is bounded by any range it contains on the field, and a union by the hull of its
- * branches when each of them is bounded. A union with an unbounded branch, and every other node,
- * bounds nothing. */
+ * intersection is bounded by the intersection of any ranges it contains on the field, and a union
+ * by the hull of its branches when each of them is bounded. A union with an unbounded branch, and
+ * every other node, bounds nothing. */
 static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldIndex,
                                    SortFieldBounds *bounds) {
   switch (node->type) {
@@ -288,13 +308,21 @@ static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldInde
       return true;
     }
 
-    case QN_PHRASE:  // INTERSECT
+    case QN_PHRASE: {  // INTERSECT
+      bool found = false;
       for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
-        if (impliedSortFieldBounds(node->children[i], fieldIndex, bounds)) {
-          return true;
+        SortFieldBounds childBounds;
+        if (impliedSortFieldBounds(node->children[i], fieldIndex, &childBounds)) {
+          if (!found) {
+            *bounds = childBounds;
+            found = true;
+          } else {
+            narrowToIntersection(bounds, &childBounds);
+          }
         }
       }
-      return false;
+      return found;
+    }
 
     case QN_UNION: {
       if (QueryNode_NumChildren(node) == 0 ||
@@ -316,7 +344,100 @@ static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldInde
   }
 }
 
-void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
+static bool isPureSortFieldRange(const QueryNode *node, t_fieldIndex fieldIndex) {
+  return node->type == QN_NUMERIC && node->opts.weight == 1 &&
+         node->nn.nf->fieldIndex == fieldIndex;
+}
+
+/* Lift a keyset/lexicographic union whose every branch bounds the sort field and at least one
+ * branch is a pure numeric range on it (such as `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`).
+ * The pure numeric branches move into `opt->unconditionalRanges` (checked in O(1) against each
+ * walked value), the remaining conditional branches detach into `opt->boundaryNode`, and the
+ * union is removed from the main query tree so `child` never builds an iterator over the full
+ * tail `@n:[(c +inf]`. */
+static bool tryLiftUnion(QueryNode *unionNode, QueryNode *parent, int unionIdx,
+                         QueryNode **rootPtr, t_fieldIndex targetFieldIndex, QOptimizer *opt) {
+  if (unionNode->type != QN_UNION || unionNode->opts.weight != 1) {
+    return false;
+  }
+  SortFieldBounds bounds;
+  if (!impliedSortFieldBounds(unionNode, targetFieldIndex, &bounds)) {
+    return false;
+  }
+
+  size_t numPure = 0;
+  for (int i = 0; i < QueryNode_NumChildren(unionNode); ++i) {
+    if (isPureSortFieldRange(unionNode->children[i], targetFieldIndex)) {
+      numPure++;
+    }
+  }
+  if (numPure == 0) {
+    return false;
+  }
+
+  opt->unconditionalRanges = rm_malloc(numPure * sizeof(*opt->unconditionalRanges));
+  opt->numUnconditionalRanges = 0;
+  for (int i = QueryNode_NumChildren(unionNode) - 1; i >= 0; --i) {
+    QueryNode *child = unionNode->children[i];
+    if (isPureSortFieldRange(child, targetFieldIndex)) {
+      const NumericFilter *nf = child->nn.nf;
+      opt->unconditionalRanges[opt->numUnconditionalRanges++] =
+          (SortFieldBounds){.min = nf->min,
+                            .max = nf->max,
+                            .minInclusive = nf->minInclusive,
+                            .maxInclusive = nf->maxInclusive};
+      array_del_fast(unionNode->children, i);
+      QueryNode_Free(child);
+    }
+  }
+
+  // Detach the union from the main query tree.
+  if (parent) {
+    array_del_fast(parent->children, unionIdx);
+    if (QueryNode_NumChildren(parent) == 0) {
+      QueryNode_Free(parent);
+      *rootPtr = NewWildcardNode();
+    }
+  } else {
+    *rootPtr = NewWildcardNode();
+  }
+
+  // Keep only the remaining conditional branches in `opt->boundaryNode`.
+  int remaining = QueryNode_NumChildren(unionNode);
+  if (remaining == 0) {
+    QueryNode_Free(unionNode);
+    opt->boundaryNode = NULL;
+  } else if (remaining == 1) {
+    opt->boundaryNode = unionNode->children[0];
+    array_clear(unionNode->children);
+    QueryNode_Free(unionNode);
+  } else {
+    opt->boundaryNode = unionNode;
+  }
+
+  opt->hasImpliedBounds = true;
+  opt->impliedBounds = bounds;
+  return true;
+}
+
+static bool liftUnionSortRanges(QueryNode **rootPtr, t_fieldIndex targetFieldIndex,
+                                QOptimizer *opt) {
+  QueryNode *root = *rootPtr;
+  if (root->type == QN_UNION) {
+    return tryLiftUnion(root, NULL, -1, rootPtr, targetFieldIndex, opt);
+  }
+  if (root->type == QN_PHRASE && root->opts.weight == 1 && !root->pn.exact) {
+    for (int i = 0; i < QueryNode_NumChildren(root); ++i) {
+      if (tryLiftUnion(root->children[i], root, i, rootPtr, targetFieldIndex, opt)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void QOptimizer_QueryNodes(QueryNode **rootPtr, QOptimizer *opt) {
+  QueryNode *root = *rootPtr;
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
@@ -352,13 +473,15 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
     }
   }
 
-  // No range on the sort field could be lifted out of the tree, but the query may still confine
-  // the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
+  // No single range on the sort field could be lifted out of the tree, but the query may still
+  // confine the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
   // On a field with several values per document the predicates constrain any of them, not the
   // value the document sorts by, so they bound nothing the walk could start from.
-  if (isSortby && !opt->nf && !opt->sortFieldMayHoldManyValues) {
-    opt->hasImpliedBounds = impliedSortFieldBounds(root, targetFieldIndex, &opt->impliedBounds);
+  if (isSortby && !opt->nf && !opt->sortFieldMayHoldManyValues &&
+      !liftUnionSortRanges(rootPtr, targetFieldIndex, opt)) {
+    opt->hasImpliedBounds = impliedSortFieldBounds(*rootPtr, targetFieldIndex, &opt->impliedBounds);
   }
+  root = *rootPtr;
 
   // there is no sorting field and scorer is required - we must check all results
   if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
@@ -414,7 +537,8 @@ static NumericOptimizerMode numericOptimizerMode(const QOptimizer *qOpt) {
 // numeric range tree and hands the residual query (`root`) to the Rust reducer as
 // the filter child. Returns NULL when the heap for OFFSET/LIMIT cannot be
 // reserved, leaving `root` with the caller.
-static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterator *root) {
+static QueryIterator *newNumericTopKFromOptimizer(AREQ *req, QOptimizer *qOpt, QueryIterator *root,
+                                                  QueryError *status) {
   IndexSpec *spec = qOpt->sctx->spec;
   const FieldSpec *field =
       IndexSpec_GetFieldWithLength(spec, qOpt->fieldName, strlen(qOpt->fieldName));
@@ -429,6 +553,23 @@ static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterato
     }
     root->Free(root);
     return NewEmptyIterator();
+  }
+
+  QueryIterator *boundaryIter = NULL;
+  if (qOpt->boundaryNode) {
+    QueryNode *savedRoot = req->ast.root;
+    req->ast.root = qOpt->boundaryNode;
+    QueryIteratorTree *boundaryTree = QAST_Iterate(&req->ast, &req->searchopts,
+                                                   AREQ_SearchCtx(req), AREQ_RequestFlags(req),
+                                                   status);
+    req->ast.root = savedRoot;
+    if (QueryError_HasError(status)) {
+      QueryIteratorTree_Free(boundaryTree);
+      return NULL;
+    }
+    boundaryIter = QueryIteratorTree_Root(boundaryTree);
+    QueryIteratorTree_SetRoot(boundaryTree, NewEmptyIterator());
+    QueryIteratorTree_Free(boundaryTree);
   }
 
   // With no explicit numeric range, scan either the range the query implies (e.g. a keyset union)
@@ -452,21 +593,41 @@ static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterato
       .field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
       .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // Only an unbounded walk over the whole field can leave matches without a sort value unvisited.
+  NumericTopKRangeBound *uncondBounds = NULL;
+  if (qOpt->numUnconditionalRanges > 0) {
+    uncondBounds = rm_malloc(qOpt->numUnconditionalRanges * sizeof(*uncondBounds));
+    for (size_t i = 0; i < qOpt->numUnconditionalRanges; i++) {
+      uncondBounds[i] = (NumericTopKRangeBound){
+          .min = qOpt->unconditionalRanges[i].min,
+          .max = qOpt->unconditionalRanges[i].max,
+          .min_inclusive = qOpt->unconditionalRanges[i].minInclusive,
+          .max_inclusive = qOpt->unconditionalRanges[i].maxInclusive,
+      };
+    }
+  }
   NumericTopKSortSpec sortSpec = {
       .sort_asc_map = qOpt->sortAscMap,
       .tie_break_sort_idx = qOpt->numTieBreakKeys ? qOpt->tieBreakSortIdx : NULL,
       .num_tie_break_keys = qOpt->numTieBreakKeys,
       .collect_missing = (qOpt->nf == NULL) && !qOpt->hasImpliedBounds,
+      .unconditional_ranges = uncondBounds,
+      .num_unconditional_ranges = qOpt->numUnconditionalRanges,
+      .boundary_iter = boundaryIter,
   };
-  return NewNumericTopKIterator(tree, nf, qOpt->limit, spec->docs.size, numericOptimizerMode(qOpt),
-                                root, qOpt->sctx, &filterCtx, &sortSpec);
+  QueryIterator *res = NewNumericTopKIterator(tree, nf, qOpt->limit, spec->docs.size,
+                                              numericOptimizerMode(qOpt), root, qOpt->sctx,
+                                              &filterCtx, &sortSpec);
+  rm_free(uncondBounds);
+  return res;
 }
 
 // wraps root with a numeric top-k iterator, leaving root in place if that fails
 static int setOptimizerRoot(AREQ *req, QOptimizer *opt, QueryIterator *root, QueryError *status) {
-  QueryIterator *optimized = newNumericTopKFromOptimizer(opt, root);
+  QueryIterator *optimized = newNumericTopKFromOptimizer(req, opt, root, status);
   if (!optimized) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+    if (!QueryError_HasError(status)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+    }
     return REDISMODULE_ERR;
   }
   QueryIteratorTree_SetRoot(req->iteratorTree, optimized);

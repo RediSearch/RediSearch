@@ -916,10 +916,71 @@ def testOptimizerWalksRangeImpliedByUnion(env):
                                 aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
                                 message=f'{query} sorted by {sortby}, MAX {limit}')
 
+    # A cursor near the first value: the pure numeric branch is lifted out of the union and the
+    # wildcard residual child is elided, so no UNION child iterator is built at all.
     optimized = aggregate_profile(env, keyset_after(100, 0, 'ASC', 'ASC'), [('n', 'ASC'), ('m', 'ASC')],
                                   optimized=True)
-    union = to_dict(to_dict(optimized)['Child iterator'])
-    env.assertLess(union['Number of reading operations'], 2500, message=optimized)
+    opt_dict = to_dict(optimized)
+    env.assertEqual(opt_dict['Type'], 'OPTIMIZER', message=optimized)
+    env.assertNotIn('Child iterator', opt_dict, message=optimized)
+
+
+@skip(cluster=True)
+def testOptimizerLiftedKeysetUnionShapes(env):
+    """Lifted keyset/lexicographic unions match plain WITHCOUNT across:
+    - keyset union with an outer tag filter,
+    - 3-key nested lexicographic cursor,
+    - two-sided bounded lexicographic range (lower + upper boundary branches),
+    - disjoint pure numeric union (no boundary branches at all),
+    - boundary-only / empty-interior pages.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA',
+            'a', 'NUMERIC', 'SORTABLE',
+            'b', 'NUMERIC', 'SORTABLE',
+            'c', 'NUMERIC', 'SORTABLE',
+            't', 'TAG')
+
+    pipe = conn.pipeline(transaction=False)
+    for i in range(600):
+        pipe.execute_command('HSET', f'd{i:04d}',
+                             'a', i // 12,
+                             'b', (i // 3) % 4,
+                             'c', i % 3,
+                             't', 'x' if i % 3 == 0 else 'y')
+    pipe.execute()
+
+    cases = [
+        # Outer filter + 2-key keyset cursor (ASC and DESC)
+        ('@t:{x} ( @a:[(10 +inf] | ( @a:[10 10] @b:[(1 +inf] ) )',
+         [('a', 'ASC'), ('b', 'ASC')]),
+        ('@t:{x} ( @a:[-inf (40] | ( @a:[40 40] @b:[-inf (2] ) )',
+         [('a', 'DESC'), ('b', 'DESC')]),
+        # 3-key nested lexicographic cursor
+        ('@a:[(15 +inf] | ( @a:[15 15] ( @b:[(1 +inf] | ( @b:[1 1] @c:[(0 +inf] ) ) )',
+         [('a', 'ASC'), ('b', 'ASC'), ('c', 'ASC')]),
+        ('@a:[-inf (35] | ( @a:[35 35] ( @b:[-inf (2] | ( @b:[2 2] @c:[-inf (2] ) ) )',
+         [('a', 'DESC'), ('b', 'DESC'), ('c', 'DESC')]),
+        # Two-sided bounded lexicographic range: (10, 1) < (a, b) < (25, 2)
+        ('@a:[(10 (25] | ( @a:[10 10] @b:[(1 +inf] ) | ( @a:[25 25] @b:[-inf (2] )',
+         [('a', 'ASC'), ('b', 'ASC')]),
+        ('@a:[(10 (25] | ( @a:[10 10] @b:[(1 +inf] ) | ( @a:[25 25] @b:[-inf (2] )',
+         [('a', 'DESC'), ('b', 'DESC')]),
+        # Disjoint pure numeric union (no conditional boundary branches)
+        ('@a:[2 4] | @a:[45 47]', [('a', 'ASC'), ('b', 'ASC')]),
+        ('@a:[2 4] | @a:[45 47]', [('a', 'DESC'), ('b', 'DESC')]),
+        # Cursor past the end (empty result) and at the very last bucket (boundary-only)
+        ('@a:[(49 +inf] | ( @a:[49 49] @b:[(2 +inf] )', [('a', 'ASC'), ('b', 'ASC')]),
+        ('@a:[(49 +inf] | ( @a:[49 49] @b:[(9 +inf] )', [('a', 'ASC'), ('b', 'ASC')]),
+    ]
+
+    for query, sortby in cases:
+        for limit in (1, 5, 20):
+            env.assertEqual(
+                aggregate_sorted_keys(env, query, sortby, limit, optimized=True),
+                aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
+                message=f'{query} sorted by {sortby}, MAX {limit}',
+            )
 
 
 @skip(cluster=True)

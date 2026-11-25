@@ -22,7 +22,8 @@ use numeric_range_tree::RangeWindow;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    ExpirationChecker, NoOpChecker, RQEIteratorError,
+    ExpirationChecker, NoOpChecker, RQEIterator, RQEIteratorError, SkipToOutcome,
+    c2rust::CRQEIterator,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
 use top_k::{BatchStrategy, Offer, ScoreSource};
@@ -58,6 +59,79 @@ impl DocValidity for AllValid {
     #[inline(always)]
     fn is_valid(&self, _doc_id: DocId) -> bool {
         true
+    }
+}
+
+/// A numeric interval with open or closed endpoints, representing one pure
+/// numeric branch lifted out of a keyset/lexicographic union.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NumericRangeBound {
+    pub min: f64,
+    pub max: f64,
+    pub min_inclusive: bool,
+    pub max_inclusive: bool,
+}
+
+impl NumericRangeBound {
+    /// Whether `v` lies inside this interval.
+    #[inline]
+    pub fn contains(&self, v: f64) -> bool {
+        if self.min_inclusive {
+            if v < self.min {
+                return false;
+            }
+        } else if v <= self.min {
+            return false;
+        }
+        if self.max_inclusive {
+            v <= self.max
+        } else {
+            v < self.max
+        }
+    }
+}
+
+/// Residual filter for a lifted keyset/lexicographic union.
+///
+/// Any walked document whose sort value lies inside one of `unconditional`
+/// matches immediately in O(1); other documents (e.g. on the cursor boundary
+/// `a == a0`) must match `boundary`.
+struct UnionBoundaryFilter {
+    unconditional: Box<[NumericRangeBound]>,
+    boundary: Option<CRQEIterator>,
+    boundary_exhausted: bool,
+}
+
+impl UnionBoundaryFilter {
+    fn rewind_boundary(&mut self) {
+        if let Some(ref mut boundary) = self.boundary {
+            boundary.rewind();
+        }
+        self.boundary_exhausted = self.boundary.is_none();
+    }
+
+    fn matches(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
+        if self.unconditional.iter().any(|r| r.contains(score)) {
+            return Ok(true);
+        }
+        if self.boundary_exhausted {
+            return Ok(false);
+        }
+        let Some(ref mut boundary) = self.boundary else {
+            return Ok(false);
+        };
+        if boundary.last_doc_id() < doc_id {
+            match boundary.skip_to(doc_id)? {
+                Some(SkipToOutcome::Found(_)) => Ok(true),
+                Some(SkipToOutcome::NotFound(_)) => Ok(false),
+                None => {
+                    self.boundary_exhausted = true;
+                    Ok(false)
+                }
+            }
+        } else {
+            Ok(boundary.last_doc_id() == doc_id)
+        }
     }
 }
 
@@ -198,6 +272,9 @@ struct NumericScan<'index> {
     /// finishes with `heap.len() < k`. For unfiltered (elided wildcard) walks,
     /// this enumerates live unscored document IDs directly from the doc table.
     unscored_live_docs: Option<UnscoredLiveDocsFn>,
+    /// Residual filter when pure numeric branches of a keyset union were lifted
+    /// out of the main query tree.
+    union_filter: Option<UnionBoundaryFilter>,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -235,6 +312,7 @@ impl<'index> NumericScoreSource<'index> {
                 num_iterations: 0,
                 optimizer_mode: NumericOptimizerMode::PartialRange,
                 unscored_live_docs: None,
+                union_filter: None,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -306,6 +384,22 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     /// enumerate live unscored document IDs when no filter child is present.
     pub fn with_collect_missing(mut self, live_docs: UnscoredLiveDocsFn) -> Self {
         self.scan.unscored_live_docs = Some(live_docs);
+        self
+    }
+
+    /// Attach a lifted keyset-union filter: values in `unconditional` match in
+    /// O(1), while values outside them must match `boundary`.
+    pub fn with_union_filter(
+        mut self,
+        unconditional: Box<[NumericRangeBound]>,
+        boundary: Option<CRQEIterator>,
+    ) -> Self {
+        let boundary_exhausted = boundary.is_none();
+        self.scan.union_filter = Some(UnionBoundaryFilter {
+            unconditional,
+            boundary,
+            boundary_exhausted,
+        });
         self
     }
 
@@ -409,7 +503,15 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     type Batch = NumericScoreBatch<'index>;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        Ok(self.scan.ranges.next_n(self.scan.range_batch_size))
+        let batch = self.scan.ranges.next_n(self.scan.range_batch_size);
+        if batch.is_some()
+            && let Some(ref mut uf) = self.scan.union_filter
+        {
+            // Each batch yields doc IDs in ascending order, independent of the
+            // previous batch's doc-ID range, so align `boundary` to the start.
+            uf.rewind_boundary();
+        }
+        Ok(batch)
     }
 
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -418,6 +520,11 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 
     fn accept_candidate(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
         self.timeout.check_timeout()?;
+        if let Some(ref mut uf) = self.scan.union_filter
+            && !uf.matches(doc_id, score)?
+        {
+            return Ok(false);
+        }
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
         // range tree only sheds at GC time. Missing-value candidates (`score.is_nan()`)
@@ -448,6 +555,17 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 
     fn release_index_handles(&mut self) {
         self.scan.ranges.release_index_handles();
+        if let Some(ref mut uf) = self.scan.union_filter {
+            uf.boundary = None;
+            uf.boundary_exhausted = true;
+        }
+    }
+
+    fn finish_collection(&mut self) {
+        if let Some(ref mut uf) = self.scan.union_filter {
+            uf.boundary = None;
+            uf.boundary_exhausted = true;
+        }
     }
 
     fn can_collect_after_lock_release(&self) -> bool {
@@ -502,6 +620,9 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         scan.heap_old_size = 0;
         scan.ranges.forget_retained();
         scan.ranges.refind(scan.initial_window);
+        if let Some(ref mut uf) = scan.union_filter {
+            uf.rewind_boundary();
+        }
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
