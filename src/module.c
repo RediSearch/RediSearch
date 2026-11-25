@@ -2186,6 +2186,9 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchRequestFree");
 #endif
+  if (r->failReplyCtx) {
+    RedisModule_FreeThreadSafeContext(r->failReplyCtx);
+  }
   CoordSearchReducer_Free(r);
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
@@ -3199,7 +3202,15 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   // RETURN-STRICT may own reduction on main; only the result owner can publish an error.
   if (QueryRequest_TryClaimResults(request)) {
     QueryError_CloneFrom(status, &request->reply.err);
-    QueryRequest_SignalResultsComplete(request);
+    searchRequestCtx *req = QueryRequest_GetSearch(request);
+    if (req->serializeInReplyCallback) {
+      QueryRequest_SignalResultsComplete(request);
+    } else if (!QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)) {
+      RedisModule_ReplyWithError(req->failReplyCtx, QueryError_GetUserError(&request->reply.err));
+#ifdef ENABLE_ASSERT
+      SyncPoint_Wait("CoordSearchReplySerialized");
+#endif
+    }
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or
   // leaks
@@ -3407,8 +3418,16 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
     queryTimeout = 0;
   }
 
-  return BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback,
-                                     queryTimeout);
+  RedisModuleBlockedClient *bc =
+      BlockQueryClientWithTimeout(ctx, request, CoordSearchReducer_Reply, timeoutCallback, queryTimeout);
+  searchRequestCtx *req = QueryRequest_GetSearch(request);
+  req->serializeInReplyCallback =
+      request->limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
+  if (!req->serializeInReplyCallback) {
+    // The reply context snapshots the live client before the worker is dispatched.
+    req->failReplyCtx = RedisModule_GetThreadSafeContext(bc);
+  }
+  return bc;
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

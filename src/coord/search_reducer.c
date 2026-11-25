@@ -792,6 +792,12 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results");  // >results
 
+#ifdef ENABLE_ASSERT
+    if (!req->serializeInReplyCallback && req->failReplyCtx != NULL) {
+      SyncPoint_Wait("CoordSearchReplyStarted");
+    }
+#endif
+
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload +
                            (req->withSortingKeys && req->withSortby) + !req->noContent;
@@ -840,6 +846,12 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   else  // RESP2
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
+
+#ifdef ENABLE_ASSERT
+    if (!req->serializeInReplyCallback && req->failReplyCtx != NULL) {
+      SyncPoint_Wait("CoordSearchReplyStarted");
+    }
+#endif
 
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
       searchResult *res = results[pos];
@@ -950,12 +962,61 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
   }
 }
 
+// Keeps errors for completion accounting and consumes successful reduced results.
+static void serializeSearchReply(RedisModule_Reply *reply, searchRequestCtx *req) {
+  QueryError *status = &req->base.reply.err;
+  if (QueryError_HasError(status)) {
+    RedisModule_Reply_Error(reply, QueryError_GetUserError(status));
+    RedisModule_EndReply(reply);
+    return;
+  }
+
+  struct MRCtx *mrctx = req->mrctx;
+  if (MRCtx_GetNumReplied(mrctx) == 0) {
+    RedisModule_Reply_Error(reply, "Could not send query to cluster");
+    RedisModule_EndReply(reply);
+    return;
+  }
+
+  searchReducerCtx *rCtx = req->rctx;
+  RS_ASSERT(rCtx != NULL);
+
+  if (req->profileArgs > 0) {
+    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
+                       &req->profileClock, rs_wall_clock_now_ns());
+  } else {
+    sendSearchResults(reply, rCtx);
+  }
+  RedisModule_EndReply(reply);
+}
+
+static void replyFailSearchOnWorker(searchRequestCtx *req) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+    return;
+  }
+
+  RS_ASSERT(req->failReplyCtx != NULL);
+  RedisModule_Reply reply = {
+      .ctx = req->failReplyCtx,
+      .resp3 = MRCtx_GetCommandProtocol(req->mrctx) == 3,
+  };
+  serializeSearchReply(&reply, req);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("CoordSearchReplySerialized");
+#endif
+}
+
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchResultReducer(req, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+  if (!req->serializeInReplyCallback &&
+      (MRCtx_GetNumReplied(mc) > 0 || QueryError_HasError(&req->base.reply.err))) {
+    replyFailSearchOnWorker(req);
+  }
   // The worker owns blocked-client completion even when timeout owns the reply.
-  RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), &req->base);
+  RedisModule_UnblockClient(bc, &req->base);
   MRCtx_DecrRef(mc);
 }
 
@@ -1154,7 +1215,10 @@ cleanup:
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+  const bool measureOnMain =
+      !req->serializeInReplyCallback && count > 0;
+  if (bc && !fromTimeout && !measureOnMain &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
   QueryRequest_SignalResultsComplete(&req->base);
@@ -1173,40 +1237,33 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     searchRequestCtx *req = QueryRequest_GetSearch(request);
     struct MRCtx *mrctx = req->mrctx;
 
-    // Check if we have an error and return it
+    // Preparation and no-reply paths record their duration before unblocking.
+    if (!req->serializeInReplyCallback && MRCtx_GetNumReplied(mrctx) > 0) {
+      RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
+    }
+    if (req->serializeInReplyCallback) {
+      RedisModule_Reply reply = RedisModule_NewReply(ctx);
+      serializeSearchReply(&reply, req);
+    }
+
+    // Execution errors were already encoded by the selected serializer.
     if (QueryError_HasError(&request->reply.err)) {
       // Track error in global statistics
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&request->reply.err), 1,
                                          COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &request->reply.err);
+      QueryError_ClearError(&request->reply.err);
       return REDISMODULE_OK;
     }
 
     if (MRCtx_GetNumReplied(mrctx) == 0) {
       // Can happen in a topology error, before or after we sent the command to the cluster
-      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      if (!req->serializeInReplyCallback) {
+        RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      }
       return REDISMODULE_OK;
     }
 
-    searchReducerCtx *rCtx = req->rctx;
-    // If NumReplied > 0 we expect ReducerCtx to be initialized
-    RS_ASSERT(rCtx)
-
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    if (req->profileArgs > 0) {
-      // Profile command
-      profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
-                         &req->profileClock, rs_wall_clock_now_ns());
-    } else {
-      // Non-profile command
-      sendSearchResults(reply, rCtx);
-    }
-
-    RedisModule_EndReply(reply);
-
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
-    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
+    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, rs_wall_clock_elapsed_ns(&req->initClock));
   }
   return REDISMODULE_OK;
 }
