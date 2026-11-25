@@ -8,15 +8,15 @@
 */
 
 use nested_index::{
-    Element, FloatCompression, IndexDelta, IndexError, IndexParams, Level, NestedIndex, PathError,
-    TagLevel, Terminal, TerminalKind, TerminalValue,
+    Element, FloatCompression, IndexDelta, IndexError, IndexParams, NestedIndex, TagLevel,
+    Terminal, TerminalKind, TerminalValue,
 };
 use numeric_range_tree::NumericRangeTree;
 
 use crate::util::{PARAMS, elements, item, materials, priced, tag, tag_value};
 
 fn numeric_terminal<'a>(index: &'a NestedIndex, color: &str, size: &str) -> &'a NumericRangeTree {
-    match index.routing().get(&[tag(color), tag(size)]).unwrap() {
+    match index.routing().get(&[tag(color), tag(size)]) {
         Some(Terminal::Numeric(tree)) => tree,
         other => panic!("expected a numeric terminal at ({color}, {size}), got {other:?}"),
     }
@@ -26,7 +26,7 @@ fn tag_terminal<'a>(
     index: &'a NestedIndex,
     color: &str,
 ) -> &'a tag_index::TagIndex<tag_index::InMemoryMode> {
-    match index.routing().get(&[tag(color)]).unwrap() {
+    match index.routing().get(&[tag(color)]) {
         Some(Terminal::Tag(tags)) => tags,
         other => panic!("expected a tag terminal at ({color}), got {other:?}"),
     }
@@ -160,11 +160,8 @@ fn tag_deltas_add_up_to_the_posting_lists() {
 #[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn float_compression_stores_values_in_less_memory() {
     let size_with = |compression| {
-        let mut index = NestedIndex::new(
-            vec![Level::Tag(TagLevel::new())],
-            TerminalKind::Numeric(compression),
-        )
-        .unwrap();
+        let mut index =
+            NestedIndex::new(vec![TagLevel::new()], TerminalKind::Numeric(compression)).unwrap();
         let path = [tag("red")];
         let total = sum((1..=500u64).map(|doc| {
             // Not exact as an f32, but within the compression threshold of one: stored as an
@@ -302,27 +299,6 @@ fn rejected_documents_leave_the_index_unchanged() {
             ],
             IndexError::NotANumber { element: 1 },
         ),
-        (
-            "a path that does not route, after one that does",
-            priced(None),
-            vec![
-                Element {
-                    path: &red_m,
-                    value: one,
-                },
-                Element {
-                    path: &red_m[..1],
-                    value: one,
-                },
-            ],
-            IndexError::Path {
-                element: 1,
-                error: PathError::WrongLength {
-                    expected: 2,
-                    got: 1,
-                },
-            },
-        ),
     ];
     for (name, mut index, doc, expected) in cases {
         assert_eq!(
@@ -355,8 +331,8 @@ fn a_terminals_overhead_does_not_grow_with_its_postings() {
     }];
     prices.index_document(1, &numeric_doc(1.0), PARAMS).unwrap();
     materials.index_document(1, &tag_doc, PARAMS).unwrap();
-    let numeric_overhead = prices.routing().get(&red_m).unwrap().unwrap().mem_usage();
-    let tag_overhead = materials.routing().get(&red).unwrap().unwrap().mem_usage();
+    let numeric_overhead = prices.routing().get(&red_m).unwrap().mem_usage();
+    let tag_overhead = materials.routing().get(&red).unwrap().mem_usage();
 
     for doc in 2..=200u64 {
         prices
@@ -365,11 +341,11 @@ fn a_terminals_overhead_does_not_grow_with_its_postings() {
         materials.index_document(doc, &tag_doc, PARAMS).unwrap();
     }
     assert_eq!(
-        prices.routing().get(&red_m).unwrap().unwrap().mem_usage(),
+        prices.routing().get(&red_m).unwrap().mem_usage(),
         numeric_overhead
     );
     assert_eq!(
-        materials.routing().get(&red).unwrap().unwrap().mem_usage(),
+        materials.routing().get(&red).unwrap().mem_usage(),
         tag_overhead
     );
 }

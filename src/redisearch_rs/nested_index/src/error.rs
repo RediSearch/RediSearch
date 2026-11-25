@@ -11,14 +11,6 @@
 /// A rejected document leaves the index unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum IndexError {
-    /// An element's path does not route.
-    #[error("element {element}: {error}")]
-    Path {
-        /// The position of the element in the document.
-        element: usize,
-        /// Why its path does not route.
-        error: compound_index::PathError,
-    },
     /// The document's paths together need more distinct values under one node than its level's
     /// cardinality limit allows. No single element is at fault.
     #[error("the document needs more than {max} distinct values on level {level} under one path")]

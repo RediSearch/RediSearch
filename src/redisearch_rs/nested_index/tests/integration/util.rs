@@ -10,15 +10,14 @@
 use std::num::NonZeroUsize;
 
 use nested_index::{
-    Element, FloatCompression, IndexParams, Key, Level, NestedIndex, TagLevel, TerminalKind,
-    TerminalValue,
+    Element, FloatCompression, IndexParams, NestedIndex, TagLevel, TerminalKind, TerminalValue,
 };
 use tag_index::Tag;
 
 pub const PARAMS: IndexParams = IndexParams { max_depth_range: 0 };
 
-pub const fn tag(value: &str) -> Key<'_> {
-    Key::Tag(value.as_bytes())
+pub const fn tag(value: &str) -> &[u8] {
+    value.as_bytes()
 }
 
 pub fn tag_value(value: &str) -> TerminalValue<'_> {
@@ -32,7 +31,7 @@ pub fn priced(max_sizes: Option<usize>) -> NestedIndex {
         None => TagLevel::new(),
     };
     NestedIndex::new(
-        vec![Level::Tag(TagLevel::new()), Level::Tag(size)],
+        vec![TagLevel::new(), size],
         TerminalKind::Numeric(FloatCompression::Off),
     )
     .unwrap()
@@ -40,12 +39,12 @@ pub fn priced(max_sizes: Option<usize>) -> NestedIndex {
 
 /// A `color` tag level over a tag `material` terminal.
 pub fn materials() -> NestedIndex {
-    NestedIndex::new(vec![Level::Tag(TagLevel::new())], TerminalKind::Tag).unwrap()
+    NestedIndex::new(vec![TagLevel::new()], TerminalKind::Tag).unwrap()
 }
 
 /// An element `(color, size) → price` of a [`priced`] index.
 pub struct Item {
-    pub path: [Key<'static>; 2],
+    pub path: [&'static [u8]; 2],
     pub price: f64,
 }
 

@@ -16,7 +16,7 @@
 //! tag constraints and runs the price range in each, so a doc matches only when one element
 //! satisfies every condition.
 
-use compound_index::{CompoundIndex, Constraint, Key, Level, TagLevel};
+use compound_index::{CompoundIndex, Constraint, TagLevel, TagSet};
 use index_result::RSIndexResult;
 use inverted_index::{IndexReader as _, NumericFilter};
 use numeric_range_tree::NumericRangeTree;
@@ -27,16 +27,16 @@ use crate::util::tag;
 type PriceIndex = CompoundIndex<NumericRangeTree>;
 
 fn tag_in<'a>(values: &[&'a str]) -> Constraint<'a> {
-    Constraint::TagIn(values.iter().map(|value| value.as_bytes()).collect())
+    Constraint::TagIn(TagSet::new(values.iter().map(|value| value.as_bytes())))
 }
 
 fn tag_levels(n: usize) -> PriceIndex {
-    PriceIndex::new((0..n).map(|_| Level::Tag(TagLevel::new())).collect()).unwrap()
+    PriceIndex::new((0..n).map(|_| TagLevel::new()).collect()).unwrap()
 }
 
 /// Indexes one element of `doc`: routes `path` to its tree, creating an empty one for a new
 /// path, then posts `price` there.
-fn post(index: &mut PriceIndex, path: &[Key<'_>], doc: u64, price: f64) {
+fn post(index: &mut PriceIndex, path: &[&[u8]], doc: u64, price: f64) {
     let tree = index
         .get_or_insert_with(path, || NumericRangeTree::new(false))
         .unwrap();
@@ -99,10 +99,10 @@ fn one_tag_level_gives_each_value_its_own_tree() {
 
     // One tree per color, each holding only that color's prices.
     assert_eq!(index.num_terminals(), 2);
-    let red = index.get(&[tag("red")]).unwrap().unwrap();
+    let red = index.get(&[tag("red")]).unwrap();
     assert_eq!(red.num_entries(), 4);
     assert!(red.has_multivalued_docs(), "doc 4 has two red items");
-    assert_eq!(index.get(&[tag("blue")]).unwrap().unwrap().num_entries(), 2);
+    assert_eq!(index.get(&[tag("blue")]).unwrap().num_entries(), 2);
 
     assert_eq!(query(&index, &[tag_in(&["red"])], 0.0, 50.0), [1, 4]);
     assert_eq!(
@@ -135,8 +135,8 @@ fn two_tag_levels_keep_an_elements_values_together() {
 
     // Every (color, size) pair owns a tree; red's M and L items are in different ones.
     assert_eq!(index.num_terminals(), 4);
-    let red_m = index.get(&[tag("red"), tag("M")]).unwrap().unwrap();
-    let red_l = index.get(&[tag("red"), tag("L")]).unwrap().unwrap();
+    let red_m = index.get(&[tag("red"), tag("M")]).unwrap();
+    let red_l = index.get(&[tag("red"), tag("L")]).unwrap();
     assert_eq!((red_m.num_entries(), red_l.num_entries()), (1, 1));
 
     assert_eq!(

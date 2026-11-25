@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{CheckPathsError, CompoundIndex, Key, Level, SchemaError};
+use compound_index::{CardinalityExceeded, CompoundIndex, SchemaError, TagLevel};
 use rqe_core::DocId;
 
 use crate::{IndexError, Terminal, TerminalKind, TerminalValue};
@@ -15,8 +15,9 @@ use crate::{IndexError, Terminal, TerminalKind, TerminalValue};
 /// One element of a document, as the index stores it.
 #[derive(Debug, Clone, Copy)]
 pub struct Element<'a> {
-    /// The element's values on the routing levels, one [`Key`] per level.
-    pub path: &'a [Key<'a>],
+    /// The element's tag values on the routing levels, one per level, already normalised by the
+    /// caller (case folding).
+    pub path: &'a [&'a [u8]],
     /// The element's value for the last attribute.
     pub value: TerminalValue<'a>,
 }
@@ -58,7 +59,7 @@ pub struct NestedIndex {
 
 impl NestedIndex {
     /// An empty index with the given routing levels and terminal kind.
-    pub fn new(levels: Vec<Level>, terminal_kind: TerminalKind) -> Result<Self, SchemaError> {
+    pub fn new(levels: Vec<TagLevel>, terminal_kind: TerminalKind) -> Result<Self, SchemaError> {
         Ok(Self {
             routing: CompoundIndex::new(levels)?,
             terminal_kind,
@@ -85,12 +86,15 @@ impl NestedIndex {
     ///
     /// `doc_id` must be greater than every doc id indexed before, as for any posting list; the
     /// doc table guarantees it. Everything else is checked first: each element's value must have
-    /// the terminal's type and not be NaN, and all the document's paths must route and fit the
-    /// cardinality limits together. Only then is anything written, so an error leaves the index
-    /// unchanged.
+    /// the terminal's type and not be NaN, and all the document's paths must fit the cardinality
+    /// limits together. Only then is anything written, so an error leaves the index unchanged.
     ///
     /// Several elements of one document may share a path; their values all land in the same
     /// terminal.
+    ///
+    /// # Panics
+    ///
+    /// If an element's path does not have one value per routing level.
     pub fn index_document(
         &mut self,
         doc_id: DocId,
@@ -107,18 +111,12 @@ impl NestedIndex {
                 return Err(IndexError::NotANumber { element: position });
             }
         }
-        let paths: Vec<&[Key<'_>]> = elements.iter().map(|element| element.path).collect();
+        let paths: Vec<&[&[u8]]> = elements.iter().map(|element| element.path).collect();
         self.routing
             .check_paths(&paths)
-            .map_err(|error| match error {
-                CheckPathsError::Path { position, error } => IndexError::Path {
-                    element: position,
-                    error,
-                },
-                CheckPathsError::CardinalityExceeded { level, max } => {
-                    IndexError::CardinalityExceeded { level, max }
-                }
-            })?;
+            .map_err(
+                |CardinalityExceeded { level, max }| IndexError::CardinalityExceeded { level, max },
+            )?;
 
         let kind = self.terminal_kind;
         let mut delta = IndexDelta::default();
