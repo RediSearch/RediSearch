@@ -2435,9 +2435,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self) {
   // Save the last return code from the upstream.
   self->last_rc = rc;
   if (rc == RS_RESULT_STOPPED) {
-    // oomCut is written here, on the depleting thread: the consumer reads it only after observing
-    // done_depleting under the sync lock, which orders this write before the read. A blocked-client
-    // timeout wins over an OOM stop, so it records no OOM cut.
+    // A blocked-client timeout wins over an OOM stop, so it records no OOM cut.
     if (!QueryRequestLimits_IsBlockedClientTimedOut(self->depletingThreadCtx->limits)) {
       RP_HoldStop(&self->base);
     }
@@ -2783,10 +2781,7 @@ static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnC
   return false;
 }
 
-/* Whether the merged rows end on a timeout. An upstream stopped for OOM ended its rows by design:
- * under ON_OOM FAIL RPHybridMerger_StopFails already ended the query, and under RETURN the tail
- * must not apply its timeout policy to them; the reply maps the stop from the subquery's own
- * reason and return code. */
+/* Whether an upstream ended on a stop that is not a memory stop. */
 static bool RPHybridMerger_TimedOut(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     const QueryProcessingCtx *parent = self->upstreams[i]->parent;
@@ -2803,7 +2798,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
-/* Whether a stop ends the query without yielding: each timed-out upstream applies its own
+/* Whether a stop ends the query without yielding: each stopped upstream applies its own
  * subquery's stop policy, so an OOM stop there follows ON_OOM. */
 static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {

@@ -758,7 +758,7 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
  * callback owns the reply, so it is not second-guessed here.
  */
 static void stopBeforeReply(AREQ *req, QueryProcessingCtx *qctx, const ChunkSerializeState *state,
-                             int rc) {
+                            int rc) {
   if (state->results != NULL && !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
       (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) && !QueryError_HasError(qctx->err)) {
     StoredResults_StopBeforeReply(&req->base.limits, req->base.reqConfig.oomPolicy, qctx->err);
@@ -809,10 +809,8 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       goto done_2;
     }
 
-    while (
-        --rp->parent->resultLimit &&
-        !RP_ReadShouldStop(rp->parent, &rc) &&
-        (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
+    while (--rp->parent->resultLimit && !PipelineRead_ShouldStop(rp->parent, &rc) &&
+           (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
       serializeResult(req, reply, state->r, cv, &schema);
       SearchResult_Clear(state->r);
     }
@@ -1050,8 +1048,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
         goto done_3;
       }
 
-      while (--rp->parent->resultLimit &&
-             !RP_ReadShouldStop(rp->parent, &rc) &&
+      while (--rp->parent->resultLimit && !PipelineRead_ShouldStop(rp->parent, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
         SearchResult_Clear(state->r);

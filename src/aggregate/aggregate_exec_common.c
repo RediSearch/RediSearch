@@ -97,7 +97,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *limits, RSOomPoli
          !QueryRequestLimits_IsBlockedClientTimedOut(limits);
 }
 
-bool RP_ReadShouldStop(QueryProcessingCtx *qctx, int *rc) {
+bool PipelineRead_ShouldStop(QueryProcessingCtx *qctx, int *rc) {
   QueryRequestLimits *limits = qctx->limits;
   if (!QueryMemory_Checkpoint(limits)) {
     return false;
@@ -176,7 +176,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      }
      // These rows are what fills memory. Not on the row that fills the limit, which would end a
      // full cursor chunk: startPipelineCommon checks the stop after.
-     if (rp->parent->resultLimit && RP_ReadShouldStop(rp->parent, rc)) {
+     if (rp->parent->resultLimit && PipelineRead_ShouldStop(rp->parent, rc)) {
        break;
      }
    }
