@@ -25,7 +25,7 @@ use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIteratorError,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{BatchStrategy, ScoreSource};
+use top_k::{BatchStrategy, Offer, ScoreSource};
 
 use crate::range_iterator::{NumericRangeIterator, NumericTreeRef};
 use crate::score_batch::NumericScoreBatch;
@@ -168,9 +168,9 @@ pub struct NumericScoreSource<
     timeout: T,
 }
 
-/// Callback collecting live document IDs that are not yet in the heap when an
-/// unbounded unfiltered walk finishes short of `k`.
-pub type UnscoredLiveDocsFn = Box<dyn Fn(usize, &dyn Fn(DocId) -> bool) -> Vec<DocId>>;
+/// Callback streaming live document IDs for unfiltered missing-value
+/// collection, stopping early as soon as the visitor returns `false`.
+pub type UnscoredLiveDocsFn = Box<dyn Fn(usize, &mut dyn FnMut(DocId) -> bool)>;
 
 /// Scan state is independent of the query's validity, expiration and timeout
 /// policies, so replacing a policy transfers this state unchanged.
@@ -458,14 +458,38 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.scan.unscored_live_docs.is_some()
     }
 
-    fn unscored_live_docs(
-        &self,
+    fn for_each_unscored_live_doc(
+        &mut self,
         heap_count: usize,
         is_valued: &dyn Fn(DocId) -> bool,
-    ) -> Vec<DocId> {
-        match self.scan.unscored_live_docs {
-            Some(ref f) => f(heap_count, is_valued),
-            None => Vec::new(),
+        on_accepted: &mut dyn FnMut(DocId) -> Offer,
+    ) -> Result<(), RQEIteratorError> {
+        let Some(streamer) = self.scan.unscored_live_docs.take() else {
+            return Ok(());
+        };
+        let mut err: Option<RQEIteratorError> = None;
+        streamer(heap_count, &mut |doc_id| {
+            if is_valued(doc_id) {
+                return true;
+            }
+            match self.accept_candidate(doc_id, f64::NAN) {
+                Ok(true) => {
+                    if let Offer::Inserted { evicted } = on_accepted(doc_id) {
+                        self.admitted(doc_id, evicted);
+                    }
+                    true
+                }
+                Ok(false) => true,
+                Err(e) => {
+                    err = Some(e);
+                    false
+                }
+            }
+        });
+        self.scan.unscored_live_docs = Some(streamer);
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
         }
     }
 

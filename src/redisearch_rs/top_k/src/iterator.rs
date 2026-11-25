@@ -714,12 +714,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 }
             }
         } else {
-            let candidates = self.source.unscored_live_docs(self.heap.len(), &is_valued);
-            for doc_id in candidates {
-                if self.source.accept_candidate(doc_id, f64::NAN)? {
-                    offer_accepted(&mut self.heap, &mut self.source, doc_id, f64::NAN, || None);
-                }
-            }
+            let heap = &mut self.heap;
+            self.source
+                .for_each_unscored_live_doc(heap.len(), &is_valued, &mut |doc_id| {
+                    heap.push_with_record_lazy(doc_id, f64::NAN, || None)
+                })?;
         }
         Ok(())
     }

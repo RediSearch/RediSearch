@@ -16,7 +16,7 @@ use std::{cmp::Ordering, ffi::c_void, ptr::NonNull, sync::Arc};
 
 use document_metadata::OwnedDocumentMetadata;
 use ffi::{
-    DocTable, DocTable_Borrow, DocTable_ForEachLiveId, DocTable_IsVisible, QueryIterator,
+    DocTable, DocTable_Borrow, DocTable_ForEachLiveIdUntil, DocTable_IsVisible, QueryIterator,
     RedisSearchCtx,
 };
 use field::FieldFilterContext;
@@ -229,32 +229,30 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
         },
     );
     let unscored_live_docs = collect_missing.then(|| {
-        let f: numeric_score_source::UnscoredLiveDocsFn = Box::new(move |heap_count, is_valued| {
+        let f: numeric_score_source::UnscoredLiveDocsFn = Box::new(move |heap_count, visit| {
             // SAFETY: 4 keeps `docs` valid for the iterator's lifetime under the spec read lock.
-            let live_docs = unsafe { (*docs).size };
+            // `DocTable.size` is 1-based (`NewDocTable` starts it at 1), so live count is `size - 1`.
+            let live_docs = unsafe { (*docs).size }.saturating_sub(1);
             if heap_count >= live_docs {
-                return Vec::new();
+                return;
             }
-            struct CollectCtx<'a> {
-                is_valued: &'a dyn Fn(DocId) -> bool,
-                out: Vec<DocId>,
+            struct VisitCtx<'a> {
+                visit: &'a mut dyn FnMut(DocId) -> bool,
             }
-            unsafe extern "C" fn on_live_doc(ctx: *mut c_void, doc_id: DocId) {
-                // SAFETY: `ctx` points to `CollectCtx` on the stack of `DocTable_ForEachLiveId`.
-                let state = unsafe { &mut *ctx.cast::<CollectCtx<'_>>() };
-                if !(state.is_valued)(doc_id) {
-                    state.out.push(doc_id);
-                }
+            unsafe extern "C" fn on_live_doc(ctx: *mut c_void, doc_id: DocId) -> bool {
+                // SAFETY: `ctx` points to `VisitCtx` on the stack of `DocTable_ForEachLiveIdUntil`.
+                let state = unsafe { &mut *ctx.cast::<VisitCtx<'_>>() };
+                (state.visit)(doc_id)
             }
-            let mut ctx = CollectCtx {
-                is_valued,
-                out: Vec::new(),
-            };
+            let mut ctx = VisitCtx { visit };
             // SAFETY: `docs` is valid under the read lock; `on_live_doc` only touches `ctx`.
             unsafe {
-                DocTable_ForEachLiveId(docs, Some(on_live_doc), (&raw mut ctx).cast::<c_void>());
+                DocTable_ForEachLiveIdUntil(
+                    docs,
+                    Some(on_live_doc),
+                    (&raw mut ctx).cast::<c_void>(),
+                );
             }
-            ctx.out
         });
         f
     });

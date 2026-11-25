@@ -375,19 +375,26 @@ pub trait ScoreSource {
         false
     }
 
-    /// Collect live unscored document IDs (not satisfying `is_valued`) when
+    /// Stream live unscored document IDs (not satisfying `is_valued`) into
+    /// `on_accepted` when
     /// [`collects_unscored_on_shortfall`](Self::collects_unscored_on_shortfall)
     /// runs without a filter child (e.g. an elided wildcard).
     ///
+    /// Each candidate is checked against `is_valued` and
+    /// [`accept_candidate`](Self::accept_candidate) (validity and timeout) on
+    /// the fly without buffering the table in memory, and enumeration stops
+    /// immediately on any [`RQEIteratorError`].
+    ///
     /// `heap_count` is the number of scored documents already in the heap; a
-    /// source that knows the live document count can return an empty `Vec` in
-    /// O(1) when `heap_count` already accounts for every live document.
-    fn unscored_live_docs(
-        &self,
+    /// source that knows the live document count can return in O(1) when
+    /// `heap_count` already accounts for every live document.
+    fn for_each_unscored_live_doc(
+        &mut self,
         _heap_count: usize,
         _is_valued: &dyn Fn(DocId) -> bool,
-    ) -> Vec<DocId> {
-        Vec::new()
+        _on_accepted: &mut dyn FnMut(DocId) -> crate::Offer,
+    ) -> Result<(), RQEIteratorError> {
+        Ok(())
     }
 
     /// Whether this source can still collect after the index spec read lock
