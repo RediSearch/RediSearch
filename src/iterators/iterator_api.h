@@ -10,6 +10,7 @@
 #ifndef __ITERATOR_API_H__
 #define __ITERATOR_API_H__
 
+#include <math.h>
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h" // IWYU pragma: keep
@@ -76,13 +77,6 @@ typedef struct QueryIterator {
   // end" after a revalidation. Clearing it is also what keeps the pointer safe: an
   // iterator that owns the result it hands out frees it on the way past the end, so a
   // pointer left behind would dangle rather than merely go stale.
-  //
-  // Caveat, until the port completes: `OptimizerIterator` and `HybridIterator` are still
-  // implemented in C and do not clear this field, so after they report EOF it keeps
-  // pointing at the last result they yielded. Both are slated to be replaced by the Rust
-  // `TopKIterator`, which clears it like every other Rust iterator; until then, a caller
-  // that inspects this field after a non-OK status may get a document it has already
-  // consumed instead of NULL. Check the status, not this field.
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
@@ -148,11 +142,72 @@ typedef struct QueryIterator {
    * Set by Rust iterators at construction time. C iterators set this to a
    * Rust-exported function. */
   void (*PrintProfile)(const struct QueryIterator *self, RsMapBuilder *map, RsProfilePrintCtx *ctx);
+
+  /* Score-bound hooks. All four are required, like `Read`: an iterator that reports no bounds
+   * sets them with `QueryIterator_SetNoScoreBounds`. */
+
+  /* Whether `CurrentMaxScore` can ever be finite for this tree. Fixed when the tree is built, so
+   * a caller may check it once. */
+  bool (*ReportsScoreBounds)(const struct QueryIterator *self);
+
+  /* Upper bound on the final score of the document the iterator is positioned on, under the
+   * query's scorer, computed only from data the iterator already holds: it must not cost I/O, and
+   * must never be less than the score the scorer would compute. `+INFINITY` means "unknown" and is
+   * always correct. `ReadWithThreshold` drops a document whose value cannot reach the threshold, so
+   * how tight it is decides how many candidates are dropped before their document is read. It
+   * covers this one document, where `CurrentBlockBound` covers a whole block: any value from the
+   * exact score up is valid, and the block maximum is the loosest useful one. The block maximum
+   * drops nothing beyond what skipping blocks already does; a per-document bound, or the exact
+   * score when computable, also drops weak documents inside kept blocks. It only decides drops: a
+   * kept candidate is still read and scored as usual, even when it is exact. Only valid while
+   * positioned on a result. */
+  double (*CurrentMaxScore)(const struct QueryIterator *self);
+
+  /* Bound on the scores of every document the iterator can yield from the current result up to
+   * `*lastDocId`, the end of the storage block that holds it. Returns false, leaving the outputs
+   * untouched, when there is no block to report. Only valid while positioned on a result. */
+  bool (*CurrentBlockBound)(const struct QueryIterator *self, t_docId *lastDocId, double *maxScore);
+
+  /* `Read`, except that the iterator may move past documents whose `CurrentMaxScore` is below
+   * `minCompetitiveScore` without yielding them; it never moves past a document that could reach
+   * it, and never yields a document whose `CurrentMaxScore` is below it, so the caller takes every
+   * result as competitive. Same post-conditions as `Read`. `minCompetitiveScore` is always
+   * positive (see `QueryProcessingCtx::minCompetitiveScore`): a caller without a threshold calls
+   * `Read`.
+   * `Default_ReadWithThreshold`, a plain `Read`, is only correct for an iterator that does not
+   * report bounds: one that does must implement this. */
+  IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.
   return VALIDATE_OK;
+}
+
+// The score-bound hooks of an iterator that reports no bounds.
+static inline bool Default_ReportsScoreBounds(const struct QueryIterator *self) {
+  return false;
+}
+
+static inline double Default_CurrentMaxScore(const struct QueryIterator *self) {
+  return INFINITY;
+}
+
+static inline bool Default_CurrentBlockBound(const struct QueryIterator *self, t_docId *lastDocId,
+                                             double *maxScore) {
+  return false;
+}
+
+static inline IteratorStatus Default_ReadWithThreshold(struct QueryIterator *self,
+                                                       double minCompetitiveScore) {
+  return self->Read(self);
+}
+
+static inline void QueryIterator_SetNoScoreBounds(QueryIterator *it) {
+  it->ReportsScoreBounds = Default_ReportsScoreBounds;
+  it->CurrentMaxScore = Default_CurrentMaxScore;
+  it->CurrentBlockBound = Default_CurrentBlockBound;
+  it->ReadWithThreshold = Default_ReadWithThreshold;
 }
 
 #endif
