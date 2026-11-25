@@ -2732,33 +2732,12 @@ static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
 }
 
-// Hash and compare borrowed RString views without requiring a NUL terminator.
-static uint64_t hybridResultKeyHash(const void *key) {
-  const RString *str = key;
-  return dictGenHashFunction(str->s, str->n);
-}
-
-static int hybridResultKeyCompare(void *privdata, const void *left, const void *right) {
-  const RString *a = left, *b = right;
-  return a->n == b->n && memcmp(a->s, b->s, a->n) == 0;
-}
-
-// Only inserted keys need owned storage; keep the view and bytes in one allocation.
-static void *hybridResultKeyDup(void *privdata, const void *key) {
-  const RString *src = key;
-  RString *copy = rm_malloc(sizeof(*copy) + src->n);
-  char *bytes = (char *)(copy + 1);
-  memcpy(bytes, src->s, src->n);
-  *copy = (RString){.s = bytes, .n = src->n};
-  return copy;
-}
-
 // Binary-safe document key -> HybridSearchResult mapping
 dictType dictTypeHybridSearchResult = {
-    .hashFunction = hybridResultKeyHash,
-    .keyDup = hybridResultKeyDup,
+    .hashFunction = rstringHashFunction,
+    .keyDup = rstringKeyDup,
     .valDup = NULL,
-    .keyCompare = hybridResultKeyCompare,
+    .keyCompare = rstringKeyCompare,
     .keyDestructor = stringsKeyDestructor,
     .valDestructor = hybridSearchResultValueDestructor,
 };

@@ -267,5 +267,12 @@ void* stringsKeyDup(void *privdata, const void *key);
 void* hiddenNameKeyDup(void *privdata, const void *key);
 void* redisStringsKeyDup(void *privdata, const void *key);
 
+/* Binary-safe RString keys: s must be non-NULL and readable for n bytes.
+ * Lookups borrow the view. rstringKeyDup copies the view and bytes into one
+ * allocation, without a terminator; release it with stringsKeyDestructor. */
+uint64_t rstringHashFunction(const void *key);
+int rstringKeyCompare(void *privdata, const void *key1, const void *key2);
+void *rstringKeyDup(void *privdata, const void *key);
+
 
 #endif /* __DICT_H */
