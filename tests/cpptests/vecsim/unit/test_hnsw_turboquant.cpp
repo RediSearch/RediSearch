@@ -12,6 +12,8 @@
 #include "vecsim/index_factories/hnsw_factory.h"
 #include "vecsim/index_factories/tiered_factory.h"
 #include "vecsim/quantization/turboquant_components.h"
+#include "vecsim/spaces/functions/AVX2_FMA.h"
+#include "vecsim/spaces/functions/AVX512F.h"
 #include "vecsim/vec_sim.h"
 #include "mock_thread_pool.h"
 #include "unit_test_utils.h"
@@ -526,6 +528,66 @@ TEST(TurboQuantRotation, DeterministicPerSeedAndDistinctAcrossSeeds) {
         std::sort(sorted.begin(), sorted.end());
         for (uint32_t i = 0; i < 768; ++i)
             EXPECT_EQ(sorted[i], i);
+    }
+}
+
+// Every SIMD kernel this CPU runs matches the scalar kernel on random codes, for both widths.
+TEST(TurboQuantKernels, SimdMatchesScalar) {
+    struct Kernels {
+        const char *name;
+        spaces::tq_packed_dot_t dot;
+        spaces::tq_packed_pair_dot_t pair;
+    };
+    for (unsigned bits : {2U, 3U}) {
+        std::vector<Kernels> kernels;
+#ifdef CPU_FEATURES_ARCH_X86_64
+        [[maybe_unused]] const auto features = cpu_features::GetX86Info().features;
+#ifdef OPT_AVX2_FMA
+        if (features.avx2 && features.fma3)
+            kernels.push_back({"AVX2_FMA", spaces::Choose_TQ_FP32_IP_implementation_AVX2_FMA(bits),
+                               spaces::Choose_TQ_TQ_IP_implementation_AVX2_FMA(bits)});
+#endif
+#ifdef OPT_AVX512F
+        if (features.avx512f)
+            kernels.push_back({"AVX512F", spaces::Choose_TQ_FP32_IP_implementation_AVX512F(bits),
+                               spaces::Choose_TQ_TQ_IP_implementation_AVX512F(bits)});
+#endif
+#endif
+#if defined(CPU_FEATURES_ARCH_AARCH64) && defined(__ARM_NEON)
+        kernels.push_back(
+            {"NEON",
+             bits == 2 ? turboquant_detail::packedDotNEON<2> : turboquant_detail::packedDotNEON<3>,
+             bits == 2 ? turboquant_detail::packedPairDotNEON<2>
+                       : turboquant_detail::packedPairDotNEON<3>});
+#endif
+        const auto scalar_dot =
+            bits == 2 ? turboquant_detail::packedDot<2> : turboquant_detail::packedDot<3>;
+        const auto scalar_pair =
+            bits == 2 ? turboquant_detail::packedPairDot<2> : turboquant_detail::packedPairDot<3>;
+        std::mt19937 rng(bits); // NOSONAR(S2245) test data
+        for (size_t dim : {64, 768, 1024}) {
+            std::vector<unsigned char> a(dim * bits / 8), b(dim * bits / 8);
+            for (auto &byte : a)
+                byte = static_cast<unsigned char>(rng());
+            for (auto &byte : b)
+                byte = static_cast<unsigned char>(rng());
+            const auto query = gaussianVector(dim, 7 + bits, 0.05f);
+            const auto rotated_mean = gaussianVector(dim, 9 + bits, 0.02f);
+            const auto centroids = gaussianVector(size_t(1) << bits, 11 + bits, 0.1f);
+            const auto *q = reinterpret_cast<const unsigned char *>(query.data());
+            const float dot = scalar_dot(a.data(), q, centroids.data(), dim);
+            const float pair = scalar_pair(a.data(), b.data(), centroids.data(), dim, 1.3f, 0.7f,
+                                           rotated_mean.data());
+            for (const auto &kernel : kernels) {
+                SCOPED_TRACE(::testing::Message()
+                             << kernel.name << " bits " << bits << " dim " << dim);
+                // Only the float summation order differs from the scalar loop.
+                EXPECT_NEAR(kernel.dot(a.data(), q, centroids.data(), dim), dot, 1e-5);
+                EXPECT_NEAR(kernel.pair(a.data(), b.data(), centroids.data(), dim, 1.3f, 0.7f,
+                                        rotated_mean.data()),
+                            pair, 1e-5);
+            }
+        }
     }
 }
 

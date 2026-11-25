@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "AVX512F.h"
+#include "vecsim/spaces/IP/IP_AVX512F_TQ.h"
 
 #include "vecsim/spaces/L2/L2_AVX512F_FP16.h"
 #include "vecsim/spaces/L2/L2_AVX512F_FP32.h"
@@ -78,5 +79,15 @@ dist_func_t<float> Choose_SQ8_FP16_L2_implementation_AVX512F(size_t dim) {
 }
 
 #include "implementation_chooser_cleanup.h"
+
+tq_packed_dot_t Choose_TQ_FP32_IP_implementation_AVX512F(unsigned bits) {
+    namespace tq = vecsim::quantization::turboquant_detail;
+    return bits == 2 ? tq::packedDotAVX512<2> : tq::packedDotAVX512<3>;
+}
+
+tq_packed_pair_dot_t Choose_TQ_TQ_IP_implementation_AVX512F(unsigned bits) {
+    namespace tq = vecsim::quantization::turboquant_detail;
+    return bits == 2 ? tq::packedPairDotAVX512<2> : tq::packedPairDotAVX512<3>;
+}
 
 } // namespace spaces

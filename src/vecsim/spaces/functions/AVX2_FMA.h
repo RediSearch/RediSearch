@@ -20,4 +20,8 @@ dist_func_t<float> Choose_SQ8_FP32_L2_implementation_AVX2_FMA(size_t dim);
 dist_func_t<float> Choose_SQ4_FP32_IP_implementation_AVX2_FMA(size_t dim);
 dist_func_t<float> Choose_SQ4_FP32_L2_implementation_AVX2_FMA(size_t dim);
 
+// TQ2/TQ3: packed codes against an FP32 rotated query, and packed codes against packed codes.
+tq_packed_dot_t Choose_TQ_FP32_IP_implementation_AVX2_FMA(unsigned bits);
+tq_packed_pair_dot_t Choose_TQ_TQ_IP_implementation_AVX2_FMA(unsigned bits);
+
 } // namespace spaces

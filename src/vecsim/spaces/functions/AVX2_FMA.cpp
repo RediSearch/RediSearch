@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "AVX2_FMA.h"
+#include "vecsim/spaces/IP/IP_AVX2_FMA_TQ.h"
 #include "vecsim/spaces/L2/L2_AVX2_FMA_SQ8_FP32.h"
 #include "vecsim/spaces/IP/IP_AVX2_FMA_SQ8_FP32.h"
 #include "vecsim/spaces/IP/IP_AVX2_FMA_SQ4_FP32.h"
@@ -46,5 +47,15 @@ dist_func_t<float> Choose_SQ4_FP32_L2_implementation_AVX2_FMA(size_t dim) {
 }
 
 #include "implementation_chooser_cleanup.h"
+
+tq_packed_dot_t Choose_TQ_FP32_IP_implementation_AVX2_FMA(unsigned bits) {
+    namespace tq = vecsim::quantization::turboquant_detail;
+    return bits == 2 ? tq::packedDotAVX2<2> : tq::packedDotAVX2<3>;
+}
+
+tq_packed_pair_dot_t Choose_TQ_TQ_IP_implementation_AVX2_FMA(unsigned bits) {
+    namespace tq = vecsim::quantization::turboquant_detail;
+    return bits == 2 ? tq::packedPairDotAVX2<2> : tq::packedPairDotAVX2<3>;
+}
 
 } // namespace spaces

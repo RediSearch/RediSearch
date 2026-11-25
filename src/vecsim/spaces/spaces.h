@@ -20,6 +20,13 @@ namespace spaces {
 template <typename RET_TYPE>
 using dist_func_t = RET_TYPE (*)(const void *, const void *, size_t);
 
+// TQ2/TQ3 packed inner products (see quantization/turboquant_kernels.h for the scalar ones):
+// codes against an FP32 rotated query, and codes against codes with norms and the rotated mean.
+using tq_packed_dot_t = float (*)(const unsigned char *, const unsigned char *, const float *,
+                                  size_t);
+using tq_packed_pair_dot_t = float (*)(const unsigned char *, const unsigned char *, const float *,
+                                       size_t, float, float, const float *);
+
 // Get the distance function for comparing vectors of type VecType1 and VecType2, for a given metric
 // and dimension. The returned function has the signature: dist(VecType1*, VecType2*, size_t) ->
 // DistType. VecType2 defaults to VecType1 when both vectors are of the same type. The alignment
