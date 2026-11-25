@@ -570,6 +570,92 @@ pub unsafe fn finish_resume_in_place<S, A>(
     })
 }
 
+/// Suspend a single-child decorator in place: drive its child's
+/// [`suspend`](RQEIteratorBoxed::suspend) through
+/// [`suspend_child_slot_in_place`], then relabel the decorator's allocation as
+/// its suspended form `S`.
+///
+/// Reusing the allocation keeps the child's address, which the C wrapper's
+/// cached `current` points into when the decorator delegates
+/// [`current`](crate::RQEIterator::current) to it. A whole-box cast alone is
+/// not enough: a type-erased child swaps its vtable on the transition.
+///
+/// # Safety
+///
+/// 1. `child` returns a pointer to the child field of the decorator it is
+///    given, formed with `&raw mut` and no reference.
+/// 2. `A` and `S` are the `Active` and `Suspended` instantiations of one
+///    `#[repr(C)]` struct whose fields other than the child carry no `Rf`
+///    except as zero-sized markers, so once the child slot holds an
+///    `I::Suspended` the allocation is a valid `S`.
+pub unsafe fn suspend_single_child<'index, A, I, S>(
+    this: Box<A>,
+    child: impl FnOnce(*mut A) -> *mut I,
+) -> Box<S>
+where
+    I: RQEIteratorBoxed<'index> + 'index,
+{
+    const { assert_layout_compatible::<A, S>() };
+    let raw = Box::into_raw(this);
+    let slot = NonNull::new(child(raw)).expect("a field of a `Box` allocation is non-null");
+    // SAFETY: `slot` points at the valid, exclusively-owned active child (1,
+    // and `raw` came from `Box::into_raw`); the helper leaves a valid
+    // `I::Suspended` in its place.
+    unsafe { suspend_child_slot_in_place(slot) };
+    // SAFETY: the allocation now holds a valid `S` (2), with the layout of `A`
+    // (checked above), and `raw` has no other owner.
+    unsafe { Box::from_raw(raw.cast::<S>()) }
+}
+
+/// Resume a single-child decorator in place: drive its child's
+/// [`resume`](RQESuspendedIterator::resume) through
+/// [`resume_child_slot_in_place`], then relabel the decorator's allocation as
+/// its active form `A`, mirroring the child's outcome.
+///
+/// When the child aborts or fails it is gone; `drop_rest` then drops the
+/// decorator's other fields and the allocation is freed.
+///
+/// # Safety
+///
+/// 1. `child` returns a pointer to the child field of the decorator it is
+///    given, formed with `&raw mut` and no reference.
+/// 2. `S` and `A` are the `Suspended` and `Active` instantiations of one
+///    `#[repr(C)]` struct whose fields other than the child carry no `Rf`
+///    except as zero-sized markers, so once the child slot holds a
+///    `C::Resumed<'a>` the allocation is a valid `A`.
+/// 3. `drop_rest` drops in place every field of the decorator it is given
+///    except the child, whose slot is moved-from when it is called.
+pub unsafe fn resume_single_child<'query, 'a, S, C, A>(
+    this: Box<S>,
+    guard: &IndexSpecReadGuard<'a>,
+    child: impl FnOnce(*mut S) -> *mut C,
+    drop_rest: impl FnOnce(*mut S),
+) -> Result<ResumeOutcome<Box<A>>, RQEIteratorError>
+where
+    C: RQESuspendedIterator<'query>,
+    'query: 'a,
+{
+    let raw = Box::into_raw(this);
+    let slot = NonNull::new(child(raw)).expect("a field of a `Box` allocation is non-null");
+    // SAFETY: `slot` points at the valid, exclusively-owned suspended child (1,
+    // and `raw` came from `Box::into_raw`). On `Unchanged`/`Moved` the helper
+    // leaves a valid `C::Resumed<'a>` in the slot; otherwise it consumed the
+    // child.
+    let outcome = unsafe { resume_child_slot_in_place(slot, guard) };
+    if !matches!(
+        outcome,
+        Ok(ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)
+    ) {
+        // The child is gone, and only the slot it left is uninitialised (3).
+        drop_rest(raw);
+    }
+    // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned;
+    // `outcome` is the slot's; on a teardown outcome every other field was
+    // dropped above, and on a recoverable one the allocation is a valid `A`
+    // (2).
+    unsafe { finish_resume_in_place::<S, A>(raw, outcome) }
+}
+
 /// Owns a [`Box`] allocation without assuming its contents are initialised.
 ///
 /// Dropping it frees the allocation without dropping its contents;

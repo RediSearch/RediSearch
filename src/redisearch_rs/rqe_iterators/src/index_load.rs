@@ -30,7 +30,7 @@ use rqe_core::DocId;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
+    boxed::{resume_single_child, suspend_single_child},
     c2rust::CRQEIterator,
     interop::{ProfileChildren, RQEIteratorWrapper},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -98,7 +98,7 @@ impl Drop for KeySlot<'_> {
 ///    and carries no `Rf`-dependent field other than the zero-sized
 ///    `_marker`, so its `Active` and `Suspended` instantiations are
 ///    layout-identical given that the child `I` and its `I::Suspended` are,
-///    which [`suspend_child_slot_in_place`] enforces. The `const` block below
+///    which [`suspend_child_slot_in_place`](crate::boxed::suspend_child_slot_in_place) enforces. The `const` block below
 ///    proves the wrapper's own part.
 #[repr(C)]
 pub struct RawIndexLoad<'query, Rf: Ref, I> {
@@ -339,55 +339,14 @@ where
     type Suspended = RawIndexLoad<'index, Suspended, I::Suspended>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // The child is suspended through its own `suspend`, in place, rather
-        // than by reinterpreting the whole box: a type-erased child swaps its
-        // vtable on the transition. Reusing the allocation keeps the child's
-        // address, which the C wrapper's cached `current` points into.
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned). `&raw mut` forms a field pointer to
-        // the `child` slot without creating a reference.
-        let child_slot = unsafe { &raw mut (*raw).child };
-        // SAFETY: a field pointer derived from the non-null `raw` is non-null.
-        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
-        // SAFETY: `child_slot` points at the valid, exclusively-owned active
-        // child; the helper leaves a valid `I::Suspended` in its place.
-        unsafe { suspend_child_slot_in_place(child_slot) };
-        // SAFETY: the child slot now holds a valid `I::Suspended`, and the
-        // other fields carry no `Rf` (invariant 1), so the allocation is a
-        // valid `RawIndexLoad<Suspended, I::Suspended>`. `Box::from_raw`
-        // reuses the same allocation.
-        unsafe { Box::from_raw(raw.cast::<RawIndexLoad<'index, Suspended, I::Suspended>>()) }
+        // SAFETY: the helper only calls the projection with the decorator's own
+        // live allocation; `&raw mut` forms the field pointer without a reference.
+        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` projects to the child slot, and the `Active` and
+        // `Suspended` forms are layout-identical apart from that slot
+        // (invariant 1).
+        unsafe { suspend_single_child(self, child) }
     }
-}
-
-/// Free a [`RawIndexLoad`] allocation whose `child` slot was consumed by an
-/// aborted or failed child resume, without dropping the child.
-///
-/// # Safety
-///
-/// 1. `raw` came from `Box::into_raw` and is still exclusively owned by the
-///    caller.
-/// 2. `(*raw).child` is moved-from and must not be dropped.
-unsafe fn dealloc_after_child_gone<S>(raw: *mut RawIndexLoad<'_, Suspended, S>) {
-    // SAFETY: `raw` is valid (1); `&raw mut` forms a field pointer without a
-    // reference.
-    let key = unsafe { &raw mut (*raw).key };
-    // SAFETY: `key` is still a valid, owned value; drop it in place.
-    unsafe { std::ptr::drop_in_place(key) };
-    // SAFETY: as for `key`.
-    let key_handle = unsafe { &raw mut (*raw).key_handle };
-    // SAFETY: as for `key`.
-    unsafe { std::ptr::drop_in_place(key_handle) };
-    // SAFETY: `raw` was allocated by `Box` with exactly this layout (1); the
-    // `child` slot is moved-from (2), and every other field was dropped above
-    // or is a ZST.
-    unsafe {
-        std::alloc::dealloc(
-            raw.cast::<u8>(),
-            std::alloc::Layout::new::<RawIndexLoad<'_, Suspended, S>>(),
-        )
-    };
 }
 
 impl<'query, S> RQESuspendedIterator<'query> for RawIndexLoad<'query, Suspended, S>
@@ -406,46 +365,37 @@ where
     where
         'query: 'a,
     {
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned). `&raw mut` forms a field pointer to
-        // the `child` slot without creating a reference.
-        let child_slot = unsafe { &raw mut (*raw).child };
-        // SAFETY: a field pointer derived from the non-null `raw` is non-null.
-        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
-        // SAFETY: `child_slot` points at the valid, exclusively-owned suspended
-        // child. On `Unchanged`/`Moved` the helper leaves a valid
-        // `S::Resumed<'a>` in the slot; on `Aborted`/`Err` it consumed the
-        // child, which the teardown arms below account for.
-        match unsafe { resume_child_slot_in_place(child_slot, guard) } {
-            Ok(outcome @ (ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)) => {
-                // SAFETY: the child slot now holds a valid `S::Resumed<'a>`,
-                // and the other fields carry no `Rf` (invariant 1), so the
-                // allocation is a valid `IndexLoad<'a, S::Resumed<'a>>`.
-                // `Box::from_raw` reuses the same allocation.
-                let mut active =
-                    unsafe { Box::from_raw(raw.cast::<IndexLoad<'a, S::Resumed<'a>>>()) };
-                if matches!(outcome, ResumeSlotOutcome::Moved) {
-                    let key = active.bound_key();
-                    if let Some(result) = active.child.current() {
-                        attach(result, key);
-                    }
-                    Ok(ResumeOutcome::Moved(active))
-                } else {
-                    Ok(ResumeOutcome::Ok(active))
+        // SAFETY: the helper only calls the projections with the decorator's own
+        // live allocation; `&raw mut` forms the field pointers without a reference.
+        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
+        let drop_rest = |raw: *mut Self| {
+            // SAFETY: as for `child`.
+            let key = unsafe { &raw mut (*raw).key };
+            // SAFETY: the field is still a valid, owned value.
+            unsafe { std::ptr::drop_in_place(key) };
+            // SAFETY: as for `child`.
+            let key_handle = unsafe { &raw mut (*raw).key_handle };
+            // SAFETY: the field is still a valid, owned value.
+            unsafe { std::ptr::drop_in_place(key_handle) };
+        };
+        // SAFETY: `child` projects to the child slot, the forms are
+        // layout-identical apart from that slot (invariant 1), and
+        // `drop_rest` drops every other field in place.
+        let outcome = unsafe {
+            resume_single_child::<_, _, Self::Resumed<'a>>(self, guard, child, drop_rest)
+        }?;
+        // A move repositions the child onto a hit whose value was never
+        // attached, or was taken by a parent.
+        Ok(match outcome {
+            ResumeOutcome::Moved(mut active) => {
+                let key = active.bound_key();
+                if let Some(result) = active.child.current() {
+                    attach(result, key);
                 }
+                ResumeOutcome::Moved(active)
             }
-            Ok(ResumeSlotOutcome::Aborted) => {
-                // SAFETY: the child was consumed by its `resume`.
-                unsafe { dealloc_after_child_gone(raw) };
-                Ok(ResumeOutcome::Aborted)
-            }
-            Err(e) => {
-                // SAFETY: as the `Aborted` arm — the child is gone.
-                unsafe { dealloc_after_child_gone(raw) };
-                Err(e)
-            }
-        }
+            outcome => outcome,
+        })
     }
 
     fn last_doc_id(&self) -> DocId {
