@@ -49,7 +49,14 @@ fn open_expanded_term_reader_disk(
     term.set_idfs(num_documents, num_docs);
 
     let it = disk::new_term_iterator(
-        ctx, disk, term, field_mask, weight, num_docs, needs_offsets, scorer,
+        ctx,
+        disk,
+        term,
+        field_mask,
+        weight,
+        num_docs,
+        needs_offsets,
+        scorer,
     )?;
     let ptr = RQEIteratorWrapper::boxed_new(it);
     // SAFETY: `ptr` is a valid, owning C `QueryIterator`.

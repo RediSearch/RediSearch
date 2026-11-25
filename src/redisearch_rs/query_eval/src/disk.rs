@@ -42,6 +42,7 @@ use crate::{
 /// [`DiskIteratorCreation`](QueryErrorCode::DiskIteratorCreation) error, so the
 /// query aborts rather than silently reading fewer results — when the iterator
 /// cannot be built.
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn new_term_iterator<'index>(
     ctx: &'index mut QueryEvalContext,
     disk: SearchDiskHandle,
