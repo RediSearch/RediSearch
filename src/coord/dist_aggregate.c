@@ -491,7 +491,7 @@ static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
 // Build the distributed MR command for FT.AGGREGATE
 static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp,
-                           const RSSearchOptions *searchOpts) {
+                           const RSSearchOptions *searchOpts, QEFlags reqFlags) {
   // We need to prepend the array with the command, index, and query that
   // we want to use. Lengths ride along so binary-capable arguments (the query,
   // user-defined names) reach the shards without strlen truncation.
@@ -530,10 +530,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   APPEND_LITERAL("_NUM_SSTRING");
 
   int argOffset = 0;
-  // Preserve WITHCOUNT flag from the original command
-  argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
-  if (argOffset != -1) {
+  // Forward parsed WITHCOUNT / WITHOUTCOUNT flags so shards honor explicit
+  // WITHOUTCOUNT under DIALECT < 4 and WITHCOUNT under DIALECT >= 4.
+  if (reqFlags & QEXEC_F_HAS_WITHCOUNT) {
     APPEND_LITERAL("WITHCOUNT");
+  } else if (reqFlags & QEXEC_OPTIMIZE) {
+    APPEND_LITERAL("WITHOUTCOUNT");
   }
 
   // Add the index prefixes to the command, for validation in the shard
@@ -847,7 +849,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   AggregateKnnContext knnSnapshot;
   bool hasKnnSnapshot = false;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, &r->searchopts);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, &r->searchopts, AREQ_RequestFlags(r));
 
   if (knnCtx) {
     hasKnnSnapshot = extractKnnOptimizationContext(knnCtx, profileOptions, &knnSnapshot);

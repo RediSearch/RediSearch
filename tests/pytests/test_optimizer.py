@@ -1300,3 +1300,27 @@ def testLoadAliasOverwritingSortKeyDisablesOptimizer(env):
         'SORTBY', '4', '@n', 'ASC', '@s', 'ASC', 'MAX', '1',
     )
     env.assertEqual(opt[1:], plain[1:])
+
+
+def testAggregateWithoutCountUsesOptimizerUnderDialect2(env):
+    ''' Explicit WITHOUTCOUNT on FT.AGGREGATE must reach shards (and run OPTIMIZER) under DIALECT 2 '''
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'm', 'NUMERIC', 'SORTABLE')
+    for i in range(100):
+        conn.execute_command('HSET', f'd:{i}', 'n', i // 2, 'm', i % 2)
+
+    prof = env.cmd(
+        'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHOUTCOUNT',
+        'SORTBY', '4', '@n', 'ASC', '@m', 'ASC', 'MAX', '5', 'DIALECT', '2',
+    )
+    env.assertIn('OPTIMIZER', str(prof[1]), message=prof)
+
+    opt = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        'SORTBY', '4', '@n', 'ASC', '@m', 'ASC', 'MAX', '5', 'LOAD', '1', '@__key', 'DIALECT', '2',
+    )
+    plain = env.cmd(
+        'FT.AGGREGATE', 'idx', '*', 'WITHCOUNT',
+        'SORTBY', '4', '@n', 'ASC', '@m', 'ASC', 'MAX', '5', 'LOAD', '1', '@__key', 'DIALECT', '2',
+    )
+    env.assertEqual(opt[1:], plain[1:])
