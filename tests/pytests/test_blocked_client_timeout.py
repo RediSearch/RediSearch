@@ -35,12 +35,15 @@ def run_cmd_expect_timeout(env, query_args):
 def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_name=None):
     skipIfNoEnableAssert(env)
     cmd_name = cmd_name or query_args[0]
+    if cmd_name != 'FT.CURSOR|READ':
+        query_args = [*query_args, 'TIMEOUT', 0]
     point = 'BeforeFailWorkerReplyEncode' if before else 'AfterFailWorkerReplyEncode'
     prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
     before_info = info_modules_to_dict(env)
     coord_metrics = before_info[COORD_WARN_ERR_SECTION]
     thread = threading.Thread(target=run_cmd_expect_timeout, args=(env, query_args), daemon=True)
+    onfree_before = None
 
     try:
         env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
@@ -49,6 +52,7 @@ def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_n
         wait_for_condition(
             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
             f'{cmd_name} did not reach the worker reply boundary')
+        onfree_before = _get_blocked_request_onfree_count(env)
         env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
         wait_for_client_unblocked(env, client_id)
         thread.join(timeout=10)
@@ -66,6 +70,10 @@ def _assert_fail_timeout_at_worker_reply_boundary(env, query_args, before, cmd_n
         if thread.ident is not None:
             thread.join(timeout=10)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+        if onfree_before is not None:
+            wait_for_condition(
+                lambda: (_get_blocked_request_onfree_count(env) > onfree_before, {}),
+                f'{cmd_name} worker did not release its blocked client')
 
 
 def run_cmd_expect_disconnect(env, query_args, unexpected):
@@ -105,15 +113,17 @@ def _wait_for_cursor_cleanup(env, baseline_total, context, idx='idx', timeout=30
         timeout=timeout,
     )
 
-def _setup_fail_cursor_state(env, chunk_size=10):
+def _setup_fail_cursor_state(env, chunk_size=10, timeout=None):
     """Switch shards to FAIL, create a WITHCURSOR aggregate, and return
     ``(prev_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord)``."""
     prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
     run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
     before_info = info_modules_to_dict(env)
     base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-    _, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
-                           'WITHCURSOR', 'COUNT', str(chunk_size))
+    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name', 'WITHCURSOR', 'COUNT', str(chunk_size)]
+    if timeout is not None:
+        query.extend(['TIMEOUT', timeout])
+    _, cursor_id = env.cmd(*query)
     env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord
@@ -1949,7 +1959,8 @@ class TestCoordinatorTimeout:
         env = self.env
         skipIfNoEnableAssert(env)
 
-        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
+        prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(
+            env, timeout=0)
 
         point = 'BeforeFailWorkerReplyEncode' if before else 'AfterFailWorkerReplyEncode'
         env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
@@ -6528,7 +6539,7 @@ class TestShardTimeout:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         unexpected = []
-        query = ['FT.AGGREGATE', 'idx', '*']
+        query = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 0]
         point = 'BeforeFailWorkerReplyEncode'
         env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
         t_query = threading.Thread(
@@ -7320,7 +7331,7 @@ class TestShardTimeout:
     def test_fail_timeout_shard_cursor_read_before_encode(self):
         """FAIL timeout on FT.CURSOR READ paused before worker reply encoding in standalone."""
         env = self.env
-        prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env)
+        prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env, timeout=0)
         try:
             self._test_fail_timeout_before_encode_impl(
                 ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], cmd_name='FT.CURSOR|READ')
@@ -7333,7 +7344,7 @@ class TestShardTimeout:
     def test_fail_timeout_shard_cursor_read_after_encode(self):
         """FAIL timeout on FT.CURSOR READ paused after worker reply encoding in standalone."""
         env = self.env
-        prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env)
+        prev_policy, cursor_id, baseline, _, _ = _setup_fail_cursor_state(env, timeout=0)
         try:
             self._test_fail_timeout_after_encode_impl(
                 ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], cmd_name='FT.CURSOR|READ')
@@ -8805,6 +8816,19 @@ class TestNoDeadlockQueryWithConcurrentWriter:
 
     def test_search(self):
         self._run(['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1'])
+
+
+@skip(cluster=False)
+def test_fail_coord_search_worker_reply_resp2():
+    env = Env(protocol=2, moduleArgs='WORKERS 1 TIMEOUT 0')
+    skipIfNoEnableAssert(env)
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', '{doc}:1', 'name', 'hello')
+    query = ['FT.SEARCH', 'idx', 'hello', 'NOCONTENT']
+    env.expect(*query).equal([1, '{doc}:1'])
+    _assert_fail_timeout_at_worker_reply_boundary(env, query, before=False)
+    env.expect(*query).equal([1, '{doc}:1'])
 
 
 # Regression for the MOD-16992 reply-path use-after-free: with the registry no

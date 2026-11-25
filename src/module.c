@@ -3451,21 +3451,39 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
     }
 }
 
-static void replySearchResults(RedisModuleCtx *ctx, searchRequestCtx *req) {
+static void replySearchResults(RedisModule_Reply *reply, searchRequestCtx *req) {
   struct MRCtx *mrctx = req->mrctx;
   searchReducerCtx *rCtx = req->rctx;
   RS_ASSERT(rCtx != NULL);
 
-  RedisModule_Reply reply = RedisModule_NewReply(ctx);
   if (req->profileArgs > 0) {
-    profileSearchReply(&reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
+    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
                        &req->profileClock, rs_wall_clock_now_ns());
   } else {
-    sendSearchResults(&reply, rCtx);
+    sendSearchResults(reply, rCtx);
   }
-  RedisModule_EndReply(&reply);
+  RedisModule_EndReply(reply);
+}
 
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, rs_wall_clock_elapsed_ns(&req->initClock));
+static void replyFailSearchOnWorker(RedisModuleBlockedClient *bc, searchRequestCtx *req) {
+  RedisModuleCtx *replyCtx = NULL;
+  RedisModule_Reply reply = {0};
+
+  // Snapshot the client context and protocol under the Redis lock.
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+    replyCtx = RedisModule_GetThreadSafeContext(bc);
+    reply = RedisModule_NewReply(replyCtx);
+  }
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+  if (replyCtx) {
+    replySearchResults(&reply, req);
+    RedisModule_FreeThreadSafeContext(replyCtx);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
+#endif
+  }
 }
 
 static void searchResultReducer_wrapper(void *mc_v) {
@@ -3480,17 +3498,7 @@ static void searchResultReducer_wrapper(void *mc_v) {
 #ifdef ENABLE_ASSERT
       SyncPoint_Wait(SYNC_POINT_BEFORE_FAIL_WORKER_REPLY_ENCODE);
 #endif
-      if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
-        RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(bc);
-        replySearchResults(replyCtx, req);
-        RedisModule_FreeThreadSafeContext(replyCtx);
-#ifdef ENABLE_ASSERT
-        SyncPoint_Wait(SYNC_POINT_AFTER_FAIL_WORKER_REPLY_ENCODE);
-#endif
-      }
-    }
-    if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
-      RedisModule_BlockedClientMeasureTimeEnd(bc);
+      replyFailSearchOnWorker(bc, req);
     }
   }
   // The worker owns blocked-client completion even when timeout owns the reply.
@@ -4519,6 +4527,13 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
     searchRequestCtx *req = QueryRequest_GetSearch(request);
     struct MRCtx *mrctx = req->mrctx;
 
+    const bool workerReply =
+        req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
+    // Preparation errors and zero-send fanout already recorded their duration.
+    if (workerReply && MRCtx_GetNumExpected(mrctx) > 0) {
+      RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
+    }
+
     // Check if we have an error and return it
     if (QueryError_HasError(&request->reply.err)) {
       // Track error in global statistics
@@ -4534,9 +4549,11 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
       return REDISMODULE_OK;
     }
 
-    if (req->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail) {
-      replySearchResults(ctx, req);
+    if (!workerReply) {
+      RedisModule_Reply reply = RedisModule_NewReply(ctx);
+      replySearchResults(&reply, req);
     }
+    TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, rs_wall_clock_elapsed_ns(&req->initClock));
   }
   return REDISMODULE_OK;
 }

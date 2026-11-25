@@ -598,7 +598,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // the timer's own drain.
   if (!nc->drainOnly &&
       (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
-       (QueryRequest_UsesReplyCallback(&areq->base) &&
+       ((QueryRequest_UsesReplyCallback(&areq->base) ||
+         QueryRequest_RepliesOnFailWorker(&areq->base)) &&
         QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)))) {
     return RS_RESULT_STOPPED;
   }
