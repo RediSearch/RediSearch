@@ -48,6 +48,7 @@
 #include "doc_table.h"
 #include "document.h"
 #include "hiredis/sds.h"
+#include "buffer/buffer.h"
 #include "index_result_rs.h"
 #include "profile/profile.h"
 #include "query_error.h"
@@ -2731,13 +2732,34 @@ static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
 }
 
+// Hash and compare borrowed RString views without requiring a NUL terminator.
+static uint64_t hybridResultKeyHash(const void *key) {
+  const RString *str = key;
+  return dictGenHashFunction(str->s, str->n);
+}
+
+static int hybridResultKeyCompare(void *privdata, const void *left, const void *right) {
+  const RString *a = left, *b = right;
+  return a->n == b->n && memcmp(a->s, b->s, a->n) == 0;
+}
+
+// Only inserted keys need owned storage; keep the view and bytes in one allocation.
+static void *hybridResultKeyDup(void *privdata, const void *key) {
+  const RString *src = key;
+  RString *copy = rm_malloc(sizeof(*copy) + src->n);
+  char *bytes = (char *)(copy + 1);
+  memcpy(bytes, src->s, src->n);
+  *copy = (RString){.s = bytes, .n = src->n};
+  return copy;
+}
+
 // Binary-safe document key -> HybridSearchResult mapping
 dictType dictTypeHybridSearchResult = {
-    .hashFunction = redisStringsHashFunction,
-    .keyDup = redisStringsKeyDup,
+    .hashFunction = hybridResultKeyHash,
+    .keyDup = hybridResultKeyDup,
     .valDup = NULL,
-    .keyCompare = redisStringsKeyCompare,
-    .keyDestructor = redisStringsKeyDestructor,
+    .keyCompare = hybridResultKeyCompare,
+    .keyDestructor = stringsKeyDestructor,
     .valDestructor = hybridSearchResultValueDestructor,
 };
 
@@ -2793,7 +2815,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  */
 static bool hybridMergerStoreUpstreamResult(RPHybridMerger *self, SearchResult *r,
                                             size_t upstreamIndex, double score) {
-  // Single shard case - use dmd->keyPtr
   RLookupRow translated = RLookupRow_New();
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
                              self->lookupCtx->sourceLookups[upstreamIndex], &translated,
@@ -2802,31 +2823,28 @@ static bool hybridMergerStoreUpstreamResult(RPHybridMerger *self, SearchResult *
   SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
-  size_t keyLen = keyPtr ? sdslen(dmd->keyPtr) : 0;
-  // Coordinator case - no dmd - use docKey in rlookup
-  const bool fallbackToLookup = !keyPtr && self->docKey;
-  if (fallbackToLookup) {
+  RString key;
+  if (dmd && dmd->keyPtr) {
+    key.s = DMD_KeyPtrLen(dmd, &key.n);
+  } else {
+    if (!self->docKey) {
+      return false;
+    }
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
-    if (docKeyValue != NULL) {
-      keyPtr = RSValue_StringPtrLen(docKeyValue, &keyLen);
+    if (!docKeyValue) {
+      return false;
+    }
+    key.s = RSValue_StringPtrLen(docKeyValue, &key.n);
+    if (!key.s) {
+      return false;
     }
   }
-  if (!keyPtr) {
-    return false;
-  }
 
-  // Check if we've seen this document before
-  RedisModuleString *key = RedisModule_CreateString(NULL, keyPtr, keyLen);
-  HybridSearchResult *hybridResult = (HybridSearchResult *)dictFetchValue(self->hybridResults, key);
-
+  HybridSearchResult *hybridResult = dictFetchValue(self->hybridResults, &key);
   if (!hybridResult) {
-    // First time seeing this document - create new hybrid result
     hybridResult = HybridSearchResult_New(self->numUpstreams);
-    dictAdd(self->hybridResults, key, hybridResult);
+    dictAdd(self->hybridResults, &key, hybridResult);
   }
-
-  RedisModule_FreeString(NULL, key);
 
   SearchResult_SetScore(r, score);
   // The merger holds `r` in its dictionary across further upstream Reads;
@@ -2835,6 +2853,7 @@ static bool hybridMergerStoreUpstreamResult(RPHybridMerger *self, SearchResult *
   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
   return true;
 }
+
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
    size_t consumed = 0;
