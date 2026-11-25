@@ -90,6 +90,15 @@ impl<'trie, 'pattern, Data> PatternLendingIter<'trie, 'pattern, Data> {
             Self::Wildcard(it) => it.set_timeout(timeout),
         }
     }
+
+    /// Stop walking when the periodically polled predicate returns true.
+    pub fn set_stop_check(&mut self, stop: &'trie dyn Fn() -> bool) {
+        match self {
+            Self::All(it) | Self::Suffix(it, _) => it.set_stop_check(stop),
+            Self::Contains(it) => it.set_stop_check(stop),
+            Self::Wildcard(it) => it.set_stop_check(stop),
+        }
+    }
 }
 
 impl<'trie, 'pattern, Data> From<LendingIter<'trie, Data, VisitAll>>

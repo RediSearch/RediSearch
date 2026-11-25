@@ -1647,6 +1647,19 @@ fn eval_tag_wildcard_child_of_a_lone_backslash_matches_the_empty_value() {
 }
 
 #[test]
+fn eval_tag_wildcard_child_does_not_match_empty_tag_for_a_leading_nul() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: values(&[(TAG_EMPTY, &[11])]),
+        case_sensitive: true,
+        children: vec![Child::WildcardQuery(b"\0ab*")],
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("the binary pattern yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
 fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
     let mut fixture = TagFixture::new(TagOptions {
         children: vec![Child::Token(b"APPLE")],
@@ -2473,6 +2486,44 @@ fn eval_tag_lex_range_walk_stops_when_the_blocked_client_is_cancelled() {
         "the walk opened {} of {TIMEOUT_VALUES} readers",
         ids.len()
     );
+}
+
+#[test]
+fn eval_tag_wildcard_scan_stops_before_a_late_match_when_cancelled() {
+    let mut values = generated(TIMEOUT_VALUES, 100);
+    values.push((b"zz-late".to_vec(), vec![1]));
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::WildcardQuery(b"*late")],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("wildcard expansion yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
+fn eval_tag_does_not_evaluate_short_alternatives_when_cancelled() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![
+            Child::Prefix {
+                pattern: b"ap",
+                prefix: true,
+                suffix: false,
+            },
+            Child::Prefix {
+                pattern: b"ba",
+                prefix: true,
+                suffix: false,
+            },
+        ],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("a TAG expression yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
 }
 
 #[test]

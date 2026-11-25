@@ -27,6 +27,11 @@ impl<'tm, 'f, Data> RangeLendingIter<'tm, 'f, Data> {
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
     }
+
+    /// Stop walking when the periodically polled predicate returns true.
+    pub fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+        self.0.set_stop_check(stop);
+    }
 }
 
 impl<'tm, 'f, Data> From<RangeIter<'tm, 'f, Data>> for RangeLendingIter<'tm, 'f, Data> {
