@@ -1201,7 +1201,9 @@ cleanup:
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && req->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_Fail &&
+  const bool measureOnMain =
+      req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail && count > 0;
+  if (bc && !fromTimeout && !measureOnMain &&
       !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
@@ -1223,8 +1225,8 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     const bool workerReply =
         req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
-    // Preparation errors and zero-send fanout already recorded their duration.
-    if (workerReply && MRCtx_GetNumExpected(mrctx) > 0) {
+    // Preparation and no-reply paths record their duration before unblocking.
+    if (workerReply && MRCtx_GetNumReplied(mrctx) > 0) {
       RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
     }
 
