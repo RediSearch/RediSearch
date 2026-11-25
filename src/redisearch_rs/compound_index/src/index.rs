@@ -18,8 +18,8 @@ use timeout::{TimeoutCheckResult, TimeoutChecker};
 use trie_rs::TrieMap;
 
 use crate::{
-    BucketLevel, BucketRange, CollectError, Constraint, InsertError, Key, Level, PathError,
-    SchemaError,
+    BucketLevel, BucketRange, CheckPathsError, CollectError, Constraint, InsertError, Key, Level,
+    PathError, SchemaError,
 };
 
 /// The most routing levels a [`CompoundIndex`] accepts.
@@ -183,7 +183,9 @@ impl<T> CompoundIndex<T> {
     ) -> Result<&mut T, InsertError> {
         let steps = self.route(path)?;
         // The same check as `check_paths`, so a batch it accepts always inserts here.
-        self.check_routed(std::slice::from_ref(&steps))?;
+        if let Some((level, max)) = self.exceeded_cardinality(std::slice::from_ref(&steps)) {
+            return Err(InsertError::CardinalityExceeded { level, max });
+        }
         let is_new = self.find(&steps).is_none();
         // Built before anything is inserted, so a panicking `init` leaves the index unchanged.
         let mut terminal = is_new.then(init);
@@ -236,14 +238,21 @@ impl<T> CompoundIndex<T> {
     /// every path, in any order, succeeds. A caller indexing all the elements of one document calls
     /// it first, so a document is indexed whole or not at all.
     ///
-    /// A path error is reported for the first invalid path; cardinality is checked once every path
-    /// has been routed.
-    pub fn check_paths(&self, paths: &[&[Key<'_>]]) -> Result<(), InsertError> {
+    /// A path error is reported for the first invalid path, with its position, so a caller can
+    /// name the element it came from; cardinality is checked once every path has been routed.
+    pub fn check_paths(&self, paths: &[&[Key<'_>]]) -> Result<(), CheckPathsError> {
         let routed = paths
             .iter()
-            .map(|path| self.route(path))
+            .enumerate()
+            .map(|(position, path)| {
+                self.route(path)
+                    .map_err(|error| CheckPathsError::Path { position, error })
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        self.check_routed(&routed)
+        match self.exceeded_cardinality(&routed) {
+            Some((level, max)) => Err(CheckPathsError::CardinalityExceeded { level, max }),
+            None => Ok(()),
+        }
     }
 
     /// The terminals whose path satisfies every constraint, one constraint per level.
@@ -256,8 +265,9 @@ impl<T> CompoundIndex<T> {
     ///
     /// `max_terminals` bounds the result, so the memory of whatever the caller opens per terminal.
     /// It does not bound the work: a level the query leaves open is entered through every child,
-    /// even when nothing matches below it. `timeout` bounds that, and is checked on every node
-    /// entered. On a bucket level the walk also reads the empty slots in its range;
+    /// even when nothing matches below it. `timeout` bounds that, and is checked once per child
+    /// the walk considers: every node entered, and every tag value looked up or skipped without
+    /// entering a node. On a bucket level the walk also reads the empty slots in its range;
     /// [`MAX_BUCKETS`](crate::MAX_BUCKETS) bounds those per node entered.
     pub fn collect_terminals<'s>(
         &'s self,
@@ -309,11 +319,11 @@ impl<T> CompoundIndex<T> {
         }
     }
 
-    /// Fails if inserting every path of `paths` would give a node more children than its level's
-    /// cardinality limit. The one write-side check: [`CompoundIndex::check_paths`] runs it on a
-    /// batch and [`CompoundIndex::get_or_insert_with`] on its single path, so they cannot
-    /// disagree.
-    fn check_routed(&self, paths: &[Vec<Step<'_>>]) -> Result<(), InsertError> {
+    /// The level and its limit, if inserting every path of `paths` would give a node more
+    /// children than that level's cardinality limit. The one write-side check:
+    /// [`CompoundIndex::check_paths`] runs it on a batch and
+    /// [`CompoundIndex::get_or_insert_with`] on its single path, so they cannot disagree.
+    fn exceeded_cardinality(&self, paths: &[Vec<Step<'_>>]) -> Option<(usize, usize)> {
         // A parent on a level with a limit → its existing children and the new ones the batch
         // adds. A level without a limit accepts any child, so it is not tracked.
         let mut new_children: BTreeMap<&[Step<'_>], (usize, BTreeSet<Step<'_>>)> = BTreeMap::new();
@@ -338,13 +348,10 @@ impl<T> CompoundIndex<T> {
                 .max_cardinality(level)
                 .expect("only levels with a limit are tracked");
             if existing + added.len() > max.get() {
-                return Err(InsertError::CardinalityExceeded {
-                    level,
-                    max: max.get(),
-                });
+                return Some((level, max.get()));
             }
         }
-        Ok(())
+        None
     }
 
     /// The cardinality limit of the level at `level_index`, if it has one.
@@ -488,12 +495,20 @@ struct Walk<'s, 't, T, C> {
 }
 
 impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
+    /// Counts one child considered against the timeout. A tag value that matches no child, or a
+    /// child a negation skips, costs a check as an entered node does, so a walk that enters
+    /// nothing still checks once per candidate.
+    fn consider(&mut self) -> Result<(), CollectError> {
+        match self.timeout.check_timeout() {
+            TimeoutCheckResult::TimedOut => Err(CollectError::TimedOut),
+            TimeoutCheckResult::Ok => Ok(()),
+        }
+    }
+
     /// Visits a child, after checking the timeout. The root is visited without a check, so
     /// every node entered below it, terminals included, costs one check.
     fn enter(&mut self, node: &'s Node<T>, plan: &[LevelPlan<'_>]) -> Result<(), CollectError> {
-        if let TimeoutCheckResult::TimedOut = self.timeout.check_timeout() {
-            return Err(CollectError::TimedOut);
-        }
+        self.consider()?;
         self.visit(node, plan)
     }
 
@@ -518,8 +533,11 @@ impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
                 }
             }
             (Children::Tag(map), LevelPlan::TagIn(values)) => {
-                for child in values.iter().filter_map(|value| map.find(value)) {
-                    self.enter(child, rest)?;
+                for value in values {
+                    match map.find(value) {
+                        Some(child) => self.enter(child, rest)?,
+                        None => self.consider()?,
+                    }
                 }
             }
             (Children::Tag(map), LevelPlan::TagNotIn(values)) => {
@@ -528,6 +546,8 @@ impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
                 while let Some((value, child)) = entries.next() {
                     if values.binary_search(&value).is_err() {
                         self.enter(child, rest)?;
+                    } else {
+                        self.consider()?;
                     }
                 }
             }

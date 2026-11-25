@@ -162,17 +162,18 @@ fn a_zero_terminal_limit_only_accepts_walks_that_reach_nothing() {
 #[test]
 fn the_timeout_bounds_a_walk_that_returns_nothing() {
     let index = orders();
-    // Both colors are entered, then neither has a size "XL": no terminal, two nodes.
+    // Both colors are entered, then neither has a size "XL": no terminal, four checks, one per
+    // color and one per lookup of XL.
     let open_then_missing = [Constraint::Any, tag_in(&["XL"])];
     assert_eq!(
         index
-            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(1))
+            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(3))
             .err(),
         Some(CollectError::TimedOut)
     );
     assert!(
         index
-            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(2))
+            .collect_terminals(&open_then_missing, usize::MAX, &mut TimesOutAfter(4))
             .unwrap()
             .is_empty()
     );
@@ -181,14 +182,14 @@ fn the_timeout_bounds_a_walk_that_returns_nothing() {
 #[test]
 fn the_timeout_is_checked_for_every_constraint_kind() {
     let index = orders();
-    // Each case enters exactly `nodes` nodes, terminals included, so it checks the timeout
-    // `nodes` times.
+    // Each case considers exactly `nodes` children, terminals included, so it checks the
+    // timeout `nodes` times.
     let cases: &[(&str, [Constraint<'_>; 2], usize)] = &[
-        // blue, then (blue, L) and (blue, M).
+        // blue, then (blue, L) and (blue, M); red is skipped, which also counts.
         (
             "negation",
             [Constraint::TagNotIn(vec![b"red"]), Constraint::Any],
-            3,
+            4,
         ),
         // red, then (red, L) and (red, M).
         ("prefix", [Constraint::TagPrefix(b"re"), Constraint::Any], 3),
@@ -224,6 +225,41 @@ fn the_timeout_is_checked_for_every_constraint_kind() {
             .len(),
         3
     );
+}
+
+#[test]
+fn the_timeout_is_checked_on_values_that_enter_nothing() {
+    let index = orders();
+    // Three colors the index does not have, and every color it has excluded: the walk enters
+    // no node, and still checks once per value looked up or child skipped.
+    let cases: &[(&str, [Constraint<'_>; 2], usize)] = &[
+        (
+            "absent values",
+            [tag_in(&["green", "pink", "white"]), Constraint::Any],
+            3,
+        ),
+        (
+            "every value excluded",
+            [Constraint::TagNotIn(vec![b"blue", b"red"]), Constraint::Any],
+            2,
+        ),
+    ];
+    for (name, constraints, checks) in cases {
+        assert_eq!(
+            index
+                .collect_terminals(constraints, usize::MAX, &mut TimesOutAfter(checks - 1))
+                .err(),
+            Some(CollectError::TimedOut),
+            "{name}"
+        );
+        assert!(
+            index
+                .collect_terminals(constraints, usize::MAX, &mut TimesOutAfter(*checks))
+                .unwrap()
+                .is_empty(),
+            "{name}"
+        );
+    }
 }
 
 #[test]

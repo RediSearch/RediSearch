@@ -43,7 +43,7 @@ mod key;
 mod level;
 
 pub use constraint::{BucketRange, Constraint};
-pub use error::{BucketsError, CollectError, InsertError, PathError, SchemaError};
+pub use error::{BucketsError, CheckPathsError, CollectError, InsertError, PathError, SchemaError};
 pub use index::{CompoundIndex, MAX_LEVELS};
 pub use key::Key;
 pub use level::{BucketLevel, Level, MAX_BUCKETS, TagLevel};

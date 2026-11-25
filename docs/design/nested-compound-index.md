@@ -293,8 +293,8 @@ Public types, used by the later PRs:
   the range.
 - **The walk's bounds**: `max_terminals` bounds how many terminals it returns, so the number of
   iterators the UNION opens. A `TimeoutChecker` (the `timeout` crate's trait, which query
-  iterators already use) is checked on every node entered, so the query timeout bounds the work
-  of a query that leaves a level open and matches little. Past either one, the walk fails
+  iterators already use) is checked on every child the walk considers, entered or not, so the
+  query timeout bounds the work of a query that leaves a level open and matches little. Past either one, the walk fails
   rather than returning a truncated, wrong result.
 - **`num_terminals`**: a running count of terminals, so `FT.INFO` reads it without a walk. It
   changes in exactly two places: +1 when an insert creates a path, −1 when GC (fifth PR) removes
@@ -510,8 +510,8 @@ Using the running example's `INDEX 3 color size price`:
   - The query timeout bounds the walk's work. A level the query leaves open is entered through
     every child even when nothing matches below it: `@items:( @size:{XL} )` with no `MAXCARD` on
     `color` enters every color to find no XL. The walk runs while the iterator tree is built,
-    before any result processor checks the timeout, so it checks the timeout itself on every node
-    entered, as the prefix and wildcard expansions check it during their trie walks.
+    before any result processor checks the timeout, so it checks the timeout itself on every child
+    it considers, entered or not, as the prefix and wildcard expansions check it during their trie walks.
   - Internal constants bound the terminals returned and the iterators opened on them (10K and
     100K). That bounds the memory of the UNION, as `MAXPREFIXEXPANSIONS` does for a prefix.
 - **Profile**: `FT.PROFILE` shows a `NESTED` iterator with `terminals_visited`, `levels_fixed` and

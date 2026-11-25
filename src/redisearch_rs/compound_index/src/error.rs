@@ -97,6 +97,29 @@ pub enum InsertError {
     },
 }
 
+/// Why [`CompoundIndex::check_paths`](crate::CompoundIndex::check_paths) rejected a batch of
+/// paths.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CheckPathsError {
+    /// A path of the batch is invalid.
+    #[error("path {position}: {error}")]
+    Path {
+        /// The position of the first invalid path in the batch.
+        position: usize,
+        /// Why it is invalid.
+        error: PathError,
+    },
+    /// The batch as a whole gives a node more children than its level's
+    /// [`max_cardinality`](crate::TagLevel::max_cardinality).
+    #[error("level {level} already holds its maximum of {max} distinct values under this path")]
+    CardinalityExceeded {
+        /// The position of the level.
+        level: usize,
+        /// The level's limit.
+        max: usize,
+    },
+}
+
 /// Why [`CompoundIndex::collect_terminals`](crate::CompoundIndex::collect_terminals) rejected a
 /// query.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

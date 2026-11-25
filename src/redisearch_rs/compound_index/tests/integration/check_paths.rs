@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use compound_index::{InsertError, Key, PathError};
+use compound_index::{CheckPathsError, Key, PathError};
 use proptest::prelude::*;
 
 use crate::util::{Index, bucket_level, post, tag, tag_level, tag_level_max};
 
 /// The batch of one document's elements, as `check_paths` takes it.
-fn check(index: &Index, rows: &[[Key<'_>; 2]]) -> Result<(), InsertError> {
+fn check(index: &Index, rows: &[[Key<'_>; 2]]) -> Result<(), CheckPathsError> {
     let paths: Vec<&[Key<'_>]> = rows.iter().map(|row| row.as_slice()).collect();
     index.check_paths(&paths)
 }
@@ -27,7 +27,7 @@ fn two_new_values_under_an_existing_parent_count_together() {
     assert!(check(&index, &[[tag("red"), tag("L")]]).is_ok());
     assert_eq!(
         check(&index, &[[tag("red"), tag("L")], [tag("red"), tag("S")]]),
-        Err(InsertError::CardinalityExceeded { level: 1, max: 2 })
+        Err(CheckPathsError::CardinalityExceeded { level: 1, max: 2 })
     );
 }
 
@@ -36,7 +36,7 @@ fn new_values_under_a_parent_the_batch_creates_count_together() {
     let index = Index::new(vec![tag_level(), tag_level_max(1)]).unwrap();
     assert_eq!(
         check(&index, &[[tag("blue"), tag("M")], [tag("blue"), tag("L")]]),
-        Err(InsertError::CardinalityExceeded { level: 1, max: 1 })
+        Err(CheckPathsError::CardinalityExceeded { level: 1, max: 1 })
     );
 }
 
@@ -64,7 +64,10 @@ fn an_invalid_path_in_the_batch_is_reported() {
                 [tag("red"), Key::Numeric(50.0)]
             ]
         ),
-        Err(InsertError::Path(PathError::OutsideBuckets { level: 1 }))
+        Err(CheckPathsError::Path {
+            position: 1,
+            error: PathError::OutsideBuckets { level: 1 }
+        })
     );
 }
 
