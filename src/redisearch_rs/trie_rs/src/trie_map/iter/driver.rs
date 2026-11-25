@@ -125,10 +125,10 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
 
     /// Set timeout
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
-        self.timeout = timeout.into()
+        self.timeout.set_timeout(timeout)
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.timeout.set_stop_check(stop);
     }
 

@@ -197,10 +197,10 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
 
     /// Set the deadline after which iteration stops, or clear it with `None`.
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
-        self.timeout = timeout.into()
+        self.timeout.set_timeout(timeout)
     }
 
-    pub(crate) fn set_stop_check(&mut self, stop: &'tm dyn Fn() -> bool) {
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
         self.timeout.set_stop_check(stop);
     }
 

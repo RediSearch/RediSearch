@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{cell::Cell, time::Instant};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
+};
 
 use lending_iterator::LendingIterator;
 use trie_rs::{
     TrieMap,
-    iter::{PatternLendingIter, PatternMode},
+    iter::{PatternLendingIter, PatternMode, RangeFilter, RangeLendingIter},
 };
 
 /// Drain `iter`, returning the keys it yields.
@@ -232,8 +235,8 @@ fn prefix_scan_can_stop_after_yielding_a_match() {
     let mode = PatternMode::Prefix;
     assert_eq!(keys(trie.pattern_lending_iter(pattern, mode)).len(), KEYS);
 
-    let cancelled = Cell::new(false);
-    let stop = || cancelled.get();
+    let cancelled = AtomicBool::new(false);
+    let stop = || cancelled.load(Ordering::Relaxed);
     let mut iter = trie.pattern_lending_iter(pattern, mode);
     iter.set_stop_check(&stop);
     assert_eq!(
@@ -241,8 +244,13 @@ fn prefix_scan_can_stop_after_yielding_a_match() {
         Some(b"prefix0000".to_vec())
     );
 
-    cancelled.set(true);
-    assert!(keys(iter).len() < KEYS - 1);
+    cancelled.store(true, Ordering::Relaxed);
+    let mut remaining = 0;
+    while iter.next().is_some() {
+        remaining += 1;
+    }
+    assert!(remaining < KEYS - 1);
+    assert!(iter.next().is_none());
 }
 
 #[test]
@@ -269,5 +277,48 @@ fn unanchored_scans_can_stop_before_yielding_their_first_match() {
         let mut iter = trie.pattern_lending_iter(pattern, mode);
         iter.set_stop_check(&stop);
         assert!(iter.next().is_none(), "{mode:?} yielded the final match");
+        assert!(
+            iter.next().is_none(),
+            "{mode:?} yielded during cancellation"
+        );
     }
+}
+
+#[test]
+fn setting_or_clearing_a_deadline_keeps_the_stop_check() {
+    const KEYS: usize = 300;
+    let mut trie = TrieMap::new();
+    for i in 0..KEYS {
+        trie.insert(format!("key{i:04}").as_bytes(), ());
+    }
+
+    let stop = || true;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    for timeout in [Some(deadline), None] {
+        let mut pattern = trie.pattern_lending_iter(b"key", PatternMode::Prefix);
+        pattern.set_timeout(Some(deadline));
+        pattern.set_stop_check(&stop);
+        pattern.set_timeout(timeout);
+        assert!(keys(pattern).len() < KEYS);
+
+        let mut range: RangeLendingIter<_> = trie.range_iter(RangeFilter::all()).into();
+        range.set_timeout(Some(deadline));
+        range.set_stop_check(&stop);
+        range.set_timeout(timeout);
+        let mut matches = 0;
+        while range.next().is_some() {
+            matches += 1;
+        }
+        assert!(matches < KEYS);
+    }
+}
+
+#[test]
+fn read_only_iterators_remain_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>(_: T) {}
+
+    let trie = fruit();
+    assert_send_sync(trie.iter());
+    assert_send_sync(trie.pattern_lending_iter(b"app", PatternMode::Wildcard));
+    assert_send_sync(RangeLendingIter::from(trie.range_iter(RangeFilter::all())));
 }
