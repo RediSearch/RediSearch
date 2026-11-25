@@ -10,7 +10,9 @@
 #include "search_disk.h"
 #include "slot_cleanup.h"
 
+#include <pthread.h>
 #include <stdatomic.h>
+#include <time.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +36,31 @@ RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 static size_t diskMemoryLimitBytes = 0;
+
+// Orders SearchDisk_CloseIndex against SearchDisk_Close. A close that can run on any thread (the
+// last reference of a dropped index may be released by a worker) takes it shared, so closes stay
+// parallel; closing the shared context takes it exclusive, so no index is mid-close when the
+// context goes away and none starts after.
+static pthread_rwlock_t diskLifetimeLock_g = PTHREAD_RWLOCK_INITIALIZER;
+
+// Index handles that SearchDisk_CloseIndex could not close because the disk context was already
+// closed. Kept in a global only so that they stay reachable and leak checkers (LeakSanitizer,
+// valgrind) do not report an intentional leak at exit.
+static pthread_mutex_t leakedDiskIndexesLock_g = PTHREAD_MUTEX_INITIALIZER;
+static RedisSearchDiskIndexSpec **leakedDiskIndexes_g = NULL;
+static size_t leakedDiskIndexesLen_g = 0;
+
+static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index) {
+  pthread_mutex_lock(&leakedDiskIndexesLock_g);
+  RedisSearchDiskIndexSpec **grown =
+      rm_realloc(leakedDiskIndexes_g, (leakedDiskIndexesLen_g + 1) * sizeof(*grown));
+  leakedDiskIndexes_g = grown;
+  leakedDiskIndexes_g[leakedDiskIndexesLen_g++] = index;
+  pthread_mutex_unlock(&leakedDiskIndexesLock_g);
+}
+
+// How long SearchDisk_Close waits for indexes that are mid-close before it gives up.
+#define DISK_CLOSE_LOCK_TIMEOUT_SEC 5
 
 static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
   RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
@@ -241,15 +268,34 @@ void SearchDisk_StopMetrics(void) {
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
-  if (disk && disk_db) {
-    if (SearchDisk_IsEnabled()) {
-      SlotCleanup_StopDiskJobs();
-    }
-    SearchDisk_StopMetrics();
-    disk->basic.close(ctx, disk_db);
-    disk_db = NULL;
-    diskMemoryLimitBytes = 0;
+  if (!disk || !disk_db) {
+    return;
   }
+  if (SearchDisk_IsEnabled()) {
+    SlotCleanup_StopDiskJobs();
+  }
+  SearchDisk_StopMetrics();
+
+  // Polled because pthread_rwlock_timedwrlock is not available on every supported platform.
+  const struct timespec poll = {.tv_sec = 0, .tv_nsec = 1000000};
+  struct timespec start, now;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  while (pthread_rwlock_trywrlock(&diskLifetimeLock_g) != 0) {
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec - start.tv_sec >= DISK_CLOSE_LOCK_TIMEOUT_SEC) {
+      // An index is stuck mid-close. Closing the context under it would free what it still uses,
+      // so leave the context open: this runs at shutdown and the process is about to exit.
+      RedisModule_Log(ctx, "warning",
+                      "Timed out waiting for a disk index to finish closing, leaving the disk "
+                      "context open");
+      return;
+    }
+    nanosleep(&poll, NULL);
+  }
+  disk->basic.close(ctx, disk_db);
+  disk_db = NULL;
+  diskMemoryLimitBytes = 0;
+  pthread_rwlock_unlock(&diskLifetimeLock_g);
 }
 
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
@@ -417,9 +463,17 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   }
 }
 
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(disk_db, index);
+bool SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(index);
+  pthread_rwlock_rdlock(&diskLifetimeLock_g);
+  if (!disk_db) {
+    pthread_rwlock_unlock(&diskLifetimeLock_g);
+    SearchDisk_KeepLeakedIndexReachable(index);
+    return false;
+  }
+  disk->basic.closeIndexSpec(disk_db, index);
+  pthread_rwlock_unlock(&diskLifetimeLock_g);
+  return true;
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {

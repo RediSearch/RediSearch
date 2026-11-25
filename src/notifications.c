@@ -746,6 +746,9 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
 #endif
 }
 
+// Workers are not waited for: one that still holds a dropped index (for example after FLUSHALL)
+// finds the disk context closed when it releases it, and SearchDisk_CloseIndex then leaks the
+// index instead of closing it. Its files are reclaimed by the startup cleanup of the storage.
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   SlotCleanup_StopDiskJobs();
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
