@@ -438,7 +438,8 @@ static bool tryLiftUnion(QueryNode *unionNode, QueryNode *parent, int unionIdx,
 
   opt->unconditionalRanges = rm_malloc(numPure * sizeof(*opt->unconditionalRanges));
   opt->numUnconditionalRanges = 0;
-  for (int i = QueryNode_NumChildren(unionNode) - 1; i >= 0; --i) {
+  for (int i = QueryNode_NumChildren(unionNode) - 1;
+       i >= 0 && opt->numUnconditionalRanges < numPure; --i) {
     QueryNode *child = unionNode->children[i];
     if (isPureSortFieldRange(child, targetFieldIndex)) {
       const NumericFilter *nf = child->nn.nf;
