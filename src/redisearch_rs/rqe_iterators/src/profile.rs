@@ -94,6 +94,36 @@ pub struct RawProfile<Rf: Ref, I> {
 /// [`RQEIterator`] impl today.
 pub type Profile<'index, I> = RawProfile<Active<'index>, I>;
 
+impl<Rf: Ref, I> RawProfile<Rf, I> {
+    /// The child field of the decorator at `raw`, formed without a reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `raw` points to a live allocation of `Self`.
+    unsafe fn child_ptr(raw: *mut Self) -> *mut I {
+        // SAFETY: 1.
+        unsafe { &raw mut (*raw).child }
+    }
+
+    /// Drop every field of the decorator at `raw` but the child, in place.
+    ///
+    /// # Safety
+    ///
+    /// 1. `raw` points to a live, exclusively owned allocation of `Self` whose
+    ///    fields other than the child are valid. The child slot is not read.
+    /// 2. Those fields are not used again.
+    unsafe fn drop_rest(raw: *mut Self) {
+        // SAFETY: 1.
+        let counters = unsafe { &raw mut (*raw).counters };
+        // SAFETY: 1 and 2: the field is valid, owned and never used again.
+        unsafe { std::ptr::drop_in_place(counters) };
+        // SAFETY: 1.
+        let wall_time = unsafe { &raw mut (*raw).wall_time };
+        // SAFETY: 1 and 2: the field is valid, owned and never used again.
+        unsafe { std::ptr::drop_in_place(wall_time) };
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawProfile`: for a representative
 // concrete child, the `Active` and `Suspended` instantiations are
 // layout-identical. The child slot's own layout compatibility is the child's
@@ -278,13 +308,10 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         // Profile delegates `current()` into the child's storage, which the
         // reused allocation keeps in place.
-        // SAFETY: the helper only calls the projection with the decorator's own
-        // live allocation; `&raw mut` forms the field pointer without a reference.
-        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
-        // SAFETY: `child` projects to the child slot, and the `Active` and
+        // SAFETY: `child_ptr` projects to the child slot, and the `Active` and
         // `Suspended` forms are layout-identical apart from that slot
         // (invariant 1 on `RawProfile`).
-        unsafe { suspend_single_child(self, child) }
+        unsafe { suspend_single_child(self, Self::child_ptr) }
     }
 }
 
@@ -307,23 +334,10 @@ where
         // Profile owns no aggregate result and simply mirrors the child's
         // `Ok`/`Moved`/`Aborted` outcome.
         //
-        // SAFETY: the helper only calls the projections with the decorator's own
-        // live allocation; `&raw mut` forms the field pointers without a reference.
-        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
-        let drop_rest = |raw: *mut Self| {
-            // SAFETY: as for `child`.
-            let counters = unsafe { &raw mut (*raw).counters };
-            // SAFETY: the field is still a valid, owned value.
-            unsafe { std::ptr::drop_in_place(counters) };
-            // SAFETY: as for `child`.
-            let wall_time = unsafe { &raw mut (*raw).wall_time };
-            // SAFETY: the field is still a valid, owned value.
-            unsafe { std::ptr::drop_in_place(wall_time) };
-        };
-        // SAFETY: `child` projects to the child slot, the forms are
+        // SAFETY: `child_ptr` projects to the child slot, the forms are
         // layout-identical apart from that slot (invariant 1 on `RawProfile`), and
         // `drop_rest` drops every other field in place.
-        unsafe { resume_single_child(self, guard, child, drop_rest) }
+        unsafe { resume_single_child(self, guard, Self::child_ptr, Self::drop_rest) }
     }
 
     fn last_doc_id(&self) -> DocId {

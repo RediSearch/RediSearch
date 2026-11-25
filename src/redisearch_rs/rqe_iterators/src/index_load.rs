@@ -59,11 +59,11 @@ impl<'query> KeySlot<'query> {
     }
 
     /// The key pipeline construction bound, or null while it has bound none.
-    fn key(&self) -> *mut RLookupKey<'query> {
+    const fn key(&self) -> *mut RLookupKey<'query> {
         // SAFETY: the cell is live by the type invariant. Pipeline construction
         // writes it only while it builds the pipeline, never while the
         // iterator runs.
-        unsafe { *self.0.as_ptr() }
+        unsafe { self.0.read() }
     }
 }
 
@@ -108,6 +108,36 @@ pub struct RawIndexLoad<'query, Rf: Ref, I> {
     /// is dropped or the handle is replaced.
     key_handle: KeyHandleSlot<'query>,
     _marker: std::marker::PhantomData<Rf>,
+}
+
+impl<'query, Rf: Ref, I> RawIndexLoad<'query, Rf, I> {
+    /// The child field of the decorator at `raw`, formed without a reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `raw` points to a live allocation of `Self`.
+    unsafe fn child_ptr(raw: *mut Self) -> *mut I {
+        // SAFETY: 1.
+        unsafe { &raw mut (*raw).child }
+    }
+
+    /// Drop every field of the decorator at `raw` but the child, in place.
+    ///
+    /// # Safety
+    ///
+    /// 1. `raw` points to a live, exclusively owned allocation of `Self` whose
+    ///    fields other than the child are valid. The child slot is not read.
+    /// 2. Those fields are not used again.
+    unsafe fn drop_rest(raw: *mut Self) {
+        // SAFETY: 1.
+        let key = unsafe { &raw mut (*raw).key };
+        // SAFETY: 1 and 2: the field is valid, owned and never used again.
+        unsafe { std::ptr::drop_in_place(key) };
+        // SAFETY: 1.
+        let key_handle = unsafe { &raw mut (*raw).key_handle };
+        // SAFETY: 1 and 2: the field is valid, owned and never used again.
+        unsafe { std::ptr::drop_in_place(key_handle) };
+    }
 }
 
 /// Alias for an [`Active`] [`RawIndexLoad`] — the only instantiation with an
@@ -196,7 +226,7 @@ impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {
         unsafe { self.key_handle.set(key_handle) };
     }
 
-    fn bound_key(&self) -> *mut RLookupKey<'index> {
+    const fn bound_key(&self) -> *mut RLookupKey<'index> {
         self.key.key()
     }
 }
@@ -347,13 +377,10 @@ where
     type Suspended = RawIndexLoad<'index, Suspended, I::Suspended>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // SAFETY: the helper only calls the projection with the decorator's own
-        // live allocation; `&raw mut` forms the field pointer without a reference.
-        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
-        // SAFETY: `child` projects to the child slot, and the `Active` and
+        // SAFETY: `child_ptr` projects to the child slot, and the `Active` and
         // `Suspended` forms are layout-identical apart from that slot
         // (invariant 1).
-        unsafe { suspend_single_child(self, child) }
+        unsafe { suspend_single_child(self, Self::child_ptr) }
     }
 }
 
@@ -373,24 +400,16 @@ where
     where
         'query: 'a,
     {
-        // SAFETY: the helper only calls the projections with the decorator's own
-        // live allocation; `&raw mut` forms the field pointers without a reference.
-        let child = |raw: *mut Self| unsafe { &raw mut (*raw).child };
-        let drop_rest = |raw: *mut Self| {
-            // SAFETY: as for `child`.
-            let key = unsafe { &raw mut (*raw).key };
-            // SAFETY: the field is still a valid, owned value.
-            unsafe { std::ptr::drop_in_place(key) };
-            // SAFETY: as for `child`.
-            let key_handle = unsafe { &raw mut (*raw).key_handle };
-            // SAFETY: the field is still a valid, owned value.
-            unsafe { std::ptr::drop_in_place(key_handle) };
-        };
-        // SAFETY: `child` projects to the child slot, the forms are
-        // layout-identical apart from that slot (invariant 1), and
-        // `drop_rest` drops every other field in place.
+        // SAFETY: `child_ptr` projects to the child slot, the forms are
+        // layout-identical apart from that slot (invariant 1), and `drop_rest`
+        // drops every other field in place.
         let outcome = unsafe {
-            resume_single_child::<_, _, Self::Resumed<'a>>(self, guard, child, drop_rest)
+            resume_single_child::<_, _, Self::Resumed<'a>>(
+                self,
+                guard,
+                Self::child_ptr,
+                Self::drop_rest,
+            )
         }?;
         // A move repositions the child onto a hit whose value was never
         // attached, or was taken by a parent.
@@ -420,6 +439,15 @@ pub fn boxed_new(child: CRQEIterator) -> NonNull<QueryIterator> {
     RQEIteratorWrapper::boxed_new_compound(IndexLoad::new(child))
 }
 
+/// Debug-assert that `type_` tags an index-loading decorator, as every C-ABI
+/// entry point here requires of its header.
+const fn debug_assert_index_load(type_: IteratorType) {
+    debug_assert!(
+        matches!(type_, IteratorType::IndexLoad),
+        "expected an index-loading decorator"
+    );
+}
+
 /// The decorator behind `header`.
 ///
 /// # Safety
@@ -431,11 +459,7 @@ const unsafe fn decorator<'index>(
     header: NonNull<QueryIterator>,
 ) -> &'index mut IndexLoad<'index, CRQEIterator> {
     // SAFETY: (1): the header is live.
-    let type_ = unsafe { header.as_ref() }.type_;
-    debug_assert!(
-        matches!(type_, IteratorType::IndexLoad),
-        "expected an index-loading decorator"
-    );
+    debug_assert_index_load(unsafe { header.as_ref() }.type_);
     // SAFETY: (1) and (2).
     unsafe {
         &mut RQEIteratorWrapper::<IndexLoad<'index, CRQEIterator>>::mut_ref_from_header_ptr(header)

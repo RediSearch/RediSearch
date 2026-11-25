@@ -551,8 +551,9 @@ where
 /// 1. `raw` comes from [`Box::into_raw`] on a `Box<S>`, is exclusively owned,
 ///    and no reference into the allocation is live.
 /// 2. `outcome` is what [`resume_child_slot_in_place`] returned for the payload
-///    slot of `*raw`, and apart from that slot `S` holds nothing that needs
-///    dropping (e.g. only an enum tag).
+///    slot of `*raw`, and on [`Aborted`](ResumeSlotOutcome::Aborted) or [`Err`]
+///    nothing in `*raw` but that slot needs dropping (e.g. only an enum tag, or
+///    fields the caller has already dropped).
 /// 3. Once the slot holds its resumed form, the allocation is a valid `A`.
 pub unsafe fn finish_resume_in_place<S, A>(
     raw: *mut S,
@@ -580,27 +581,32 @@ pub unsafe fn finish_resume_in_place<S, A>(
 /// [`current`](crate::RQEIterator::current) to it. A whole-box cast alone is
 /// not enough: a type-erased child swaps its vtable on the transition.
 ///
+/// `child` is called once, with `this`'s own allocation, which is live and
+/// exclusively owned.
+///
 /// # Safety
 ///
-/// 1. `child` returns a pointer to the child field of the decorator it is
-///    given, formed with `&raw mut` and no reference.
+/// 1. `child`, given a pointer to a live, exclusively owned `A`, returns a
+///    pointer to its child field without forming a reference into it.
 /// 2. `A` and `S` are the `Active` and `Suspended` instantiations of one
 ///    `#[repr(C)]` struct whose fields other than the child carry no `Rf`
 ///    except as zero-sized markers, so once the child slot holds an
 ///    `I::Suspended` the allocation is a valid `S`.
 pub unsafe fn suspend_single_child<'index, A, I, S>(
     this: Box<A>,
-    child: impl FnOnce(*mut A) -> *mut I,
+    child: unsafe fn(*mut A) -> *mut I,
 ) -> Box<S>
 where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     const { assert_layout_compatible::<A, S>() };
     let raw = Box::into_raw(this);
-    let slot = NonNull::new(child(raw)).expect("a field of a `Box` allocation is non-null");
-    // SAFETY: `slot` points at the valid, exclusively-owned active child (1,
-    // and `raw` came from `Box::into_raw`); the helper leaves a valid
-    // `I::Suspended` in its place.
+    // SAFETY: `raw` came from `Box::into_raw`, so it is a live, exclusively
+    // owned `A`, as `child` requires (1).
+    let slot =
+        NonNull::new(unsafe { child(raw) }).expect("a field of a `Box` allocation is non-null");
+    // SAFETY: `slot` points at the valid, exclusively-owned active child (1);
+    // the helper leaves a valid `I::Suspended` in its place.
     unsafe { suspend_child_slot_in_place(slot) };
     // SAFETY: the allocation now holds a valid `S` (2), with the layout of `A`
     // (checked above), and `raw` has no other owner.
@@ -615,30 +621,37 @@ where
 /// When the child aborts or fails it is gone; `drop_rest` then drops the
 /// decorator's other fields and the allocation is freed.
 ///
+/// `child`, and `drop_rest` if it runs, are each called once, with `this`'s own
+/// allocation, which is live and exclusively owned. When `drop_rest` runs,
+/// every field but the moved-from child slot is valid, and none is used after.
+///
 /// # Safety
 ///
-/// 1. `child` returns a pointer to the child field of the decorator it is
-///    given, formed with `&raw mut` and no reference.
+/// 1. `child`, given a pointer to a live, exclusively owned `S`, returns a
+///    pointer to its child field without forming a reference into it.
 /// 2. `S` and `A` are the `Suspended` and `Active` instantiations of one
 ///    `#[repr(C)]` struct whose fields other than the child carry no `Rf`
 ///    except as zero-sized markers, so once the child slot holds a
 ///    `C::Resumed<'a>` the allocation is a valid `A`.
-/// 3. `drop_rest` drops in place every field of the decorator it is given
-///    except the child, whose slot is moved-from when it is called.
+/// 3. `drop_rest`, called as described above, drops in place every field of
+///    the decorator except the child, without reading the child slot.
 pub unsafe fn resume_single_child<'query, 'a, S, C, A>(
     this: Box<S>,
     guard: &IndexSpecReadGuard<'a>,
-    child: impl FnOnce(*mut S) -> *mut C,
-    drop_rest: impl FnOnce(*mut S),
+    child: unsafe fn(*mut S) -> *mut C,
+    drop_rest: unsafe fn(*mut S),
 ) -> Result<ResumeOutcome<Box<A>>, RQEIteratorError>
 where
     C: RQESuspendedIterator<'query>,
     'query: 'a,
 {
     let raw = Box::into_raw(this);
-    let slot = NonNull::new(child(raw)).expect("a field of a `Box` allocation is non-null");
-    // SAFETY: `slot` points at the valid, exclusively-owned suspended child (1,
-    // and `raw` came from `Box::into_raw`). On `Unchanged`/`Moved` the helper
+    // SAFETY: `raw` came from `Box::into_raw`, so it is a live, exclusively
+    // owned `S`, as `child` requires (1).
+    let slot =
+        NonNull::new(unsafe { child(raw) }).expect("a field of a `Box` allocation is non-null");
+    // SAFETY: `slot` points at the valid, exclusively-owned suspended child (1).
+    // On `Unchanged`/`Moved` the helper
     // leaves a valid `C::Resumed<'a>` in the slot; otherwise it consumed the
     // child.
     let outcome = unsafe { resume_child_slot_in_place(slot, guard) };
@@ -646,8 +659,9 @@ where
         outcome,
         Ok(ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)
     ) {
-        // The child is gone, and only the slot it left is uninitialised (3).
-        drop_rest(raw);
+        // SAFETY: the allocation is still live and exclusively owned, the child
+        // is gone, every other field is valid, and none is used after this (3).
+        unsafe { drop_rest(raw) };
     }
     // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned;
     // `outcome` is the slot's; on a teardown outcome every other field was
