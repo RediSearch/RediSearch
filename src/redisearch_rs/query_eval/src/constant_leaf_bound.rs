@@ -52,7 +52,7 @@ pub fn constant_leaf_bound(
     max_doc_score: f64,
     avg_doc_len: f64,
 ) -> Option<f64> {
-    if !max_doc_score.is_finite() || !(avg_doc_len >= 0.0) {
+    if !max_doc_score.is_finite() || avg_doc_len.is_nan() || avg_doc_len < 0.0 {
         return None;
     }
     let max_doc_score = max_doc_score.max(0.0);
