@@ -1113,4 +1113,37 @@ TEST_F(ExprTest, testPredicateTypeMismatchReturnsError) {
   RLookup_Cleanup(&lk);
 }
 
+TEST_F(ExprTest, testSubstr) {
+  struct Case {
+    const char *expr;
+    const char *expected;
+  };
+  const Case cases[] = {
+      {"substr(\"hello\", 0, -1)", "hello"},
+      {"substr(\"hello\", 1, -1)", "ello"},
+      {"substr(\"hello\", -2, -1)", "lo"},
+      {"substr(\"hello\", 0, 5)", "hello"},
+      {"substr(\"hello\", 1, -2)", "ello"},
+      {"substr(\"hello\", 0, 0)", ""},
+      {"substr(\"hello\", 10, -1)", ""},
+      {"substr(\"hi\", -5, -1)", "hi"},
+      {"substr(\"\", 0, -1)", ""},
+      {"substr(\"hello\", 2, 1000)", "llo"},
+  };
+
+  TEvalCtx ctx;
+  for (const auto &tc : cases) {
+    ctx.assign(tc.expr);
+    ASSERT_TRUE(ctx) << tc.expr << ": " << ctx.error();
+    ctx.err = &ctx.status_s;
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.eval()) << tc.expr;
+    RSValue *res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_String, RSValue_Type(res)) << tc.expr;
+    size_t len = 0;
+    const char *actual = RSValue_StringPtrLen(res, &len);
+    ASSERT_NE(nullptr, actual) << tc.expr;
+    EXPECT_EQ(std::string(tc.expected), std::string(actual, len)) << tc.expr;
+  }
+}
+
 #undef ASSERT_EXPR_EVAL_NUMBER
