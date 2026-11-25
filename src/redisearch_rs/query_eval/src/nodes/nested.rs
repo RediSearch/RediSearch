@@ -68,9 +68,8 @@ impl GroupError {
             Self::Unsupported
             | Self::Plan(_)
             | Self::Walk(CollectError::UnalignedBucketRange { .. }) => QueryErrorCode::Syntax,
-            // Reported as an error under every `ON_TIMEOUT` policy: a group that stops early
-            // would return fewer matches, and the pipeline may reach its end before it checks
-            // the clock, so the result would carry no timeout warning.
+            // The group opens nothing rather than the terminals reached so far; the request then
+            // answers as for any timeout before the first read (`AREQ_EmptyTreeOnBuildTimeout`).
             Self::Walk(CollectError::TimedOut) => QueryErrorCode::TimedOut,
             Self::TooManyTerminals { .. } | Self::TooManyReaders { .. } | Self::Walk(_) => {
                 QueryErrorCode::Limit

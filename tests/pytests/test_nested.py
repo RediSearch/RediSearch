@@ -13,6 +13,7 @@ import json
 from common import *
 
 GATE_ERROR = 'NESTED is unavailable when `ENABLE_UNSTABLE_FEATURES` is off'
+TIMEOUT_WARNING = 'Timeout limit was reached'
 
 # `$.items[*] AS items NESTED 3 ... INDEX 3 color size price`.
 ITEMS = ['$.items[*]', 'AS', 'items', 'NESTED', 3,
@@ -961,3 +962,60 @@ def testAKnnQueryKeepsTextGroups(env):
                             ('(@t:((hello) world))=>[KNN 10 @v $b]', ['doc:0'])]:
         res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'b', blob, 'NOCONTENT', 'DIALECT', 2)
         env.assertEqual(sorted(res[1:]), expected, message=query)
+
+
+@skip(no_json=True, cluster=True)
+def testAWalkPastTheDeadlineAnswersLikeATimeoutBeforeTheFirstRead():
+    """Under ON_TIMEOUT RETURN, a group whose routing walk passes the deadline answers no results
+    with the timeout warning: the walk runs before any document is read. A negated group answers
+    nothing either, rather than every document the unfinished walk did not reach."""
+    env = Env(moduleArgs='WORKERS 1', protocol=3)
+    skipIfNoEnableAssert(env)
+    # RESP3, for the warning: `set_unstable_features` reads the RESP2 reply of CONFIG GET.
+    unstable = env.cmd('CONFIG', 'GET', 'search-enable-unstable-features')
+    policy = env.cmd('CONFIG', 'GET', 'search-on-timeout')
+    sync_point = 'BeforeSpecLock'
+    try:
+        env.expect('CONFIG', 'SET', 'search-enable-unstable-features', 'yes').ok()
+        env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').ok()
+        conn = getConnectionByEnv(env)
+        create(env).ok()
+        # More colors than the walk enters between two reads of the clock, all of size M.
+        for n in range(150):
+            put(conn, f'doc:{n}', [{'color': f'c{n}', 'size': 'M', 'price': n}])
+
+        group = '@items:( @size:{M} )'
+        search = ['FT.SEARCH', 'idx', group, 'NOCONTENT', 'LIMIT', 0, 1000,
+                  'DIALECT', 2, 'TIMEOUT', 50]
+        negated = ['FT.SEARCH', 'idx', f'-{group}', 'NOCONTENT', 'LIMIT', 0, 1000,
+                   'DIALECT', 2, 'TIMEOUT', 50]
+        aggregate = ['FT.AGGREGATE', 'idx', group, 'DIALECT', 2, 'TIMEOUT', 50]
+        env.assertEqual(env.cmd(*search)['total_results'], 150)
+        env.assertEqual(env.cmd(*negated)['total_results'], 0)
+
+        def past_the_deadline(query):
+            """Runs `query` with the worker parked before it builds the iterators until the
+            query's deadline has passed."""
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+            out = []
+            thread = threading.Thread(target=call_and_store, args=(env.cmd, query, out),
+                                      daemon=True)
+            thread.start()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'the worker never parked at {sync_point}', timeout=30)
+            time.sleep(0.2)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            thread.join(30)
+            env.assertFalse(thread.is_alive())
+            return out[0]
+
+        for query in (search, negated, aggregate):
+            res = past_the_deadline(query)
+            env.assertEqual(res['results'], [], message=query[0] + ' ' + query[2])
+            env.assertEqual(res['warning'], [TIMEOUT_WARNING], message=query[0] + ' ' + query[2])
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd('CONFIG', 'SET', *policy.popitem())
+        env.cmd('CONFIG', 'SET', *unstable.popitem())

@@ -321,6 +321,19 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /**
+ * Answers a timeout raised while `req->iteratorTree` was built as the request's timeout policy
+ * answers any other timeout before the first read. Under FAIL, outside FT.PROFILE, it leaves
+ * `status` as it is, so the query fails. Under every other policy nothing has been read yet,
+ * so the partial result is empty: it clears `status` and replaces the whole tree with an empty
+ * iterator. A tree built in part could otherwise answer a NOT over the unfinished part with
+ * documents that do not match.
+ *
+ * Returns true when it replaced the tree. The caller then builds the pipeline and sets
+ * `QUERY_ERROR_CODE_TIMED_OUT` on `status` again, which the reply reports as a timeout warning.
+ */
+bool AREQ_EmptyTreeOnBuildTimeout(AREQ *req, QueryError *status);
+
+/**
  * Classify the request's (already-built) pipeline as yielding a valid partial
  * answer on RETURN-STRICT timeout and store the result on the request's
  * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor

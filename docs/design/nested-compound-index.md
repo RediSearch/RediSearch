@@ -631,10 +631,12 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      exactly when it matches one of the planned branches.
    - Eval (`query_eval/src/nodes/nested.rs`). Each branch walks the routing levels with
      `collect_terminals`, sharing `max_terminals` (10K) and the request timeout across branches.
-     The timeout is read every 100 nodes entered; past it the group fails with a timeout error
-     under every `ON_TIMEOUT` policy, since a walk cut short would drop matches and the pipeline
-     can end before it notices the deadline. The limits are `query_eval::NestedLimits` in the
-     evaluator's `Config`, internal constants rather than `FT.CONFIG` options. A
+     The timeout is read every 100 nodes entered. Past it, the walk runs before any document is
+     read, so the query answers as for any timeout before the first read: an error under
+     `FAIL`, otherwise no results with a timeout warning. The whole iterator tree is replaced
+     by an empty one, since a tree built in part could answer a NOT with documents that do not
+     match. The limits are `query_eval::NestedLimits` in the evaluator's `Config`, internal
+     constants rather than `FT.CONFIG` options. A
      numeric terminal opens `NumericIteratorVariant::from_tree` with a filter the `QN_NESTED` node
      owns, so it lives as long as the AST; a tag terminal opens `TagIndex::open_reader` per value,
      listing the terminal's values for `Any`, `TagNotIn` and prefixes. At most `max_readers` (100K)
