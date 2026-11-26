@@ -493,6 +493,7 @@ def testJsonInvalidValues(env):
         ({'01': 1.0}, 'Invalid sparse vector dimension id'),
         ({'1.5': 1.0}, 'Invalid sparse vector dimension id'),
         ({'token': 1.0}, 'Invalid sparse vector dimension id'),
+        ({'indice': [1, 2], 'value': [0.5, 0.7]}, 'misspelled `indices` or `values` key'),
         ({'4294967296': 1.0}, 'Invalid sparse vector dimension id'),
         ({'1': 'x'}, 'Invalid sparse vector value'),
         ({'1': [1.0]}, 'Invalid sparse vector value'),

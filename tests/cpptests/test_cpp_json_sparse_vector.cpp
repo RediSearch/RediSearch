@@ -322,14 +322,22 @@ TEST_F(JSONSparseVectorTest, arraysRejectOtherKeys) {
   EXPECT_REJECTED(Obj({{"values", Dbls({1})}, {"7", Dbl(1)}}), msg);
 }
 
-TEST_F(JSONSparseVectorTest, shapeIsKnownAtTheFirstArraysKey) {
-  // The arrays shape is read in one pass after a single key of the shape scan; a map is scanned
-  // whole, then read.
+TEST_F(JSONSparseVectorTest, eachShapeIsReadInOnePass) {
+  // The arrays shape is read in one pass after a single key of the map reader; a map is read
+  // in a single pass.
   parse(Obj({{"indices", Ints({1})}, {"values", Dbls({1})}}));
   EXPECT_EQ(keys.size(), 1u + 2u);
   size_t before = keys.size();
   parse(Obj({{"1", Dbl(1)}, {"2", Dbl(1)}, {"3", Dbl(1)}}));
-  EXPECT_EQ(keys.size() - before, 3u + 3u);
+  EXPECT_EQ(keys.size() - before, 3u);
+}
+
+TEST_F(JSONSparseVectorTest, mixedObjectErrorDependsOnKeyOrder) {
+  // Rejected either way. Before an arrays key, a bad key is read as a map key.
+  EXPECT_REJECTED(Obj({{"bad", Dbl(1)}, {"indices", Ints({1})}, {"values", Dbls({1})}}),
+                  "Invalid sparse vector dimension id: `bad`");
+  EXPECT_REJECTED(Obj({{"indices", Ints({1})}, {"bad", Dbl(1)}, {"values", Dbls({1})}}),
+                  "cannot have other keys");
 }
 
 TEST_F(JSONSparseVectorTest, unreadableObjectIsAnError) {
@@ -379,6 +387,15 @@ TEST_F(JSONSparseVectorTest, mapRejectsANonCanonicalDimensionId) {
 
 TEST_F(JSONSparseVectorTest, mapErrorNamesTheKey) {
   EXPECT_REJECTED(Obj({{"07", Dbl(1)}}), "`07`");
+}
+
+TEST_F(JSONSparseVectorTest, mapErrorHintsAtAMisspelledArraysKey) {
+  const char *hint = "misspelled `indices` or `values` key";
+  EXPECT_REJECTED(Obj({{"indice", Ints({1, 2})}, {"value", Dbls({0.5, 0.7})}}), hint);
+  EXPECT_REJECTED(Obj({{"1", Dbl(1)}, {"vals", Dbls({1})}}), hint);
+  // Only an array value suggests the arrays shape.
+  std::string error = reject(Obj({{"token", Dbl(1)}}));
+  EXPECT_EQ(error.find(hint), std::string::npos) << error;
 }
 
 TEST_F(JSONSparseVectorTest, mapRejectsABadWeight) {

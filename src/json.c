@@ -756,8 +756,8 @@ static int JSON_ReadSparseVectorArray(RedisJSON arr, bool isIndices, char **blob
 
 /* Read the array form, `{"indices": [...], "values": [...]}`. Any other key is rejected, so an
  * object is never half one form and half the other. */
-static int JSON_ReadSparseVectorArrays(RedisJSON obj, char **blob, size_t *numPairs,
-                                       QueryError *status) {
+static int JSON_ReadSparseVectorIndicesValues(RedisJSON obj, char **blob, size_t *numPairs,
+                                              QueryError *status) {
   bool hasIndices = false, hasValues = false;
   int rv = REDISMODULE_OK;
 
@@ -820,11 +820,17 @@ static int cmpSparsePairByDimId(const void *a, const void *b) {
 }
 
 /* Read the map form, `{"331": 0.5, "14136": 0.7}`. Key order carries no meaning in a JSON
- * object, so the pairs are sorted into the strictly increasing order the index requires. */
+ * object, so the pairs are sorted into the strictly increasing order the index requires.
+ *
+ * The shape is only known once a key is read, so this reader is tried first: at an `indices` or
+ * `values` key it stops, frees `*blob`, and sets `*isArraysShape` for the caller to read the
+ * object again as the arrays shape. A map is then walked once, and an arrays object stops at its
+ * first key. */
 static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, size_t *numPairs,
-                                    QueryError *status) {
+                                    bool *isArraysShape, QueryError *status) {
   // At least one byte, so an empty map still has a buffer.
   *blob = rm_calloc(1, numKeys * 8 + 1);
+  *isArraysShape = false;
   size_t n = 0;
   int rv = REDISMODULE_OK;
 
@@ -833,17 +839,25 @@ static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, 
   RedisJSONPtr value_ptr = japi->allocJson();
   // `numKeys` is the object's own key count, so the bound never stops a read early; it keeps the
   // buffer write in range without trusting that count and the iterator to agree.
-  while (rv == REDISMODULE_OK && n < numKeys &&
+  while (rv == REDISMODULE_OK && !*isArraysShape && n < numKeys &&
          japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
     size_t klen;
     const char *key = RedisModule_StringPtrLen(keyName, &klen);
     uint32_t id;
     float weight;
     if (!JSON_ParseSparseDimKey(key, klen, &id)) {
-      rv = REDISMODULE_ERR;
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
-                                    "Invalid sparse vector dimension id", ": `%.*s`", (int)klen,
-                                    key);
+      if (STR_EQ(key, klen, "indices") || STR_EQ(key, klen, "values")) {
+        *isArraysShape = true;
+      } else {
+        rv = REDISMODULE_ERR;
+        // A map weight is never an array, so an array value suggests a misspelled arrays key.
+        const char *msg = japi->getType(*value_ptr) == JSONType_Array
+                              ? "Invalid sparse vector dimension id, or misspelled `indices` or "
+                                "`values` key"
+                              : "Invalid sparse vector dimension id";
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, msg, ": `%.*s`", (int)klen,
+                                      key);
+      }
     } else if (JSON_ReadSparseWeight(*value_ptr, &weight) != REDISMODULE_OK) {
       rv = REDISMODULE_ERR;
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid sparse vector value",
@@ -859,7 +873,11 @@ static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, 
   japi->freeJson(value_ptr);
   japi->freeKeyValuesIter(iter);
 
-  if (rv == REDISMODULE_OK) {
+  if (rv == REDISMODULE_OK && *isArraysShape) {
+    // The arrays reader allocates its own buffer, and tells its first array by `*blob == NULL`.
+    rm_free(*blob);
+    *blob = NULL;
+  } else if (rv == REDISMODULE_OK) {
     qsort(*blob, n, 8, cmpSparsePairByDimId);
     *numPairs = n;
   }
@@ -877,25 +895,13 @@ static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField 
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not read sparse vector object");
     return REDISMODULE_ERR;
   }
-  // The arrays shape is found at its first `indices` or `values` key; the map shape only once every
-  // key has been seen.
-  bool arrayForm = false;
-  JSONKeyValuesIterator iter = japi->getKeyValues(obj);
-  RedisModuleString *keyName;
-  RedisJSONPtr value_ptr = japi->allocJson();
-  while (!arrayForm && japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
-    size_t klen;
-    const char *key = RedisModule_StringPtrLen(keyName, &klen);
-    arrayForm = STR_EQ(key, klen, "indices") || STR_EQ(key, klen, "values");
-    RedisModule_FreeString(NULL, keyName);
-  }
-  japi->freeJson(value_ptr);
-  japi->freeKeyValuesIter(iter);
-
   char *blob = NULL;
   size_t numPairs = 0;
-  int rv = arrayForm ? JSON_ReadSparseVectorArrays(obj, &blob, &numPairs, status)
-                     : JSON_ReadSparseVectorMap(obj, numKeys, &blob, &numPairs, status);
+  bool isArraysShape;
+  int rv = JSON_ReadSparseVectorMap(obj, numKeys, &blob, &numPairs, &isArraysShape, status);
+  if (rv == REDISMODULE_OK && isArraysShape) {
+    rv = JSON_ReadSparseVectorIndicesValues(obj, &blob, &numPairs, status);
+  }
   if (rv != REDISMODULE_OK) {
     rm_free(blob);
     return REDISMODULE_ERR;
