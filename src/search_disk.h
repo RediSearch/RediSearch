@@ -647,6 +647,16 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool);
 bool SearchDisk_IsAsyncIOSupported();
 
 /**
+ * @brief Reads the backend's async I/O support into the copy SearchDisk_IsAsyncIOSupported returns.
+ *
+ * Done once when the disk context opens (SearchDisk_Initialize), since the backend fixes the
+ * answer then, and workers must not pass the context to the backend while shutdown may free it.
+ * Tests that install their own context and backend call it after doing so, and again after
+ * removing them.
+ */
+void SearchDisk_CacheAsyncIOSupport();
+
+/**
  * @brief Enable or disable async I/O globally
  *
  * This allows runtime control of async I/O behavior for testing and debugging.

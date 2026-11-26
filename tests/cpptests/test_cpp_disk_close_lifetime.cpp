@@ -40,6 +40,7 @@ class DiskCloseLifetimeTest : public ::testing::Test {
   static inline std::atomic<int> closeIndexCalls{0};
   static inline std::atomic<int> closeContextCalls{0};
   static inline std::atomic<bool> indexClosedBeforeContext{false};
+  static inline std::atomic<int> asyncIOQueries{0};
   static inline std::promise<void> insideClose;
   static inline std::shared_future<void> releaseClose;
 
@@ -50,7 +51,12 @@ class DiskCloseLifetimeTest : public ::testing::Test {
     closeIndexCalls = 0;
     closeContextCalls = 0;
     indexClosedBeforeContext = false;
+    asyncIOQueries = 0;
 
+    api.basic.isAsyncIOSupported = [](RedisSearchDisk *) {
+      ++asyncIOQueries;
+      return true;
+    };
     api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
       ++closeIndexCalls;
     };
@@ -69,6 +75,7 @@ class DiskCloseLifetimeTest : public ::testing::Test {
     disk = savedDisk;
     disk_db = savedDiskDb;
     isFlex = savedIsFlex;
+    SearchDisk_CacheAsyncIOSupport();
   }
 
   RedisSearchDiskIndexSpec *handle() {
@@ -88,6 +95,28 @@ TEST_F(DiskCloseLifetimeTest, SkipsTheIndexCloseOnceTheContextIsClosed) {
 
   EXPECT_FALSE(SearchDisk_CloseIndex(handle()));
   EXPECT_EQ(closeIndexCalls, 0);
+}
+
+// Workers building a query pipeline ask this while shutdown may be freeing the context, so the
+// backend is asked once, when the context opens, and never through disk_db after that.
+TEST_F(DiskCloseLifetimeTest, AsyncIOSupportIsReadFromTheBackendOnlyWhenCached) {
+  EXPECT_FALSE(SearchDisk_IsAsyncIOSupported());
+  EXPECT_EQ(asyncIOQueries, 0);
+
+  SearchDisk_CacheAsyncIOSupport();
+  EXPECT_EQ(asyncIOQueries, 1);
+  EXPECT_TRUE(SearchDisk_IsAsyncIOSupported());
+  EXPECT_TRUE(SearchDisk_IsAsyncIOSupported());
+  EXPECT_EQ(asyncIOQueries, 1);
+}
+
+TEST_F(DiskCloseLifetimeTest, AsyncIOSupportIsClearedWhenTheContextIsClosed) {
+  SearchDisk_CacheAsyncIOSupport();
+  ASSERT_TRUE(SearchDisk_IsAsyncIOSupported());
+
+  SearchDisk_Close(nullptr);
+  EXPECT_FALSE(SearchDisk_IsAsyncIOSupported());
+  EXPECT_EQ(asyncIOQueries, 1);
 }
 
 TEST_F(DiskCloseLifetimeTest, ClosingTheContextWaitsForAnIndexThatIsMidClose) {

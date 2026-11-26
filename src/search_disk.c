@@ -59,6 +59,9 @@ static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index)
   pthread_mutex_unlock(&leakedDiskIndexesLock_g);
 }
 
+// Whether the backend supports async I/O, copied from the backend by SearchDisk_CacheAsyncIOSupport.
+static _Atomic bool asyncIOSupported_g = false;
+
 // How long SearchDisk_Close waits for indexes that are mid-close before it gives up.
 #define DISK_CLOSE_LOCK_TIMEOUT_SEC 5
 
@@ -254,6 +257,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
   }
+  SearchDisk_CacheAsyncIOSupport();
 
   // Register BigModule callbacks for disk usage reporting
   if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
@@ -300,6 +304,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
     }
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
+    atomic_store(&asyncIOSupported_g, false);
     diskMemoryLimitBytes = 0;
     pthread_rwlock_unlock(&diskLifetimeLock_g);
   }
@@ -719,12 +724,13 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool) {
     }
 }
 
+void SearchDisk_CacheAsyncIOSupport() {
+    atomic_store(&asyncIOSupported_g, disk && disk_db && disk->basic.isAsyncIOSupported(disk_db));
+}
+
 bool SearchDisk_IsAsyncIOSupported() {
-    if (!disk || !disk_db) {
-        return false;
-    }
-    // Check if the underlying disk backend supports async I/O
-    return disk->basic.isAsyncIOSupported(disk_db);
+    // Workers call this while shutdown may close the disk context, so it must not touch disk_db.
+    return atomic_load(&asyncIOSupported_g);
 }
 
 void SearchDisk_SetAsyncIOEnabled(bool enabled) {
