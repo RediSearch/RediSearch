@@ -72,16 +72,22 @@ pub(crate) fn eval<'index>(
         "a vector node has at most one (filter) child"
     );
     const TRAINED_DOCUMENTS: u64 = 1_000_000;
-    let try_exact = node.num_children() == 1
-        // SAFETY: reads the module's runtime configuration and takes no pointers.
-        && unsafe { ffi::RSConfig_NumericKnnDecisionTreeEnabled() }
+    let policy = if node.num_children() == 1
         && ctx.spec().stats.scoring.numDocuments as u64 == TRAINED_DOCUMENTS
-        && {
-            let filter = node.child(0);
-            filter.node_type() == QueryNodeType::Phrase
-                && filter.num_children() == 2
-                && filter.children().all(|child| child.node_type() == QueryNodeType::Numeric)
-        };
+    {
+        // SAFETY: reads the module's runtime configuration and takes no pointers.
+        unsafe { ffi::RSConfig_NumericKnnDecisionTreePolicy() }
+    } else {
+        ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_LEGACY
+    };
+    let try_exact = policy != ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_LEGACY && {
+        let filter = node.child(0);
+        filter.node_type() == QueryNodeType::Phrase
+            && filter.num_children() == 2
+            && filter
+                .children()
+                .all(|child| child.node_type() == QueryNodeType::Numeric)
+    };
     let child = if node.num_children() == 0 {
         None
     } else {
@@ -91,7 +97,7 @@ pub(crate) fn eval<'index>(
         Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
     };
     let prefer_exact = try_exact
-        && child.is_some_and(|child| narrow_numeric_conjunction(child, TRAINED_DOCUMENTS));
+        && child.is_some_and(|child| narrow_numeric_conjunction(child, TRAINED_DOCUMENTS, policy));
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
     // valid `VectorQuery`, and `child` is either absent (null) or an owning
@@ -122,7 +128,11 @@ pub(crate) fn eval<'index>(
     Some(Evaluated::C(it))
 }
 
-fn narrow_numeric_conjunction(child: NonNull<ffi::QueryIterator>, docs: u64) -> bool {
+fn narrow_numeric_conjunction(
+    child: NonNull<ffi::QueryIterator>,
+    docs: u64,
+    policy: ffi::RSNumericKnnPolicy,
+) -> bool {
     // SAFETY: the caller passes a live, owned iterator header prior to transferring it to C.
     if unsafe { child.as_ref() }.type_ as u32 != IteratorType::Intersect as u32 {
         return false;
@@ -137,8 +147,40 @@ fn narrow_numeric_conjunction(child: NonNull<ffi::QueryIterator>, docs: u64) -> 
     }
     let first = (intersection.child_at(0).num_estimated() as u64).min(docs);
     let second = (intersection.child_at(1).num_estimated() as u64).min(docs);
-    // Fitted on disjoint training queries using stock execution and iterator estimates.
-    first * second / docs <= 86_872
+    prefers_exact_for_estimates(policy, first * second / docs, first.max(second))
+}
+
+/// Select exact search from the normalized product and the larger child estimate.
+fn prefers_exact_for_estimates(policy: ffi::RSNumericKnnPolicy, product: u64, larger: u64) -> bool {
+    // Retain the first selector's exact routes and add the leaf fitted by
+    // fit_early_exact.py. Both rules use stock iterator estimates.
+    product <= 86_872
+        || (policy == ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT
+            && product <= 133_378
+            && larger <= 558_180)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefers_exact_for_estimates;
+
+    #[test]
+    fn early_exact_enlarges_the_first_selector_leaf() {
+        let first = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_FIRST_SELECTOR;
+        let early_exact = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT;
+        assert!(prefers_exact_for_estimates(first, 86_872, 600_000));
+        assert!(prefers_exact_for_estimates(early_exact, 86_872, 600_000));
+        assert!(!prefers_exact_for_estimates(first, 86_873, 500_000));
+        assert!(prefers_exact_for_estimates(early_exact, 86_873, 500_000));
+    }
+
+    #[test]
+    fn early_exact_checks_both_inclusive_thresholds() {
+        let early_exact = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT;
+        assert!(prefers_exact_for_estimates(early_exact, 133_378, 558_180));
+        assert!(!prefers_exact_for_estimates(early_exact, 133_379, 558_180));
+        assert!(!prefers_exact_for_estimates(early_exact, 133_378, 558_181));
+    }
 }
 
 /// The query named the distance field twice.

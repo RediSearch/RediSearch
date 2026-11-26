@@ -14,8 +14,6 @@ import random
 import struct
 import time
 
-import redis
-
 INDEX = "range20500"
 PREFIX = "range20500:"
 K = 25
@@ -24,12 +22,25 @@ DATA_ROWS = 1_000_000
 
 
 def connection(args):
+    import redis
+
     return redis.Redis(unix_socket_path=args.socket, socket_timeout=120)
 
 
 def index_info(client):
     info = client.execute_command("FT.INFO", INDEX)
     return dict(zip(info[::2], info[1::2]))
+
+
+def require_stock_calibration(client):
+    """Check the workload scope and confirm that AUTO uses the stock selector."""
+    selector = "search-_numeric-knn-decision-tree"
+    if client.config_get(selector).get(selector, "no") != "no":
+        raise ValueError(f"set {selector} to no before calibrating stock AUTO")
+    if index_info(client)[b"num_docs"] != DATA_ROWS:
+        raise ValueError("the sealed million-document index is required")
+    if client.config_get("search-workers") != {"search-workers": "6"}:
+        raise ValueError("expected six Redis search workers")
 
 
 def build(args):

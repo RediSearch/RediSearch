@@ -41,11 +41,13 @@
 
 #include <stdatomic.h>
 
-static atomic_bool numericKnnDecisionTree;
+static atomic_int numericKnnDecisionTree;
 
-bool RSConfig_NumericKnnDecisionTreeEnabled(void) {
-  return RSGlobalConfig.enableUnstableFeatures &&
-         atomic_load_explicit(&numericKnnDecisionTree, memory_order_relaxed);
+RSNumericKnnPolicy RSConfig_NumericKnnDecisionTreePolicy(void) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    return NUMERIC_KNN_POLICY_LEGACY;
+  }
+  return atomic_load_explicit(&numericKnnDecisionTree, memory_order_relaxed);
 }
 
 static int get_numeric_knn_decision_tree(const char *name, void *privdata) {
@@ -59,9 +61,13 @@ static int set_numeric_knn_decision_tree(const char *name, int value, void *priv
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(privdata);
   REDISMODULE_NOT_USED(err);
-  atomic_store_explicit(&numericKnnDecisionTree, value != 0, memory_order_relaxed);
+  atomic_store_explicit(&numericKnnDecisionTree, value, memory_order_relaxed);
   return REDISMODULE_OK;
 }
+
+static const char *numeric_knn_policy_vals[] = {"no", "yes", "early-exact"};
+static const int numeric_knn_policy_enums[] = {
+    NUMERIC_KNN_POLICY_LEGACY, NUMERIC_KNN_POLICY_FIRST_SELECTOR, NUMERIC_KNN_POLICY_EARLY_EXACT};
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
@@ -2676,6 +2682,12 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   // Enum parameters
+  RM_TRY(RedisModule_RegisterEnumConfig(
+      ctx, "search-_numeric-knn-decision-tree", NUMERIC_KNN_POLICY_LEGACY,
+      REDISMODULE_CONFIG_UNPREFIXED, numeric_knn_policy_vals, numeric_knn_policy_enums,
+      sizeof(numeric_knn_policy_enums) / sizeof(numeric_knn_policy_enums[0]),
+      get_numeric_knn_decision_tree, set_numeric_knn_decision_tree, NULL, NULL))
+
   RM_TRY(
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout",
@@ -2802,10 +2814,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.optimizePartialUpdate)
     )
   )
-
-  RM_TRY(RedisModule_RegisterBoolConfig(
-      ctx, "search-_numeric-knn-decision-tree", 0, REDISMODULE_CONFIG_UNPREFIXED,
-      get_numeric_knn_decision_tree, set_numeric_knn_decision_tree, NULL, NULL))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

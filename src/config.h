@@ -585,7 +585,14 @@ void iteratorsConfig_init(IteratorsConfig *config);
 void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
                                   const char *name);
 
-bool RSConfig_NumericKnnDecisionTreeEnabled(void);
+typedef enum {
+  NUMERIC_KNN_POLICY_LEGACY,
+  NUMERIC_KNN_POLICY_FIRST_SELECTOR,
+  NUMERIC_KNN_POLICY_EARLY_EXACT,
+} RSNumericKnnPolicy;
+
+/* Returns the active policy after applying the unstable-features gate. */
+RSNumericKnnPolicy RSConfig_NumericKnnDecisionTreePolicy(void);
 
 /* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
  * limit is active (workers disabled and limit > 0) and the current value

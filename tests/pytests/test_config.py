@@ -1793,6 +1793,16 @@ def testConfigAPIConfigOnlyBooleanParams():
         env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
             .contains('CONFIG SET failed')
 
+@skip(cluster=True, redis_less_than='7.9.227')
+def testConfigAPINumericKnnDecisionTree(env):
+    config = 'search-_numeric-knn-decision-tree'
+    env.expect('CONFIG', 'GET', config).equal([config, 'no'])
+    for value in ('yes', 'early-exact', 'no'):
+        env.expect('CONFIG', 'SET', config, value).ok()
+        env.expect('CONFIG', 'GET', config).equal([config, value])
+    env.expect('CONFIG', 'SET', config, 'unsupported').error().contains('CONFIG SET failed')
+    env.expect('CONFIG', 'GET', config).equal([config, 'no'])
+
 # CONFIG-only numeric parameters (no corresponding FT.CONFIG parameter / module argument)
 configOnlyNumericConfigs = [
     # configName, defaultValue, minValue, maxValue, legacyName

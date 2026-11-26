@@ -121,8 +121,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/config.h",
-        fns: &["RSConfig_NumericKnnDecisionTreeEnabled"],
-        types: &[],
+        fns: &["RSConfig_NumericKnnDecisionTreePolicy"],
+        types: &["RSNumericKnnPolicy"],
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
