@@ -14,7 +14,7 @@
 //! [`dist_field`](query_types::QueryNodeOptions::dist_field), and admits it
 //! only on numeric nodes while unstable features are enabled. Evaluation
 //! reserves a metric request under the alias and wraps the clause's iterator
-//! in an [`IndexLoad`](rqe_iterators::index_load::IndexLoad) decorator bound
+//! in an [`IndexLoad`] decorator bound
 //! to it.
 
 use std::{ffi::c_char, ptr::NonNull};
