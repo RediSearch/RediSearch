@@ -285,26 +285,24 @@ void SearchDisk_StopMetrics(void) {
 }
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
-  if (!disk || !disk_db) {
-    return;
+  if (disk && disk_db) {
+    if (SearchDisk_IsEnabled()) {
+      SlotCleanup_StopDiskJobs();
+    }
+    SearchDisk_StopMetrics();
+    if (!acquireDiskLifeTimeLock()) {
+      // An index is stuck mid-close. Closing the context under it would free what it still uses,
+      // so leave the context open: this runs at shutdown and the process is about to exit.
+      RedisModule_Log(ctx, "warning",
+                      "Timed out waiting for a disk index to finish closing, leaving the disk "
+                      "context open");
+      return;
+    }
+    disk->basic.close(ctx, disk_db);
+    disk_db = NULL;
+    diskMemoryLimitBytes = 0;
+    pthread_rwlock_unlock(&diskLifetimeLock_g);
   }
-  if (SearchDisk_IsEnabled()) {
-    SlotCleanup_StopDiskJobs();
-  }
-  SearchDisk_StopMetrics();
-
-  if (!acquireDiskLifeTimeLock()) {
-    // An index is stuck mid-close. Closing the context under it would free what it still uses,
-    // so leave the context open: this runs at shutdown and the process is about to exit.
-    RedisModule_Log(ctx, "warning",
-                    "Timed out waiting for a disk index to finish closing, leaving the disk "
-                    "context open");
-    return;
-  }
-  disk->basic.close(ctx, disk_db);
-  disk_db = NULL;
-  diskMemoryLimitBytes = 0;
-  pthread_rwlock_unlock(&diskLifetimeLock_g);
 }
 
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
