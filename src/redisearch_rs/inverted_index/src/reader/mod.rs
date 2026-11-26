@@ -88,7 +88,9 @@ pub trait IndexReader<'index> {
     /// Whether [`current_record_max_score`](Self::current_record_max_score) can ever be finite.
     ///
     /// Fixed when the reader is built. An iterator over this reader reports score bounds exactly
-    /// when this holds.
+    /// when this holds. A reader that reports them has no
+    /// [duplicates](Self::has_duplicates): dropping a document's first record would let it be
+    /// yielded through a later one, scored differently.
     fn reports_score_bounds(&self) -> bool {
         false
     }
