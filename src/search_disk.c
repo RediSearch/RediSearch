@@ -62,6 +62,23 @@ static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index)
 // How long SearchDisk_Close waits for indexes that are mid-close before it gives up.
 #define DISK_CLOSE_LOCK_TIMEOUT_SEC 5
 
+// Takes diskLifetimeLock_g exclusively, waiting up to DISK_CLOSE_LOCK_TIMEOUT_SEC for the indexes
+// that are mid-close. Returns false on timeout, without the lock. Polled because
+// pthread_rwlock_timedwrlock is not available on every supported platform.
+static bool acquireDiskLifetimeLockExclusive(void) {
+  const struct timespec poll = {.tv_sec = 0, .tv_nsec = 1000000};
+  struct timespec start, now;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  while (pthread_rwlock_trywrlock(&diskLifetimeLock_g) != 0) {
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec - start.tv_sec >= DISK_CLOSE_LOCK_TIMEOUT_SEC) {
+      return false;
+    }
+    nanosleep(&poll, NULL);
+  }
+  return true;
+}
+
 static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
   RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
   return disk->basic.updateMemoryLimit(disk_db, diskMemoryLimitBytes, registeredIndexCount);
@@ -276,21 +293,13 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   }
   SearchDisk_StopMetrics();
 
-  // Polled because pthread_rwlock_timedwrlock is not available on every supported platform.
-  const struct timespec poll = {.tv_sec = 0, .tv_nsec = 1000000};
-  struct timespec start, now;
-  clock_gettime(CLOCK_MONOTONIC, &start);
-  while (pthread_rwlock_trywrlock(&diskLifetimeLock_g) != 0) {
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    if (now.tv_sec - start.tv_sec >= DISK_CLOSE_LOCK_TIMEOUT_SEC) {
-      // An index is stuck mid-close. Closing the context under it would free what it still uses,
-      // so leave the context open: this runs at shutdown and the process is about to exit.
-      RedisModule_Log(ctx, "warning",
-                      "Timed out waiting for a disk index to finish closing, leaving the disk "
-                      "context open");
-      return;
-    }
-    nanosleep(&poll, NULL);
+  if (!acquireDiskLifetimeLockExclusive()) {
+    // An index is stuck mid-close. Closing the context under it would free what it still uses,
+    // so leave the context open: this runs at shutdown and the process is about to exit.
+    RedisModule_Log(ctx, "warning",
+                    "Timed out waiting for a disk index to finish closing, leaving the disk "
+                    "context open");
+    return;
   }
   disk->basic.close(ctx, disk_db);
   disk_db = NULL;
