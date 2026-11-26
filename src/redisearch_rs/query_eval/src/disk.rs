@@ -95,7 +95,7 @@ pub(crate) fn constant_bound_for(
     disk: &SearchDiskHandle,
     leaf: ConstantLeaf,
 ) -> Option<f64> {
-    if !disk.score_skipping_enabled() {
+    if ctx.spec().flags & ffi::IndexFlags_Index_DiskScoreSkipping == 0 {
         return None;
     }
     constant_leaf_bound(

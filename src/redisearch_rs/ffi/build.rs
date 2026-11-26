@@ -346,7 +346,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "SearchDisk_GetMaxDocId",
             "SearchDisk_GetMaxDocScore",
-            "SearchDisk_IsScoreSkippingEnabled",
         ],
         types: &[],
         vars: &[],
