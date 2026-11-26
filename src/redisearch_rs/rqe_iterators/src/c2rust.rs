@@ -21,7 +21,6 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     interop::RQEIteratorWrapper,
-    intersection::Intersection,
     profile_print,
     profile_print::ProfilePrint,
     score_bound::{BlockBound, MinCompetitiveScore},
@@ -66,7 +65,8 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -150,7 +150,8 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -387,72 +388,11 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     }
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        match self.type_ {
-            IteratorType::Intersect => {
-                // SAFETY:
-                // 1. and 2. `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
-                //    `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
-                //    inner type (`NewIntersectionIterator` is the sole constructor of a C
-                //    wrapped intersection). `as_raw` returns the owning pointer, whose
-                //    provenance spans the whole wrapper; a pointer derived from
-                //    `&QueryIterator` would cover only the header and make the read of the
-                //    wrapped iterator UB.
-                // 3. The borrow ends within this expression, while `self` keeps the iterator
-                //    alive.
-                let n = unsafe {
-                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner()
-                    .num_children()
-                };
-                1.0 / n.max(1) as f64
-            }
-            IteratorType::Union if prioritize_union_children => {
-                // SAFETY:
-                // 1. and 2. `type_ == Union` guarantees `self` was produced by
-                //    `RQEIteratorWrapper::boxed_new_inner` with `UnionOpaque<CRQEIterator>` as
-                //    the inner type (`NewUnionIterator` is the sole constructor of a C wrapped
-                //    union). `as_raw` returns the owning pointer, whose provenance spans the
-                //    whole wrapper; a pointer derived from `&QueryIterator` would cover only
-                //    the header and make the read of the wrapped iterator UB.
-                // 3. The borrow ends within this expression, while `self` keeps the iterator
-                //    alive.
-                let n = unsafe {
-                    RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner()
-                    .num_children_active()
-                };
-                n.max(1) as f64
-            }
-            IteratorType::InvIdxNumeric => 1.0,
-            IteratorType::InvIdxTerm => 1.0,
-            IteratorType::InvIdxWildcard => 1.0,
-            IteratorType::InvIdxMissing => 1.0,
-            IteratorType::InvIdxTag => 1.0,
-            IteratorType::Hybrid => 1.0,
-            IteratorType::Union => 1.0,
-            IteratorType::Not => 1.0,
-            IteratorType::NotOptimized => 1.0,
-            IteratorType::Optional => 1.0,
-            IteratorType::OptionalOptimized => 1.0,
-            IteratorType::Wildcard => 1.0,
-            IteratorType::Empty => 1.0,
-            IteratorType::IdListSorted => 1.0,
-            IteratorType::IdListUnsorted => 1.0,
-            IteratorType::MetricSortedById => 1.0,
-            IteratorType::MetricSortedByScore => 1.0,
-            IteratorType::MetricLazySortedById => 1.0,
-            IteratorType::MetricLazySortedByScore => 1.0,
-            IteratorType::Profile => 1.0,
-            IteratorType::Optimus => 1.0,
-            IteratorType::GeoShape => 1.0,
-            IteratorType::Mock => 1.0,
-            IteratorType::SparseVector => 1.0,
-            IteratorType::Max => 1.0,
-        }
+        let Some(callback) = self.IntersectionSortWeight else {
+            return 1.0;
+        };
+        // SAFETY: As in `reports_score_bounds`.
+        unsafe { callback(self.header.as_ptr(), prioritize_union_children) }
     }
 
     fn reports_score_bounds(&self) -> bool {

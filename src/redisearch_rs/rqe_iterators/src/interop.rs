@@ -235,6 +235,7 @@ where
                 CurrentMaxScore: Some(current_max_score::<I>),
                 CurrentBlockBound: Some(current_block_bound::<I>),
                 ReadWithThreshold: Some(read_with_threshold::<I>),
+                IntersectionSortWeight: Some(intersection_sort_weight::<I>),
             },
             state: WrapperState::Active(Box::new(inner)),
         });
@@ -619,6 +620,26 @@ extern "C" fn current_max_score<'index, I: RQEIteratorBoxed<'index> + 'index>(
         )
     };
     wrapper.state.active_ref().current_max_score()
+}
+
+/// Panics while the iterator is suspended, like [`num_estimated`]: an intersection reads its
+/// children's weights only while it is being built, and a child being built into a tree is active.
+extern "C" fn intersection_sort_weight<'index, I: RQEIteratorBoxed<'index> + 'index>(
+    base: *const QueryIterator,
+    prioritize_union_children: bool,
+) -> f64 {
+    debug_assert!(base.is_aligned());
+    // SAFETY: 1. and 2. by invariant 1. of [`RQEIteratorWrapper`]. 3. C frees the iterator
+    // before the index data it borrows.
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<'index, I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper
+        .state
+        .active_ref()
+        .intersection_sort_weight(prioritize_union_children)
 }
 
 extern "C" fn current_block_bound<'index, I: RQEIteratorBoxed<'index> + 'index>(
