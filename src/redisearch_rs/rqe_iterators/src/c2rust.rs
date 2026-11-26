@@ -21,7 +21,6 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     interop::RQEIteratorWrapper,
-    intersection::Intersection,
     profile_print,
     profile_print::ProfilePrint,
     score_bound::{BlockBound, MinCompetitiveScore},
@@ -383,88 +382,11 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     }
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        match self.type_ {
-            IteratorType::Intersect => {
-                // SAFETY:
-                // - `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
-                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
-                //   wrapped intersection).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
-                let n = unsafe {
-                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner
-                    .num_children()
-                };
-                1.0 / n.max(1) as f64
-            }
-            IteratorType::Union if prioritize_union_children => {
-                // SAFETY:
-                // - `type_ == Union` guarantees `self` was produced by
-                //   `RQEIteratorWrapper::boxed_new_inner` with
-                //   `UnionOpaque<CRQEIterator>` as the inner type
-                //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
-                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
-                //   rather than manual `size_of` arithmetic, making it immune to alignment
-                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
-                // - `as_raw` returns the owning pointer, whose provenance spans the whole
-                //   wrapper; a pointer derived from `&QueryIterator` would cover only the
-                //   header and make the read of `inner` UB.
-                let n = unsafe {
-                    RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner
-                    .num_children_active()
-                };
-                n.max(1) as f64
-            }
-            IteratorType::InvIdxNumeric => 1.0,
-            IteratorType::InvIdxTerm => 1.0,
-            IteratorType::InvIdxWildcard => 1.0,
-            IteratorType::InvIdxMissing => 1.0,
-            IteratorType::InvIdxTag => 1.0,
-            IteratorType::Hybrid => 1.0,
-            IteratorType::Union => 1.0,
-            IteratorType::Not => 1.0,
-            IteratorType::NotOptimized => 1.0,
-            IteratorType::Optional => 1.0,
-            IteratorType::OptionalOptimized => 1.0,
-            IteratorType::Wildcard => 1.0,
-            IteratorType::Empty => 1.0,
-            IteratorType::IdListSorted => 1.0,
-            IteratorType::IdListUnsorted => 1.0,
-            IteratorType::MetricSortedById => 1.0,
-            IteratorType::MetricSortedByScore => 1.0,
-            IteratorType::MetricLazySortedById => 1.0,
-            IteratorType::MetricLazySortedByScore => 1.0,
-            IteratorType::Profile => 1.0,
-            IteratorType::Optimus => 1.0,
-            IteratorType::GeoShape => 1.0,
-            IteratorType::Mock => 1.0,
-            IteratorType::SparseVector => 1.0,
-            IteratorType::IndexLoad => {
-                // SAFETY: `type_ == IndexLoad` guarantees the wrapper's inner type is
-                // `IndexLoad<CRQEIterator>`, the only instantiation that can be lowered
-                // to the C ABI (see its `ProfilePrint` impl); `as_raw` returns the owning
-                // pointer, whose provenance spans the whole wrapper.
-                unsafe {
-                    RQEIteratorWrapper::<crate::index_load::IndexLoad<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                }
-                .inner
-                .intersection_sort_weight(prioritize_union_children)
-            }
-            IteratorType::Max => 1.0,
-        }
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.IntersectionSortWeight.unwrap_unchecked() };
+        // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
+        // types that implement its C iterator API; this one only reads.
+        unsafe { callback(self.header.as_ptr(), prioritize_union_children) }
     }
 
     fn reports_score_bounds(&self) -> bool {

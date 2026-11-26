@@ -177,6 +177,12 @@ typedef struct QueryIterator {
    * `Default_ReadWithThreshold`, a plain `Read`, is only correct for an iterator that does not
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
+
+  /* The factor an intersection multiplies this iterator's `NumEstimated` by to order its
+   * children when it is built: the lowest product leads. Required, like `Read`: an iterator with
+   * no opinion sets `Default_IntersectionSortWeight`. Dispatching through the header, rather than
+   * on `type`, keeps it right for an iterator that reports another iterator's type. */
+  double (*IntersectionSortWeight)(const struct QueryIterator *self, bool prioritizeUnionChildren);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
@@ -201,6 +207,12 @@ static inline bool Default_CurrentBlockBound(const struct QueryIterator *self, t
 static inline IteratorStatus Default_ReadWithThreshold(struct QueryIterator *self,
                                                        double minCompetitiveScore) {
   return self->Read(self);
+}
+
+// The sort weight of an iterator that does not influence its intersection's child order.
+static inline double Default_IntersectionSortWeight(const struct QueryIterator *self,
+                                                    bool prioritizeUnionChildren) {
+  return 1.0;
 }
 
 static inline void QueryIterator_SetNoScoreBounds(QueryIterator *it) {

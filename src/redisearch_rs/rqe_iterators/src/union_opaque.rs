@@ -13,13 +13,6 @@
 //! [`RQEIteratorWrapper`] produced by the
 //! FFI `NewUnionIterator` constructor. It holds one of the five concrete
 //! union variants and forwards every [`RQEIterator`] call via match dispatch.
-//!
-//! This module lives in `rqe_iterators` (rather than in the FFI bridge crate)
-//! so that [`c2rust::CRQEIterator`](crate::c2rust::CRQEIterator) can recover
-//! the wrapper via
-//! [`ref_from_header_ptr`](crate::interop::RQEIteratorWrapper::ref_from_header_ptr)
-//! and call methods such as [`UnionOpaque::num_children_active`] directly,
-//! without going through a C FFI trampoline.
 
 use std::ffi::CStr;
 use std::ptr::NonNull;
