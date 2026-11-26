@@ -257,7 +257,9 @@ main := |*
     tok.pos = ts-q->raw;
     tok.len = te - (ts + 1);
     tok.s = ts+1;
-    RSQuery_Parse_v2(pParser, MODIFIER, tok, q);
+    int modifier = QueryParseCtx_OpensNestedGroup(q, tok.s, tok.len, te, eof) ? NESTED_MODIFIER
+                                                                              : MODIFIER;
+    RSQuery_Parse_v2(pParser, modifier, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }

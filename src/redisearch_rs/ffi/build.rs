@@ -264,8 +264,9 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query_node.h",
-        fns: &[],
+        fns: &["QueryNestedNode_AddFilter"],
         types: &[
+            "QueryNestedNode",
             "QueryFuzzyNode",
             "QueryGeofilterNode",
             "QueryGeometryNode",

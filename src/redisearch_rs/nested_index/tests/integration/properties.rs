@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nested_index::{Constraint, NestedIndex, Terminal};
+use nested_index::{Constraint, NestedIndex};
 use proptest::prelude::*;
 use timeout::NoTimeoutChecker;
 
@@ -40,9 +40,11 @@ fn total_entries(index: &NestedIndex) -> usize {
         )
         .unwrap()
         .iter()
-        .map(|terminal| match terminal {
-            Terminal::Numeric(tree) => tree.num_entries(),
-            Terminal::Tag(_) => unreachable!("the index has numeric terminals"),
+        .map(|terminal| {
+            terminal
+                .numeric()
+                .expect("the index has numeric terminals")
+                .num_entries()
         })
         .sum()
 }

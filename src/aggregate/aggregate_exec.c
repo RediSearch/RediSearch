@@ -878,9 +878,11 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
   // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
   // and rc stays !=TIMEDOUT, so the flag is the only path through which the
-  // user-visible TIMEOUT warning is surfaced in that case.
-  if (rc == RS_RESULT_STOPPED
-      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
+  // user-visible TIMEOUT warning is surfaced in that case. A timeout raised while the iterators
+  // were built is carried by the status instead (AREQ_EmptyTreeOnBuildTimeout), as the RESP2
+  // reply already reads it.
+  if (rc == RS_RESULT_STOPPED || hasTimeoutError(qctx->err) ||
+      (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
@@ -1452,6 +1454,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   SearchCtx_UpdateCurrentTime(sctx);
 
   req->iteratorTree = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
+  const bool timedOutWhileBuilding = AREQ_EmptyTreeOnBuildTimeout(req, status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1509,6 +1512,9 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
+  if (rc == REDISMODULE_OK && timedOutWhileBuilding) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+  }
   return rc;
 }
 

@@ -112,6 +112,8 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         // Parse subquery: Convert AST to iterator tree
         areq->iteratorTree = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
                                           areq->reqflags, &areq->base.reply.err);
+        const bool timedOutWhileBuilding =
+            AREQ_EmptyTreeOnBuildTimeout(areq, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
@@ -136,6 +138,9 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
         if (rc != REDISMODULE_OK) {
             break;
+        }
+        if (timedOutWhileBuilding) {
+            QueryError_SetCode(&areq->base.reply.err, QUERY_ERROR_CODE_TIMED_OUT);
         }
 
         // Obtain the query processing context for the current AREQ

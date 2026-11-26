@@ -17,7 +17,7 @@
 %left OR.
 
 %left ISMISSING.
-%left MODIFIER.
+%left MODIFIER NESTED_MODIFIER.
 
 %left RP RB RSQB.
 
@@ -78,30 +78,11 @@
 #include "config.h"
 #include "util/arr/arr.h"
 
-// unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
-static size_t unescapen(char *s, size_t sz) {
-
-  char *dst = s;
-  char *src = dst;
-  char *end = s + sz;
-  while (src < end) {
-      // unescape
-      if (*src == '\\' && src + 1 < end &&
-         (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst++ = *src++;
-  }
-
-  return (size_t)(dst - s);
-}
-
 // Unescape a field name into a parse-owned copy: the query text belongs to the caller.
 static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
   if (memchr(tok->s, '\\', tok->len)) {
     char *unescaped = rm_strndup(tok->s, tok->len);
-    tok->len = unescapen(unescaped, tok->len);
+    tok->len = QueryParse_UnescapeFieldName(unescaped, tok->len);
     tok->s = unescaped;
     array_ensure_append_1(ctx->unescapedNames, unescaped);
   }
@@ -200,8 +181,64 @@ static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *m
   }
 }
 
+#define NESTED_UNSUPPORTED_CLAUSE \
+  "This condition is not supported on a sub-field of a NESTED group: only TAG values and " \
+  "prefixes, and NUMERIC ranges, are"
+
+/* Report that the field `f` names does not have the `expected` type. Inside a NESTED group, only
+ * a TAG clause on a NUMERIC sub-field, or the reverse, is a type mismatch: any other clause is
+ * one a group does not support, whatever the sub-field's type. */
+static void reportWrongFieldType(QueryParseCtx *ctx, FieldName *f, const char *expected,
+                                 const char *msg) {
+  bool groupType = !strcmp(expected, SPEC_TAG_STR) || !strcmp(expected, SPEC_NUMERIC_STR);
+  const char *subType = !f->sub                         ? NULL
+                        : f->sub->type == INDEXFLD_T_TAG ? SPEC_TAG_STR
+                                                         : SPEC_NUMERIC_STR;
+  if (subType && (!groupType || !strcmp(subType, expected))) {
+    reportSyntaxError(ctx->status, &f->tok, NESTED_UNSUPPORTED_CLAUSE);
+  } else {
+    reportSyntaxError(ctx->status, &f->tok, msg);
+  }
+}
+
 #define REPORT_WRONG_FIELD_TYPE(F, type_literal) \
-  reportSyntaxError(ctx->status, &F.tok, "Expected a " type_literal " field")
+  reportWrongFieldType(ctx, &(F), type_literal, "Expected a " type_literal " field")
+
+/* Whether `n`, the inner expression of a NESTED group, is built only of what a group answers:
+ * AND, OR and NOT over TAG and NUMERIC clauses on its sub-fields. */
+static bool nestedGroupIsSupported(const struct RSQueryNode *n) {
+  switch (n->type) {
+    case QN_TAG:
+    case QN_NUMERIC:
+      return true;
+    case QN_PHRASE:
+      if (n->pn.exact) return false;
+      // fallthrough
+    case QN_UNION:
+    case QN_NOT:
+      for (size_t i = 0; i < QueryNode_NumChildren(n); i++) {
+        if (!nestedGroupIsSupported(n->children[i])) return false;
+      }
+      return true;
+    default:
+      return false;
+  }
+}
+
+/* Whether the field `F` names has type `T`. Inside a NESTED group `F` names a sub-field, and the
+ * sub-field's type is checked. */
+#define FIELD_NAME_IS(F, T) ((F).sub ? (F).sub->type == (T) : FIELD_IS((F).fs, T))
+
+/* A numeric node on the field `f` names, reading its sub-field inside a NESTED group. */
+static struct RSQueryNode *fieldNumericNode(QueryParseCtx *ctx, QueryParam *qp, FieldName *f) {
+  // `f->fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+  // otherwise it is uninitialised parser-stack garbage, not NULL.
+  struct RSQueryNode *node = NewNumericNode(qp, ctx->sctx->spec ? f->fs : NULL);
+  if (ctx->sctx->spec && f->sub) {
+    node->nn.subField = f->subField;
+  }
+  return node;
+}
 
 /* Build the expression for `@field:>{v}` and friends.
  *
@@ -342,6 +379,8 @@ static inline const char *toksep2(const char **s, const char *end, size_t *tokLe
 }
 
 %type modifier { FieldName }
+
+%type nested_open { FieldName }
 
 %type modifierlist { FieldName* }
 %destructor modifierlist {
@@ -564,7 +603,12 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
+  // `sctx` may be NULL for a parse with no index at all.
+  if (ctx->inNestedGroup && ctx->sctx && ctx->sctx->spec) {
+    // Rejected here rather than at evaluation, where a stopword would already be gone.
+    reportSyntaxError(ctx->status, &B, NESTED_UNSUPPORTED_CLAUSE);
+    A = NULL;
+  } else if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
     A = NULL;
   } else {
     A = NewTokenNode_WithParams(ctx, &B);
@@ -670,11 +714,61 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 modifier(A) ::= MODIFIER(B) . {
   unescapeFieldName(ctx, &B);
   A.tok = B;
-  if (ctx->sctx->spec) {
+  A.sub = NULL;
+  if (ctx->sctx->spec && ctx->nestedField) {
+    // Inside a group, a name is one of the group's sub-fields, never a top-level field.
+    const NestedDef *def = ctx->nestedField->nestedOpts.def;
+    A.fs = ctx->nestedField;
+    for (uint8_t i = 0; i < def->numSubFields; i++) {
+      if (strlen(def->subFields[i].name) == B.len && !memcmp(def->subFields[i].name, B.s, B.len)) {
+        A.sub = &def->subFields[i];
+        A.subField = i;
+      }
+    }
+    if (!A.sub) {
+      reportSyntaxError(ctx->status, &A.tok, "Unknown sub-field of the NESTED group");
+    }
+  } else if (ctx->sctx->spec) {
     A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
     if (!A.fs) {
       reportSyntaxError(ctx->status, &A.tok, "Unknown field");
     }
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+// NESTED groups: `@items:( @color:{red} @price:[0 10] )`
+/////////////////////////////////////////////////////////////////
+
+// The lexer emits NESTED_MODIFIER for a NESTED field followed by `:(` (see
+// QueryParseCtx_OpensNestedGroup). Reducing this rule, before the first inner field name is
+// reduced, opens the sub-field scope.
+nested_open(A) ::= NESTED_MODIFIER(B) COLON LP . {
+  unescapeFieldName(ctx, &B);
+  A.tok = B;
+  A.sub = NULL;
+  // Without a spec (a coordinator-side parse) the field stays unresolved, as other clauses' do.
+  A.fs = ctx->sctx && ctx->sctx->spec
+             ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len)
+             : NULL;
+  if (ctx->inNestedGroup) {
+    reportSyntaxError(ctx->status, &A.tok, "NESTED groups cannot be nested");
+  } else {
+    ctx->inNestedGroup = true;
+    ctx->nestedField = A.fs;
+  }
+}
+
+expr(A) ::= nested_open(B) expr(C) RP . {
+  ctx->inNestedGroup = false;
+  ctx->nestedField = NULL;
+  if (C && ctx->sctx && ctx->sctx->spec && !nestedGroupIsSupported(C)) {
+    // Text terms, prefixes, phrases and other clauses that are not on a sub-field.
+    reportSyntaxError(ctx->status, &B.tok, NESTED_UNSUPPORTED_CLAUSE);
+    QueryNode_Free(C);
+    A = NULL;
+  } else {
+    A = C ? NewNestedNode(B.fs, C) : NULL;
   }
 }
 
@@ -731,7 +825,10 @@ modifierlist(A) ::= modifierlist(B) OR term(C). {
 }
 
 expr(A) ::= ISMISSING LP modifier(B) RP . {
-  if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
+  if (ctx->sctx->spec && B.sub) {
+    reportSyntaxError(ctx->status, &B.tok, NESTED_UNSUPPORTED_CLAUSE);
+    A = NULL;
+  } else if (ctx->sctx->spec && !FieldSpec_IndexesMissing(B.fs)) {
     reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
@@ -747,13 +844,16 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
 
 expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_TAG)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_TAG)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
   } else if (C) {
     // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
     // otherwise it is uninitialised parser-stack garbage, not NULL.
     A = NewTagNode(ctx->sctx->spec ? B.fs : NULL);
+    if (ctx->sctx->spec && B.sub) {
+      A->tag.subField = B.subField;
+    }
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
     // Set the children count on C to 0 so they won't get recursively free'd
@@ -808,14 +908,12 @@ tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
 
 expr(A) ::= modifier(B) COLON numeric_range(C). {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(C, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, C, &B);
   }
 }
 
@@ -864,75 +962,63 @@ numeric_range(A) ::= LSQB param_num(B) RSQB. [NUMBER]{
 }
 
 expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    QueryNode* E = fieldNumericNode(ctx, qp, &B);
     A = not_step(E);
   }
 }
 
 expr(A) ::= modifier(B) EQUALS param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, qp, &B);
   }
 }
 
 expr(A) ::= modifier(B) GT param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, qp, &B);
   }
 }
 
 expr(A) ::= modifier(B) GE param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, qp, &B);
   }
 }
 
 expr(A) ::= modifier(B) LT param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, qp, &B);
   }
 }
 
 expr(A) ::= modifier(B) LE param_num(C) . {
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_NUMERIC)) {
+  if (ctx->sctx->spec && !FIELD_NAME_IS(B, INDEXFLD_T_NUMERIC)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_NUMERIC_STR);
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
-    // otherwise it is uninitialised parser-stack garbage, not NULL.
-    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
+    A = fieldNumericNode(ctx, qp, &B);
   }
 }
 

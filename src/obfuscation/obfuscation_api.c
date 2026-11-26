@@ -106,6 +106,8 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Missing";
     case QN_SPARSE_VECTOR:
       return "SparseVector";
+    case QN_NESTED:
+      return "Nested";
     case QN_WILDCARD_QUERY:
       return "WildcardQuery";
   }

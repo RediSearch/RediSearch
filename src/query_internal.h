@@ -45,6 +45,12 @@ extern "C" {
   // They stay valid until QueryParseCtx_Cleanup.
   char **unescapedNames;
 
+  // The NESTED field of the `@field:( … )` group being parsed, whose sub-fields the field names
+  // inside it resolve to; NULL outside a group, and without a spec.
+  const FieldSpec *nestedField;
+  // Whether a `@field:( … )` group is being parsed, with or without a spec.
+  bool inNestedGroup;
+
   #ifdef PARSER_DEBUG
   FILE *trace_log;
   #endif
@@ -52,6 +58,17 @@ extern "C" {
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
+
+/* Whether `@name`, the field name at `[name, name + len)` (still escaped) followed by the query
+ * text `[after, end)`, opens a group on a NESTED field: `ENABLE_UNSTABLE_FEATURES` is on, the
+ * text goes on with `:(` (spaces allowed around the colon), and the field is NESTED. Without a
+ * spec, the group names a field instead, which only a NESTED group can. */
+bool QueryParseCtx_OpensNestedGroup(const QueryParseCtx *q, const char *name, size_t len,
+                                    const char *after, const char *end);
+
+/* Drop the backslashes escaping punctuation or spaces in the field name `[s, s + sz)`, in place.
+ * Returns the new length. */
+size_t QueryParse_UnescapeFieldName(char *s, size_t sz);
 
 // Release what the parse allocated for its own use; the resulting AST does not depend on it.
 void QueryParseCtx_Cleanup(QueryParseCtx *q);
@@ -82,6 +99,8 @@ QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const cha
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const FieldSpec *fs);
+/* A group on the NESTED field `fs`, `NULL` without a spec, around `inner`. */
+QueryNode *NewNestedNode(const FieldSpec *fs, QueryNode *inner);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
 QueryNode *NewSparseVectorNode_WithParams(QueryParseCtx *q, const FieldSpec *field,

@@ -28,6 +28,7 @@
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
 #define QN_SPARSE_VECTOR   QueryNodeType_SparseVector
+#define QN_NESTED          QueryNodeType_Nested
 #define QN_MAX             QueryNodeType_Max
 
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
@@ -192,7 +193,11 @@ enum QueryNodeType
   QueryNodeType_Null = 17,
   QueryNodeType_Missing = 18,
   QueryNodeType_SparseVector = 19,
-  QueryNodeType_Max = 20,
+  /**
+   * A `@field:( … )` group on a NESTED field. Its subtree reads the field's sub-fields.
+   */
+  QueryNodeType_Nested = 20,
+  QueryNodeType_Max = 21,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeType;

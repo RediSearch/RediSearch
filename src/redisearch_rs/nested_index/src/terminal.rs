@@ -8,6 +8,7 @@
 */
 
 use std::fmt;
+use std::ptr::NonNull;
 
 use numeric_range_tree::NumericRangeTree;
 use tag_index::{InMemoryMode, Tag, TagIndex};
@@ -44,25 +45,89 @@ impl TerminalKind {
 
 /// The postings at the end of one path: the elements whose routing values are exactly that path.
 ///
-/// A numeric terminal is the [`NumericRangeTree`] a top-level NUMERIC field uses, so the numeric
-/// iterators that read those fields read it unchanged. A tag terminal is a [`TagIndex`].
-pub enum Terminal {
-    /// A numeric range tree over the elements' last attribute, as for a NUMERIC field.
-    Numeric(NumericRangeTree),
-    /// One doc-id posting list per value of the elements' last attribute, as for a TAG field.
-    Tag(TagIndex<InMemoryMode>),
+/// A numeric terminal holds the [`NumericRangeTree`] a top-level NUMERIC field uses, so the
+/// numeric iterators that read those fields read it unchanged. A tag terminal holds a
+/// [`TagIndex`].
+///
+/// The terminal owns its tree or tag index through the pointer [`Box::into_raw`] returned, as a
+/// FieldSpec owns a top-level field's. Iterators that outlive a lock release need that owner's
+/// pointer, not one derived from a reference, since a writer's `&mut` would invalidate the latter;
+/// [`Terminal::numeric_ptr`] and [`Terminal::tag_ptr`] hand it out.
+pub struct Terminal(Postings);
+
+enum Postings {
+    Numeric(NonNull<NumericRangeTree>),
+    Tag(NonNull<TagIndex<InMemoryMode>>),
+}
+
+/// A terminal's postings, borrowed for writing.
+pub(crate) enum PostingsMut<'a> {
+    Numeric(&'a mut NumericRangeTree),
+    Tag(&'a mut TagIndex<InMemoryMode>),
 }
 
 impl Terminal {
     /// An empty terminal of the given kind.
     pub fn new(kind: TerminalKind) -> Self {
-        match kind {
-            TerminalKind::Numeric(compression) => Self::Numeric(NumericRangeTree::new(matches!(
-                compression,
-                FloatCompression::On
-            ))),
+        Self(match kind {
+            TerminalKind::Numeric(compression) => {
+                let tree = NumericRangeTree::new(matches!(compression, FloatCompression::On));
+                Postings::Numeric(owned(tree))
+            }
             // No suffix trie: NESTED sub-fields reject WITHSUFFIXTRIE.
-            TerminalKind::Tag => Self::Tag(TagIndex::<InMemoryMode>::new(false)),
+            TerminalKind::Tag => {
+                let tags = TagIndex::<InMemoryMode>::new(false);
+                Postings::Tag(owned(tags))
+            }
+        })
+    }
+
+    /// The tree of a numeric terminal.
+    pub const fn numeric(&self) -> Option<&NumericRangeTree> {
+        match self.0 {
+            // SAFETY: the tree is live while the terminal is, and written only through
+            // `postings_mut`, which borrows the terminal mutably.
+            Postings::Numeric(tree) => Some(unsafe { tree.as_ref() }),
+            Postings::Tag(_) => None,
+        }
+    }
+
+    /// The tag index of a tag terminal.
+    pub const fn tag(&self) -> Option<&TagIndex<InMemoryMode>> {
+        match self.0 {
+            Postings::Numeric(_) => None,
+            // SAFETY: as in `numeric`.
+            Postings::Tag(tags) => Some(unsafe { tags.as_ref() }),
+        }
+    }
+
+    /// The owner's pointer to a numeric terminal's tree, as the numeric iterators' `RangeSource`
+    /// requires. It stays valid until the terminal is dropped.
+    pub const fn numeric_ptr(&self) -> Option<NonNull<NumericRangeTree>> {
+        match self.0 {
+            Postings::Numeric(tree) => Some(tree),
+            Postings::Tag(_) => None,
+        }
+    }
+
+    /// The owner's pointer to a tag terminal's index, as
+    /// [`TrieLookup::new`](tag_index::TrieLookup::new) requires. It stays valid until the
+    /// terminal is dropped.
+    pub const fn tag_ptr(&self) -> Option<NonNull<TagIndex<InMemoryMode>>> {
+        match self.0 {
+            Postings::Numeric(_) => None,
+            Postings::Tag(tags) => Some(tags),
+        }
+    }
+
+    /// The postings, for writing.
+    pub(crate) const fn postings_mut(&mut self) -> PostingsMut<'_> {
+        match self.0 {
+            // SAFETY: the terminal is borrowed mutably, so nothing else reaches the tree through
+            // it; the owner's pointer is reborrowed, raw → `&mut` → raw.
+            Postings::Numeric(mut tree) => PostingsMut::Numeric(unsafe { tree.as_mut() }),
+            // SAFETY: as above.
+            Postings::Tag(mut tags) => PostingsMut::Tag(unsafe { tags.as_mut() }),
         }
     }
 
@@ -73,25 +138,48 @@ impl Terminal {
     ///
     /// [`IndexDelta::size_delta`]: crate::IndexDelta::size_delta
     pub const fn mem_usage(&self) -> usize {
-        match self {
-            Self::Numeric(_) => size_of::<NumericRangeTree>(),
-            Self::Tag(tags) => tags.mem_usage(),
+        match self.tag() {
+            None => size_of::<NumericRangeTree>(),
+            Some(tags) => tags.mem_usage(),
+        }
+    }
+}
+
+/// `value` on the heap, owned through the pointer [`Box::into_raw`] returns.
+fn owned<T>(value: T) -> NonNull<T> {
+    NonNull::new(Box::into_raw(Box::new(value))).expect("a box pointer is never null")
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        match self.0 {
+            // SAFETY: the pointer came from `Box::into_raw` in `Terminal::new` and is freed once,
+            // here.
+            Postings::Numeric(tree) => drop(unsafe { Box::from_raw(tree.as_ptr()) }),
+            // SAFETY: as above.
+            Postings::Tag(tags) => drop(unsafe { Box::from_raw(tags.as_ptr()) }),
         }
     }
 }
 
 impl fmt::Debug for Terminal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Numeric(tree) => f
-                .debug_struct("Numeric")
-                .field("entries", &tree.num_entries())
-                .field("ranges", &tree.num_ranges())
-                .finish(),
-            Self::Tag(tags) => f
-                .debug_struct("Tag")
-                .field("values", &tags.n_tags())
-                .finish(),
+        match self.0 {
+            Postings::Numeric(tree) => {
+                // SAFETY: as in `Terminal::numeric`.
+                let tree = unsafe { tree.as_ref() };
+                f.debug_struct("Numeric")
+                    .field("entries", &tree.num_entries())
+                    .field("ranges", &tree.num_ranges())
+                    .finish()
+            }
+            Postings::Tag(tags) => {
+                // SAFETY: as in `Terminal::tag`.
+                let tags = unsafe { tags.as_ref() };
+                f.debug_struct("Tag")
+                    .field("values", &tags.n_tags())
+                    .finish()
+            }
         }
     }
 }

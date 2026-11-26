@@ -20,6 +20,7 @@
 
 #include "aggregate.h"
 #include "query_eval_ffi.h"
+#include "iterators_ffi.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
@@ -1986,6 +1987,21 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
     }
   }
   return rc;
+}
+
+bool AREQ_EmptyTreeOnBuildTimeout(AREQ *req, QueryError *status) {
+  if (QueryError_GetCode(status) != QUERY_ERROR_CODE_TIMED_OUT) {
+    return false;
+  }
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail && !IsProfile(req)) {
+    return false;
+  }
+  RS_ASSERT(req->iteratorTree);
+  QueryError_ClearError(status);
+  QueryIterator *built = QueryIteratorTree_Root(req->iteratorTree);
+  QueryIteratorTree_SetRoot(req->iteratorTree, NewEmptyIterator());
+  built->Free(built);
+  return true;
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {

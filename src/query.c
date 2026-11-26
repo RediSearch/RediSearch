@@ -146,6 +146,12 @@ void QueryNode_Free(QueryNode *n) {
         n->fn.docIds = NULL;
       }
       break;
+    case QN_NESTED:
+      for (uint32_t i = 0; i < array_len(n->nested.filters); i++) {
+        NumericFilter_Free(n->nested.filters[i]);
+      }
+      array_free(n->nested.filters);
+      break;
     case QN_SPARSE_VECTOR:  // the blob is borrowed from the request's PARAMS
     case QN_MISSING:
     case QN_WILDCARD:
@@ -321,7 +327,100 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   // The legacy (v1) grammar creates a placeholder node with `field == NULL` and
   // fills in `tag.fieldIndex` once it resolves the field itself.
   ret->tag.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
+  ret->tag.subField = NESTED_NO_SUB_FIELD;
   return ret;
+}
+
+/* The name of the field a leaf reads: `items.color` for the sub-field of a NESTED field. */
+static sds appendFieldName(sds s, const FieldSpec *fs, uint8_t subField) {
+  s = sdscat(s, HiddenString_GetUnsafe(fs->fieldName, NULL));
+  if (FIELD_IS(fs, INDEXFLD_T_NESTED) && subField < fs->nestedOpts.def->numSubFields) {
+    s = sdscatprintf(s, ".%s", fs->nestedOpts.def->subFields[subField].name);
+  }
+  return s;
+}
+
+size_t QueryParse_UnescapeFieldName(char *s, size_t sz) {
+  char *dst = s;
+  const char *src = s;
+  const char *end = s + sz;
+  while (src < end) {
+    if (*src == '\\' && src + 1 < end &&
+        (ispunct((unsigned char)src[1]) || isspace((unsigned char)src[1]))) {
+      ++src;
+      continue;
+    }
+    *dst++ = *src++;
+  }
+  return (size_t)(dst - s);
+}
+
+/* Whether the group whose text starts at `p`, just after its `(`, names a field before its `)`,
+ * outside quotes and escapes. A text group never does, so a group that does can only be a NESTED
+ * one. */
+static bool groupNamesAField(const char *p, const char *end) {
+  int depth = 1;
+  while (p < end) {
+    char c = *p++;
+    if (c == '\\') {
+      if (p < end) p++;
+    } else if (c == '"' || c == '\'') {
+      while (p < end && *p != c) {
+        p += (*p == '\\' && p + 1 < end) ? 2 : 1;
+      }
+      if (p < end) p++;
+    } else if (c == '(') {
+      depth++;
+    } else if (c == ')') {
+      if (--depth == 0) return false;
+    } else if (c == '@') {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool QueryParseCtx_OpensNestedGroup(const QueryParseCtx *q, const char *name, size_t len,
+                                    const char *after, const char *end) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    return false;
+  }
+  // `:(`, as the lexer would read it: spaces between the tokens are skipped. Checked first, as it
+  // rules out most field names without a lookup.
+  const char *p = after;
+  while (p < end && isspace((unsigned char)*p)) p++;
+  if (p == end || *p++ != ':') return false;
+  while (p < end && isspace((unsigned char)*p)) p++;
+  if (p == end || *p++ != '(') return false;
+  if (!q->sctx || !q->sctx->spec) {
+    // The coordinator parses some queries without a spec, so it cannot look the field up.
+    return groupNamesAField(p, end);
+  }
+  const FieldSpec *fs;
+  if (memchr(name, '\\', len)) {
+    char *unescaped = rm_strndup(name, len);
+    size_t unescapedLen = QueryParse_UnescapeFieldName(unescaped, len);
+    fs = IndexSpec_GetFieldWithLength(q->sctx->spec, unescaped, unescapedLen);
+    rm_free(unescaped);
+  } else {
+    fs = IndexSpec_GetFieldWithLength(q->sctx->spec, name, len);
+  }
+  return fs && FIELD_IS(fs, INDEXFLD_T_NESTED);
+}
+
+QueryNode *NewNestedNode(const FieldSpec *fs, QueryNode *inner) {
+  QueryNode *ret = NewQueryNode(QN_NESTED);
+  ret->nested.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
+  QueryNode_AddChild(ret, inner);
+  return ret;
+}
+
+void QueryNestedNode_AddFilter(QueryNode *qn, struct NumericFilter *nf) {
+  RS_ASSERT(qn->type == QN_NESTED);
+  if (!qn->nested.filters) {
+    qn->nested.filters = array_new(struct NumericFilter *, 1);
+  }
+  array_append(qn->nested.filters, nf);
 }
 
 QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
@@ -329,6 +428,7 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   ret->nn.nf = p->nf;
   ret->params = p->params;
   ret->nn.nf->fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
+  ret->nn.subField = NESTED_NO_SUB_FIELD;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -515,6 +615,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
+    n->nn.subField = NESTED_NO_SUB_FIELD;
     SetFilterNode(ast, n);
   }
   if (options->geo) {
@@ -539,7 +640,8 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   QueryNode *qn = *pqn;
   if ((qn->opts.flags & QueryNode_Verbatim) ||    // Do not expand verbatim nodes
       (qn->type == QN_PHRASE && qn->pn.exact) ||  // Do not expand exact phrases
-      (qn->type == QN_TAG)) {                     // Tag nodes are handles by their node evaluator
+      (qn->type == QN_TAG) ||                     // Tag nodes are handles by their node evaluator
+      (qn->type == QN_NESTED)) {                  // as are a group's tags and ranges
     return;
   }
 
@@ -740,6 +842,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       res = QueryNode_EvalParamsCommon(params, n, dialectVersion, status);
       break;
     case QN_UNION:
+    case QN_NESTED:
       // no immediately owned params to resolve
       RS_ASSERT(n->params == NULL);
       break;
@@ -878,6 +981,18 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             return REDISMODULE_ERR;
           }
         }
+        if (FIELD_IS(fs, INDEXFLD_T_NESTED)) {
+          // Inside a group the field is NESTED, whose sub-fields index empty values as any
+          // other. The exemption covers this tag's values only, so a tag later in the query is
+          // still checked.
+          const uint32_t saved = opts->flags;
+          opts->flags |= QueryNode_IndexesEmpty;
+          for (size_t ii = 0; ii < QueryNode_NumChildren(n) && res == REDISMODULE_OK; ++ii) {
+            res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
+          }
+          opts->flags = (opts->flags & ~QueryNode_IndexesEmpty) | (saved & QueryNode_IndexesEmpty);
+          withChildren = false;
+        }
       }
       break;
     case QN_UNION:
@@ -893,8 +1008,11 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
           const FieldSpec *numFs = spec->fields + n->nn.nf->fieldIndex;
-          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
-                                 HiddenString_GetUnsafe(numFs->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
+          sds name = appendFieldName(sdsempty(), numFs, n->nn.subField);
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX,
+                                        "Invalid numeric range (min > max)", ": @%s:[%f %f]", name,
+                                        n->nn.nf->min, n->nn.nf->max);
+          sdsfree(name);
           res = REDISMODULE_ERR;
         }
       }
@@ -915,6 +1033,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_IDS:
     case QN_WILDCARD:
     case QN_GEOMETRY:
+    case QN_NESTED:
       break;
     case QN_SPARSE_VECTOR:
       withChildren = false;
@@ -1102,8 +1221,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       const FieldSpec *nfFs = spec->fields + f->fieldIndex;
-      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
-                       HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+      s = sdscatprintf(s, "NUMERIC {%f %s @", f->min, f->minInclusive ? "<=" : "<");
+      s = appendFieldName(s, nfFs, qs->nn.subField);
+      s = sdscatprintf(s, " %s %f}", f->maxInclusive ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1113,7 +1233,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_TAG: {
       const FieldSpec *tagFs = spec->fields + qs->tag.fieldIndex;
-      s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(tagFs->fieldName, NULL));
+      s = sdscat(s, "TAG:@");
+      s = appendFieldName(s, tagFs, qs->tag.subField);
+      s = sdscat(s, " {\n");
       for (size_t ii = 0; ii < QueryNode_NumChildren(qs); ++ii) {
         const QueryNode *child = qs->children[ii];
         if (child->type == QN_PHRASE) {
@@ -1222,6 +1344,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_MISSING: {
       const FieldSpec *missFs = spec->fields + qs->miss.fieldIndex;
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(missFs->fieldName, NULL));
+    } break;
+    case QN_NESTED: {
+      const FieldSpec *nestedFs = spec->fields + qs->nested.fieldIndex;
+      s = sdscatprintf(s, "NESTED:@%s {\n", HiddenString_GetUnsafe(nestedFs->fieldName, NULL));
+      s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
+      s = doPad(s, depth);
+      s = sdscat(s, "}");
     } break;
     case QN_SPARSE_VECTOR: {
       const FieldSpec *svFs = spec->fields + qs->svn.fieldIndex;

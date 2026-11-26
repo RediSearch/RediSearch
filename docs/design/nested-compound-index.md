@@ -386,8 +386,8 @@ routing level, plus a constraint on the terminal:
 | Inner clause | Constraint |
 |---|---|
 | `@color:{red}`, `@color:{red\|blue}` | `TagIn([red, blue])` |
-| `-@color:{red}` | `TagNotIn([red])` |
-| `@color:{re*}` | `TagPrefix("re")` (TrieMap prefix walk, bounded as in step 3; unlike `MAXPREFIXEXPANSIONS` it fails instead of truncating) |
+| `-@color:{red}` | `TagNotIn([red])`: an element holding a color other than red. An element with no `color` was never indexed (§3, "Ingest path"), so it matches neither `@color:{red}` nor its negation, as `NOT` does on a SQL `NULL` |
+| `@color:{re*}` | `TagPrefix("re")`. A prefix shorter than `MINPREFIX` matches nothing, as on a TAG field. On a routing level it is a TrieMap prefix walk, bounded by the walk limits of step 3, which fail instead of truncating. On a tag terminal each matching value opens a reader; at most `MAXPREFIXEXPANSIONS` of them per prefix and branch, across the terminals reached, with the same warning as a TAG field |
 | no clause on the level | `Any` |
 | `@price:[lo hi]` (terminal NUMERIC), several ranges ANDed | terminal range `[lo, hi]` (intersected) |
 | `@price` absent | terminal range `[-inf, +inf]` |
@@ -395,8 +395,9 @@ routing level, plus a constraint on the terminal:
 An `|` across sub-fields inside the group (`@color:{red} | @size:{M}`) becomes **disjunctive
 normal form**: each branch is its own conjunction, planned separately, and the branches are UNIONed.
 Cap the number of branches with an internal constant (16, not configurable) and fail the query
-with a clear error past it. A clause on something that isn't a sub-field of the group is a parse
-error.
+with a limit error past it. A clause with a single branch extends every conjunction in place, so planning
+a long AND is linear in its clauses; only a clause with several branches copies the conjunctions,
+and the cap allows few of those. A clause on something that isn't a sub-field of the group is a parse error.
 
 ### Step 2: walk the tree to collect terminals
 
@@ -545,18 +546,58 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      `FT.ALTER`, and query safety.
    - Deferred: NESTED fields are not counted in `INFO MODULES` field statistics yet.
 4. **Read side: parser, planner and eval**:
-   - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
-     a non-NESTED field must keep today's text meaning.
-   - Opening iterators on terminals: `NumericIteratorVariant::from_tree` on a numeric terminal's
-     tree, `TagIndex::open_reader` on a tag terminal, both needing `sctx` and the NESTED field's
-     index. Revalidation after GC must also detect a terminal freed by GC (see the
-     follow-ups below).
-   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, the walk's bounds and the
-     request timeout, the UNION of terminal iterators, estimates and profile output.
-   - Python correctness tests against a brute-force evaluator on random documents, for every
-     shape in the §5 table.
-   - Benchmarks in the PR description: shard-sized data (about 55K docs × 280 elements), a full
-     prefix, a skipped level and range-only, against one NUMERIC field per combination.
+   - Parsing (DIALECT 2 and up, with `ENABLE_UNSTABLE_FEATURES` on). The lexer emits
+     `NESTED_MODIFIER` for `@name` only when the text goes on with `:(` and `name` is a NESTED
+     field, so `@items:{red}` keeps the type error of any non-TAG field and `@title:(…)` on a
+     TEXT field is unchanged. The coordinator parses queries that mention KNN without a spec;
+     there a group is recognised because it names a field inside its parentheses, which a text
+     group never does. `nested_open ::= NESTED_MODIFIER
+     COLON LP` opens the sub-field scope on `QueryParseCtx` when it reduces, before the first inner
+     field name does; `expr ::= nested_open expr RP` closes it and builds `QN_NESTED`. Inside the
+     group a field name resolves only against the group's sub-fields ("Unknown sub-field"), and the
+     TAG and NUMERIC rules check the sub-field's type. A group inside a group is rejected, and
+     so is any clause a group does not support (text, lexicographic ranges, `ISMISSING`, ...),
+     naming the group rather than a field type.
+   - AST. `QN_NESTED { fieldIndex, filters }` has the inner expression as its only child. Its
+     `QN_TAG` and `QN_NUMERIC` leaves carry the NESTED field's index, so every C pass that indexes
+     `spec->fields` reads a valid field, plus a `subField` read only under `QN_NESTED`.
+     `FT.EXPLAIN` prints `@items.color`. Query expansion and the SORTBY optimizer do not enter a
+     group.
+   - Planning (`nested_index::query`). The inner expression becomes an `Expr` over per-level
+     `Clause`s; NOTs are pushed down (a negated range becomes the two ranges outside it) and ANDs
+     distributed over ORs, capped at `max_branches` (16). Clauses on one level are merged, value
+     lists first, then prefixes, then negations, so the plan or the error does not depend on
+     how the query orders them, with value sets kept sorted so a merge is linear in their sizes:
+     tag sets intersect, negations add up, ranges intersect, prefixes narrow; a branch that can
+     match nothing is dropped. A negated prefix, or a prefix and a negation on one level, has no
+     constraint and is rejected. A property test checks that an element matches the expression
+     exactly when it matches one of the planned branches.
+   - Eval (`query_eval/src/nodes/nested.rs`). Each branch walks the routing levels with
+     `collect_terminals`, sharing `max_terminals` (10K) and the request timeout across branches.
+     The timeout is read every 100 nodes entered. Past it, the walk runs before any document is
+     read, so the query answers as for any timeout before the first read: an error under
+     `FAIL`, otherwise no results with a timeout warning. The whole iterator tree is replaced
+     by an empty one, since a tree built in part could answer a NOT with documents that do not
+     match. The limits are `query_eval::NestedLimits` in the evaluator's `Config`, internal
+     constants rather than `FT.CONFIG` options. A
+     numeric terminal opens `NumericIteratorVariant::from_tree` with a filter the `QN_NESTED` node
+     owns, so it lives as long as the AST; a tag terminal opens `TagIndex::open_reader` per value,
+     listing the terminal's values for `Any`, `TagNotIn` and prefixes. At most `max_readers` (100K)
+     iterators per group. The group is their UNION, which `FT.PROFILE` shows as a `UNION` of
+     query type `NESTED`; its estimate is the union's.
+   - Terminals own their tree or tag index through the pointer `Box::into_raw` returned, and hand
+     it out (`Terminal::numeric_ptr`, `Terminal::tag_ptr`), as the numeric `RangeSource` and the
+     tag `TrieLookup` require. Iterators revalidate as on top-level fields: a tag reader
+     re-finds its value, and a numeric reader aborts when its tree changes shape, ending a
+     cursor's results early exactly as on a top-level NUMERIC field. Terminals are only freed
+     with the field until GC (5).
+   - Tests: flow tests, standalone and in cluster, for every shape in the §5 table, tag
+     terminals, case folding, PARAMS, composition with top-level fields, KNN, a cursor read
+     across writes, updates and deletes, `FT.EXPLAIN`, `FT.PROFILE` and errors, plus 150 random
+     groups against a brute-force evaluator on 60 random documents; Rust tests of the planner
+     (with a property test) and of the evaluator.
+   - Deferred: the benchmarks; exposing the limits as module configuration; `terminals_visited`
+     and `levels_fixed` in `FT.PROFILE`.
 5. **GC**: the compound scanner, fork-GC deltas keyed by path, and removing each emptied
    terminal by its path. Tests for update and delete churn followed by GC, checking that terminal
    and memory counts drop.
@@ -569,10 +610,8 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 |---|---|
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Write side (3), where ingest cost is measured |
 | Float compression is fixed when a `NestedIndex` is created, from `TerminalKind`. A top-level NUMERIC field reads the global setting when its tree is first created. Decide whether NESTED follows the field rule (read the setting per new terminal) or the index rule (fix it at `FT.CREATE`) | Write side (3) |
-| Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Budget test coverage for it | Read side (4) |
-| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Revalidation must detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | Read side (4), with GC (5) bumping the counter |
-| A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
-| Pass the request timeout (`rqe_iterators`' `TimeoutContextRequest`) to `collect_terminals`, map `CollectError::TimedOut` to the query's timeout error, and drop `max_nodes` from `NestedLimits`. Keep the terminal, reader and branch bounds as internal constants, not `FT.CONFIG` | Read side (4) |
+| Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Covered by the read side's tag-terminal flow tests; unit tests of a suspended tag terminal reader still to add | GC (5), with revalidation |
+| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Until GC (5) nothing frees a terminal before its field. GC must make revalidation detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | GC (5) |
 | Whether to support a second numeric attribute (§2, "Numeric attributes: only the terminal"): an adaptive numeric routing level or a filter attribute | After Terminals (2), driven by workloads with two numeric attributes |
 | Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
 | `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
