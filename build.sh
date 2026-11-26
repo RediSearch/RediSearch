@@ -369,6 +369,71 @@ capture_coverage() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: select_macos_compilers
+# Set MACOS_C_COMPILER/MACOS_CXX_COMPILER to clang/clang++ from PATH when that
+# is Apple clang or LLVM_VERSION. Otherwise use the LLVM that
+# .install/install_llvm.sh installs, and export LIBCLANG_PATH so bindgen loads
+# the same LLVM's libclang; fall back to PATH if that LLVM is not installed.
+#
+# PATH can hold the wrong LLVM: when Redis bootstraps several modules into one
+# environment, modules bootstrapped after this one put an older Homebrew LLVM
+# ahead of ours, and that LLVM's libc++ lacks C++20 features SVS uses. Apple
+# clang is kept because Homebrew's packages of Redis build with it.
+#-----------------------------------------------------------------------------
+select_macos_compilers() {
+  local LLVM_VERSION LLVM_FULL_VERSION
+  source "$ROOT/.install/LLVM_VERSION.sh"
+
+  MACOS_C_COMPILER=clang
+  MACOS_CXX_COMPILER=clang++
+  local path_banner
+  path_banner=$({ clang --version 2>/dev/null || true; } | head -n1)
+  if [[ "$path_banner" == "Apple clang"* || \
+        "$(clang_major_version clang)" == "$LLVM_VERSION" ]]; then
+    return
+  fi
+
+  # Prefer the Homebrew installation used by the macOS bootstrap.
+  local tarball_bin="${LLVM_INSTALL_DIR:-/usr/local/llvm}/bin"
+  local -a candidates=()
+  local brew_prefix
+  if command -v brew &>/dev/null && brew_prefix=$(brew --prefix 2>/dev/null); then
+    candidates+=("$brew_prefix/opt/llvm@${LLVM_VERSION}/bin")
+  fi
+  candidates+=("$tarball_bin")
+
+  local dir
+  for dir in "${candidates[@]}"; do
+    if [[ -x "$dir/clang" && -x "$dir/clang++" && \
+          "$(clang_major_version "$dir/clang")" == "$LLVM_VERSION" ]]; then
+      # run_cmake() runs its command unquoted, so these paths would be split
+      # at the space and fail in CMake with an unrelated error.
+      if [[ "$dir" =~ [[:space:]] ]]; then
+        echo "Error: LLVM $LLVM_VERSION is at '$dir', whose path contains whitespace." >&2
+        echo "Paths with whitespace are not supported; set LLVM_INSTALL_DIR to a path without it." >&2
+        exit 1
+      fi
+      MACOS_C_COMPILER="$dir/clang"
+      MACOS_CXX_COMPILER="$dir/clang++"
+      export LIBCLANG_PATH="${dir%/bin}/lib"
+      # Unlike Homebrew's, upstream clang has no default SDK.
+      if [[ "$dir" == "$tarball_bin" && -z "${SDKROOT:-}" ]]; then
+        export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+      fi
+      echo "Using LLVM $LLVM_VERSION from $dir instead of PATH's ${path_banner:-clang}"
+      return
+    fi
+  done
+
+  echo "WARNING: LLVM $LLVM_VERSION not found (run 'make bootstrap'); using PATH's ${path_banner:-clang}"
+}
+
+# Prints the LLVM major version of the clang binary $1, or nothing.
+clang_major_version() {
+  { "$1" --version 2>/dev/null || true; } | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p'
+}
+
+#-----------------------------------------------------------------------------
 # Function: prepare_cmake_arguments
 # Prepare arguments to pass to CMake
 #-----------------------------------------------------------------------------
@@ -638,7 +703,8 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+    select_macos_compilers
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$MACOS_C_COMPILER -DCMAKE_CXX_COMPILER=$MACOS_CXX_COMPILER"
   fi
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
