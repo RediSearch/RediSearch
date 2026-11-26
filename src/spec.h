@@ -82,10 +82,6 @@ struct IndexesScanner;
 #define SPEC_MULTITYPE_STR "MULTITYPE"
 #define SPEC_ASYNC_STR "ASYNC"
 #define SPEC_SKIPINITIALSCAN_STR "SKIPINITIALSCAN"
-// Hidden FT.CREATE option carrying a disk index's score-skipping mode (0 or 1), so a replica
-// creating the index from the replication stream keeps the primary's mode. Without it the
-// mode comes from `search-_disk-score-skipping`.
-#define SPEC_DISK_SCORE_SKIPPING_STR "_DISK_SCORE_SKIPPING"
 #define SPEC_WITHSUFFIXTRIE_STR "WITHSUFFIXTRIE"
 #define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
@@ -626,7 +622,6 @@ typedef struct {
   ArgsCursor prefixes;
   ArgsCursor stopwords;
   bool unsupportedOption;  // The stopping token is a known option unsupported by Flex.
-  long long diskScoreSkipping;  // SPEC_DISK_SCORE_SKIPPING_STR: 0 or 1, or -1 when omitted.
 } IndexSpecOptions;
 
 /** Parse options without constructing an index. Returns REDISMODULE_OK or ERR.

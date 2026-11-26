@@ -248,38 +248,21 @@ TEST_F(DiskSchemaOpenTest, CreateForwardsIndexFlags) {
   EXPECT_FALSE(sp->flags & Index_StoreFieldFlags);
 }
 
-// The score-skipping mode is the index's flag: the config at create sets it, unless the create
-// names the mode, as one replicated from a primary does.
+// The config at create sets the index's score-skipping flag; changing it later leaves the flag.
 TEST_F(DiskSchemaOpenTest, CreateRecordsTheScoreSkippingModeAsAFlag) {
   Restore scoreSkipping{RSGlobalConfig.diskScoreSkipping};
   QueryError err = QueryError_Default();
 
   RSGlobalConfig.diskScoreSkipping = true;
-  IndexSpec *fromConfig = create("skipping_from_config", {"title", "TEXT"}, &err);
-  ASSERT_NE(fromConfig, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_TRUE(fromConfig->flags & Index_DiskScoreSkipping);
-  IndexSpec *named = create("skipping_named_off", {"title", "TEXT"}, &err,
-                            {SPEC_DISK_SCORE_SKIPPING_STR, "0"});
-  ASSERT_NE(named, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_FALSE(named->flags & Index_DiskScoreSkipping);
+  IndexSpec *on = create("skipping_on", {"title", "TEXT"}, &err);
+  ASSERT_NE(on, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_EQ(flagsAtOpen.back(), on->flags);
 
   RSGlobalConfig.diskScoreSkipping = false;
   IndexSpec *off = create("skipping_off", {"title", "TEXT"}, &err);
   ASSERT_NE(off, nullptr) << QueryError_GetUserError(&err);
   EXPECT_FALSE(off->flags & Index_DiskScoreSkipping);
-  IndexSpec *namedOn = create("skipping_named_on", {"title", "TEXT"}, &err,
-                              {SPEC_DISK_SCORE_SKIPPING_STR, "1"});
-  ASSERT_NE(namedOn, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_TRUE(namedOn->flags & Index_DiskScoreSkipping);
-  EXPECT_EQ(flagsAtOpen.back(), namedOn->flags);
-}
-
-TEST_F(DiskSchemaOpenTest, InvalidScoreSkippingModeIsRejected) {
-  QueryError err = QueryError_Default();
-  EXPECT_EQ(create("skipping_invalid", {"title", "TEXT"}, &err, {SPEC_DISK_SCORE_SKIPPING_STR, "2"}),
-            nullptr);
-  EXPECT_TRUE(QueryError_HasError(&err));
-  QueryError_ClearError(&err);
+  EXPECT_TRUE(on->flags & Index_DiskScoreSkipping);
 }
 
 TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
