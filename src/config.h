@@ -589,6 +589,7 @@ typedef enum {
   NUMERIC_KNN_POLICY_LEGACY,
   NUMERIC_KNN_POLICY_FIRST_SELECTOR,
   NUMERIC_KNN_POLICY_EARLY_EXACT,
+  NUMERIC_KNN_POLICY_UNIFIED_EXACT,
 } RSNumericKnnPolicy;
 
 /* Returns the active policy after applying the unstable-features gate. */

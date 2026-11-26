@@ -149,3 +149,78 @@ Separate ranked replays over all 10,000 queries found zero lost
 ground-truth hits against either Redis control. Early-exact found
 54 additional ground-truth hits compared with legacy AUTO and 16
 compared with the first selector.
+
+## Screen the unified benchmark
+
+The unified replay covers 11,990 cases across 12 index sizes, 15 K
+values, and numeric, TAG, TEXT, and compound filters. This includes
+140 customer-derived FLOAT16 cases. The paired runner exercises the
+stock AUTO, ADHOC_BF, and BATCHES paths on the same graph for each case.
+It records ordinary query timings and the ground-truth hits retained
+by each mode.
+
+```sh
+python3 scripts/numeric_knn_selector/fit_unified.py paired-measurements \
+  --split-published-configuration --reference legacy-profile-results \
+  > unified-tree.json
+```
+
+The original historical seeds are used to fit the historical subtree.
+The expanded seeds and 20% of the published query IDs are held out
+from fitting. Each leaf can retain the current route or start in stock
+exact search. The fit screens for any lost ground-truth hit and for
+latency regressions exceeding both 20% and 0.1 ms. Negations and
+optional filter roots retain their current route.
+
+The guarded fit changed the actual path in 26 of 3,167 held-out cases.
+All 26 were from the 32-dimensional grid. On that grid the mean
+per-case latency ratio was 1.55% lower than the current policy. The
+other three configurations used their existing execution paths. Across
+the full replay, the rule retained every ground-truth hit found by
+legacy AUTO and early-exact. These are results from selecting among
+paired measurements. The section above reports native throughput for
+the earlier early-exact policy.
+
+```redis
+CONFIG SET search-enable-unstable-features yes
+CONFIG SET search-_numeric-knn-decision-tree unified-exact
+```
+
+The unified setting inherits early-exact for the published
+100-dimensional configuration. On the supported historical RAM
+HNSW configurations, it adds direct exact when the filter estimate
+exceeds 1,886 and `floor(1000 * estimate / K) <= 13460`. The initial
+exact decision uses existing query paths and respects explicit query
+options.
+
+### Native unified A/B
+
+The AWS run used the same Redis module and loaded graph for all three
+policy settings in each scenario. The 1,990 historical cases ran all
+six policy orders at one client. The table uses the mean of the
+per-case latency medians. Unified-exact changed the profiled mode
+in 49 cases and was 50.85% faster than early-exact on those cases.
+It gained 355 ground-truth hits and lost zero against either Redis
+control in the historical suite.
+
+| Historical Redis policy | Mean case latency (ms) | Mean Recall@K |
+| --- | ---: | ---: |
+| Legacy AUTO | 14.910 | 79.8954% |
+| Early-exact | 14.909 | 79.8954% |
+| Unified-exact | 14.670 | 79.9061% |
+
+The published case used the same million-document, K=25 workload
+as above, at 100 clients and six Redis Search workers. The table
+reports median per-trial QPS and recall, and mean client latency
+across four counterbalanced trials of 10,000 requests per arm.
+
+| Published arm | QPS | Mean latency (ms) | Recall@25 |
+| --- | ---: | ---: | ---: |
+| Redis legacy AUTO | 98.00 | 1,016.99 | 99.6808% |
+| Redis early-exact | 105.38 | 945.11 | 99.7040% |
+| Redis unified-exact | 105.29 | 944.24 | 99.7040% |
+| OpenSearch | 243.07 | 413.55 | 99.6532% |
+
+Unified-exact and early-exact returned identical ranked IDs and
+scores on all 10,000 published queries. Unified-exact retained every
+legacy ground-truth hit and added 58.

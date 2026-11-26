@@ -205,6 +205,35 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
+static bool unifiedKnnPrefersExact(const VecSimIndexBasicInfo *info, QueryIterator *filter,
+                                  uint64_t documents, size_t k) {
+  if (RSConfig_NumericKnnDecisionTreePolicy() != NUMERIC_KNN_POLICY_UNIFIED_EXACT ||
+      !k || k > 4000) {
+    return false;
+  }
+  bool grid32 = info->type == VecSimType_FLOAT32 && info->dim == 32 &&
+                documents >= 5000 && documents <= 1000000;
+  bool grid96 = info->type == VecSimType_FLOAT32 && info->dim == 96 &&
+                documents >= 32000 && documents <= 80000;
+  bool customer = info->type == VecSimType_FLOAT16 && info->dim == 1024 && documents == 57000;
+  if (!grid32 && !grid96 && !customer) {
+    return false;
+  }
+  switch (filter->type) {
+    case INV_IDX_NUMERIC_ITERATOR:
+    case INV_IDX_TERM_ITERATOR:
+    case INV_IDX_TAG_ITERATOR:
+    case INTERSECT_ITERATOR:
+    case UNION_ITERATOR:
+      break;
+    default:
+      return false;
+  }
+  uint64_t estimate = MIN(filter->NumEstimated(filter), documents);
+  // The guarded leaf from fit_unified.py uses only pre-query estimates.
+  return estimate > 1886 && estimate * 1000 / k <= 13460;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
                                  bool numericConjunctionPrefersExact) {
   RedisSearchCtx *ctx = q->sctx;
@@ -260,11 +289,15 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      if (numericConjunctionPrefersExact && child_it && !info.isDisk && !info.isMulti &&
-          info.algo == VecSimAlgo_HNSWLIB && info.type == VecSimType_FLOAT32 &&
-          info.metric == VecSimMetric_Cosine && info.dim == 100 && vq->knn.k == 25 &&
-          qParams.hnswRuntimeParams.efRuntime == 2048 && !qParams.searchMode &&
-          !qParams.batchSize) {
+      bool numericCut = numericConjunctionPrefersExact && info.type == VecSimType_FLOAT32 &&
+                        info.dim == 100 && vq->knn.k == 25 &&
+                        qParams.hnswRuntimeParams.efRuntime == 2048;
+      if (child_it && !info.isDisk && !info.isMulti && info.algo == VecSimAlgo_HNSWLIB &&
+          info.metric == VecSimMetric_Cosine && !qParams.searchMode && !qParams.batchSize &&
+          (numericCut || (!qParams.hnswRuntimeParams.efRuntime &&
+                          unifiedKnnPrefersExact(&info, child_it,
+                                                ctx->spec->stats.scoring.numDocuments,
+                                                vq->knn.k)))) {
         // Resolve the internal policy separately so user options are validated above and
         // VecSim records its usual last-search-mode diagnostic. Exact search has no EF.
         VecSimRawParam exact = {"HYBRID_POLICY", sizeof("HYBRID_POLICY") - 1,

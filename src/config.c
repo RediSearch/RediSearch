@@ -65,9 +65,10 @@ static int set_numeric_knn_decision_tree(const char *name, int value, void *priv
   return REDISMODULE_OK;
 }
 
-static const char *numeric_knn_policy_vals[] = {"no", "yes", "early-exact"};
+static const char *numeric_knn_policy_vals[] = {"no", "yes", "early-exact", "unified-exact"};
 static const int numeric_knn_policy_enums[] = {
-    NUMERIC_KNN_POLICY_LEGACY, NUMERIC_KNN_POLICY_FIRST_SELECTOR, NUMERIC_KNN_POLICY_EARLY_EXACT};
+    NUMERIC_KNN_POLICY_LEGACY, NUMERIC_KNN_POLICY_FIRST_SELECTOR, NUMERIC_KNN_POLICY_EARLY_EXACT,
+    NUMERIC_KNN_POLICY_UNIFIED_EXACT};
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
