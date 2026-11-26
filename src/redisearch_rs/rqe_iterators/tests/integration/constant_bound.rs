@@ -84,7 +84,7 @@ fn thresholded_read_below_the_bound_ends_the_iterator_until_rewind() {
     let mut it = constant(&[1, 2, 3], 0.5);
     it.read().expect("read failed").expect("a document");
 
-    assert_eq!(drain_above(&mut it, threshold(1.0)), []);
+    assert_eq!(drain_above(&mut it, threshold(1.0)), Vec::<DocId>::new());
     assert!(it.at_eof());
     assert!(it.read().expect("read failed").is_none());
     assert!(it.skip_to(3).expect("skip failed").is_none());
@@ -96,7 +96,10 @@ fn thresholded_read_below_the_bound_ends_the_iterator_until_rewind() {
 #[test]
 fn a_zero_bound_ends_any_thresholded_read() {
     let mut it = constant(&[1, 2], 0.0);
-    assert_eq!(drain_above(&mut it, threshold(f64::MIN_POSITIVE)), []);
+    assert_eq!(
+        drain_above(&mut it, threshold(f64::MIN_POSITIVE)),
+        Vec::<DocId>::new()
+    );
 }
 
 /// The composite case the wrapper exists for: a term bounded per block, intersected with a
