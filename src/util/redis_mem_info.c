@@ -49,7 +49,6 @@ RedisMemoryFlexRatios RedisMemory_GetFlexRatios(RedisModuleCtx *ctx) {
   size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL);
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
-  size_t total_limit = MIN_NOT_0(maxmemory, max_process_mem);
   float used_memory = (float)RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
   // max_ram does not fold in max_process_mem, but getMaxRAM() does, so apply it here too for parity
@@ -64,7 +63,7 @@ RedisMemoryFlexRatios RedisMemory_GetFlexRatios(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 
   return (RedisMemoryFlexRatios){
-      .total_memory_ratio = total_limit ? used_memory / (float)total_limit : 0,
+      .total_memory_ratio = maxmemory ? used_memory / (float)maxmemory : 0,
       .ram_ratio = ram_limit ? (float)used_ram / (float)ram_limit : 0,
       .ram_for_swapout_ratio = ram_limit ? (float)used_ram_for_swapout / (float)ram_limit : 0,
   };

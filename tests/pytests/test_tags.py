@@ -146,11 +146,14 @@ def testInvalidSyntax(env):
 def testTagVals(env):
     env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+        'schema', 'title', 'text', 'tags', 'tag', 'INDEXEMPTY', 'othertags', 'tag')
     con = env.getClusterConnectionIfNeeded()
 
     N = 100
     alltags = set()
+    if not env.isCluster() or env.shardsCount == 1:
+        alltags.add('')
+    con.execute_command('HSET', 'empty-tag', 'tags', '')
     for n in range(N):
         tags = (f'foo {n}', f'bar {n}', 'x')
         alltags.add(tags[0])
@@ -162,8 +165,7 @@ def testTagVals(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = env.cmd('ft.tagvals', 'idx', 'tags')
-        env.assertEqual(N * 2 + 1, len(res))
-
+        env.assertEqual(len(alltags), len(res))
         env.assertEqual(alltags, set(res))
 
         res = env.cmd('ft.tagvals', 'idx', 'othertags')
@@ -265,7 +267,7 @@ def testTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc3', 't', 'foo')
 
     if not env.isCluster():
-        conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+        conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
         env.expect(debug_cmd(), 'dump_tagidx', 'idx1', 't').equal([['foo', [1, 2, 3]]])
         env.expect(debug_cmd(), 'dump_tagidx', 'idx2', 't').equal([['FOO', [1, 2]], ['foo', [1, 3]]])
         env.expect(debug_cmd(), 'dump_tagidx', 'idx3', 't').equal([['foo', [2, 3]], ['foo,foo', [1]]])
@@ -396,7 +398,7 @@ def testTagMultiWordTermCaseAndEscapes(env):
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'bar')
@@ -426,7 +428,7 @@ def testTagGCClearEmpty(env):
 def testTagGCClearEmptyWithCursor(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
@@ -453,7 +455,7 @@ def testTagGCClearEmptyWithCursor(env):
 def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
-    conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
@@ -492,7 +494,7 @@ def testEmptyTagLeak(env):
     tags = 30
 
     conn = getConnectionByEnv(env)
-    env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+    set_thread_gc_config(env, clean_threshold='0')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     pl = conn.pipeline()
 
@@ -1352,3 +1354,21 @@ def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
     env.assertEqual(errors['last indexing error key'], 'doc2')
 
     env.expect('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT').equal([1, 'doc1'])
+
+
+@skip(cluster=True)
+def testDialect1TagQueryOnANonTagFieldMatchesNothing(env):
+    # DIALECT 2 rejects a tag query on a non-TAG field. DIALECT 1 accepts it and it matches
+    # nothing, also inside an intersection, which a dropped clause would not. VECTOR and GEOSHAPE
+    # keep their own options where a TAG field keeps its tag index.
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2',
+               'g', 'GEOSHAPE', 'FLAT',
+               't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 'v', np.array([1.0, 2.0], dtype=np.float32).tobytes(),
+                         'g', 'POINT (1 1)', 't', 'red')
+    for field in ['v', 'g']:
+        env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}}', 'DIALECT', 1).equal([0])
+        env.expect('FT.SEARCH', 'idx', f'@{field}:{{red}} @t:{{red}}', 'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '@t:{red}', 'NOCONTENT', 'DIALECT', 1).equal([1, 'doc:1'])

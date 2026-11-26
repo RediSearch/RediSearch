@@ -95,7 +95,7 @@ pub(crate) fn read_entries<IO: RdbIO, K>(
     reader: &mut IO,
     opts: RdbOpts,
     mut key_from_bytes: impl FnMut(Vec<u8>) -> Result<K, RdbError>,
-    mut insert: impl FnMut(K, TrieEntry),
+    mut insert: impl FnMut(K, TrieEntry) -> Result<(), RdbError>,
 ) -> Result<(), RdbError> {
     let count = reader.read_u64()?;
     for _ in 0..count {
@@ -114,7 +114,7 @@ pub(crate) fn read_entries<IO: RdbIO, K>(
                 payload,
                 num_docs,
             },
-        );
+        )?;
     }
     Ok(())
 }
@@ -173,6 +173,9 @@ pub struct RdbOpts {
 /// Errors that can occur while reading a trie RDB payload.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RdbError {
+    /// An entry failed the caller's validation in [`trie_map::try_load_with`].
+    #[error("invalid rdb trie entry")]
+    InvalidEntry,
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
     ///
     /// The originating [`std::io::Error`] is intentionally not retained:

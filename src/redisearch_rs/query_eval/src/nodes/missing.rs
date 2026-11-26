@@ -28,12 +28,12 @@ pub(crate) fn eval<'index>(
     // SAFETY: the context owns a live spec whose disk handle, when non-null,
     // remains valid for the query's lifetime (QueryEvalContext invariants 1/2).
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
-        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-            .expect("query.sctx.diskSnapshot is null for a disk-backed missing query");
-        // SAFETY: the spec and its query snapshot remain valid for `'index`,
+        let view = NonNull::new(ctx.sctx().diskQueryView)
+            .expect("query.sctx.diskQueryView is null for a disk-backed missing query");
+        // SAFETY: the spec and its query view remain valid for `'index`,
         // enterprise iterators are registered for disk specs, and query
         // evaluation has exclusive access to the disk handle.
-        return match unsafe { disk.new_missing_iterator(field_index, snapshot) } {
+        return match unsafe { disk.new_missing_iterator(field_index, view) } {
             Ok(it) => Some(it),
             Err(err) => {
                 ctx.status()

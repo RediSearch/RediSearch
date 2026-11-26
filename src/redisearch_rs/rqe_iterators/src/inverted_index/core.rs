@@ -185,6 +185,32 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     }
 }
 
+impl<'query, Rf: Ref, RRf: Ref, Enc: inverted_index::Encoder, E, RA>
+    RawInvIndIterator<'query, Rf, inverted_index::RawIndexReaderCore<RRf, Enc>, E, RA>
+{
+    /// Whether this iterator reads `index`, as
+    /// [`points_to_ii`](inverted_index::IndexReaderCore::points_to_ii) defines it.
+    ///
+    /// For leaves outside this crate whose owner can drop or replace the index
+    /// while the iterator is parked: revalidation, or resume on the suspended
+    /// form, resolves the index again through the owner and checks it with this
+    /// before reseating.
+    pub fn reads_index(&self, index: &inverted_index::InvertedIndex<Enc>) -> bool {
+        self.reader.points_to_ii(index)
+    }
+
+    /// Adopt `ii`'s provenance for the reader's index pointer; see
+    /// [`reseat_index`](inverted_index::IndexReaderCore::reseat_index).
+    ///
+    /// # Safety
+    ///
+    /// The same as [`reseat_index`](inverted_index::IndexReaderCore::reseat_index).
+    pub unsafe fn reseat_reader_index(&mut self, ii: NonNull<inverted_index::InvertedIndex<Enc>>) {
+        // SAFETY: the caller upholds `reseat_index`'s contract.
+        unsafe { self.reader.reseat_index(ii) }
+    }
+}
+
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
     R: IndexReader<'index>,

@@ -30,7 +30,7 @@ struct HeaderAllowlist {
 const HEADERS: &[HeaderAllowlist] = &[
     // `c_wrappers/vecsim`: query replies and their iterators.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        path: "src/vecsim/query_results.h",
         fns: &[
             "VecSimBatchIterator_Free",
             "VecSimBatchIterator_HasNext",
@@ -54,7 +54,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     // `c_wrappers/vecsim`: index handle + adhoc-BF / batch-iterator entry points.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        path: "src/vecsim/vec_sim.h",
         fns: &[
             "VecSimBatchIterator_New",
             "VecSimIndex_AddVector",
@@ -81,7 +81,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
     // vector-index API exposed through `src/search_disk_api.h`.
     HeaderAllowlist {
-        path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
+        path: "src/vecsim/vec_sim_common.h",
         fns: &[],
         types: &[
             "ThrottleCB",
@@ -140,6 +140,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DocTable_Exists",
             "DocTable_ForEachLiveId",
             "DocTable_Free",
+            "DocTable_IsVisible",
             "DocTable_KeyEquals",
             "DocTable_Put",
             "DocTable_StartKeyMap",
@@ -196,7 +197,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/iterators/vector_top_k.h",
-        fns: &["RS_VecSimCheckTimeout"],
+        fns: &[
+            "RS_VecSimCheckMemory",
+            "RS_VecSimCheckMemoryEvery",
+            "RS_VecSimCheckTimeout",
+        ],
         types: &[],
         vars: &[],
     },
@@ -204,15 +209,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/iterators/iterator_api.h",
         fns: &[],
         types: &["QueryIterator"],
-        vars: &[],
-    },
-    HeaderAllowlist {
-        path: "src/iterators/optimizer_reader.h",
-        fns: &[
-            "OptimizerIterator_GetChild",
-            "OptimizerIterator_GetOptimizationType",
-        ],
-        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -256,6 +252,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["QueryEvalCtx"],
         vars: &[],
     },
+    // Vector iterator tests fake memory pressure and trigger a memory stop.
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &[
+            "QueryMemory_ResetFakePressure",
+            "QueryMemory_SetForcedRatio",
+        ],
+        types: &[],
+        vars: &["QUERY_MEMORY_RATIO_READ_INTERVAL"],
+    },
     HeaderAllowlist {
         path: "src/query_node.h",
         fns: &[],
@@ -269,6 +275,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryNumericNode",
             "QueryPhraseNode",
             "QueryPrefixNode",
+            "QuerySparseVectorNode",
             "QueryTagNode",
             "QueryTokenNode",
             "QueryVectorNode",
@@ -331,6 +338,13 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // RSE: the disk API passes DocIdMeta's "length unknown" marker through to the Rust side.
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &[],
+        types: &[],
+        vars: &["DOCID_META_DOCLEN_UNKNOWN"],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -357,7 +371,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisSearchDiskAPI",
             "RedisSearchDiskAsyncReadPool",
             "RedisSearchDiskRdbState",
-            "RedisSearchDiskSnapshot",
+            "RedisSearchDiskQueryView",
             "SearchDiskCompactionCallbacks",
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
@@ -559,7 +573,16 @@ const HEADERS: &[HeaderAllowlist] = &[
     // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
     HeaderAllowlist {
         path: "src/query_request.h",
-        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        fns: &[
+            "QueryRequestLimits_IsBlockedClientTimedOut",
+            "QueryRequestLimits_ShouldStopExact",
+        ],
+        types: &[],
+        vars: &["QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT"],
+    },
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &["QueryMemory_CheckpointExtern"],
         types: &[],
         vars: &[],
     },
@@ -591,6 +614,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `FieldExpirationPredicate` is taken by value in TTL table function
     // signatures (src/ttl_table.h).
     "field.h",
+    // `SparseMetric` is stored by value in `FieldSpec.sparseVecOpts`
+    // (src/field_spec.h) — the full enum definition is required.
+    "sparse_vector_index.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.
     "inverted_index.h",
@@ -600,6 +626,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `src/stemmer.h` includes `language.h`, which carries the `RSLanguage_*`
+    // declarations and the `RSLanguage` enum.
+    // The enum is embedded by value in `Stemmer`, `Document` and
+    // `RSSearchOptions`, so its full definition is required.
+    "language.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
@@ -645,8 +676,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "types_ffi.h",
     // TAG GC walks the C TagIndex values trie directly.
     "triemap_ffi.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    // `aggregate.h` includes `value_ffi.h`.
     "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
@@ -716,7 +746,6 @@ fn main() {
         deps.clone(),
         permitted_dir.clone(),
         src.join("inverted_index"),
-        deps.join("VectorSimilarity").join("src"),
         src.join("buffer"),
         src.join("ttl_table"),
         src.join("trie"),

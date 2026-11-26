@@ -624,7 +624,7 @@ static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
+                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
@@ -734,19 +734,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       } else {
         break;
       }
-    }
-  }
-
-  // Block SLOP and INORDER for disk indexes
-  // slop defaults to -1, so any other value means it was explicitly set
-  if (isDiskIndex && searchOpts->slop != -1) {
-    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SLOP", status)) {
-      return REDISMODULE_ERR;
-    }
-  }
-  if (isDiskIndex && (searchOpts->flags & Search_InOrder)) {
-    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("INORDER", status)) {
-      return REDISMODULE_ERR;
     }
   }
 
@@ -907,13 +894,19 @@ static RLookup *groupStepGetLookup(PLN_BaseStep *bstp) {
 
 PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac) {
   long long nvars;
-  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK) {
+  if (AC_GetLongLong(ac, &nvars, 0) != AC_OK || nvars < 0) {
+    return NULL;
+  }
+  // A reducer is identified by its name and counted arguments; a trailing `AS alias` names
+  // its output and must not prevent a match.
+  ArgsCursor args;
+  if (AC_GetSlice(ac, &args, (size_t)nvars) != AC_OK) {
     return NULL;
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
     PLN_Reducer *gr = gstp->reducers + ii;
-    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(ac, &gr->args)) {
+    if (nvars == AC_NumArgs(&gr->args) && !strcasecmp(gr->name, name) && AC_Equals(&args, &gr->args)) {
       return gr;
     }
   }
@@ -1345,7 +1338,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), isDiskIndex, status) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1662,6 +1655,18 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
   return REDISMODULE_OK;
 }
 
+static bool hasSparseVectorNode(const QueryNode *n) {
+  if (n->type == QN_SPARSE_VECTOR) {
+    return true;
+  }
+  for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
+    if (hasSparseVectorNode(n->children[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1724,16 +1729,20 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  const bool scorerDefaulted = !opts->scorerName;
   if (opts->scorerName) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "No such scorer %s",
+                                       opts->scorerName);
+      return REDISMODULE_ERR;
+    }
+    if (Extensions_IsAutomaticScorer(opts->scorerName)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, AUTOMATIC_SCORER_ERR);
       return REDISMODULE_ERR;
     }
   } else {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
-
-
 
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
@@ -1763,11 +1772,34 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
+  // The parser only builds a sparse node on a sparse field, so an index without one skips the walk.
+  // A vector query joined below never adds one.
+  const bool hasSparse =
+      (index->flags & Index_HasSparseVec) && ast->root && hasSparseVectorNode(ast->root);
+
+  // A sparse vector query ranks by its dot product unless a SCORER says otherwise: the text
+  // scorers would score its documents as zero.
+  if (scorerDefaulted && hasSparse) {
+    opts->scorerName = SPARSE_SCORER_NAME;
+  }
+
   if (req->parsedVectorData) {
     int rv = applyVectorQuery(req, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+  }
+
+  // Not yet supported in FT.HYBRID, in the SEARCH clause or the VSIM FILTER. Not reported as
+  // VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a generic vector-expression error. Checked
+  // here rather than through the QAST validation flags, which an index with no TEXT or TAG field
+  // skips.
+  if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && hasSparse) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        IsHybridSearchSubquery(req)
+                            ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH"
+                            : "SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER");
+    return REDISMODULE_ERR;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1904,6 +1936,7 @@ AggregationPipelineParams AREQ_MakeAggregationPipelineParams(AREQ *req,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .groupByLimits = groupByLimits,
     .language = req->searchopts.language,
+    .diskScoreSkippingQuery = req->base.reqConfig.diskScoreSkippingQuery,
   };
 }
 
@@ -1912,7 +1945,12 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status) {
   // Build errors go to the caller's `status`; the running pipeline reports into the request's own
   // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
-  Pipeline_Initialize(&req->pipeline, req->base.limits.timeout.config.timeoutPolicy, &req->base.reply.err);
+  Pipeline_Initialize(&req->pipeline, &req->base);
+  if (IsHybrid(req)) {
+    // The hybrid reply does not map an OOM stop yet, so hybrid pipelines run without memory
+    // checkpoints: a stop there would reply as a timeout.
+    req->pipeline.qctx.limits = NULL;
+  }
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {

@@ -176,7 +176,7 @@ def test_on_json_is_supported(env):
 @with_simulate_in_flex(True)
 def test_disk_json_rejects_multi_value_jsonpath(env):
     """Test that disk validation rejects dynamic JSONPaths for types without multi-value support"""
-    for field_type in [['TAG'], ['NUMERIC'], ['GEO']]:
+    for field_type in [['NUMERIC'], ['GEO']]:
         env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                    '$.field[*]', 'AS', 'field', *field_type) \
             .error().contains('Disk JSON index supports only single-value JSONPath fields')
@@ -184,9 +184,9 @@ def test_disk_json_rejects_multi_value_jsonpath(env):
                    '$.field[', *field_type) \
             .error().contains('Invalid JSONPath')
 
-    # The same dynamic path can feed a TEXT field but not a TAG one.
+    # The same dynamic path can feed a TEXT field but not a NUMERIC one.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'g', 'TAG') \
+               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'n', 'NUMERIC') \
         .error().contains('Disk JSON index supports only single-value JSONPath fields')
     env.expect('FT.INFO', 'idx').error().contains('Index not found')
 
@@ -200,17 +200,23 @@ def test_disk_json_rejects_multi_value_jsonpath(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_disk_json_accepts_multi_value_text_jsonpath(env):
-    """Test that disk validation accepts dynamic JSONPaths for TEXT fields, but not invalid ones"""
+def test_disk_json_accepts_multi_value_text_and_tag_jsonpath(env):
+    """Test that disk validation accepts dynamic JSONPaths for TEXT and TAG fields, but not
+    invalid ones"""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                '$.words[*]', 'AS', 'words', 'TEXT', '$..name', 'AS', 'name', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx_twice', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                '$.words[*]', 'AS', 'w1', 'TEXT', '$.words[*]', 'AS', 'w2', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_tag', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.tags[*]', 'AS', 'tags', 'TAG', '$..label', 'AS', 'label', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_text_tag', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'g', 'TAG').ok()
 
-    # Without an alias, only the disk validation rejects a TEXT path that failed to compile.
-    env.expect('FT.CREATE', 'idx_bad', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.words[', 'TEXT') \
-        .error().contains('Invalid JSONPath')
+    # Without an alias, only the disk validation rejects a path that failed to compile.
+    for field_type in ['TEXT', 'TAG']:
+        env.expect('FT.CREATE', f'idx_bad_{field_type}', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+                   '$.words[', field_type) \
+            .error().contains('Invalid JSONPath')
 
 
 @skip(cluster=True)
@@ -221,7 +227,6 @@ def test_disk_json_ingestion_rejects_array_payload_for_unsupported_type(env):
 
     cases = [
         # (type, array payload, scalar value, query matching the scalar)
-        ('TAG', '["a","b"]', '"a"', '@f:{a}'),
         ('NUMERIC', '[1,2]', '1', '@f:[1 1]'),
         ('GEO', '["1,2","3,4"]', '"1,2"', '@f:[1 2 1 km]'),
     ]
@@ -246,20 +251,25 @@ def test_disk_json_ingestion_rejects_array_payload_for_unsupported_type(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_disk_json_ingestion_accepts_multi_value_text(env):
-    """Test that disk validation lets multi-value TEXT content through at load, both from a
-    dynamic JSONPath and from an array at a single path."""
+def test_disk_json_ingestion_accepts_multi_value_text_and_tag(env):
+    """Test that disk validation lets multi-value TEXT and TAG content through at load, both
+    from a dynamic JSONPath and from an array at a single path."""
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', 'doc:',
-               'SCHEMA', '$.words[*]', 'AS', 'words', 'TEXT', '$.name', 'AS', 'name', 'TEXT').ok()
+               'SCHEMA', '$.words[*]', 'AS', 'words', 'TEXT', '$.name', 'AS', 'name', 'TEXT',
+               '$.tags[*]', 'AS', 'tags', 'TAG', '$.color', 'AS', 'color', 'TAG').ok()
 
-    env.expect('JSON.SET', 'doc:1', '$', '{"words":["red","blue"],"name":["alice","bob"]}').ok()
+    env.expect('JSON.SET', 'doc:1', '$',
+               '{"words":["red","blue"],"name":["alice","bob"],'
+               '"tags":["news","sports"],"color":["green","yellow"]}').ok()
 
     errs = index_errors(env, 'idx')
     env.assertEqual(int(errs['indexing failures']), 0)
 
     env.expect('FT.SEARCH', 'idx', '@words:blue', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@name:bob', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@tags:{sports}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@color:{yellow}', 'NOCONTENT').equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
@@ -394,6 +404,30 @@ def test_flex_aggregate_allows_sortby(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
         .noError()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_allows_slop_and_inorder(env):
+    _create_flex_search(env)
+
+    for args in (['SLOP', '0'], ['INORDER'], ['SLOP', '0', 'INORDER']):
+        env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', *args) \
+            .equal([1, 'doc:1'])
+        env.expect('FT.AGGREGATE', 'idx', 'hello world', *args,
+                   'GROUPBY', '0', 'REDUCE', 'COUNT', '0', 'AS', 'n') \
+            .equal([1, ['n', '1']])
+        env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello world',
+                   'NOCONTENT', *args).noError()
+        env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'hello world',
+                   *args).noError()
+
+    # The arguments are applied, not just accepted.
+    env.expect('FT.SEARCH', 'idx', 'world hello', 'NOCONTENT', 'INORDER') \
+        .equal([0])
+    env.expect('FT.AGGREGATE', 'idx', 'world hello', 'INORDER',
+               'GROUPBY', '0', 'REDUCE', 'COUNT', '0', 'AS', 'n') \
+        .equal([0])
 
 
 @skip(cluster=True)
@@ -969,16 +1003,6 @@ def test_flex_blocks_suggest_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_slop_argument(env):
-    """Test that SLOP argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
-        .error().contains('SLOP is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_blocks_drop_and_dropindex_dd(env):
     """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
     _create_flex_search(env)
@@ -993,16 +1017,6 @@ def test_flex_blocks_drop_and_dropindex_dd(env):
 
     # FT.DROPINDEX without DD should work
     env.expect('FT.DROPINDEX', 'idx').ok()
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_inorder_argument(env):
-    """Test that INORDER argument is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
-        .error().contains('INORDER is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -1179,14 +1193,13 @@ def test_flex_blocks_deprecated_get_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tagvals_command(env):
-    """Test that FT.TAGVALS is blocked in Redis Flex"""
+def test_flex_allows_tagvals_command(env):
+    """Test that FT.TAGVALS is allowed in Flex validation mode"""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
                'SCHEMA', 'tag_field', 'TAG').ok()
     env.expect('HSET', 'doc:1', 'tag_field', 'value1').equal(1)
 
-    env.expect('FT.TAGVALS', 'idx', 'tag_field') \
-        .error().contains('FT.TAGVALS is not supported in Redis Flex')
+    env.expect('FT.TAGVALS', 'idx', 'tag_field').equal(['value1'])
 
 
 @skip(cluster=True)
@@ -1206,22 +1219,22 @@ def _create_flex_tag(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tag_prefix_query(env):
-    """Test that prefix queries on TAG fields are blocked in Flex mode"""
+def test_flex_allows_tag_prefix_query(env):
+    """Test that TAG prefix queries are allowed in Flex validation mode"""
     _create_flex_tag(env)
 
     env.expect('FT.SEARCH', 'idx', '@tag:{hel*}', 'NOCONTENT') \
-        .error().contains('TAG prefix/suffix/infix queries are not supported on Flex indexes')
+        .equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tag_wildcard_query(env):
-    """Test that wildcard pattern queries on TAG fields are blocked in Flex mode"""
+def test_flex_allows_tag_wildcard_query(env):
+    """Test that TAG wildcard queries are allowed in Flex validation mode"""
     _create_flex_tag(env)
 
     env.expect('FT.SEARCH', 'idx', "@tag:{w'hel*o'}", 'NOCONTENT', 'DIALECT', '2') \
-        .error().contains('TAG wildcard queries are not supported on Flex indexes')
+        .equal([1, 'doc:1'])
 
 
 @skip(cluster=True)

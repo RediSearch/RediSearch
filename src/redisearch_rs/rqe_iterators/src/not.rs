@@ -122,11 +122,11 @@ where
     /// Wrapper around [`TimeoutContext::check_timeout`] to ensure that in case of an error (timeout),
     /// we also mark this iterator as EOF.
     ///
-    /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
+    /// Returns error [`RQEIteratorError::Stopped`] if the deadline has been reached or exceeded.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         let result = self.timeout_ctx.check_timeout();
-        if matches!(result, Err(RQEIteratorError::TimedOut)) {
+        if matches!(result, Err(RQEIteratorError::Stopped)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
         }
@@ -521,7 +521,7 @@ where
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where
-    TC: TimeoutContext + 'index,
+    TC: TimeoutContext + 'static,
 {
     fn profile_children(self) -> Self {
         Not {

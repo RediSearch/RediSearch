@@ -26,7 +26,7 @@ use rqe_iterators::{
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 
-use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
+use crate::utils::{Mock, MockIteratorError, MockRevalidateResult, erased_single_doc_children};
 
 /// Which concrete union sits inside the [`UnionOpaque`] under test.
 ///
@@ -151,23 +151,48 @@ fn resume_reports_moved_per_variant(#[case] which: Which) {
     );
 }
 
-/// A trimmed union refuses to suspend with an ordinary panic, as its legacy
-/// `revalidate` does, rather than aborting the process — see the comment in
-/// [`UnionOpaque`]'s [`RQEIteratorBoxed::suspend`] for why that takes an early
-/// refusal.
-#[test]
-#[should_panic(expected = "suspend is not supported on UnionTrimmed")]
-fn suspend_of_a_trimmed_union_panics() {
-    let children = (1..=3)
-        .map(|doc_id| {
-            let child: Mock<'_, 1> = Mock::new([doc_id]);
-            TypeErasedRQEIterator::new(Box::new(child))
-        })
-        .collect();
+fn trimmed_opaque() -> UnionOpaque<'static, TypeErasedRQEIterator<'static>> {
+    let children = erased_single_doc_children(3);
     let mut union = opaque(UnionVariant::FlatFull(UnionFullFlat::new(children)));
     union.variant.trim(usize::MAX, true);
+    union
+}
 
-    let _ = Box::new(union).suspend();
+/// A drained trimmed union suspends in place, since the C wrapper caches a
+/// pointer into it, and still answers the accessors `FT.PROFILE` reads.
+#[test]
+fn suspend_of_a_drained_trimmed_union() {
+    let mut union = Box::new(trimmed_opaque());
+    while union.read().unwrap().is_some() {}
+    let (last_doc_id, num_estimated) = (union.last_doc_id(), union.num_estimated());
+    let box_addr = &*union as *const _ as usize;
+    let variant_addr = &union.variant as *const _ as usize;
+
+    let suspended = union.suspend();
+    assert_eq!(&*suspended as *const _ as usize, box_addr);
+    assert_eq!(&suspended.variant as *const _ as usize, variant_addr);
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+    assert_eq!(
+        RQESuspendedIterator::num_estimated(&*suspended),
+        num_estimated
+    );
+}
+
+/// [`UnionOpaque`] forwards the trimmed union's abort instead of tearing the
+/// payload down through the slot helper.
+#[test]
+fn resume_of_a_trimmed_union_aborts() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+
+    let mut union = Box::new(trimmed_opaque());
+    while union.read().unwrap().is_some() {}
+
+    let outcome = union
+        .suspend()
+        .resume(&guard)
+        .expect("aborting is not an error");
+    assert!(matches!(outcome, ResumeOutcome::Aborted));
 }
 
 /// The allocation — and the payload's address inside it — survive the cycle.
@@ -267,7 +292,7 @@ fn resume_frees_the_shell_when_the_payload_errors() {
 
     let guard = mock_ctx.spec_read();
     match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
-        Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+        Err(e) => assert!(matches!(e, RQEIteratorError::Stopped)),
         Ok(_) => panic!("the failing child's error must reach the caller"),
     }
 }

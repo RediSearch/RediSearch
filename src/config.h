@@ -71,6 +71,10 @@ const char *OomPolicy_ToString(RSOomPolicy);
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
 RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
+// The values `search-gc-policy` accepts; GCPolicy_Disk is chosen by the disk mode, not by name.
+static const int gc_policy_enums[2] = {GCPolicy_Fork, GCPolicy_Thread};
+static const char *gc_policy_vals[2] = {"fork", "thread"};
+
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
@@ -86,6 +90,13 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
+  // GCPolicy_Thread's own, so settings tuned for the fork's cost do not carry over to it.
+  size_t threadGcRunIntervalSec;
+  size_t threadGcCleanThreshold;
+  // Under GCPolicy_Thread, the clean threshold also grows with the index: a cycle waits for this
+  // many deletions per million live documents, and for at least threadGcCleanThreshold. The share
+  // is of the live documents, so its maximum waits until as many are deleted as remain.
+  size_t gcCleanRatioPpm;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
@@ -94,8 +105,10 @@ typedef struct {
 typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
-  size_t gcScanSize;
+  // GC pool threads under GCPolicy_Thread, at most MAX_GC_THREADS; other policies always use one.
+  uint8_t gcThreads;
   GCPolicy gcPolicy;
+  size_t gcScanSize;
   GCSettings gcSettings;
 } GCConfig;
 
@@ -111,6 +124,10 @@ typedef struct {
   unsigned int BM25STD_TanhFactor;
   // OOM policy
   RSOomPolicy oomPolicy;
+  // Query-side kill switch for score-bound candidate filtering on disk indexes. Ignoring the
+  // bounds is always correct, so it can be flipped at any time; a query keeps the value it was
+  // created with, and it affects reads only.
+  bool diskScoreSkippingQuery;
 } RequestConfig;
 
 typedef struct {
@@ -389,6 +406,16 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+// A THREAD cycle needs no fork, so it can run more often.
+#define DEFAULT_THREAD_GC_RUN_INTERVAL 7
+#define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
+#define MAX_THREAD_GC_RUN_INTERVAL GC_MAX_INTERVAL_SEC  // gc/gc.h
+#define DEFAULT_GC_CLEAN_RATIO_PPM 1000
+// search-gc-clean-ratio-ppm is in parts per million of the live documents.
+#define GC_CLEAN_RATIO_PPM_SCALE 1000000
+#define MAX_GC_CLEAN_RATIO_PPM GC_CLEAN_RATIO_PPM_SCALE
+#define MAX_GC_THREADS 64
+static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte");
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
@@ -413,11 +440,13 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 // Flex (disk-based indexes) defaults: disk queries are expected to take
-// longer, so they get a higher timeout, and time out with an error instead
-// of returning partial results.
+// longer, so they get a higher timeout, and time out, or stop for memory
+// pressure, with an error instead of returning partial results.
 #define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
 #define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
 #define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
+#define DEFAULT_OOM_POLICY OomPolicy_Return
+#define DEFAULT_OOM_POLICY_FLEX OomPolicy_Fail
 #define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
@@ -487,11 +516,15 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
+    .gcConfigParams.gcPolicy = GCPolicy_Thread,                                \
+    .gcConfigParams.gcThreads = 1,                                             \
     .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcCleanThreshold = DEFAULT_THREAD_GC_CLEAN_THRESHOLD,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.gcCleanRatioPpm = DEFAULT_GC_CLEAN_RATIO_PPM,   \
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
@@ -518,7 +551,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,\
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
-    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
+    .requestConfigParams.oomPolicy = DEFAULT_OOM_POLICY,                       \
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
@@ -531,6 +564,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
     .diskStatistics = false,                                                   \
+    .requestConfigParams.diskScoreSkippingQuery = true,                        \
     .diskSq8Enabled = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \

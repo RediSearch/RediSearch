@@ -9,6 +9,7 @@
 
 #include "hybrid/hybrid_request.h"
 #include "config.h"
+#include "query_memory.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -52,7 +53,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     AREQ *areq = req->requests[i];
     RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
-    if (!sctx->diskSnapshot) {
+    if (!sctx->diskQueryView) {
       continue;
     }
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
@@ -60,7 +61,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
     RS_ASSERT(depleter && (depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER));
 
     // Free from the depleter upstream, as QITR_FreeChain does: the iterators and the async read
-    // pool they feed must be gone before the snapshot they read from is released.
+    // pool they feed must be gone before the view they read through is released.
     ResultProcessor *rp = depleter->upstream;
     while (rp) {
       ResultProcessor *next = rp->upstream;
@@ -79,12 +80,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
+      sync_ref = DepleterSync_New(req->nrequests);
     }
 
-    // Each subquery takes its own disk snapshot below. They observe the same state only because
+    // Each subquery opens its own disk read view below. They observe the same state only because
     // the caller holds one spec read lock across this whole loop, so no write can land between
-    // two subqueries' snapshots.
+    // two subqueries' views.
     RS_ASSERT(!req->sctx->spec->diskSpec || IndexSpec_IsReadLocked(req->sctx->spec));
 
     // Build individual pipelines for each search request
@@ -97,13 +98,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
-        // Pin the per-subquery disk view to the same point in time as the in-memory
-        // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
-        // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
-        // Aborts the hybrid pipeline if any subquery on a disk index can't take a
-        // snapshot — falling back to live reads is unsafe because the parent unlock
-        // is unconditional and subsequent depleter / cursor reads would race with GC.
-        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
+        // Open the per-subquery disk read view against the same index state as the
+        // in-memory trie/stats that QAST_Iterate is about to consult. Callers hold the spec
+        // read lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
+        // Aborts the hybrid pipeline if any subquery on a disk index can't open its
+        // read view: reading without one is unsafe because the parent unlock is
+        // unconditional and subsequent depleter / cursor reads run without the spec lock.
+        if (SearchCtx_OpenDiskQueryView(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
         }
@@ -126,6 +127,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+        }
+        // Only FAIL is decided here: the hybrid reply does not map an OOM stop yet, so under
+        // RETURN a stop requested now would reply as a timeout.
+        if (rc == REDISMODULE_OK && areq->base.reqConfig.oomPolicy == OomPolicy_Fail) {
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
+                                                &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {
             break;
@@ -351,7 +358,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.limits.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, &hybridReq->base);
+    // No memory checkpoints in hybrid pipelines (see AREQ_BuildPipelineWithAggregationParams).
+    hybridReq->tailPipeline->qctx.limits = NULL;
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -364,7 +373,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.limits.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, &requests[i]->base);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -412,7 +421,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // (never published, or published in a cycle whose timeout reply exposed
     // no IDs). Subs without a cursor are the container's to release: AREQ_Free
     // tears down the pipeline (and its disk-iterator borrows) before
-    // releasing the sctx and its diskSnapshot, and the subs own no
+    // releasing the sctx and its diskQueryView, and the subs own no
     // RedisModuleCtx — each cycle lends and reclaims its own.
     const bool timedOut =
         QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);

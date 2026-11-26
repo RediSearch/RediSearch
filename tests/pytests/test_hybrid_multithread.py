@@ -106,33 +106,35 @@ def test_hybrid_multithread():
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 
 
-# Skipped on musl, which admits a reader past a queued writer, so the try-lock
-# never fails there.
-@skip(cluster=True, musl=True)
-def test_hybrid_depleter_lock_failure_replies_error():
-    """A depleter that loses the spec try-lock to a queued writer must reply
-    SEARCH_SAFE_DEPLETER_FAILURE.
+def hybrid_reply_keys(reply):
+    results = reply[reply.index('results') + 1]
+    return {row[row.index('__key') + 1] for row in results}
+
+
+@skip(cluster=True)
+def test_hybrid_writer_not_blocked_before_depletion():
+    """A writer must not wait for a background hybrid query that has built its
+    pipelines but has not started its depleters yet, and the documents it adds
+    stay out of that query.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    query = ('FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
+             'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+             'LIMIT', '0', '100')
+    # One late document per subquery, each a top match for it.
+    late_keys = {'late:text', 'late:vector'}
 
-    # Parks the query after it took its read lock but before the depleters are
-    # launched — the window in which a writer can queue behind it.
     sync_point = 'BeforeHybridDepletion'
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []
     def run_hybrid_query(conn, out):
         try:
-            # TIMEOUT 0 is load-bearing: it disables the sync point's other release
-            # arm, leaving the queued writer as the only way out. Without it the
-            # query can escape by timing out and the test passes vacuously.
-            out.append(('ok', conn.execute_command(
-                'FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
-                'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
-                'TIMEOUT', '0')))
+            # TIMEOUT 0 leaves the signal as the only release of the sync point.
+            out.append(('ok', conn.execute_command(*query, 'TIMEOUT', '0')))
         except Exception as e:
             out.append(('err', str(e)))
 
@@ -143,18 +145,185 @@ def test_hybrid_depleter_lock_failure_replies_error():
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
         f'Timeout waiting for {sync_point} sync point')
 
-    # Indexing this parks on the spec write lock behind the query's read lock, which
-    # both releases the sync point and makes the depleters' try-lock fail. It returns
-    # once the query has finished and dropped its read lock.
-    env.cmd('HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text')
+    def write_late_documents(conn):
+        conn.execute_command('HSET', 'late:text', 'text', 'hello hello hello', 'type', 'text')
+        conn.execute_command('HSET', 'late:vector', 'type', 'vector', 'vector', query_vector)
 
+    writer_thread = threading.Thread(target=write_late_documents,
+                                     args=(env.getConnection(),), daemon=True)
+    writer_thread.start()
+    writer_thread.join(timeout=10)
+    env.assertFalse(writer_thread.is_alive(), message='Writer waited for the parked query')
+    env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point), 1)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    query_thread.join(timeout=30)
+    env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
+    writer_thread.join(timeout=30)
+    if not outcome or writer_thread.is_alive():
+        return  # still blocked; the assertions above are the diagnostic
+
+    kind, payload = outcome[0]
+    env.assertEqual(kind, 'ok', message=f'expected the query to be served, got: {payload}')
+    if kind != 'ok':
+        return
+    env.assertEqual(hybrid_reply_keys(payload) & late_keys, set())
+    # The late documents match the query, so their absence above comes from the bound.
+    env.assertEqual(hybrid_reply_keys(env.cmd(*query)) & late_keys, late_keys)
+
+
+INDEX_CHANGED_ERROR = 'Index changed before the query started; retry'
+
+
+def setup_numeric_index(env):
+    conn = env.getConnection()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 6):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i,
+                             'v', np.array([i, 0.0]).astype(np.float32).tobytes())
+
+
+def split_numeric_tree(env):
+    """Add enough distinct values to split the numeric tree's only range, which bumps its
+    revision and so aborts the numeric iterator on its next revalidation."""
+    def revision():
+        return to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))['revisionId']
+
+    before = revision()
+    conn = env.getConnection()
+    for i in range(500):
+        conn.execute_command('HSET', f'late:{i}', 'n', 2000 + i)
+    env.assertNotEqual(revision(), before,
+                       message='the inserts must change the numeric tree, or nothing aborts')
+
+
+def run_in_thread(conn, query):
+    outcome = []
+
+    def run():
+        try:
+            outcome.append(('ok', conn.execute_command(*query)))
+        except Exception as e:
+            outcome.append(('err', str(e)))
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def hybrid_numeric_query(*extra):
+    query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    return ('SEARCH', '@n:[0 100]', 'VSIM', '@v', '$BLOB', *extra,
+            'PARAMS', '2', 'BLOB', query_vector)
+
+
+@skip(cluster=True)
+def test_hybrid_fails_when_numeric_tree_changes_before_depletion():
+    """A numeric tree change between the build and the depletion aborts the search
+    subquery's iterators before they return a row, so the query fails rather than
+    answering that subquery as empty."""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_numeric_index(env)
+
+    sync_point = 'BeforeHybridDepletion'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+    # TIMEOUT 0 leaves the signal as the only release of the sync point.
+    thread, outcome = run_in_thread(
+        env.getConnection(), ('FT.HYBRID', 'idx', *hybrid_numeric_query(), 'TIMEOUT', '0'))
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    split_numeric_tree(env)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    thread.join(timeout=30)
+    env.assertFalse(thread.is_alive(), message='Query thread never completed')
+    env.assertEqual(outcome[0][0] if outcome else None, 'err', message=outcome)
+    if outcome:
+        env.assertContains(INDEX_CHANGED_ERROR, outcome[0][1])
+
+
+@skip(cluster=True)
+def test_hybrid_cursor_reports_subquery_error():
+    """The shard's cursor path replies with the failing subquery's own error."""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_numeric_index(env)
+
+    shard_conn = env.getConnection()
+    shard_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    setPauseBeforeHybridStoreCursors(env, True)
+    thread, outcome = run_in_thread(
+        shard_conn,
+        ('_FT.HYBRID', 'idx', *hybrid_numeric_query('WITHCURSOR'),
+         '_COORD_DISPATCH_TIME', '1000000'))
+    wait_for_condition(
+        lambda: (getIsHybridStoreCursorsPaused(env) == 1, {}),
+        'Timeout waiting for the hybrid cursor pause')
+
+    split_numeric_tree(env)
+
+    resetHybridStoreCursorsDebug(env)
+    thread.join(timeout=30)
+    env.assertFalse(thread.is_alive(), message='Query thread never completed')
+    env.assertEqual(outcome[0][0] if outcome else None, 'err', message=outcome)
+    if outcome:
+        env.assertContains(INDEX_CHANGED_ERROR, outcome[0][1])
+
+
+@skip(cluster=True)
+def test_hybrid_filtered_knn_keeps_k_with_late_document():
+    """A document added after the build of a background hybrid query must not
+    take one of the K places of its filtered KNN subquery.
+    """
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_basic_index(env)
+    query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    k = 3
+    # The SEARCH clause matches nothing, so the reply holds only the KNN results.
+    query = ('FT.HYBRID', 'idx', 'SEARCH', '@text:(nomatch)',
+             'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(k),
+             'FILTER', '@type:{vector}', 'PARAMS', '2', 'BLOB', query_vector,
+             'LIMIT', '0', '100')
+
+    sync_point = 'BeforeHybridDepletion'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+    outcome = []
+    def run_hybrid_query(conn, out):
+        try:
+            # TIMEOUT 0 leaves the signal as the only release of the sync point.
+            out.append(('ok', conn.execute_command(*query, 'TIMEOUT', '0')))
+        except Exception as e:
+            out.append(('err', str(e)))
+
+    query_thread = threading.Thread(target=run_hybrid_query,
+                                    args=(env.getConnection(), outcome), daemon=True)
+    query_thread.start()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    # The closest vector to the query, so it would take the first place.
+    env.cmd('HSET', 'late:vector', 'type', 'vector', 'vector', query_vector)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
     query_thread.join(timeout=30)
     env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
     if not outcome:
         return  # still parked; the assertion above is the diagnostic
 
     kind, payload = outcome[0]
-    # TODO(MOD-16487): once a queued writer no longer aborts hybrid depletion, this
-    # expectation flips — the query should be served instead of erroring.
-    env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
-    env.assertContains('Failed to acquire index lock for background depletion', str(payload))
+    env.assertEqual(kind, 'ok', message=f'expected the query to be served, got: {payload}')
+    if kind != 'ok':
+        return
+    keys = hybrid_reply_keys(payload)
+    env.assertNotContains('late:vector', keys)
+    env.assertEqual(len(keys), k, message=f'expected {k} KNN results, got: {sorted(keys)}')
+    # The late document is a top match, so its absence above comes from the bound.
+    env.assertContains('late:vector', hybrid_reply_keys(env.cmd(*query)))

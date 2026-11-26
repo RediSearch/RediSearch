@@ -8,9 +8,9 @@
 */
 
 // Include C++ VecSim headers before any C headers to get full class definitions.
-#include "VectorSimilarity/src/VecSim/vec_sim_interface.h"
-#include "VectorSimilarity/src/VecSim/vec_sim_adhoc_bf_ctx.h"
-#include "VectorSimilarity/src/VecSim/memory/vecsim_malloc.h"
+#include "vecsim/vec_sim_interface.h"
+#include "vecsim/vec_sim_adhoc_bf_ctx.h"
+#include "vecsim/memory/vecsim_malloc.h"
 
 #include "gtest/gtest.h"
 #include "index_utils.h"
@@ -309,7 +309,7 @@ TEST_F(HybridReaderDiskTest, ExactDistancesIgnoredWithoutRerank) {
 }
 
 // Timeout: when the timeout callback fires, the adhoc scan aborts and Read returns
-// ITERATOR_TIMEOUT.
+// ITERATOR_STOPPED.
 TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}};
     auto [index, it, child] = makeNormalIterator(sq8, {1, 2}, 2);
@@ -320,7 +320,7 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     auto *saved = vecsimTimeoutCallback;
     vecsimTimeoutCallback = [](QueryRequestLimits *) -> int { return 1; };
 
-    EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
+    EXPECT_EQ(it->Read(it), ITERATOR_STOPPED);
 
     vecsimTimeoutCallback = saved;
 }

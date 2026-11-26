@@ -543,7 +543,7 @@ def testMissingGC():
     env.assertEqual(res, [1, 'doc2'])
 
     # Set the GC clean threshold to 0, and stop its periodic execution
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    set_thread_gc_config(env, clean_threshold='0')
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Delete `doc2`
@@ -578,7 +578,7 @@ def testMissingGC():
         conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
 
     # Set the GC clean threshold to 0, and stop its periodic execution
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    set_thread_gc_config(env, clean_threshold='0')
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Delete docs with 'missing values'
@@ -793,13 +793,10 @@ JSON_MULTI_VALUE_EXPECTED_MISSING = {
 }
 
 # (path, field type, SORTABLE) -> docs that fail to index; absent keys mean none.
-# NUMERIC rejects the string values. SORTABLE on `$.f` builds its sort key from
-# the array's first element, so `[]` fails.
+# NUMERIC rejects the string values.
 JSON_MULTI_VALUE_INDEXING_FAILURES = {
-    ('$.f', 'TAG', True): {'empty_arr'},
-    ('$.f', 'TEXT', True): {'empty_arr'},
     ('$.f', 'NUMERIC', False): {'empty_str', 'non_empty'},
-    ('$.f', 'NUMERIC', True): {'empty_str', 'non_empty', 'empty_arr'},
+    ('$.f', 'NUMERIC', True): {'empty_str', 'non_empty'},
     ('$.f[*]', 'NUMERIC', False): {'non_empty'},
     ('$.f[*]', 'NUMERIC', True): {'non_empty'},
 }
@@ -833,24 +830,3 @@ def testJsonMultiValueMissing():
                 env.assertEqual(res[0], len(expected), message=f'{case}: {res}')
                 env.assertEqual(set(res[1:]), {f'doc:{s}' for s in expected}, message=case)
                 env.flush()
-
-@skip(cluster=True, no_json=True)
-def testJsonEmptyArraySortableIndexingFailure():
-    """SORTABLE on a `$.f` path builds its sort key from the array's first
-    element, so `[]` fails to index. A failed document is not reported as
-    missing either."""
-
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-
-    for field_type in ('TAG', 'TEXT'):
-        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
-                   '$.f', 'AS', 'f', field_type, 'INDEXMISSING', 'SORTABLE').ok()
-        conn.execute_command('JSON.SET', 'doc:empty_arr', '$', '{"f": []}')
-
-        info = index_info(env, 'idx')
-        env.assertEqual(info['hash_indexing_failures'], 1, message=field_type)
-        env.assertEqual(to_dict(info['Index Errors'])['last indexing error key'],
-                        'doc:empty_arr', message=field_type)
-        env.expect('FT.SEARCH', 'idx', 'ismissing(@f)', 'NOCONTENT').equal([0])
-        env.flush()

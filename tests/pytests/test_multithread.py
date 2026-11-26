@@ -6,12 +6,65 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+from concurrent.futures import ThreadPoolExecutor
 import threading
 
 def initEnv(moduleArgs: str = 'WORKERS 1', **kwargs):
     assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs, **kwargs)
     return env
+
+
+@skip(cluster=True)
+def test_workers_pause_nowait():
+    """Pause dispatch while a query is parked and keep the next query queued until resume."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0')
+    if not isEnableAssertEnabled(env):
+        env.expect(debug_cmd(), 'WORKERS', 'PAUSE_NOWAIT').error().contains(
+            "Invalid argument for 'WORKERS' subcommand")
+        return
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 'title', 'one')
+    expected_reply = [1, 'doc:1']
+    sync_point = 'BeforeSpecLock'
+
+    def search():
+        return conn.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')
+
+    def workers_have_jobs(active, pending):
+        stats = getWorkersThpoolStats(env)
+        return (stats['numJobsInProgress'] == active and stats['totalPendingJobs'] == pending,
+                stats)
+
+    # A content-free query can finish after the sync point times out even if PAUSE holds the GIL.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point, 5000).ok()
+    with ThreadPoolExecutor(max_workers=2) as queries:
+        first = queries.submit(search)
+        paused = False
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                'First query did not park', timeout=5)
+            env.assertEqual(env.cmd(debug_cmd(), 'WORKERS', 'PAUSE_NOWAIT'), 'OK')
+            paused = True
+            assert env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, (
+                'PAUSE_NOWAIT returned after the parked query was released')
+
+            second = queries.submit(search)
+            wait_for_condition(lambda: workers_have_jobs(1, 1),
+                               'Second query did not queue while the first was parked', timeout=5)
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+            env.assertEqual(first.result(timeout=5), expected_reply)
+            wait_for_condition(lambda: workers_have_jobs(0, 1),
+                               'Second query did not stay queued after the first finished', timeout=5)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            if paused:
+                env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+
+        env.assertEqual(second.result(timeout=5), expected_reply)
 
 # Regression helper for MOD-18356: a query is parsed (capturing a field index) on the main
 # thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can reallocate
@@ -197,7 +250,7 @@ def test_numeric_query_survives_field_alter_race():
 
 # Regression test (see assert_query_survives_field_alter_race). WITHOUTCOUNT routes the
 # wildcard query through the SORTBY optimizer's partial-range path (query_optimizer.c /
-# NewOptimizerIterator), a separate field-index re-derivation site from the plain numeric
+# newNumericTopKFromOptimizer), a separate field-index re-derivation site from the plain numeric
 # filter above.
 @skip(cluster=True)
 def test_numeric_optimizer_query_survives_field_alter_race():
@@ -404,7 +457,7 @@ def test_buffer_limit():
 @skip(asan=True, msan=True)
 def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
     n_shards = env.shardsCount
     dim = 4
     block_size = 1024

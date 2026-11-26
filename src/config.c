@@ -26,6 +26,7 @@
 #include "search_disk.h"
 #include "aggregate/reducer.h"
 #include "doc_table.h"
+#include "gc/gc.h"
 #include "obfuscation/hidden.h"
 #include "query_error_ffi.h"
 #include "query_types.h"
@@ -87,7 +88,7 @@ configPair_t __configPairs[] = {
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
-  {"GC_POLICY",                       ""},
+  {"GC_POLICY",                       "search-gc-policy"},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
@@ -447,6 +448,11 @@ static int set_default_scorer_config(const char *name, RedisModuleString *val, v
       *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
       return REDISMODULE_ERR;
     }
+    if (Extensions_IsAutomaticScorer(newScorerName)) {
+      RS_ASSERT(err);
+      *err = RedisModule_CreateString(NULL, AUTOMATIC_SCORER_ERR, strlen(AUTOMATIC_SCORER_ERR));
+      return REDISMODULE_ERR;
+    }
   }
 
   // Validation passed, now allocate and apply it to RSGlobalConfig
@@ -770,6 +776,15 @@ CONFIG_GETTER(getMinOperationWorkers) {
   return sdscatprintf(ss, "%lu", config->minOperationWorkers);
 }
 
+// search-gc-threads takes effect at once on a running GC pool. Redis bounds it to
+// [1, MAX_GC_THREADS], so it fits the byte it is kept in.
+static int set_gc_threads(const char *name, long long val, void *privdata,
+                          RedisModuleString **err) {
+  int rc = set_uint8_numeric_config(name, val, privdata, err);
+  GC_ThreadPoolSetSize();
+  return rc;
+}
+
 // Shared by search-min-operation-workers and search-min-maintenance-workers.
 static int set_min_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
@@ -1009,6 +1024,10 @@ CONFIG_SETTER(setDefaultScorer) {
         QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid default scorer value");
         return REDISMODULE_ERR;
       }
+      if (Extensions_IsAutomaticScorer(scorerName)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, AUTOMATIC_SCORER_ERR);
+        return REDISMODULE_ERR;
+      }
     }
     // Free the old scorer name before assigning the new one
     if (config->defaultScorer) {
@@ -1245,14 +1264,28 @@ CONFIG_GETTER(getMultiTextOffsetDelta) {
   return sdscatprintf(ss, "%u", config->multiTextOffsetDelta);
 }
 
+static int set_gc_policy(const char *name, int val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(GCPolicy *)privdata = (GCPolicy)val;
+  return REDISMODULE_OK;
+}
+
+static int get_gc_policy(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return *(GCPolicy *)privdata;
+}
+
 CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
-    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
+  if (!strcasecmp(policy, "DEFAULT")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Thread;
   } else if (!strcasecmp(policy, "THREAD")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Thread;
+  } else if (!strcasecmp(policy, "FORK")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -1766,7 +1799,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK/THREAD)",
+         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is THREAD",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2243,6 +2276,33 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-clean-threshold",
+      DEFAULT_THREAD_GC_CLEAN_THRESHOLD, REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-run-interval",
+      DEFAULT_THREAD_GC_RUN_INTERVAL, REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_THREAD_GC_RUN_INTERVAL, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcRunIntervalSec)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-gc-clean-ratio-ppm", DEFAULT_GC_CLEAN_RATIO_PPM,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_GC_CLEAN_RATIO_PPM, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
@@ -2359,6 +2419,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       MAX_WORKER_THREADS, get_min_workers,
       set_min_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-gc-threads", 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_GC_THREADS, get_uint8_numeric_config, set_gc_threads, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcThreads)
     )
   )
 
@@ -2596,7 +2665,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-oom", OomPolicy_Return,
+      ctx, "search-gc-policy", GCPolicy_Thread,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      gc_policy_vals, gc_policy_enums, 2,
+      get_gc_policy, set_gc_policy, NULL,
+      (void*)&RSGlobalConfig.gcConfigParams.gcPolicy
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterEnumConfig(
+      ctx, "search-on-oom", SearchDisk_IsEnabled() ? DEFAULT_OOM_POLICY_FLEX : DEFAULT_OOM_POLICY,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_oom_vals, on_oom_enums, 3,
       get_on_oom, set_on_oom, NULL,
@@ -2818,6 +2897,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskStatistics)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_disk-score-skipping-query", 1,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.diskScoreSkippingQuery)
     )
   )
 

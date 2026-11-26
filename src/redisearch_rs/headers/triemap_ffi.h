@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "redismodule.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
@@ -22,6 +23,8 @@ typedef enum tm_iter_mode {
   TM_SUFFIX_MODE = 2,
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
+
+typedef struct RedisModuleIO RedisModuleIO;
 
 /**
  * Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
@@ -69,6 +72,16 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
  * Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
  */
 typedef SmallThinVec_c_void TrieMapResultBuf;
+
+/**
+ * Return true to stop a filtered walk before the next match.
+ */
+typedef bool (*TrieMapStopCallback)(const void *);
+
+/**
+ * Consume a matched value, returning false to finish the walk.
+ */
+typedef bool (*TrieMapVisitCallback)(void *, void *);
 
 /**
  * Callback type for passing to [`TrieMap_Delete`].
@@ -277,13 +290,10 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  * the first call to next will return 0.
  *
  * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
- *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
- * - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
- *   suffix and wildcard modes keep reading it while iterating.
+ * 1. `t` must point to a valid trie obtained from [`NewTrieMap`] and remain live
+ *    and immutable until the iterator is freed.
+ * 2. If `prefix_len` is nonzero, `prefix` must point to that many initialized
+ *    bytes that remain live and immutable until the iterator is freed.
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
@@ -317,6 +327,46 @@ size_t TrieMap_NNodes(const struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
+
+/**
+ * Load a disk TAG dictionary, returning null on a read or validation error.
+ *
+ * The caller owns the result. Free it through [`crate::TrieMap_Free`] with a
+ * callback that leaves count values alone. See [`load`] for validation rules.
+ *
+ * # Safety
+ *
+ * 1. `io` must be a [valid], exclusively accessible Redis RDB reader.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct TrieMap *TrieMap_RdbLoad(struct RedisModuleIO *io);
+
+/**
+ * Save a disk TAG dictionary containing document counts, as described by [`save`].
+ *
+ * # Safety
+ *
+ * 1. `io` must be a [valid], exclusively accessible Redis RDB writer.
+ * 2. `map` must point to a [valid] [`TrieMap`], immutably borrowed for this call,
+ *    whose values encode positive counts rather than allocated objects.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TrieMap_RdbSave(struct RedisModuleIO *io, const struct TrieMap *map);
+
+/**
+ * Visit values matching `pattern`, polling `stop` during traversal between matches.
+ *
+ * # Safety
+ * 1. The trie and pattern must meet the requirements of [`TrieMap_IterateWithFilter`].
+ *    Both must stay live and immutable throughout the call, including during callbacks.
+ * 2. `visit` must be a non-null C callback that accepts a matched value (which may be
+ *    null) and `visit_ctx`. `stop`, if supplied, must accept `stop_ctx`. The contexts
+ *    must satisfy their callbacks' requirements for the whole call.
+ * 3. Neither callback may unwind across the FFI boundary.
+ */
+void TrieMap_VisitWithFilter(struct TrieMap *trie, const char *pattern, tm_len_t len, enum tm_iter_mode mode, TrieMapStopCallback stop, const void *stop_ctx, TrieMapVisitCallback visit, void *visit_ctx);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "VecSim"
+version = "0.0.1"
+description = "Python library around collection of vector similarity algorithms"
+
+packages = [
+    { include = 'python_bindings'}
+]
+
+authors = ["RedisLabs CTO Team <oss@redislabs.com>"]
+license = "LicenseRef-RSALv2 OR SSPL-1.0 OR AGPL-3.0-only"
+include = ["LICENSE.txt", "license/*.txt", "CMakeLists.txt", "*.h", "*.cpp",
+           "algorithms/**", "containers/**", "index_factories/**", "memory/**", "quantization/**",
+           "spaces/**", "types/**", "utils/**", "cmake/**"]
+
+classifiers = [
+    'Topic :: Database',
+    'Programming Language :: Python',
+    'Intended Audience :: Developers',
+    'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
+    'Development Status :: 3 - Alpha',
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.dev-dependencies]
+numpy = "*"
+scipy = "^1.14.1"
+h5py = "^3.7.0"
+ml_dtypes = "*"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "setuptools"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.build]
+script  = "setup.py"
+generate-setup-file = true

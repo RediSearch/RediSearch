@@ -51,6 +51,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "inverted_sz_mb", .type = InfoField_DoubleSum},
     {.name = "total_inverted_index_blocks", .type = InfoField_WholeSum},
     {.name = "vector_index_sz_mb", .type = InfoField_DoubleSum},
+    {.name = "sparse_vector_index_sz_mb", .type = InfoField_DoubleSum},
     {.name = "offset_vectors_sz_mb", .type = InfoField_DoubleSum},
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},
@@ -243,6 +244,8 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
     const char *type = fieldSchemaType(fields->indexSchema, i);
     if (type && strcmp(type, "VECTOR") == 0) {
       FieldSpecStats_DeserializeVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
+    } else if (type && strcmp(type, "SPARSEVECTOR") == 0) {
+      FieldSpecStats_DeserializeSparseVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
     }
     AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
@@ -415,8 +418,11 @@ static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
   InfoValue *values = fields->toplevelValues;
   const InfoValue *docs =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
-  if (fields->docTable[0].isSet) {
-    docs = &fields->docTable[0];
+  const InfoValue *diskDocs =
+      findInfoTypeAndValue(fields->docTable, docTableSpecs, ARRAY_SIZE(docTableSpecs), "num_docs")
+          .value;
+  if (diskDocs && diskDocs->isSet) {
+    docs = diskDocs;
   }
   const InfoValue *records =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;

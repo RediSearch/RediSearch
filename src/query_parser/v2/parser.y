@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "config.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -1006,7 +1007,17 @@ geo_filter(A) ::= LSQB param_num(B) param_num(C) param_num(D) param_term(E) RSQB
 /////////////////////////////////////////////////////////////////
 expr(A) ::= modifier(B) COLON geometry_query(C). {
   A = NULL;
-  if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
+  if (C && C->type == QN_SPARSE_VECTOR) {
+    // `@field:[SPARSE $q]` shares the `[TERM ATTRIBUTE]` shape of a geoshape query.
+    if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_SPARSE_VECTOR)) {
+      REPORT_WRONG_FIELD_TYPE(B, SPEC_SPARSE_VECTOR_STR);
+      QueryNode_Free(C);
+    } else {
+      // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set.
+      C->svn.fieldIndex = ctx->sctx->spec ? B.fs->index : RS_INVALID_FIELD_INDEX;
+      A = C;
+    }
+  } else if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_GEOMETRY)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_GEOMETRY_STR);
     QueryNode_Free(C);
   } else if (C) {
@@ -1020,11 +1031,23 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
 
 
 geometry_query(A) ::= LSQB TERM(B) ATTRIBUTE(C) RSQB . {
-  // Geometry param is actually a case sensitive term
-  C.type = QT_PARAM_TERM_CASE;
-  A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
-  if (!A) {
-    reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a geoshape predicate");
+  if (B.len == strlen("SPARSE") && !strncasecmp("SPARSE", B.s, B.len)) {
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      // `SPARSE` was never a geoshape predicate, so this query was an error before the feature
+      // existed too; only the message changes, to say how to enable it.
+      QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX, SPARSE_VECTOR_UNSTABLE_ERR);
+      A = NULL;
+    } else {
+      // The query vector is binary, so it is always a parameter.
+      A = NewSparseVectorNode_WithParams(ctx, NULL, &C);
+    }
+  } else {
+    // Geometry param is actually a case sensitive term
+    C.type = QT_PARAM_TERM_CASE;
+    A = NewGeometryNode_FromWkt_WithParams(ctx, B.s, B.len, &C);
+    if (!A) {
+      reportSyntaxError(ctx->status, &C, "Syntax error: Expecting a geoshape predicate");
+    }
   }
 }
 

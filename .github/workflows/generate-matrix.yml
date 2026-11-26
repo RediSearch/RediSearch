@@ -41,6 +41,11 @@ on:
       has-jobs:
         description: "Whether there are any jobs to run"
         value: ${{ jobs.generate.outputs.has-jobs }}
+      packages:
+        description: >-
+          JSON map from each released platform to the packages its build produces, as package ids:
+          the part of the package file name between `<package>.` and `-<arch>` (sbin/pack.sh).
+        value: ${{ jobs.generate.outputs.packages }}
 
 jobs:
   generate:
@@ -48,6 +53,7 @@ jobs:
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
+      packages: ${{ steps.generate-matrix.outputs.packages }}
     steps:
       - name: Configure Tracebit canary credentials
         uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
@@ -99,6 +105,32 @@ jobs:
               # any pinned distro ships them. The official image is x86_64 only.
               ('archlinux:latest', 'x86_64'),
           ]
+
+          # <OS>-<OSNICK> that sbin/get-platform reports on each platform's build host. It can't be derived
+          # from the platform name, so it is declared here; task-build-artifacts.yml fails the build when the
+          # packages it made don't match, and event-release.yml requires these packages before publishing.
+          package_platforms = {
+              'ubuntu:resolute': 'Linux-resolute',
+              'ubuntu:noble': 'Linux-ubuntu24.04',
+              'ubuntu:jammy': 'Linux-ubuntu22.04',
+              'rockylinux:8': 'Linux-rhel8',
+              'rockylinux:9': 'Linux-rhel9',
+              'rockylinux:10': 'Linux-rhel10',
+              'debian:bookworm': 'Linux-bookworm',
+              'debian:trixie': 'Linux-trixie',
+              'alpine:3.23': 'Linux-alpine3',
+              'macos-15': 'macos-sequoia',
+              'macos-26': 'macos-macos25',
+          }
+          undeclared = sorted({platform for platform, _ in all_combinations} - package_platforms.keys())
+          if undeclared:
+              sys.exit(f"::error title=Undeclared package platform::Add {', '.join(undeclared)} to package_platforms")
+
+          def package_ids(package_platform):
+              # Only Linux builds produce a debug package.
+              if package_platform.startswith('Linux-'):
+                  return [package_platform, f'debug.{package_platform}']
+              return [package_platform]
 
           platform_filter = os.environ["INPUT_PLATFORM"]
           architecture_filter = os.environ["INPUT_ARCHITECTURE"]
@@ -173,3 +205,4 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
               f.write(f'has-jobs={str(has_jobs).lower()}\n')
+              f.write(f'packages={json.dumps({p: package_ids(n) for p, n in package_platforms.items()})}\n')

@@ -12,8 +12,9 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 #include "field.h"
+#include "numeric_score_source.h"
 #include "query_types.h"
 #include "rqe_core.h"
 #include "rqe_iterators.h"
@@ -29,22 +30,6 @@ typedef struct timespec timespec;
  * type.
  */
 typedef struct InvertedIndex InvertedIndex;
-
-/**
- * Builder for Redis maps.
- *
- * Operates in two modes based on construction:
- * - **Dynamic** (via [`Replier::map`]): Length is set on drop via Redis API
- * - **Fixed** (via [`Replier::fixed_map`]): Length was declared upfront; validates on drop
- *
- * Note: Unlike arrays, map length counts key-value pairs, not individual elements.
- *
- * # Panics
- *
- * In fixed mode, panics when dropped if the number of key-value pairs added doesn't match
- * the declared length.
- */
-typedef struct MapBuilder MapBuilder;
 
 /**
  * Filter details to apply to numeric values
@@ -250,6 +235,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ * 8. `idx` must be the inverted index that `tag_idx` stores for `term`'s tag.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
@@ -383,6 +369,45 @@ QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double w
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
+ * Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator (`k == 0`, or a child that can
+ * never match). It returns `NULL` when `k` is too large to allocate the top-k
+ * heap for, leaving `child` owned by the caller.
+ *
+ * Pass `child = NULL` for a plain `SORTBY numeric` range scan; pass a valid
+ * owning child iterator for a filtered query, whose selectivity sizes the
+ * initial value-window and drives the expand-and-retry path.
+ *
+ * `filter` is read once to copy the numeric range parameters, including the
+ * sort direction; it is not retained after this call. `mode` is the
+ * [`NumericOptimizerMode`] the query plan chose.
+ *
+ * Documents the doc table no longer shows (deleted, or hidden by a pending slot
+ * deletion) are dropped before they can take a top-k slot.
+ *
+ * # Safety
+ *
+ * 1. `tree` is non-null and satisfies [`NumericTreeRef::from_raw`]'s safety
+ *    requirements for the returned iterator's lifetime, including owner-derived
+ *    provenance if the tree may be mutated.
+ * 2. `filter` is non-null and [valid] for a [`NumericFilter`] for the duration
+ *    of this call.
+ * 3. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 4. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator at a stable address. The request
+ *    timeout reached through `sctx.limits` must also remain valid at a stable address
+ *    until the iterator is dropped. Timeout source changes and deadline writes may
+ *    happen only between probes; only the blocked-client flag may change concurrently.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Creates a new iterator over a list of sorted document IDs.
  *
  * # Safety
@@ -433,6 +458,8 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * carrying just the vector score instead of a deep copy of the child's scoring
  * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
  *
+ * A set `sctx->maxVisibleDocId` keeps later documents out of the k results.
+ *
  * # Safety
  *
  * 1. `index` is non-null and [valid], and outlives the returned iterator.
@@ -457,17 +484,6 @@ QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vecto
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
-
-/**
- * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Print iterator profile tree as a Redis reply.

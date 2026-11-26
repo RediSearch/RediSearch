@@ -13,12 +13,13 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{QueryIterator, QueryRequestLimits, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
 use field::FieldFilterContext;
+use rqe_core::DocId;
 use rqe_iterators::{
-    ExpirationChecker, FieldExpirationChecker,
-    c2rust::CRQEIterator,
-    interop::{RQEIteratorWrapper, patch_vtable},
+    ExpirationChecker, FieldExpirationChecker, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 use vector_score_source::{NewVectorTopK, new_vector_top_k};
+
+use crate::without_skip_to;
 
 /// Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
 ///
@@ -36,6 +37,8 @@ use vector_score_source::{NewVectorTopK, new_vector_top_k};
 /// pipeline needs no rich results, so each match yields a metric-only result
 /// carrying just the vector score instead of a deep copy of the child's scoring
 /// subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+///
+/// A set `sctx->maxVisibleDocId` keeps later documents out of the k results.
 ///
 /// # Safety
 ///
@@ -95,6 +98,11 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // check uses `FieldMaskOrIndex::Index`, not the mask path.
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
+    // SAFETY: guaranteed by 6.
+    let max_doc_id = match unsafe { sctx_nn.as_ref() }.maxVisibleDocId {
+        0 => DocId::MAX,
+        bound => bound,
+    };
     // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
     let reduced = unsafe {
         new_vector_top_k(
@@ -106,37 +114,27 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
             can_trim_deep_results,
             checker,
             child,
+            max_doc_id,
         )
     };
     box_reduced(reduced)
 }
 
-/// Box a [`NewVectorTopK`] into the C [`QueryIterator`] handle, clearing the
-/// root-only `SkipTo` vtable slot so the C highlighter falls back to sequential
-/// reads. Generic over the expiration checker to keep the boxing path
-/// independent of the checker strategy.
+/// Box a [`NewVectorTopK`] into the C [`QueryIterator`] handle. Generic over the
+/// expiration checker to keep the boxing path independent of the checker
+/// strategy.
 fn box_reduced<'index, E: ExpirationChecker + 'index>(
     reduced: NewVectorTopK<'index, E>,
 ) -> *mut QueryIterator {
-    let clear_skip_to = |ptr| {
-        // SAFETY: `ptr` comes from `boxed_new`/`boxed_new_compound` below and has no
-        // other alias yet, satisfying 1 and 2.
-        unsafe { patch_vtable(ptr, |h| h.SkipTo = None) }
-    };
-    let iterator = match reduced {
-        NewVectorTopK::ReducedEmpty => RQEIteratorWrapper::boxed_new(rqe_iterators::Empty),
-        NewVectorTopK::Unfiltered(it) => {
-            let ptr = RQEIteratorWrapper::boxed_new(it);
-            clear_skip_to(ptr);
-            ptr
+    let ptr = match reduced {
+        NewVectorTopK::ReducedEmpty => {
+            return RQEIteratorWrapper::boxed_new(rqe_iterators::Empty).as_ptr();
         }
-        NewVectorTopK::Filtered(it) => {
-            // `boxed_new_compound` registers the `ProfileChildren` callback so
-            // `FT.PROFILE` recurses into and counts the filter subtree.
-            let ptr = RQEIteratorWrapper::boxed_new_compound(it);
-            clear_skip_to(ptr);
-            ptr
-        }
+        NewVectorTopK::Unfiltered(it) => RQEIteratorWrapper::boxed_new(it),
+        // `boxed_new_compound` registers the `ProfileChildren` callback so
+        // `FT.PROFILE` recurses into and counts the filter subtree.
+        NewVectorTopK::Filtered(it) => RQEIteratorWrapper::boxed_new_compound(it),
     };
-    iterator.as_ptr()
+    // SAFETY: `ptr` was just boxed above and has no other alias.
+    unsafe { without_skip_to(ptr) }
 }

@@ -24,6 +24,7 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "aggregate_exec_common.h"
+#include "query_memory.h"
 #include "cursor.h"
 #include "concurrent_ctx.h"
 #include "rmutil/util.h"
@@ -48,7 +49,7 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
 #include "config.h"
 #include "internal_resp_schema.h"
@@ -435,8 +436,19 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 }
 #endif
 static int applyOomStop(AREQ *req, int rc) {
-  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy,
-                      AREQ_QueryProcessingCtx(req)->err, rc);
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
+  // A buffering stage that kept its rows past an OOM stop may hold enough of them to fill the
+  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_STOPPED.
+  // When no later cursor read reports the stop, the reply is cut.
+  const bool lastReply =
+      rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR));
+  // A blocked-client timeout that fired in the meantime owns the reply, as in ApplyOomStop.
+  if (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+      AREQ_QueryProcessingCtx(req)->oomCut &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy, err, rc);
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -722,7 +734,8 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   if (rc == RS_RESULT_STOPPED) {
     switch (req->base.limits.timeout.config.timeoutPolicy) {
       case TimeoutPolicy_Return:
-        return false;
+        // A memory stop ends the request even when its outcome is reported as a timeout.
+        return QueryRequestLimits_IsMemoryStopped(&req->base.limits);
       case TimeoutPolicy_ReturnStrict:
       case TimeoutPolicy_Fail:
         return true;
@@ -1359,18 +1372,19 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
   // For disk indexes, release the spec lock immediately after iterator creation.
-  // This is fine, since the disk iterators use snapshots. This allows the main
-  // thread to write while the query iterates over disk data. `diskSnapshot` is
-  // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
-  // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
-  // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
+  // This is fine, since the disk iterators read through the storage layer's per-query
+  // view rather than the in-memory index, which lets the main thread write while the
+  // query iterates over disk data. `diskQueryView` is guaranteed non-NULL here for
+  // disk-backed indexes (`prepareExecutionPlan` bails out if SearchDisk_CreateQueryView
+  // fails), so this check distinguishes disk indexes (view present, can unlock) from
+  // RAM-only ones (keep lock).
   // NOTE: Revisit as more index types are supported.
-  if (sctx->diskSnapshot) {
+  if (sctx->diskQueryView) {
     IndexSpec_Unlock(sctx->spec);
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after iterators are created and snapshot is established.
+  // Sync point (debug): pause after iterators are created and the query view is open.
   // For disk indexes, the lock is already released at this point.
   // For RAM indexes, the lock is still held.
   SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
@@ -1405,6 +1419,15 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+// Memory checkpoint once the query is built, which also covers the wait for a worker. FT.EXPLAIN
+// builds a plan it never runs, so it is exempt.
+static int checkBuildMemory(AREQ *req, QueryError *status) {
+  if (!IsSearch(req) && !IsAggregate(req)) {
+    return REDISMODULE_OK;
+  }
+  return QueryMemory_CheckBeforeExecution(&req->base.limits, req->base.reqConfig.oomPolicy, status);
+}
+
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 static int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1413,12 +1436,12 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
 
-  // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
-  // This pins the on-disk view to the same point in time as the in-memory trie/stats that
+  // Open the per-query disk read view here, under the spec read lock the caller is holding,
+  // so it is opened against the same index state as the in-memory trie/stats that
   // QAST_Iterate is about to consult for term expansion and IDF/doc-count lookups.
-  // For disk-backed indexes this MUST succeed: we cannot safely degrade to live reads
-  // because the cursor read path drops the spec lock between chunks.
-  if (SearchCtx_TakeDiskSnapshot(sctx, status) != REDISMODULE_OK) {
+  // For disk-backed indexes this MUST succeed: we cannot safely degrade to reads without a
+  // view because the cursor read path drops the spec lock between chunks.
+  if (SearchCtx_OpenDiskQueryView(sctx, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1468,6 +1491,15 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (is_profile) {
     req->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+  }
+
+  if (rc == REDISMODULE_OK && checkBuildMemory(req, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  // A build checkpoint that stopped the query under ON_OOM RETURN leaves the pipeline to run:
+  // its row source, built only now, must end at its first read.
+  if (rc == REDISMODULE_OK && QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+    RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(req));
   }
 
   if (IsDebug(req)) {
@@ -1596,7 +1628,7 @@ static bool isReleasedHybridDepleter(AREQ *req) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   return (IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) &&
          (root->type == RP_DEPLETER || root->type == RP_SAFE_DEPLETER) && root == qctx->endProc &&
-         !root->upstream && sctx->spec->diskSpec && !sctx->diskSnapshot;
+         !root->upstream && sctx->spec->diskSpec && !sctx->diskQueryView;
 }
 #endif
 
@@ -1976,13 +2008,14 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
 
     // For disk indexes, release the spec lock immediately after iterator creation.
-    // This is fine, since the disk iterators use snapshots. This allows the main
-    // thread to write while the query iterates over disk data. `diskSnapshot` is
-    // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
-    // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
-    // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
+    // This is fine, since the disk iterators read through the storage layer's per-query
+    // view rather than the in-memory index, which lets the main thread write while the
+    // query iterates over disk data. `diskQueryView` is guaranteed non-NULL here for
+    // disk-backed indexes (`prepareExecutionPlan` bails out if SearchDisk_CreateQueryView
+    // fails), so this check distinguishes disk indexes (view present, can unlock) from
+    // RAM-only ones (keep lock).
     // NOTE: Revisit as more index types are supported.
-    if (sctx->diskSnapshot) {
+    if (sctx->diskQueryView) {
       IndexSpec_Unlock(sctx->spec);
     }
 

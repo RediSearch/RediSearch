@@ -12,7 +12,7 @@
 #include "config.h"
 #include "logging.h"
 #include "rmutil/rm_assert.h"
-#include "VecSim/vec_sim.h"
+#include "vecsim/vec_sim.h"
 
 #include <sys/param.h>
 
@@ -283,11 +283,15 @@ int workerThreadPool_isPaused() {
   return _workers_thpool && redisearch_thpool_paused(_workers_thpool);
 }
 
-int workersThreadPool_pause() {
+int workersThreadPool_pause(bool wait) {
   if (!_workers_thpool || workersThreadPool_NumThreads() == 0 || workerThreadPool_isPaused()) {
     return REDISMODULE_ERR;
   }
-  redisearch_thpool_pause_threads(_workers_thpool);
+  if (wait) {
+    redisearch_thpool_pause_threads(_workers_thpool);
+  } else {
+    redisearch_thpool_pause_threads_no_wait(_workers_thpool);
+  }
   return REDISMODULE_OK;
 }
 

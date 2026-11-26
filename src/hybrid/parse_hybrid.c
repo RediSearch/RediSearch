@@ -30,8 +30,8 @@
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
-#include "VecSim/query_results.h"
-#include "VecSim/vec_sim_common.h"
+#include "vecsim/query_results.h"
+#include "vecsim/vec_sim_common.h"
 #include "document.h"
 #include "hiredis/sds.h"
 #include "hybrid/hybrid_scoring.h"
@@ -1017,6 +1017,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResultsLimit = maxHybridResults,
       .groupByLimits = GroupByLimits_Default(RSGlobalConfig.maxAggregateGroups),
       .language = searchRequest->searchopts.language,
+      .diskScoreSkippingQuery = parsedCmdCtx->reqConfig->diskScoreSkippingQuery,
   };
 
   hybridParams->aggregationParams = params;

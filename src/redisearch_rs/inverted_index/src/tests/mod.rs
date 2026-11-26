@@ -26,6 +26,10 @@ struct Dummy;
 impl Encoder for Dummy {
     type Delta = u32;
 
+    // Small enough that the few-entry fixtures are full blocks, so the GC does not compact
+    // them unless a test builds under-filled ones on purpose.
+    const RECOMMENDED_BLOCK_ENTRIES: u16 = 3;
+
     fn encode<W: std::io::Write + std::io::Seek>(
         mut writer: W,
         delta: Self::Delta,

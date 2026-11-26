@@ -48,6 +48,21 @@ pub(crate) fn eval<'index>(
         field_index < ctx.spec().numFields,
         "fieldIndex must be within the spec's current field count"
     );
+    if cfg!(debug_assertions) {
+        let spec = ctx.spec();
+        // SAFETY: `field_index` is within `spec.numFields` (asserted above), so this
+        // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+        // SAFETY: `field_ptr` points into the live spec's field array, which the
+        // query's spec read lock keeps alive and unmodified throughout evaluation.
+        let field = unsafe { &*field_ptr };
+        // Both query parsers and the legacy `GEOFILTER` argument build a geo node only on a
+        // GEO field.
+        assert!(
+            field.types() & ffi::FieldType_INDEXFLD_T_GEO != 0,
+            "a geo node must reference a geo field"
+        );
+    }
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise geo iterator instead of opening the in-memory range tree.
@@ -57,8 +72,8 @@ pub(crate) fn eval<'index>(
     // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
     // for the null (in-memory) case.
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
-        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-            .expect("query.sctx.diskSnapshot is null for a disk-backed geo query");
+        let view = NonNull::new(ctx.sctx().diskQueryView)
+            .expect("query.sctx.diskQueryView is null for a disk-backed geo query");
         // SAFETY: `gf` is valid and, during single-threaded evaluation,
         // exclusively owned for `'index`, so a `&'index mut` is sound.
         let gf_ref = unsafe { &mut *gf };
@@ -67,8 +82,8 @@ pub(crate) fn eval<'index>(
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
         // a disk index is in use; `field_index` belongs to the geo node's field
-        // spec; `snapshot` is the disk snapshot taken at query start.
-        return match unsafe { disk.new_geo_iterator(gf_ref, field_index, snapshot) } {
+        // spec; `view` is the disk read view taken at query start.
+        return match unsafe { disk.new_geo_iterator(gf_ref, field_index, view) } {
             Ok(it) => Some(Evaluated::RustLeaf(it)),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an

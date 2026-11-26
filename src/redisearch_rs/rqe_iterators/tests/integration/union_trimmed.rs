@@ -9,11 +9,13 @@
 
 //! Integration tests for [`UnionTrimmed`].
 
-use crate::utils::{Mock, MockVec, create_mock_3, drain_doc_ids};
+use crate::utils::{Mock, MockVec, create_mock_3, drain_doc_ids, erased_single_doc_children};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, TypeErasedRQEIterator, UnionTrimmed,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    TypeErasedRQEIterator, UnionTrimmed,
 };
 use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::MockContext;
 
 /// Helper: create a vec of boxed MockVec children from doc_id slices.
 /// Each child's `num_estimated` equals the length of its slice.
@@ -477,23 +479,81 @@ fn into_trimmed_reuses_all_children() {
 // suspend()
 // =============================================================================
 
-/// `suspend` panics, so it is the whole of the suspend/resume surface that can
-/// be exercised: `resume`'s companion panic is unreachable from any value this
-/// crate can build, since `suspend` is the only thing that could have produced
-/// the suspended form to call it on.
+/// A drained trimmed union suspends in place, since the C wrapper caches a
+/// pointer into it, and keeps answering the suspended accessors.
 ///
-/// Children are type-erased because that is the shape production hands the
-/// union — the refusal must not depend on the child type.
+/// Children are type-erased, as in production.
 #[test]
-#[should_panic(expected = "suspend is not supported on UnionTrimmed")]
-fn suspend_panics() {
-    let children = (1..=3)
+fn suspend_after_drain() {
+    let mut union = Box::new(UnionTrimmed::new(
+        erased_single_doc_children(3),
+        usize::MAX,
+        true,
+    ));
+    assert_eq!(drain_doc_ids(&mut *union), [3, 2, 1]);
+    let (last_doc_id, num_estimated) = (union.last_doc_id(), union.num_estimated());
+    let box_addr = &*union as *const _ as usize;
+
+    let suspended = union.suspend();
+    assert_eq!(&*suspended as *const _ as usize, box_addr);
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+    assert_eq!(
+        RQESuspendedIterator::num_estimated(&*suspended),
+        num_estimated
+    );
+}
+
+/// Suspend relabels the whole children buffer, so the children outside the
+/// trimmed window must be suspended too: a child left active would be dropped
+/// as a [`Mock`] and counted.
+#[test]
+fn suspend_covers_children_outside_the_window() {
+    let (children, data): (Vec<_>, Vec<_>) = (1..=5)
         .map(|doc_id| {
             let child: Mock<'_, 1> = Mock::new([doc_id]);
-            TypeErasedRQEIterator::new(Box::new(child))
+            let data = child.data();
+            (TypeErasedRQEIterator::new(Box::new(child)), data)
         })
-        .collect();
-    let union = UnionTrimmed::new(children, usize::MAX, true);
+        .unzip();
+    let mut union = UnionTrimmed::new(children, 1, true);
+    assert!(union.num_children_active() < union.num_children_total());
+    drain_doc_ids(&mut union);
 
-    let _ = Box::new(union).suspend();
+    drop(Box::new(union).suspend());
+    for (i, data) in data.iter().enumerate() {
+        assert_eq!(data.drop_count(), 1, "child {i} was not freed exactly once");
+        assert_eq!(
+            data.suspended_drop_count(),
+            1,
+            "child {i} was dropped while active"
+        );
+    }
+}
+
+/// See [`UnionTrimmed`]'s docs for why resume always aborts.
+#[test]
+fn resume_aborts() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let mut union = UnionTrimmed::new(erased_single_doc_children(3), usize::MAX, true);
+    drain_doc_ids(&mut union);
+
+    let outcome = Box::new(union)
+        .suspend()
+        .resume(&guard)
+        .expect("aborting is not an error");
+    assert!(matches!(outcome, ResumeOutcome::Aborted));
+}
+
+/// Aborting a union that still has documents would truncate the results
+/// silently, so debug builds refuse it.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "UnionTrimmed resumed before its drain finished")]
+fn resume_before_drain_panics_in_debug() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let union = UnionTrimmed::new(erased_single_doc_children(3), usize::MAX, true);
+
+    let _ = Box::new(union).suspend().resume(&guard);
 }

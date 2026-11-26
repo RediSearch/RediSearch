@@ -72,12 +72,12 @@ void suffixTrieMap_freeCallback(void *payload);
 
 /* Return a list of list of terms which match the suffix or contains term */
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+                                     bool prefix, const QueryRequestLimits *limits);
 
 /* Return a list of terms which match the wildcard pattern
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+                                              long long maxPrefixExpansions, const QueryRequestLimits *limits);
 
 /* Score handicap for an anchor token followed by '*': matching it scans a whole
  * subtree instead of a single exact entry, so it must out-length an exact token
