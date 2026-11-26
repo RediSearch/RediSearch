@@ -325,6 +325,53 @@ TYPED_TEST(SVSTieredIndexTest, updateVectorsReportsAFailedWrite) {
     VecSim_SetWriteMode(VecSim_WriteAsync);
 }
 
+TYPED_TEST(SVSTieredIndexTest, failedTrainingKeepsVectorsInFlat) {
+    // A throwing training must neither escape (it runs on a worker, or under the C add in
+    // in-place mode) nor lose vectors, and must not be retried on every later add.
+    const size_t dim = 4;
+    const size_t training_threshold = 4;
+    SVSParams params = {.type = TypeParam::get_index_type(),
+                        .dim = dim,
+                        .metric = VecSimMetric_L2,
+                        .multi = TypeParam::isMulti(),
+                        .quantBits = TypeParam::get_quant_bits()};
+    VecSimParams svs_params = CreateParams(params);
+
+    for (auto mode : {VecSim_WriteAsync, VecSim_WriteInPlace}) {
+        auto mock_thread_pool = tieredIndexMock();
+        auto *tiered_index =
+            this->CreateTieredSVSIndex(svs_params, mock_thread_pool, training_threshold, 1);
+        ASSERT_INDEX(tiered_index);
+        tiered_index->setWriteMode(mode);
+
+        tiered_index->GetSVSIndex()->throwOnNextWriteForTest();
+        for (size_t i = 0; i < training_threshold; i++) {
+            GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i, i);
+        }
+        mock_thread_pool.init_threads();
+        mock_thread_pool.thread_pool_join();
+
+        ASSERT_FALSE(tiered_index->GetSVSIndex()->ready()) << "mode " << mode;
+        ASSERT_EQ(tiered_index->GetFlatIndex()->indexSize(), training_threshold);
+        ASSERT_EQ(tiered_index->indexLabelCount(), training_threshold);
+
+        // The injection was one-shot, so a retried training would now succeed and move the
+        // vectors to the backend.
+        for (size_t i = training_threshold; i < 2 * training_threshold; i++) {
+            GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, i, i);
+        }
+        ASSERT_EQ(mock_thread_pool.jobQ.size(), 0);
+        ASSERT_FALSE(tiered_index->GetSVSIndex()->ready());
+        ASSERT_EQ(tiered_index->GetFlatIndex()->indexSize(), 2 * training_threshold);
+
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, 0);
+        auto verify_res = [&](size_t id, double score, size_t index) { ASSERT_EQ(id, index); };
+        runTopKSearchTest(tiered_index, query, 2 * training_threshold, verify_res);
+    }
+    VecSim_SetWriteMode(VecSim_WriteAsync);
+}
+
 TYPED_TEST(SVSTieredIndexTest, updateVectors) {
     size_t dim = 4;
     SVSParams params = {.type = TypeParam::get_index_type(),

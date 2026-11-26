@@ -261,6 +261,7 @@ protected:
 
     std::unique_ptr<ImplHandler> createImpl(const void *vectors_data, const labelType *labels,
                                             size_t n) override {
+        maybeThrowForTest();
         // If no data provided, return empty handler
         if (n == 0) {
             return std::make_unique<SVSImplHandler>(nullptr);

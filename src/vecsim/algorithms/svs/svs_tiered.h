@@ -297,6 +297,10 @@ class TieredSVSIndex : public VecSimTieredIndex<DataType, float> {
     // Every other access to these two fields must hold the lock exclusively.
     bool initInProgress{false};
     std::vector<labelType> initDeletedLabels;
+    // Set once backend training throws. The index then serves every vector from the frontend
+    // buffer and never retrains: training is deterministic in its inputs, and an in-place write
+    // would otherwise retrain synchronously on every add. Same locking as initInProgress.
+    bool trainingFailed{false};
 
     // Deferred execution list; labelToInsertJobs/invalidJobs retain ownership of these jobs.
     // Access under flatIndexGuard exclusively. Drain after releasing updateJobMutex so
@@ -865,6 +869,7 @@ private:
             initInProgress = true;
         }
         executeTracingCallback("UpdateJob::after_snapshot");
+        bool failed = false;
         {
             // Nothing to initialize from an empty batch, and setParallelism(0) is not a
             // valid request against the shared pool.
@@ -875,12 +880,26 @@ private:
                        vectors_to_move.size() / this->frontendIndex->getDim());
                 assert(!svs_index->ready());
 
-                impl = svs_index->createImpl(vectors_to_move.data(), labels_to_move.data(),
-                                             labels_to_move.size());
+                // SVS reports a failed training by throwing, and this runs on a worker thread or
+                // under the `extern "C"` add, where an escaping exception terminates the server.
+                try {
+                    impl = svs_index->createImpl(vectors_to_move.data(), labels_to_move.data(),
+                                                 labels_to_move.size());
+                } catch (const std::exception &e) {
+                    failed = true;
+                    this->backendIndex->log(VecSimCommonStrings::LOG_WARNING_STRING,
+                                            "SVS index training failed, vectors stay in the flat "
+                                            "buffer: %s",
+                                            e.what());
+                }
                 svs_index->setParallelism(1);
             }
         }
         executeTracingCallback("UpdateJob::before_publish");
+        if (failed) {
+            abandonInit();
+            return {};
+        }
         {
             std::lock_guard flat_lock{this->flatIndexGuard};
             deleted_labels.swap(initDeletedLabels);
@@ -921,6 +940,29 @@ private:
         } // release frontend index
         executeTracingCallback("UpdateJob::after_add_to_svs");
         return deleted_labels;
+    }
+
+    // Leave the snapshot and everything written during the failed init in the frontend buffer, as
+    // rows without insert jobs - the same shape training data has before an init starts.
+    void abandonInit() {
+        std::lock_guard flat_lock{this->flatIndexGuard};
+        trainingFailed = true;
+        initInProgress = false;
+        // Their rows already left the buffer; there is no backend to delete them from.
+        initDeletedLabels.clear();
+        ids_to_init_.clear();
+        for (AsyncJob *job : initInsertJobs) {
+            auto *insert_job = static_cast<TieredInsertJob *>(job);
+            if (insert_job->isValid) {
+                this->detachInsertJob(insert_job);
+            } else {
+                std::lock_guard<std::mutex> invalid_jobs_lock(this->invalidJobsLookupGuard);
+                this->invalidJobs.erase(insert_job->id);
+            }
+            delete job;
+        }
+        initInsertJobs.clear();
+        indexUpdateScheduled.clear();
     }
 
 public:
@@ -1177,9 +1219,11 @@ public:
             if (!this->frontendIndex->isMultiValue() && this->frontendIndex->isLabelExists(label)) {
                 deleted = deleteAndUpdateInitIds(label);
             }
-            ids_to_init_.insert(this->frontendIndex->indexSize());
+            if (!trainingFailed) {
+                ids_to_init_.insert(this->frontendIndex->indexSize());
+            }
             ret = std::max(this->frontendIndex->addVector(blob, label) - deleted, 0);
-            run_init = ids_to_init_.size() >= this->trainingTriggerThreshold;
+            run_init = !trainingFailed && ids_to_init_.size() >= this->trainingTriggerThreshold;
         }
         if (run_init && !in_place) {
             scheduleSVSIndexInit();
