@@ -150,7 +150,9 @@ def testTagVals(env):
     con = env.getClusterConnectionIfNeeded()
 
     N = 100
-    alltags = {''}
+    alltags = set()
+    if not env.isCluster() or env.shardsCount == 1:
+        alltags.add('')
     con.execute_command('HSET', 'empty-tag', 'tags', '')
     for n in range(N):
         tags = (f'foo {n}', f'bar {n}', 'x')

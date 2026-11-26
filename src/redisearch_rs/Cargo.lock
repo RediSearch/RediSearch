@@ -1988,7 +1988,6 @@ dependencies = [
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
- "rqe_wildcard",
  "rs_token",
  "search_disk",
  "sparse_vector_index",
