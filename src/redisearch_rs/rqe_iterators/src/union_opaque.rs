@@ -390,9 +390,10 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 /// recovers.
 ///
 /// The [`IteratorType::Union`] tag does not tell: a decorator may report the
-/// type of the union it wraps (see [`IteratorType::may_be_impersonated`]). Only
-/// those unions carry [`union_profile_children`], which, neither generic nor
-/// inlinable, has a single address.
+/// type of the union it wraps (see
+/// [`IteratorType::is_transparently_wrappable`]). Only those unions carry
+/// [`union_profile_children`], which, neither generic nor inlinable, has a
+/// single address.
 pub fn is_union_wrapper(header: &QueryIterator) -> bool {
     header.ProfileChildren.is_some_and(|profile_children| {
         std::ptr::fn_addr_eq(

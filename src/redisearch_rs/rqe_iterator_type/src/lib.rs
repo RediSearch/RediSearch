@@ -106,13 +106,13 @@ impl IteratorType {
         }
     }
 
-    /// Whether an iterator of another type may report this one, as a decorator
-    /// that stays out of type dispatch reports its child's.
+    /// Whether a decorator may report this type as its own.
     ///
-    /// `false` for every type some code recovers a concrete layout from by its
-    /// tag alone, which a decorator does not have, and for the wildcards, which
-    /// intersections drop as matching every document, decorator included.
-    pub const fn may_be_impersonated(self) -> bool {
+    /// `true` only for types no code casts on by their tag, so code that
+    /// recovers a concrete layout from the tag never mistakes the decorator for
+    /// the child. The wildcards are `false` too: intersections drop them as
+    /// matching every document, which would drop the decorator with them.
+    pub const fn is_transparently_wrappable(self) -> bool {
         match self {
             Self::InvIdxNumeric
             | Self::InvIdxTerm

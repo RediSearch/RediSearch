@@ -23,13 +23,13 @@ fn every_discriminant_round_trips_and_nothing_past_max_converts() {
 }
 
 #[test]
-fn only_types_nothing_casts_on_may_be_impersonated() {
-    let impersonable: Vec<_> = (0..IteratorType::Max as u32)
+fn only_types_nothing_casts_on_are_transparently_wrappable() {
+    let wrappable: Vec<_> = (0..IteratorType::Max as u32)
         .map(|value| IteratorType::try_from(value).unwrap())
-        .filter(|type_| type_.may_be_impersonated())
+        .filter(|type_| type_.is_transparently_wrappable())
         .collect();
     assert_eq!(
-        impersonable,
+        wrappable,
         [
             IteratorType::InvIdxNumeric,
             IteratorType::InvIdxTerm,

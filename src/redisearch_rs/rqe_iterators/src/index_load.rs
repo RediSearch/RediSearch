@@ -108,10 +108,9 @@ impl Drop for KeySlot<'_> {
 ///    layout-identical given that the child `I` and its `I::Suspended` are,
 ///    which [`suspend_child_slot_in_place`](crate::boxed::suspend_child_slot_in_place) enforces. The `const` block below
 ///    proves the wrapper's own part.
-/// 2. **The reported type may be impersonated.** The child's type satisfies
-///    [`IteratorType::may_be_impersonated`], so no code that recovers a
-///    concrete layout from the type tag mistakes the decorator for the child.
-///    [`IndexLoad::new`] checks it.
+/// 2. **The child is transparently wrappable.** The child's type satisfies
+///    [`IteratorType::is_transparently_wrappable`], so the decorator may
+///    report it as its own. [`IndexLoad::new`] checks it.
 #[repr(C)]
 pub struct RawIndexLoad<'query, Rf: Ref, I> {
     child: I,
@@ -211,7 +210,7 @@ impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {
     /// not report it (invariant 2).
     pub fn new(child: I) -> Result<Self, IteratorType> {
         let type_ = child.type_();
-        if !type_.may_be_impersonated() {
+        if !type_.is_transparently_wrappable() {
             return Err(type_);
         }
         Ok(Self {
