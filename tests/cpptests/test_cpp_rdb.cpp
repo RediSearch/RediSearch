@@ -1747,6 +1747,60 @@ TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
   }
 }
 
+// FT.INFO and the SVS factories dispatch on the persisted compression, so a value outside
+// VecSimSvsQuantBits must fail the load instead of reaching them.
+TEST_F(RdbMockTest, testSvsQuantBitsRdbLoad) {
+  std::array args{"SCHEMA",  "v",   "VECTOR", "SVS-VAMANA",      "6", "TYPE",
+                  "FLOAT32", "DIM", "64",     "DISTANCE_METRIC", "L2"};
+  QueryError err = QueryError_Default();
+  StrongRef specRef = IndexSpec_ParseC(nullptr, "svs_quant_bits", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
+  ASSERT_NE(spec, nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+      spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+  // quantBits is followed by four unsigned fields and the epsilon double.
+  constexpr size_t quantBitsOffsetFromEnd = 6 * sizeof(uint64_t);
+  auto load = [&](uint64_t quantBits, VecSimParams *loaded) {
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    VecSim_RdbSave(io, &spec->fields[0].vectorOpts.vecSimParams);
+    memcpy(io->buffer.data() + io->buffer.size() - quantBitsOffsetFromEnd, &quantBits,
+           sizeof(quantBits));
+    const int result = VecSim_RdbLoad_v5(io, loaded, specRef, "v");
+    RMCK_FreeRdbIO(io);
+    return result;
+  };
+
+  for (uint64_t quantBits : {VecSimSvsQuant_NONE, VecSimSvsQuant_Scalar, VecSimSvsQuant_4,
+                             VecSimSvsQuant_8, VecSimSvsQuant_4x4, VecSimSvsQuant_4x8,
+                             VecSimSvsQuant_4x8_LeanVec, VecSimSvsQuant_8x8_LeanVec}) {
+    SCOPED_TRACE(::testing::Message() << "quantBits=" << quantBits);
+    VecSimParams loaded = {};
+    ASSERT_EQ(REDISMODULE_OK, load(quantBits, &loaded));
+    const VecSimSvsQuantBits loadedBits =
+        loaded.algoParams.tieredParams.primaryIndexParams->algoParams.svsParams.quantBits;
+    EXPECT_EQ(quantBits, loadedBits);
+    EXPECT_NE(nullptr, VecSimSvsCompression_ToString(loadedBits))
+        << "unchecked SVS compression: loaded value has no FT.INFO name";
+    VecSimParams_Cleanup(&loaded);
+  }
+
+  // Run in a child: without validation, debug builds abort inside the load.
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  for (uint64_t quantBits : {uint64_t{2}, uint64_t{VecSimSvsQuant_8x8_LeanVec} + 1,
+                             (uint64_t{1} << 32) + VecSimSvsQuant_8, UINT64_MAX}) {
+    SCOPED_TRACE(::testing::Message() << "quantBits=" << quantBits);
+    EXPECT_EXIT(
+        {
+          VecSimParams loaded = {};
+          _exit(load(quantBits, &loaded) == REDISMODULE_ERR ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "")
+        << "unchecked SVS compression: invalid value was loaded";
+  }
+}
+
 // A GEOSHAPE field's coordinate system indexes fixed per-system tables, so a value outside
 // GEOMETRY_COORDS must fail the load instead of reaching them.
 TEST_F(RdbMockTest, testGeometryCoordsRdbLoad) {
