@@ -55,11 +55,14 @@ bool RSConfig_DenseNumericKnnCanCache(void) {
          RedisMemory_GetUsedMemoryRatioEstimate() < REDIS_MEMORY_OOM_RATIO;
 }
 
-// Config setters run on the main thread. Query workers read their combined state atomically.
-static void publish_dense_numeric_knn_enabled(void) {
-  atomic_store_explicit(&denseNumericKnnEnabled,
-                        denseNumericKnnConfigured && RSGlobalConfig.enableUnstableFeatures,
-                        memory_order_relaxed);
+// Config callbacks have the server lock. An older server cannot measure pressure from a
+// query worker, so skip the dense path when that server has a memory limit.
+void RSConfig_UpdateDenseNumericKnn(void) {
+  bool enabled = denseNumericKnnConfigured && RSGlobalConfig.enableUnstableFeatures;
+  if (enabled && !RedisModule_GetUsedMemoryRatioEstimate) {
+    enabled = RedisMemory_GetUsedMemoryRatio() == 0;
+  }
+  atomic_store_explicit(&denseNumericKnnEnabled, enabled, memory_order_relaxed);
 }
 
 static int get_dense_numeric_knn(const char *name, void *privdata) {
@@ -74,7 +77,7 @@ static int set_dense_numeric_knn(const char *name, int value, void *privdata,
   REDISMODULE_NOT_USED(privdata);
   REDISMODULE_NOT_USED(err);
   denseNumericKnnConfigured = value != 0;
-  publish_dense_numeric_knn_enabled();
+  RSConfig_UpdateDenseNumericKnn();
   return REDISMODULE_OK;
 }
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
@@ -378,7 +381,7 @@ static int set_bool_config(const char *name, int val, void *privdata,
 static int set_unstable_features_config(const char *name, int val, void *privdata,
                                         RedisModuleString **err) {
   int result = set_bool_config(name, val, privdata, err);
-  publish_dense_numeric_knn_enabled();
+  RSConfig_UpdateDenseNumericKnn();
   return result;
 }
 
@@ -1468,7 +1471,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(set_EnableUnstableFeatures) {
   int result = parse_EnableUnstableFeatures(config, ac, externalTriggerId, status);
   if (result == REDISMODULE_OK && config == &RSGlobalConfig) {
-    publish_dense_numeric_knn_enabled();
+    RSConfig_UpdateDenseNumericKnn();
   }
   return result;
 }
