@@ -548,6 +548,103 @@ def testOptimizerKeepsTheScorerDecision(env):
             env.assertEqual(loading, plain, message=(optimize, args))
 
 
+@with_unstable_features
+def testGateErrorPrecedesTheClauseCheck(env):
+    """With the gate off, `$as` on a clause it never supports reports the gate, not the clause."""
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'vec', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    set_unstable_features(env, False)
+    for query in ['@title:hello => {$as: v}', '@vec:[VECTOR_RANGE 1 $b] => {$as: v}']:
+        env.expect('FT.AGGREGATE', 'idx', query, 'PARAMS', '2', 'b', blob, 'DIALECT', '2').error() \
+            .contains('SEARCH_QUERY_BAD `$as` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off')
+
+
+@with_unstable_features
+def testAliasCollidesWithKnnDistance(env):
+    """An alias naming the KNN distance, by `AS` or by `$yield_distance_as`, is a duplicate."""
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'vec', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    for knn in ['[KNN 3 @vec $b AS v]', '[KNN 3 @vec $b]=>{$yield_distance_as: v}']:
+        for cmd in ['FT.SEARCH', 'FT.AGGREGATE']:
+            env.expect(cmd, 'idx', f'(@n:[0 100] => {{$as: v}})=>{knn}', 'PARAMS', '2', 'b', blob,
+                       'DIALECT', '2').error().contains('Property `v` specified more than once')
+
+
+@with_unstable_features
+def testApplyOverridesTheAlias(env):
+    """An APPLY naming the alias replaces the loaded value."""
+    setup_hash_index(env)
+    rows = aggregate_rows(env, '@n:[15 25] => {$as: v}', 'APPLY', '@v * 2', 'AS', 'v')
+    env.assertEqual(rows, [{'v': '40'}])
+
+
+@with_unstable_features
+def testHybridVsimFilterLoadsTheAlias(env):
+    """A loading clause in the VSIM FILTER of FT.HYBRID loads onto the vector results."""
+    env.flush()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'emb', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 6):
+        conn.execute_command('HSET', f'doc:{i}', 'n', str(i * 10),
+                             'emb', np.array([float(i), 0.0]).astype(np.float32).tobytes())
+    blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '@n:[1000 2000]', 'VSIM', '@emb', '$BLOB',
+                  'FILTER', '@n:[15 35] => {$as: v}', 'LOAD', '2', '@__key', '@v',
+                  'PARAMS', '2', 'BLOB', blob)
+    results, _ = get_results_from_hybrid_response(res)
+    env.assertEqual({key: fields.get('v') for key, fields in results.items()},
+                    {'doc:2': '20', 'doc:3': '30'}, message=res)
+
+
+@with_unstable_features
+def testSearchSortByAliasPutsMissingValuesLast(env):
+    """FT.SEARCH sorts the documents the clause did not match last in both directions, also after
+    a cluster merge."""
+    setup_hash_index(env)
+    query = '@n:[15 45] => {$as: v} | @t:{a}'
+    res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', 'v', 'ASC', 'RETURN', '1', 'v',
+                  'LIMIT', '0', '4')
+    env.assertEqual(res[1:7], ['doc:2', ['v', '20'], 'doc:3', ['v', '30.5'], 'doc:4', ['v', '40']],
+                    message=res)
+    env.assertContains(res[7], ['doc:1', 'doc:5', 'doc:7'], message=res)
+    res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', 'v', 'DESC', 'RETURN', '1', 'v',
+                  'LIMIT', '0', '4')
+    env.assertEqual(res[1:7], ['doc:4', ['v', '40'], 'doc:3', ['v', '30.5'], 'doc:2', ['v', '20']],
+                    message=res)
+    env.assertContains(res[7], ['doc:1', 'doc:5', 'doc:7'], message=res)
+
+
+@with_unstable_features
+def testLoadsInfinities(env):
+    """An unbounded range loads the infinities documents hold."""
+    env.flush()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    for key, n in [('doc:1', 'inf'), ('doc:2', '-inf'), ('doc:3', '5')]:
+        conn.execute_command('HSET', key, 'n', n)
+    rows = aggregate_rows(env, '@n:[-inf +inf] => {$as: v}', 'SORTBY', '2', '@v', 'ASC')
+    env.assertEqual(rows, [{'v': '-inf'}, {'v': '5'}, {'v': 'inf'}])
+
+
+@with_unstable_features
+def testGroupByReducesTheAlias(env):
+    """GROUPBY groups by the alias and REDUCE reduces it."""
+    setup_hash_index(env)
+    rows = aggregate_rows(env, '@n:[15 45] => {$as: v}', 'GROUPBY', '0',
+                          'REDUCE', 'SUM', '1', '@v', 'AS', 'sum', 'REDUCE', 'MAX', '1', '@v', 'AS', 'max')
+    env.assertEqual(rows, [{'sum': '90.5', 'max': '40'}])
+    rows = aggregate_rows(env, '@n:[15 45] => {$as: v}', 'GROUPBY', '1', '@v',
+                          'REDUCE', 'COUNT', '0', 'AS', 'count', 'SORTBY', '2', '@v', 'ASC')
+    env.assertEqual(rows, [{'v': '20', 'count': '1'}, {'v': '30.5', 'count': '1'},
+                           {'v': '40', 'count': '1'}])
+
+
 @skip(cluster=True)
 def testCursorReadsAfterRevalidation():
     """A cursor that resumes after documents were deleted and collected revalidates its iterators,
@@ -574,6 +671,9 @@ def cursor_reads_after_revalidation(env):
         for key in deleted:
             conn.execute_command('DEL', key)
         forceInvokeGC(env)
+        # The resumed iterators revalidate only if GC changed the index under them.
+        env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0,
+                          message=query)
 
         rows = []
         while cursor:
