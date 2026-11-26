@@ -37,6 +37,12 @@ the plugin falls back to the local `gh` login. It checks repository access befor
 it never retries a write with different credentials. Git pushes still use git's configured
 authentication. The API credentials need to open PRs, reply and resolve threads.
 
+When `gh` is installed and supports `gh stack link`, each publication also registers the
+job's stage PRs as one GitHub stack, using the verified API credentials, without local stack
+tracking or extra branch pushes. Once a stage merges, the stack is left as registered. Without
+stack support, or when registration fails, the PRs stay ordinary PRs chained through their
+bases; a failure is only logged.
+
 Amp GitHub subscriptions are optional when the App cannot access the repository and local
 `gh` works; see the [host policy](amp/policy.md#waiting-for-ci-and-comments) for the manual-resume fallback.
 

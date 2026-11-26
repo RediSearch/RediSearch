@@ -14872,6 +14872,33 @@ function github(o) {
                 : await octokit.rest.pulls.create({ ...fields, base: o.base, head: o.branch });
             return { number: pr.number, url: pr.html_url, head: o.candidate };
         },
+        /** Needs `gh stack link`; without it, the PRs open unstacked. */
+        async linkStack({ base, prs }) {
+            if (prs.length < 2)
+                return;
+            const supported = await execa('gh', ['stack', 'link', '--help'], { cwd: root }).then(() => true, () => false);
+            if (!supported)
+                return;
+            const octokit = await api();
+            // A merged or closed PR cannot join a stack, so once a stage merges, the stack stays as it
+            // was registered.
+            for (const pr of prs) {
+                const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                if (data.state !== 'open')
+                    return;
+            }
+            const { token } = (await octokit.auth());
+            // gh picks its repository from GH_REPO or the checkout, which need not be `repository`.
+            await execa('gh', ['stack', 'link', '--base', base, ...prs.map((pr) => pr.url)], {
+                cwd: root,
+                env: {
+                    GH_TOKEN: token,
+                    GITHUB_TOKEN: token,
+                    GH_REPO: repository,
+                    GH_PROMPT_DISABLED: '1',
+                },
+            });
+        },
         replyToComment: async (pr, comment, body) => (await (await api()).rest.pulls.createReplyForReviewComment({
             owner,
             repo,
@@ -16162,11 +16189,17 @@ function engine(o) {
         const { job } = state;
         const branch = (s) => `${job.plan.branchPrefix}-${s}`;
         const prev = previousStage(job, stage);
-        job.prs[stage] = await o.forge(job.plan.repository).publish({
+        const forge = o.forge(job.plan.repository);
+        job.prs[stage] = await forge.publish({
             ...pullRequest(job.plan, profile, stage, runReport(state)),
             ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
             base: prev ? branch(prev) : job.plan.baseBranch,
         });
+        // Every stage PR goes in, later ones included, since a stack update may not drop a member. The
+        // stack only helps reviewers, so failing to record it does not hold the job back.
+        await forge
+            .linkStack({ base: job.plan.baseBranch, prs: stages.flatMap((s) => job.prs[s] ?? []) })
+            .catch((e) => debug(`registering the stage PRs as a stack failed: ${e}`));
         await postReplies(state);
     }
     /**

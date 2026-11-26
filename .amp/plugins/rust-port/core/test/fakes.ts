@@ -35,9 +35,10 @@ export function fakeHost(
   return { host, started, sent };
 }
 
-/** A forge that records publications and reports `feedback` per PR number. */
+/** A forge that records publications and stack links, and reports `feedback` per PR number. */
 export function fakeForge() {
   const published: (Parameters<Forge['publish']>[0] & { number: number })[] = [];
+  const linked: Parameters<Forge['linkStack']>[0][] = [];
   const feedback = new Map<number, { findings: NewFinding[]; pending: boolean }>();
   const forge: Forge = {
     checkRemote: async () => [],
@@ -46,11 +47,14 @@ export function fakeForge() {
       published.push({ ...o, number });
       return { number, url: `https://forge/pull/${number}`, head: o.candidate } satisfies PR;
     },
+    async linkStack(o) {
+      linked.push(o);
+    },
     fetchFeedback: async ({ number }) => feedback.get(number) ?? { findings: [], pending: false },
     replyToComment: async () => 1,
     resolveThread: async () => {},
   };
-  return { forge, published, feedback };
+  return { forge, published, linked, feedback };
 }
 
 /** Two stages, `a` and `b`, each needing a test check, reviewed by one reviewer. */

@@ -307,19 +307,16 @@ def testGeoArrayWithNoPointsSortable(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.f', 'AS', 'f', 'GEO', 'SORTABLE').ok()
     conn.execute_command('JSON.SET', 'doc:control', '$', '{"f":"1,2"}')
-    # `[]` is left out: a SORTABLE field holding `[]` fails the whole document
-    # for every field type (MOD-6936).
-    values = [v for v in no_point_values if v != '[]']
-    for (j, value) in enumerate(values):
+    for (j, value) in enumerate(no_point_values):
         conn.execute_command('JSON.SET', f'doc:{j}', '$', f'{{"f":{value}}}')
 
     env.assertEqual(int(index_info(env, 'idx')['hash_indexing_failures']), 0)
     env.expect('FT.SEARCH', 'idx', '@f:[0 0 +inf km]', 'NOCONTENT').equal([1, 'doc:control'])
     for order in ['ASC', 'DESC']:
         res = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'f', order)
-        env.assertEqual(res[:2], [3, 'doc:control'], message=[order, res])
+        env.assertEqual(res[:2], [4, 'doc:control'], message=[order, res])
         # The documents with no point tie, so their relative order is unspecified.
-        env.assertEqual(sorted(res[2:]), ['doc:0', 'doc:1'], message=[order, res])
+        env.assertEqual(sorted(res[2:]), ['doc:0', 'doc:1', 'doc:2'], message=[order, res])
 
 
 @skip(cluster=True, no_json=True)

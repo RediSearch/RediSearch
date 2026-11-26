@@ -214,6 +214,9 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
         return false;
       }
     } else {
+      if (!SearchCtx_IsDocVisible(sctx, it->lastDocId)) {
+        return false;
+      }
       // In a wildcard scan the ids just ahead are the next rows. Prefetching their metadata
       // overlaps the cache misses of consecutive rows, which otherwise stall the scan one after
       // another.
