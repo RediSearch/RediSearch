@@ -61,7 +61,6 @@ use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    c2rust,
 };
 
 /// Concrete-typed active iterator trait — the new shape of
