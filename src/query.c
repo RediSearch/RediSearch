@@ -1107,7 +1107,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       const FieldSpec *nfFs = spec->fields + f->fieldIndex;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
                        HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
-      if (qs->opts.distField) {
+      if (IndexLoading_NodeLoads(qs)) {
         s = sdscatprintf(s, " => {$as: %s}", qs->opts.distField);
       }
     } break;
