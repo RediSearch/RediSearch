@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 MODE=$1 # whether to install using sudo or not
-set -e
+set -eo pipefail
 
 $MODE apk update
 
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
-    tar xz which rsync bsd-compat-headers clang clang17-libclang curl \
+    tar xz which rsync bsd-compat-headers clang curl \
     clang-static ncurses-dev llvm-dev bash
 
 # We must install Python via the package manager until
@@ -21,4 +21,22 @@ else
     # source, since it only started providing wheels for musl
     # in version 6.w.z.
     $MODE apk add --no-cache python3-dev
+fi
+
+# Need clang for LTO
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
+
+# Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
+# in document_metadata uses bindgen-static, which links clang-sys statically).
+LLVM_VER=$(ls /usr/lib/ | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm')
+$MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static
+
+# Alpine ships component .a files but no combined libLLVM-<ver>.a.
+# clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
+# libLLVM-<ver>.a. Create a thin archive that references the component files.
+if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
+    # shellcheck disable=SC2046
+    $MODE ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
+        /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a \
+        /usr/lib/libzstd.a
 fi
