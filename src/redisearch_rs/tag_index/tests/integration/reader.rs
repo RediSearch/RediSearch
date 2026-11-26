@@ -17,7 +17,9 @@
 use std::ptr::NonNull;
 
 use field::FieldMaskOrIndex;
-use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+use rqe_iterators::{
+    AliveToken, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+};
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 
@@ -267,4 +269,74 @@ fn resume_with_the_tag_untouched_reads_on() {
 
     // SAFETY: `allocate` allocated it; the iterator using it is gone.
     drop(unsafe { Box::from_raw(tag_index) });
+}
+
+/// With a lookup built [`with_owner`](TrieLookup::with_owner), the owner may free the whole
+/// index while the reader is suspended, as the GC drops an emptied NESTED terminal: once the
+/// token is revoked, the reader aborts on resume without reading the freed index.
+#[test]
+fn resume_after_the_owner_freed_the_index_aborts() {
+    let mock = MockContext::new(2, 2);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    let owner = AliveToken::new();
+    for doc_id in 1..=2 {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+    }
+
+    // SAFETY: `mock` outlives the iterator, `tag_index` lives until `owner` is revoked, and
+    // `lookup` resolves `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).open_reader(
+            mock.sctx(),
+            as_tag(b"hello"),
+            1.0,
+            FIELD_INDEX,
+            lookup.with_owner(owner.clone()),
+        )
+    }
+    .expect("the tag is indexed");
+    it.read().expect("read must not error");
+
+    let suspended = Box::new(it).suspend();
+    owner.revoke();
+    // SAFETY: the reader is suspended and holds raw pointers only; `allocate` allocated it.
+    drop(unsafe { Box::from_raw(tag_index) });
+
+    let guard = mock.spec_read();
+    let outcome = suspended.resume(&guard).expect("resume must not error");
+    assert!(matches!(outcome, ResumeOutcome::Aborted));
+}
+
+/// As [`resume_after_the_owner_freed_the_index_aborts`], for a reader revalidated in place
+/// rather than suspended.
+#[test]
+fn revalidating_after_the_owner_freed_the_index_aborts() {
+    let mock = MockContext::new(2, 2);
+    let (tag_index, lookup) = allocate(TagIndex::<InMemoryMode>::new(false));
+    let owner = AliveToken::new();
+    for doc_id in 1..=2 {
+        // SAFETY: `tag_index` was just allocated and is not yet aliased.
+        index_mem(unsafe { &mut *tag_index }, &[b"hello"], doc_id);
+    }
+    // SAFETY: `mock` outlives the iterator, `tag_index` lives until `owner` is revoked, and
+    // `lookup` resolves `tag_index`.
+    let mut it = unsafe {
+        (*tag_index).open_reader(
+            mock.sctx(),
+            as_tag(b"hello"),
+            1.0,
+            FIELD_INDEX,
+            lookup.with_owner(owner.clone()),
+        )
+    }
+    .expect("the tag is indexed");
+    it.read().expect("read must not error");
+
+    owner.revoke();
+    // SAFETY: the reader is between calls and holds raw pointers only.
+    drop(unsafe { Box::from_raw(tag_index) });
+    let guard = mock.spec_read();
+    let status = it.revalidate(&guard).expect("revalidate must not error");
+    assert!(matches!(status, rqe_iterators::RQEValidateStatus::Aborted));
 }

@@ -33,6 +33,7 @@ global_config.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 lending-iterator.workspace = true
+nested_index.workspace = true
 libc.workspace = true
 nix.workspace = true
 numeric_range_tree.workspace = true
@@ -45,6 +46,7 @@ serde.workspace = true
 serde_bytes.workspace = true
 sparse_vector_index.workspace = true
 string_utils.workspace = true
+tag_index.workspace = true
 nul_terminated_bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -69,3 +71,7 @@ rqe_core = { workspace = true }
 index_gc = { path = ".", features = ["unittest"] }
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
+# `unittest` lets a test write to a terminal behind the index's back, as a racing writer.
+nested_index = { workspace = true, features = ["unittest"] }
+# `test-utils` lets a test reach a value's posting list, to corrupt it.
+tag_index = { workspace = true, features = ["test-utils"] }

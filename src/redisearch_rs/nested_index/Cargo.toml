@@ -20,8 +20,10 @@ build_utils.workspace = true
 compound_index.workspace = true
 numeric_range_tree.workspace = true
 rqe_core.workspace = true
+rqe_iterators.workspace = true
 tag_index.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

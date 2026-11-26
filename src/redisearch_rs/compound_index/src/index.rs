@@ -10,11 +10,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
+    ops::ControlFlow,
 };
 
 use lending_iterator::LendingIterator;
 use timeout::{TimeoutCheckResult, TimeoutChecker};
 use trie_rs::TrieMap;
+use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 use crate::{CardinalityExceeded, CollectError, Constraint, SchemaError, TagLevel};
 
@@ -232,6 +234,129 @@ impl<T> CompoundIndex<T> {
         Ok(walk.out)
     }
 
+    /// Calls `f` with every terminal and its path, in byte order of the path.
+    pub fn for_each_terminal(&self, mut f: impl FnMut(&[Vec<u8>], &T)) {
+        fn walk<T>(node: &Node<T>, path: &mut Vec<Vec<u8>>, f: &mut impl FnMut(&[Vec<u8>], &T)) {
+            match node {
+                Node::Terminal(terminal) => f(path, terminal),
+                Node::Inner(children) => {
+                    for (value, child) in children.iter() {
+                        path.push(value);
+                        walk(child, path, f);
+                        path.pop();
+                    }
+                }
+            }
+        }
+        walk(
+            &self.root,
+            &mut Vec::with_capacity(self.levels.len()),
+            &mut f,
+        );
+    }
+
+    /// Calls `f` with each terminal after `after` and its path, in the order of
+    /// [`CompoundIndex::for_each_terminal`], until `f` breaks. With `after`, the walk seeks to it
+    /// rather than visiting the terminals before it, so a caller can resume a walk across lock
+    /// releases from the last path it saw, even if that terminal is gone since.
+    pub fn for_each_terminal_after(
+        &self,
+        after: Option<&[Vec<u8>]>,
+        mut f: impl FnMut(&[Vec<u8>], &T) -> ControlFlow<()>,
+    ) {
+        fn walk<T>(
+            node: &Node<T>,
+            path: &mut Vec<Vec<u8>>,
+            after: Option<&[Vec<u8>]>,
+            f: &mut impl FnMut(&[Vec<u8>], &T) -> ControlFlow<()>,
+        ) -> ControlFlow<()> {
+            // `after` still holds the steps below `node` of the path to resume after, as long as
+            // the walk is on that path; once it leaves it, every terminal comes after.
+            let (start, rest) = match after.and_then(<[Vec<u8>]>::split_first) {
+                Some((first, rest)) => (Some(first.as_slice()), rest),
+                None => (None, &[][..]),
+            };
+            match node {
+                // The terminal resumed after is skipped.
+                Node::Terminal(_) if after.is_some() => ControlFlow::Continue(()),
+                Node::Terminal(terminal) => f(path, terminal),
+                Node::Inner(children) => {
+                    let filter = RangeFilter {
+                        min: start.map(|value| RangeBoundary {
+                            value,
+                            is_included: true,
+                        }),
+                        max: None,
+                    };
+                    for (value, child) in children.range_iter(filter) {
+                        let below = (start == Some(value.as_slice())).then_some(rest);
+                        path.push(value);
+                        let flow = walk(child, path, below, f);
+                        path.pop();
+                        flow?;
+                    }
+                    ControlFlow::Continue(())
+                }
+            }
+        }
+        let _ = walk(
+            &self.root,
+            &mut Vec::with_capacity(self.levels.len()),
+            after,
+            &mut f,
+        );
+    }
+
+    /// The terminal at the end of `path`, as [`CompoundIndex::for_each_terminal`] reported it,
+    /// if it is still there. Unlike [`CompoundIndex::get`], a path of another length finds
+    /// nothing, since a reported path may outlive the terminal it named.
+    pub fn terminal_at(&self, path: &[impl AsRef<[u8]>]) -> Option<&T> {
+        let mut node = &self.root;
+        for value in path {
+            let Node::Inner(children) = node else {
+                return None;
+            };
+            node = children.find(value.as_ref())?;
+        }
+        match node {
+            Node::Terminal(terminal) => Some(terminal),
+            Node::Inner(_) => None,
+        }
+    }
+
+    /// [`CompoundIndex::terminal_at`], for writing.
+    pub fn terminal_at_mut(&mut self, path: &[impl AsRef<[u8]>]) -> Option<&mut T> {
+        let mut node = &mut self.root;
+        for value in path {
+            let Node::Inner(children) = node else {
+                return None;
+            };
+            node = children.find_mut(value.as_ref())?;
+        }
+        match node {
+            Node::Terminal(terminal) => Some(terminal),
+            Node::Inner(_) => None,
+        }
+    }
+
+    /// Removes the terminal at `path` if `remove` says so, and the nodes it leaves without
+    /// children, without walking the other terminals. Returns whether it removed one: `false`
+    /// when no terminal is at `path`, or `remove` kept it.
+    pub fn remove_terminal_if(
+        &mut self,
+        path: &[impl AsRef<[u8]>],
+        remove: impl FnOnce(&mut T) -> bool,
+    ) -> bool {
+        let Node::Inner(children) = &mut self.root else {
+            unreachable!("{INVARIANT}");
+        };
+        let removed = remove_from(children, path, remove);
+        if removed {
+            self.num_terminals -= 1;
+        }
+        removed
+    }
+
     /// A path of another length would stop above the terminals or run past them, so it is a
     /// caller's bug rather than data to reject.
     fn assert_path(&self, path: &[&[u8]]) {
@@ -385,4 +510,38 @@ impl<'s, T, C: TimeoutChecker> Walk<'s, '_, T, C> {
         }
         Ok(())
     }
+}
+
+/// [`CompoundIndex::remove_terminal_if`] below `children`, `path` starting at their level.
+fn remove_from<T>(
+    children: &mut TrieMap<Box<Node<T>>>,
+    path: &[impl AsRef<[u8]>],
+    remove: impl FnOnce(&mut T) -> bool,
+) -> bool {
+    let Some((value, rest)) = path.split_first() else {
+        return false;
+    };
+    let value = value.as_ref();
+    let Some(child) = children.find_mut(value) else {
+        return false;
+    };
+    let drop_child = match &mut **child {
+        Node::Terminal(terminal) if rest.is_empty() => {
+            if !remove(terminal) {
+                return false;
+            }
+            true
+        }
+        Node::Inner(grandchildren) if !rest.is_empty() => {
+            if !remove_from(grandchildren, rest, remove) {
+                return false;
+            }
+            grandchildren.n_unique_keys() == 0
+        }
+        _ => return false,
+    };
+    if drop_child {
+        children.remove(value);
+    }
+    true
 }

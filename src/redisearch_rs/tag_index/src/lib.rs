@@ -130,9 +130,14 @@
 // Temporary
 #![expect(dead_code, reason = "read by methods added in a follow-up change")]
 
+mod gc;
 mod iter;
 mod suffix;
 mod unique_id;
+
+pub use gc::{
+    RemovedTagValue, TagGcOutcome, TagGcScan, TagSnapshotWalk, TagValueGcDelta, TagValueSnapshot,
+};
 
 pub use iter::{
     DiskTagIndexIterator, IterMode, MemTagIndexIterator, SuffixEntryIterator, TagValueReader,
@@ -163,7 +168,7 @@ use inverted_index::RepairContext;
 use inverted_index::{DocId, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
-    FieldExpirationChecker,
+    AliveToken, FieldExpirationChecker,
     inverted_index::{Tag as TagIterator, TagLookup},
     utils::duration_from_redis_timespec,
 };
@@ -487,8 +492,10 @@ impl TagIndex<InMemoryMode> {
     ///
     /// # Safety
     ///
-    /// 1. `self` must outlive the returned iterator, and must not be mutated while
-    ///    it is in use except under the standard revalidation protocol.
+    /// 1. `self` must outlive the returned iterator, or, with a lookup built
+    ///    [`with_owner`](TrieLookup::with_owner), live until that token is revoked; and must not
+    ///    be mutated while the iterator is in use except under the standard revalidation
+    ///    protocol.
     /// 2. `sctx` and `sctx.spec` must be valid and outlive the returned iterator.
     /// 3. `lookup` must resolve `self`, checked by a `debug_assert!` below.
     pub unsafe fn open_reader(
@@ -538,6 +545,11 @@ impl TagIndex<InMemoryMode> {
     /// currently indexed.
     pub fn find_value(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
         self.mode.values.find(tag).map(Box::as_ref)
+    }
+
+    /// [`TagIndex::find_value`], for writing.
+    pub fn find_value_mut(&mut self, tag: &[u8]) -> Option<&mut InvertedIndex<DocIdsOnly>> {
+        self.mode.values.find_mut(tag).map(Box::as_mut)
     }
 
     /// Simulate GC removing every posting under `tag`, leaving an empty (but
@@ -617,7 +629,11 @@ pub(crate) fn expansion_deadline(timeout: Option<timespec>) -> Option<Instant> {
 /// the garbage collector removed or replaced a tag's inverted index.
 ///
 /// Only a memory-mode index has an in-memory posting list to re-resolve a tag to.
-pub struct TrieLookup(NonNull<TagIndex<InMemoryMode>>);
+pub struct TrieLookup {
+    index: NonNull<TagIndex<InMemoryMode>>,
+    /// Set when the index's owner may free the index itself; see [`TrieLookup::with_owner`].
+    owner: Option<AliveToken>,
+}
 
 impl TrieLookup {
     /// Create a lookup over the given [`TagIndex`].
@@ -635,21 +651,41 @@ impl TrieLookup {
     /// 3. The index may only be mutated while the lookup is alive under the
     ///    standard revalidation protocol.
     pub const unsafe fn new(idx: NonNull<TagIndex<InMemoryMode>>) -> Self {
-        Self(idx)
+        Self {
+            index: idx,
+            owner: None,
+        }
+    }
+
+    /// The same lookup, for an index whose owner may free it: [`TagLookup::find`] checks
+    /// `owner` before reading the index, and finds nothing once it is revoked, which aborts
+    /// the iterator.
+    ///
+    /// This lifts 2. of [`TrieLookup::new`] once `owner` is revoked; until then the index
+    /// must stay valid.
+    pub fn with_owner(self, owner: AliveToken) -> Self {
+        Self {
+            owner: Some(owner),
+            ..self
+        }
     }
 
     /// The index this lookup resolves tags in.
     pub(crate) const fn index_ptr(&self) -> NonNull<TagIndex<InMemoryMode>> {
-        self.0
+        self.index
     }
 }
 
 impl TagLookup<DocIdsOnly> for TrieLookup {
     fn find(&self, tag: &[u8]) -> Option<&InvertedIndex<DocIdsOnly>> {
+        // The index may be freed once its owner revoked the token, so that is checked first.
+        if self.owner.as_ref().is_some_and(|owner| !owner.is_alive()) {
+            return None;
+        }
         // SAFETY: contracts 1 and 2 of [`TrieLookup::new`] justify the reborrow's
         // address and lifetime. Contract 3 is what makes it sound against a
         // concurrent GC mutation.
-        let tag_index = unsafe { self.0.as_ref() };
+        let tag_index = unsafe { self.index.as_ref() };
 
         tag_index.mode.values.find(tag).map(Box::as_ref)
     }

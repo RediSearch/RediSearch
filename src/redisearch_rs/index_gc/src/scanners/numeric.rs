@@ -430,13 +430,17 @@ pub(crate) fn compact_tree(
     guard: &mut IndexSpecWriteGuard<'_>,
     resolved_tree: NumericTreeId,
 ) -> Result<GcApplyStats, GcError> {
-    let result = resolved_tree.tree_mut(guard)?.compact_if_sparse();
+    Ok(compact_if_sparse(resolved_tree.tree_mut(guard)?))
+}
 
-    Ok(GcApplyStats {
+/// Compact `tree` if GC left it sparse, and return what the compaction freed.
+pub(crate) fn compact_if_sparse(tree: &mut NumericRangeTree) -> GcApplyStats {
+    let result = tree.compact_if_sparse();
+    GcApplyStats {
         bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
         block_count_delta: result.block_count_delta.into(),
         ..GcApplyStats::default()
-    })
+    }
 }
 
 /// Receive and apply one field's node deltas, then compact if `clean_numeric_empty_nodes`.

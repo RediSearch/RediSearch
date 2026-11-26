@@ -295,12 +295,53 @@ This is the invariant every posting list in the codebase already relies on.
 
 - An update is a delete followed by an add, as today. Old entries become garbage under the old doc
   id.
-- GC: add a scanner `index_gc/src/scanners/compound.rs`. It walks the tree depth-first and, at each
-  terminal, reuses the numeric and inverted-index GC routines. The fork-GC delta message carries
-  the **path** (`value₁ … valueₙ₋₁`) plus the existing per-terminal delta, so the parent finds the
-  same terminal. After the deltas are applied, each emptied terminal is removed by its path, with
-  the TrieMap entries left without children, so a value that no element uses any more doesn't
-  leak a subtree.
+- GC: the scanner `index_gc/src/scanners/nested.rs` visits every terminal of every NESTED field
+  and reuses the NUMERIC routines (per node of the terminal's tree) and the TAG ones (per value
+  of its tag index, `TagIndex::scan_gc` and `apply_gc`). A delta names its terminal by its
+  **path** (its tag value on each routing level), so the applying
+  side finds the same terminal; the tree's or the value's unique id is checked as for a top-level
+  field, so a delta never lands on a replacement.
+  - Fork GC: the child sends, per field, a header and one delta per terminal with garbage; the
+    parent applies each terminal's delta in write holds of at most 64 nodes or values.
+  - Thread GC: under read holds, the posting lists that may hold a deleted document are copied,
+    numeric ranges whole and tag values' dirty blocks only, as the top-level scanners copy
+    theirs, and scanned without the lock. A hold's budget of `KEYS_PER_HOLD` counts the posting
+    lists visited, and a terminal with more lists than that is walked across several holds,
+    from the lists it held when its walk started. Deltas are applied in batches with the
+    cycle's liveness source, so a last block that grew in between is rescanned. Each cycle takes
+    one more read hold than before, to list the NESTED fields, even on a spec without one.
+    Terminals are found one at a time, by seeking past the last one walked
+    (`CompoundIndex::for_each_terminal_after`), and a tag terminal's walk resumes after the
+    last value it visited, so no hold lists a whole field or terminal up front. A numeric
+    terminal's walk does list its tree's nodes on its first hold, which the reshape check
+    compares against; a tree has far fewer nodes than entries.
+  - A numeric terminal's tree that changed shape since its walk started (its `revision_id`
+    moved) may hold copies of gone entries in nodes the walk never saw, whether or not any
+    delta of the walk landed. Once a field's deltas are applied, the thread cycle checks every
+    numeric terminal it walked, under read holds of `KEYS_PER_HOLD` terminals, and keeps the
+    deleted ids the new nodes span for its next cycle, as for a NUMERIC field; the fork parent
+    needs no care, as its next cycle finds them through the doc table. A posting list
+    whose copy fails to decode keeps the ids it spans, as for the other scanners.
+  - Every terminal changed goes through `NestedIndex::collect_terminal`, which counts the
+    records it loses and lists it. `NestedIndex::finish_collection`, run after a field's deltas
+    under write holds of up to 64 terminals each, compacts the listed numeric terminals and
+    drops the ones left without records (no range holds an entry, inner ranges included), with
+    the routing nodes left without terminals, so a value no element uses any more doesn't leak
+    a subtree. Only the terminals the collection reached are visited, and they stay listed until
+    finished, so a cycle that fails before its finish leaves them to the next one, which
+    finishes them even if nothing was deleted since.
+  - `TagIndex::apply_gc` removes an emptied value from the suffix trie too, as the C tag index's
+    GC does, though NESTED terminals have no suffix trie.
+- Freeing a terminal is safe for a query parked across a lock release because every iterator
+  on a terminal holds a clone of that terminal's `AliveToken`, through `RangeSource::with_owner`
+  or `TrieLookup::with_owner`. The terminal revokes it before freeing its postings. On
+  revalidation the token is checked before the terminal is touched, and a revoked one aborts
+  the iterator, as a numeric tree's own reshape already does. Only the iterators of the dropped
+  terminals abort: a parked cursor reads on from the terminals that remain, and loses only the
+  results of terminals that no longer hold any. A numeric iterator also checks its tree's unique
+  id, so a tree swapped in behind the same pointer aborts it too. As on a NUMERIC field, GC
+  compacting a numeric terminal's tree reshapes it, which aborts the cursor's iterators on that
+  terminal, losing its remaining live results.
 
 ### Limits and costs
 
@@ -598,9 +639,15 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
      (with a property test) and of the evaluator.
    - Deferred: the benchmarks; exposing the limits as module configuration; `terminals_visited`
      and `levels_fixed` in `FT.PROFILE`.
-5. **GC**: the compound scanner, fork-GC deltas keyed by path, and removing each emptied
-   terminal by its path. Tests for update and delete churn followed by GC, checking that terminal
-   and memory counts drop.
+5. **GC**: the NESTED scanner under both GC policies, deltas keyed by path, pruning the
+   terminals a collection reached with `NestedIndex::finish_collection` (through
+   `CompoundIndex::remove_terminal_if`), and the per-terminal token that aborts parked
+   iterators of a dropped terminal.
+   Tests: flow tests under the fork and thread policies comparing a collected index with one built
+   fresh over the surviving documents (terminals and records), and a cursor parked across a GC
+   that drops some or all of its terminals; Rust tests of the tag index GC, pruning, the path
+   API, the wire messages, stale deltas and a reshape between scan and apply, and, under Miri,
+   that an iterator never reads a terminal freed after its token is revoked.
 
 ### Follow-ups tracked from review
 
@@ -611,7 +658,7 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Write side (3), where ingest cost is measured |
 | Float compression is fixed when a `NestedIndex` is created, from `TerminalKind`. A top-level NUMERIC field reads the global setting when its tree is first created. Decide whether NESTED follows the field rule (read the setting per new terminal) or the index rule (fix it at `FT.CREATE`) | Write side (3) |
 | Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Covered by the read side's tag-terminal flow tests; unit tests of a suspended tag terminal reader still to add | GC (5), with revalidation |
-| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Until GC (5) nothing frees a terminal before its field. GC must make revalidation detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | GC (5) |
+| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Until GC (5) nothing frees a terminal before its field. Done in GC (5): each terminal's iterators hold its `AliveToken`, which the terminal revokes before it is freed, checked before an iterator touches its terminal again | GC (5) |
 | Whether to support a second numeric attribute (§2, "Numeric attributes: only the terminal"): an adaptive numeric routing level or a filter attribute | After Terminals (2), driven by workloads with two numeric attributes |
 | Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
 | `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |

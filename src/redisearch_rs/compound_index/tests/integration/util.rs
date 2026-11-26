@@ -35,6 +35,18 @@ impl TimeoutChecker for TimesOutAfter {
     fn reset_counter(&mut self) {}
 }
 
+/// A [`TimeoutChecker`] that never times out and counts how often it was checked.
+pub struct CountsChecks(pub usize);
+
+impl TimeoutChecker for CountsChecks {
+    fn check_timeout(&mut self) -> TimeoutCheckResult {
+        self.0 += 1;
+        TimeoutCheckResult::Ok
+    }
+
+    fn reset_counter(&mut self) {}
+}
+
 pub const fn tag(value: &str) -> &[u8] {
     value.as_bytes()
 }

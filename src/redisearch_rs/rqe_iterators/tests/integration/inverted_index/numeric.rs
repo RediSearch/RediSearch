@@ -445,7 +445,7 @@ mod from_tree {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
     use rqe_core::DocId;
-    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
+    use rqe_iterators::{AliveToken, NumericIteratorVariant, RQEIterator, RQEValidateStatus};
     use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
     fn make_field_ctx() -> FieldFilterContext {
@@ -689,6 +689,156 @@ mod from_tree {
         assert_eq!(status, RQEValidateStatus::Aborted);
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    fn a_revoked_owner_aborts_without_reading_the_freed_tree() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let owner = AliveToken::new();
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            field_index: 0,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` outlives `iters`; the tree lives until `owner` is revoked; field is
+        // Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree_with_owner(
+                std::ptr::NonNull::new(tree_ptr).unwrap(),
+                Some(owner.clone()),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        let mut it = ContractChecker::new(iters.remove(0));
+        assert_eq!(it.read().expect("read failed").map(|r| r.doc_id), Some(1));
+
+        // The owner revokes the token and frees the tree, as dropping an emptied NESTED
+        // terminal does.
+        owner.revoke();
+        // SAFETY: the iterators hold raw pointers only, and are between calls.
+        drop(unsafe { Box::from_raw(tree_ptr) });
+        let status = it.revalidate(&*ctx.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
+    }
+
+    #[test]
+    fn a_revoked_owner_aborts_a_suspended_iterator_on_resume() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let owner = AliveToken::new();
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            field_index: 0,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+        // SAFETY: `ctx` outlives `iters`; the tree lives until `owner` is revoked; field is
+        // Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree_with_owner(
+                std::ptr::NonNull::new(tree_ptr).unwrap(),
+                Some(owner.clone()),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        let mut it = iters.remove(0);
+        assert_eq!(it.read().expect("read failed").map(|r| r.doc_id), Some(1));
+        let suspended = Box::new(it).suspend();
+
+        owner.revoke();
+        // SAFETY: the iterator is suspended and holds raw pointers only.
+        drop(unsafe { Box::from_raw(tree_ptr) });
+        let guard = ctx.spec_read();
+        let outcome = suspended.resume(&guard).expect("resume failed");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+    }
+
+    #[test]
+    fn a_tree_swapped_in_behind_the_pointer_aborts_the_iterator() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            field_index: 0,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+        // SAFETY: `tree_ptr` and `ctx` outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree(
+                std::ptr::NonNull::new(tree_ptr).unwrap(),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        let mut it = ContractChecker::new(iters.remove(0));
+        let _ = it.read().expect("initial read failed");
+
+        // A tree with the same shape, hence the same revision, but another identity.
+        // SAFETY: the iterators hold raw pointers only, and are between calls.
+        unsafe { *tree_ptr = build_tree(&[(1, 1.0), (2, 2.0)]) };
+        let status = it.revalidate(&*ctx.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
+        drop(it);
+        drop(iters);
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above, and no iterator is left.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    fn a_live_owner_lets_revalidation_read_the_tree() {
+        let tree = build_tree(&[(1, 1.0), (2, 2.0)]);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(tree));
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            field_index: 0,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+        // SAFETY: `tree_ptr` and `ctx` outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree_with_owner(
+                std::ptr::NonNull::new(tree_ptr).unwrap(),
+                Some(AliveToken::new()),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        let mut it = ContractChecker::new(iters.remove(0));
+        assert_eq!(it.read().expect("read failed").map(|r| r.doc_id), Some(1));
+        let status = it.revalidate(&*ctx.spec_read()).expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
+        drop(it);
+        drop(iters);
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above, and no iterator is left.
         unsafe { drop(Box::from_raw(tree_ptr)) };
     }
 }

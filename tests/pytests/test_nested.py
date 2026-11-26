@@ -1000,3 +1000,189 @@ def testAWalkPastTheDeadlineAnswersLikeATimeoutBeforeTheFirstRead():
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', *policy.popitem())
         env.cmd('CONFIG', 'SET', *unstable.popitem())
+
+
+# GC: a deleted document's postings leave its terminals, and a terminal left without postings
+# is dropped, under either GC policy.
+
+# A second NESTED field over the same elements, ending on a tag terminal.
+PARTS = ['$.items[*]', 'AS', 'parts', 'NESTED', 2,
+         '$.color', 'AS', 'pcolor', 'TAG', '$.size', 'AS', 'psize', 'TAG',
+         'INDEX', 2, 'pcolor', 'psize']
+
+
+def gc_env(policy):
+    """A server of its own, collecting under `policy` on demand only."""
+    if policy == 'THREAD':
+        env = Env(moduleArgs='GC_POLICY THREAD',
+                  redisConfigFile=thread_gc_conf(clean_threshold=0), freshEnv=True)
+    else:
+        env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 0', freshEnv=True)
+    set_unstable_features(env, True)
+    return env
+
+
+def terminals(env, idx, field):
+    for a in index_info(env, idx)['attributes']:
+        a = to_dict(a)
+        if a['attribute'] == field:
+            return a['terminals']
+
+
+def assert_matches_fresh(env, queries):
+    """`idx` holds what an index built from scratch over the same documents holds: terminals,
+    records and blocks, and the same results for each of `queries`. Postings memory is left
+    out: GC rewrites blocks into buffers sized to fit, where indexing leaves room to grow."""
+    env.expect('FT.CREATE', 'fresh', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               *ITEMS, *PARTS).ok()
+    waitForIndex(env, 'fresh')
+    for field in ['items', 'parts']:
+        env.assertEqual(terminals(env, 'idx', field), terminals(env, 'fresh', field),
+                        message=field)
+    collected, fresh = index_info(env, 'idx'), index_info(env, 'fresh')
+    for stat in ['num_records', 'total_inverted_index_blocks']:
+        env.assertEqual(collected[stat], fresh[stat], message=stat)
+    for query in queries:
+        env.assertEqual(ids(env, query), sorted(
+            env.cmd('FT.SEARCH', 'fresh', query, 'NOCONTENT', 'LIMIT', 0, 1000,
+                    'DIALECT', 2)[1:]), message=query)
+    env.expect('FT.DROPINDEX', 'fresh').ok()
+
+
+GC_QUERIES = ['@items:( @color:{blue} @price:[100 200] )', '@items:( @size:{S} )',
+              '@parts:( @pcolor:{red} )', '@parts:( -@psize:{M} )']
+
+
+def gc_collects_deleted_elements(policy):
+    """Deleted documents leave no postings, and the terminals they alone used are dropped."""
+    env = gc_env(policy)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               *ITEMS, *PARTS).ok()
+    for n in range(40):
+        # Colors only even documents hold, so deleting those empties their terminals.
+        color = ['red', 'blue', 'green'][n % 3] if n % 2 else 'gone%d' % n
+        put(conn, 'doc:%d' % n, [{'color': color, 'size': 'SML'[n % 3], 'price': n},
+                                 {'color': 'blue', 'size': 'M', 'price': 100 + n}])
+    for n in range(0, 40, 2):
+        conn.execute_command('DEL', 'doc:%d' % n)
+    before = terminals(env, 'idx', 'items'), terminals(env, 'idx', 'parts')
+    forceInvokeGC(env, 'idx')
+
+    env.assertLess(terminals(env, 'idx', 'items'), before[0], message='items')
+    env.assertLess(terminals(env, 'idx', 'parts'), before[1], message='parts')
+    assert_matches_fresh(env, GC_QUERIES)
+    env.assertEqual(ids(env, '@items:( @color:{gone0} )'), [])
+
+    # With every document gone, nothing is left of the postings: the memory and blocks they
+    # were counted with are all given back.
+    for n in range(1, 40, 2):
+        conn.execute_command('DEL', 'doc:%d' % n)
+    forceInvokeGC(env, 'idx')
+    env.expect('FT.CREATE', 'empty', 'ON', 'JSON', 'PREFIX', 1, 'none:', 'SCHEMA',
+               *ITEMS, *PARTS).ok()
+    collected, empty = index_info(env, 'idx'), index_info(env, 'empty')
+    for stat in ['num_records', 'inverted_sz_mb', 'total_inverted_index_blocks']:
+        env.assertEqual(collected[stat], empty[stat], message=stat)
+    env.assertEqual(terminals(env, 'idx', 'items'), 0)
+    env.assertEqual(terminals(env, 'idx', 'parts'), 0)
+
+
+def gc_collects_updated_elements(policy):
+    """An update leaves the replaced elements' postings behind until GC collects them."""
+    env = gc_env(policy)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               *ITEMS, *PARTS).ok()
+    for n in range(30):
+        put(conn, 'doc:%d' % n, [{'color': 'old%d' % n, 'size': 'S', 'price': n}])
+    # Twice, so the second round's garbage sits next to the first's postings.
+    for rnd in range(2):
+        for n in range(30):
+            put(conn, 'doc:%d' % n, [{'color': 'red', 'size': 'SML'[(n + rnd) % 3],
+                                      'price': n + 100 * rnd}])
+        forceInvokeGC(env, 'idx')
+    env.assertEqual(ids(env, '@items:( @color:{old3} )'), [])
+    assert_matches_fresh(env, ['@items:( @color:{red} @size:{M} )', '@parts:( @psize:{L} )',
+                               '@items:( @price:[0 50] )'])
+
+
+@skip(no_json=True, cluster=True)
+def testForkGCCollectsNestedTerminals():
+    """Fork GC: see `gc_collects_deleted_elements`."""
+    gc_collects_deleted_elements('FORK')
+
+
+@skip(no_json=True, cluster=True)
+def testThreadGCCollectsNestedTerminals():
+    """Thread GC: see `gc_collects_deleted_elements`."""
+    gc_collects_deleted_elements('THREAD')
+
+
+@skip(no_json=True, cluster=True)
+def testForkGCCollectsUpdatedNestedElements():
+    """Fork GC: see `gc_collects_updated_elements`."""
+    gc_collects_updated_elements('FORK')
+
+
+@skip(no_json=True, cluster=True)
+def testThreadGCCollectsUpdatedNestedElements():
+    """Thread GC: see `gc_collects_updated_elements`."""
+    gc_collects_updated_elements('THREAD')
+
+
+def read_cursor(env, res, cursor):
+    """The rows a cursor returns, the first batch `res` included, until it is exhausted."""
+    rows = len(res) - 1
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        rows += len(res) - 1
+    return rows
+
+
+def a_cursor_survives_gc_dropping_terminals(policy):
+    """A cursor parked across a GC reads on from the terminals that remain, while the GC drops
+    others it holds iterators on. Deleted documents are never returned either way; that the
+    dropped terminals' iterators stop reading them shows under a sanitizer, as a use-after-free
+    otherwise."""
+    env = gc_env(policy)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', 1, 'doc:', 'SCHEMA',
+               *ITEMS, *PARTS).ok()
+    # Both reach a red terminal and a blue one.
+    for query, field in [('@items:( @size:{L} )', 'items'), ('@parts:( @psize:{L} )', 'parts')]:
+        for n in range(20):
+            put(conn, 'doc:%d' % n, [{'color': 'red', 'size': 'L', 'price': n}])
+        for n in range(20, 30):
+            put(conn, 'doc:%d' % n, [{'color': 'blue', 'size': 'L', 'price': n}])
+
+        # GC drops the blue terminal under the cursor: every red document is still read.
+        res, cursor = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', 1, '@__key',
+                              'WITHCURSOR', 'COUNT', 1, 'DIALECT', 2)
+        before = terminals(env, 'idx', field)
+        for n in range(20, 30):
+            conn.execute_command('DEL', 'doc:%d' % n)
+        forceInvokeGC(env, 'idx')
+        env.assertEqual(terminals(env, 'idx', field), before - 1, message=query)
+        env.assertEqual(read_cursor(env, res, cursor), 20, message=query)
+
+        # GC drops every terminal under the cursor: it ends without reading them.
+        res, cursor = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', 1, '@__key',
+                              'WITHCURSOR', 'COUNT', 1, 'DIALECT', 2)
+        for n in range(20):
+            conn.execute_command('DEL', 'doc:%d' % n)
+        forceInvokeGC(env, 'idx')
+        env.assertEqual(terminals(env, 'idx', field), 0, message=query)
+        env.assertEqual(read_cursor(env, res, cursor), 1, message=query)
+
+
+@skip(no_json=True, cluster=True)
+def testForkGCKeepsACursorOnTheTerminalsLeft():
+    """Fork GC: see `a_cursor_survives_gc_dropping_terminals`."""
+    a_cursor_survives_gc_dropping_terminals('FORK')
+
+
+@skip(no_json=True, cluster=True)
+def testThreadGCKeepsACursorOnTheTerminalsLeft():
+    """Thread GC: see `a_cursor_survives_gc_dropping_terminals`."""
+    a_cursor_survives_gc_dropping_terminals('THREAD')

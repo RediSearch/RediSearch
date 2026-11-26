@@ -28,7 +28,7 @@ use query_types::QueryNodeType;
 use rqe_core::FieldIndex;
 use rqe_iterators::utils::{NoTimeoutChecker, TimeoutChecker, TimeoutContextRequest};
 use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, union_opaque::build_union};
-use tag_index::{InMemoryMode, IterMode, Tag, TagIndex, TrieLookup};
+use tag_index::{IterMode, Tag, TrieLookup};
 
 use crate::{Config, Evaluated, NestedLimits, QueryEvalContext, QueryNodeMut};
 
@@ -174,6 +174,9 @@ const WALK_TIMEOUT_GRANULARITY: u32 = 100;
 
 /// The iterators of every terminal the group `node` reaches. `timeout` is shared by all the
 /// group's alternatives.
+///
+/// Each iterator holds its terminal's [`Terminal::alive`] token and checks it before reading the
+/// terminal again, as the collector frees terminals it empties.
 fn open(
     index: &NestedIndex,
     def: &ffi::NestedDef,
@@ -255,11 +258,19 @@ impl Readers {
                     let field_ctx = self.field_ctx();
                     // SAFETY: 1. the search context and its spec outlive the query's
                     // iterators. 2. `field_ctx` names the field by index. 3. `tree` is the
-                    // owner's pointer to the terminal's tree (`Terminal::numeric_ptr`), live as
-                    // long as the field; writers take the spec write lock, which the query
-                    // releases only while its iterators are parked, revalidating them after.
+                    // owner's pointer to the terminal's tree (`Terminal::numeric_ptr`). It lives
+                    // until the collector drops the terminal, which revokes the terminal's token
+                    // first, so the iterators stop reading it; writers take the spec write lock,
+                    // which the query releases only while its iterators are parked, revalidating
+                    // them after.
                     let variants = unsafe {
-                        NumericIteratorVariant::from_tree(tree, self.sctx, filter, &field_ctx)
+                        NumericIteratorVariant::from_tree_with_owner(
+                            tree,
+                            Some(terminal.alive().clone()),
+                            self.sctx,
+                            filter,
+                            &field_ctx,
+                        )
                     };
                     for variant in variants {
                         self.push(CRQEIterator::from_rust_leaf(variant))?;
@@ -270,15 +281,11 @@ impl Readers {
                 let mut expansions_left = self.max_prefix_expansions;
                 for terminal in terminals {
                     let tags = terminal.tag().expect("the index's terminals are all tag");
-                    let tags_ptr = terminal
-                        .tag_ptr()
-                        .expect("the index's terminals are all tag");
                     match constraint {
                         Constraint::TagIn(values) => {
                             // A value with a NUL byte is never indexed.
                             for tag in values.values().iter().filter_map(|value| Tag::new(value)) {
-                                // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
-                                unsafe { self.open_tag(tags, tags_ptr, tag) }?;
+                                self.open_tag(terminal, tag)?;
                             }
                         }
                         Constraint::Any | Constraint::TagNotIn(_) => {
@@ -291,8 +298,7 @@ impl Readers {
                                 if !excluded
                                     .is_some_and(|excluded| excluded.contains(tag.as_bytes()))
                                 {
-                                    // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
-                                    unsafe { self.open_tag(tags, tags_ptr, tag) }?;
+                                    self.open_tag(terminal, tag)?;
                                 }
                             }
                         }
@@ -307,8 +313,7 @@ impl Readers {
                                     break;
                                 }
                                 expansions_left -= 1;
-                                // SAFETY: `tags_ptr` is the owner pointer of `tags`' terminal.
-                                unsafe { self.open_tag(tags, tags_ptr, tag) }?;
+                                self.open_tag(terminal, tag)?;
                             }
                         }
                     }
@@ -319,25 +324,21 @@ impl Readers {
     }
 
     /// Opens the reader of one value of a tag terminal, if any document holds it.
-    ///
-    /// # Safety
-    ///
-    /// 1. `tags_ptr` is the owner's pointer to `tags`, from [`Terminal::tag_ptr`] of the
-    ///    terminal `tags` was borrowed from.
-    unsafe fn open_tag(
-        &mut self,
-        tags: &TagIndex<InMemoryMode>,
-        tags_ptr: NonNull<TagIndex<InMemoryMode>>,
-        tag: Tag<'_>,
-    ) -> Result<(), GroupError> {
-        // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index, by 1. 2. It
-        // stays valid as long as the field, which outlives the query's iterators. 3. The index
-        // is mutated only under the spec write lock, which the query releases only while its
-        // iterators are parked, revalidating them after.
-        let lookup = unsafe { TrieLookup::new(tags_ptr) };
-        // SAFETY: 1. `tags` outlives the iterator, as for `tags_ptr` above, and is mutated only
-        // under the revalidation protocol. 2. The search context and its spec outlive the
-        // query's iterators. 3. `lookup` resolves `tags`, the index behind `tags_ptr`.
+    fn open_tag(&mut self, terminal: &Terminal, tag: Tag<'_>) -> Result<(), GroupError> {
+        let tags = terminal.tag().expect("the index's terminals are all tag");
+        let tags_ptr = terminal
+            .tag_ptr()
+            .expect("the index's terminals are all tag");
+        // SAFETY: 1. `tags_ptr` is the owner's pointer to the terminal's index
+        // (`Terminal::tag_ptr`). 2. It stays valid until the collector drops the terminal, which
+        // revokes the token the lookup holds first, after which the lookup no longer reads it.
+        // 3. The index is mutated only under the spec write lock, which the query releases only
+        // while its iterators are parked, revalidating them after.
+        let lookup = unsafe { TrieLookup::new(tags_ptr) }.with_owner(terminal.alive().clone());
+        // SAFETY: 1. `tags` lives until the lookup's token is revoked, as for `tags_ptr` above,
+        // and is mutated only under the revalidation protocol. 2. The search context and its
+        // spec outlive the query's iterators. 3. `lookup` resolves `tags`, the index behind
+        // `tags_ptr`.
         let reader = unsafe { tags.open_reader(self.sctx, tag, 1.0, self.field_index, lookup) };
         match reader {
             Some(reader) => self.push(CRQEIterator::from_rust_leaf(reader)),
