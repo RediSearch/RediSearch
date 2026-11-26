@@ -1656,6 +1656,19 @@ fn eval_tag_wildcard_child_of_a_lone_backslash_matches_the_empty_value() {
 }
 
 #[test]
+fn eval_tag_wildcard_child_does_not_match_empty_tag_for_a_leading_nul() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: values(&[(TAG_EMPTY, &[11])]),
+        case_sensitive: true,
+        children: vec![Child::WildcardQuery(b"\0ab*")],
+        ..TagOptions::default()
+    });
+
+    let mut it = fixture.eval().expect("the binary pattern yields a union");
+    assert!(drain_doc_ids(&mut it).is_empty());
+}
+
+#[test]
 fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
     let mut fixture = TagFixture::new(TagOptions {
         children: vec![Child::Token(b"APPLE")],

@@ -146,11 +146,14 @@ def testInvalidSyntax(env):
 def testTagVals(env):
     env.cmd(
         'ft.create', 'idx', 'ON', 'HASH',
-        'schema', 'title', 'text', 'tags', 'tag', 'othertags', 'tag')
+        'schema', 'title', 'text', 'tags', 'tag', 'INDEXEMPTY', 'othertags', 'tag')
     con = env.getClusterConnectionIfNeeded()
 
     N = 100
     alltags = set()
+    if not env.isCluster() or env.shardsCount == 1:
+        alltags.add('')
+    con.execute_command('HSET', 'empty-tag', 'tags', '')
     for n in range(N):
         tags = (f'foo {n}', f'bar {n}', 'x')
         alltags.add(tags[0])
@@ -162,8 +165,7 @@ def testTagVals(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         res = env.cmd('ft.tagvals', 'idx', 'tags')
-        env.assertEqual(N * 2 + 1, len(res))
-
+        env.assertEqual(len(alltags), len(res))
         env.assertEqual(alltags, set(res))
 
         res = env.cmd('ft.tagvals', 'idx', 'othertags')
