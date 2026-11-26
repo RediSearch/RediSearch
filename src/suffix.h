@@ -23,6 +23,18 @@ typedef enum {
     SUFFIX_TYPE_WILDCARD = 2,
 } SuffixType;
 
+/* Outcome of a wildcard lookup in a suffix trie map. */
+typedef enum {
+    /* `*matches` is set to a non-empty array the caller frees with `array_free`. */
+    SUFFIX_WILDCARD_MATCHES = 0,
+    /* The trie has no term matching the pattern. */
+    SUFFIX_WILDCARD_NO_MATCHES = 1,
+    /* The pattern has no literal segment for the trie to anchor on (it is empty or
+     * made only of `*`), so the trie cannot answer it and the caller must scan
+     * every term instead. */
+    SUFFIX_WILDCARD_NO_ANCHOR = 2,
+} SuffixWildcardStatus;
+
 /***********************************************************/
 /*****************        Trie          ********************/
 /***********************************************************/
@@ -74,10 +86,11 @@ void suffixTrieMap_freeCallback(void *payload);
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout, bool skipTimeoutChecks);
 
-/* Return a list of terms which match the wildcard pattern
- * If pattern does not match using suffix trie, return 0xBAAAAAAD */
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+/* Find the terms which match the wildcard pattern. `*matches` is set only on
+ * `SUFFIX_WILDCARD_MATCHES`, and left NULL otherwise. */
+SuffixWildcardStatus GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
+                                                    struct timespec timeout, long long maxPrefixExpansions,
+                                                    bool skipTimeoutChecks, arrayof(char *) *matches);
 
 /* Score handicap for an anchor token followed by '*': matching it scans a whole
  * subtree instead of a single exact entry, so it must out-length an exact token

@@ -1994,7 +1994,7 @@ fn eval_tag_wildcard_child_with_no_usable_token_falls_back_to_brute_force() {
     });
     let mut it = fixture
         .eval()
-        .expect("BAD_POINTER falls back to the brute-force scan");
+        .expect("SUFFIX_WILDCARD_NO_ANCHOR falls back to the brute-force scan");
     assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
 }
 

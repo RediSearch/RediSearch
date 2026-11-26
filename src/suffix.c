@@ -486,19 +486,21 @@ end:
   return resArray;
 }
 
-arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+SuffixWildcardStatus GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
+                                                    struct timespec timeout, long long maxPrefixExpansions,
+                                                    bool skipTimeoutChecks, arrayof(char *) *matches) {
+  *matches = NULL;
   size_t tokenidx, tokenlen;
   // find best token
   if (Suffix_ChooseToken(pattern, len, &tokenidx, &tokenlen) == REDISEARCH_UNINITIALIZED) {
-    return BAD_POINTER;
+    return SUFFIX_WILDCARD_NO_ANCHOR;
   }
 
   // if token end with '*', we iterate all its children
   int prefix = tokenidx + tokenlen < len && pattern[tokenidx + tokenlen] == '*';
 
   TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
-  if (!it) return NULL;
+  if (!it) return SUFFIX_WILDCARD_NO_MATCHES;
   if (!skipTimeoutChecks) {
     TrieMapIterator_SetTimeout(it, timeout);
   }
@@ -508,10 +510,11 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // token does not have hits
   if (array_len(arr) == 0) {
     array_free(arr);
-    return NULL;
+    return SUFFIX_WILDCARD_NO_MATCHES;
   }
 
-  return arr;
+  *matches = arr;
+  return SUFFIX_WILDCARD_MATCHES;
 }
 
 void suffixTrieMap_freeCallback(void *payload) {

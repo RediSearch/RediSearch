@@ -44,9 +44,7 @@ typedef uint64_t t_uniqueId;
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
 #define REDISEARCH_UNINITIALIZED -1
-// Integer form of BAD_POINTER, exposed so Rust can recognize the sentinel.
-#define BAD_POINTER_ADDR 0xBAAAAAAD
-#define BAD_POINTER ((void *)BAD_POINTER_ADDR)
+#define BAD_POINTER ((void *)0xBAAAAAAD)
 
 #define RedisModule_ReplyWithPrintf(ctx, fmt, ...)                                      \
 do {                                                                                    \
