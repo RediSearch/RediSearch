@@ -16,14 +16,14 @@ use proptest::prelude::*;
 use query_types::QueryNodeType;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
+    Empty, Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
     union_opaque::build_union,
 };
 
-use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, tree};
+use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, leaf_spec, tree};
 
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
@@ -33,7 +33,7 @@ fn min_competitive(theta: f64) -> MinCompetitiveScore {
     MinCompetitiveScore::new(theta).expect("a positive heap minimum")
 }
 
-fn leaf(blocks: Vec<Block>) -> (Blocked, Log) {
+fn leaf(blocks: Vec<Block>) -> (Blocked<'static>, Log) {
     let leaf = Blocked::new(blocks);
     let log = leaf.log();
     (leaf, log)
@@ -65,7 +65,7 @@ fn ids(range: std::ops::RangeInclusive<DocId>) -> Vec<DocId> {
 /****************************** intersection ******************************/
 
 /// `a` has a weak block then a strong one; `b` one weak block over both.
-fn and_children() -> [(Blocked, Log); 2] {
+fn and_children() -> [(Blocked<'static>, Log); 2] {
     [
         leaf(vec![
             Block::uniform(1..=10, 1.0),
@@ -154,7 +154,7 @@ fn intersection_passes_over_a_target_its_aligned_children_rule_out() {
 fn phrase(
     a: (&[(DocId, f64)], &[u8]),
     b: (&[(DocId, f64)], &[u8]),
-) -> Intersection<'static, Blocked> {
+) -> Intersection<'static, Blocked<'static>> {
     let a = Blocked::new(vec![Block::tight(a.0)]).with_positions(a.1);
     let b = Blocked::new(vec![Block::tight(b.0)]).with_positions(b.1);
     Intersection::new_with_slop_order(vec![a, b], 1.0, false, Some(0), true)
@@ -195,7 +195,7 @@ fn phrase_intersection_drops_by_bound_and_by_relevancy() {
 /// Builds a union over leaves, under the name of its variant.
 struct UnionCase {
     name: &'static str,
-    build: fn(Vec<Blocked>) -> DynIterator,
+    build: fn(Vec<Blocked<'static>>) -> DynIterator,
 }
 
 const UNIONS: &[UnionCase] = &[
@@ -227,7 +227,7 @@ const UNIONS: &[UnionCase] = &[
 
 /// The union a query builds: an opaque union over C-wrapped children, itself reached through
 /// the C vtable.
-fn opaque_union(children: Vec<Blocked>, min_union_iter_heap: usize) -> DynIterator {
+fn opaque_union(children: Vec<Blocked<'static>>, min_union_iter_heap: usize) -> DynIterator {
     let children = children
         .into_iter()
         .map(CRQEIterator::from_rust_leaf)
@@ -245,7 +245,7 @@ fn opaque_union(children: Vec<Blocked>, min_union_iter_heap: usize) -> DynIterat
 
 /// `a` has two weak blocks then a strong one; `b` sits far ahead in a block of its own, so every
 /// variant, a quick-exit one included, positions both children on its first read.
-fn union_children() -> [(Blocked, Log); 2] {
+fn union_children() -> [(Blocked<'static>, Log); 2] {
     [
         leaf(vec![Block::uniform([40], 0.0)]),
         leaf(vec![
@@ -452,7 +452,7 @@ fn edge_cases() -> [EdgeCase; 2] {
 
 /// A leaf whose first block, `[1, 5]`, scores `window_bound`, followed by a strong block. Adding
 /// a zero-scored partner keeps the window sum exactly `window_bound`.
-fn edge_leaf(window_bound: f64) -> (Blocked, Log) {
+fn edge_leaf(window_bound: f64) -> (Blocked<'static>, Log) {
     leaf(vec![
         Block::uniform(1..=5, window_bound),
         Block::uniform(6..=10, 10.0),
@@ -582,7 +582,7 @@ fn composites_do_not_pass_the_threshold_to_their_children() {
 fn nested_composites_skip_through_their_composite_children() {
     struct Nested {
         name: &'static str,
-        build: fn([Blocked; 3]) -> DynIterator,
+        build: fn([Blocked<'static>; 3]) -> DynIterator,
     }
     let shapes = [
         Nested {
@@ -700,4 +700,80 @@ proptest! {
         let thresholded = logs.iter().filter(|log| log.borrow().thresholded_reads > 0).count();
         prop_assert!(thresholded <= usize::from(is_leaf));
     }
+}
+
+/// What a union read under `thresholds` returns, and how it moved each of its leaves: the
+/// documents a leaf positioned on, and how many reads and skips it took. The union is rewound
+/// once, before read `rewind_at`, if it gets that far: the heap union then pivots by rescanning
+/// until its heap is populated again.
+fn trace_union(
+    leaves: &[Tree],
+    heap: bool,
+    thresholds: &[MinCompetitiveScore],
+    rewind_at: usize,
+) -> (Vec<DocId>, Vec<(Vec<DocId>, usize, usize)>) {
+    let tree = Tree::Or {
+        children: leaves.to_vec(),
+        heap,
+    };
+    let mut logs = Vec::new();
+    let mut it = tree.build(&mut logs);
+    let mut docs = Vec::new();
+    for call in 0.. {
+        if call == rewind_at {
+            it.rewind();
+        }
+        let min = thresholds[call.min(thresholds.len() - 1)];
+        match it.read_with_threshold(min).expect("read failed") {
+            Some(r) => docs.push(r.doc_id),
+            None => break,
+        }
+    }
+    let moves = logs
+        .iter()
+        .map(|log| {
+            let log = log.borrow();
+            (log.visited.clone(), log.reads, log.skip_tos)
+        })
+        .collect();
+    (docs, moves)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// The heap union finds its pivot by walking its heap rather than rescanning its children,
+    /// and must reach the same decisions: the same documents come back, and every leaf is read
+    /// and skipped the same way as under the flat union.
+    #[test]
+    #[cfg_attr(miri, ignore = "Hundreds of random unions: too slow under Miri")]
+    fn heap_and_flat_unions_pivot_alike(
+        leaves in proptest::collection::vec(leaf_spec(60, 30), 2..=24),
+        thresholds in thresholds(),
+        rewind_at in 1..=8usize,
+    ) {
+        prop_assert_eq!(
+            trace_union(&leaves, true, &thresholds, rewind_at),
+            trace_union(&leaves, false, &thresholds, rewind_at),
+        );
+    }
+}
+
+/// A quick-exit heap union walks its heap only while the heap holds every child it counts as
+/// active, so a child already at EOF on the first read must not stay counted.
+#[test]
+fn quick_heap_union_does_not_count_a_child_already_at_eof() {
+    let (a, _) = leaf(vec![Block::uniform(1..=4, 1.0)]);
+    let (b, _) = leaf(vec![Block::uniform(3..=6, 1.0)]);
+    let children: Vec<DynIterator> = vec![Box::new(Empty), Box::new(a), Box::new(b)];
+    let mut it = UnionQuickHeap::new(children);
+
+    it.read_with_threshold(min_competitive(0.5))
+        .expect("read failed");
+    assert_eq!(it.num_children_active(), 2, "after the first read");
+
+    it.rewind();
+    it.read_with_threshold(min_competitive(0.5))
+        .expect("read failed");
+    assert_eq!(it.num_children_active(), 2, "after a rewind");
 }

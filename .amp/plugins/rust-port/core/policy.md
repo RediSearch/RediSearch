@@ -70,6 +70,15 @@ remember what they raised and how you answered; a plan amendment starts fresh on
 leaves the stage's patch unchanged keeps its reviews. An admitted stage gets its PR opened or
 updated, stacked on the stage before it.
 
+If the workspace root has a `.jj/` directory, it is a jj checkout colocated with git: use `jj`
+for every version-control operation, never `git commit`, `checkout`, `switch`, `rebase`,
+`reset`, `branch` or `stash`, which jj would record as foreign rewrites. Make each stage its own
+change (`jj new`, `jj describe`), amend it in place (`jj edit`, `jj squash`), and rebase later
+stages with `jj rebase`. To claim, leave the working copy an empty change on top of the stage's
+change, so the tree is clean, and claim `jj log -r @- --no-graph -T commit_id`. Never push the
+stage branches yourself (`jj git push`): the plugin pushes each admitted stage and tracks its
+bookmark in jj.
+
 ## Findings
 
 Everything still to do is an outstanding finding: reviewer findings, failed checks, failed CI on

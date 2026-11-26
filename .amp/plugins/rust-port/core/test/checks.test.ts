@@ -39,7 +39,10 @@ test('checks stop at the first that exits non-zero', async () => {
 
 test('a check that exits 0 is judged by its kind from its log, and stops the rest on a problem', async () => {
   const judges = {
-    miri: ({ log }: { log: string }) => (log.includes('0 tests') ? 'ran nothing' : undefined),
+    miri: ({ log }: { log: string }) => ({
+      problem: log.includes('0 tests') ? 'ran nothing' : undefined,
+      report: 'No tests were measured.',
+    }),
   };
   const checks = [
     { kind: 'test', command: 'echo 0 tests' },
@@ -51,6 +54,7 @@ test('a check that exits 0 is judged by its kind from its log, and stops the res
     results.map((r) => r.problem),
     [undefined, 'ran nothing'],
   );
+  assert.equal(results[1].report, 'No tests were measured.');
 });
 
 test('a test ran if some check ran it, not if every check ignored or skipped it', () => {

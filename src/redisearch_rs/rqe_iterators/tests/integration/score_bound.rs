@@ -256,7 +256,7 @@ fn wrappers_forward_every_hook() {
 
 /// Six documents in three blocks: under a threshold of 2 the middle block is jumped whole, and
 /// documents 2 and 5 are stepped over inside blocks that are kept.
-fn three_blocks() -> Blocked {
+fn three_blocks() -> Blocked<'static> {
     Blocked::new(vec![
         Block::tight(&[(1, 5.0), (2, 1.0)]),
         Block::tight(&[(3, 0.5)]),
@@ -324,14 +324,14 @@ fn c_threshold_that_cannot_drop_is_a_plain_read() {
 
 /// Mixes a leaf that reports bounds with one that does not under one composite child type.
 enum TermOrPlain {
-    Term(Blocked),
+    Term(Blocked<'static>),
     Plain(IdListSorted<'static>),
 }
 
 /// Mixes a scored leaf with a NOT under one composite child type.
 enum TermOrNot {
-    Term(Blocked),
-    Not(Not<'static, Blocked, NoTimeoutChecker>),
+    Term(Blocked<'static>),
+    Not(Not<'static, Blocked<'static>, NoTimeoutChecker>),
 }
 
 macro_rules! forward_either {

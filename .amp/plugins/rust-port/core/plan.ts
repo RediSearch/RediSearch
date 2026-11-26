@@ -131,6 +131,7 @@ export function pullRequest<X extends object>(
   profile: Profile<X>,
   stage: Stage,
   record: string,
+  reports = '',
 ) {
   const { title, body } = plan.stages[stage];
   return {
@@ -140,7 +141,7 @@ export function pullRequest<X extends object>(
 #### Behavior changes from ${profile.languages.from}
 
 ${describeDivergences(plan, profile.languages)}
-
+${reports ? `\n${reports}\n` : ''}
 <details><summary>How this port ran</summary>
 
 ${describePlan(plan, profile, false)}
