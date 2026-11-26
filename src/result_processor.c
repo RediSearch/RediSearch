@@ -893,6 +893,12 @@ static int rpYieldedValuesLoaderNext(ResultProcessor *base, SearchResult *res) {
   YieldedValuesSlice slice =
       YieldedValues_AsSlice(&SearchResult_GetIndexResult(res)->yieldedValues);
   for (size_t i = 0; i < slice.len; i++) {
+    // Every value is pushed under the key its request bound. One without would
+    // crash the row write, so a release build drops it rather than the server.
+    RS_LOG_ASSERT(slice.data[i].key, "a yielded value must carry the key it is loaded under");
+    if (!slice.data[i].key) {
+      continue;
+    }
     const YieldedData *data = &slice.data[i].value;
     RSValue *value = data->tag == YieldedData_String ? RSValue_IncrRef(data->string.value)
                                                      : RSValue_NewNumber(data->number);
