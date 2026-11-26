@@ -916,13 +916,18 @@ def testOptimizerWalksRangeImpliedByUnion(env):
                                 aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
                                 message=f'{query} sorted by {sortby}, MAX {limit}')
 
-    # A cursor near the first value: the pure numeric branch is lifted out of the union and the
-    # wildcard residual child is elided, so no UNION child iterator is built at all.
-    optimized = aggregate_profile(env, keyset_after(100, 0, 'ASC', 'ASC'), [('n', 'ASC'), ('m', 'ASC')],
-                                  optimized=True)
-    opt_dict = to_dict(optimized)
-    env.assertEqual(opt_dict['Type'], 'OPTIMIZER', message=optimized)
-    env.assertNotIn('Child iterator', opt_dict, message=optimized)
+    # Late cursors in both ASC and DESC: the pure tail is lifted, no UNION child is built,
+    # and the optimizer stays in Query partial range reading only the requested MAX 5 rows.
+    for cursor, m_val, direction in [(100, 0, 'ASC'), (2400, 0, 'ASC'), (100, 1, 'DESC')]:
+        optimized = aggregate_profile(
+            env, keyset_after(cursor, m_val, direction, direction),
+            [('n', direction), ('m', direction)], optimized=True,
+        )
+        opt_dict = to_dict(optimized)
+        env.assertEqual(opt_dict['Type'], 'OPTIMIZER', message=optimized)
+        env.assertNotIn('Child iterator', opt_dict, message=optimized)
+        env.assertEqual(opt_dict['Optimizer mode'], 'Query partial range', message=optimized)
+        env.assertEqual(opt_dict['Number of reading operations'], 5, message=optimized)
 
 
 @skip(cluster=True)
@@ -981,6 +986,23 @@ def testOptimizerLiftedKeysetUnionShapes(env):
                 aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
                 message=f'{query} sorted by {sortby}, MAX {limit}',
             )
+
+    # Outer filter + nested keyset union: the union is lifted out of the intersection, leaving
+    # only the outer TAG filter as Child iterator (no UNION or INTERSECT beneath OPTIMIZER).
+    nested_profile = to_dict(aggregate_profile(
+        env, '@t:{x} ( @a:[(10 +inf] | ( @a:[10 10] @b:[(1 +inf] ) )',
+        [('a', 'ASC'), ('b', 'ASC')], optimized=True,
+    ))
+    env.assertEqual(nested_profile['Type'], 'OPTIMIZER', message=nested_profile)
+    env.assertEqual(to_dict(nested_profile['Child iterator'])['Type'], 'TAG', message=nested_profile)
+
+    # Disjoint pure numeric union: must NOT be lifted, retaining an indexed UNION child.
+    disjoint_profile = to_dict(aggregate_profile(
+        env, '@a:[2 4] | @a:[45 47]',
+        [('a', 'ASC'), ('b', 'ASC')], optimized=True,
+    ))
+    env.assertEqual(disjoint_profile['Type'], 'OPTIMIZER', message=disjoint_profile)
+    env.assertEqual(to_dict(disjoint_profile['Child iterator'])['Type'], 'UNION', message=disjoint_profile)
 
 
 @skip(cluster=True)
