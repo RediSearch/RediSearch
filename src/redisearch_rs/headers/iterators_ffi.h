@@ -32,22 +32,6 @@ typedef struct timespec timespec;
 typedef struct InvertedIndex InvertedIndex;
 
 /**
- * Builder for Redis maps.
- *
- * Operates in two modes based on construction:
- * - **Dynamic** (via [`Replier::map`]): Length is set on drop via Redis API
- * - **Fixed** (via [`Replier::fixed_map`]): Length was declared upfront; validates on drop
- *
- * Note: Unlike arrays, map length counts key-value pairs, not individual elements.
- *
- * # Panics
- *
- * In fixed mode, panics when dropped if the number of key-value pairs added doesn't match
- * the declared length.
- */
-typedef struct MapBuilder MapBuilder;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter NumericFilter;
@@ -498,17 +482,6 @@ QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vecto
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
-
-/**
- * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Print iterator profile tree as a Redis reply.

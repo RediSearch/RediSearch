@@ -330,6 +330,7 @@ typedef struct QueryProcessingCtx {
   rs_wall_clock initTime;
   rs_wall_clock_ns_t queryGILTime;
   double minScore;
+  double minCompetitiveScore;
   uint32_t totalResults;
   uint32_t skippedResults;
   uint32_t resultLimit;
@@ -339,6 +340,9 @@ typedef struct QueryProcessingCtx {
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
   bool skipIndexResultDeepCopy;
+  struct QueryRequestLimits *limits;
+  RSOomPolicy oomPolicy;
+  bool oomCut;
 } QueryProcessingCtx;
 """
 

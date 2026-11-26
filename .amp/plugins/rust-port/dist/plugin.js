@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, appendFile, readdir, stat } from 'node:fs/promises';
 import path, { join, normalize, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs, { openSync, readSync, closeSync, statSync, readFileSync, appendFileSync, writeFileSync, createWriteStream, createReadStream, existsSync } from 'node:fs';
 import { ChildProcess, execFile, spawnSync, spawn } from 'node:child_process';
 import process$2, { platform, hrtime, execPath, execArgv } from 'node:process';
 import { stripVTControlCharacters, debuglog, inspect, promisify, callbackify, aborted } from 'node:util';
@@ -11,7 +12,6 @@ import { setTimeout, scheduler, setImmediate } from 'node:timers/promises';
 import { constants } from 'node:os';
 import { once, addAbortListener, EventEmitter, on, setMaxListeners } from 'node:events';
 import { serialize } from 'node:v8';
-import fs, { openSync, readSync, closeSync, statSync, readFileSync, appendFileSync, writeFileSync, createWriteStream, createReadStream } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { Transform, getDefaultHighWaterMark, Duplex, Writable, Readable, PassThrough } from 'node:stream';
 import { finished } from 'node:stream/promises';
@@ -9981,6 +9981,18 @@ function testRan(logs, name) {
 async function git(cwd, args, input = '') {
     return (await execa('git', args, { cwd, env: ENV, input })).stdout;
 }
+/**
+ * Tracks `branch@remote` when `root` is also a jj checkout. jj imports a branch pushed by git as
+ * an untracked remote bookmark, and jj's default `immutable_heads()` makes those and all their
+ * ancestors immutable, so the worker could no longer amend or rebase its own stages.
+ */
+async function trackInJj(root, remote, branch) {
+    if (!existsSync(join(root, '.jj')))
+        return;
+    const jj = (args) => execa('jj', args, { cwd: root, env: ENV });
+    await jj(['git', 'import']);
+    await jj(['bookmark', 'track', `${branch}@${remote}`]);
+}
 function gitVcs(root) {
     const sh = (args, input) => git(root, args, input);
     const dirty = async () => !!(await sh(['status', '--porcelain']));
@@ -14844,6 +14856,8 @@ function github(o) {
                 const lease = `--force-with-lease=${o.branch}:${expected}`;
                 await sh(['push', lease, o.remote, `${o.candidate}:refs/heads/${o.branch}`]);
             }
+            // Outside the push, so a retry after a failed tracking still tracks.
+            await trackInJj(root, o.remote, o.branch);
             const fields = { owner, repo, title: o.title, body: o.body };
             // A PR created before the plugin could record it, say by a run that died, is adopted.
             const open = current ??

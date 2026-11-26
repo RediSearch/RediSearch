@@ -229,6 +229,33 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child
             .intersection_sort_weight(prioritize_union_children)
     }
+
+    fn reports_score_bounds(&self) -> bool {
+        self.child.reports_score_bounds()
+    }
+
+    fn current_max_score(&self) -> f64 {
+        self.child.current_max_score()
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        self.child.current_block_bound()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let start = Instant::now();
+        let result = self.child.read_with_threshold(min_competitive_score);
+        self.wall_time += start.elapsed();
+
+        self.counters.read += 1;
+        if matches!(&result, Ok(None)) {
+            self.counters.eof = true;
+        }
+        result
+    }
 }
 
 use crate::profile_print::{ProfilePrint, ProfilePrintCtx};

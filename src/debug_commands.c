@@ -2205,8 +2205,14 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     return RedisModule_WrongArity(ctx);
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
-  if (!strcasecmp(op, "pause")) {
-    if (workersThreadPool_pause() != REDISMODULE_OK) {
+  bool pause = !strcasecmp(op, "pause");
+  bool pauseNoWait = false;
+#ifdef ENABLE_ASSERT
+  // A test may need to stop dispatch before releasing a worker held at a sync point.
+  pauseNoWait = !strcasecmp(op, "pause_nowait");
+#endif
+  if (pause || pauseNoWait) {
+    if (workersThreadPool_pause(pause) != REDISMODULE_OK) {
       return RedisModule_ReplyWithError(ctx, "Operation failed: workers thread pool doesn't exists"
                                       " or is not running");
     }
@@ -4040,7 +4046,7 @@ DEBUG_COMMAND(DumpDeletedIds) {
 // Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
 // shares the NUMERIC field's bucket map) as a JSON string:
 // [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
-// "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
+// "num_values": ...}, ...]. Debug/testing only (e.g. asserting a bucket
 // split's routing state on a master and its replica).
 DEBUG_COMMAND(NumericBucketMap) {
   if (!debugCommandsEnabled(ctx)) {

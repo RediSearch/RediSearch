@@ -171,7 +171,7 @@ class WorkersDeferredShrinkTest : public WorkersAdminJobsMetricTest {
 };
 
 TEST_F(WorkersDeferredShrinkTest, ResumeKeepsAllWorkersUntilQueuedJobsStart) {
-  ASSERT_EQ(workersThreadPool_pause(), REDISMODULE_OK);
+  ASSERT_EQ(workersThreadPool_pause(true), REDISMODULE_OK);
   for (size_t i = 0; i < workerCount; ++i) {
     ASSERT_EQ(workersThreadPool_AddWork(busyJobWithFlag, &flags[i]), 0);
   }

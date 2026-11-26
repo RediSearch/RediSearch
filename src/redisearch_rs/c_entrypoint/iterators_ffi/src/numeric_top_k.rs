@@ -10,8 +10,7 @@
 //! Rust implementation of the numeric top-k (optimizer) iterator and its C
 //! accessor functions.
 //!
-//! This module provides [`NewNumericTopKIterator`], the Rust replacement for
-//! the C `NewOptimizerIterator`.
+//! This module provides [`NewNumericTopKIterator`].
 
 use std::ptr::NonNull;
 

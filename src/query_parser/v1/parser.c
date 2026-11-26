@@ -1562,6 +1562,11 @@ static YYACTIONTYPE yy_reduce(
             if (!fs) {
                 QueryNode_Free(yylhsminor.yy17);
                 yylhsminor.yy17 = NULL;
+            } else if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
+                // DIALECT 2 rejects this; DIALECT 1 keeps it valid but matching nothing. It becomes
+                // a null node rather than a dropped clause, so an intersection with it stays empty.
+                QueryNode_Free(yylhsminor.yy17);
+                yylhsminor.yy17 = NewQueryNode(QN_NULL);
             } else {
                 yylhsminor.yy17->tag.fieldIndex = fs->index;
             }
@@ -1605,8 +1610,13 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy17 = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
-    if (fs) {
+    if (fs && FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         yylhsminor.yy17 = NewNumericNode(yymsp[0].minor.yy86, fs);
+    } else if (fs) {
+        // As for a tag query on a non-TAG field: valid on DIALECT 1, matching nothing.
+        QueryParam_Free(yymsp[0].minor.yy86);
+        yymsp[0].minor.yy86 = NULL;
+        yylhsminor.yy17 = NewQueryNode(QN_NULL);
     } else if (yymsp[0].minor.yy86) {
         QueryParam_Free(yymsp[0].minor.yy86);
         yymsp[0].minor.yy86 = NULL;
@@ -1630,6 +1640,10 @@ static YYACTIONTYPE yy_reduce(
         if (!fs) {
             QueryNode_Free(yylhsminor.yy17);
             yylhsminor.yy17 = NULL;
+        } else if (!FIELD_IS(fs, INDEXFLD_T_GEO)) {
+            // As for a tag query on a non-TAG field: valid on DIALECT 1, matching nothing.
+            QueryNode_Free(yylhsminor.yy17);
+            yylhsminor.yy17 = NewQueryNode(QN_NULL);
         }
     }
 }
