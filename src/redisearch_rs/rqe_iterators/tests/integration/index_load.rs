@@ -11,19 +11,19 @@ use std::ptr::NonNull;
 
 use index_result::{RSIndexResult, YieldedData, YieldedValues};
 use query_types::QueryNodeType;
-use rlookup::{RLookupKey, RLookupKeyHandle};
+use rlookup::RLookupKeyHandle;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     index_load,
-    index_load::IndexLoad,
+    index_load::{HitNumber, IndexLoad, KeyCell, ValueSource},
     score_bound::{BlockBound, MinCompetitiveScore},
     union_opaque::{build_union, is_union_wrapper},
 };
 use rqe_iterators_test_utils::{
-    ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
+    ContractChecker, FakeKey, MockContext, ResumeOutcomeExt, revalidate_via_resume,
 };
 use rstest::rstest;
 
@@ -32,27 +32,24 @@ use crate::utils::{
     blocked::{Block, Blocked},
 };
 
-/// A stand-in for the key pipeline construction resolves: the decorator only
-/// stores a reference to it, never reads it.
-struct FakeKey(Box<ffi::RLookupKey>);
-
-impl FakeKey {
-    fn new() -> Self {
-        // SAFETY: `RLookupKey` is a plain C struct, for which all-zero is a
-        // valid value (null pointers, zero indices and flags).
-        Self(Box::new(unsafe { std::mem::zeroed() }))
-    }
-
-    fn as_ptr<'index>(&mut self) -> *mut RLookupKey<'index> {
-        (&raw mut *self.0).cast()
-    }
-}
-
 /// Bind `key` into `it`'s key slot, as pipeline construction does.
-fn bind<'index, I: RQEIterator<'index>>(it: &mut IndexLoad<'index, I>, key: &mut FakeKey) {
+fn bind<'index, I: RQEIterator<'index>, V: ValueSource>(
+    it: &mut IndexLoad<'index, I, V>,
+    key: &mut FakeKey,
+) {
     // SAFETY: the slot is the decorator's live heap cell, and nothing reads it
     // while it is written.
     unsafe { *it.key_slot().as_ptr() = key.as_ptr() };
+}
+
+/// A key cell tracked by `handle`, as evaluation binds one.
+fn cell_tracked_by(handle: &mut RLookupKeyHandle<'static>) -> KeyCell<'static> {
+    let mut cell = KeyCell::new();
+    handle.key_ptr = cell.slot().as_ptr();
+    // SAFETY: (1) `handle` outlives the cell, no handle was attached before,
+    // and nothing else borrows `handle` while the cell is dropped.
+    unsafe { cell.set_handle(NonNull::from(handle)) };
+    cell
 }
 
 /// The single `(key, value)` metric `result` carries.
@@ -69,10 +66,6 @@ fn sole_yielded_value(result: &RSIndexResult<'_>) -> (*const ffi::RLookupKey, f6
     )
 }
 
-fn fake_key_ptr(key: &FakeKey) -> *const ffi::RLookupKey {
-    &*key.0 as *const _
-}
-
 #[test]
 fn reports_the_childs_type() {
     let it = IndexLoad::new(Mock::new_with_values([1], [1.0])).unwrap();
@@ -81,7 +74,9 @@ fn reports_the_childs_type() {
 
 #[test]
 fn refuses_a_child_whose_type_it_may_not_report() {
-    let refused = IndexLoad::new(IdListSorted::new(vec![1])).map(|_| ());
+    let refused = IndexLoad::new(IdListSorted::new(vec![1]))
+        .map(|_| ())
+        .map_err(|refused| refused.type_());
     assert_eq!(refused, Err(IteratorType::IdListSorted));
 }
 
@@ -95,7 +90,7 @@ fn read_attaches_each_hits_value() {
     for (doc_id, value) in [(2, 20.0), (5, 50.0), (9, 90.0)] {
         let result = it.read().unwrap().unwrap();
         assert_eq!(result.doc_id, doc_id);
-        assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), value));
+        assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), value));
     }
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -111,14 +106,14 @@ fn skip_to_attaches_found_and_not_found_hits() {
     let Some(SkipToOutcome::Found(result)) = it.skip_to(5).unwrap() else {
         panic!("doc 5 is in the child");
     };
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 50.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 50.0));
 
     // A parent keeps a `NotFound` hit as its next candidate.
     let Some(SkipToOutcome::NotFound(result)) = it.skip_to(7).unwrap() else {
         panic!("doc 9 follows doc 7");
     };
     assert_eq!(result.doc_id, 9);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 90.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 90.0));
 
     assert!(it.skip_to(10).unwrap().is_none());
 }
@@ -157,7 +152,7 @@ fn yielded_values_are_replaced_not_accumulated() {
     let result = it.read().unwrap().unwrap();
     result.yielded_values_mut().push_without_key(-1.0);
     let result = it.read().unwrap().unwrap();
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 2.0));
 }
 
 #[test]
@@ -177,7 +172,7 @@ fn value_comes_from_the_aggregate_child_that_matched() {
     for (doc_id, value) in [(1, 10.0), (2, 20.0), (3, 30.0)] {
         let result = it.read().unwrap().unwrap();
         assert_eq!(result.doc_id, doc_id);
-        assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), value));
+        assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), value));
     }
 }
 
@@ -213,7 +208,7 @@ fn revalidate_moved_reattaches() {
         panic!("the child moved onto doc 2");
     };
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 2.0));
 }
 
 #[test]
@@ -236,7 +231,7 @@ fn resume_moved_reattaches() {
     };
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 2.0));
 }
 
 #[test]
@@ -269,10 +264,8 @@ fn resume_aborted_frees_the_decorator() {
         key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    let mut it = Box::new(IndexLoad::new(child).unwrap());
-    // SAFETY: (1) `handle` outlives `it`, no handle was attached before, and
-    // nothing else borrows `handle` while `it` is dropped.
-    unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
+    let key = cell_tracked_by(&mut handle);
+    let it = Box::new(IndexLoad::with_source(child, key, HitNumber).unwrap());
 
     assert!(matches!(
         it.suspend().resume(&guard).unwrap(),
@@ -296,9 +289,8 @@ fn resume_error_frees_the_decorator() {
         key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    let mut it = Box::new(IndexLoad::new(child).unwrap());
-    // SAFETY: (1) as in `resume_aborted_frees_the_decorator`.
-    unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
+    let key = cell_tracked_by(&mut handle);
+    let it = Box::new(IndexLoad::with_source(child, key, HitNumber).unwrap());
 
     assert!(matches!(
         it.suspend().resume(&guard),
@@ -385,18 +377,16 @@ fn a_decorated_union_is_not_a_union_wrapper() {
 #[test]
 fn key_slot_survives_profiling() {
     let mut key = FakeKey::new();
-    let mut decorator = IndexLoad::new(CRQEIterator::from_rust_leaf(Mock::new_with_values(
-        [4],
-        [40.0],
-    )))
-    .unwrap();
     let mut handle = RLookupKeyHandle {
-        key_ptr: decorator.key_slot().as_ptr(),
+        key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    // SAFETY: (1) `handle` outlives the iterator, no handle was attached
-    // before, and nothing else borrows `handle` while the iterator is dropped.
-    unsafe { decorator.set_handle(Some(NonNull::from(&mut handle))) };
+    let decorator = IndexLoad::with_source(
+        CRQEIterator::from_rust_leaf(Mock::new_with_values([4], [40.0])),
+        cell_tracked_by(&mut handle),
+        HitNumber,
+    )
+    .unwrap();
     let header = index_load::boxed_new(decorator);
 
     // SAFETY: (1)–(4) `header` is a valid, owning iterator handle.
@@ -410,7 +400,7 @@ fn key_slot_survives_profiling() {
     unsafe { *handle.key_ptr = key.as_ptr() };
 
     let result = profiled.read().unwrap().unwrap();
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 40.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 40.0));
 
     drop(profiled);
     assert!(!handle.is_valid);
@@ -424,7 +414,7 @@ fn read_with_threshold_attaches() {
 
     let threshold = MinCompetitiveScore::new(1.0).expect("a finite threshold applies");
     let result = it.read_with_threshold(threshold).unwrap().unwrap();
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 5.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 5.0));
 }
 
 /// A full union over a loading child and a sibling that aborts or moves on
@@ -462,7 +452,7 @@ fn union_keeps_the_value_when_a_sibling_changes_on_revalidate(
 
     let result = it.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 10.0));
 
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert!(
@@ -471,11 +461,11 @@ fn union_keeps_the_value_when_a_sibling_changes_on_revalidate(
     );
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 10.0));
 
     let result = it.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 20.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 20.0));
 }
 
 #[rstest]
@@ -489,14 +479,14 @@ fn union_keeps_the_value_when_a_sibling_changes_on_resume(
     let mut it = union_over_loading_child(&mut key, sibling_outcome);
 
     let result = it.read().unwrap().unwrap();
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 10.0));
 
     let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
         .unwrap()
         .expect_ok();
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 10.0));
 }
 
 #[test]

@@ -24,7 +24,7 @@ use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
 use rqe_iterators::{
     c2rust::CRQEIterator,
-    index_load::{self, IndexLoad},
+    index_load::{self, HitNumber, IndexLoad, KeyCell},
 };
 
 use crate::{Evaluated, QueryEvalContext, QueryNodeRef};
@@ -62,6 +62,22 @@ pub(crate) fn reserve(
     }))
 }
 
+/// A key cell bound to `request`, for the decorators of the clause that
+/// reserved it to share.
+pub(crate) fn bind<'a>(ctx: &mut QueryEvalContext, request: YieldRequestId) -> KeyCell<'a> {
+    let mut key = KeyCell::new();
+    // SAFETY: (1) `request` was reserved on `ctx` by `reserve`. (2) The slot is
+    // a heap cell that stays valid until its last clone, which invalidates the
+    // handle, is dropped. (3) The handle is installed on the cell just below.
+    // (4) The AST, which owns the yield-request array, outlives the iterator
+    // tree.
+    let handle = unsafe { ctx.bind_yield_request_key(request, key.slot().as_ptr()) };
+    // SAFETY: (1) `handle` lives as long as the AST, and only this cell, which
+    // clears its validity flag when its last clone is dropped, writes it.
+    unsafe { key.set_handle(handle) };
+    key
+}
+
 /// Wrap `evaluated` in an index-loading decorator bound to `request`, or hand
 /// it back unchanged when the clause loads nothing.
 ///
@@ -79,26 +95,17 @@ pub(crate) fn decorate<'index>(
     // SAFETY: (1)–(4) `into_c_iterator` yields a valid, owning iterator handle
     // with every required callback populated and callable.
     let child = unsafe { CRQEIterator::new(evaluated.into_c_iterator()) };
-    let mut decorator = match IndexLoad::new(child) {
-        Ok(decorator) => decorator,
-        Err(type_) => {
+    let key = bind(ctx, request);
+    match IndexLoad::with_source(child, key, HitNumber) {
+        Ok(decorator) => Some(Evaluated::RustCompound(index_load::boxed_new(decorator))),
+        Err(refused) => {
             ctx.status().set_error(
                 QueryErrorCode::BadAttr,
-                &format!("`$as` is not supported on a {type_} iterator"),
+                &format!("`$as` is not supported on a {} iterator", refused.type_()),
             );
-            return None;
+            None
         }
-    };
-    // SAFETY: (1) `request` was reserved on `ctx` by `reserve`. (2) The slot is
-    // a heap cell the decorator owns, so it stays valid across moves of the
-    // decorator until it is freed. (3) The handle is installed on the decorator
-    // just below. (4) The AST, which owns the yield-request array, outlives
-    // the iterator tree.
-    let handle = unsafe { ctx.bind_yield_request_key(request, decorator.key_slot().as_ptr()) };
-    // SAFETY: (1) `handle` lives as long as the AST, and only this decorator,
-    // which clears its validity flag when freed, writes it.
-    unsafe { decorator.set_handle(Some(handle)) };
-    Some(Evaluated::RustCompound(index_load::boxed_new(decorator)))
+    }
 }
 
 /// The alias of a loading `node`.
