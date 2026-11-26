@@ -1,0 +1,73 @@
+name: Diagnose fast-track API access
+
+on:
+  push:
+    branches: [lerman25-fast-track-access-probe-20261126]
+    paths: [.github/workflows/diagnose-fast-track-access.yml]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  probe:
+    if: github.repository == 'RediSearch/RediSearch'
+    runs-on: ubuntu-slim
+    timeout-minutes: 3
+    steps:
+      - name: Check the validator's API reads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIRA_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+        shell: python
+        run: |
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(NoRedirect())
+
+          def probe(name, url, authorization, summarize=lambda data: ""):
+              request = urllib.request.Request(url, headers={
+                  "Authorization": authorization,
+                  "Accept": "application/json",
+                  "User-Agent": "redisearch-fast-track-read-only-probe",
+              })
+              try:
+                  with opener.open(request, timeout=15) as response:
+                      result = summarize(json.load(response))
+                      print(f"{name}: HTTP {response.status} {result}".rstrip())
+              except urllib.error.HTTPError as error:
+                  print(f"{name}: HTTP {error.code}")
+              except (OSError, ValueError, KeyError, TypeError):
+                  print(f"{name}: request or response failed")
+
+          github = "https://api.github.com/repos/RediSearch/RediSearch"
+          github_auth = "Bearer " + os.environ["GH_TOKEN"]
+          probe("GitHub original PR", github + "/pulls/12500", github_auth)
+          probe("GitHub open PR", github + "/pulls/12587", github_auth)
+          for login in ("gdesmott", "GuyAv46"):
+              probe(f"GitHub collaborator {login}",
+                    github + f"/collaborators/{login}/permission", github_auth,
+                    lambda data: "write_access=" + str(data["permission"] in {"write", "maintain", "admin"}))
+
+          email = os.environ["JIRA_EMAIL"]
+          token = os.environ["JIRA_API_TOKEN"]
+          if not email or not token:
+              print("Jira credentials: one or both repository secrets are unset")
+              raise SystemExit(1)
+
+          jira = "https://redislabs.atlassian.net/rest/api/3"
+          jira_auth = "Basic " + base64.b64encode(f"{email}:{token}".encode()).decode()
+          probe("Jira identity", jira + "/myself", jira_auth,
+                lambda data: "active=" + str(data.get("active") is True))
+          for key in ("MOD-21624", "MOD-21519", "MOD-16335"):
+              probe(f"Jira issue {key}", jira + f"/issue/{key}?fields=labels", jira_auth,
+                    lambda data: "fast_track_label=" + str("ai-fast-track" in data["fields"]["labels"]))
