@@ -13,6 +13,11 @@
 #include "tokenize.h"
 
 #include <set>
+#include <vector>
+
+extern "C" {
+#include "toksep.h"
+}
 
 class TokenizerTest : public ::testing::Test {};
 
@@ -150,4 +155,40 @@ TEST_F(TokenizerTest, testEscapedSeparator) {
   }
   free(txt);
   tk->Free(tk);
+}
+
+TEST_F(TokenizerTest, testRawTokenSpans) {
+  const struct {
+    const char *name;
+    std::string input;
+    std::vector<size_t> lengths;
+  } cases[] = {
+      {"empty", "", {0}},
+      {"consecutive and trailing separators", " ,ab\\ cd,,ef ", {0, 0, 6, 0, 2}},
+      {"trailing backslash", "b\\", {2}},
+  };
+  for (const auto &test : cases) {
+    SCOPED_TRACE(test.name);
+    std::string buffer = test.input;
+    char *cursor = buffer.data();
+    size_t offset = 0;
+    for (size_t expected : test.lengths) {
+      ASSERT_NE(cursor, nullptr);
+      char *start = cursor;
+      size_t len = SIZE_MAX;
+      char *token = toksep(&cursor, &len);
+      ASSERT_EQ(token, start);
+      ASSERT_EQ(token, buffer.data() + offset);
+      ASSERT_EQ(len, expected);
+      ASSERT_EQ(buffer, test.input);
+      offset += len;
+      if (buffer[offset] == '\0') {
+        ASSERT_EQ(cursor, nullptr);
+      } else {
+        ++offset;
+        ASSERT_EQ(cursor, buffer[offset] ? buffer.data() + offset : nullptr);
+      }
+    }
+    ASSERT_EQ(cursor, nullptr);
+  }
 }
