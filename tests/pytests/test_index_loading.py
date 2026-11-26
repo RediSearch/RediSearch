@@ -33,10 +33,11 @@ def with_unstable_features(test):
     return wrapper
 
 
-def setup_hash_index(env):
+def setup_hash_index(env, index_all=False):
     env.flush()
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+    index_all_args = ['INDEXALL', 'ENABLE'] if index_all else []
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', *index_all_args, 'SCHEMA',
                'n', 'NUMERIC', 'm', 'NUMERIC', 'id', 'NUMERIC', 'SORTABLE', 't', 'TAG', 'SORTABLE',
                'title', 'TEXT', 'g', 'GEO').ok()
     for i, (n, t) in DOCS.items():
@@ -116,6 +117,16 @@ def testPlacementUnderAndOrOptional(env):
                           'SORTBY', '2', '@id', 'ASC')
     env.assertEqual(rows, [{'id': '1'}, {'id': '3'}, {'v': '40', 'id': '4'}, {'id': '5'}, {'id': '7'}])
 
+    rows = aggregate_rows(env, '@t:{b} ~(@n:[35 65] => {$as: v})', 'LOAD', '1', '@id',
+                          'SORTBY', '2', '@id', 'ASC')
+    env.assertEqual(rows, [{'id': '2'}, {'v': '40', 'id': '4'}, {'v': '60', 'id': '6'}, {'id': '8'}])
+
+
+@with_unstable_features
+def testOptionalOnAnIndexAllIndex(env):
+    """With `INDEXALL ENABLE` the optional node walks the existing-documents index instead, and
+    still only the results its clause matched have the value."""
+    setup_hash_index(env, index_all=True)
     rows = aggregate_rows(env, '@t:{b} ~(@n:[35 65] => {$as: v})', 'LOAD', '1', '@id',
                           'SORTBY', '2', '@id', 'ASC')
     env.assertEqual(rows, [{'id': '2'}, {'v': '40', 'id': '4'}, {'v': '60', 'id': '6'}, {'id': '8'}])
@@ -285,7 +296,7 @@ def testLoadsTheValueACompressedTreeStores(env):
     env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
     try:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-        env.cmd('HSET', 'doc:1', 'n', '1.1')
+        getConnectionByEnv(env).execute_command('HSET', 'doc:1', 'n', '1.1')
         [row] = aggregate_rows(env, '@n:[1 2] => {$as: v}')
         env.assertAlmostEqual(float(row['v']), 1.1, delta=0.01, message=row)
     finally:
