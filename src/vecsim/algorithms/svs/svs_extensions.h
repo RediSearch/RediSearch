@@ -198,7 +198,7 @@ struct SVSStorageTraits<DataType, QuantBits, ResidualBits, true> {
 
     static size_t check_leanvec_dim(size_t dims, size_t leanvec_dim) {
         if (leanvec_dim == 0) {
-            return dims / 2; /* default LeanVec dimension */
+            return std::max<size_t>(1, dims / 2); /* default LeanVec dimension */
         }
         return leanvec_dim;
     }

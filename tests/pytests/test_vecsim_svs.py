@@ -207,6 +207,27 @@ def test_rdb_load_trained_svs_vamana():
 
 
 @skip(cluster=True)
+def test_leanvec_default_reduce_with_dim_1():
+    # DIM / 2 is 0 for DIM 1; LeanVec training must still get a non-empty reduction.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 1
+    training_threshold = DEFAULT_BLOCK_SIZE
+    create_vector_index(env, dim, alg='SVS-VAMANA',
+                        additional_vec_params=['COMPRESSION', 'LeanVec4x8',
+                                               'TRAINING_THRESHOLD', training_threshold])
+    if is_intel_opt_enabled():
+        field_info = to_dict(index_info(env)['attributes'][0])
+        env.assertEqual(field_info['reduced_dim'], 1)
+
+    num_docs = training_threshold + 1
+    populate_with_vectors(env, num_docs=num_docs, dim=dim)
+    drain_workers(env)
+
+    backend = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend['INDEX_SIZE'], num_docs)
+
+
+@skip(cluster=True)
 def test_svs_vector_survives_repeated_numeric_updates():
     """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2', redisConfigFile=thread_gc_conf(run_interval=50000))

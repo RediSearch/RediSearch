@@ -1744,6 +1744,39 @@ TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
   }
 }
 
+// FT.CREATE rejects REDUCE > DIM, but specs saved before that bound must still load.
+TEST_F(RdbMockTest, testSvsLeanVecReduceAboveDimIsClampedOnRdbLoad) {
+  const size_t dim = 4;
+  std::array args{"SCHEMA", "v",           "VECTOR",    "SVS-VAMANA", "8",
+                  "TYPE",   "FLOAT32",     "DIM",       "4",          "DISTANCE_METRIC",
+                  "L2",     "COMPRESSION", "LeanVec4x8"};
+  QueryError err = QueryError_Default();
+  StrongRef specRef = IndexSpec_ParseC(nullptr, "svs_reduce_clamp", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
+  ASSERT_NE(spec, nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+      spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+  for (size_t reduce : {dim, dim + 1, size_t{1000000}}) {
+    SCOPED_TRACE(::testing::Message() << "reduce=" << reduce);
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_NE(io, nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+        io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+    VecSimParams *params = &spec->fields[0].vectorOpts.vecSimParams;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.svsParams.leanvec_dim = reduce;
+    VecSim_RdbSave(io, params);
+
+    VecSimParams loaded = {};
+    ASSERT_EQ(REDISMODULE_OK, VecSim_RdbLoad_v5(io, &loaded, specRef, "v"));
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+    EXPECT_EQ(dim,
+              loaded.algoParams.tieredParams.primaryIndexParams->algoParams.svsParams.leanvec_dim);
+    VecSimParams_Cleanup(&loaded);
+  }
+}
+
 // A GEOSHAPE field's coordinate system indexes fixed per-system tables, so a value outside
 // GEOMETRY_COORDS must fail the load instead of reaching them.
 TEST_F(RdbMockTest, testGeometryCoordsRdbLoad) {

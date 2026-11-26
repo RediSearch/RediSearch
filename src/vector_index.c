@@ -617,6 +617,17 @@ static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, 
       primaryParams->algoParams.svsParams.leanvec_dim = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.search_window_size = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb, goto fail);
+      SVSParams *svsParams = &primaryParams->algoParams.svsParams;
+      // Specs saved before FT.CREATE bounded REDUCE can exceed DIM. Rejecting them would fail
+      // the whole RDB load, although builds without Intel SVS ignore REDUCE and serve them fine.
+      if (VecSim_IsLeanVecCompressionType(svsParams->quantBits) &&
+          svsParams->leanvec_dim > svsParams->dim) {
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+                        "vector index '%s' - REDUCE %zu is greater than DIM %zu, using DIM",
+                        RSGlobalConfig.hideUserDataFromLog ? "***" : field_name,
+                        svsParams->leanvec_dim, svsParams->dim);
+        svsParams->leanvec_dim = svsParams->dim;
+      }
     } else {
       goto fail; // Unsupported primary algorithm for tiered index
     }

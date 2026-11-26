@@ -1132,6 +1132,19 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE is irrelevant when compression is not of type LeanVec");
     return 0;
   }
+  // Resolved before validation so the memory estimate sees the real reduced dimension. The floor
+  // of 1 keeps DIM 1 from defaulting to a zero-dimensional reduction.
+  if (VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) &&
+      params->algoParams.svsParams.leanvec_dim == 0) {
+    params->algoParams.svsParams.leanvec_dim = MAX(1, params->algoParams.svsParams.dim / 2);
+  }
+  // LeanVec training sizes its projection and buffers by the reduced dimension, and SVS throws
+  // (terminating the server) on a reduction it cannot perform. RDB load clamps instead of
+  // rejecting, see VecSim_RdbLoad_v4_v5.
+  if (params->algoParams.svsParams.leanvec_dim > params->algoParams.svsParams.dim) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE cannot be greater than DIM");
+    return 0;
+  }
   // Calculating expected blob size of a vector in bytes.
   if (!VectorIndex_GetBlobSize(params->algoParams.svsParams.dim, params->algoParams.svsParams.type,
                                &fs->vectorOpts.expBlobSize, status)) {
@@ -1380,11 +1393,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     if (!(params->primaryIndexParams->algoParams.svsParams.quantBits == VecSimSvsQuant_NONE)
       && (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0)) {
         params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
-    }
-    if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
-        params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
-      params->primaryIndexParams->algoParams.svsParams.leanvec_dim =
-        params->primaryIndexParams->algoParams.svsParams.dim / 2;  // default value
     }
 
   } else {

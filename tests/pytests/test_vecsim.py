@@ -608,6 +608,10 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `REDUCE`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'REDUCE', '0.5') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `REDUCE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'REDUCE', '17') \
+        .error().contains('REDUCE cannot be greater than DIM')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 4, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', 'LeanVec8x8', 'REDUCE', '1000000') \
+        .error().contains('REDUCE cannot be greater than DIM')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `EPSILON`')
