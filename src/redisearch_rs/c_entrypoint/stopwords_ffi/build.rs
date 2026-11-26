@@ -8,5 +8,9 @@
 */
 
 fn main() {
-    build_utils::bind_foreign_c_symbols();
+    #[cfg(feature = "unittest")]
+    {
+        build_utils::bind_foreign_c_symbols();
+        build_utils::compile_c_bench_shim("tests/rdb_io.c");
+    }
 }

@@ -50,6 +50,7 @@ slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../sorting_vector_ffi" }
 sparse_vector_index_ffi = { path = "../sparse_vector_index_ffi" }
 spellcheck_dictionary_ffi = { path = "../spellcheck_dictionary_ffi" }
+stopwords_ffi = { path = "../stopwords_ffi" }
 string_utils_ffi = { path = "../string_utils_ffi" }
 term_dictionary_ffi = { path = "../term_dictionary_ffi" }
 term_suffix_index_ffi = { path = "../term_suffix_index_ffi" }
