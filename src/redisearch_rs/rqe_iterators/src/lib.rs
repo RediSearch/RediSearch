@@ -312,23 +312,14 @@ pub trait RQEIterator<'index> {
     /// Returns the [`IteratorType`] of this iterator.
     fn type_(&self) -> IteratorType;
 
-    /// Returns `Some(&self)` if this iterator is a [`c2rust::CRQEIterator`], `None` otherwise.
-    ///
-    /// Used by [`Intersection`] to compute sort weights without requiring `'static`.
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        None
-    }
-
     /// Returns the sort weight for this iterator when used as a child of an [`Intersection`].
     ///
     /// [`Intersection`] uses this to order its children before execution: a lower value makes
     /// this iterator act as the pivot (minimising `SkipTo` calls). The final sort key is
     /// `num_estimated * intersection_sort_weight(...)`.
     ///
-    /// Implementers:
-    /// - [`Intersection`]: `1.0 / num_children` — fewer children means tighter selectivity.
-    /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
-    /// - Everything else: `1.0` — neutral, no influence.
+    /// `1.0` is neutral and is what leaf iterators return. Composites derive their own weight;
+    /// see the implementations on [`Intersection`] and the union iterators.
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
 
     /**************** score bounds ****************/
@@ -443,10 +434,6 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         (**self).type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        (**self).as_c_iterator()
     }
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {

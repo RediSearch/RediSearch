@@ -178,6 +178,10 @@ typedef struct QueryIterator {
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 
+  /* Callbacks added after the others go last, so that adding them leaves the offsets of the
+   * earlier ones unchanged. A header that never sets one (e.g. a zero-initialised C/C++
+   * iterator such as the test mocks) gets NULL; each callback says what NULL means. */
+
   /**
    * Called immediately before the spec read lock is released, to inform the iterator that it
    * must drop any state that depends on the lock being held (in particular, borrows into
@@ -190,11 +194,12 @@ typedef struct QueryIterator {
    *
    * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
    * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
-   *
-   * Last in the struct so that adding it left the offsets of the other callbacks unchanged for
-   * iterators built outside this module, such as the disk API's.
    */
   void (*Suspend)(struct QueryIterator *self);
+
+  /* The weight an intersection multiplies this child's `NumEstimated` by to order its children:
+   * the lowest product goes first. NULL means 1.0, a neutral weight. */
+  double (*IntersectionSortWeight)(const struct QueryIterator *self, bool prioritizeUnionChildren);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {

@@ -61,7 +61,6 @@ use ref_mode::{Active, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    c2rust,
 };
 
 /// Concrete-typed active iterator trait — the new shape of
@@ -89,7 +88,7 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     /// Transition to the suspended state.
     ///
     /// Must be called while the spec read lock is still held: an implementation may still read
-    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
+    /// index memory, as [`CRQEIterator`](crate::c2rust::CRQEIterator) does to snapshot its estimate.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
@@ -728,11 +727,6 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
-    }
-
-    #[inline(always)]
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        self.0.as_c_iterator()
     }
 
     #[inline(always)]
