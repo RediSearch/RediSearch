@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "gtest/gtest.h"
 #include "index_utils.h"
+#include "spec.h"
 
 #include <climits>
 #include <vector>
@@ -316,7 +317,15 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
   }
 }
 
+// Saves `isFlex` and restores it when the scope ends, so a failed assertion can't leak it.
+struct FlexScope {
+  explicit FlexScope(bool flex) : saved(isFlex) { isFlex = flex; }
+  ~FlexScope() { isFlex = saved; }
+  bool saved;
+};
+
 TEST_F(TagIndexTest, testPreprocessReturnsEachValueOnce) {
+  FlexScope flex(true);
   const auto noOpts = (FieldSpecOptions)0;
   const auto folded = (TagFieldFlags)0;
 
@@ -380,6 +389,13 @@ TEST_F(TagIndexTest, testPreprocessReturnsEachValueOnce) {
     const char *e[] = {"", "red"};
     checkPreprocessCStr(',', folded, FieldSpec_IndexEmpty, ",red,,RED,", e, 2);
   }
+}
+
+// Memory indexes keep the tokenized list as is; their posting writes already ignore a repeat.
+TEST_F(TagIndexTest, testPreprocessKeepsRepeatsInMemory) {
+  FlexScope flex(false);
+  const char *e[] = {"a", "b", "a", "a"};
+  checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "a,b,a,A", e, 4);
 }
 
 TEST_F(TagIndexTest, testOpenReaderEdgeCases) {

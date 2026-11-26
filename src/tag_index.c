@@ -236,7 +236,9 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     RS_ABORT("nope")
     break;
   }
-  fdata->tags = dedupTags(arr);
+  // Only disk indexes need this: memory mode already drops a repeat when it writes the
+  // postings (see `tagIndex_Put`), so it keeps the tokenized list untouched.
+  fdata->tags = SearchDisk_IsEnabled() ? dedupTags(arr) : arr;
   return ret;
 }
 
