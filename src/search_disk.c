@@ -65,7 +65,7 @@ static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index)
 // Takes diskLifetimeLock_g exclusively, waiting up to DISK_CLOSE_LOCK_TIMEOUT_SEC for the indexes
 // that are mid-close. Returns false on timeout, without the lock. Polled because
 // pthread_rwlock_timedwrlock is not available on every supported platform.
-static bool acquireDiskLifetimeLockExclusive(void) {
+static bool acquireDiskLifeTimeLock(void) {
   const struct timespec poll = {.tv_sec = 0, .tv_nsec = 1000000};
   struct timespec start, now;
   clock_gettime(CLOCK_MONOTONIC, &start);
@@ -293,7 +293,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
   }
   SearchDisk_StopMetrics();
 
-  if (!acquireDiskLifetimeLockExclusive()) {
+  if (!acquireDiskLifeTimeLock()) {
     // An index is stuck mid-close. Closing the context under it would free what it still uses,
     // so leave the context open: this runs at shutdown and the process is about to exit.
     RedisModule_Log(ctx, "warning",
