@@ -104,9 +104,6 @@ void SearchDisk_ReleaseCreateFailure(void);
  * @param status Receives the disk layer's reason when the open fails and it has one; left
  *        clear otherwise. May be NULL.
  * @return Pointer to the index, or NULL if it does not exist
- *
- * The index starts empty, so it takes its score-skipping mode from the current
- * `search-_disk-score-skipping` config and keeps it for its lifetime.
  */
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
                                                const char *obfuscatedName, DocumentType type,
@@ -259,13 +256,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
                           const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
                           uint32_t freq, SearchDiskDocStats docStats, const uint8_t *offsets,
                           size_t offsetsLen);
-
-/**
- * @brief Whether the index keeps per-block score bounds.
- *
- * @param index Pointer to the index
- */
-bool SearchDisk_IsScoreSkippingEnabled(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Index multiple tag values for a document

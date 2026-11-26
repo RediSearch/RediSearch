@@ -38,4 +38,8 @@ typedef enum {
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 
   Index_HasSparseVec = 0x100000,  // Index has at least one sparse vector field
+
+  // A disk index whose term blocks keep score bounds. Set at FT.CREATE from
+  // `search-_disk-score-skipping` and fixed for the index's lifetime.
+  Index_DiskScoreSkipping = 0x200000,
 } IndexFlags;
