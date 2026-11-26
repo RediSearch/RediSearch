@@ -348,6 +348,12 @@ impl<'query> RQESuspendedIterator<'query> for BlockedSuspended {
     }
 }
 
+impl ProfilePrint for BlockedSuspended {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
 impl ProfilePrint for Blocked<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MOCK");

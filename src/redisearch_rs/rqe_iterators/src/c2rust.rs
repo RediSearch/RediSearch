@@ -546,7 +546,8 @@ impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
 
 /// The suspended form of a [`CRQEIterator`].
 ///
-/// Exposes only the [`RQESuspendedIterator`] API, as every [`RQEIterator`] method calls into C
+/// Exposes only the [`RQESuspendedIterator`] API and
+/// [`ProfilePrint`], as every [`RQEIterator`] method calls into C
 /// callbacks that may read index memory.
 #[repr(transparent)]
 pub struct CRQESuspendedIterator(CRQEIterator);
@@ -603,5 +604,19 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
     fn num_estimated(&self) -> usize {
         // Not a call into C: see the field.
         self.0.num_estimated_snapshot
+    }
+}
+
+/// Printing goes through the iterator's `PrintProfile` callback, as the active form does. That
+/// is sound on a suspended iterator because every such callback reads only query-owned data: a
+/// Rust-wrapped iterator prints whichever form it holds, and C iterators print their own fields
+/// and recurse into their children.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
