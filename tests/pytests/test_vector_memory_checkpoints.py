@@ -28,7 +28,6 @@ RADIUS = DIM * HALF_WIDTH ** 2
 RANGE_MATCHES = 21
 # The same docs as the range matches, so the baseline's per-row calls equal the vector query's.
 RANGE_BASELINE = f'@n:[{QUERY_VALUE - HALF_WIDTH} {QUERY_VALUE + HALF_WIDTH}]'
-JSON_MULTI_RANGE_CALLS = 45
 
 
 def _vec(value):
@@ -95,17 +94,28 @@ def _vector_calls(env, query, baseline_filter):
     return with_vector, [c - b for c, b in zip(with_vector, baseline, strict=True)]
 
 
+def _range_hits(env, query):
+    """How many documents the vector range filter of `query` returns."""
+    at = query.index('PARAMS')
+    reply = env.cmd('FT.SEARCH', query[1], query[2], *query[at:at + 4],
+                    'NOCONTENT', 'LIMIT', 0, N_DOCS)
+    return len(reply['results'])
+
+
 def _vector_checkpoint_positions(env, query, vector_calls, baseline_filter=RANGE_BASELINE):
     """Call positions that include the vector checkpoints of `query`, a vector range query whose
-    filter is `query[2]`. Check the exact added calls when `vector_calls` is specified. HNSW's
-    traversal depends on the graph, so for HNSW require a call beyond the post-search checkpoint.
-    FLAT's exact count covers the post-search checkpoint shared by both algorithms.
+    filter is `query[2]`. Check the exact added calls when `vector_calls` is specified. For HNSW
+    (`vector_calls` None) the count depends on the graph, so check its floor instead: the search
+    checks once per candidate it expands, and expands every vector it returns, so it adds at least
+    one call per returned document plus the post-search checkpoint. FLAT's exact count covers that
+    post-search checkpoint, which both algorithms share.
     Sample across the query's calls to hit vector checkpoints regardless of their order, provided
     they account for more than about a quarter of the calls. LIMIT 0 0 excludes reply-loop calls."""
     with_vector, extra = _vector_calls(env, query, baseline_filter)
     if vector_calls is None:
+        min_calls = _range_hits(env, query) + 1
         for count in extra:
-            env.assertGreater(count, 1, message=(with_vector, extra))
+            env.assertGreaterEqual(count, min_calls, message=(with_vector, extra, min_calls))
     else:
         if isinstance(vector_calls, int):
             vector_calls = [vector_calls] * len(extra)
@@ -219,7 +229,7 @@ def test_json_multi_value_range_stops_for_oom(env):
         wait_for_background_indexing(env, 'jidx', 'mv', backend_index_size=2 * N_DOCS)
     query = ['FT.SEARCH', 'jidx', f'@mv:[VECTOR_RANGE {RADIUS} $b]', 'PARAMS', 2, 'b',
              _vec(QUERY_VALUE), 'NOCONTENT', 'LIMIT', 0, N_DOCS]
-    for at_call in _vector_checkpoint_positions(env, query, JSON_MULTI_RANGE_CALLS, '*'):
+    for at_call in _vector_checkpoint_positions(env, query, None, '*'):
         _expect_stopped_by_policy(env, query, RANGE_MATCHES, [at_call])
 
 
