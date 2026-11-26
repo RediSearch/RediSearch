@@ -51,6 +51,10 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         self.0.set_timeout(timeout);
     }
 
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
+        self.0.set_stop_check(stop);
+    }
+
     /// Advance to the next matching entry; returns a reference to its data.
     ///
     /// Mirrors [`AutomatonIter::advance`] so that the auto-dispatching
@@ -130,6 +134,14 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
             Self::Filter(it) => it.set_timeout(timeout),
         }
     }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
+        match self {
+            Self::U64(it) => it.set_stop_check(stop),
+            Self::U128(it) => it.set_stop_check(stop),
+            Self::Filter(it) => it.set_stop_check(stop),
+        }
+    }
 }
 
 /// The different supported backends for our wildcard iterator.
@@ -179,6 +191,10 @@ impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
     /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout);
+    }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
+        self.0.set_stop_check(stop);
     }
 }
 

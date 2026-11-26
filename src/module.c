@@ -593,7 +593,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len = 0;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
-  TagIndex *idx = NULL;
+  const bool onDisk = sctx->spec->diskSpec != NULL;
+  TagIndex *idx;
 
   if (!fs) {
     ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "No such field");
@@ -604,13 +605,19 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
+  if (onDisk) {
+    IndexSpec_LockRead(sctx->spec);
+  }
+
   idx = TagIndex_Open(fs);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
-    goto cleanup;
+  } else {
+    TagIndex_SerializeValues(idx, ctx);
   }
-
-  TagIndex_SerializeValues(idx, ctx);
+  if (onDisk) {
+    IndexSpec_Unlock(sctx->spec);
+  }
 
 cleanup:
   CurrentThread_ClearIndexSpec();
@@ -646,45 +653,6 @@ overwritten
 
     OK or an error
 */
-// Whether the options of an FT.CREATE, before its SCHEMA, already carry the disk score-skipping
-// mode, as a create the replica received from its primary does.
-static bool createCarriesDiskScoreSkipping(RedisModuleString **argv, int argc) {
-  for (int i = 2; i < argc; i++) {
-    const char *arg = RedisModule_StringPtrLen(argv[i], NULL);
-    if (!strcasecmp(arg, "SCHEMA")) {
-      return false;
-    }
-    if (!strcasecmp(arg, SPEC_DISK_SCORE_SKIPPING_STR)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Replicates a successful FT.CREATE as a create-if-not-exists. A disk index's score-skipping mode
-// is added as an explicit option, since the replica would otherwise take its own config.
-static void replicateCreate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                            const IndexSpec *sp) {
-  const char *cmd = CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD);
-  if (!sp->diskSpec || createCarriesDiskScoreSkipping(argv, argc)) {
-    RedisModule_Replicate(ctx, cmd, "v", argv + 1, (size_t)argc - 1);
-    return;
-  }
-  const size_t replicatedArgc = (size_t)argc + 1;
-  RedisModuleString **replicated = rm_malloc(replicatedArgc * sizeof(*replicated));
-  replicated[0] = argv[1];
-  replicated[1] = RedisModule_CreateString(ctx, SPEC_DISK_SCORE_SKIPPING_STR,
-                                           strlen(SPEC_DISK_SCORE_SKIPPING_STR));
-  replicated[2] = RedisModule_CreateString(ctx, (sp->flags & Index_DiskScoreSkipping) ? "1" : "0", 1);
-  for (int i = 2; i < argc; i++) {
-    replicated[i + 1] = argv[i];
-  }
-  RedisModule_Replicate(ctx, cmd, "v", replicated, replicatedArgc);
-  RedisModule_FreeString(ctx, replicated[1]);
-  RedisModule_FreeString(ctx, replicated[2]);
-  rm_free(replicated);
-}
-
 int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, the SCHEMA keyword, and number of field/text args must be even
   if (argc < 5) {
@@ -712,7 +680,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    * On replica of the destination will get the ft.create command from
    * all the src shards and not need to recreate it.
    */
-  replicateCreate(ctx, argv, argc, sp);
+  RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1936,7 +1904,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,                            "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   DiskDisabledCmd(SpellCheckCommand),        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
@@ -3926,7 +3894,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   SearchCommand deprecatedCommands[] = {
     DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", SetDontCacheInfo, SET_COMMAND_INFO, "read",           true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(DiskDisabledCmd(TagValsCommandHandler)), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
+    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(TagValsCommandHandler),                  "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
   };
   if (CreateSearchCommands(ctx, deprecatedCommands, sizeof(deprecatedCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

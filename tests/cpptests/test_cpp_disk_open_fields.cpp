@@ -11,6 +11,7 @@
 #include "common.h"
 #include "concurrent_ctx.h"
 #include "query_test_utils.h"
+#include "query_eval_ffi.h"
 
 extern "C" {
 #include "rules.h"
@@ -18,6 +19,7 @@ extern "C" {
 #include "tag_index.h"
 #include "triemap_ffi.h"
 int RegisterDebugCommands(RedisModuleCommand *debugCommand);
+int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
@@ -246,38 +248,21 @@ TEST_F(DiskSchemaOpenTest, CreateForwardsIndexFlags) {
   EXPECT_FALSE(sp->flags & Index_StoreFieldFlags);
 }
 
-// The score-skipping mode is the index's flag: the config at create sets it, unless the create
-// names the mode, as one replicated from a primary does.
+// The config at create sets the index's score-skipping flag; changing it later leaves the flag.
 TEST_F(DiskSchemaOpenTest, CreateRecordsTheScoreSkippingModeAsAFlag) {
   Restore scoreSkipping{RSGlobalConfig.diskScoreSkipping};
   QueryError err = QueryError_Default();
 
   RSGlobalConfig.diskScoreSkipping = true;
-  IndexSpec *fromConfig = create("skipping_from_config", {"title", "TEXT"}, &err);
-  ASSERT_NE(fromConfig, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_TRUE(fromConfig->flags & Index_DiskScoreSkipping);
-  IndexSpec *named = create("skipping_named_off", {"title", "TEXT"}, &err,
-                            {SPEC_DISK_SCORE_SKIPPING_STR, "0"});
-  ASSERT_NE(named, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_FALSE(named->flags & Index_DiskScoreSkipping);
+  IndexSpec *on = create("skipping_on", {"title", "TEXT"}, &err);
+  ASSERT_NE(on, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_EQ(flagsAtOpen.back(), on->flags);
 
   RSGlobalConfig.diskScoreSkipping = false;
   IndexSpec *off = create("skipping_off", {"title", "TEXT"}, &err);
   ASSERT_NE(off, nullptr) << QueryError_GetUserError(&err);
   EXPECT_FALSE(off->flags & Index_DiskScoreSkipping);
-  IndexSpec *namedOn = create("skipping_named_on", {"title", "TEXT"}, &err,
-                              {SPEC_DISK_SCORE_SKIPPING_STR, "1"});
-  ASSERT_NE(namedOn, nullptr) << QueryError_GetUserError(&err);
-  EXPECT_TRUE(namedOn->flags & Index_DiskScoreSkipping);
-  EXPECT_EQ(flagsAtOpen.back(), namedOn->flags);
-}
-
-TEST_F(DiskSchemaOpenTest, InvalidScoreSkippingModeIsRejected) {
-  QueryError err = QueryError_Default();
-  EXPECT_EQ(create("skipping_invalid", {"title", "TEXT"}, &err, {SPEC_DISK_SCORE_SKIPPING_STR, "2"}),
-            nullptr);
-  EXPECT_TRUE(QueryError_HasError(&err));
-  QueryError_ClearError(&err);
+  EXPECT_TRUE(on->flags & Index_DiskScoreSkipping);
 }
 
 TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
@@ -640,6 +625,84 @@ TEST_F(DiskSchemaOpenTest, TagDebugCommandsReportDiskCountsAndRejectPostingDumps
   RMCK_GetLastError(RSDummyContext).clear();
 }
 
+TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp =
+      create("tag_wildcard_disk", {"folded", "TAG", "exact", "TAG", "CASESENSITIVE"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *folded[] = {"hello"};
+  const char *exact[] = {"a*b?end", "axbyend", "azend"};
+  TagIndex_Commit(TagIndex_Open(&sp->fields[0]), folded, 1, &sp->stats);
+  TagIndex_Commit(TagIndex_Open(&sp->fields[1]), exact, std::size(exact), &sp->stats);
+
+  Restore minPrefix{RSGlobalConfig.iteratorsConfigParams.minTermPrefix};
+  RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 2;
+  api.index.createQueryView = [](RedisSearchDiskIndexSpec *index) {
+    return reinterpret_cast<RedisSearchDiskQueryView *>(index);
+  };
+  api.index.freeQueryView = [](RedisSearchDiskQueryView *) {};
+  static std::vector<std::string> opened;
+  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, t_fieldIndex,
+                                double, RedisSearchDiskQueryView *,
+                                QueryError *) -> QueryIterator * {
+    opened.emplace_back(tok->str, tok->len);
+    return nullptr;
+  };
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  IndexSpec_LockRead(sp);
+  const int viewStatus = SearchCtx_OpenDiskQueryView(&sctx, &err);
+  IndexSpec_Unlock(sp);
+  ASSERT_EQ(viewStatus, REDISMODULE_OK) << QueryError_GetUserError(&err);
+
+  const std::pair<const char *, std::vector<std::string>> cases[] = {
+      {"@folded:{w'HE*'}", {"hello"}},
+      {"@folded:{w'H*'}", {}},
+      // RAM removes the escapes before interpreting wildcard metacharacters.
+      {R"(@exact:{w'a\*b\?*'})", {"a*b?end", "axbyend"}},
+  };
+  for (const auto &[query, expected] : cases) {
+    SCOPED_TRACE(query);
+    QASTCXX ast(sctx);
+    if (!ast.parse(query, 2)) {
+      ADD_FAILURE() << ast.getError();
+      continue;
+    }
+    opened.clear();
+    iteratorsConfig_init(&ast.config);
+    SearchOptionsCXX opts;
+    IndexSpec_LockRead(sp);
+    QueryIteratorTree *tree = QAST_Iterate(&ast, &opts, &sctx, 0, &err);
+    QueryIteratorTree_Free(tree);
+    IndexSpec_Unlock(sp);
+    EXPECT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    EXPECT_EQ(opened, expected);
+    QueryError_ClearError(&err);
+  }
+  SearchCtx_CleanUp(&sctx);
+}
+
+TEST_F(DiskSchemaOpenTest, TagValsEnumeratesDiskDictionary) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_vals_disk", {"tags", "TAG", "INDEXEMPTY"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const char *values[] = {"hello", "", "hello"};
+  TagIndex_Commit(TagIndex_Open(&sp->fields[0]), values, 3, &sp->stats);
+
+  Restore stringHook{RedisModule_ReplyWithStringBuffer};
+  RedisModule_ReplyWithStringBuffer = [](RedisModuleCtx *ctx, const char *value, size_t len) {
+    RMCK_GetReplyLog(ctx).emplace_back(value, len);
+    return REDISMODULE_OK;
+  };
+
+  auto &reply = RMCK_GetReplyLog(RSDummyContext);
+  reply.clear();
+  RMCK::ArgvList args(RSDummyContext, "FT.TAGVALS", "tag_vals_disk", "tags");
+  EXPECT_EQ(TagValsCommand(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+  EXPECT_EQ(reply, (std::vector<std::string>{"set:postponed", "", "hello", "setset:2"}));
+  reply.clear();
+}
+
 class DiskTagPersistenceTest : public DiskSchemaOpenTest {
  protected:
   RedisModuleIO *io = nullptr;
@@ -753,7 +816,7 @@ TEST_F(DiskTagPersistenceTest, UnboundCountDictionariesCanBeDiscarded) {
   EXPECT_EQ(loaded->diskSpec, nullptr);
 }
 
-TEST_F(DiskTagPersistenceTest, RestoredTagQueriesRequireExactValues) {
+TEST_F(DiskTagPersistenceTest, RestoredTagQueriesAcceptMultiTermValues) {
   ASSERT_NE(saveSource(), nullptr);
   discardSource();
   load(INDEX_CURRENT_VERSION);
@@ -765,10 +828,8 @@ TEST_F(DiskTagPersistenceTest, RestoredTagQueriesRequireExactValues) {
   QASTCXX ast(sctx);
   for (const char *query :
        {"@first:{hel*}", "@first:{*llo}", "@first:{*ell*}", "@first:{w'hel*'}", "@first:>{a}"}) {
-    EXPECT_FALSE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0))) << query;
-    EXPECT_NE(std::string(ast.getError()).find("queries are not supported on Flex indexes"),
-              std::string::npos)
-        << query;
+    EXPECT_TRUE(ast.isValidQuery(query, static_cast<QASTValidationFlagsSet>(0)))
+        << query << ": " << ast.getError();
   }
   EXPECT_TRUE(ast.isValidQuery("@first:{hello}", static_cast<QASTValidationFlagsSet>(0)));
   EXPECT_TRUE(ast.isValidQuery("@first:{hello|world}", static_cast<QASTValidationFlagsSet>(0)));

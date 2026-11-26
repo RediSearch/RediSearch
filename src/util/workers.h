@@ -69,7 +69,7 @@ int workersThreadPool_OnEventEnd(bool wait);
 
 int workerThreadPool_isPaused();
 
-int workersThreadPool_pause();
+int workersThreadPool_pause(bool wait);
 
 int workersThreadPool_resume();
 

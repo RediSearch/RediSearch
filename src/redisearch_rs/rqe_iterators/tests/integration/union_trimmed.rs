@@ -521,7 +521,12 @@ fn suspend_covers_children_outside_the_window() {
 
     drop(Box::new(union).suspend());
     for (i, data) in data.iter().enumerate() {
-        assert_eq!(data.drop_count(), 0, "child {i} was dropped while active");
+        assert_eq!(data.drop_count(), 1, "child {i} was not freed exactly once");
+        assert_eq!(
+            data.suspended_drop_count(),
+            1,
+            "child {i} was dropped while active"
+        );
     }
 }
 

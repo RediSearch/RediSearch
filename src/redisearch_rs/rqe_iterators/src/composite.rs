@@ -12,7 +12,7 @@
 //! [`resume`](crate::RQESuspendedIterator::resume), which transitions a `Vec` of children in
 //! place and re-narrows an aggregate that borrows from them.
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::ControlFlow};
 
 use index_result::{RSIndexResult, RawBorrowedAggregateResult};
 use ref_mode::Suspended;
@@ -82,6 +82,44 @@ pub(crate) trait PivotingUnion<'index>: RQEIterator<'index> {
 
     /// The weight that scales the union's score, applied as in [`summed_max_score`].
     fn score_weight(&self) -> f64;
+
+    /// Calls `visit` on every [live child](Self::live_children) in order of
+    /// [`last_doc_id`](RQEIterator::last_doc_id), ties in any order, until `visit` breaks.
+    ///
+    /// [`pivot_step`] usually breaks after a few children, so a union that keeps its children
+    /// ordered should override this to pay for the children visited rather than for all of them.
+    /// The default rescans the children once per distinct position visited.
+    fn visit_live_children_in_order(&mut self, visit: impl FnMut(&Self::Child) -> ControlFlow<()>) {
+        visit_in_order_by_rescan(|| self.live_children(), visit);
+    }
+}
+
+/// [`PivotingUnion::visit_live_children_in_order`] over the children `children` yields, found by
+/// rescanning them for the next smallest position.
+pub(crate) fn visit_in_order_by_rescan<'a, 'index, C, It>(
+    children: impl Fn() -> It,
+    mut visit: impl FnMut(&C) -> ControlFlow<()>,
+) where
+    C: RQEIterator<'index> + 'a,
+    It: Iterator<Item = &'a C>,
+{
+    let mut visited_through = None;
+    loop {
+        let unvisited = |child: &&C| visited_through.is_none_or(|v| child.last_doc_id() > v);
+        let Some(at) = children()
+            .filter(unvisited)
+            .map(|child| child.last_doc_id())
+            .min()
+        else {
+            return;
+        };
+        for child in children().filter(|child| child.last_doc_id() == at) {
+            if visit(child).is_break() {
+                return;
+            }
+        }
+        visited_through = Some(at);
+    }
 }
 
 /// Where a thresholded union read moves next.
@@ -103,16 +141,14 @@ enum PivotStep {
 /// their blocks. A child's block bounds it from `from` only when the block reaches `from`;
 /// otherwise the child is unbounded.
 ///
-/// The walk visits the children's `from`s in increasing order, adding each child once, when its
-/// `from` is reached. The pivot is the first `from` at which the sum reaches the threshold: no
-/// document before it can. The sum only covers documents up to the earliest block end among the
-/// children added so far, and a `from` past it ends the walk: past that end the earlier children's
-/// next blocks are unknown, so the skip stops there.
-///
-/// Each round rescans the children for the next `from`, so a step costs the number of children
-/// times the number of `from`s visited; in exchange it needs no buffer and no sort.
+/// The walk visits the children's `from`s in increasing order
+/// ([`PivotingUnion::visit_live_children_in_order`]), adding each child once, when its `from` is
+/// reached. The pivot is the first `from` at which the sum reaches the threshold: no document
+/// before it can. The sum only covers documents up to the earliest block end among the children
+/// added so far, and a `from` past it ends the walk: past that end the earlier children's next
+/// blocks are unknown, so the skip stops there.
 fn pivot_step<'index, U>(
-    union: &U,
+    union: &mut U,
     start: DocId,
     min_competitive_score: MinCompetitiveScore,
 ) -> PivotStep
@@ -120,42 +156,57 @@ where
     U: PivotingUnion<'index>,
 {
     let scale = union.score_weight().max(1.0);
+    let reaches = |sum: f64| !score_bound::can_drop(sum * scale, min_competitive_score);
+    let pivot_at = |at: DocId| {
+        if at > start {
+            PivotStep::SkipTo(at)
+        } else {
+            PivotStep::Read
+        }
+    };
     let mut sum = 0.0;
     let mut window_end = DocId::MAX;
-    // Children whose `from` is in `added_through + 1..=at` are added this round. `start` is
-    // always past a position, so it is at least 1.
-    let mut added_through = start - 1;
-    let mut at = start;
-    loop {
-        let mut next_from = None;
-        for child in union.live_children() {
-            let from = child.last_doc_id().max(start);
-            if from > at {
-                next_from = Some(next_from.map_or(from, |next: DocId| next.min(from)));
-            } else if from > added_through {
-                match child.current_block_bound() {
-                    Some(block) if block.last_doc_id >= from => {
-                        sum += block.max_score;
-                        window_end = window_end.min(block.last_doc_id);
-                    }
-                    _ => sum = f64::INFINITY,
-                }
+    // The `from` of the children added so far, all of which share it until the walk moves on.
+    let mut at = None;
+    let mut decided = None;
+    union.visit_live_children_in_order(|child| {
+        let from = child.last_doc_id().max(start);
+        // The pivot is only sound if no child that can match an earlier document comes later.
+        debug_assert!(
+            at.is_none_or(|previous| from >= previous),
+            "children visited out of position order: {from} after {at:?}",
+        );
+        if let Some(previous) = at
+            && from > previous
+        {
+            // Every child that can match `previous` is in, so the sum bounds it.
+            if reaches(sum) {
+                decided = Some(pivot_at(previous));
+                return ControlFlow::Break(());
+            }
+            if from > window_end {
+                return ControlFlow::Break(());
             }
         }
-        if !score_bound::can_drop(sum * scale, min_competitive_score) {
-            return if at > start {
-                PivotStep::SkipTo(at)
-            } else {
-                PivotStep::Read
-            };
-        }
-        match next_from {
-            Some(next) if next <= window_end => {
-                added_through = at;
-                at = next;
+        at = Some(from);
+        match child.current_block_bound() {
+            Some(block) if block.last_doc_id >= from => {
+                sum += block.max_score;
+                window_end = window_end.min(block.last_doc_id);
             }
-            _ => break,
+            _ => sum = f64::INFINITY,
         }
+        ControlFlow::Continue(())
+    });
+    if let Some(step) = decided {
+        return step;
+    }
+    // The walk ran out of children with the last `from` unchecked, or stopped at the window's end
+    // with it already checked, in which case the sum still cannot reach the threshold.
+    if let Some(last) = at
+        && reaches(sum)
+    {
+        return pivot_at(last);
     }
     // Nothing up to the window's end can reach the threshold. A window that never closed (no
     // live child) or that closes at the last id leaves nothing to skip to, and a plain read then

@@ -27,10 +27,6 @@ pub enum ConstantLeaf {
     Numeric,
 }
 
-/// Raises every bound, so that summing children's bounds stays at least the score the scorer
-/// computes in a different order of operations.
-const SCORE_BOUND_REL_EPSILON: f64 = 1e-9;
-
 /// The legacy `BM25` constants of `bm25Recursive`, with their `float` type.
 const BM25_B: f32 = 0.5;
 const BM25_K1: f32 = 1.2;
@@ -85,5 +81,5 @@ pub fn constant_leaf_bound(
             _,
         ) => return None,
     };
-    Some(bound * (1.0 + SCORE_BOUND_REL_EPSILON))
+    Some(bound)
 }

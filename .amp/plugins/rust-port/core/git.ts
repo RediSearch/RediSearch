@@ -8,12 +8,26 @@
  */
 
 /** The {@link Vcs} on a git checkout. */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { execa } from 'execa';
 import { ENV } from './checks.ts';
 import type { Vcs } from './ports.ts';
 
 export async function git(cwd: string, args: string[], input = ''): Promise<string> {
   return (await execa('git', args, { cwd, env: ENV, input })).stdout;
+}
+
+/**
+ * Tracks `branch@remote` when `root` is also a jj checkout. jj imports a branch pushed by git as
+ * an untracked remote bookmark, and jj's default `immutable_heads()` makes those and all their
+ * ancestors immutable, so the worker could no longer amend or rebase its own stages.
+ */
+export async function trackInJj(root: string, remote: string, branch: string): Promise<void> {
+  if (!existsSync(join(root, '.jj'))) return;
+  const jj = (args: string[]) => execa('jj', args, { cwd: root, env: ENV });
+  await jj(['git', 'import']);
+  await jj(['bookmark', 'track', `${branch}@${remote}`]);
 }
 
 export function gitVcs(root: string): Vcs {

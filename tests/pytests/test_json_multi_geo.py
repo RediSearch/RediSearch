@@ -206,6 +206,9 @@ def testMultiNonGeo(env):
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@root:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1:'])
     env.expect('FT.SEARCH', 'idx2', '@root:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:2:'])
+    # Arrays with no points (attr3, attr4) index nothing
+    env.expect('FT.SEARCH', 'idx3', '@root:[0 0 +inf km]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx4', '@root:[0 0 +inf km]', 'NOCONTENT').equal([0])
 
 
 @skip(no_json=True)
@@ -234,6 +237,104 @@ def testMultiNonGeoNested(env):
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx2', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
+    # Arrays with no points (attr3, attr4) index nothing
+    env.expect('FT.SEARCH', 'idx3', '@attr:[0 0 +inf km]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx4', '@attr:[0 0 +inf km]', 'NOCONTENT').equal([0])
+
+
+# JSON values with no GEO point: nulls are dropped before indexing, so all of
+# these leave nothing to index.
+no_point_values = ['[]', '[null]', '[null, null]']
+
+
+@skip(cluster=True, no_json=True)
+def testGeoArrayWithNoPointsIndexesNothing(env):
+    """
+    A GEO field whose value is an array with no points keeps the document
+    indexed but adds no GEO entry, for single-match and multi-match JSONPaths.
+    A control document with a real point shows the queries do match.
+    """
+    conn = getConnectionByEnv(env)
+
+    paths = ['$.f', '$.f[*]', '$..f']
+    for (i, path) in enumerate(paths):
+        env.expect('FT.CREATE', f'idx{i}', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'f', 'GEO').ok()
+    conn.execute_command('JSON.SET', 'doc:control', '$', '{"f":["1,2"]}')
+    for (j, value) in enumerate(no_point_values):
+        conn.execute_command('JSON.SET', f'doc:{j}', '$', f'{{"f":{value}}}')
+
+    for (i, path) in enumerate(paths):
+        idx = f'idx{i}'
+        info = index_info(env, idx)
+        env.assertEqual(int(info['hash_indexing_failures']), 0, message=path)
+        env.assertEqual(int(info['num_docs']), 1 + len(no_point_values), message=path)
+        env.assertEqual(int(info['num_records']), 1, message=path)
+        env.expect('FT.SEARCH', idx, '@f:[0 0 +inf km]', 'NOCONTENT').equal([1, 'doc:control'])
+        # Geohash 0 decodes near (-180, -85.05)
+        env.expect('FT.SEARCH', idx, '@f:[-180 -85 500 km]', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, no_json=True)
+def testGeoArrayWithNoPointsReplacesPoint(env):
+    """
+    Overwriting a GEO point with an array with no points drops the point, and
+    writing a point back indexes it again.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.f', 'AS', 'f', 'GEO').ok()
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', '{"f":"1,2"}')
+    for value in no_point_values:
+        conn.execute_command('JSON.SET', 'doc:1', '$.f', value)
+        env.expect('FT.SEARCH', 'idx', '@f:[0 0 +inf km]', 'NOCONTENT').equal([0], message=value)
+        env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:1'], message=value)
+
+        conn.execute_command('JSON.SET', 'doc:1', '$.f', '"1,2"')
+        env.expect('FT.SEARCH', 'idx', '@f:[1 2 1 km]', 'NOCONTENT') \
+            .equal([1, 'doc:1'], message=value)
+        env.expect('FT.SEARCH', 'idx', '@f:[0 0 +inf km]', 'NOCONTENT') \
+            .equal([1, 'doc:1'], message=value)
+
+
+@skip(cluster=True, no_json=True)
+def testGeoArrayWithNoPointsSortable(env):
+    """
+    A SORTABLE GEO field with an array with no points indexes nothing and gets
+    no sort value, so those documents sort after one with a real point in both
+    directions.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.f', 'AS', 'f', 'GEO', 'SORTABLE').ok()
+    conn.execute_command('JSON.SET', 'doc:control', '$', '{"f":"1,2"}')
+    for (j, value) in enumerate(no_point_values):
+        conn.execute_command('JSON.SET', f'doc:{j}', '$', f'{{"f":{value}}}')
+
+    env.assertEqual(int(index_info(env, 'idx')['hash_indexing_failures']), 0)
+    env.expect('FT.SEARCH', 'idx', '@f:[0 0 +inf km]', 'NOCONTENT').equal([1, 'doc:control'])
+    for order in ['ASC', 'DESC']:
+        res = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'f', order)
+        env.assertEqual(res[:2], [4, 'doc:control'], message=[order, res])
+        # The documents with no point tie, so their relative order is unspecified.
+        env.assertEqual(sorted(res[2:]), ['doc:0', 'doc:1', 'doc:2'], message=[order, res])
+
+
+@skip(cluster=True, no_json=True)
+def testGeoArrayWithNoPointsIsNotMissing(env):
+    """
+    With INDEXMISSING, a GEO field holding an array with no points is present,
+    so `ismissing` matches only the document without the field.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.f', 'AS', 'f', 'GEO', 'INDEXMISSING').ok()
+    conn.execute_command('JSON.SET', 'doc:absent', '$', '{}')
+    for (j, value) in enumerate(no_point_values):
+        conn.execute_command('JSON.SET', f'doc:{j}', '$', f'{{"f":{value}}}')
+
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@f)', 'NOCONTENT').equal([1, 'doc:absent'])
+    env.expect('FT.SEARCH', 'idx', '@f:[0 0 +inf km]', 'NOCONTENT').equal([0])
+
 
 @skip(cluster=True, no_json=True)
 def testDebugDump(env):

@@ -25,3 +25,8 @@ retries = 1
 filter = 'package(trie_rs) & test(long_key)'
 # These regressions must cross the node-label limit, even under interpretation.
 slow-timeout = { period = "10s", terminate-after = 12 }
+
+[[profile.default-miri.overrides]]
+filter = 'package(trie_rs) & test(=trie_map::iter::pattern::long_wildcard_patterns_can_stop_before_their_first_match)'
+# Both backends must visit enough nonmatching nodes to poll during traversal.
+slow-timeout = { period = "10s", terminate-after = 12 }

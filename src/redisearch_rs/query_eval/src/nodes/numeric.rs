@@ -44,6 +44,25 @@ pub(crate) fn eval<'index>(
         "numeric node must have a resolved field index"
     );
     let field_index = nf.field_index;
+    if cfg!(debug_assertions) {
+        let spec = ctx.spec();
+        assert!(
+            field_index < spec.numFields,
+            "field_index must be within the spec's current field count"
+        );
+        // SAFETY: `field_index` is within `spec.numFields` (checked above), so this
+        // stays within the bounds of the `numFields`-sized array `spec.fields` points to.
+        let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+        // SAFETY: `field_ptr` points into the live spec's field array, which the
+        // query's spec read lock keeps alive and unmodified throughout evaluation.
+        let field = unsafe { &*field_ptr };
+        // Both query parsers and the legacy `FILTER` argument build a numeric node only on a
+        // NUMERIC field.
+        assert!(
+            field.types() & ffi::FieldType_INDEXFLD_T_NUMERIC != 0,
+            "a numeric node must reference a numeric field"
+        );
+    }
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
