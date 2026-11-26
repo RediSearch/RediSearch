@@ -39,7 +39,6 @@ struct ReaderLog {
 struct BlockedReader {
     blocks: Vec<Block>,
     masks: BTreeMap<DocId, FieldMask>,
-    duplicates: bool,
     /// Whether [`next_record_with_threshold`](IndexReader::next_record_with_threshold) passes
     /// over blocks from their bound, rather than dropping record by record.
     skips_blocks: bool,
@@ -55,7 +54,6 @@ impl BlockedReader {
         Self {
             blocks,
             masks: BTreeMap::new(),
-            duplicates: false,
             skips_blocks: true,
             last: None,
             next: (0, 0),
@@ -65,11 +63,6 @@ impl BlockedReader {
 
     const fn decoding_every_record(mut self) -> Self {
         self.skips_blocks = false;
-        self
-    }
-
-    const fn with_duplicates(mut self) -> Self {
-        self.duplicates = true;
         self
     }
 
@@ -149,7 +142,7 @@ impl IndexReader<'static> for BlockedReader {
     }
 
     fn has_duplicates(&self) -> bool {
-        self.duplicates
+        false
     }
 
     fn flags(&self) -> IndexFlags {
@@ -314,25 +307,6 @@ fn field_mask_reader_forwards_the_bounds_and_still_filters() {
         it.current_block_bound(),
         None,
         "exhausted, even though the inner reader is still on its last block",
-    );
-}
-
-#[test]
-fn duplicates_are_tested_on_the_record_a_plain_read_yields() {
-    // A plain read yields doc 1 through its first record, scored 0.5. Its second record must not
-    // let a thresholded read yield doc 1 scored as 5.0.
-    let blocks = vec![Block::tight(&[(1, 0.5), (1, 5.0), (2, 3.0)])];
-
-    let mut plain = ContractChecker::new(iterator(
-        BlockedReader::new(blocks.clone()).with_duplicates(),
-    ));
-    assert_eq!(read_all(&mut plain), [1, 2]);
-
-    let mut thresholded =
-        ContractChecker::new(iterator(BlockedReader::new(blocks).with_duplicates()));
-    assert_eq!(
-        read_all_with_threshold(&mut thresholded, threshold(1.0)),
-        [2]
     );
 }
 

@@ -594,20 +594,10 @@ where
         &mut self,
         min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.reader.has_duplicates() {
-            // A plain read yields a document through its first record only. Letting the reader
-            // drop that record could yield the document through a later one, scored differently,
-            // so duplicates are skipped first and only the survivor is tested.
-            loop {
-                if self.read()?.is_none() {
-                    return Ok(None);
-                }
-                if !can_drop(self.current_max_score(), min_competitive_score) {
-                    return Ok(Some(&mut self.result));
-                }
-            }
-        }
-
+        debug_assert!(
+            !self.reader.has_duplicates(),
+            "a reader that reports score bounds must yield each document once"
+        );
         if self.at_eos {
             return Ok(None);
         }
