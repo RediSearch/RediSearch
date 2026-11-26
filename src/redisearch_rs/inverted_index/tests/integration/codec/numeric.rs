@@ -742,25 +742,35 @@ fn decimal_decodes_the_same_with_and_without_trailing_bytes() {
     }
 }
 
-/// A decimal record cut short anywhere after its header, before the info byte or inside the
-/// mantissa, is an error rather than a value read from missing bytes.
+/// A decimal record of either sign cut short anywhere after its header, inside the delta,
+/// before the info byte or inside the mantissa, is an error rather than a value read from
+/// missing bytes.
 #[test]
 fn truncated_decimal_is_unexpected_eof() {
-    for delta_bytes in 0..=7 {
-        for mantissa_bytes in 1..=8 {
-            let (record, _, _) = handmade_decimal(delta_bytes, mantissa_bytes);
-            for len in 1..record.len() {
-                let mut cursor = Cursor::new(&record[..len]);
+    const NEGATIVE_BIT: u8 = 0b010_00_000;
+    for negative in [false, true] {
+        for delta_bytes in 0..=7 {
+            for mantissa_bytes in 1..=8 {
+                let (mut record, _, _) = handmade_decimal(delta_bytes, mantissa_bytes);
+                if negative {
+                    record[0] |= NEGATIVE_BIT;
+                }
+                assert!(is_decimal_header(record[0]));
 
-                let kind = Numeric::decode_new(&mut cursor, 1)
-                    .expect_err("a truncated record must not decode")
-                    .kind();
+                for len in 1..record.len() {
+                    let mut cursor = Cursor::new(&record[..len]);
 
-                assert_eq!(
-                    kind,
-                    std::io::ErrorKind::UnexpectedEof,
-                    "delta bytes: {delta_bytes}, mantissa bytes: {mantissa_bytes}, length: {len}"
-                );
+                    let kind = Numeric::decode_new(&mut cursor, 1)
+                        .expect_err("a truncated record must not decode")
+                        .kind();
+
+                    assert_eq!(
+                        kind,
+                        std::io::ErrorKind::UnexpectedEof,
+                        "negative: {negative}, delta bytes: {delta_bytes}, \
+                         mantissa bytes: {mantissa_bytes}, length: {len}"
+                    );
+                }
             }
         }
     }
