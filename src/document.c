@@ -18,6 +18,7 @@
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "sparse_vector_index_ffi.h"
+#include "nested_index_ffi.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "rmalloc.h"
@@ -333,6 +334,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
                  aCtx->fdatas[ii].sparseVec) {
         PreparedSparseVector_Free(aCtx->fdatas[ii].sparseVec);
         aCtx->fdatas[ii].sparseVec = NULL;
+      } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_NESTED) && aCtx->fdatas[ii].nestedRows) {
+        NestedRows_Free(aCtx->fdatas[ii].nestedRows);
+        aCtx->fdatas[ii].nestedRows = NULL;
       } else if (FIELD_IS(aCtx->fspecs + ii, INDEXFLD_T_GEO) && aCtx->fdatas[ii].isMulti &&
                  aCtx->fdatas[ii].arrNumeric && !FIELD_IS_NULL(aCtx, ii)) {
         array_free(aCtx->fdatas[ii].arrNumeric);
@@ -422,6 +426,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_NESTED:
       return -1;
     case FLD_VAR_T_ARRAY:
     case FLD_VAR_T_CSTR:
@@ -791,6 +796,50 @@ FIELD_BULK_INDEXER(sparseVectorIndexer) {
   return 0;
 }
 
+FIELD_PREPROCESSOR(nestedPreprocessor) {
+  if (field->unionType == FLD_VAR_T_NULL) {
+    fdata->isNull = 1;
+    return 0;
+  }
+  if (field->unionType != FLD_VAR_T_NESTED) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid NESTED field value");
+    return -1;
+  }
+  // Taken over, so the document field no longer frees it.
+  fdata->nestedRows = field->nestedRows;
+  field->nestedRows = NULL;
+  field->unionType = FLD_VAR_T_NULL;
+  // Checked here rather than when writing: a preprocessor failure drops the whole document, while
+  // by write time its other fields are already indexed. This runs without the spec lock, which
+  // holds because, with MAXCARD rejected, the check reads only the field's levels, never what is
+  // indexed: nothing indexed in between changes its outcome.
+  char err[256];
+  if (!NestedIndex_CheckDocument(aCtx->spec->fields[fs->index].nestedOpts.nestedIndex,
+                                 fdata->nestedRows, err, sizeof(err))) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Could not index NESTED field",
+                                  ": %s", err);
+    return -1;
+  }
+  return 0;
+}
+
+FIELD_BULK_INDEXER(nestedIndexer) {
+  struct NestedIndex *idx = ctx->spec->fields[fs->index].nestedOpts.nestedIndex;
+  NestedIndexOutcome rv = {0};
+  char err[256];
+  if (!NestedIndex_IndexDocument(idx, aCtx->doc->docId, fdata->nestedRows,
+                                 RSGlobalConfig.numericTreeMaxDepthRange, &rv, err, sizeof(err))) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Could not index NESTED field",
+                                  ": %s", err);
+    return -1;
+  }
+  // The deltas are signed; unsigned addition applies a negative one correctly.
+  ctx->spec->stats.invertedSize += (size_t)rv.size_delta;
+  ctx->spec->stats.numRecords += (size_t)rv.records;
+  IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_delta);
+  return 0;
+}
+
 FIELD_PREPROCESSOR(geoPreprocessor) {
   size_t len;
   double lon, lat;
@@ -823,6 +872,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_NESTED:
       RS_ABORT_ALWAYS("Unsupported field type for GEO index");
       break;
   }
@@ -991,6 +1041,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_VECTOR] = vectorPreprocessor,
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     [IXFLDPOS_SPARSE_VECTOR] = sparseVectorPreprocessor,
+    [IXFLDPOS_NESTED] = nestedPreprocessor,
 };
 
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
@@ -1025,6 +1076,9 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
           break;
         case IXFLDPOS_SPARSE_VECTOR:
           rc = sparseVectorIndexer(cur, sctx, field, fs, fdata, status);
+          break;
+        case IXFLDPOS_NESTED:
+          rc = nestedIndexer(cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
@@ -1296,6 +1350,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_NESTED:
       RS_ABORT_ALWAYS("invalid types");
       break;
   }

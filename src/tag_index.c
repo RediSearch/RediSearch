@@ -193,6 +193,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
   case FLD_VAR_T_GEOMETRY:
+  case FLD_VAR_T_NESTED:
     RS_ABORT("nope")
     break;
   }

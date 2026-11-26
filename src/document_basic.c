@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "nested_index_ffi.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -558,6 +559,10 @@ void ClearOwnedField(DocumentField *field) {
       rm_free(field->blobArr);
     field->blobArrLen = 0;
     break;
+    case FLD_VAR_T_NESTED:
+      NestedRows_Free(field->nestedRows);
+      field->nestedRows = NULL;
+      break;
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEOMETRY:
