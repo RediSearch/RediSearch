@@ -53,12 +53,27 @@ test('each group is judged by the ratio of its Rust and C medians', async () => 
     'parse/rust': median(104),
     'geo/radius/c': median(10),
     'geo/radius/rust': median(12),
+    'fast|scan/c': median(40),
+    'fast|scan/rust': median(30),
+    'equal/c': median(2000),
+    'equal/rust': median(2000),
   });
   assert.equal(
-    await judgeBenchmarks([dir], 0, 5),
+    (await judgeBenchmarks([dir], 0, 5)).problem,
     'is slower than C beyond 1.05x: geo/radius 1.20x',
   );
-  assert.equal(await judgeBenchmarks([dir], 0, 25), undefined);
+  const { problem, report } = await judgeBenchmarks([dir], 0, 25);
+  assert.equal(problem, undefined);
+  assert.ok(report);
+  for (const row of [
+    '| equal | 2000.00 | 2000.00 | 0.00% |',
+    '| fast\\|scan | 40.0000 | 30.0000 | -25.00% |',
+    '| geo/radius | 10.0000 | 12.0000 | +20.00% |',
+    '| parse | 100.000 | 104.000 | +4.00% |',
+  ])
+    assert.ok(report.includes(row), row);
+  assert.match(report, /C median \(ns\).*Rust median \(ns\).*Δ time vs C/);
+  assert.match(report, /negative means Rust took less time/);
 });
 
 test('results from before the check, missing pairs and unreadable estimates fail', async () => {
@@ -66,7 +81,9 @@ test('results from before the check, missing pairs and unreadable estimates fail
   for (const impl of ['c', 'rust'])
     await utimes(join(stale, `parse/${impl}/new/estimates.json`), 0, 0);
   const missing = /^measured no Criterion group with `c` and `rust` functions in /;
-  assert.match((await judgeBenchmarks([stale], Date.now() - 60_000, 5))!, missing);
+  const staleResult = await judgeBenchmarks([stale], Date.now() - 60_000, 5);
+  assert.match(staleResult.problem!, missing);
+  assert.equal(staleResult.report, undefined);
   // One complete pair does not excuse a group measured on one side only.
   const half = await criterion({
     'parse/c': median(1),
@@ -76,15 +93,24 @@ test('results from before the check, missing pairs and unreadable estimates fail
     'sort/rs': median(1),
   });
   assert.equal(
-    await judgeBenchmarks([half], 0, 5),
+    (await judgeBenchmarks([half], 0, 5)).problem,
     'measured only one of `c` and `rust` for: scan, sort',
   );
-  assert.match((await judgeBenchmarks([join(stale, 'nowhere')], 0, 5))!, missing);
+  assert.match((await judgeBenchmarks([join(stale, 'nowhere')], 0, 5)).problem!, missing);
   const broken = await criterion({ 'parse/c': median(1), 'parse/rust': '{"mean"' });
   assert.equal(
-    await judgeBenchmarks([broken], 0, 5),
+    (await judgeBenchmarks([broken], 0, 5)).problem,
     'left unreadable Criterion estimates for: parse',
   );
+  for (const estimate of ['"1"', '0', '-1', '1e999']) {
+    const invalid = await criterion({
+      'parse/c': median(1),
+      'parse/rust': `{"median":{"point_estimate":${estimate}}}`,
+    });
+    const result = await judgeBenchmarks([invalid], 0, 5);
+    assert.match(result.problem!, /unreadable Criterion estimates/);
+    assert.equal(result.report, undefined);
+  }
 });
 
 test('a reproduction runs one test runner, with no shell syntax or Cargo configuration', () => {
