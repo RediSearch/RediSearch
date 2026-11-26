@@ -140,7 +140,7 @@ fn bound_covers_every_document_the_leaf_can_score() {
     }
 }
 
-/// The bound is not looser than it needs to be: some document reaches it, up to the epsilon.
+/// The bound is not looser than it needs to be: some document reaches it exactly.
 #[test]
 fn bound_is_reached() {
     for scorer in BOUNDED {
@@ -154,10 +154,7 @@ fn bound_is_reached() {
                         .map(move |doc| reference_score(scorer, r, doc, 4.0))
                 })
                 .fold(0.0, f64::max);
-            assert!(
-                bound - best <= bound * 1e-8,
-                "{scorer:?} {leaf:?}: bound {bound}, best {best}"
-            );
+            assert_eq!(best, bound, "{scorer:?} {leaf:?}");
         }
     }
 }
