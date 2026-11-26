@@ -476,6 +476,8 @@ bool SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
   if (!disk_db) {
     pthread_rwlock_unlock(&diskLifetimeLock_g);
     SearchDisk_KeepLeakedIndexReachable(index);
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Skipped closing a disk index released after the disk context was closed");
     return false;
   }
   disk->basic.closeIndexSpec(disk_db, index);
