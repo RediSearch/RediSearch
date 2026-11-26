@@ -16,11 +16,11 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     c2rust::CRQEIterator,
+    id_list::IdListSorted,
     index_load,
     index_load::IndexLoad,
-    interop::RQEIteratorWrapper,
     score_bound::{BlockBound, MinCompetitiveScore},
-    union_opaque::build_union,
+    union_opaque::{build_union, is_union_wrapper},
 };
 use rqe_iterators_test_utils::{
     ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
@@ -69,15 +69,21 @@ fn fake_key_ptr(key: &FakeKey) -> *const ffi::RLookupKey {
 }
 
 #[test]
-fn type_is_index_load() {
-    let it = IndexLoad::new(Mock::new_with_values([1], [1.0]));
-    assert_eq!(it.type_(), IteratorType::IndexLoad);
+fn reports_the_childs_type() {
+    let it = IndexLoad::new(Mock::new_with_values([1], [1.0])).unwrap();
+    assert_eq!(it.type_(), IteratorType::Mock);
+}
+
+#[test]
+fn refuses_a_child_whose_type_it_may_not_report() {
+    let refused = IndexLoad::new(IdListSorted::new(vec![1])).map(|_| ());
+    assert_eq!(refused, Err(IteratorType::IdListSorted));
 }
 
 #[test]
 fn read_attaches_each_hits_value() {
     let mut key = FakeKey::new();
-    let mut it = IndexLoad::new(Mock::new_with_values([2, 5, 9], [20.0, 50.0, 90.0]));
+    let mut it = IndexLoad::new(Mock::new_with_values([2, 5, 9], [20.0, 50.0, 90.0])).unwrap();
     bind(&mut it, &mut key);
     let mut it = ContractChecker::new(it);
 
@@ -93,7 +99,7 @@ fn read_attaches_each_hits_value() {
 #[test]
 fn skip_to_attaches_found_and_not_found_hits() {
     let mut key = FakeKey::new();
-    let mut it = IndexLoad::new(Mock::new_with_values([2, 5, 9], [20.0, 50.0, 90.0]));
+    let mut it = IndexLoad::new(Mock::new_with_values([2, 5, 9], [20.0, 50.0, 90.0])).unwrap();
     bind(&mut it, &mut key);
     let mut it = ContractChecker::new(it);
 
@@ -114,7 +120,8 @@ fn skip_to_attaches_found_and_not_found_hits() {
 
 #[test]
 fn unbound_key_pushes_nothing() {
-    let mut it = ContractChecker::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])));
+    let mut it =
+        ContractChecker::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap());
 
     let result = it.read().unwrap().unwrap();
     assert!(result.metrics_ref().is_empty());
@@ -127,7 +134,7 @@ fn unbound_key_pushes_nothing() {
 #[test]
 fn non_numeric_hit_pushes_nothing() {
     let mut key = FakeKey::new();
-    let mut it = IndexLoad::new(Mock::new([1]));
+    let mut it = IndexLoad::new(Mock::new([1])).unwrap();
     bind(&mut it, &mut key);
 
     let result = it.read().unwrap().unwrap();
@@ -137,7 +144,7 @@ fn non_numeric_hit_pushes_nothing() {
 #[test]
 fn metrics_are_replaced_not_accumulated() {
     let mut key = FakeKey::new();
-    let mut it = IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0]));
+    let mut it = IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap();
     bind(&mut it, &mut key);
 
     // A metric left on the shared result by an earlier hit must not leak into
@@ -159,7 +166,7 @@ fn value_comes_from_the_aggregate_child_that_matched() {
     ];
     let union = build_union(leaves, true, 20, QueryNodeType::Numeric, 1.0);
     // SAFETY: `build_union` returns a valid, owning iterator handle.
-    let mut it = IndexLoad::new(unsafe { CRQEIterator::new(union) });
+    let mut it = IndexLoad::new(unsafe { CRQEIterator::new(union) }).unwrap();
     bind(&mut it, &mut key);
 
     for (doc_id, value) in [(1, 10.0), (2, 20.0), (3, 30.0)] {
@@ -171,7 +178,8 @@ fn value_comes_from_the_aggregate_child_that_matched() {
 
 #[test]
 fn forwards_to_the_child() {
-    let mut it = ContractChecker::new(IndexLoad::new(Mock::new_with_values([3, 4], [3.0, 4.0])));
+    let mut it =
+        ContractChecker::new(IndexLoad::new(Mock::new_with_values([3, 4], [3.0, 4.0])).unwrap());
     assert_eq!(it.num_estimated(), 2);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 3);
     assert_eq!(it.last_doc_id(), 3);
@@ -188,7 +196,7 @@ fn revalidate_moved_reattaches() {
     let mut key = FakeKey::new();
     let child = Mock::new_with_values([1, 2, 3], [1.0, 2.0, 3.0]);
     let mut data = child.data();
-    let mut it = IndexLoad::new(child);
+    let mut it = IndexLoad::new(child).unwrap();
     bind(&mut it, &mut key);
 
     assert!(it.read().unwrap().is_some());
@@ -210,7 +218,7 @@ fn resume_moved_reattaches() {
     let mut key = FakeKey::new();
     let child = Mock::new_with_values([1, 2, 3], [1.0, 2.0, 3.0]);
     let mut data = child.data();
-    let mut it = Box::new(IndexLoad::new(child));
+    let mut it = Box::new(IndexLoad::new(child).unwrap());
     bind(&mut it, &mut key);
 
     // A parent takes the metrics of the hit it consumed.
@@ -230,7 +238,7 @@ fn resume_moved_reattaches() {
 fn resume_ok_keeps_position_and_allocation() {
     let mock_ctx = MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
-    let mut it = Box::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])));
+    let mut it = Box::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap());
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     let address = &*it as *const _ as usize;
 
@@ -256,7 +264,7 @@ fn resume_aborted_frees_the_decorator() {
         key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    let mut it = Box::new(IndexLoad::new(child));
+    let mut it = Box::new(IndexLoad::new(child).unwrap());
     // SAFETY: `handle` outlives `it`, no handle was attached before, and
     // nothing else borrows `handle` while `it` is dropped.
     unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
@@ -283,7 +291,7 @@ fn resume_error_frees_the_decorator() {
         key_ptr: std::ptr::null_mut(),
         is_valid: true,
     };
-    let mut it = Box::new(IndexLoad::new(child));
+    let mut it = Box::new(IndexLoad::new(child).unwrap());
     // SAFETY: as in `resume_aborted_frees_the_decorator`.
     unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
 
@@ -302,7 +310,8 @@ fn forwards_score_bounds_to_the_child() {
     let it = IndexLoad::new(Blocked::new(vec![
         Block::tight(&[(1, 3.0), (2, 5.0)]),
         Block::loose(&[(7, 1.0)], 4.0),
-    ]));
+    ]))
+    .unwrap();
     let mut it = ContractChecker::new(it);
     assert!(it.reports_score_bounds());
 
@@ -336,12 +345,33 @@ fn intersection_sort_weight_through_the_c_abi() {
     let union = build_union(leaves, false, 20, QueryNodeType::Union, 1.0);
     // SAFETY: `build_union` returns a valid, owning iterator handle.
     let child = unsafe { CRQEIterator::new(union) };
+    let decorator = IndexLoad::new(child).unwrap();
     // SAFETY: `boxed_new` returns a valid, owning iterator handle.
-    let it = unsafe { CRQEIterator::new(index_load::boxed_new(child)) };
+    let it = unsafe { CRQEIterator::new(index_load::boxed_new(decorator)) };
 
-    assert_eq!(it.type_(), IteratorType::IndexLoad);
+    assert_eq!(it.type_(), IteratorType::Union);
     assert_eq!(it.intersection_sort_weight(true), 3.0);
     assert_eq!(it.intersection_sort_weight(false), 1.0);
+}
+
+/// A decorator reporting `Union` is not mistaken for the union it wraps by the
+/// one C-ABI entry point that casts on that tag.
+#[test]
+fn a_decorated_union_is_not_a_union_wrapper() {
+    let leaves = vec![
+        CRQEIterator::from_rust_leaf(Mock::new([1])),
+        CRQEIterator::from_rust_leaf(Mock::new([2])),
+    ];
+    let union = build_union(leaves, false, 20, QueryNodeType::Union, 1.0);
+    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    let union = unsafe { CRQEIterator::new(union) };
+    assert!(is_union_wrapper(&union));
+
+    let decorator = IndexLoad::new(union).unwrap();
+    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    let it = unsafe { CRQEIterator::new(index_load::boxed_new(decorator)) };
+    assert_eq!(it.type_(), IteratorType::Union);
+    assert!(!is_union_wrapper(&it));
 }
 
 /// The handle pipeline construction writes through is bound right after the
@@ -350,21 +380,19 @@ fn intersection_sort_weight_through_the_c_abi() {
 #[test]
 fn key_slot_survives_profiling() {
     let mut key = FakeKey::new();
-    let header = index_load::boxed_new(CRQEIterator::from_rust_leaf(Mock::new_with_values(
+    let mut decorator = IndexLoad::new(CRQEIterator::from_rust_leaf(Mock::new_with_values(
         [4],
         [40.0],
-    )));
+    )))
+    .unwrap();
     let mut handle = RLookupKeyHandle {
-        key_ptr: std::ptr::null_mut(),
+        key_ptr: decorator.key_slot().as_ptr(),
         is_valid: true,
     };
-    // SAFETY: `header` was just returned by `boxed_new`, and we hold it
-    // exclusively.
-    let slot = unsafe { index_load::own_key_ref(header) };
-    handle.key_ptr = slot.as_ptr();
-    // SAFETY: as above; `handle` outlives the iterator, no handle was attached
+    // SAFETY: (1) `handle` outlives the iterator, no handle was attached
     // before, and nothing else borrows `handle` while the iterator is dropped.
-    unsafe { index_load::set_key_handle(header, Some(NonNull::from(&mut handle))) };
+    unsafe { decorator.set_handle(Some(NonNull::from(&mut handle))) };
+    let header = index_load::boxed_new(decorator);
 
     // SAFETY: `header` is a valid, owning iterator handle.
     let mut profiled = unsafe { CRQEIterator::new(header) }.into_profiled();
@@ -386,7 +414,7 @@ fn key_slot_survives_profiling() {
 #[test]
 fn read_with_threshold_attaches() {
     let mut key = FakeKey::new();
-    let mut it = IndexLoad::new(Mock::new_with_values([1], [5.0]));
+    let mut it = IndexLoad::new(Mock::new_with_values([1], [5.0])).unwrap();
     bind(&mut it, &mut key);
 
     let threshold = MinCompetitiveScore::new(1.0).expect("a finite threshold applies");
@@ -405,12 +433,13 @@ fn union_over_loading_child(
     let mut loading = IndexLoad::new(CRQEIterator::from_rust_leaf(Mock::new_with_values(
         [1, 2],
         [10.0, 20.0],
-    )));
+    )))
+    .unwrap();
     bind(&mut loading, key);
     let sibling = Mock::new([1, 3]);
     sibling.data().set_revalidate_result(sibling_outcome);
-    // SAFETY: `boxed_new_compound` returns a valid, owning iterator handle.
-    let loading = unsafe { CRQEIterator::new(RQEIteratorWrapper::boxed_new_compound(loading)) };
+    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    let loading = unsafe { CRQEIterator::new(index_load::boxed_new(loading)) };
     let children = vec![loading, CRQEIterator::from_rust_leaf(sibling)];
     let union = build_union(children, false, 20, QueryNodeType::Union, 1.0);
     // SAFETY: `build_union` returns a valid, owning iterator handle.

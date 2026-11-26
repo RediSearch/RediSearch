@@ -17,12 +17,11 @@ use std::{
 use ffi::QueryIterator;
 use query_types::QueryNodeType;
 
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IteratorsConfig, RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
-    union_opaque::{UnionOpaque, build_union, build_union_with_q_str},
+    union_opaque::{UnionOpaque, build_union, build_union_with_q_str, is_union_wrapper},
 };
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
@@ -133,18 +132,25 @@ pub unsafe extern "C" fn NewUnionIterator(
 /// Trims a union iterator for the LIMIT optimizer, then switches to unsorted
 /// sequential read mode.
 ///
+/// Does nothing unless `it` is a non-reduced union created via
+/// [`NewUnionIterator`], whatever its type tag says: an iterator decorating a
+/// union reports the union's type.
+///
 /// # Safety
 ///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
-///    created via [`NewUnionIterator`].
+/// 1. `it` must be a valid non-null pointer to a live iterator that the caller
+///    holds exclusively for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize, asc: bool) {
     debug_assert!(!it.is_null());
     // SAFETY: `it` is non-null per 1.
     let it = unsafe { NonNull::new_unchecked(it) };
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    debug_assert_eq!(unsafe { it.as_ref().type_ }, IteratorType::Union);
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    // SAFETY: `it` is valid per 1.
+    if !is_union_wrapper(unsafe { it.as_ref() }) {
+        return;
+    }
+    // SAFETY: `it` is a union built by `build_union*`, checked above, which
+    // the caller holds exclusively (1).
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(it) };
     let dispatch = &mut wrapper.inner;
 

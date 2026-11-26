@@ -380,6 +380,23 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     base.as_ptr()
 }
 
+/// Whether `header` heads a union [`build_union`] or [`build_union_with_q_str`]
+/// lowered, the one layout `RQEIteratorWrapper<UnionOpaque<CRQEIterator>>`
+/// recovers.
+///
+/// The [`IteratorType::Union`] tag does not tell: a decorator may report the
+/// type of the union it wraps (see [`IteratorType::may_be_impersonated`]). Only
+/// those unions carry [`union_profile_children`], which, not being generic, has
+/// a single address.
+pub fn is_union_wrapper(header: &QueryIterator) -> bool {
+    header.ProfileChildren.is_some_and(|profile_children| {
+        std::ptr::fn_addr_eq(
+            profile_children,
+            union_profile_children as unsafe extern "C" fn(_) -> _,
+        )
+    })
+}
+
 /// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]
 /// children, returning an owning [`NonNull`] pointer to the C-ABI
 /// [`QueryIterator`]. Always succeeds: an empty child set reduces to an

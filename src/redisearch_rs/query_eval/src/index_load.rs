@@ -22,9 +22,12 @@ use std::{ffi::c_char, ptr::NonNull};
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
-use rqe_iterators::{c2rust::CRQEIterator, index_load};
+use rqe_iterators::{
+    c2rust::CRQEIterator,
+    index_load::{self, IndexLoad},
+};
 
-use crate::{Evaluated, QueryEvalContext, QueryNodeRef, metric_binding::bind_metric_request};
+use crate::{Evaluated, QueryEvalContext, QueryNodeRef};
 
 /// Reserve the metric request of `node`'s alias, if it has one.
 ///
@@ -61,23 +64,41 @@ pub(crate) fn reserve(
 
 /// Wrap `evaluated` in an index-loading decorator bound to `request`, or hand
 /// it back unchanged when the clause loads nothing.
+///
+/// Returns `None`, with the reason reported into the query
+/// [`status`](QueryEvalContext::status), when the clause's iterator is of a
+/// type the decorator may not report.
 pub(crate) fn decorate<'index>(
     ctx: &mut QueryEvalContext,
     request: Option<MetricRequestId>,
     evaluated: Evaluated<'index>,
-) -> Evaluated<'index> {
+) -> Option<Evaluated<'index>> {
     let Some(request) = request else {
-        return evaluated;
+        return Some(evaluated);
     };
     // SAFETY: `into_c_iterator` yields a valid, owning iterator handle with
     // all callbacks populated — exactly the precondition of `CRQEIterator::new`.
     let child = unsafe { CRQEIterator::new(evaluated.into_c_iterator()) };
-    let it = index_load::boxed_new(child);
-    // SAFETY: `it` was just built by its constructor and nothing else holds it;
-    // `request` was reserved on `ctx` by `reserve`; the AST, which owns the
-    // metric-request array, outlives the iterator tree.
-    unsafe { bind_metric_request(ctx, request, it) };
-    Evaluated::RustCompound(it)
+    let mut decorator = match IndexLoad::new(child) {
+        Ok(decorator) => decorator,
+        Err(type_) => {
+            ctx.status().set_error(
+                QueryErrorCode::BadAttr,
+                &format!("`$as` is not supported on a {type_} iterator"),
+            );
+            return None;
+        }
+    };
+    // SAFETY: (1) `request` was reserved on `ctx` by `reserve`. (2) The slot is
+    // a heap cell the decorator owns, so it stays valid across moves of the
+    // decorator until it is freed. (3) The handle is installed on the decorator
+    // just below. (4) The AST, which owns the metric-request array, outlives
+    // the iterator tree.
+    let handle = unsafe { ctx.bind_metric_request_key(request, decorator.key_slot().as_ptr()) };
+    // SAFETY: (1) `handle` lives as long as the AST, and only this decorator,
+    // which clears its validity flag when freed, writes it.
+    unsafe { decorator.set_handle(Some(handle)) };
+    Some(Evaluated::RustCompound(index_load::boxed_new(decorator)))
 }
 
 /// The alias of a loading `node`.

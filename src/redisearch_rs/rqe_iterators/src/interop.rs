@@ -504,7 +504,10 @@ extern "C" fn current_block_bound<'index, I: RQEIterator<'index> + 'index>(
 /// Consumes the wrapper, calls [`ProfileChildren::profile_children`]
 /// on the inner iterator, and re-wraps the result via `boxed_new_inner` with
 /// `ProfileChildren` set to `None` — profiling is a one-shot pass.
-extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + ProfilePrint>(
+pub(crate) extern "C" fn rust_profile_children<
+    'index,
+    I: ProfileChildren<'index> + ProfilePrint,
+>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(base.is_aligned());

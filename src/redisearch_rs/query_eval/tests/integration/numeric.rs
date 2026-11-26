@@ -196,14 +196,18 @@ fn eval_numeric_with_alias_under_not_is_rejected() {
     assert!(fixture.ctx.metric_requests().is_empty());
 }
 
-/// `$as` wraps the clause in the index-loading decorator and binds the
-/// reserved metric request to it.
+/// `$as` wraps the clause in the index-loading decorator, which reports the
+/// clause's own type, and binds the reserved metric request to it.
 #[test]
 fn eval_numeric_with_alias_decorates_and_binds() {
+    let undecorated = NumericFixture::new(2.0, 3.0)
+        .eval()
+        .expect("should not be None")
+        .type_();
     let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"));
     {
         let mut it = ContractChecker::new(fixture.eval().expect("should not be None"));
-        assert_eq!(it.type_(), IteratorType::IndexLoad);
+        assert_eq!(it.type_(), undecorated);
         for expected in [2, 3] {
             let r = it.read().unwrap().expect("should have a result");
             assert_eq!(r.doc_id, expected);

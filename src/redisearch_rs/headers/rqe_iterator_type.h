@@ -78,12 +78,7 @@ enum IteratorType
    */
   IteratorType_Mock = 23,
   IteratorType_SparseVector = 24,
-  /**
-   * Index loading: attaches the numeric value of each hit of its child as a
-   * metric, so the pipeline can read it as a field.
-   */
-  IteratorType_IndexLoad = 25,
-  IteratorType_Max = 26,
+  IteratorType_Max = 25,
 };
 #ifndef __cplusplus
 typedef uint32_t IteratorType;

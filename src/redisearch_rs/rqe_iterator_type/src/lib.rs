@@ -63,10 +63,7 @@ pub enum IteratorType {
     /// Used only in tests.
     Mock = 23,
     SparseVector = 24,
-    /// Index loading: attaches the numeric value of each hit of its child as a
-    /// metric, so the pipeline can read it as a field.
-    IndexLoad = 25,
-    Max = 26,
+    Max = 25,
 }
 
 impl IteratorType {
@@ -96,9 +93,6 @@ impl IteratorType {
             // Wraps a union of posting-list iterators, so it has children.
             Self::SparseVector => false,
 
-            // Decorates a single child.
-            Self::IndexLoad => false,
-
             Self::Hybrid
             | Self::Union
             | Self::Intersect
@@ -109,6 +103,50 @@ impl IteratorType {
             | Self::Optimus => false,
 
             Self::Max => unreachable!(),
+        }
+    }
+
+    /// Whether an iterator of another type may report this one, as a decorator
+    /// that stays out of type dispatch reports its child's.
+    ///
+    /// `false` for every type some code recovers a concrete layout from by its
+    /// tag alone, which a decorator does not have, and for the wildcards, which
+    /// intersections drop as matching every document, decorator included.
+    pub const fn may_be_impersonated(self) -> bool {
+        match self {
+            Self::InvIdxNumeric
+            | Self::InvIdxTerm
+            | Self::InvIdxMissing
+            | Self::InvIdxTag
+            | Self::Empty
+            // The one cast on this tag checks the wrapper's identity first.
+            | Self::Union
+            | Self::Mock => true,
+
+            Self::Wildcard | Self::InvIdxWildcard => false,
+
+            // Cast on by tag.
+            Self::Hybrid
+            | Self::Intersect
+            | Self::MetricSortedById
+            | Self::MetricSortedByScore
+            | Self::MetricLazySortedById
+            | Self::MetricLazySortedByScore
+            | Self::Profile => false,
+
+            // Nothing casts on these today, but nothing has needed to decorate
+            // them either; admitting one is a review of its tag's users.
+            Self::Not
+            | Self::NotOptimized
+            | Self::Optional
+            | Self::OptionalOptimized
+            | Self::IdListSorted
+            | Self::IdListUnsorted
+            | Self::Optimus
+            | Self::GeoShape
+            | Self::SparseVector => false,
+
+            Self::Max => false,
         }
     }
 
@@ -140,7 +178,6 @@ impl IteratorType {
             Self::GeoShape => "GEO_SHAPE",
             Self::Mock => "MOCK",
             Self::SparseVector => "SPARSE_VECTOR",
-            Self::IndexLoad => "INDEX_LOAD",
             Self::Max => "MAX",
         }
     }
@@ -182,8 +219,7 @@ impl TryFrom<u32> for IteratorType {
             22 => Ok(Self::MetricLazySortedByScore),
             23 => Ok(Self::Mock),
             24 => Ok(Self::SparseVector),
-            25 => Ok(Self::IndexLoad),
-            26 => Ok(Self::Max),
+            25 => Ok(Self::Max),
             other => Err(other),
         }
     }

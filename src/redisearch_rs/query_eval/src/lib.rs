@@ -40,7 +40,6 @@ mod config;
 mod disk;
 mod expansion;
 mod index_load;
-mod metric_binding;
 mod nodes;
 
 pub use config::Config;
