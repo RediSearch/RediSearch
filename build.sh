@@ -57,7 +57,8 @@ RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 # Extra CMake arguments. An exported CMAKE_ARGS string is split on whitespace
 # into the array; arguments given on the command line are appended whole.
-read -r -a CMAKE_ARGS <<< "${CMAKE_ARGS:-}"
+# -d '' reads past newlines; it returns non-zero at end of input, which `set -e` must not see.
+read -r -d '' -a CMAKE_ARGS <<< "${CMAKE_ARGS:-}" || true
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
