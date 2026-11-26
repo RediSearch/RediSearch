@@ -69,6 +69,12 @@ Evidence is keyed by stage, candidate, base and plan hash, so passing evidence i
 amendment invalidates every admission. Everything left to do is a finding; the worker closes
 reviewer findings and comments, and failed checks and CI close themselves.
 
+The benchmark check saves each fresh C/Rust pair's Criterion medians and percentage time
+difference with that evidence. The Rust PR shows the table outside the folded run record,
+including when publication is retried or the retrospective updates it. C is the baseline:
+`100 × (Rust / C − 1)`, negative for less time. The table describes microbenchmarks, not
+end-to-end speedups; comparison-scope caveats belong in the planned PR body.
+
 ## State and debugging
 
 `.amp/rust-port/state.json` holds the job, evidence and findings; `runs/` the diffs and check

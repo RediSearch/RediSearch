@@ -32,6 +32,8 @@ export interface CheckResult extends Check {
   log: string;
   /** Why the check failed: its exit code, or what its log shows. */
   problem?: string;
+  /** Markdown saved with the candidate's evidence and included in its PR. */
+  report?: string;
 }
 
 /** Where checks and trials run: the checkout, a directory for their logs, and the claim's signal and environment. */
@@ -59,16 +61,17 @@ export async function runChecks(run: CheckEnv, checks: Check[]): Promise<CheckRe
     const started = Date.now();
     const exitCode = run.signal.aborted ? null : await execute(run, check.command, log);
     const result: CheckResult = { ...check, exitCode, started, ms: Date.now() - started, log };
-    result.problem =
+    const verdict =
       exitCode === null
-        ? 'timed out'
+        ? { problem: 'timed out' }
         : exitCode !== 0
-          ? `exited ${exitCode}`
+          ? { problem: `exited ${exitCode}` }
           : await run.judges[check.kind]?.({
               check: result,
               log: await readLog(log),
               root: run.root,
             });
+    Object.assign(result, verdict);
     run.debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);
     results.push(result);
     if (result.problem) break;

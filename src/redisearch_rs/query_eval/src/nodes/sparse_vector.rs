@@ -94,14 +94,14 @@ pub(crate) fn eval<'index>(
         // `SparseVectorIterator`, and nothing else holds it yet.
         let wrapper =
             unsafe { RQEIteratorWrapper::<SparseVectorIterator<'_>>::mut_ref_from_header_ptr(ptr) };
-        let own_key = wrapper.inner.key_mut_ref() as *mut _;
+        let own_key = wrapper.inner_mut().key_mut_ref() as *mut _;
         // SAFETY: `id` was reserved by `add_metric_request` on this same
         // context. `own_key` points into the heap-allocated iterator, which
         // clears the handle's validity flag when it is freed.
         let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
         // SAFETY: `handle` lives as long as the AST, which outlives the
         // iterator, and only this iterator writes its validity flag.
-        unsafe { wrapper.inner.set_handle(Some(handle)) };
+        unsafe { wrapper.inner_mut().set_handle(Some(handle)) };
     }
     Some(Evaluated::RustCompound(ptr))
 }
