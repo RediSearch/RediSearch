@@ -379,7 +379,6 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
       RSIndexResult current{};
       Iterator() {
         QueryIterator_SetNoScoreBounds(&base);
-        base.IntersectionSortWeight = Default_IntersectionSortWeight;
         base.Suspend = Default_Suspend;
         base.Free = [](QueryIterator *) {};
         base.Read = [](QueryIterator *base) {
@@ -473,7 +472,6 @@ class BufferedDiskQuery {
     Iterator() {
       current = NewVirtualResult(1.0, RS_FIELDMASK_ALL);
       QueryIterator_SetNoScoreBounds(&base);
-      base.IntersectionSortWeight = Default_IntersectionSortWeight;
       base.Suspend = Default_Suspend;
       base.Free = [](QueryIterator *base) {
         auto *self = reinterpret_cast<Iterator *>(base);

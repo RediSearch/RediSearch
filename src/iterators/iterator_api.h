@@ -43,9 +43,7 @@ typedef enum ValidateStatus {
 
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
-recursively.
-New callbacks go last, so that adding one leaves the offsets of the existing ones unchanged for
-iterators built outside this module, such as the disk API's. */
+recursively */
 typedef struct QueryIterator {
   enum IteratorType type;
 
@@ -180,6 +178,10 @@ typedef struct QueryIterator {
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 
+  /* Callbacks added after the others go last, so that adding them leaves the offsets of the
+   * earlier ones unchanged. A header that never sets one (e.g. a zero-initialised C/C++
+   * iterator such as the test mocks) gets NULL; each callback says what NULL means. */
+
   /**
    * Called immediately before the spec read lock is released, to inform the iterator that it
    * must drop any state that depends on the lock being held (in particular, borrows into
@@ -195,10 +197,8 @@ typedef struct QueryIterator {
    */
   void (*Suspend)(struct QueryIterator *self);
 
-  /* The factor an intersection multiplies this iterator's `NumEstimated` by to order its
-   * children when it is built: the lowest product leads. Required, like `Read`: an iterator with
-   * no opinion sets `Default_IntersectionSortWeight`. Dispatching through the header, rather than
-   * on `type`, keeps it right for an iterator that reports another iterator's type. */
+  /* The weight an intersection multiplies this child's `NumEstimated` by to order its children:
+   * the lowest product goes first. NULL means 1.0, a neutral weight. */
   double (*IntersectionSortWeight)(const struct QueryIterator *self, bool prioritizeUnionChildren);
 } QueryIterator;
 
@@ -224,12 +224,6 @@ static inline bool Default_CurrentBlockBound(const struct QueryIterator *self, t
 static inline IteratorStatus Default_ReadWithThreshold(struct QueryIterator *self,
                                                        double minCompetitiveScore) {
   return self->Read(self);
-}
-
-// The sort weight of an iterator that does not influence its intersection's child order.
-static inline double Default_IntersectionSortWeight(const struct QueryIterator *self,
-                                                    bool prioritizeUnionChildren) {
-  return 1.0;
 }
 
 static inline void QueryIterator_SetNoScoreBounds(QueryIterator *it) {

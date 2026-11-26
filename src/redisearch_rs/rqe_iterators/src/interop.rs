@@ -622,11 +622,8 @@ extern "C" fn current_max_score<'index, I: RQEIteratorBoxed<'index> + 'index>(
     wrapper.state.active_ref().current_max_score()
 }
 
-/// `IntersectionSortWeight` C callback.
-///
-/// Panics if the iterator is suspended, like the other accessors: an intersection reads its
-/// children's weights only while it is being built, under the lock and before any child can have
-/// been suspended.
+/// Panics while the iterator is suspended, like [`num_estimated`]: an intersection reads its
+/// children's weights only while it is being built, and a child being built into a tree is active.
 extern "C" fn intersection_sort_weight<'index, I: RQEIteratorBoxed<'index> + 'index>(
     base: *const QueryIterator,
     prioritize_union_children: bool,
