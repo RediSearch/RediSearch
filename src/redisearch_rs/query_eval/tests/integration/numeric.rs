@@ -52,18 +52,16 @@ impl NumericFixture {
     /// Numeric range tree over documents `1..=3` (values `1.0, 2.0, 3.0`) with a
     /// `QN_NUMERIC` node for the inclusive filter `[min, max]`.
     fn new(min: f64, max: f64) -> Self {
-        Self::with_alias(min, max, None, Compression::On)
+        Self::with_alias(min, max, None)
     }
 
-    /// Like [`new`](Self::new), with the node carrying the `$as` alias `alias`,
-    /// over a range tree built with or without float compression.
-    fn with_alias(min: f64, max: f64, alias: Option<&CStr>, compression: Compression) -> Self {
+    /// Like [`new`](Self::new), with the node carrying the `$as` alias `alias`.
+    fn with_alias(min: f64, max: f64, alias: Option<&CStr>) -> Self {
         let _guard = GlobalGuard::default();
 
         // Documents 1..=3 with numeric values 1.0, 2.0, 3.0.
         let records = (1u64..=3).map(|i| RSIndexResult::build_numeric(i as f64).doc_id(i).build());
-        let context =
-            TestContext::numeric_with_compression(records, false, compression == Compression::On);
+        let context = TestContext::numeric(records, false);
 
         // The numeric path reads `config.min_union_iter_heap`, which the zero-init
         // `QueryEvalCtx` leaves NULL; provide a real, stably-addressed config.
@@ -137,13 +135,6 @@ impl NumericFixture {
     }
 }
 
-/// Whether the fixture's range tree stores values with float compression.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Compression {
-    On,
-    Off,
-}
-
 /// A `QN_NUMERIC` node over `filter`, which must outlive it.
 fn numeric_node(filter: &mut NumericFilter) -> MockQueryNode {
     let mut node = MockQueryNode::new(QueryNodeType::Numeric);
@@ -193,27 +184,9 @@ fn eval_numeric_out_of_range_yields_no_results() {
     );
 }
 
-/// A range tree built with float compression may store a value other than the
-/// indexed one, so `$as` on it is rejected.
-#[test]
-fn eval_numeric_with_alias_on_compressed_tree_is_rejected() {
-    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"), Compression::On);
-    assert!(fixture.eval().is_none());
-    assert_eq!(
-        fixture.ctx.status().code(),
-        query_error::QueryErrorCode::Inval
-    );
-    // Reserved before the check, and left unbound.
-    let requests = fixture.ctx.metric_requests();
-    assert_eq!(requests.len(), 1);
-    // SAFETY: the request names the fixture's live alias.
-    assert_eq!(unsafe { CStr::from_ptr(requests[0].metric_name) }, c"v");
-    assert!(requests[0].key_handle.is_null());
-}
-
 #[test]
 fn eval_numeric_with_alias_under_not_is_rejected() {
-    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"), Compression::On);
+    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"));
     fixture.ctx.set_in_not_sub_tree(true);
     assert!(fixture.eval().is_none());
     assert_eq!(
@@ -227,7 +200,7 @@ fn eval_numeric_with_alias_under_not_is_rejected() {
 /// reserved metric request to it.
 #[test]
 fn eval_numeric_with_alias_decorates_and_binds() {
-    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"), Compression::Off);
+    let mut fixture = NumericFixture::with_alias(2.0, 3.0, Some(c"v"));
     {
         let mut it = ContractChecker::new(fixture.eval().expect("should not be None"));
         assert_eq!(it.type_(), IteratorType::IndexLoad);
@@ -261,7 +234,7 @@ fn eval_numeric_with_alias_decorates_and_binds() {
 /// so the loading one cannot be the child it skips.
 #[test]
 fn eval_zero_weight_union_with_loading_child_aggregates_every_child() {
-    let mut fixture = NumericFixture::with_alias(1.0, 2.0, Some(c"v"), Compression::Off);
+    let mut fixture = NumericFixture::with_alias(1.0, 2.0, Some(c"v"));
     let mut other_filter = fixture.filter(2.0, 3.0);
     let other = numeric_node(&mut other_filter);
     let mut union = MockQueryNode::new(QueryNodeType::Union);

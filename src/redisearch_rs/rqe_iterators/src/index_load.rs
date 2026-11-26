@@ -88,6 +88,9 @@ impl Drop for KeySlot<'_> {
 /// their own result, so the metric is pushed afresh on every positioning,
 /// replacing whatever the hit carried.
 ///
+/// The value is the one the index stores: a range tree built with
+/// `search-_numeric-compress` may store a float slightly off the document's.
+///
 /// Until pipeline construction binds a key, the decorator pushes nothing: the
 /// metrics loader writes every metric through its key, and a null one cannot
 /// be written.

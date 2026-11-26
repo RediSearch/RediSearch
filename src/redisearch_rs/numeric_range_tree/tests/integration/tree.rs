@@ -24,12 +24,6 @@ fn test_new_tree() {
     assert_eq!(tree.revision_id(), 0);
 }
 
-#[rstest]
-fn compresses_floats_reports_the_creation_flag(#[values(false, true)] compress_floats: bool) {
-    let tree = NumericRangeTree::new(compress_floats);
-    assert_eq!(tree.compresses_floats(), compress_floats);
-}
-
 #[test]
 fn test_add_basic() {
     let mut tree = NumericRangeTree::new(false);

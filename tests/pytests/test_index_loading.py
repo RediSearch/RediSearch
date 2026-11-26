@@ -277,24 +277,19 @@ def testRejectedOnVectorClause(env):
         .error().contains('`$as` is supported only on NUMERIC clauses')
 
 
+@skip(cluster=True)
 @with_unstable_features
-def testRejectedOnCompressedTree(env):
-    """A field whose range tree was built with float compression may hold values other than the
-    indexed ones, so it cannot be loaded; a tree built before compression was enabled still can."""
-    setup_hash_index(env)
-    conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'yes')
+def testLoadsTheValueACompressedTreeStores(env):
+    """A range tree built with float compression may store a value slightly off the document's,
+    and `$as` loads the stored one."""
+    env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
     try:
-        env.expect('FT.CREATE', 'cidx', 'ON', 'HASH', 'PREFIX', '1', 'c:', 'SCHEMA', 'n', 'NUMERIC').ok()
-        # Enough keys that every shard of a cluster builds its own tree.
-        for i in range(20):
-            conn.execute_command('HSET', f'c:{i}', 'n', '1.5')
-        env.expect('FT.AGGREGATE', 'cidx', '@n:[1 2] => {$as: v}').error() \
-            .contains('`search-_numeric-compress`')
-        # `idx`'s tree was built uncompressed, and keeps its codec.
-        env.assertEqual(aggregate_rows(env, '@n:[15 25] => {$as: v}'), [{'v': '20'}])
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+        env.cmd('HSET', 'doc:1', 'n', '1.1')
+        [row] = aggregate_rows(env, '@n:[1 2] => {$as: v}')
+        env.assertAlmostEqual(float(row['v']), 1.1, delta=0.01, message=row)
     finally:
-        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'no')
+        env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'no').ok()
 
 
 @with_unstable_features
@@ -521,19 +516,11 @@ def testHybridRejections(env):
     rejections only evaluation can make."""
     env.flush()
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'c', 'NUMERIC', 'emb', 'VECTOR', 'FLAT',
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'emb', 'VECTOR', 'FLAT',
                '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-    # Enough keys that every shard of a cluster has documents, and builds its own trees.
-    keys = [f'doc:{i}' for i in range(20)]
-    for key in keys:
-        conn.execute_command('HSET', key, 'n', '10', 'emb', np.array([1.0, 0.0]).astype(np.float32).tobytes())
-    # `c`'s tree is created by its first value, while compression is on.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'yes')
-    try:
-        for key in keys:
-            conn.execute_command('HSET', key, 'c', '1.5')
-    finally:
-        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_numeric-compress', 'no')
+    # Enough keys that every shard of a cluster has documents.
+    for i in range(20):
+        conn.execute_command('HSET', f'doc:{i}', 'n', '10', 'emb', np.array([1.0, 0.0]).astype(np.float32).tobytes())
     blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     def hybrid(query):
@@ -541,7 +528,6 @@ def testHybridRejections(env):
                           'PARAMS', '2', 'BLOB', blob)
 
     hybrid('-(@n:[5 15] => {$as: v})').error().contains('`$as` is not supported under a negation')
-    hybrid('@c:[1 2] => {$as: v}').error().contains('`search-_numeric-compress`')
     set_unstable_features(env, False)
     hybrid('@n:[5 15] => {$as: v}').error().contains('ENABLE_UNSTABLE_FEATURES')
 
@@ -560,26 +546,6 @@ def testOptimizerKeepsTheScorerDecision(env):
             loading = env.cmd('FT.SEARCH', 'idx', '@t:{a} @n:[5 85] => {$as: v}', *args,
                               'NOCONTENT', 'LIMIT', '0', '2', *optimize)
             env.assertEqual(loading, plain, message=(optimize, args))
-
-
-@skip(cluster=True)
-@with_unstable_features
-def testCompressCheckFollowsTheReloadedTree(env):
-    """Range trees are rebuilt from the keyspace on load, under the compression setting of that
-    time: after a reload a lossy tree is rejected, and a tree rebuilt lossless loads again."""
-    setup_hash_index(env)
-    query = '@n:[15 25] => {$as: v}'
-    env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'yes').ok()
-    try:
-        env.assertEqual(aggregate_rows(env, query), [{'v': '20'}])
-        env.expect('DEBUG', 'RELOAD').ok()
-        waitForIndex(env, 'idx')
-        env.expect('FT.AGGREGATE', 'idx', query).error().contains('`search-_numeric-compress`')
-    finally:
-        env.expect('CONFIG', 'SET', 'search-_numeric-compress', 'no').ok()
-    env.expect('DEBUG', 'RELOAD').ok()
-    waitForIndex(env, 'idx')
-    env.assertEqual(aggregate_rows(env, query), [{'v': '20'}])
 
 
 @skip(cluster=True)

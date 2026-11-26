@@ -272,13 +272,6 @@ impl NumericRangeTree {
         self.has_multivalued_docs
     }
 
-    /// Whether the tree stores values with float compression, as chosen when it
-    /// was [created](Self::new). Such a tree may hold a value that differs
-    /// from the indexed one.
-    pub const fn compresses_floats(&self) -> bool {
-        self.compress_floats
-    }
-
     /// Get the total number of ranges in the tree.
     pub const fn num_ranges(&self) -> usize {
         self.stats.num_ranges.get()

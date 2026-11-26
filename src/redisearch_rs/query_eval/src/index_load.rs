@@ -17,8 +17,6 @@
 //! in an [`IndexLoad`](rqe_iterators::index_load::IndexLoad) decorator bound
 //! to it.
 
-use field_spec::FieldSpec;
-use numeric_range_tree::NumericRangeTree;
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
@@ -58,30 +56,6 @@ pub(crate) fn reserve(
     // request borrows it; the node owns it, and the AST outlives the
     // metric-request array.
     Ok(Some(unsafe { ctx.add_metric_request(alias, false) }))
-}
-
-/// Whether `field`'s numeric range tree was built with float compression,
-/// which may store a value other than the indexed one, so loading from it is
-/// rejected by [`reject_lossy`]. A field with no tree yet has nothing to load.
-///
-/// The codec is the tree's own, fixed when indexing creates it. Trees are not
-/// persisted: on RDB load they are rebuilt from the keyspace under the
-/// `search-_numeric-compress` value current at that time, so a restart can
-/// change the answer either way, and the answer always matches the tree.
-pub(crate) fn compresses_floats(field: &ffi::FieldSpec) -> bool {
-    // SAFETY: `field` is a field of the live spec, which the query's spec read
-    // lock keeps alive and unmodified, names included.
-    unsafe { FieldSpec::from_raw(field) }
-        .tree()
-        .is_some_and(NumericRangeTree::compresses_floats)
-}
-
-/// Reject a loading clause on a field that [`compresses_floats`].
-pub(crate) fn reject_lossy(ctx: &mut QueryEvalContext) {
-    ctx.status().set_error(
-        QueryErrorCode::Inval,
-        "`$as` cannot load a numeric field indexed with `search-_numeric-compress`",
-    );
 }
 
 /// Wrap `evaluated` in an index-loading decorator bound to `request`, or hand
