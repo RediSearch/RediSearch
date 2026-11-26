@@ -1502,6 +1502,10 @@ TYPED_TEST(HNSWTieredIndexTestBasic, AdHocSingle) {
 
     // Insert vectors to the tiered index.
     VecSimIndex_AddVector(hnsw_index, vec1, 1); // vec1 is inserted to HNSW only.
+    ASSERT_EQ(flat_index->indexSize(), 0);
+    ASSERT_EQ(VecSimIndex_GetDistanceFrom_Unsafe(tiered_index, 1, vec1), 0);
+    ASSERT_TRUE(std::isnan(VecSimIndex_GetDistanceFrom_Unsafe(tiered_index, 4, vec4)));
+
     VecSimIndex_AddVector(flat_index, vec2, 2); // vec2 is inserted to flat only.
 
     // vec3 is inserted to both HNSW and flat, simulating a vector that was inserted
@@ -1583,6 +1587,9 @@ TYPED_TEST(HNSWTieredIndexTestBasic, AdHocMulti) {
     VecSimIndex_AddVector(hnsw_index, vec1_1, 1);
     VecSimIndex_AddVector(hnsw_index, vec1_2, 1);
     VecSimIndex_AddVector(hnsw_index, vec1_3, 1);
+    ASSERT_EQ(flat_index->indexSize(), 0);
+    ASSERT_EQ(VecSimIndex_GetDistanceFrom_Unsafe(tiered_index, 1, vec1_2), 0);
+    ASSERT_TRUE(std::isnan(VecSimIndex_GetDistanceFrom_Unsafe(tiered_index, 5, vec5)));
 
     VecSimIndex_AddVector(flat_index, vec2_1, 2);
     VecSimIndex_AddVector(flat_index, vec2_2, 2);

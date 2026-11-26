@@ -421,6 +421,11 @@ public:
     // this is usually called for every vector individually, and the overhead of acquiring and
     // releasing the locks is significant in that case.
     double getDistanceFrom_Unsafe(labelType label, const void *blob) const override {
+        // The shared locks keep the empty flat buffer stable for this lookup.
+        if (this->frontendIndex->indexSize() == 0) {
+            return this->backendIndex->getDistanceFrom_Unsafe(label, blob);
+        }
+
         // Try to get the distance from the flat buffer.
         // If the label doesn't exist, the distance will be NaN.
         auto flat_dist = this->frontendIndex->getDistanceFrom_Unsafe(label, blob);
