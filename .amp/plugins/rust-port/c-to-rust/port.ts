@@ -22,8 +22,11 @@ const SOURCES = /\.(c|h|cpp|cc|hpp|rs)$/;
 export interface PortPlan {
   /** The C files being ported; the swap deletes them, headers included. */
   module: string[];
-  /** One per function the module's headers declare, and the Rust the swap exports under its name. */
-  symbols: { c: string; rust: string }[];
+  /** Each header function is replaced by Rust or retired with a reason shown on the PR. */
+  symbols: ({ c: string } & (
+    | { rust: string; retired?: never }
+    | { retired: string; rust?: never }
+  ))[];
 }
 
 /**
@@ -58,9 +61,15 @@ export async function checkPortPlan(
   if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
     errors.push('module needs the C files being ported: sources and headers');
   if (!plan.symbols?.length) errors.push('symbols needs every function the headers declare');
-  for (const [i, s] of (plan.symbols ?? []).entries())
-    if (![s?.c, s?.rust].every((v) => typeof v === 'string' && v.trim()))
-      errors.push(`symbols[${i}] needs c and rust`);
+  for (const [i, s] of (plan.symbols ?? []).entries()) {
+    const nonblank = (v: unknown) => typeof v === 'string' && v.trim();
+    if (
+      !nonblank(s?.c) ||
+      !nonblank(s?.rust ?? s?.retired) ||
+      (s?.rust !== undefined && s?.retired !== undefined)
+    )
+      errors.push(`symbols[${i}] needs c and exactly one of rust or a retired reason`);
+  }
   for (const t of citedTests(plan, stages.at(-1)!.name))
     if (namedForArtifact(t.name))
       errors.push(
@@ -99,7 +108,7 @@ export const describePortPlan = (
 
 The C being ported, ${plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree until \`${swap}\` deletes it.
 
-${plan.symbols.map((s) => `- \`${s.c}\`: \`${s.rust}\``).join('\n')}`;
+${plan.symbols.map((s) => `- \`${s.c}\`: ${s.retired !== undefined ? `retired — ${s.retired}` : `\`${s.rust}\``}`).join('\n')}`;
 
 /**
  * What the swap leaves undone: a Rust replacement or generated export missing, a module file
@@ -128,9 +137,18 @@ export async function checkSwap(
       `${o.stage} changes Rust outside its FFI crate (${pure.join(', ')}): add a mutants check`,
     );
   const headers = tracked.filter((f) => f.startsWith(layout.headers));
+  // A retired function counts as exported only where declared, not where a comment names it.
+  const declared = new Set<string>();
+  for (const f of headers) for (const name of headerFunctions(await read(f))) declared.add(name);
   for (const s of o.plan.symbols) {
+    if (s.retired !== undefined) {
+      if (declared.has(s.c))
+        problems.push(`retired function ${s.c} is still exported in a generated header`);
+      continue;
+    }
     if (!(await definesRust(layout, tracked, read, s.rust)))
       problems.push(`${s.rust}, which replaces ${s.c}, is not defined`);
+    // A replacement may be kept as a static inline shim or a macro, which declare no function.
     if (!(await anyFileMatches(headers, read, wholeWord(s.c))))
       problems.push(`no generated header exports ${s.c}`);
   }

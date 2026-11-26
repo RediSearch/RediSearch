@@ -8,7 +8,10 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { headerFunctions } from '../port.ts';
+import { checkPortPlan, describePortPlan, headerFunctions, type PortPlan } from '../port.ts';
+import type { Plan } from '../../core/plan.ts';
+import type { Vcs } from '../../core/ports.ts';
+import { plan, profile } from '../../core/test/fakes.ts';
 
 test('the declarations of a header are its functions, not its macros, types or comments', () => {
   const header = `/* NewGeoFilter(...) frees nothing */
@@ -40,5 +43,37 @@ static_assert(sizeof(GeoFilter) == 48, "layout");`;
     'GeoFilter_Free',
     'GetList_SuffixTrieMap',
     'TagIndex_GetSuffixMatches',
+  ]);
+});
+
+test('every declared function needs a replacement or an explicit retirement reason', async () => {
+  const retired = { c: 'Geo_Free', retired: 'Only tests use it after the swap.' };
+  const p: Plan<PortPlan> = { ...plan, module: ['geo.c', 'geo.h'], symbols: [retired] };
+  const vcs = {
+    readFileAt: async () => 'void Geo_Free(void);',
+    listFiles: async () => [],
+  } as unknown as Vcs;
+  const errors = async (symbols: unknown) =>
+    (
+      await checkPortPlan({ ...p, symbols } as Plan<PortPlan>, profile.stages, {
+        root: '.',
+        vcs,
+        base: 'base',
+        workspace: 'missing',
+      })
+    ).filter((e) => e.startsWith('symbols'));
+  assert.deepEqual(await errors([retired]), []);
+  assert.match(describePortPlan(p, 'b'), /`Geo_Free`: retired — Only tests use it/);
+  for (const symbol of [
+    { c: 'Geo_Free' },
+    { ...retired, retired: ' ' },
+    { ...retired, rust: 'geo::free' },
+  ])
+    assert.deepEqual(await errors([symbol]), [
+      'symbols[0] needs c and exactly one of rust or a retired reason',
+    ]);
+  assert.deepEqual(await errors([{ ...retired, c: 'Unknown' }]), [
+    'symbols leaves out Geo_Free',
+    'symbols names undeclared Unknown',
   ]);
 });

@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { git, gitVcs } from '../../core/git.ts';
-import { orphanedExports, fileReader, type PortPlan } from '../../c-to-rust/port.ts';
+import { checkSwap, orphanedExports, fileReader, type PortPlan } from '../../c-to-rust/port.ts';
 import { parseDiff } from '../../core/diff.ts';
 import { checkClaim } from '../../core/gates.ts';
 import { newState } from '../../core/job.ts';
@@ -110,4 +110,38 @@ test('an export only a test module beside it calls is an orphan', async () => {
   const files = parseDiff(await sh(['diff', base, candidate]));
   const tracked = await gitVcs(root).listFiles(candidate);
   assert.deepEqual(await orphanedExports(layout, files, tracked, fileReader(root)), ['Geo_Free']);
+});
+
+test('the swap must remove retired exports, and keep replacements however it exports them', async () => {
+  const { root, commit } = await repository();
+  const header = `${layout.headers}geo.h`;
+  const shim = 'static inline int Geo_Len(void) { return 0; }\n';
+  const candidate = await commit({
+    [header]: `void Geo_Free(void);\n${shim}`,
+    'src/redisearch_rs/geo/Cargo.toml': 'name = "geo"\n',
+    'src/redisearch_rs/geo/src/lib.rs': 'pub fn len() -> i32 { 0 }\n',
+  });
+  const plan = {
+    module: ['src/geo.c', 'src/geo.h'],
+    symbols: [
+      { c: 'Geo_Free', retired: 'No production callers remain.' },
+      { c: 'Geo_Len', rust: 'geo::len' },
+    ],
+    stages: { swap: { checks: [] } },
+  } as unknown as Plan<PortPlan>;
+  const check = (revision: string) =>
+    checkSwap(layout, {
+      root,
+      vcs: gitVcs(root),
+      plan,
+      stage: 'swap',
+      candidate: revision,
+      files: [],
+    });
+  assert.deepEqual(await check(candidate), [
+    'retired function Geo_Free is still exported in a generated header',
+  ]);
+  // A doc comment naming the retired function does not export it.
+  const mentioned = await commit({ [header]: `/** Replaces Geo_Free. */\n${shim}` });
+  assert.deepEqual(await check(mentioned), []);
 });

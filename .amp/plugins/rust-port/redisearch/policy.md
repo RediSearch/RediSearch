@@ -18,9 +18,12 @@ compaction: the plugin and your checks replace `open-pr`, `adversarial-review`, 
 states the C behavior in `c` and the Rust behavior in `rust`. Two fields are a port's own:
 
 - **`module`:** the C files being ported, sources and headers; `swap` deletes them.
-- **`symbols`:** every function the module's headers declare, with the Rust item that replaces
-  it, which `swap` exports under the C function's own name. The plugin reads the headers on the
-  base branch and rejects a plan that leaves one out.
+- **`symbols`:** every function the module's headers declare, with either the `rust` item that
+  replaces it or a `retired` reason when the swap removes the function. A replacement is
+  exported under the C function's own name; a retired function must not be declared in a
+  generated header. The plugin reads the headers on the base branch and rejects a plan that
+  leaves one out. Retire test-only APIs rather than adding exports for them, and migrate any
+  required test coverage to Rust.
 
 The plugin rejects a test named for its artifact (`contract`, `ABI`, `boundary`, `compat`).
 Name each crate a stage changes in its `paths`, files or directories that hold at most one
@@ -108,9 +111,9 @@ Make the checks catch what CI would, as `port-c-module`'s _Verify as CI Does_ de
 ## House rules and the swap
 
 The house rules are `rust-review`'s, and a new crate needs `port-c-module`'s lint block. A swap
-claim is rejected until it meets the plan's `symbols`: every Rust replacement defined, every C
-function exported under its own name in a generated header, every `module` file deleted, and no
-C ABI export left that only tests call.
+claim is rejected until it meets the plan's `symbols`: every Rust replacement defined and
+exported under its C name in a generated header, every retired function absent from generated
+headers, every `module` file deleted, and no C ABI export left that only tests call.
 
 ## CI
 

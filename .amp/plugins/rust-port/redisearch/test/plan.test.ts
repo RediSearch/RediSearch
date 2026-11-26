@@ -101,7 +101,7 @@ test('a port plan needs its module, symbols, PR template and behavior-named test
   assert.deepEqual(await inspect(broken), [
     'swap body needs both release-notes boxes of the PR template, exactly one of them ticked',
     'module needs the C files being ported: sources and headers',
-    'symbols[0] needs c and rust',
+    'symbols[0] needs c and exactly one of rust or a retired reason',
     'tests/pytests/test_geo.py::testGeoContract is named for its artifact; name it for the behavior it asserts',
     'rust bench check filters the benchmarks (--); run them all',
   ]);
