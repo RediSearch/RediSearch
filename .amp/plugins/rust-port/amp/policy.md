@@ -5,10 +5,7 @@ The operations of the core policy are tools named `port_<operation>`: `port_plan
 
 ## A thread per stage
 
-Each stage gets a fresh worker thread. When the stage you started on is admitted, the plugin
-hands the job to a new thread, briefed with the plan, the next stage and the outstanding
-findings, and the claim result says so: end your turn then and change nothing more. Your thread
-stays readable but owns nothing; the new one also handles later fixes to your stage.
+Each stage gets a fresh worker thread. When the stage you started on is admitted, report the admission without making further changes to the checkout. After your turn ends, the plugin hands the job to a new thread, briefed with the plan, the next stage and the outstanding findings. Your thread stays readable but owns nothing after the handoff; the new one also handles later fixes to your stage.
 
 ## Waiting for CI and comments
 

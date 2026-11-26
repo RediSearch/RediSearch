@@ -52,8 +52,11 @@ jobs:
           profile-region: us-east-1
           async: true
       - name: Setup specific
-        working-directory: .install
-        run: ./install_script.sh sudo
+        # Retried so a transient apt mirror failure (e.g. a mirror mid-sync) does not fail the job.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
+        with:
+          command: ./install_script.sh sudo
+          working_directory: .install
       - name: Setup tests dependencies
         uses: redislabsdev/redisearch-ci-common/.github/actions/retry-command@v1
         with:

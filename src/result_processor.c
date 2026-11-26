@@ -48,6 +48,7 @@
 #include "doc_table.h"
 #include "document.h"
 #include "hiredis/sds.h"
+#include "buffer/buffer.h"
 #include "index_result_rs.h"
 #include "profile/profile.h"
 #include "query_error.h"
@@ -2735,14 +2736,14 @@ static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
 }
 
-// Dictionary type for keyPtr -> HybridSearchResult mapping
+// Binary-safe document key -> HybridSearchResult mapping
 dictType dictTypeHybridSearchResult = {
-  .hashFunction = stringsHashFunction,
-  .keyDup = stringsKeyDup,
-  .valDup = NULL,
-  .keyCompare = stringsKeyCompare,
-  .keyDestructor = stringsKeyDestructor,
-  .valDestructor = hybridSearchResultValueDestructor,
+    .hashFunction = rstringHashFunction,
+    .keyDup = rstringKeyDup,
+    .valDup = NULL,
+    .keyCompare = rstringKeyCompare,
+    .keyDestructor = stringsKeyDestructor,
+    .valDestructor = hybridSearchResultValueDestructor,
 };
 
  /*******************************************************************************************************************
@@ -2795,45 +2796,46 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
-  // Single shard case - use dmd->keyPtr
+static bool hybridMergerStoreUpstreamResult(RPHybridMerger *self, SearchResult *r,
+                                            size_t upstreamIndex, double score) {
   RLookupRow translated = RLookupRow_New();
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
-      self->lookupCtx->sourceLookups[upstreamIndex], &translated,
-      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
+                             self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+                             self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
   RLookupRow_Reset(SearchResult_GetRowDataMut(r));
   SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
-  const char *keyPtr = dmd ? dmd->keyPtr : NULL;
-  // Coordinator case - no dmd - use docKey in rlookup
-  const bool fallbackToLookup = !keyPtr && self->docKey;
-  if (fallbackToLookup) {
+  RString key;
+  if (dmd && dmd->keyPtr) {
+    key.s = DMD_KeyPtrLen(dmd, &key.n);
+  } else {
+    if (!self->docKey) {
+      return false;
+    }
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
-    if (docKeyValue != NULL) {
-      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+    if (!docKeyValue) {
+      return false;
+    }
+    key.s = RSValue_StringPtrLen(docKeyValue, &key.n);
+    if (!key.s) {
+      return false;
     }
   }
-  if (!keyPtr) {
-    return false;
-  }
 
-  // Check if we've seen this document before
-  HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(self->hybridResults, keyPtr);
-
+  HybridSearchResult *hybridResult = dictFetchValue(self->hybridResults, &key);
   if (!hybridResult) {
-    // First time seeing this document - create new hybrid result
     hybridResult = HybridSearchResult_New(self->numUpstreams);
-    dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
+    dictAdd(self->hybridResults, &key, hybridResult);
   }
 
-   SearchResult_SetScore(r, score);
-   // The merger holds `r` in its dictionary across further upstream Reads;
-   // preserve or drop the borrowed RSIndexResult so it does not dangle.
-   SearchResult_BufferIndexResult(&self->base, r);
-   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
-   return true;
- }
+  SearchResult_SetScore(r, score);
+  // The merger holds `r` in its dictionary across further upstream Reads;
+  // preserve or drop the borrowed RSIndexResult so it does not dangle.
+  SearchResult_BufferIndexResult(&self->base, r);
+  HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
+  return true;
+}
 
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
