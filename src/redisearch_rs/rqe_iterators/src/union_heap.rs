@@ -449,15 +449,16 @@ where
                 if child.at_eof() {
                     continue;
                 }
-                match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
-                        self.heap.push(r.doc_id, idx);
-                    }
-                    None => {
-                        self.num_active -= 1;
-                    }
+                if let Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) =
+                    child.skip_to(doc_id)?
+                {
+                    self.heap.push(r.doc_id, idx);
                 }
             }
+            // Derived rather than decremented, as in `initialize_children`: a child already at EOF
+            // is skipped above and must not count, and a `revalidate` before this first call may
+            // have counted only the children its own heap rebuild kept.
+            self.num_active = self.heap.len();
             Ok(usize::MAX)
         } else {
             self.advance_lagging_children(doc_id)

@@ -170,8 +170,12 @@ where
     let mut at = None;
     let mut decided = None;
     union.visit_live_children_in_order(|child| {
-        // `from` never decreases along the walk, since the children come in position order.
         let from = child.last_doc_id().max(start);
+        // The pivot is only sound if no child that can match an earlier document comes later.
+        debug_assert!(
+            at.is_none_or(|previous| from >= previous),
+            "children visited out of position order: {from} after {at:?}",
+        );
         if let Some(previous) = at
             && from > previous
         {
