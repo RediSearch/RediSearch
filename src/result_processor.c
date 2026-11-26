@@ -922,6 +922,10 @@ typedef struct {
 
   ScoreThresholdMode scoreThreshold;
 
+  // For a field sorter whose only, descending key is the score the scorer writes, that key: the
+  // heap is then ordered by the score, so its minimum is a threshold too.
+  const RLookupKey *scoreFieldKey;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -990,13 +994,18 @@ static bool keepsScoreThreshold(const ResultProcessor *rp) {
  * through processors that keep it valid. A RAM root reports no bounds, so its index processor
  * never reads it and the sorter does not publish it at all.
  */
-static bool chainKeepsScoreThreshold(const ResultProcessor *rp) {
+static bool chainKeepsScoreThreshold(const ResultProcessor *rp, const RLookupKey *scoreFieldKey) {
+  // A field sorter's key must be the one the scorer in the chain writes.
+  bool sortedByScore = !scoreFieldKey;
   for (; rp && rp->type != RP_INDEX; rp = rp->upstream) {
     if (!keepsScoreThreshold(rp)) {
       return false;
     }
+    if (rp->type == RP_SCORER && ((const RPScorer *)rp)->scoreKey == scoreFieldKey) {
+      sortedByScore = true;
+    }
   }
-  return rp && ((const RPQueryIterator *)rp)->readsScoreThreshold;
+  return sortedByScore && rp && ((const RPQueryIterator *)rp)->readsScoreThreshold;
 }
 
 /**
@@ -1009,7 +1018,8 @@ static inline int pullCandidate(RPSorter *self) {
   if (self->scoreThreshold != ScoreThreshold_Off && self->pq->count == self->pq->size) {
     if (self->scoreThreshold == ScoreThreshold_Undecided) {
       self->scoreThreshold =
-          chainKeepsScoreThreshold(upstream) ? ScoreThreshold_Publish : ScoreThreshold_Off;
+          chainKeepsScoreThreshold(upstream, self->scoreFieldKey) ? ScoreThreshold_Publish
+                                                                  : ScoreThreshold_Off;
     }
     if (self->scoreThreshold == ScoreThreshold_Publish) {
       self->base.parent->minCompetitiveScore = SearchResult_GetScore(mmh_peek_min(self->pq));
@@ -1160,6 +1170,15 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
   return &ret->base;
+}
+
+void RPSorter_PublishScoreFieldThreshold(ResultProcessor *rp, const RLookupKey *scoreKey) {
+  RS_ASSERT(rp->type == RP_SORTER);
+  RPSorter *self = (RPSorter *)rp;
+  RS_ASSERT(self->fieldcmp.nkeys == 1 && self->fieldcmp.keys[0] == scoreKey &&
+            !SORTASCMAP_GETASC(self->fieldcmp.ascendMap, 0));
+  self->scoreFieldKey = scoreKey;
+  self->scoreThreshold = ScoreThreshold_Undecided;
 }
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey,

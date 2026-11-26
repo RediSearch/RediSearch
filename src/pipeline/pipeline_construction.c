@@ -244,6 +244,29 @@ static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   return result;
 }
 
+// Whether a plan step before `stp` can write `key`, named `name`, into the rows: a LOAD of it or of
+// every field, or an APPLY that takes its name. Only the scorer may write the score a field sorter
+// publishes as the threshold.
+static bool earlierStepWritesKey(const PLN_BaseStep *stp, const RLookupKey *key, const char *name) {
+  for (const PLN_BaseStep *prev = PLN_PREV_STEP(stp); prev->type != PLN_T_ROOT;
+       prev = PLN_PREV_STEP(prev)) {
+    if (prev->type == PLN_T_LOAD) {
+      const PLN_LoadStep *load = (const PLN_LoadStep *)prev;
+      if (prev->flags & PLN_F_LOAD_ALL) {
+        return true;
+      }
+      for (size_t i = 0; i < load->nkeys; i++) {
+        if (load->keys[i] == key) {
+          return true;
+        }
+      }
+    } else if (prev->type == PLN_T_APPLY && prev->alias && !strcmp(prev->alias, name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -310,6 +333,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
+      // A descending sort on the score alone is a sort by score: the sorter can publish its
+      // heap minimum as the threshold, and confirms the key is the scorer's once the chain is
+      // complete.
+      if (params->diskScoreSkippingQuery && nkeys == 1 &&
+          !SORTASCMAP_GETASC(astp->sortAscMap, 0) &&
+          !earlierStepWritesKey(stp, sortkeys[0], astp->sortKeys[0])) {
+        RPSorter_PublishScoreFieldThreshold(rp, sortkeys[0]);
+      }
       up = pushRP(&pipeline->qctx, rp, up);
 
     } else if (IsHybrid(&params->common) ||
