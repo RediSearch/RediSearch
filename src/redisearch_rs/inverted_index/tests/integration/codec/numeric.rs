@@ -742,6 +742,46 @@ fn decimal_decodes_the_same_with_and_without_trailing_bytes() {
     }
 }
 
+/// A decimal record cut short anywhere after its header, before the info byte or inside the
+/// mantissa, is an error rather than a value read from missing bytes.
+#[test]
+fn truncated_decimal_is_unexpected_eof() {
+    for delta_bytes in 0..=7 {
+        for mantissa_bytes in 1..=8 {
+            let (record, _, _) = handmade_decimal(delta_bytes, mantissa_bytes);
+            for len in 1..record.len() {
+                let mut cursor = Cursor::new(&record[..len]);
+
+                let kind = Numeric::decode_new(&mut cursor, 1)
+                    .expect_err("a truncated record must not decode")
+                    .kind();
+
+                assert_eq!(
+                    kind,
+                    std::io::ErrorKind::UnexpectedEof,
+                    "delta bytes: {delta_bytes}, mantissa bytes: {mantissa_bytes}, length: {len}"
+                );
+            }
+        }
+    }
+}
+
+/// A fraction too large to scale by any power of ten without leaving the exact integer range
+/// of an `f64` has no decimal form the codec can store, so it keeps the `f64`.
+#[test]
+fn fraction_too_large_to_scale_keeps_f64() {
+    let value: f64 = 1e15 + 0.5;
+    assert_ne!(value.fract(), 0.0, "the value must not be an integer");
+
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::build_numeric(value).build();
+    Numeric::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
+        .expect("to encode numeric record");
+
+    assert_eq!(buf.get_ref()[0], 0b100_01_000, "should stay an f64");
+    assert_eq!(round_trip::<Numeric>(value).to_bits(), value.to_bits());
+}
+
 /// Every record of a block of decimals decodes back, both the early ones that have plenty of
 /// bytes after them and the last few that sit close to the end of the block.
 #[test]
