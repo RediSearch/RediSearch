@@ -6,7 +6,6 @@ license-file.workspace = true
 publish.workspace = true
 
 [lib]
-# This crate has no tests nor benches.
 # Compiling a no-op bench/test binary can cause linking issues with C.
 test = false
 bench = false
@@ -15,5 +14,10 @@ bench = false
 workspace = true
 
 [dependencies]
+redis-module.workspace = true
 string_utils = { workspace = true }
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }

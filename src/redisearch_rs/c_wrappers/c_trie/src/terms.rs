@@ -16,7 +16,7 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use string_utils::runes::runes_to_bytes_into;
+use string_utils::runes::{decode_runes, runes_to_bytes_into};
 
 use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm, TrieTermRef};
 
@@ -222,11 +222,7 @@ impl TermsTrie {
     /// never have been inserted.
     pub fn num_docs(&self, term: &[u8]) -> usize {
         // A zero-length key is refused on insertion, so the trie cannot hold the
-        // empty term and the lookup could only answer zero. Skipping it also
-        // keeps an empty slice's pointer — which need not point into an
-        // allocation — away from the decode below, which forms `src + slen`
-        // before testing that the decode loop is empty. That arithmetic is only
-        // defined on a pointer into an object.
+        // empty term and the lookup could only answer zero.
         if term.is_empty() {
             return 0;
         }
@@ -245,29 +241,17 @@ impl TermsTrie {
             return 0;
         }
 
-        // A UTF-8 string yields at most as many runes as bytes, so the decode
-        // cannot truncate and `rlen` below indexes within `runes`. The extra
-        // slot keeps the pointer non-dangling for an empty term.
-        let mut runes = vec![0 as ffi::rune; term.len() + 1];
-        // SAFETY: `term` is a live slice of `term.len()` bytes, which the decode
-        // reads no further than, and `runes.len()` bounds the write.
-        let rlen = unsafe {
-            ffi::strToRunes(
-                term.as_ptr() as *const c_char,
-                term.len(),
-                runes.as_mut_ptr(),
-                runes.len(),
-            )
-        };
-        // SAFETY: `self` borrows a valid `ffi::Trie`; `runes`/`rlen` describe a
-        // valid rune slice, and `rlen <= term.len()` fits `t_len` (guarded above).
+        let runes: Vec<ffi::rune> = decode_runes(term).collect();
+        // SAFETY: `self` borrows a valid `ffi::Trie`; `runes` is a valid rune
+        // slice, and a string yields at most as many runes as bytes, so its
+        // length fits `t_len` (guarded above).
         // `Trie_GetNode` takes a non-const `Trie *` but only traverses it, so
         // nothing is written through the shared pointer.
         let node = unsafe {
             ffi::Trie_GetNode(
                 self.as_ptr().cast_mut(),
                 runes.as_ptr(),
-                rlen as ffi::t_len,
+                runes.len() as ffi::t_len,
                 true,
                 std::ptr::null_mut(),
             )
