@@ -360,6 +360,9 @@ type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>
 ///
 /// `base` must be a valid, owning pointer to a `UnionWrapper` created via
 /// [`build_union`].
+// A function that may be inlined across crates can have several copies, each
+// with its own address, and `is_union_wrapper` tells unions apart by this one's.
+#[inline(never)]
 unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
     // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
@@ -386,8 +389,8 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 ///
 /// The [`IteratorType::Union`] tag does not tell: a decorator may report the
 /// type of the union it wraps (see [`IteratorType::may_be_impersonated`]). Only
-/// those unions carry [`union_profile_children`], which, not being generic, has
-/// a single address.
+/// those unions carry [`union_profile_children`], which, neither generic nor
+/// inlinable, has a single address.
 pub fn is_union_wrapper(header: &QueryIterator) -> bool {
     header.ProfileChildren.is_some_and(|profile_children| {
         std::ptr::fn_addr_eq(
