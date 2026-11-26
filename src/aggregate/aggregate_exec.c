@@ -1415,6 +1415,12 @@ error:
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): the worker is done with the query and about to release its reference to
+  // the spec, which is the last one if the index was dropped meanwhile. Worker-only: the request
+  // itself is freed on other threads too.
+  SyncPoint_Wait(SYNC_POINT_BEFORE_AREQ_SPEC_RELEASE);
+#endif
   IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }

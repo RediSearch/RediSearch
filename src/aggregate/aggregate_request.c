@@ -18,9 +18,6 @@
 #include <strings.h>
 #include <sys/param.h>
 
-#ifdef ENABLE_ASSERT
-#include "debug_commands.h" // IWYU pragma: keep
-#endif
 #include "aggregate.h"
 #include "query_eval_ffi.h"
 #include "aggregate_debug.h"
@@ -1887,9 +1884,6 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free((void *)req->querySlots);
 
-#ifdef ENABLE_ASSERT
-  SyncPoint_Wait(SYNC_POINT_BEFORE_AREQ_SPEC_RELEASE);
-#endif
   // Finally, free the context. Its redisCtx is a cycle-scoped borrow, never
   // owned, so there is nothing to release here.
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);

@@ -171,9 +171,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
 // (use-after-free) when the disk-GC/teardown handshake was missing.
 #define SYNC_POINT_AFTER_DISK_INDEX_CLOSE               "AfterDiskIndexClose"
-// A query worker about to release its reference to the spec (AREQ_Free). Lets a test make the
-// last reference of a dropped index be released after shutdown closed the disk context, which
-// is when a worker that was still finishing a request does it.
+// A query worker about to release its reference to the spec at the end of its job. Lets a test
+// make the last reference of a dropped index be released after shutdown closed the disk context,
+// which is when a worker that was still finishing a request does it.
 #define SYNC_POINT_BEFORE_AREQ_SPEC_RELEASE             "BeforeAreqSpecRelease"
 // Disk shutdown: parked right after the disk context is closed, after releasing a worker parked
 // at SYNC_POINT_BEFORE_AREQ_SPEC_RELEASE. Keeps the process alive so that worker finishes its
