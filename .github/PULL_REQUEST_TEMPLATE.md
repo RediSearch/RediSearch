@@ -44,6 +44,35 @@ already says which files moved, and it says it more accurately.
 
 1. ...
 
+#### Review
+
+<!--
+Reviewer: keep exactly one policy.
+
+- `author`: merge once the PR author has approved it, every code review thread is
+  addressed, and CI is green. For medium-risk changes, where the engineer who
+  created the factory task checks the generated code before merging.
+- `peer`: the `author` conditions, plus an approving review from a second
+  engineer. For high-risk changes touching sensitive code (persistence or RDB
+  format, concurrency, GC, the coordinator wire protocol, untrusted input
+  parsing), or when a specialized engineer's input is wanted on part of the
+  change.
+
+Why: 1-3 sentences on why the chosen policy fits this change's risk.
+
+Focus: 1-3 entries, the riskiest parts of the diff and what to check in each.
+Unlike "Main objects" above, this is where a mistake would hurt most, not where
+the change is largest.
+-->
+
+Reviewer: `author` / `peer`
+
+Why:
+
+Focus:
+
+1. ...
+
 #### Mark if applicable
 
 <!--

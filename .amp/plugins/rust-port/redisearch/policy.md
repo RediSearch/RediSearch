@@ -25,8 +25,10 @@ states the C behavior in `c` and the Rust behavior in `rust`. Two fields are a p
 The plugin rejects a test named for its artifact (`contract`, `ABI`, `boundary`, `compat`).
 Name each crate a stage changes in its `paths`, files or directories that hold at most one
 crate; the plugin rejects a directory that spans several. Generated headers and lock files need
-no path. PR bodies follow `.github/pull_request_template.md` with exactly one release-notes box
-ticked.
+no path. PR bodies follow `.github/PULL_REQUEST_TEMPLATE.md`, with exactly one release-notes box
+ticked and its _Review_ section filled in: one `Reviewer` policy, the template's definitions
+applied to this stage's diff; a `Why` tied to the stage's concrete risk; and a `Focus` list of
+the code where a mistake would hurt most.
 
 ```jsonc
 {

@@ -311,6 +311,23 @@ When reviewing pull requests:
 - State the failure for every finding: the input, state, or thread interleaving that produces the wrong result, and what the wrong result is. A finding you cannot ground that way is a preference — do not post it in a default review. When nits are explicitly requested, the preceding bullet governs instead. A missing test needs no failing input: name the new or changed behavior and what an exercising test would assert, as [/rust-review](.skills/rust-review/SKILL.md) § *Test coverage* and [/adversarial-review](.skills/adversarial-review/SKILL.md) require.
 - Post findings as comments; do not request changes. A human maintainer's approval is the merge gate.
 
+### Review policy
+
+The *Review* section of the [PR template](.github/PULL_REQUEST_TEMPLATE.md) declares which merge
+policy the PR follows, why, and where reviewers should focus; the template defines the policies.
+Validate that section against the diff on the first review, and raise a single comment when you
+disagree with it:
+
+- The policy understates the risk — `author` on a change that, by the template's criteria, calls
+  for `peer` — or overstates it. Name the code that drives your assessment.
+- *Focus* omits the part of the diff you consider riskiest, or points at code that carries little
+  risk.
+- The section is missing, still holds the template placeholders, or picks no single policy.
+
+This check is exempt from the rule against preference comments above: the policy is a judgment
+call by design, and a second opinion on it is the point. Agreement needs no comment. On a
+re-review, raise it again only if the delta or an edit to the section changes your assessment.
+
 ### First-pass thoroughness
 
 The first review of a PR is the only pass that owes each line a full look: *Re-reviewing after a

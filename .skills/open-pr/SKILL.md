@@ -288,6 +288,16 @@ A concrete contrast, for the same change:
 > user-visible change yet — this is the last prerequisite for MOD_1234, which lets
 > `FT.SEARCH` yield mid-query.
 
+**Review.** Fill the template's *Review* section on every PR; the template defines the
+`author` and `peer` policies and when each applies. Judge the risk from the diff, not
+from the intent: a one-line change to an RDB load path is `peer` even when the task
+looked routine. When the user named a policy or a second reviewer,
+use that. *Why* ties the choice to the concrete risk in this change, not to the policy's
+definition. *Focus* names the riskiest code and what could go wrong there, so a reviewer
+with ten minutes spends them in the right place. Codex validates the section against
+`AGENTS.md` § *Review policy*; a disagreement it raises is a finding like any other —
+present it to the user per step 12.
+
 **References that link by accident.** Two scanners turn plain text into links, and both
 leave a trace on the other end:
 
@@ -329,6 +339,7 @@ After creating the PR, inspect it with `gh pr view` and confirm:
 - base branch is correct
 - head branch or bookmark is correct
 - body follows the PR template, with exactly one release-notes checkbox ticked
+- *Review* names exactly one policy, with *Why* and *Focus* filled in
 - no template HTML comments survived into the submitted body, and no section was dropped
 - each section is within its budget, and *Outcome* states an observable effect (or says
   the change is internal-only) rather than summarizing the diff

@@ -16986,6 +16986,34 @@ function releaseNoteErrors(body) {
         ? []
         : ['needs both release-notes boxes of the PR template, exactly one of them ticked'];
 }
+/**
+ * What a reviewer of the PR template's Review section would reject: no single merge policy, or no
+ * reason for it, or no code to focus on. The template's own placeholders count as missing.
+ */
+function reviewErrors(body) {
+    // The template's guidance comments spell out the same fields, naming both policies.
+    const visible = body.replace(/<!--[\s\S]*?-->/g, '');
+    const start = visible.search(/^#### Review\s*$/m);
+    if (start < 0)
+        return ['needs the Review section of the PR template'];
+    const rest = visible.slice(start).replace(/^.*\n?/, '');
+    const end = rest.search(/^#{1,4} /m);
+    const section = end < 0 ? rest : rest.slice(0, end);
+    const field = (name, next) => section.match(new RegExp(`^${name}:([\\s\\S]*?)${next ? `^${next}:` : '$(?![\\s\\S])'}`, 'm'))?.[1] ?? '';
+    const errors = [];
+    const policies = new Set(field('Reviewer', 'Why').match(/\b(author|peer)\b/g));
+    if (policies.size !== 1)
+        errors.push('Review needs exactly one Reviewer policy: author or peer');
+    if (!field('Why', 'Focus').trim())
+        errors.push('Review needs a Why');
+    const focus = field('Focus')
+        .split('\n')
+        .map((l) => l.replace(/^\s*(\d+\.|[-*])\s*/, '').trim())
+        .filter((l) => l && l !== '...');
+    if (!focus.length)
+        errors.push('Review needs at least one Focus entry');
+    return errors;
+}
 /** The house rules maintainers raise on every port (.skills/rust-review § 3k). */
 const RULES = [
     ...rustHouseRules(layout),
@@ -17047,7 +17075,7 @@ const profile = {
     judges: cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
     reviewers: portReviewers(GUIDES, RULE_FILES),
     checkPlan: async (plan, o) => [
-        ...Object.entries(plan.stages).flatMap(([s, { body }]) => releaseNoteErrors(body).map((e) => `${s} body ${e}`)),
+        ...Object.entries(plan.stages).flatMap(([s, { body }]) => [...releaseNoteErrors(body), ...reviewErrors(body)].map((e) => `${s} body ${e}`)),
         ...(await checkPortPlan(plan, profile.stages, { ...o, workspace: WORKSPACE })),
     ],
     checkClaim: async (o) => [

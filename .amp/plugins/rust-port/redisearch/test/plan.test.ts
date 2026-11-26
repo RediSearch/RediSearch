@@ -12,7 +12,7 @@ import type { PortPlan } from '../../c-to-rust/port.ts';
 import { validatePlan, pullRequest, type Plan } from '../../core/plan.ts';
 import { reviewBrief } from '../../core/review.ts';
 import type { Vcs } from '../../core/ports.ts';
-import { profile } from '../profile.ts';
+import { profile, reviewErrors } from '../profile.ts';
 
 /** What the profile's plan hook says before it would inspect the repository. */
 const inspect = (plan: Plan<PortPlan>) =>
@@ -21,6 +21,8 @@ const inspect = (plan: Plan<PortPlan>) =>
 const LINT =
   'make lint && make fmt CHECK=1 && cargo hakari generate --diff && cargo hakari manage-deps --dry-run';
 const NOTES = '- [ ] This PR requires release notes\n- [x] This PR does not require release notes';
+const REVIEW =
+  '#### Review\n\nReviewer: `peer`\n\nWhy: it swaps a query path.\n\nFocus:\n\n1. The FFI exports.';
 const unitsTest = { path: 'tests/pytests/test_geo.py', name: 'testUnits', stage: 'rust' };
 const checks = {
   rust: [
@@ -65,7 +67,7 @@ const plan: Plan<PortPlan> = {
         deliverable: `${s} deliverable`,
         paths: [`src/redisearch_rs/geo/`],
         title: 't',
-        body: `b\n\n${NOTES}`,
+        body: `b\n\n${REVIEW}\n\n#### Release Notes\n\n${NOTES}`,
         checks: checks[s].map((command, i) => ({ kind: kinds[s][i], command })),
       },
     ]),
@@ -100,10 +102,24 @@ test('a port plan needs its module, symbols, PR template and behavior-named test
   broken.stages.rust.checks[4].command += ' -- small';
   assert.deepEqual(await inspect(broken), [
     'swap body needs both release-notes boxes of the PR template, exactly one of them ticked',
+    'swap body needs the Review section of the PR template',
     'module needs the C files being ported: sources and headers',
     'symbols[0] needs c and rust',
     'tests/pytests/test_geo.py::testGeoContract is named for its artifact; name it for the behavior it asserts',
     'rust bench check filters the benchmarks (--); run them all',
+  ]);
+});
+
+test('a PR body names one review policy, why, and where to focus', () => {
+  assert.deepEqual(reviewErrors(REVIEW), []);
+  const guidance = '<!--\nReviewer: keep one of `author` or `peer`.\nWhy: the risk.\n-->\n';
+  assert.deepEqual(reviewErrors(REVIEW.replace('Reviewer:', `${guidance}\nReviewer:`)), []);
+  const placeholder =
+    '#### Review\n\nReviewer: `author` / `peer`\n\nWhy:\n\nFocus:\n\n1. ...\n\n#### Mark if applicable';
+  assert.deepEqual(reviewErrors(placeholder), [
+    'Review needs exactly one Reviewer policy: author or peer',
+    'Review needs a Why',
+    'Review needs at least one Focus entry',
   ]);
 });
 
