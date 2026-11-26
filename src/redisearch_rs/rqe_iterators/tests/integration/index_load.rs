@@ -191,7 +191,7 @@ fn revalidate_moved_reattaches() {
     let mut it = IndexLoad::new(child);
     bind(&mut it, &mut key);
 
-    let _ = it.read().unwrap().unwrap();
+    assert!(it.read().unwrap().is_some());
     data.set_revalidate_result(MockRevalidateResult::Move);
     let RQEValidateStatus::Moved {
         current: Some(result),
