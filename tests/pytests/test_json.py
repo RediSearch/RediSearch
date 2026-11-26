@@ -1751,3 +1751,83 @@ def testNegativeZero(env):
 
         res = env.cmd('FT.SEARCH', 'idx', '*')
         env.assertEqual(res, [2, 'doc1', ['$', '{"num":-0.0}'], 'doc2', ['$', '{"num":-0.0}']])
+
+
+@skip(no_json=True)
+def testSortableEmptyArrayIndexesDocument(env):
+    """
+    A SORTABLE field whose single match is `[]` indexes and returns the document
+    the same as the field without SORTABLE, and has no sort value, so it sorts
+    after a document with a value in both directions, in FT.SEARCH and
+    FT.AGGREGATE.
+    """
+    conn = getConnectionByEnv(env)
+    # Per field type: a valid non-empty array value.
+    values = {'NUMERIC': [1], 'TAG': ['a'], 'TEXT': ['a'], 'GEO': ['1,2']}
+    for field_type, value in values.items():
+        sortable = {'sortable': ['SORTABLE']}
+        if field_type in ('TAG', 'TEXT'):
+            # UNF makes the query loader read the sort value instead of the document.
+            sortable['sortable_unf'] = ['SORTABLE', 'UNF']
+        for path in ('$.f', '$..f'):
+            case = f'{field_type} {path}'
+            # All indexes exist before any write, so no background scan races the writes.
+            for idx, options in (*sortable.items(), ('plain', [])):
+                env.expect('FT.CREATE', idx, 'ON', 'JSON', 'SCHEMA',
+                           path, 'AS', 'f', field_type, *options, '$.t', 'AS', 't', 'TAG').ok()
+            conn.execute_command('JSON.SET', 'doc:value', '$', json.dumps({'f': value, 't': 'value'}))
+            conn.execute_command('JSON.SET', 'doc:empty', '$', json.dumps({'f': [], 't': 'empty'}))
+            # Overwriting an indexed value with `[]` keeps the document indexed.
+            conn.execute_command('JSON.SET', 'doc:overwritten', '$',
+                                 json.dumps({'f': value, 't': 'overwritten'}))
+            conn.execute_command('JSON.SET', 'doc:overwritten', '$.f', '[]')
+
+            env.assertEqual(int(index_info(env, 'plain')['hash_indexing_failures']), 0,
+                            message=case)
+            plain = env.cmd('FT.SEARCH', 'plain', '*', 'NOCONTENT')
+            env.assertEqual(plain[0], 3, message=[case, plain])
+            if field_type == 'GEO':
+                # `[]` holds no point, so only the document with a value matches any radius.
+                env.expect('FT.SEARCH', 'plain', '@f:[0 0 +inf km]', 'NOCONTENT')\
+                    .equal([1, 'doc:value'])
+
+            for idx in sortable:
+                idx_case = [case, idx]
+                env.assertEqual(int(index_info(env, idx)['hash_indexing_failures']), 0,
+                                message=idx_case)
+                res = env.cmd('FT.SEARCH', idx, '*', 'NOCONTENT')
+                env.assertEqual(sorted(res[1:]), sorted(plain[1:]), message=[idx_case, res])
+
+                for dialect in (2, 3):
+                    env.assertEqual(
+                        env.cmd('FT.SEARCH', idx, '@t:{empty}', 'RETURN', '1', 'f',
+                                'DIALECT', dialect),
+                        env.cmd('FT.SEARCH', 'plain', '@t:{empty}', 'RETURN', '1', 'f',
+                                'DIALECT', dialect),
+                        message=[idx_case, dialect])
+
+                if field_type == 'GEO':
+                    env.expect('FT.SEARCH', idx, '@f:[0 0 +inf km]', 'NOCONTENT')\
+                        .equal([1, 'doc:value'])
+
+                # `plain` sorts the same only in DIALECT 3: without SORTABLE the sort value
+                # is loaded from the document per query dialect, and DIALECT 2 sorts `[]`
+                # as the string "[]".
+                for order in ('ASC', 'DESC'):
+                    for sort_idx, dialect_args in ((idx, []), ('plain', ['DIALECT', 3])):
+                        res = env.cmd('FT.SEARCH', sort_idx, '*', 'NOCONTENT',
+                                      'SORTBY', 'f', order, *dialect_args)
+                        sort_case = [idx_case, sort_idx, order, res]
+                        env.assertEqual(res[:2], [3, 'doc:value'], message=sort_case)
+                        # The documents with no sort value tie, so their relative order is
+                        # unspecified.
+                        env.assertEqual(sorted(res[2:]), ['doc:empty', 'doc:overwritten'],
+                                        message=sort_case)
+
+                    res = env.cmd('FT.AGGREGATE', idx, '*', 'LOAD', '1', '@t',
+                                  'SORTBY', '2', '@f', order)
+                    rows = [to_dict(row)['t'] for row in res[1:]]
+                    env.assertEqual(rows[0], 'value', message=[idx_case, order, res])
+                    env.assertEqual(sorted(rows[1:]), ['empty', 'overwritten'],
+                                    message=[idx_case, order, res])
+            env.flush()

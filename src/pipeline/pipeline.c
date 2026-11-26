@@ -13,10 +13,13 @@
 extern "C" {
 #endif
 
-void Pipeline_Initialize(Pipeline *pipeline, RSTimeoutPolicy timeoutPolicy, QueryError *status) {
-  pipeline->qctx.err = status;
+void Pipeline_Initialize(Pipeline *pipeline, QueryRequest *request) {
+  pipeline->qctx.err = &request->reply.err;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = NULL;
-  pipeline->qctx.timeoutPolicy = timeoutPolicy;
+  pipeline->qctx.timeoutPolicy = request->limits.timeout.config.timeoutPolicy;
+  pipeline->qctx.limits = &request->limits;
+  pipeline->qctx.oomPolicy = request->reqConfig.oomPolicy;
+  pipeline->qctx.oomCut = false;
 }
 
 void Pipeline_Clean(Pipeline *pipeline) {

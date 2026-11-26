@@ -22,6 +22,7 @@
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_flags::QEFlag;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -510,4 +511,43 @@ fn eval_contains_on_field_without_suffix_support_errors() {
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Generic);
+}
+
+/// Gives the fixture's request a memory stop, as a checkpoint under pressure would.
+/// The returned limits must outlive every evaluation on the fixture.
+fn stop_for_memory(fixture: &mut PrefixFixture) -> Box<ffi::QueryRequestLimits> {
+    // SAFETY: all-zero is the valid initial state of `QueryRequestLimits`.
+    let mut limits: Box<ffi::QueryRequestLimits> = Box::new(unsafe { std::mem::zeroed() });
+    limits.memory.stopped = true;
+    // SAFETY: the fixture exclusively owns the `QueryEvalCtx` and its search context, and
+    // nothing is evaluating.
+    unsafe {
+        (*(*fixture._context.qctx().as_ptr()).sctx).limits = &mut *limits;
+        (*fixture._context.qctx().as_ptr()).reqFlags = QEFlag::IsSearch as u32;
+    }
+    limits
+}
+
+/// The ids the evaluated node yields, empty when it built no iterator or no child.
+fn built_ids(fixture: &mut PrefixFixture) -> Vec<u64> {
+    fixture
+        .eval()
+        .map_or_else(Vec::new, |mut it| collect_doc_ids(&mut it))
+}
+
+#[test]
+fn eval_prefix_builds_no_child_past_a_memory_stop() {
+    let mut fixture = PrefixFixture::new("ap", true, false);
+    let _limits = stop_for_memory(&mut fixture);
+    assert!(
+        built_ids(&mut fixture).is_empty(),
+        "no term may be opened once the request is memory-stopped"
+    );
+}
+
+#[test]
+fn eval_suffix_trie_builds_no_child_past_a_memory_stop() {
+    let mut fixture = PrefixFixture::with_suffix_trie("ple", false, true);
+    let _limits = stop_for_memory(&mut fixture);
+    assert!(built_ids(&mut fixture).is_empty());
 }

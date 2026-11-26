@@ -12,7 +12,7 @@ workspace = true
 # See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
 
-# Rust NumericTopKIterator vs the real C OptimizerIterator (apples-to-apples).
+# Numeric top-k benchmark for Rust NumericTopKIterator.
 [[bench]]
 name = "numeric_top_k_optimizer"
 harness = false

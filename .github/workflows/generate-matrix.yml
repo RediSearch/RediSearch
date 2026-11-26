@@ -115,7 +115,7 @@ jobs:
               'ubuntu:jammy': 'Linux-ubuntu22.04',
               'rockylinux:8': 'Linux-rhel8',
               'rockylinux:9': 'Linux-rhel9',
-              'rockylinux:10': 'Linux-rocky10',
+              'rockylinux:10': 'Linux-rhel10',
               'debian:bookworm': 'Linux-bookworm',
               'debian:trixie': 'Linux-trixie',
               'alpine:3.23': 'Linux-alpine3',

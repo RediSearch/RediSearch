@@ -372,7 +372,7 @@ where
 }
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 /// `ProfileChildren` callback for union iterators.
 ///
@@ -390,9 +390,11 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     debug_assert!(!base.is_null());
     // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
     let base = unsafe { NonNull::new_unchecked(base) };
-    // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
+    // SAFETY: 1. and 2. the caller passes a union wrapper built by `build_union`. 3. The
+    // pointer is owning, so nothing else borrows the wrapper. 4. The borrow ends within this
+    // call, while the caller keeps the iterator alive.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
+    for child in wrapper.inner_mut().children_mut() {
         // Read the child's owning pointer without consuming the slot; ownership
         // is moved out here and handed back in place below.
         let it = child.as_raw();

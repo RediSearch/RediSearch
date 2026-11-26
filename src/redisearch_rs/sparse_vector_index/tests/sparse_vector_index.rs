@@ -23,11 +23,16 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::RepairContext;
 #[cfg(not(miri))]
 use proptest::prelude::*;
-use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
-use rqe_iterators_test_utils::{ContractChecker, MockContext};
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
+    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+};
+use rqe_iterators_test_utils::{
+    ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
+};
 use sparse_vector_index::{
-    DimensionStats, SparseMetric, SparseVectorError, SparseVectorIndex, SparseVectorIndexStats,
-    SparseVectorIterator, parse_blob, prepare,
+    DimensionIterator, DimensionStats, SparseMetric, SparseVectorError, SparseVectorIndex,
+    SparseVectorIndexStats, SparseVectorIterator, parse_blob, prepare,
 };
 
 const DIM: u64 = 1000;
@@ -530,5 +535,330 @@ fn revalidate_follows_a_compacted_posting_list() {
     assert_eq!(rest, vec![(4, 4.0), (6, 6.0)]);
     drop(it);
     // SAFETY: as in `revalidate_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// A `min_union_iter_heap` that builds a heap union over two dimensions.
+const HEAP_UNION: usize = 1;
+/// A `min_union_iter_heap` that builds a flat union over two dimensions.
+const FLAT_UNION: usize = 10;
+
+/// With no write while suspended, the iterator resumes where it was, and
+/// exhaustion survives the cycle.
+#[rstest::rstest]
+fn suspend_resume_keeps_the_position(#[values(HEAP_UNION, FLAT_UNION)] min_union_iter_heap: usize) {
+    let ctx = MockContext::new(0, 0);
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[
+            (1, vec![(1, 1.0)]),
+            (2, vec![(1, 2.0), (2, 3.0)]),
+            (3, vec![(2, 4.0)]),
+        ],
+    );
+    let query = ip(&[(1, 1.0), (2, 1.0)]);
+    let mut it =
+        TypeErasedRQEIterator::new(Box::new(iter(&index, &query, min_union_iter_heap).unwrap()));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+
+    let mut it = revalidate_via_resume(it, &ctx.spec_read())
+        .unwrap()
+        .expect_ok();
+    let current = it.current().unwrap();
+    assert_eq!((current.doc_id, current.as_numeric().unwrap()), (2, 5.0));
+    assert_eq!(collect(&mut it), vec![(3, 4.0)]);
+    assert!(it.at_eof());
+
+    let it = revalidate_via_resume(it, &ctx.spec_read())
+        .unwrap()
+        .expect_ok();
+    assert!(it.at_eof());
+}
+
+/// Suspend and resume keep the allocation, and the suspended form reports
+/// position and estimate.
+#[rstest::rstest]
+fn suspend_resume_keeps_the_allocation(
+    #[values(HEAP_UNION, FLAT_UNION)] min_union_iter_heap: usize,
+) {
+    let ctx = MockContext::new(0, 0);
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[(1, vec![(1, 1.0)]), (2, vec![(1, 2.0), (2, 3.0)])],
+    );
+    let mut it = Box::new(iter(&index, &ip(&[(1, 1.0), (2, 1.0)]), min_union_iter_heap).unwrap());
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let at: *const SparseVectorIterator<'_> = &*it;
+
+    let suspended = it.suspend();
+    assert!(
+        std::ptr::addr_eq(at, &*suspended),
+        "suspended into a new allocation"
+    );
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
+    let ResumeOutcome::Ok(it) = suspended.resume(&ctx.spec_read()).unwrap() else {
+        panic!("nothing changed, so the iterator resumes in place");
+    };
+    assert!(std::ptr::eq(at, &*it), "resumed into a new allocation");
+}
+
+/// A suspended iterator drops without being resumed.
+#[rstest::rstest]
+fn a_suspended_iterator_drops_without_resuming(
+    #[values(HEAP_UNION, FLAT_UNION)] min_union_iter_heap: usize,
+) {
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[(1, vec![(1, 1.0)]), (2, vec![(1, 2.0), (2, 3.0)])],
+    );
+    let mut it = Box::new(iter(&index, &ip(&[(1, 1.0), (2, 1.0)]), min_union_iter_heap).unwrap());
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    drop(it.suspend());
+}
+
+/// Resume aborts when a non-sparse-score result was swapped in through
+/// [`current`](RQEIterator::current).
+#[test]
+fn resume_aborts_on_a_swapped_in_result() {
+    let ctx = MockContext::new(0, 0);
+    let index = index_of(SparseMetric::InnerProduct, &[(1, vec![(1, 1.0)])]);
+    let mut it = Box::new(iter(&index, &ip(&[(1, 1.0)]), 10).unwrap());
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    *it.current().unwrap() = RSIndexResult::build_virt().build();
+
+    assert!(matches!(
+        it.suspend().resume(&ctx.spec_read()).unwrap(),
+        ResumeOutcome::Aborted
+    ));
+}
+
+/// The resume twin of [`revalidate_drops_a_dimension_gc_removed`].
+#[test]
+fn resume_drops_a_dimension_gc_removed() {
+    let ctx = MockContext::new(0, 0);
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
+    for (doc_id, entries) in [
+        (1, vec![(1, 1.0)]),
+        (2, vec![(2, 5.0)]),
+        (3, vec![(1, 2.0)]),
+        (4, vec![(2, 7.0)]),
+    ] {
+        index.add(doc_id, &ip(&entries)).unwrap();
+    }
+    let query = ip(&[(1, 1.0), (2, 1.0)]);
+    // SAFETY: the index outlives the iterator, and is only written below while
+    // the iterator is suspended, as a GC pass would under the write lock.
+    let mut it = Box::new(
+        unsafe { SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &query, 10) }.unwrap(),
+    );
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    let suspended = it.suspend();
+    // Docs 2 and 4 are deleted and collected: dimension 2 is removed and freed.
+    // SAFETY: as above.
+    assert_eq!(run_gc(unsafe { &mut *index_ptr }, &[2, 4]), 1);
+    // Only dimension 1 contributes to doc 1, so dropping dimension 2 leaves the
+    // position unchanged.
+    let ResumeOutcome::Ok(mut it) = suspended.resume(&ctx.spec_read()).unwrap() else {
+        panic!("dimension 1 still holds the current document");
+    };
+    let current = it.current().unwrap();
+    assert_eq!((current.doc_id, current.as_numeric().unwrap()), (1, 1.0));
+    assert_eq!(collect(&mut *it), vec![(3, 2.0)]);
+    drop(it);
+    // SAFETY: the iterator is gone and `index_ptr` came from `Box::into_raw`.
+    drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// The resume twin of [`revalidate_aborts_when_every_dimension_is_removed`].
+#[test]
+fn resume_aborts_when_every_dimension_is_removed() {
+    let ctx = MockContext::new(0, 0);
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
+    index.add(1, &ip(&[(1, 1.0)])).unwrap();
+    index.add(2, &ip(&[(1, 1.0)])).unwrap();
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    let mut it = Box::new(
+        unsafe {
+            SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
+        }
+        .unwrap(),
+    );
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    let suspended = it.suspend();
+    // SAFETY: as above.
+    run_gc(unsafe { &mut *index_ptr }, &[1, 2]);
+    assert!(matches!(
+        suspended.resume(&ctx.spec_read()).unwrap(),
+        ResumeOutcome::Aborted
+    ));
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// GC collecting the current document while suspended moves the iterator to
+/// the next one, whose score [`current`](RQEIterator::current) reports
+/// without another read.
+#[rstest::rstest]
+fn resume_moves_past_a_collected_current_document(
+    #[values(HEAP_UNION, FLAT_UNION)] min_union_iter_heap: usize,
+) {
+    let ctx = MockContext::new(0, 0);
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
+    for (doc_id, entries) in [
+        (1, vec![(1, 1.0)]),
+        (2, vec![(1, 2.0), (2, 3.0)]),
+        (3, vec![(2, 4.0)]),
+        (4, vec![(1, 5.0)]),
+    ] {
+        index.add(doc_id, &ip(&entries)).unwrap();
+    }
+    let query = ip(&[(1, 1.0), (2, 1.0)]);
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    let mut it = Box::new(
+        unsafe {
+            SparseVectorIterator::new(
+                NonNull::new(index_ptr).unwrap(),
+                &query,
+                min_union_iter_heap,
+            )
+        }
+        .unwrap(),
+    );
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    let suspended = it.suspend();
+    // Doc 1 is deleted and collected; dimension 1 keeps docs 2 and 4.
+    // SAFETY: as above.
+    assert_eq!(run_gc(unsafe { &mut *index_ptr }, &[1]), 0);
+    let ResumeOutcome::Moved(mut it) = suspended.resume(&ctx.spec_read()).unwrap() else {
+        panic!("the current document is gone, so the iterator moves");
+    };
+    let current = it.current().unwrap();
+    assert_eq!((current.doc_id, current.as_numeric().unwrap()), (2, 5.0));
+    assert_eq!(collect(&mut *it), vec![(3, 4.0), (4, 5.0)]);
+    drop(it);
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// GC collecting the current document and every later one, but not the
+/// dimension, moves the iterator to EOF on resume.
+#[test]
+fn resume_moves_to_eof_past_collected_trailing_documents() {
+    let ctx = MockContext::new(0, 0);
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
+    for doc_id in 1..=3 {
+        index.add(doc_id, &ip(&[(1, 1.0)])).unwrap();
+    }
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    let mut it = Box::new(
+        unsafe {
+            SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
+        }
+        .unwrap(),
+    );
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+
+    let suspended = it.suspend();
+    // Doc 1, behind the position, keeps dimension 1 alive.
+    // SAFETY: as above.
+    assert_eq!(run_gc(unsafe { &mut *index_ptr }, &[2, 3]), 0);
+    let ResumeOutcome::Moved(mut it) = suspended.resume(&ctx.spec_read()).unwrap() else {
+        panic!("the current document is gone, so the iterator moves");
+    };
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+    drop(it);
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// A suspended dimension answers position and estimate without resuming.
+#[test]
+fn a_suspended_dimension_reports_its_position_and_estimate() {
+    let index = index_of(
+        SparseMetric::InnerProduct,
+        &[
+            (1, vec![(1, 1.0)]),
+            (2, vec![(2, 1.0)]),
+            (3, vec![(1, 1.0)]),
+        ],
+    );
+    // SAFETY: `index` outlives the iterator and is not written while it lives.
+    let mut it =
+        Box::new(unsafe { DimensionIterator::new(NonNull::from(&index), 1, 1.0) }.unwrap());
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+    let suspended = it.suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 2);
+}
+
+/// The resume twin of [`revalidate_follows_a_compacted_posting_list`],
+/// through the type-erased path a composite parent takes.
+#[test]
+fn resume_follows_a_compacted_posting_list() {
+    let ctx = MockContext::new(0, 0);
+    let index_ptr = Box::into_raw(Box::new(SparseVectorIndex::new(
+        DIM,
+        SparseMetric::InnerProduct,
+    )));
+    // SAFETY: `index_ptr` is a fresh, uniquely owned allocation, freed at the
+    // end of the test; this borrow ends before the iterator is built.
+    let index = unsafe { &mut *index_ptr };
+    for doc_id in 1..=6 {
+        index.add(doc_id, &ip(&[(1, doc_id as f32)])).unwrap();
+    }
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
+    let mut it = TypeErasedRQEIterator::new(Box::new(
+        unsafe {
+            SparseVectorIterator::new(NonNull::new(index_ptr).unwrap(), &ip(&[(1, 1.0)]), 10)
+        }
+        .unwrap(),
+    ));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+
+    let suspended = Box::new(it).suspend();
+    // SAFETY: as above.
+    run_gc(unsafe { &mut *index_ptr }, &[3, 5]);
+    // The documents collected were ahead of the position, so it is unchanged.
+    let ResumeOutcome::Ok(mut it) = suspended.resume(&ctx.spec_read()).unwrap() else {
+        panic!("GC left the current document in place");
+    };
+    let current = it.current().unwrap();
+    assert_eq!((current.doc_id, current.as_numeric().unwrap()), (2, 2.0));
+    assert_eq!(collect(&mut *it), vec![(4, 4.0), (6, 6.0)]);
+    drop(it);
+    // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
     drop(unsafe { Box::from_raw(index_ptr) });
 }

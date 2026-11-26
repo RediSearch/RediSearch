@@ -209,8 +209,7 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
 
 TEST_F(WildcardEmptyPatternTest, suffixTrieMapListSignalsUnusable) {
   TrieMap *tm = NewTrieMap();
-  struct timespec timeout = {};
-  EXPECT_EQ((void *)GetList_SuffixTrieMap_Wildcard(tm, "", 0, timeout, 100, true), BAD_POINTER);
+  EXPECT_EQ((void *)GetList_SuffixTrieMap_Wildcard(tm, "", 0, 100, nullptr), BAD_POINTER);
   TrieMap_Free(tm, NULL);
 }
 
@@ -300,10 +299,8 @@ TEST_F(SuffixLongWildcardPatternTest, suffixTrieMapListHandlesLongPattern) {
   TrieMap *tm = NewTrieMap();
   addSuffixTrieMap(tm, "hello", 5);
   std::string pattern = longWildcardPattern();
-  struct timespec timeout = {};
-
   arrayof(char *) arr =
-      GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), timeout, 100, true);
+      GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), 100, nullptr);
   ASSERT_NE((void *)arr, BAD_POINTER);
   ASSERT_NE(arr, nullptr);
   ASSERT_EQ(array_len(arr), 1u);
@@ -311,6 +308,75 @@ TEST_F(SuffixLongWildcardPatternTest, suffixTrieMapListHandlesLongPattern) {
 
   array_free(arr);
   TrieMap_Free(tm, suffixTrieMap_freeCallback);
+}
+
+TEST(TagSuffixRequestLimitsTest, StopsSuffixTraversalAndWildcardCandidateMatching) {
+  constexpr int count = 2 * QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT;
+  TrieMap *trie = NewTrieMap();
+  for (int i = 0; i < count; ++i) {
+    std::string tag = "az" + std::to_string(i) + "anchor";
+    addSuffixTrieMap(trie, tag.data(), tag.size());
+  }
+  addSuffixTrieMap(trie, "lateanchor", 10);
+
+  // The exact anchor puts nonmatching candidates in the same bucket as the final match.
+  auto baseline = GetList_SuffixTrieMap_Wildcard(trie, "*late*anchor", 12, count, nullptr);
+  EXPECT_EQ(array_len(baseline), 1);
+  if (array_len(baseline) == 1) {
+    EXPECT_STREQ(baseline[0], "lateanchor");
+  }
+  array_free(baseline);
+
+  for (bool memoryStop : {false, true}) {
+    SCOPED_TRACE(memoryStop);
+    QueryRequestLimits limits = {};
+    const TimeoutConfig config = {};
+    QueryRequestLimits_Init(&limits, &config);
+    if (memoryStop) {
+      QueryRequestLimits_RequestMemoryStop(&limits);
+    } else {
+      QueryRequestLimits_BeginCycle(&limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+      QueryRequestLimits_MarkTimedOut(&limits);
+    }
+
+    auto suffix = GetList_SuffixTrieMap(trie, "az", 2, true, &limits);
+    EXPECT_GT(array_len(suffix), 0);
+    EXPECT_LT(array_len(suffix), count);
+    array_free(suffix);
+
+    auto wildcard = GetList_SuffixTrieMap_Wildcard(trie, "*late*anchor", 12, count, &limits);
+    EXPECT_EQ(array_len(wildcard), 0);
+    array_free(wildcard);
+  }
+  TrieMap_Free(trie, suffixTrieMap_freeCallback);
+}
+
+TEST(TagSuffixRequestLimitsTest, StopsWildcardTraversalBeforeTheFirstMatchingBucket) {
+  TrieMap *trie = NewTrieMap();
+  for (int i = 100; i < 300; ++i) {
+    const std::string prefix = "az" + std::to_string(i);
+    addSuffixTrieMap(trie, (prefix + "x").c_str(), prefix.size() + 1);
+    addSuffixTrieMap(trie, (prefix + "y").c_str(), prefix.size() + 1);
+  }
+  addSuffixTrieMap(trie, "azzzzneedle", 11);
+
+  constexpr std::string_view pattern = "*az???needle";
+  auto baseline = GetList_SuffixTrieMap_Wildcard(trie, pattern.data(), pattern.size(), 1, nullptr);
+  EXPECT_EQ(array_len(baseline), 1);
+  if (array_len(baseline) == 1) {
+    EXPECT_STREQ(baseline[0], "azzzzneedle");
+  }
+  array_free(baseline);
+
+  QueryRequestLimits limits = {};
+  const TimeoutConfig config = {};
+  QueryRequestLimits_Init(&limits, &config);
+  QueryRequestLimits_BeginCycle(&limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&limits);
+  auto stopped = GetList_SuffixTrieMap_Wildcard(trie, pattern.data(), pattern.size(), 1, &limits);
+  EXPECT_EQ(array_len(stopped), 0);
+  array_free(stopped);
+  TrieMap_Free(trie, suffixTrieMap_freeCallback);
 }
 
 TEST_F(SuffixLongWildcardPatternTest, suffixTrieIterateHandlesLongPattern) {

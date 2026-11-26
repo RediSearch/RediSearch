@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, appendFile, readdir, stat } from 'node:fs/promises';
 import path, { join, normalize, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs, { openSync, readSync, closeSync, statSync, readFileSync, appendFileSync, writeFileSync, createWriteStream, createReadStream, existsSync } from 'node:fs';
 import { ChildProcess, execFile, spawnSync, spawn } from 'node:child_process';
 import process$2, { platform, hrtime, execPath, execArgv } from 'node:process';
 import { stripVTControlCharacters, debuglog, inspect, promisify, callbackify, aborted } from 'node:util';
@@ -11,7 +12,6 @@ import { setTimeout, scheduler, setImmediate } from 'node:timers/promises';
 import { constants } from 'node:os';
 import { once, addAbortListener, EventEmitter, on, setMaxListeners } from 'node:events';
 import { serialize } from 'node:v8';
-import fs, { openSync, readSync, closeSync, statSync, readFileSync, appendFileSync, writeFileSync, createWriteStream, createReadStream } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import { Transform, getDefaultHighWaterMark, Duplex, Writable, Readable, PassThrough } from 'node:stream';
 import { finished } from 'node:stream/promises';
@@ -9914,16 +9914,16 @@ async function runChecks(run, checks) {
         const started = Date.now();
         const exitCode = run.signal.aborted ? null : await execute(run, check.command, log);
         const result = { ...check, exitCode, started, ms: Date.now() - started, log };
-        result.problem =
-            exitCode === null
-                ? 'timed out'
-                : exitCode !== 0
-                    ? `exited ${exitCode}`
-                    : await run.judges[check.kind]?.({
-                        check: result,
-                        log: await readLog(log),
-                        root: run.root,
-                    });
+        const verdict = exitCode === null
+            ? { problem: 'timed out' }
+            : exitCode !== 0
+                ? { problem: `exited ${exitCode}` }
+                : await run.judges[check.kind]?.({
+                    check: result,
+                    log: await readLog(log),
+                    root: run.root,
+                });
+        Object.assign(result, verdict);
         run.debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);
         results.push(result);
         if (result.problem)
@@ -9980,6 +9980,18 @@ function testRan(logs, name) {
 /** The {@link Vcs} on a git checkout. */
 async function git(cwd, args, input = '') {
     return (await execa('git', args, { cwd, env: ENV, input })).stdout;
+}
+/**
+ * Tracks `branch@remote` when `root` is also a jj checkout. jj imports a branch pushed by git as
+ * an untracked remote bookmark, and jj's default `immutable_heads()` makes those and all their
+ * ancestors immutable, so the worker could no longer amend or rebase its own stages.
+ */
+async function trackInJj(root, remote, branch) {
+    if (!existsSync(join(root, '.jj')))
+        return;
+    const jj = (args) => execa('jj', args, { cwd: root, env: ENV });
+    await jj(['git', 'import']);
+    await jj(['bookmark', 'track', `${branch}@${remote}`]);
 }
 function gitVcs(root) {
     const sh = (args, input) => git(root, args, input);
@@ -14844,6 +14856,8 @@ function github(o) {
                 const lease = `--force-with-lease=${o.branch}:${expected}`;
                 await sh(['push', lease, o.remote, `${o.candidate}:refs/heads/${o.branch}`]);
             }
+            // Outside the push, so a retry after a failed tracking still tracks.
+            await trackInJj(root, o.remote, o.branch);
             const fields = { owner, repo, title: o.title, body: o.body };
             // A PR created before the plugin could record it, say by a run that died, is adopted.
             const open = current ??
@@ -14857,6 +14871,33 @@ function github(o) {
                 ? await octokit.rest.pulls.update({ ...fields, pull_number: open.number })
                 : await octokit.rest.pulls.create({ ...fields, base: o.base, head: o.branch });
             return { number: pr.number, url: pr.html_url, head: o.candidate };
+        },
+        /** Needs `gh stack link`; without it, the PRs open unstacked. */
+        async linkStack({ base, prs }) {
+            if (prs.length < 2)
+                return;
+            const supported = await execa('gh', ['stack', 'link', '--help'], { cwd: root }).then(() => true, () => false);
+            if (!supported)
+                return;
+            const octokit = await api();
+            // A merged or closed PR cannot join a stack, so once a stage merges, the stack stays as it
+            // was registered.
+            for (const pr of prs) {
+                const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr.number });
+                if (data.state !== 'open')
+                    return;
+            }
+            const { token } = (await octokit.auth());
+            // gh picks its repository from GH_REPO or the checkout, which need not be `repository`.
+            await execa('gh', ['stack', 'link', '--base', base, ...prs.map((pr) => pr.url)], {
+                cwd: root,
+                env: {
+                    GH_TOKEN: token,
+                    GITHUB_TOKEN: token,
+                    GH_REPO: repository,
+                    GH_PROMPT_DISABLED: '1',
+                },
+            });
         },
         replyToComment: async (pr, comment, body) => (await (await api()).rest.pulls.createReplyForReviewComment({
             owner,
@@ -15152,7 +15193,7 @@ function describeDivergences(plan, languages) {
  * away, the plan it was admitted under, so an amendment that widens a stage or weakens its checks
  * shows, and the `record` of the run.
  */
-function pullRequest(plan, profile, stage, record) {
+function pullRequest(plan, profile, stage, record, reports = '') {
     const { title, body } = plan.stages[stage];
     return {
         title,
@@ -15161,7 +15202,7 @@ function pullRequest(plan, profile, stage, record) {
 #### Behavior changes from ${profile.languages.from}
 
 ${describeDivergences(plan, profile.languages)}
-
+${reports ? `\n${reports}\n` : ''}
 <details><summary>How this port ran</summary>
 
 ${describePlan(plan, profile, false)}
@@ -16148,11 +16189,23 @@ function engine(o) {
         const { job } = state;
         const branch = (s) => `${job.plan.branchPrefix}-${s}`;
         const prev = previousStage(job, stage);
-        job.prs[stage] = await o.forge(job.plan.repository).publish({
-            ...pullRequest(job.plan, profile, stage, runReport(state)),
+        const admission = job.admitted[stage];
+        const evidence = state.evidence[`${stage}:${candidate}:${admission.base}:${admission.plan}`];
+        const reports = evidence?.checks
+            .map((c) => c.report)
+            .filter(Boolean)
+            .join('\n\n') ?? '';
+        const forge = o.forge(job.plan.repository);
+        job.prs[stage] = await forge.publish({
+            ...pullRequest(job.plan, profile, stage, runReport(state), reports),
             ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
             base: prev ? branch(prev) : job.plan.baseBranch,
         });
+        // Every stage PR goes in, later ones included, since a stack update may not drop a member. The
+        // stack only helps reviewers, so failing to record it does not hold the job back.
+        await forge
+            .linkStack({ base: job.plan.baseBranch, prs: stages.flatMap((s) => job.prs[s] ?? []) })
+            .catch((e) => debug(`registering the stage PRs as a stack failed: ${e}`));
         await postReplies(state);
     }
     /**
@@ -16343,15 +16396,16 @@ async function median(file, since) {
     const estimate = await readFile(file, 'utf8')
         .then((text) => JSON.parse(text).median.point_estimate)
         .catch(() => NaN);
-    return estimate > 0 ? estimate : NaN;
+    return Number.isFinite(estimate) && estimate > 0 ? estimate : NaN;
 }
 /**
  * Judges each Criterion group measured since `since` by the ratio of its `rust` and `c` medians,
  * which may exceed 1 by at most `slowdownPercent`. A group with neither side fresh is an earlier
- * run's, left in the shared target directory.
+ * run's, left in the shared target directory. Saves the medians and percentage time differences
+ * before another run can overwrite them.
  */
 async function judgeBenchmarks(dirs, since, slowdownPercent) {
-    const ratios = [];
+    const measurements = [];
     const halves = [];
     for (const dir of dirs) {
         const files = await readdir(dir, { recursive: true }).catch(() => []);
@@ -16359,30 +16413,53 @@ async function judgeBenchmarks(dirs, since, slowdownPercent) {
         for (const name of names) {
             const [c, rust] = await Promise.all(['c', 'rust'].map((impl) => median(join(dir, name, impl, 'new', 'estimates.json'), since)));
             if (c !== undefined && rust !== undefined)
-                ratios.push({ name, ratio: rust / c });
+                measurements.push({ name, c, rust, ratio: rust / c });
             else if (c !== undefined || rust !== undefined)
                 halves.push(name);
         }
     }
     if (halves.length)
-        return `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}`;
-    if (!ratios.length)
-        return `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`;
-    const unreadable = ratios.filter((r) => Number.isNaN(r.ratio)).map((r) => r.name);
+        return { problem: `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}` };
+    if (!measurements.length)
+        return {
+            problem: `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`,
+        };
+    const unreadable = measurements.filter((r) => !Number.isFinite(r.ratio)).map((r) => r.name);
     if (unreadable.length)
-        return `left unreadable Criterion estimates for: ${unreadable.join(', ')}`;
+        return { problem: `left unreadable Criterion estimates for: ${unreadable.join(', ')}` };
     const limit = 1 + slowdownPercent / 100;
-    const slow = ratios.filter((r) => r.ratio > limit).map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
-    if (slow.length)
-        return `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`;
+    const slow = measurements
+        .filter((r) => r.ratio > limit)
+        .map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
+    const rows = measurements
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(({ name, c, rust, ratio }) => {
+        const delta = Number(((ratio - 1) * 100).toFixed(2));
+        const label = name.replace(/[\\|`*_<>\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ');
+        return `| ${label} | ${c.toPrecision(6)} | ${rust.toPrecision(6)} | ${delta > 0 ? '+' : ''}${delta.toFixed(2)}% |`;
+    });
+    return {
+        problem: slow.length
+            ? `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`
+            : undefined,
+        report: `### Microbenchmark results
+
+Criterion median point estimates from this candidate's benchmark check. These are microbenchmarks, not end-to-end speedups.
+
+| Benchmark | C median (ns) | Rust median (ns) | Δ time vs C |
+| --- | ---: | ---: | ---: |
+${rows.join('\n')}
+
+Δ time = 100 × (Rust / C − 1); negative means Rust took less time.`,
+    };
 }
 /**
  * The judges of Miri, mutation and benchmark checks in the workspace at `workspace`, where Rust may
  * be at most `slowdownPercent` slower than C.
  */
 const cargoJudges = (workspace, slowdownPercent) => ({
-    miri: ({ log }) => judgeMiri(log),
-    mutants: ({ log }) => judgeMutants(log),
+    miri: ({ log }) => ({ problem: judgeMiri(log) }),
+    mutants: ({ log }) => ({ problem: judgeMutants(log) }),
     bench: async ({ check, root }) => judgeBenchmarks(await criterionDirs(root, workspace), check.started, slowdownPercent),
 });
 /** What is missing to run and judge the checks: Cargo subcommands, and Cargo's metadata. */

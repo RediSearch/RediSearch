@@ -10,16 +10,23 @@
 #include "gtest/gtest.h"
 
 #include <atomic>
+#include <memory>
 #include <thread>
 #include <vector>
 
+#include "common.h"
 #include "config.h"
+#include "iterators_ffi.h"
 #include "iterators/vector_top_k.h"
 #include "query_error.h"
-#include "result_processor.h"
+#include "query_eval_ffi.h"
+#include "query_flags.h"
 #include "query_memory.h"
 #include "query_request.h"
+#include "query_test_utils.h"
 #include "redismodule.h"
+#include "result_processor.h"
+#include "tag_index.h"
 
 // aggregate_exec_common.h is not C++-clean; the signature is restated here.
 extern "C" int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy,
@@ -217,6 +224,45 @@ TEST_F(QueryMemoryTest, PressureAtCallHonorsOnOomIgnore) {
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
+TEST_F(QueryMemoryTest, StopsBetweenTagAlternatives) {
+  std::unique_ptr<RedisModuleCtx, decltype(RedisModule_FreeThreadSafeContext)> redisCtx(
+      RedisModule_GetThreadSafeContext(nullptr), RedisModule_FreeThreadSafeContext);
+  QueryError status = QueryError_Default();
+  std::unique_ptr<QueryError, decltype(&QueryError_ClearError)> clearStatus{&status,
+                                                                            QueryError_ClearError};
+  const char *schema[] = {"SCHEMA", "tag", "TAG"};
+  StrongRef ref = IndexSpec_ParseC(redisCtx.get(), "tag_alternatives", schema, 3, &status);
+  auto unlinkSpec = [ref](IndexSpec *) { IndexSpec_Unlink(ref, false); };
+  std::unique_ptr<IndexSpec, decltype(unlinkSpec)> spec(
+      static_cast<IndexSpec *>(StrongRef_Get(ref)), unlinkSpec);
+  ASSERT_NE(spec, nullptr) << QueryError_GetUserError(&status);
+
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx.get(), spec.get());
+  ctx.limits = &timeout_;
+  TagIndex *index = TagIndex_Ensure(&spec->fields[0], nullptr, false);
+  const char *tags[] = {"apple", "apricot", "banana"};
+  for (t_docId id = 1; id <= 3; ++id) {
+    const TagIndexIndexCtx entry = {nullptr, &tags[id - 1], 1, id, false, &spec->stats};
+    ASSERT_TRUE(TagIndex_Index(redisCtx.get(), index, &entry));
+  }
+
+  QASTCXX ast(ctx);
+  ASSERT_TRUE(ast.parse("@tag:{ap*|banana}", 2)) << ast.getError();
+  iteratorsConfig_init(&ast.config);
+  SearchOptionsCXX options;
+  // The prefix opens one reader before its second checkpoint requests a stop.
+  QueryMemory_SetPressureAtCall(2);
+  std::unique_ptr<QueryIteratorTree, decltype(&QueryIteratorTree_Free)> tree(
+      QAST_Iterate(&ast, &options, &ctx, QEXEC_F_IS_SEARCH, &status), QueryIteratorTree_Free);
+  ASSERT_NE(tree, nullptr) << QueryError_GetUserError(&status);
+  ASSERT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+
+  QueryIterator *root = QueryIteratorTree_Root(tree.get());
+  ASSERT_EQ(root->Read(root), ITERATOR_OK);
+  EXPECT_EQ(root->current->docId, 1u);
+  EXPECT_EQ(root->Read(root), ITERATOR_EOF);
+}
+
 // VecSim calls the stop callback at every search step, so memory is read once per interval of
 // calls, not on each of them.
 TEST_F(QueryMemoryTest, VecSimStopCallbackReadsMemoryOncePerInterval) {
@@ -357,4 +403,87 @@ TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
 
+TEST_F(ApplyOomStopTest, ABlockedClientTimeoutKeepsItsOutcome) {
+  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  QueryRequestLimits_Init(&limits_, &config);
+  QueryRequestLimits_BeginCycle(&limits_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_RequestMemoryStop(&limits_);
+  QueryRequestLimits_MarkTimedOut(&limits_);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_EQ(ApplyOomStop(&limits_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+  EXPECT_FALSE(QueryError_HasQueryOOMWarning(&err_));
+}
+
+// Stops the request for memory and, when `timedOut`, fires its timeout too.
+static void stopForMemory(QueryRequestLimits *limits, RSTimeoutPolicy policy, bool timedOut) {
+  TimeoutConfig config = {0, policy};
+  QueryRequestLimits_Init(limits, &config);
+  if (timedOut) {
+    // An elapsed clock deadline: a blocked-client timeout owns the reply and is covered apart.
+    *QueryRequestLimits_GetClockDeadlineForUpdate(limits) = {0, 0};
+  }
+  QueryRequestLimits_RequestMemoryStop(limits);
+}
+
+TEST_F(ApplyOomStopTest, OomReturnKeepsATimeoutThatAlsoFired) {
+  // The timeout error (ON_TIMEOUT FAIL) or warning (RETURN) is derived from the STOPPED rc;
+  // the OOM warning rides along.
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, true);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED)
+        << "timeout policy " << policy;
+    EXPECT_TRUE(QueryError_IsOk(&err_));
+    EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
+    QueryError_ClearError(&err_);
+  }
+}
+
+TEST_F(ApplyOomStopTest, OomReturnEndsWithEofWhenOnlyMemoryStopped) {
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, false);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_EOF)
+        << "timeout policy " << policy;
+    EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
+    QueryError_ClearError(&err_);
+  }
+}
+
+TEST_F(ApplyOomStopTest, OomFailBeatsATimeoutThatAlsoFired) {
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, true);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR)
+        << "timeout policy " << policy;
+    EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    QueryError_ClearError(&err_);
+  }
+}
+
 }  // namespace
+
+TEST_F(QueryMemoryTest, BuildCheckReadsMemoryOnEveryCall) {
+  // At the default interval: the build stages are each checked once per query.
+  QueryError err = QueryError_Default();
+  fakeRatio = 0.5f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+  QueryError_ClearError(&err);
+}
+
+TEST_F(QueryMemoryTest, BuildCheckUnderReturnOnlyRequestsTheStop) {
+  QueryError err = QueryError_Default();
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Return, &err), REDISMODULE_OK);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+}

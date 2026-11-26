@@ -19,35 +19,51 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 /// Deadline enforcement for a trie iterator.
 ///
 /// Wraps an [`AnyTimeoutChecker`] so each iterator can carry a timeout without
-/// naming the concrete checker type. Construct it from an optional deadline
-/// [`Instant`] via its [`From`] impl, then call [`check`](Self::check) once per
-/// traversal step.
-pub struct IteratorTimeoutState(AnyTimeoutChecker);
+/// naming the concrete checker type. Set a deadline with [`Self::set_timeout`]
+/// and call [`Self::check`] once per traversal step.
+pub struct IteratorTimeoutState<'walk> {
+    checker: AnyTimeoutChecker,
+    stop: Option<&'walk (dyn Fn() -> bool + Sync)>,
+    until_stop_check: u32,
+}
 
-impl IteratorTimeoutState {
+impl<'walk> IteratorTimeoutState<'walk> {
     /// A state that never times out (used when no deadline is set).
     pub const fn no_timeout() -> Self {
-        Self(AnyTimeoutChecker::NoTimeout(NoTimeoutChecker))
+        Self {
+            checker: AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
+            stop: None,
+            until_stop_check: TIMEOUT_CHECK_GRANULARITY,
+        }
+    }
+
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.checker = match timeout {
+            None => AnyTimeoutChecker::NoTimeout(NoTimeoutChecker),
+            Some(deadline) => AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
+                deadline.saturating_duration_since(Instant::now()),
+                TIMEOUT_CHECK_GRANULARITY,
+            )),
+        };
+    }
+
+    pub fn set_stop_check(&mut self, stop: &'walk (dyn Fn() -> bool + Sync)) {
+        self.stop = Some(stop);
     }
 
     /// Advance the amortized checker by one step and report whether the
     /// deadline has been reached.
     pub fn check(&mut self) -> TimeoutCheckResult {
-        self.0.check_timeout()
-    }
-}
-
-impl From<Option<Instant>> for IteratorTimeoutState {
-    fn from(value: Option<Instant>) -> Self {
-        match value {
-            None => Self::no_timeout(),
-            Some(deadline) => {
-                let duration = deadline.saturating_duration_since(Instant::now());
-                Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
-                    duration,
-                    TIMEOUT_CHECK_GRANULARITY,
-                )))
+        if let Some(stop) = self.stop {
+            if self.until_stop_check == 1 {
+                if stop() {
+                    return TimeoutCheckResult::TimedOut;
+                }
+                self.until_stop_check = TIMEOUT_CHECK_GRANULARITY;
+            } else {
+                self.until_stop_check -= 1;
             }
         }
+        self.checker.check_timeout()
     }
 }
