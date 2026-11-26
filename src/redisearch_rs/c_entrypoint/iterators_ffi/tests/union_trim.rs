@@ -44,11 +44,11 @@ fn union() -> NonNull<QueryIterator> {
 ///
 /// 1. `header` heads a live union [`build_union`] lowered, not otherwise
 ///    borrowed for the duration of the call.
-const unsafe fn is_trimmed(header: NonNull<QueryIterator>) -> bool {
+unsafe fn is_trimmed(header: NonNull<QueryIterator>) -> bool {
     // SAFETY: (1).
     let wrapper =
         unsafe { RQEIteratorWrapper::<UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(header) };
-    matches!(wrapper.inner.variant, UnionVariant::Trimmed(_))
+    matches!(wrapper.inner().variant, UnionVariant::Trimmed(_))
 }
 
 #[test]

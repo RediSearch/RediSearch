@@ -1128,6 +1128,8 @@ static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator
 
 // Get the value from an iterator and free the iterator
 // Return REDISMODULE_OK, and set rsv to the value, if value exists
+// Return REDISMODULE_OK, and set rsv to NULL, if the first value is an empty
+// array, which has no element to compare by
 // Return REDISMODULE_ERR otherwise
 //
 // Multi value is supported with apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST
@@ -1176,8 +1178,14 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RSValue *expand = jsonIterToValueExpanded(ctx, iter);
       *rsv = RSValue_NewTrio(val, otherval, expand);
       res = REDISMODULE_OK;
-    } else if (serialized) {
-      RedisModule_FreeString(ctx, serialized);
+    } else {
+      if (serialized) {
+        RedisModule_FreeString(ctx, serialized);
+      }
+      if (type == JSONType_Array) {
+        *rsv = NULL;
+        res = REDISMODULE_OK;
+      }
     }
 
     if (json_alloc) {

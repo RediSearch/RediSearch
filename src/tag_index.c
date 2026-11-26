@@ -402,14 +402,14 @@ TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
 /* Return a list of list of terms which match the suffix or contains term or NULL */
 arrayof(char **)
     TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
-                           struct timespec timeout, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, timeout, skipTimeoutChecks) : NULL;
+                              const QueryRequestLimits *limits) {
+  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, limits) : NULL;
 }
 
 arrayof(char *)
     TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks) : NULL;
+                                      long long maxPrefixExpansions, const QueryRequestLimits *limits) {
+  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, maxPrefixExpansions, limits) : NULL;
 }
 
 /* Serialize all the tags in the index to the redis client */

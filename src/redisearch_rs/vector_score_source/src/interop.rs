@@ -40,7 +40,7 @@ use crate::VectorTopKIterator;
 /// Panics if the header's type tag is not [`IteratorType::Hybrid`].
 unsafe fn wrapper_mut<'index>(
     header: NonNull<QueryIterator>,
-) -> &'index mut RQEIteratorWrapper<VectorTopKIterator<'index>> {
+) -> &'index mut RQEIteratorWrapper<'index, VectorTopKIterator<'index>> {
     // SAFETY: guaranteed by 1 + 3.
     let iterator_type = unsafe { header.as_ref() }.type_;
     assert_eq!(
@@ -48,7 +48,7 @@ unsafe fn wrapper_mut<'index>(
         IteratorType::Hybrid,
         "expected a vector top-k iterator: unexpected type: {iterator_type}"
     );
-    // SAFETY: guaranteed by 1 + 2 + 3.
+    // SAFETY: 1. and 2. by 1 + 2. 3. and 4. by 3.
     unsafe { RQEIteratorWrapper::mut_ref_from_header_ptr(header) }
 }
 
@@ -89,7 +89,7 @@ unsafe fn wrapper_mut<'index>(
 pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut RLookupKey<'index> {
     // SAFETY: guaranteed by 1 + 2 + 3.
     let wrapper = unsafe { wrapper_mut(header) };
-    &raw mut *wrapper.inner.source_mut().own_key
+    &raw mut *wrapper.inner_mut().source_mut().own_key
 }
 
 /// Set the [`RLookupKeyHandle`] tracking the slot [`own_key_ref`] points at.
@@ -117,7 +117,9 @@ pub unsafe fn set_key_handle<'index>(
     handle: Option<NonNull<RLookupKeyHandle<'index>>>,
 ) {
     // SAFETY: guaranteed by 1.
-    let source = unsafe { wrapper_mut::<'index>(header) }.inner.source_mut();
+    let source = unsafe { wrapper_mut::<'index>(header) }
+        .inner_mut()
+        .source_mut();
     // SAFETY: guaranteed by 2.
     unsafe { source.key_handle.set(handle) };
 }

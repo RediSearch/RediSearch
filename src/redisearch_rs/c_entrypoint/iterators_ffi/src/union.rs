@@ -31,7 +31,7 @@ use rqe_iterators::{
 /// module recover a reference to the wrapper from a raw `*mut QueryIterator`
 /// via [`RQEIteratorWrapper::ref_from_header_ptr`] /
 /// [`RQEIteratorWrapper::mut_ref_from_header_ptr`].
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 // ============================================================================
 // FFI: Constructor
@@ -149,10 +149,11 @@ pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize,
     if !is_union_wrapper(unsafe { it.as_ref() }) {
         return;
     }
-    // SAFETY: `it` is a union built by `build_union*`, checked above, which
-    // the caller holds exclusively (1).
+    // SAFETY: 1. and 2. `it` is a union built by `build_union*`, checked above. 3. The caller
+    // holds it exclusively (1). 4. The borrow ends within this call, while 1 keeps the iterator
+    // alive.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(it) };
-    let dispatch = &mut wrapper.inner;
+    let dispatch = wrapper.inner_mut();
 
     // With fewer than 3 children, trimming is a no-op — keep the
     // current sorted union variant so skip_to and merge order are preserved.

@@ -569,11 +569,24 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     const { job } = state;
     const branch = (s: Stage) => `${job.plan.branchPrefix}-${s}`;
     const prev = previousStage(job, stage);
-    job.prs[stage] = await o.forge(job.plan.repository).publish({
-      ...pullRequest(job.plan, profile, stage, runReport(state)),
+    const admission = job.admitted[stage]!;
+    const evidence = state.evidence[`${stage}:${candidate}:${admission.base}:${admission.plan}`];
+    const reports =
+      evidence?.checks
+        .map((c) => c.report)
+        .filter(Boolean)
+        .join('\n\n') ?? '';
+    const forge = o.forge(job.plan.repository);
+    job.prs[stage] = await forge.publish({
+      ...pullRequest(job.plan, profile, stage, runReport(state), reports),
       ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
       base: prev ? branch(prev) : job.plan.baseBranch,
     });
+    // Every stage PR goes in, later ones included, since a stack update may not drop a member. The
+    // stack only helps reviewers, so failing to record it does not hold the job back.
+    await forge
+      .linkStack({ base: job.plan.baseBranch, prs: stages.flatMap((s) => job.prs[s] ?? []) })
+      .catch((e) => debug(`registering the stage PRs as a stack failed: ${e}`));
     await postReplies(state);
   }
 

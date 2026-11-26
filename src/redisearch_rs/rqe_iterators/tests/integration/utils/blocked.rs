@@ -16,7 +16,8 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -82,17 +83,21 @@ pub(crate) struct BlockedLog {
 /// score, its block bound the [`Block::max_score`] of the block it stands in, and its
 /// [`read_with_threshold`](RQEIterator::read_with_threshold) jumps over whole blocks whose maximum
 /// cannot reach the threshold, then steps over the documents of a kept block that cannot.
-pub(crate) struct Blocked {
+///
+/// `#[repr(C)]` so the layout matches [`BlockedSuspended`] for the `suspend`/`resume` pointer
+/// relabel.
+#[repr(C)]
+pub(crate) struct Blocked<'index> {
     blocks: Vec<Block>,
     /// `(block index, index in block)` of every document, in id order.
     entries: Vec<(usize, usize)>,
     /// Index into `entries` of the next document to position on, or [`past_end_cursor`].
     next: usize,
-    result: RSIndexResult<'static>,
+    result: RSIndexResult<'index>,
     log: Rc<RefCell<BlockedLog>>,
 }
 
-impl Blocked {
+impl Blocked<'_> {
     pub(crate) fn new(blocks: Vec<Block>) -> Self {
         let entries: Vec<_> = blocks
             .iter()
@@ -157,12 +162,12 @@ impl Blocked {
     }
 }
 
-impl RQEIterator<'static> for Blocked {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
+impl<'index> RQEIterator<'index> for Blocked<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.position().map(|_| &mut self.result)
     }
 
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.log.borrow_mut().reads += 1;
         if self.past_end() {
             return Ok(None);
@@ -173,7 +178,7 @@ impl RQEIterator<'static> for Blocked {
     fn skip_to(
         &mut self,
         doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'static>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.log.borrow_mut().skip_tos += 1;
         assert!(doc_id > self.result.doc_id, "skip_to must move forward");
         if self.past_end() {
@@ -203,7 +208,7 @@ impl RQEIterator<'static> for Blocked {
     fn read_with_threshold(
         &mut self,
         min_competitive_score: MinCompetitiveScore,
-    ) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         {
             let mut log = self.log.borrow_mut();
             log.thresholded_reads += 1;
@@ -229,7 +234,7 @@ impl RQEIterator<'static> for Blocked {
     fn revalidate(
         &mut self,
         _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'static>, RQEIteratorError> {
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
 
@@ -275,7 +280,75 @@ impl RQEIterator<'static> for Blocked {
     }
 }
 
-impl ProfilePrint for Blocked {
+/// Suspended counterpart of [`Blocked`], layout-identical to it: the leaf holds no index data, so
+/// the lifetime only ever names a virtual result over owned data.
+#[repr(C)]
+pub(crate) struct BlockedSuspended {
+    blocks: Vec<Block>,
+    entries: Vec<(usize, usize)>,
+    next: usize,
+    result: RSIndexResult<'static>,
+    log: Rc<RefCell<BlockedLog>>,
+}
+
+// Compile-time proof that `Blocked` and `BlockedSuspended` are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    type A<'a> = Blocked<'a>;
+    type S = BlockedSuspended;
+
+    assert!(offset_of!(A, blocks) == offset_of!(S, blocks));
+    assert!(offset_of!(A, entries) == offset_of!(S, entries));
+    assert!(offset_of!(A, next) == offset_of!(S, next));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, log) == offset_of!(S, log));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+impl<'index> RQEIteratorBoxed<'index> for Blocked<'index> {
+    type Suspended = BlockedSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Blocked` and `BlockedSuspended` are layout-identical, and the result is
+        // virtual, borrowing nothing for `'index`.
+        unsafe { Box::from_raw(raw.cast::<BlockedSuspended>()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for BlockedSuspended {
+    type Resumed<'index>
+        = Blocked<'index>
+    where
+        'query: 'index;
+
+    fn resume<'index>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'index>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: As in `suspend`.
+        Ok(ResumeOutcome::Ok(unsafe {
+            Box::from_raw(raw.cast::<Blocked<'index>>())
+        }))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+impl ProfilePrint for Blocked<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, _ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MOCK");
     }

@@ -716,8 +716,8 @@ where
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::WildcardIterator<'index> + 'index,
-    TC: TimeoutContext + 'index,
+    W: crate::RQEIteratorBoxed<'index> + 'index,
+    TC: TimeoutContext + 'static,
 {
     fn profile_children(self) -> Self {
         NotOptimized {

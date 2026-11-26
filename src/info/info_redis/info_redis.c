@@ -56,7 +56,6 @@ static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
-static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx, const TotalIndexesInfo *total_info);
 static inline void AddToInfo_CoordinatorErrorsAndWarnings(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
@@ -153,7 +152,11 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (SearchDisk_IsEnabled() &&
       AddSectionWithIndexStats(ctx, "disk", &total_info, &collected, for_crash_report)) {
     RS_ASSERT(SearchDisk_IsInitialized());
-    AddToInfo_Disk(ctx, &total_info);
+    const IndexInfoTotals totals = {
+        .text_ram_metadata_bytes = total_info.text_ram_metadata_bytes,
+        .num_docs = total_info.total_num_docs_in_indexes,
+    };
+    SearchDisk_OutputInfoMetrics(ctx, &totals);
   }
 
   // Active operations
@@ -300,11 +303,18 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", Indexes_Count());
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
-  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", total_info->total_inverted_index_blocks);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing",
+                                    total_info->num_active_indexes_indexing);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads",
+                                    total_info->total_active_write_threads);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time",
+                                 rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
+  if (!SearchDisk_IsEnabled()) {
+    RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes",
+                                      total_info->total_num_docs_in_indexes);
+  }
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks",
+                                    total_info->total_inverted_index_blocks);
 }
 
 static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
@@ -315,7 +325,9 @@ static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", 0);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", 0);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", 0);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
+  if (!SearchDisk_IsEnabled()) {
+    RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
+  }
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", 0);
 }
 
@@ -555,9 +567,4 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "blocked_cursors");
   // Assumes no other thread is currently accessing the active-threads container
   AddCursorsToInfo(ctx, blockedQueries);
-}
-
-void AddToInfo_Disk(RedisModuleInfoCtx *ctx, const TotalIndexesInfo *total_info) {
-  // Delegate to the disk API which outputs aggregated metrics directly
-  SearchDisk_OutputInfoMetrics(ctx, total_info->text_ram_metadata_bytes);
 }

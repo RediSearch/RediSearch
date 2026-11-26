@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "query_request.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "rmutil/rm_assert.h"
@@ -425,8 +426,19 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
   rm_free(oldTerm);
 }
 
+static bool suffixTrieMapShouldStop(const void *limits) {
+  return QueryRequestLimits_ShouldStopExact(limits);
+}
+
+static bool collectSuffixBucket(void *value, void *ctx) {
+  const suffixData *data = value;
+  arrayof(char**) *arr = ctx;
+  *arr = array_ensure_append_1(*arr, data->array);
+  return true;
+}
+
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                          bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
+                                     bool prefix, const QueryRequestLimits *limits) {
   arrayof(char**) arr = NULL;
   suffixData *data = NULL;
   if (!prefix) {
@@ -438,56 +450,46 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
       return arr;
     }
   } else {
-    TrieMapIterator *it = TrieMap_IterateWithFilter(trie, str, len, TM_PREFIX_MODE);
-    if (!skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, timeout);
-    }
-    if (!it) {
-      return NULL;
-    }
-    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-    char *s;
-    tm_len_t sl;
-    //void *ptr;
-
-    // Find all completions of the prefix
-    while (TrieMapIterator_Next(it, &s, &sl, (void**)&data)) {
-      arr = array_ensure_append_1(arr, data->array);
-    }
-    TrieMapIterator_Free(it);
+    TrieMap_VisitWithFilter(trie, str, len, TM_PREFIX_MODE,
+                            limits ? suffixTrieMapShouldStop : NULL, limits,
+                            collectSuffixBucket, &arr);
     return arr;
   }
 }
 
-// TODO:
-/* This function iterates the suffix trie, find matches to a `token` and returns an
- * array with terms matching the pattern.
- * The 'token' address is 'pattern + tokenidx' with length of tokenlen. */
-static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern, uint32_t plen, long long maxPrefixExpansions) {
-  char *s;
-  tm_len_t sl;
-  suffixData *nodeData;;
-  arrayof(char*) resArray = NULL;
+typedef struct WildcardSuffixMatches {
+  const char *pattern;
+  uint32_t len;
+  long long maxPrefixExpansions;
+  const QueryRequestLimits *limits;
+  unsigned untilStopCheck;
+  arrayof(char*) matches;
+} WildcardSuffixMatches;
 
-  while (TrieMapIterator_Next(it, &s, &sl, (void **)&nodeData)) {
-    for (int i = 0; i < array_len(nodeData->array); ++i) {
-      if (array_len(resArray) > maxPrefixExpansions) {
-        goto end;
-      }
-      if (Wildcard_MatchChar(pattern, plen, nodeData->array[i], strlen(nodeData->array[i])) == FULL_MATCH) {
-        resArray = array_ensure_append_1(resArray, nodeData->array[i]);
+static bool collectWildcardSuffixBucket(void *value, void *ctx) {
+  const suffixData *data = value;
+  WildcardSuffixMatches *walk = ctx;
+  for (size_t i = 0; i < array_len(data->array); ++i) {
+    if (array_len(walk->matches) > walk->maxPrefixExpansions) {
+      return false;
+    }
+    // A single suffix node can reference many values, including ones that do not match.
+    if (walk->limits && --walk->untilStopCheck == 0) {
+      walk->untilStopCheck = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT;
+      if (QueryRequestLimits_ShouldStopExact(walk->limits)) {
+        return false;
       }
     }
+    char *tag = data->array[i];
+    if (Wildcard_MatchChar(walk->pattern, walk->len, tag, strlen(tag)) == FULL_MATCH) {
+      walk->matches = array_ensure_append_1(walk->matches, tag);
+    }
   }
-
-end:
-  TrieMapIterator_Free(it);
-
-  return resArray;
+  return true;
 }
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+                                              long long maxPrefixExpansions, const QueryRequestLimits *limits) {
   size_t tokenidx, tokenlen;
   // find best token
   if (Suffix_ChooseToken(pattern, len, &tokenidx, &tokenlen) == REDISEARCH_UNINITIALIZED) {
@@ -497,21 +499,24 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // if token end with '*', we iterate all its children
   int prefix = tokenidx + tokenlen < len && pattern[tokenidx + tokenlen] == '*';
 
-  TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
-  if (!it) return NULL;
-  if (!skipTimeoutChecks) {
-    TrieMapIterator_SetTimeout(it, timeout);
-  }
-
-  arrayof(char*) arr = _getWildcardArray(it, pattern, len, maxPrefixExpansions);
+  WildcardSuffixMatches walk = {
+    .pattern = pattern,
+    .len = len,
+    .maxPrefixExpansions = maxPrefixExpansions,
+    .limits = limits,
+    .untilStopCheck = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT,
+  };
+  TrieMap_VisitWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE,
+                          limits ? suffixTrieMapShouldStop : NULL, limits,
+                          collectWildcardSuffixBucket, &walk);
 
   // token does not have hits
-  if (array_len(arr) == 0) {
-    array_free(arr);
+  if (array_len(walk.matches) == 0) {
+    array_free(walk.matches);
     return NULL;
   }
 
-  return arr;
+  return walk.matches;
 }
 
 void suffixTrieMap_freeCallback(void *payload) {

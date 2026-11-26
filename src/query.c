@@ -811,30 +811,6 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-static int validateDiskTagMultiTermQuery(QueryNodeType queryType, QueryError *status) {
-  if (!SearchDisk_IsEnabledForValidation()) {
-    return REDISMODULE_OK;
-  }
-  const char *queryTypeName;
-  switch (queryType) {
-    case QN_PREFIX:
-      queryTypeName = "TAG prefix/suffix/infix";
-      break;
-    case QN_WILDCARD_QUERY:
-      queryTypeName = "TAG wildcard";
-      break;
-    case QN_LEXRANGE:
-      queryTypeName = "TAG lexrange";
-      break;
-    default:
-      return REDISMODULE_OK;
-  }
-  // TODO(MOD-20990): Enable multi-term TAG queries on Flex indexes.
-  QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
-                                   "%s queries are not supported on Flex indexes", queryTypeName);
-  return REDISMODULE_ERR;
-}
-
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QASTValidationFlagsSet validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
@@ -874,12 +850,6 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         const FieldSpec *fs = spec->fields + n->tag.fieldIndex;
         if (FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
-        }
-        for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-          QueryNode *child = n->children[ii];
-          if (validateDiskTagMultiTermQuery(child->type, status) != REDISMODULE_OK) {
-            return REDISMODULE_ERR;
-          }
         }
       }
       break;

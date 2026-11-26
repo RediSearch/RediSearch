@@ -364,6 +364,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DiskGCRunResult",
             "DocTableDiskAPI",
             "IndexDiskAPI",
+            "IndexInfoTotals",
             "SlotMigrationAPI",
             "MetricsDiskAPI",
             "RedisSearchDisk",
@@ -572,9 +573,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
     HeaderAllowlist {
         path: "src/query_request.h",
-        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        fns: &[
+            "QueryRequestLimits_IsBlockedClientTimedOut",
+            "QueryRequestLimits_ShouldStopExact",
+        ],
         types: &[],
-        vars: &[],
+        vars: &["QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
         path: "src/query_memory.h",

@@ -43,7 +43,9 @@ typedef enum ValidateStatus {
 
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
-recursively */
+recursively.
+New callbacks go last, so that adding one leaves the offsets of the existing ones unchanged for
+iterators built outside this module, such as the disk API's. */
 typedef struct QueryIterator {
   enum IteratorType type;
 
@@ -178,6 +180,21 @@ typedef struct QueryIterator {
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 
+  /**
+   * Called immediately before the spec read lock is released, to inform the iterator that it
+   * must drop any state that depends on the lock being held (in particular, borrows into
+   * inverted-index data). After `Suspend` returns, the only callback that may be invoked on
+   * the iterator (until the lock is re-acquired and `Revalidate` is called) is `Free`.
+   *
+   * Iterators with no lock-dependent state install `Default_Suspend` (a no-op). Not every
+   * iterator installs a callback yet, so `Suspend` may be NULL and must not be called until
+   * they all do.
+   *
+   * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
+   * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
+   */
+  void (*Suspend)(struct QueryIterator *self);
+
   /* The factor an intersection multiplies this iterator's `NumEstimated` by to order its
    * children when it is built: the lowest product leads. Required, like `Read`: an iterator with
    * no opinion sets `Default_IntersectionSortWeight`. Dispatching through the header, rather than
@@ -220,6 +237,11 @@ static inline void QueryIterator_SetNoScoreBounds(QueryIterator *it) {
   it->CurrentMaxScore = Default_CurrentMaxScore;
   it->CurrentBlockBound = Default_CurrentBlockBound;
   it->ReadWithThreshold = Default_ReadWithThreshold;
+}
+
+static inline void Default_Suspend(struct QueryIterator *base) {
+  // Default implementation does nothing. Used by iterators that hold no lock-dependent state.
+  (void)base;
 }
 
 #endif

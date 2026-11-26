@@ -14,6 +14,7 @@
 import { execa } from 'execa';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { CheckResult } from '../core/checks.ts';
 import type { Judge } from '../core/ports.ts';
 
 const ESTIMATES = /^(.+)[\\/](?:c|rust)[\\/]new[\\/]estimates\.json$/;
@@ -68,20 +69,21 @@ async function median(file: string, since: number): Promise<number | undefined> 
   const estimate = await readFile(file, 'utf8')
     .then((text) => JSON.parse(text).median.point_estimate)
     .catch(() => NaN);
-  return estimate > 0 ? estimate : NaN;
+  return Number.isFinite(estimate) && estimate > 0 ? estimate : NaN;
 }
 
 /**
  * Judges each Criterion group measured since `since` by the ratio of its `rust` and `c` medians,
  * which may exceed 1 by at most `slowdownPercent`. A group with neither side fresh is an earlier
- * run's, left in the shared target directory.
+ * run's, left in the shared target directory. Saves the medians and percentage time differences
+ * before another run can overwrite them.
  */
 export async function judgeBenchmarks(
   dirs: string[],
   since: number,
   slowdownPercent: number,
-): Promise<string | undefined> {
-  const ratios: { name: string; ratio: number }[] = [];
+): Promise<Pick<CheckResult, 'problem' | 'report'>> {
+  const measurements: { name: string; c: number; rust: number; ratio: number }[] = [];
   const halves: string[] = [];
   for (const dir of dirs) {
     const files = await readdir(dir, { recursive: true }).catch(() => [] as string[]);
@@ -90,19 +92,45 @@ export async function judgeBenchmarks(
       const [c, rust] = await Promise.all(
         ['c', 'rust'].map((impl) => median(join(dir, name, impl, 'new', 'estimates.json'), since)),
       );
-      if (c !== undefined && rust !== undefined) ratios.push({ name, ratio: rust / c });
+      if (c !== undefined && rust !== undefined)
+        measurements.push({ name, c, rust, ratio: rust / c });
       else if (c !== undefined || rust !== undefined) halves.push(name);
     }
   }
   if (halves.length)
-    return `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}`;
-  if (!ratios.length)
-    return `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`;
-  const unreadable = ratios.filter((r) => Number.isNaN(r.ratio)).map((r) => r.name);
-  if (unreadable.length) return `left unreadable Criterion estimates for: ${unreadable.join(', ')}`;
+    return { problem: `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}` };
+  if (!measurements.length)
+    return {
+      problem: `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`,
+    };
+  const unreadable = measurements.filter((r) => !Number.isFinite(r.ratio)).map((r) => r.name);
+  if (unreadable.length)
+    return { problem: `left unreadable Criterion estimates for: ${unreadable.join(', ')}` };
   const limit = 1 + slowdownPercent / 100;
-  const slow = ratios.filter((r) => r.ratio > limit).map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
-  if (slow.length) return `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`;
+  const slow = measurements
+    .filter((r) => r.ratio > limit)
+    .map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
+  const rows = measurements
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(({ name, c, rust, ratio }) => {
+      const delta = Number(((ratio - 1) * 100).toFixed(2));
+      const label = name.replace(/[\\|`*_<>\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ');
+      return `| ${label} | ${c.toPrecision(6)} | ${rust.toPrecision(6)} | ${delta > 0 ? '+' : ''}${delta.toFixed(2)}% |`;
+    });
+  return {
+    problem: slow.length
+      ? `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`
+      : undefined,
+    report: `### Microbenchmark results
+
+Criterion median point estimates from this candidate's benchmark check. These are microbenchmarks, not end-to-end speedups.
+
+| Benchmark | C median (ns) | Rust median (ns) | Δ time vs C |
+| --- | ---: | ---: | ---: |
+${rows.join('\n')}
+
+Δ time = 100 × (Rust / C − 1); negative means Rust took less time.`,
+  };
 }
 
 /**
@@ -110,8 +138,8 @@ export async function judgeBenchmarks(
  * be at most `slowdownPercent` slower than C.
  */
 export const cargoJudges = (workspace: string, slowdownPercent: number): Record<string, Judge> => ({
-  miri: ({ log }) => judgeMiri(log),
-  mutants: ({ log }) => judgeMutants(log),
+  miri: ({ log }) => ({ problem: judgeMiri(log) }),
+  mutants: ({ log }) => ({ problem: judgeMutants(log) }),
   bench: async ({ check, root }) =>
     judgeBenchmarks(await criterionDirs(root, workspace), check.started, slowdownPercent),
 });

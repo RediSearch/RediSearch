@@ -69,9 +69,10 @@ pub struct CRQEIterator {
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
-    /// The estimate taken by [`RQEIteratorBoxed::suspend`] and served by
-    /// [`CRQESuspendedIterator`]: once the read lock is released, the C `NumEstimated` callback
-    /// may read index memory that GC has freed.
+    /// The estimate taken by [`CRQEIterator::new`] and served by [`CRQESuspendedIterator`]: once
+    /// the read lock is released, the C `NumEstimated` callback may read index memory that has
+    /// been freed. Taken at construction rather than in [`RQEIteratorBoxed::suspend`], which may
+    /// itself run after the lock was released, mirroring the inverted-index leaves.
     ///
     /// Unused while active; it lives here because both forms must have the same size.
     num_estimated_snapshot: usize,
@@ -153,7 +154,7 @@ impl CRQEIterator {
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
-        let self_ = Self {
+        let mut self_ = Self {
             header,
             num_estimated_snapshot: 0,
         };
@@ -177,6 +178,8 @@ impl CRQEIterator {
             self_.Rewind.is_some(),
             "The `Rewind` callback is a NULL function pointer"
         );
+        // Iterators are built under the read lock, see the field.
+        self_.num_estimated_snapshot = <Self as RQEIterator<'_>>::num_estimated(&self_);
         self_
     }
 
@@ -188,7 +191,8 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIterator<'index> + ProfilePrint + 'index,
+        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I::Suspended: crate::RQESuspendedIterator<'index, Resumed<'index> = I>,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
@@ -534,9 +538,9 @@ impl profile_print::ProfilePrint for CRQEIterator {
 impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
     type Suspended = CRQESuspendedIterator;
 
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // Snapshot while the read lock is still held, see the field.
-        self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // No call into C here: `suspend` may run after the read lock was released, once the
+        // index memory the C callbacks read has been freed.
         // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
         unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
     }
